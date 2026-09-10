@@ -11,6 +11,7 @@ import type { ReactNode } from 'react'
 import { memo } from 'react'
 
 import { Markdown } from './Markdown.js'
+import { StatusPanel } from './StatusPanel.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 import type { TranscriptMessage } from './types.js'
@@ -207,6 +208,13 @@ function MessageRow({
 	readonly prev: TranscriptMessage | undefined
 	readonly hyperlinks: boolean
 }) {
+	if (message.statusRows) {
+		return (
+			<Box marginTop={prev ? 1 : 0}>
+				<StatusPanel rows={message.statusRows} />
+			</Box>
+		)
+	}
 	// Assistant content is projected inside <Markdown>, its actual renderer.
 	// The other roles flow straight into Ink here and need the projection now.
 	const content =
@@ -218,9 +226,12 @@ function MessageRow({
 	// One blank line before each entry, except the first and `⎿` result rows,
 	// which hug the `⏺` tool call above them, so a result reads as
 	// belonging to the call that produced it rather than as free-standing.
-	const gap = !prev || message.glyph === '⎿' ? 0 : 1
+	const exploration = message.activity === 'exploration'
+	const startsExploration = exploration && prev?.activity !== 'exploration'
+	const gap = !prev || message.glyph === '⎿' || (exploration && !startsExploration) ? 0 : 1
 	return (
 		<Box flexDirection="column" marginTop={gap}>
+			{startsExploration ? <Text bold color={theme.text.secondary}>Explored</Text> : null}
 			<Box flexDirection="row">
 				<Box width={2} flexShrink={0}>
 					<Text color={glyphColor} bold>
@@ -247,7 +258,7 @@ function MessageRow({
 					)}
 				</Box>
 			</Box>
-			{message.detail && message.detail.length > 0 ? (
+			{message.detail && message.detail.length > 0 && (!message.activity || message.detailExpanded) ? (
 				<DetailBlock
 					lines={message.detail}
 					expanded={message.detailExpanded === true}
@@ -345,7 +356,7 @@ function splitDetail(
  */
 export function renderedDetailLines(message: TranscriptMessage): readonly string[] {
 	const lines = message.detail
-	if (!lines || lines.length === 0) return []
+	if (!lines || lines.length === 0 || (message.activity !== undefined && !message.detailExpanded)) return []
 	const shown = splitDetail(
 		lines.map(terminalDisplayText),
 		message.detailExpanded === true,

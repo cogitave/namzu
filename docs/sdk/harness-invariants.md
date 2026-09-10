@@ -215,3 +215,13 @@ score. In particular, visual salience remains a conservative heuristic; tool
 schemas and standing instructions still cost tokens on a small task. Future
 comparisons need matched model, effort, task, tool interface and measured usage,
 with repeated trials before attributing a score difference to the harness.
+
+
+## Delegated lifecycle versus outcome
+
+A scheduler handle reaching `completed` means execution ended. A non-`end_turn`
+stop reason can still mean the requested work is incomplete. Completion
+notifications explicitly mark this distinction alongside `state` and
+`stop_reason`; retained partial output is not proof of task success.
+The planning `task_list` does not inventory delegated scheduler invocations.
+Hosts exposing delegation should provide an execution-status listing separately.

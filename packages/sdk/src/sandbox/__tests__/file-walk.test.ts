@@ -1,7 +1,9 @@
 import type { Dir, Dirent } from 'node:fs'
 import { mkdir, mkdtemp, realpath, symlink, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { runInNewContext } from 'node:vm'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import type {
@@ -73,6 +75,36 @@ const complete: SandboxExecResult = {
 	durationMs: 1,
 }
 const line = (path: string) => `${JSON.stringify({ type: 'entry', path, size: 1 })}\n`
+
+it('local and guest walkers search only a named regular file and honor include filters', async () => {
+	const root = await fixture()
+	const file = join(root, 'top.ts')
+	const exec = async (_command: string, argv: string[] = []): Promise<SandboxExecResult> => {
+		let stdout = ''
+		const guest = {
+			argv: ['node', argv[2]],
+			exitCode: 0,
+			stdout: {
+				write: (text: string) => {
+					stdout += text
+					return true
+				},
+			},
+		}
+		await runInNewContext(argv[1] ?? '', {
+			require: createRequire(import.meta.url),
+			process: guest,
+		})
+		return { ...complete, stdout, exitCode: guest.exitCode }
+	}
+	for (const pattern of ['**/*', '*.ts', '*.json']) {
+		const options = { pattern, maxEntries: 1 }
+		const expected = pattern === '*.json' ? [] : [{ path: file, size: 1 }]
+		expect(await collect(walkFilesLocally(file, options))).toEqual(expected)
+		expect(await collect(walkFilesViaExec(exec, file, options))).toEqual(expected)
+	}
+	expect(io.open).not.toHaveBeenCalled()
+})
 
 describe('bounded local file enumeration', () => {
 	it.each(['*', '*.ts', '**.ts', '{*.ts,*.js}', '@(top|skip).ts'])(

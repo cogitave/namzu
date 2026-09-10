@@ -32,6 +32,7 @@ import type {
 import type { CodexConfig } from './types.js'
 
 export const CODEX_CAPABILITIES: ProviderCapabilities = {
+	supportsHostedWebSearch: true,
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
@@ -285,8 +286,7 @@ export function toCodexInput(
 }
 
 export function toCodexTools(params: ChatCompletionParams): Tool[] | undefined {
-	if (!params.tools || params.tools.length === 0) return undefined
-	return params.tools.map((tool) => ({
+	const tools: Tool[] = (params.tools ?? []).map((tool) => ({
 		type: 'function',
 		name: tool.function.name,
 		description: tool.function.description ?? '',
@@ -304,6 +304,17 @@ export function toCodexTools(params: ChatCompletionParams): Tool[] | undefined {
 		// general tool-schema contract.
 		strict: false,
 	}))
+	if (params.webSearch) {
+		if (params.webSearch.mode !== 'live' && params.webSearch.mode !== 'cached')
+			throw new Error('Invalid web search mode.')
+		// The subscription wire supports this field; the installed API SDK's Tool type predates it.
+		const hosted: Tool & { external_web_access: boolean } = {
+			type: 'web_search',
+			external_web_access: params.webSearch.mode === 'live',
+		}
+		tools.push(hosted)
+	}
+	return tools.length ? tools : undefined
 }
 
 function responseUsage(usage: {
@@ -490,6 +501,18 @@ export class CodexProvider implements LLMProvider {
 						}
 						break
 					case 'response.output_item.added':
+						if (event.item.type === 'web_search_call') {
+							yield {
+								id: responseId,
+								delta: {
+									hostedTool: {
+										id: event.item.id,
+										name: 'web_search',
+										status: 'running',
+									},
+								},
+							}
+						}
 						if (event.item.type === 'function_call') {
 							const index = nextCallIndex++
 							callIndex.set(event.item.id ?? event.item.call_id, index)
@@ -523,6 +546,18 @@ export class CodexProvider implements LLMProvider {
 						break
 					}
 					case 'response.output_item.done':
+						if (event.item.type === 'web_search_call') {
+							yield {
+								id: responseId,
+								delta: {
+									hostedTool: {
+										id: event.item.id,
+										name: 'web_search',
+										status: event.item.status === 'completed' ? 'completed' : 'failed',
+									},
+								},
+							}
+						}
 						if (event.item.type === 'function_call') {
 							yield {
 								id: responseId,
@@ -543,12 +578,39 @@ export class CodexProvider implements LLMProvider {
 								name: item.name,
 								arguments: item.arguments,
 							}))
-						const content = event.response.output
+						let content = event.response.output
 							.filter((item) => item.type === 'message')
 							.flatMap((item) => item.content)
 							.filter((item) => item.type === 'output_text')
 							.map((item) => item.text)
 							.join('')
+						const sources = new Map<string, string>()
+						for (const item of event.response.output) {
+							if (item.type !== 'message') continue
+							for (const part of item.content) {
+								if (part.type !== 'output_text') continue
+								for (const annotation of part.annotations ?? []) {
+									if (
+										annotation.type === 'url_citation' &&
+										/^https?:\/\//i.test(annotation.url) &&
+										!content.includes(annotation.url)
+									) {
+										sources.set(annotation.url, annotation.title)
+									}
+								}
+							}
+						}
+						if (sources.size) {
+							const links = [...sources]
+								.map(
+									([url, title]) =>
+										`[${title.replace(/[\[\]\r\n]/g, ' ')}](<${url.replace(/[<>\s]/g, (c) => encodeURIComponent(c))}>)`,
+								)
+								.join(' · ')
+							const suffix = `\n\nSources: ${links}`
+							content += suffix
+							yield { id: responseId, delta: { content: suffix } }
+						}
 						const replayState: CodexReplayState = {
 							kind: 'namzu.codex.responses',
 							version: 1,

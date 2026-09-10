@@ -125,3 +125,5 @@ export {
 	createConnectorRouterTool,
 	createConnectorTools,
 } from './connector/tools/index.js'
+
+export { createFileReadTracker } from './tools/file-read-tracker.js'

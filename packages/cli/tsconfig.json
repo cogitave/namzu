@@ -21,6 +21,7 @@
 		{ "path": "../providers/deepseek" },
 		{ "path": "../providers/openai" },
 		{ "path": "../providers/zen" },
+		{ "path": "../providers/google" },
 		{ "path": "../providers/openrouter" },
 		{ "path": "../providers/ollama" }
 	],

@@ -68,7 +68,13 @@ export const GlobTool = defineTool({
 	timeoutMs: 15_000,
 
 	presentCall(input) {
-		return { kind: 'generic', label: `${input.pattern} in ${input.path ?? '.'}` }
+		if (typeof input.pattern !== 'string') return undefined
+		return {
+			kind: 'generic',
+			label: `Find ${input.pattern} in ${input.path ?? '.'}`,
+			presentation: 'activity',
+			activity: 'exploration',
+		}
 	},
 
 	async execute(input, context) {

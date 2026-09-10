@@ -757,7 +757,7 @@ describe('publishing a picker selection', () => {
 		await tick(80)
 
 		await submit(harness, '/settings')
-		await frameShows(harness.lastFrame, 'Settings')
+		await frameShows(harness.lastFrame, 'Configuration')
 		expect(harness.lastFrame()).toContain('Reasoning effort')
 		expect(harness.lastFrame()).toContain('Configuration')
 		expect(harness.lastFrame()).toContain('Auto-approve tools')
@@ -773,7 +773,7 @@ describe('publishing a picker selection', () => {
 		harness.stdin.write('\x1b')
 		await frameShows(harness.lastFrame, 'Plan (read-only)')
 		harness.stdin.write('\x1b')
-		await frameShows(harness.lastFrame, 'Settings')
+		await frameShows(harness.lastFrame, 'Configuration')
 		expect(resetApprovals).not.toHaveBeenCalled()
 		expect(approvedAll).toBe(true)
 

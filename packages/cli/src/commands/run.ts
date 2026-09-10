@@ -113,7 +113,7 @@ export const runCommand: CommandDef = {
 		'  --gate <command>      Verify proposed answers with this command; repeatable',
 		'  --gate-retries <n>    Fix attempts a failing gate allows (default 3)',
 		'  --max-iterations <n>  Model calls this run may make (default 50)',
-		'  --token-budget <n>    Tokens this run may spend in total (default 1000000)',
+		'  --token-budget <n>    Tree token limit (default unlimited)',
 		'  --effort <level>      Explicit reasoning effort (supported levels depend on the model)',
 		'  --wait-for-provider <d>  Wait out provider pauses (a rate limit, an outage)',
 		'                        for up to this long in total — 90s, 30m, 2h — resuming',

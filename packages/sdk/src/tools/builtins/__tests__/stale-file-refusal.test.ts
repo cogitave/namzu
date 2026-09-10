@@ -104,6 +104,43 @@ describe('an edit against a file that moved is refused, not applied', () => {
 		expect(readFileSync(file, 'utf-8')).toBe('alpha\nBETA WAS REWRITTEN\n')
 	})
 
+	it('refuses a still-matching anchor after an unrelated same-size external edit', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
+		const file = join(dir, 'doc.md')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead(file, 'alpha\nbeta\n')
+		writeFileSync(file, 'ALPHA\nbeta\n')
+		const result = await EditTool.execute(
+			{ path: file, old_string: 'beta', new_string: 'gamma' },
+			contextWith(dir, tracker),
+		)
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('changed on disk')
+		expect(readFileSync(file, 'utf8')).toBe('ALPHA\nbeta\n')
+	})
+
+	it('checks sandbox drift and advances its observation after successful edits', async () => {
+		const backend = sandboxOver('alpha\nbeta\n')
+		const tracker = trackerOver(new Map())
+		tracker.recordRead('doc.md', 'alpha\nbeta\n')
+		const context = contextWith('/sandbox', tracker, backend.sandbox)
+		const edit = { path: 'doc.md', old_string: 'beta', new_string: 'gamma' }
+		backend.externalWrite('ALPHA\nbeta\n')
+		expect((await EditTool.execute(edit, context)).success).toBe(false)
+		expect(backend.writes()).toBe(0)
+		tracker.recordRead('doc.md', backend.body())
+		expect((await EditTool.execute(edit, context)).success).toBe(true)
+		expect(
+			(
+				await EditTool.execute(
+					{ path: 'doc.md', old_string: 'gamma', new_string: 'delta' },
+					context,
+				)
+			).success,
+		).toBe(true)
+		expect(backend.body()).toBe('ALPHA\ndelta\n')
+	})
+
 	it('applies normally when the file is untouched', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		const file = join(dir, 'doc.md')
@@ -299,8 +336,8 @@ describe('an atomic commit writes through a symlink rather than over it', () => 
 	})
 })
 
-describe('drift that does not touch the anchor is not a conflict', () => {
-	it('applies when someone changed an unrelated part of the file', async () => {
+describe('drift admission precedes anchor matching', () => {
+	it('refuses when someone changed an unrelated part of the file', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))
 		const file = join(dir, 'doc.md')
 		writeFileSync(file, 'alpha\nbeta\n')
@@ -308,10 +345,8 @@ describe('drift that does not touch the anchor is not a conflict', () => {
 		const tracker = trackerOver(new Map())
 		tracker.recordRead(file, 'alpha\nbeta\n')
 
-		// Someone appends a line. The edit's anchor is untouched, so the edit
-		// is still exactly as well defined as when it was computed —
-		// refusing here would reject a safe edit every time anybody wrote
-		// anywhere in the file.
+		// Matching syntax does not establish that the edit still makes sense
+		// against an externally changed document.
 		writeFileSync(file, 'alpha\nbeta\nan unrelated new line\n')
 
 		const result = await EditTool.execute(
@@ -319,8 +354,9 @@ describe('drift that does not touch the anchor is not a conflict', () => {
 			contextWith(dir, tracker),
 		)
 
-		expect(result.success).toBe(true)
-		expect(readFileSync(file, 'utf-8')).toBe('alpha\ngamma\nan unrelated new line\n')
+		expect(result.success).toBe(false)
+		expect(result.error).toContain('changed on disk')
+		expect(readFileSync(file, 'utf-8')).toBe('alpha\nbeta\nan unrelated new line\n')
 	})
 
 	it('reports a genuinely wrong anchor as wrong, not as drift', async () => {

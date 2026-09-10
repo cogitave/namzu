@@ -91,7 +91,7 @@ describe('each actual provider attempt requires budget authority', () => {
 			expect(result.fallback.requests).toHaveLength(0)
 			expect(result.run.stopReason).not.toBe('end_turn')
 			expect(result.run.tokenUsage.totalTokens).toBe(measured)
-			expect(result.recorded?.poisoned).toBe(true)
+			expect(result.recorded?.requests[0]?.unresolved).toBe(true)
 			expect(result.recorded?.requests).toHaveLength(1)
 			expect(result.recorded?.completedRequests).toHaveLength(0)
 		},

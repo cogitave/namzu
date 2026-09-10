@@ -16,8 +16,8 @@ afterEach(() => {
 describe('CLI delegation uses the parent token limit', () => {
 	it.each([
 		{ tokenBudget: 1_000, expectedChildBudget: 111 },
-		{ tokenBudget: undefined, expectedChildBudget: 111_111 },
-		{ tokenBudget: 0, expectedChildBudget: 200_000 },
+		{ tokenBudget: undefined, expectedChildBudget: 0 },
+		{ tokenBudget: 0, expectedChildBudget: 0 },
 		{ tokenBudget: 1, expectedChildBudget: undefined },
 	])('reserves from $tokenBudget without inventing extra budget', async (testCase) => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-parent-budget-'))

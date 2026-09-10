@@ -197,6 +197,7 @@ export type StreamEventType =
 	 * know the answer it is reading came from a provider it did not ask for —
 	 * at a different price, and possibly a different quality.
 	 */
+	| 'hosted.tool'
 	| 'provider.fallback'
 	| 'tool.executing'
 	/** Ephemeral progress from a long-running tool. Not in the transcript. */

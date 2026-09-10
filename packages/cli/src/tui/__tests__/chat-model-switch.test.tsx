@@ -495,3 +495,14 @@ it('routes the original spaced Turkish Luna request directly to the host', async
 	expect(sent).toHaveLength(0)
 	expect(constructed[1]?.prefs.providers[0]?.model).toBe(NEXT)
 })
+
+ it.each([false, true])('announces instruction files only when the model switch changes the set (changed=%s)', async changed => {
+ oldOverrides = { instructionFiles: ['/work/AGENTS.md'] }
+ activate = async model => fakeAgentSession({ ...makeSession(model), instructionFiles: changed ? ['/work/AGENTS.md', '/work/team/AGENTS.md'] : ['/work/AGENTS.md'] })
+ const screen = await open()
+ await submit(screen, `/model ${NEXT}`)
+ await until(screen, () => screen.viewport().join('\n').includes(`Switched to codex · ${NEXT}`), 'Switch did not finish')
+ const text = screen.scrollback().join('\n')
+ expect(text.match(/Project instructions:/g)).toHaveLength(changed ? 2 : 1)
+ if (changed) expect(text).toContain('team/AGENTS.md')
+ })

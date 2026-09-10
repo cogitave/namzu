@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1148" height="160" viewBox="0 0 1148 160" role="img" aria-label="Namzu terminal wordmark">
+  <rect width="1148" height="160" rx="12" fill="#0b0f0c"/>
+  <g fill="#52ff58" font-family="Adwaita Mono, DejaVu Sans Mono, monospace" font-size="34" font-weight="700" xml:space="preserve">
+    <text x="36" y="69">█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █</text>
+    <text x="36" y="107">█ ▀█ █▀█ █ ▀ █ █▄ █▄█</text>
+  </g>
+  <text x="1112" y="105" text-anchor="end" fill="#929a94" font-family="Adwaita Mono, DejaVu Sans Mono, monospace" font-size="17">COMMAND LINE INTERFACE</text>
+</svg>

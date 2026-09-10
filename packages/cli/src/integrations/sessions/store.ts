@@ -92,6 +92,7 @@ export interface RecentConversation {
 	readonly named: boolean
 	readonly updatedAt: string
 	readonly count: number
+	readonly preview?: string
 }
 
 /**
@@ -459,7 +460,12 @@ export async function replaceConversation(
 	await requireWritableConversation(s, sessionId, 'replace conversation history')
 	const existing = await loadConversation(s, sessionId)
 	const titles = readTitles(s.controlRoot)
-	if (titles[sessionId as string] === undefined) {
+	if (
+		(titles[sessionId as string] === undefined ||
+			(!titles[sessionId as string]?.named &&
+				titles[sessionId as string]?.title === 'Conversation')) &&
+		conversationTitle(existing) !== 'Conversation'
+	) {
 		titles[sessionId as string] = {
 			title: conversationTitle(existing),
 			named: false,
@@ -496,7 +502,9 @@ export async function loadResumableConversation(
 /** Recent non-empty conversations, newest first — for the `/resume` list. */
 export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConversation[]> {
 	await requireOpenProject(s.store, s.projectId, s.tenantId, 'list resumable conversations')
-	const sessions = await s.store.listSessionsByTopic(s.topicId, s.tenantId)
+	const sessions = s.store.listSessionsByProject
+		? await s.store.listSessionsByProject(s.projectId, s.tenantId)
+		: await s.store.listSessionsByTopic(s.topicId, s.tenantId)
 	const titles = readTitles(s.controlRoot)
 	const out: RecentConversation[] = []
 	for (const sess of sessions) {
@@ -504,13 +512,26 @@ export async function listRecent(s: CliSessions, limit = 20): Promise<RecentConv
 		// an older Project can contain the same topic id more than once. The cwd's
 		// selected Project — `s.projectId` — is the authority; Topic membership
 		// alone is not. Archived Session records are tombstones, not resume rows.
-		if (sess.projectId !== s.projectId || sess.status === 'archived') continue
+		if (sess.projectId !== s.projectId || sess.topicId !== s.topicId || sess.status === 'archived')
+			continue
 		const messages = await s.store.loadMessages(sess.id, s.tenantId)
 		if (messages.length === 0) continue
 		const stored = titles[sess.id as string]
 		out.push({
 			id: sess.id,
-			title: stored?.title ?? conversationTitle(messages),
+			title:
+				stored && (stored.named || stored.title !== 'Conversation')
+					? stored.title
+					: conversationTitle(messages),
+			preview: [...messages]
+				.reverse()
+				.find(
+					(message): message is UserMessage =>
+						message.role === 'user' && message.source === undefined,
+				)
+				?.content.replace(/\s+/g, ' ')
+				.trim()
+				.slice(0, 240),
 			named: stored?.named ?? false,
 			updatedAt: toIso(sess.updatedAt),
 			count: messages.length,

@@ -194,3 +194,28 @@ describe('WriteFileTool — read-before-overwrite invariant', () => {
 		expect(readFileSync(join(dir, 'legacy.txt'), 'utf-8')).toBe('after')
 	})
 })
+
+describe('write execution receipts', () => {
+	it('reports creation then replacement from real disk state', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-receipt-'))
+		const context = makeContext(dir, makeTracker())
+		const input = { path: 'hello.txt', content: 'one\n' }
+		const created = await WriteFileTool.execute(input, context)
+		expect(created.success).toBe(true)
+		expect(created.data).toMatchObject({
+			fileChange: { operation: 'create', added: 1, removed: 0 },
+		})
+		expect(WriteFileTool.presentResult?.(input, created)).toMatchObject({
+			kind: 'diff',
+			before: '',
+			after: 'one\n',
+			label: expect.stringContaining('Created'),
+		})
+		const updated = await WriteFileTool.execute({ ...input, content: 'two\n' }, context)
+		expect(updated.data).toMatchObject({
+			fileChange: { operation: 'replace', added: 1, removed: 1 },
+		})
+		expect(readFileSync(join(dir, 'hello.txt'), 'utf8')).toBe('two\n')
+		expect(WriteFileTool.isDestructive?.(input)).toBe(true)
+	})
+})

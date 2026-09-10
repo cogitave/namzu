@@ -431,6 +431,7 @@ export function createRunReporter(parentLogger?: Logger): RunReporter {
 				})
 				break
 
+			case 'hosted_tool':
 			case 'tool_calls_admitted':
 			case 'compaction_shed':
 				// Deliberately silent. The report is what a human reads about a

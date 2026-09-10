@@ -31,7 +31,10 @@ import type {
 	ThinkingConfig,
 } from '../types/provider/index.js'
 import type { Logger } from '../utils/logger.js'
-import { assertNativeStructuredOutputSupported } from './capabilities.js'
+import {
+	assertHostedWebSearchSupported,
+	assertNativeStructuredOutputSupported,
+} from './capabilities.js'
 
 /**
  * One member of the chain: a constructed provider, and the model to ask it for.
@@ -210,13 +213,14 @@ function shouldFallOver(err: unknown, providerId: string): boolean {
  */
 function isOutputChunk(chunk: StreamChunk): boolean {
 	if (chunk.retry !== undefined || chunk.fallback !== undefined) return false
-	const { content, toolCalls, toolCallEnd, reasoning, citation } = chunk.delta
+	const { content, toolCalls, toolCallEnd, reasoning, citation, hostedTool } = chunk.delta
 	return Boolean(
 		content ||
 			toolCalls?.length ||
 			toolCallEnd ||
 			reasoning !== undefined ||
-			citation !== undefined,
+			citation !== undefined ||
+			hostedTool !== undefined,
 	)
 }
 
@@ -398,6 +402,7 @@ export function withProviderFallback(
 				},
 			}
 			assertNativeStructuredOutputSupported(member.provider, request)
+			assertHostedWebSearchSupported(member.provider, request)
 			let produced = false
 			try {
 				for await (const chunk of member.provider.chatStream(request)) {

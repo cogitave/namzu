@@ -44,6 +44,22 @@ function sandboxWith(walk: () => AsyncIterable<SandboxFileEntry>) {
 }
 
 describe('grep bounds file discovery before reading', () => {
+	it('searches a named file without opening its parent directory', async () => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-grep-file-'))
+		temporary.push(root)
+		await writeFile(join(root, 'package.json'), '{"name":"needle"}\n')
+		await writeFile(join(root, 'other.json'), 'needle must not be read')
+		const result = await GrepTool.execute(args({ path: 'package.json' }), {
+			workingDirectory: root,
+		} as ToolContext)
+		expect(result.success).toBe(true)
+		expect(result.output).toContain('package.json:1:{"name":"needle"}')
+		expect(result.output).not.toContain('other.json')
+		const excluded = await GrepTool.execute(args({ path: 'package.json', include: '*.ts' }), {
+			workingDirectory: root,
+		} as ToolContext)
+		expect(excluded.output).toContain('No matches')
+	})
 	it('stops incremental enumeration at the match cap and identifies the incomplete search', async () => {
 		let closed = false
 		const sandbox = sandboxWith(async function* () {

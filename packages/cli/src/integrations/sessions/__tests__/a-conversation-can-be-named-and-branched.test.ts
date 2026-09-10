@@ -433,3 +433,48 @@ describe('fork names', () => {
 		expect(nextForkName({ a: 'x (fork)' }, 'x (fork)')).toBe('x (fork) (fork)')
 	})
 })
+
+it('does not pin an instruction-only placeholder before the first human prompt', async () => {
+	const s = await project()
+	const id = await startConversation(s)
+	const instructions = createProjectInstructionMessage('internal doctrine', ['AGENTS.md'])
+	await appendMessages(s, id, [instructions])
+	await replaceConversation(s, id, [instructions])
+	await appendMessages(s, id, [createUserMessage('Inspect the SDK resume path')])
+	expect((await listRecent(s))[0]).toMatchObject({
+		title: 'Inspect the SDK resume path',
+		preview: 'Inspect the SDK resume path',
+	})
+	await replaceConversation(s, id, [createUserMessage('follow-up after compaction')])
+	expect((await listRecent(s))[0]?.title).toBe('Inspect the SDK resume path')
+})
+
+it('repairs derived Conversation placeholders without replacing explicitly chosen names', async () => {
+	const s = await project()
+	const id = await startConversation(s)
+	await appendMessages(s, id, [createUserMessage('Recover agent results')])
+	writeFileSync(
+		join(s.controlRoot, 'titles.json'),
+		JSON.stringify({ [id]: { title: 'Conversation', named: false } }),
+	)
+	expect((await listRecent(s))[0]?.title).toBe('Recover agent results')
+	await replaceConversation(s, id, [createUserMessage('next request')])
+	expect((await listRecent(s))[0]?.title).toBe('Recover agent results')
+	await setTitle(s, id, 'Conversation')
+	expect((await listRecent(s))[0]?.title).toBe('Conversation')
+})
+
+it('lists this project without scanning all projects and still enforces topic membership', async () => {
+	const s = await project()
+	const id = await startConversation(s)
+	await appendMessages(s, id, [createUserMessage('local conversation')])
+	const globalScan = vi
+		.spyOn(s.store, 'listSessionsByTopic')
+		.mockRejectedValue(new Error('global scan forbidden'))
+	try {
+		expect((await listRecent(s)).map((row) => row.id)).toEqual([id])
+		expect(globalScan).not.toHaveBeenCalled()
+	} finally {
+		globalScan.mockRestore()
+	}
+})

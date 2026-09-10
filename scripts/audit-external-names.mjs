@@ -320,7 +320,9 @@ const WIRE_VALUE_FILES = [
 	// Provider selection fixtures exercise registry keys and cross-provider catalogues.
 	'packages/cli/src/tui/__tests__/conversation-search-reaches-session.test.ts',
 	'packages/cli/src/tui/__tests__/model-picker-search.test.tsx',
+	'packages/cli/src/tui/__tests__/google-provider-session.test.ts',
 	'packages/cli/src/tui/__tests__/model-switch-reaches-session.test.ts',
+	'packages/cli/src/tui/__tests__/token-refresh-reaches-session.test.ts',
 	'packages/cli/src/tui/model-selection-intent.test.ts',
 	'packages/cli/src/tui/model-switch.test.ts',
 	// A sandbox backend drives one containment mechanism and has to speak
@@ -456,6 +458,9 @@ const DRIVEN_SERVICES = new Set([
 // kernel identifiers or product positioning from another project. The index
 // and log name the research pages they catalogue.
 const RESEARCH_SOURCE_DOCS = new Map([
+	// Setup instructions must identify the credential owner and link its sign-in documentation.
+	['claude', new Set(['docs/cli/slash-commands.md'])],
+	['gemini', new Set(['docs/cli/google.md', 'docs/cli/index.md', 'docs/log.md', 'docs/sdk/native-provider-capabilities.md'])],
 	[
 		'pydantic',
 		new Set([
@@ -846,6 +851,10 @@ function findings(source, path) {
 		// the concatenation. Matching each piece separately is also strictly
 		// more correct: a joined string can match a multi-word name across the
 		// seam, where neither piece contains it.
+		// The composition root consumes this exact provider credential wire field.
+		// Remove only property access, never prose or unrelated identifiers.
+		if (!inComment && path === 'packages/cli/src/tui/agent.ts')
+			code = code.replace(/\bdet(?:\?\.|\.)gemini\b/g, 'det.credential')
 		const haystacks = inComment ? [code, line] : [code]
 
 		for (const term of TERMS) {

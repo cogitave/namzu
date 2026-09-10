@@ -195,12 +195,37 @@ describe('buildPermissionSummary', () => {
 		expect(summary.text.split('Agent: project-reviewer')[1]).not.toContain('Model:')
 	})
 
+	it('shows child model selection in both compact and detailed approval views', () => {
+		const review = buildPermissionReview([
+			{
+				id: 'selected',
+				name: 'Agent',
+				isDestructive: false,
+				input: {
+					description: 'Read proof',
+					prompt: 'Read one file',
+					subagent_type: 'explore',
+					provider: 'zen',
+					model: 'muse-spark-1.3-contributor-free',
+					effort: 'low',
+				},
+			},
+		])
+		expect(review.ok).toBe(true)
+		if (!review.ok) return
+		const summary = buildPermissionSummary(review.text)
+		expect(summary.complete).toBe(true)
+		expect(summary.compactText).toContain('zen / muse-spark-1.3-contributor-free / low')
+		expect(summary.text).toContain('Provider: zen')
+		expect(summary.text).toContain('Effort: low')
+		expect(summary.text).toContain('Model: muse-spark-1.3-contributor-free')
+	})
 	it('keeps evolved Agent inputs exact-first and destructive batch members labelled', () => {
 		const review = buildPermissionReview([
 			{
 				id: 'agent-call',
 				name: 'Agent',
-				input: { description: 'Review', prompt: 'Read the files.', model: 'future-model' },
+				input: { description: 'Review', prompt: 'Read the files.', future_option: 'future-model' },
 				isDestructive: false,
 			},
 		])
@@ -368,12 +393,24 @@ describe('buildPermissionSummary — a file change reads as a change', () => {
 		expect(summary.text).toContain('+ … 10 more lines')
 	})
 
-	it('shows a write as the file it creates', () => {
+	it('shows the proposed replacement body without claiming creation', () => {
 		const summary = review('write', { path: 'new.txt', content: 'a\nb\nc' })
 		expect(summary.complete).toBe(true)
 		expect(summary.text).toContain('new.txt · write 3 lines')
-		expect(summary.text).toContain('   + a')
-		expect(summary.text).toContain('   + c')
+		expect(summary.text).toContain('may overwrite an existing file')
+		expect(summary.text).not.toContain('+ a')
+		expect(summary.text).toContain('a')
+	})
+
+	it('counts terminated lines and preserves real blank lines in write reviews', () => {
+		for (const [content, count] of [
+			['', 0],
+			['a\n', 1],
+			['a\n\n', 2],
+		] as const) {
+			const summary = review('write', { path: 'x', content })
+			expect(summary.text).toContain(`write ${count} line`)
+		}
 	})
 
 	it('falls back to exact-input-first for an edit shape it does not know', () => {

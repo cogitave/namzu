@@ -42,6 +42,7 @@
  */
 
 import { renderedDetailLines } from './Transcript.js'
+import { statusPanelLayout } from './status-panel-layout.js'
 import { terminalDisplayText } from './terminal-display.js'
 import type { TranscriptMessage } from './types.js'
 
@@ -104,7 +105,8 @@ function messageLines(message: TranscriptMessage, hasPrev: boolean, raw: boolean
 	}
 	return [
 		...(hasPrev && message.glyph !== '⎿' ? [''] : []),
-		`  ${content}`,
+		...(message.activity === 'exploration' ? ['Explored'] : []),
+		`  ${content}${meta ? ` · ${meta}` : ''}`,
 		...renderedDetailLines(message),
 	]
 }
@@ -200,6 +202,7 @@ function messageHeight(
 	columns: number | undefined,
 	raw: boolean,
 ): number {
+	if (!raw && message.statusRows) return statusPanelLayout(message.statusRows, columns).height + 1
 	return (
 		estimateRenderedLines(messageLines(message, hasPrev, raw), columns) +
 		ROW_HEIGHT_ALLOWANCE +

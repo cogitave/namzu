@@ -38,6 +38,11 @@ that the pinned adapter's OpenAPI conversion would drop. This driver-level decla
 guarantee that every model or compatible third-party endpoint accepts the schema;
 provider model/schema errors still propagate normally.
 
+Google maps JSON Schema to native `generationConfig.responseJsonSchema` on both
+the API-key and Code Assist transports. The schema is not converted to a tool
+call or simplified into an OpenAPI subset. Model and schema admission remain
+Google's responsibility.
+
 Custom providers and wrappers must preserve the capability declaration and map
 the actual schema onto their request wire before opting in. Direct calls to a
 custom provider's own `chatStream` implementation remain its responsibility;

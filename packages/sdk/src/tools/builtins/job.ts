@@ -54,6 +54,14 @@ export const JobTool = defineTool({
 	destructive: (input: JobInput) => input.action === 'kill',
 	concurrencySafe: true,
 
+	presentCall(input) {
+		const label =
+			input.action === 'list'
+				? 'List background jobs'
+				: `${input.action === 'kill' ? 'Stop background job' : 'Read background output'} · ${input.id ?? '(missing id)'}`
+		return { kind: 'generic', presentation: 'activity', label }
+	},
+
 	async execute(input, context) {
 		if (!context.backgroundJobs) {
 			return {

@@ -45,20 +45,25 @@ export interface RequestImageIdentity {
 const userMarker = (kind: RichKind): string =>
 	`[${kind} omitted from this model request to keep the accumulated rich-content payload within its configured size limit; attach it again in a new message if it is still needed.]`
 
+// Losing an observation does not undo the action that produced it. This
+// projection knows the result bytes, not whether repeating its tool is safe.
+const toolRecovery =
+	'The original result is retained in conversation history, but this content is not available in the current model request. Recover it from an available saved artifact or a read-only observation if needed. Do not repeat a state-changing action merely to recover its output.'
+
 const toolMarker = (kind: RichKind): string =>
-	`[${kind} omitted from this model request to keep the accumulated rich-content payload within its configured size limit; call the producing tool again if it is still needed.]`
+	`[${kind} omitted from this model request to keep the accumulated rich-content payload within its configured size limit. ${toolRecovery}]`
 
 const rejectedUserImageMarker = (): string =>
 	'[image omitted from this model request because the provider rejected this image; attach a corrected image in a new message if it is still needed.]'
 
 const rejectedToolImageMarker = (): string =>
-	'[image omitted from this model request because the provider rejected this image; call the producing tool again after correcting its image source if it is still needed.]'
+	`[image omitted from this model request because the provider rejected this image. ${toolRecovery} Correct the image source before presenting it again.]`
 
 const invalidUserImageMarker = (): string =>
 	'[image omitted from this model request because its encoded bytes are not a complete supported raster matching the declared media type; attach a corrected image in a new message if it is still needed.]'
 
 const invalidToolImageMarker = (): string =>
-	'[image omitted from this model request because the producing tool returned encoded bytes that are not a complete supported raster matching the declared media type; call the tool again after correcting its image source if it is still needed.]'
+	`[image omitted from this model request because the producing tool returned encoded bytes that are not a complete supported raster matching the declared media type. ${toolRecovery} Correct the image source before presenting it again.]`
 
 function assertInlineAttachment(
 	attachment: MessageAttachment,

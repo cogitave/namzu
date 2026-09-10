@@ -464,6 +464,9 @@ export function formatCompletionNotification(handles: readonly TaskHandle[]): st
 			`task_id: ${handle.taskId}`,
 			`agent: ${handle.agentId}`,
 			`state: ${handle.state}`,
+			...(handle.state === 'completed' && run?.stopReason && run.stopReason !== 'end_turn'
+				? ['outcome: incomplete — execution stopped; this does not establish task completion.']
+				: []),
 			...(handle.result?.stopReason ? [`stop_reason: ${handle.result.stopReason}`] : []),
 			...(durationMs !== undefined ? [`duration_ms: ${durationMs}`] : []),
 			'',

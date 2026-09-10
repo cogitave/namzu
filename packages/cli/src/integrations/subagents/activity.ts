@@ -225,7 +225,10 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					return
 				}
 				owned.completedAt = handle.completedAt ?? Date.now()
-				owned.latestActivity = terminalLabel(owned.status)
+				owned.latestActivity =
+					handle.result?.stopReason && handle.result.stopReason !== 'end_turn'
+						? `Stopped · ${handle.result.stopReason}`
+						: terminalLabel(owned.status)
 				if (owned.rows.length === 0) {
 					pushRow(owned, {
 						id: `${owned.viewId}:unavailable`,
@@ -448,7 +451,11 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 			record.latestActivity = `Retrying (${event.attempt}/${event.maxRetries})`
 			return
 		case 'agent_completed':
-			record.status = event.result.status === 'completed' ? 'completed' : 'failed'
+			record.status =
+				event.result.status === 'completed' &&
+				(!event.result.stopReason || event.result.stopReason === 'end_turn')
+					? 'completed'
+					: 'failed'
 			record.completedAt = Date.now()
 			record.latestActivity = terminalLabel(record.status)
 			return
@@ -499,7 +506,11 @@ function statusOf(handle: TaskHandle): SubagentActivityStatus {
 	if (handle.state === 'pending') return 'queued'
 	if (handle.state === 'canceled') return 'cancelled'
 	if (handle.state === 'failed' || handle.state === 'rejected') return 'failed'
-	if (handle.result && handle.result.status !== 'completed') {
+	if (
+		handle.result &&
+		(handle.result.status !== 'completed' ||
+			(handle.result.stopReason && handle.result.stopReason !== 'end_turn'))
+	) {
 		return handle.result.status === 'cancelled' ? 'cancelled' : 'failed'
 	}
 	if (isTerminalAgentTaskState(handle.state)) return 'completed'

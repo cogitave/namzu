@@ -28,6 +28,8 @@ const policy = createReviewPolicy({ mode: 'accept-edits', prompt, registry })
 
 `policy` is an `ApprovalPolicy` whose `name` is the mode, so a durable log can say which one approved a call. Swap it on a run's `RunApprovalPolicy` to change mode without ending the run. `createReviewHandler` returns only the `ResumeHandler`.
 
+The prompt receives the originating `runId` alongside `toolCalls`. Hosts can use this exact identifier to attribute concurrent child reviews; tool names or arguments are not ownership evidence. The field is optional for custom prompt callers, but `createReviewHandler` always supplies it.
+
 # The modes
 
 | Mode | Undecided calls |

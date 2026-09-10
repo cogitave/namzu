@@ -10,12 +10,12 @@ generated: { by: human:bahadirarda, at: 2026-09-04T00:00:00Z }
 
 # Run limits
 
-Every run limits its main-loop iterations and the tokens spent by its delegation tree. The defaults, 50 iterations and one million tokens, are sized for a chat turn. A long autonomous task outgrows them, and used to hit them silently: the run settled as if finished.
+CLI runs default to 50 main-loop iterations and no cumulative token limit. Set a token budget explicitly to bound measured usage across the parent and its descendants. Token exhaustion remains distinct from successful completion.
 
 - **`limits`** in `namzu.config.json` or `~/.namzu/config.yaml`: `{ "maxIterations": 400, "tokenBudget": 5000000 }`. Either key may be omitted. Whole numbers above zero.
 - **`--max-iterations <n>`** and **`--token-budget <n>`** on `run` and `run-stream` override the file for one run.
 
-The interactive session keeps the chat-turn defaults; a turn there is a conversation, not a task. Context size is a separate matter and is governed by [compaction](context-and-compaction.md), which keeps the working set under the model's window however long the run goes.
+Interactive and headless sessions use the same token-budget default. Children also have no implicit token cap when the tree is unlimited; their iteration and cancellation boundaries remain active. Context size is a separate matter and is governed by [compaction](context-and-compaction.md), which keeps the working set under the model's window however long the run goes.
 
 ## Reasoning effort and budget enforcement
 
@@ -32,8 +32,8 @@ may be sent while budget remains. Stop reasons continue to distinguish finished
 work from exhaustion. Token and cost limits are checked between calls using
 reported usage; an in-flight response can cross a threshold, so these are not
 provider-side billing caps. The configured token budget is shared by the parent
-and its descendants. Each child reserves a finite allowance, and its unused
-portion returns after execution settles. Parent calls, child calls and SDK
+and its descendants. Under a finite parent limit each child reserves a finite allowance, and its unused
+portion returns after execution settles. Unlimited children retain measured usage in the same ledger without a finite reservation. Parent calls, child calls and SDK
 advisory/compaction calls consume the same tree allowance. Iteration, elapsed-time
 and dollar limits remain local to each run; see [Token budgets](../sdk/token-budgets.md).
 
@@ -70,6 +70,7 @@ The resumed run is the same run: its checkpoint carries the messages, the workin
 
 The token ledger survives independently of the message checkpoint. A typed
 request rejection before generation, such as throttling, can resume without
-consuming tokens. A lost or incomplete provider receipt leaves unresolved spend
-and prevents new model admissions. Waiting cannot establish the missing receipt;
+consuming tokens. A lost or incomplete provider receipt leaves unresolved spend. It blocks its own
+account and accounts sharing a finite ancestor allowance; healthy siblings under
+unlimited ancestors may continue. Usage totals remain explicitly incomplete. Waiting cannot establish the missing receipt;
 the run must retain that uncertainty instead of reopening its allowance.

@@ -116,3 +116,94 @@ invariance, provider measurement, token relief and retention. The local salience
 eval exercises textual fact retention; it is not a visual benchmark score.
 `compaction/__tests__/verifier-excerpt.test.ts` covers the separate bounded text
 projection used for verification, including a host-triggered compaction pass.
+
+## Request visibility is separate from retained history
+
+The kernel also projects rich content at the provider-request boundary. A
+result can remain in conversation history while an image or document is
+omitted from a particular request because of payload limits. Invalid or
+provider-rejected images can also be withheld. Retention in history therefore
+does not establish availability in the current model input. A budget-only
+omission does not delete the original content and can be reversed by a later
+request projection that admits it.
+
+Omission markers preserve accompanying action-result text and distinguish
+missing observations from actions that failed or never ran. They direct the
+model to an available artifact or read-only observation, never to repeat a
+state-changing action solely to recover its output. No artifact or recovery
+tool is guaranteed to exist. Provider-side context transformations remain
+outside the kernel's visibility unless the provider reports them.
+
+File freshness tracking is not an inventory of model-visible content: a
+fingerprint does not establish that an earlier read survived compaction,
+truncation or request projection. The current runtime does not expose a
+unified per-file coverage and visibility inventory. The [request context
+inventory](hooks.md#request-context-inventory) tracks exact content blocks at
+the SDK provider-input boundary without claiming full-file coverage or freshness.
+
+
+## Exact repeated observations in the active request
+
+With compaction enabled, `deduplicateObservations` is enabled unless explicitly
+`false`. It runs after history compaction and before rich-content projection,
+request inventory and the model-call hook, including empty-completion finalization.
+It changes provider-bound messages, not canonical history or tool execution.
+An SDK run without compaction configuration, or with strategy `disabled`, does
+not apply this policy. Set `deduplicateObservations: false` in the SDK compaction
+configuration to keep the previous request representation.
+
+For a successful text result of at least 1,024 characters, the kernel requires
+an explicitly read-only, non-destructive tool, valid input, identical tool name,
+byte-identical argument string and byte-identical output. It keeps the first
+full result and substitutes a short reference for subsequent duplicates only
+when that reduces estimated tokens. All call/result pairs remain. Errors,
+ambiguous IDs, rich blocks, retained messages and `preserveToolResultsFrom`
+results are left intact. Unknown or failing tool classification leaves evidence
+unchanged. The test is deliberately stricter than semantic equivalence.
+
+References are computed anew from surviving canonical history each request.
+If compaction removes or clears the first result, another surviving full copy
+becomes the representative. There is no reference to an absent historic copy.
+Keeping the first representative also leaves the previous request prefix stable
+when another identical observation is appended. This helps preserve cacheable
+prefixes; it does not guarantee a provider cache hit.
+
+An identical observation is historical evidence, not a freshness guarantee.
+A fresh read still executes, and changed output remains visible in full. A
+partial-file result stays partial: equal output does not establish complete-file
+coverage or unify different line ranges. No model calls are added by the policy.
+This is neither a learned summarizer nor a mechanism for suppressing rereads.
+The initial compaction decision still measures history before this projection;
+these savings do not guarantee that earlier compaction will be avoided. Provider
+serialization, replay and server-side context management can further transform
+requests, and token estimates are not billed usage. The request inventory exposes
+the resulting SDK-boundary content; compaction counters do not count these
+reversible substitutions as history shedding.
+
+## Research basis and validation
+
+[The Complexity Trap (2508.21433v2)](https://arxiv.org/html/2508.21433v2)
+compares observation masking and model-generated summaries within SWE-agent on
+SWE-bench Verified. Its results support measuring a simple baseline before
+adding a summarization model; they do not establish Namzu's task success rate.
+[SWE-agent's history processors](https://github.com/SWE-agent/SWE-agent/blob/main/sweagent/agent/history_processors.py)
+provide a concrete observation-masking implementation. Namzu's exact-duplicate
+policy is narrower than dropping observations by age: a full equivalent result
+must remain in the same request.
+
+[AgentFold (2510.24699v1)](https://arxiv.org/html/2510.24699v1)
+studies trained agents that manage context at multiple granularities. This
+motivates separating durable history from active input; Namzu does not claim to
+implement that learned policy or reproduce its benchmark results.
+[Anthropic's context-engineering guidance](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents)
+describes just-in-time retrieval and keeping useful context compact. Here,
+references identify evidence already present, rather than assuming an external
+artifact or retrieval tool exists.
+
+`runtime/query/__tests__/observation-context.test.ts` checks projection savings,
+prefix stability, removal and clearing of representatives, distinct file ranges,
+retention and mutation exclusions. `observation-context-reaches-provider.test.ts`
+runs the real query loop with a scripted provider and real file reads: three
+reads execute, an external edit remains visible, and canonical results survive,
+with the default policy, explicit opt-out and disabled compaction. These are
+correctness and estimated-input checks, not model-quality or billing benchmarks.

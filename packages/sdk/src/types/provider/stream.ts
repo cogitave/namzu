@@ -9,6 +9,13 @@ export interface StreamChunk {
 	 */
 	replayState?: unknown
 	delta: {
+		/** Activity executed by the provider, never a local function-call request. */
+		hostedTool?: {
+			id: string
+			name: 'web_search'
+			status: 'running' | 'completed' | 'failed'
+		}
+
 		content?: string
 		toolCalls?: Array<{
 			index: number

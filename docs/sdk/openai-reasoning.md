@@ -62,3 +62,10 @@ Request-capture tests use previously unknown model names to verify catalogue
 projection, refresh, malformed metadata, rejection before transport and exact
 outbound effort fields without live model requests. They establish driver
 behavior, not account access or the backend's execution strategy for a level.
+
+## Hosted web search
+
+The Codex subscription driver also supports opt-in `webSearch: { mode: 'live' }`
+or `webSearch: { mode: 'cached' }` on completion parameters and run configuration.
+See [Web search](../cli/web-search.md) for capability checks, activity events,
+source retention, fallback behavior, and current driver limitations.

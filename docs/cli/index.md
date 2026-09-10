@@ -1,5 +1,7 @@
 # CLI
 
+* [Web search](web-search.md) - Explicit provider-hosted search, source links, and shell-independent activity.
+
 * [Conversation evidence](conversation-evidence.md) - Bounded recovery of retained original tool and assistant output after compaction.
 * [Delegated work](delegated-work.md) - Background child tasks, queued corrections, completion and ownership.
 
@@ -22,3 +24,6 @@ The operator application.
 * [Tool servers](mcp-servers.md) - The mcpServers config key: a server by command or by URL, the environment its child gets, how long each has to connect, and what happens when one does not.
 * [Exit codes of a headless run](run-exit-codes.md) - What $? says after namzu run, including 75 for a run the provider paused with a checkpoint kept, and what a wrapper should do with each code.
 * [Current-run task context](task-context.md) - Bounded unfinished-task reminders, scope and research boundaries.
+* [Google accounts and model access](google.md) - Existing Gemini CLI Google sign-in, explicit API-key routing and read-only credential refresh.
+
+* [CLI release validation](release-validation.md) - Live terminal acceptance evidence and boundaries for the pending release.

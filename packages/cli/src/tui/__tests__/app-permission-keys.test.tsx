@@ -22,7 +22,7 @@
 import { render } from 'ink-testing-library'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { cancelCauseOf } from '@namzu/sdk'
+import { cancelCauseOf, generateRunId } from '@namzu/sdk'
 
 import type { Preferences } from '../../integrations/providers/index.js'
 import type { AgentEvent, AgentSession, PermissionDecision, PermissionRequest } from '../agent.js'
@@ -37,6 +37,9 @@ const decisions: PermissionDecision[] = []
 /** Per-turn modes and executions observed beyond the App boundary. */
 const permissionModes: unknown[] = []
 const turnSignals: Array<AbortSignal | undefined> = []
+const firstReviewRun = generateRunId()
+const secondReviewRun = generateRunId()
+let parallelApprovals = false
 let toolExecutions = 0
 let requestedToolCalls: PermissionRequest['toolCalls'] = [
 	{
@@ -154,6 +157,29 @@ vi.mock('../agent.js', async (importOriginal) => {
 					if (opts?.permissionMode === 'strict') return
 					const req: PermissionRequest = {
 						toolCalls: requestedToolCalls,
+						runId: firstReviewRun,
+					}
+					if (parallelApprovals) {
+						await Promise.all(
+							[
+								req,
+								{
+									runId: secondReviewRun,
+									toolCalls: [
+										{
+											id: 'call-2',
+											name: 'bash',
+											isDestructive: false,
+											input: { command: 'echo second-review' },
+										},
+									],
+								},
+							].map(async (request) => {
+								const decision = await opts?.onPermission?.(request)
+								if (decision) decisions.push(decision)
+							}),
+						)
+						return
 					}
 					const decision = await opts?.onPermission?.(req)
 					if (decision) {
@@ -232,12 +258,12 @@ async function promptOpenWithDraftInFlight() {
 	// failure of whatever the test was actually about.
 	const started = performance.now()
 	while (
-		!(harness.lastFrame() ?? '').includes('Do you want to') &&
+		!(harness.lastFrame() ?? '').includes('enter confirm') &&
 		performance.now() - started < 3_000
 	) {
 		await tick(20)
 	}
-	expect(harness.lastFrame(), 'the prompt never opened').toContain('Do you want to')
+	expect(harness.lastFrame(), 'the prompt never opened').toContain('enter confirm')
 	return harness
 }
 
@@ -248,6 +274,7 @@ beforeEach(() => {
 	decisions.length = 0
 	permissionModes.length = 0
 	turnSignals.length = 0
+	parallelApprovals = false
 	toolExecutions = 0
 	requestedToolCalls = [
 		{
@@ -291,7 +318,7 @@ describe('the permission prompt', () => {
 		stdin.write('\r')
 		await tick(50)
 		expect(decisions, 'an in-flight Enter decided the prompt').toEqual([])
-		expect(lastFrame()).toContain('Do you want to')
+		expect(lastFrame()).toContain('enter confirm')
 
 		settle()
 		stdin.write('\r')
@@ -355,7 +382,7 @@ describe('the permission prompt', () => {
 
 		const frame = lastFrame() ?? ''
 		expect(frame).toContain('Working')
-		expect(frame).not.toContain('Do you want to')
+		expect(frame).not.toContain('enter confirm')
 		expect(frame).not.toContain('y approve')
 	})
 
@@ -380,8 +407,8 @@ describe('the permission prompt', () => {
 		const approval = lastFrame() ?? ''
 
 		expect(approval).toContain('Start 4 agents')
-		expect(approval).toContain('1. API research · general-purpose (default)')
-		expect(approval).toContain('4. Delivery plan · general-purpose (default)')
+		expect(approval).toContain('1. API research · files + commands')
+		expect(approval).toContain('4. Delivery plan · files + commands')
 		expect(approval).toContain('❯ 1. Start these 4 agents')
 		expect(approval).toContain('2. Start and allow all tools for this session')
 		expect(approval).toContain('3. Do not start')
@@ -603,13 +630,13 @@ describe('/permissions session mode', () => {
 		await tick(60)
 		stdin.write('\r')
 		const started = performance.now()
-		while (!(lastFrame() ?? '').includes('Do you want to') && performance.now() - started < 3_000) {
+		while (!(lastFrame() ?? '').includes('enter confirm') && performance.now() - started < 3_000) {
 			await tick(20)
 		}
 
 		expect(permissionModes).toEqual(['prompt'])
 		expect(toolExecutions, 'the yolo launch still auto-approved after switching to prompt').toBe(0)
-		expect(lastFrame(), 'the destructive tool never reached a prompt').toContain('Do you want to')
+		expect(lastFrame(), 'the destructive tool never reached a prompt').toContain('enter confirm')
 
 		settle()
 		stdin.write('y')
@@ -651,12 +678,64 @@ describe('/permissions session mode', () => {
 		await tick(60)
 		stdin.write('\r')
 		const started = performance.now()
-		while (!(lastFrame() ?? '').includes('Do you want to') && performance.now() - started < 3_000) {
+		while (!(lastFrame() ?? '').includes('enter confirm') && performance.now() - started < 3_000) {
 			await tick(20)
 		}
 
 		expect(permissionModes.at(-1)).toBe('prompt')
 		expect(toolExecutions, 'approve-all survived an explicit prompt-mode reset').toBe(1)
-		expect(lastFrame()).toContain('Do you want to')
+		expect(lastFrame()).toContain('enter confirm')
+	})
+})
+
+describe('concurrent permission requests', () => {
+	it('keeps each request separate and resets the consent window', async () => {
+		parallelApprovals = true
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		expect(lastFrame()).toContain('1 more awaiting approval')
+		expect(lastFrame()).toContain(`Run: ${firstReviewRun}`)
+		expect(lastFrame()).not.toContain(secondReviewRun)
+		expect(lastFrame()).not.toContain('echo second-review')
+		settle()
+		stdin.write('y')
+		await decisionSettles()
+		await tick(60)
+		expect(decisions).toEqual([{ kind: 'approve' }])
+		expect(lastFrame()).toContain('echo second-review')
+		expect(lastFrame()).toContain(`Run: ${secondReviewRun}`)
+		expect(lastFrame()).not.toContain(firstReviewRun)
+		stdin.write('\r')
+		await tick(60)
+		expect(decisions).toHaveLength(1)
+		stdin.write('n')
+		await tick(100)
+		expect(decisions).toEqual([{ kind: 'approve' }, { kind: 'reject' }])
+	})
+	it('rejects all waiting requests and aborts the turn on Ctrl+C', async () => {
+		parallelApprovals = true
+		const { stdin } = await promptOpenWithDraftInFlight()
+		stdin.write('\x03')
+		await tick(100)
+		expect(decisions).toHaveLength(2)
+		expect(decisions.every((decision) => decision.kind === 'reject')).toBe(true)
+		expect(turnSignals[0]?.aborted).toBe(true)
+	})
+	it('applies explicit session-wide approval to queued requests', async () => {
+		parallelApprovals = true
+		const { stdin, lastFrame } = await promptOpenWithDraftInFlight()
+		settle()
+		stdin.write('a')
+		await tick(100)
+		expect(decisions).toEqual([{ kind: 'approve-all' }, { kind: 'approve-all' }])
+		expect(lastFrame()).not.toContain('enter confirm')
+	})
+	it('settles every pending request when the application unmounts', async () => {
+		parallelApprovals = true
+		const harness = await promptOpenWithDraftInFlight()
+		harness.unmount()
+		mounted.length = 0
+		await tick(60)
+		expect(decisions).toHaveLength(2)
+		expect(decisions.every((decision) => decision.kind === 'reject')).toBe(true)
 	})
 })

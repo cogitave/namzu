@@ -1,6 +1,70 @@
 # Documentation update log
 
+## 2026-09-10
+
+- **Update** Removed bundled OAuth application credentials from the Google integration; expired borrowed sessions require owner renewal or explicit matching application configuration.
+
+- **Update** Recorded live CLI creation, external-edit preservation after resume, and approved parallel-agent checks; prepared an example-only terminal capture for the READMEs.
+
+- **Update** Added local installation identity to CLI status: package version, executable path and content fingerprint.
+
+- **Update** Reread and renew Anthropic credentials before delegated client construction and model discovery, including concurrent child launches.
+
+- **Update** Replaced the bracketed CLI wordmark with compact two-row terminal lettering and a narrow/short-screen fallback.
+
+- **Update** Replaced Ctrl+O transcript reprints with a bounded output viewer for older or oversized results; added xterm screen checks for pagination and repeated opening.
+
+- **Update** Enforced file fingerprint checks before matching-anchor and sandbox edits; added host-owned SDK observation tracking and CLI tracking across live conversation turns.
+
+- **Update** Added SDK request-only exact observation deduplication, CLI opt-out, research rationale and tests for surviving evidence and external file changes.
+
+- **Update** Added SDK request-context inventories and occurrence-aware differences at the model-call hook, separating surviving call inputs from removed result content.
+
+- **Update** Distinguished request-visible content from retained history and corrected rich-content omission recovery so it does not direct agents to replay state-changing tools.
+
+- **Update** Refined coding-agent evidence reuse and proportional verification; corrected CLI prior-turn evidence and kernel/SDK identity while retaining tool permissions.
+
+- **Update** Added observed file-write receipts and completed-write diff summaries; made approval previews explicit about possible replacement and corrected final-newline counting.
+
+- **Update** Rendered `/status` as a structured Ink card with responsive columns and matching transcript height accounting.
+
+- **Update** Enabled automatic native/common CLI web search routing by default; added guided optional CLI setup; retained explicit native search and added the `/config` entry and compact session status card.
+
 ## 2026-09-09
+
+- **Creation** Added opt-in [hosted web search](cli/web-search.md) through the Codex subscription driver, with source retention, observable activity, and unsupported-route refusal.
+
+- **Update** Fixed placeholder titles and added selected-chat previews and explicit saved-goal continuation to the [resume picker](cli/slash-commands.md).
+
+- **Update** Added session-scoped [delegation receipts](cli/delegated-work.md) to resumed model context, with archived result lookup and explicit unresolved execution status.
+
+- **Update** Scoped [unresolved token receipts](sdk/token-budgets.md) to their owning account and shared finite allowances, preserving unlimited sibling progress and exposing uncertainty in CLI usage.
+
+- **Update** Added owned-task cancellation to [delegated work](cli/delegated-work.md), with mixed-outcome regression coverage and the unresolved-provider-receipt limitation.
+
+- **Update** Suppressed duplicate project-instruction notices during [model changes](cli/terminal-design.md) while retaining notices for changed file lists.
+
+- **Update** Added a compact [model catalogue view](cli/terminal-design.md) with exact JSON retained behind Ctrl+O.
+
+- **Update** Added explicit [child model selection](cli/delegated-work.md), model discovery, and [unlimited CLI token budgets](cli/run-limits.md) backed by durable [child accounts](sdk/token-budgets.md).
+
+- **Update** Grouped successful observations in [terminal activity](cli/terminal-design.md) using optional [tool presentation metadata](sdk/tool-execution.md), retaining expandable output and explicit failures.
+
+- **Update** Preserved originating run identity in [review prompts](sdk/review-policy.md) and displayed the requesting agent on [queued CLI approvals](cli/delegated-work.md).
+
+- **Update** Documented the explicit [Gemini CLI home override](cli/google.md) and account-isolated credential discovery.
+
+- **Creation** Added [Google account integration](cli/google.md), native SDK model transport and read-only reuse of Gemini CLI sign-ins.
+
+- **Update** Separated [named agent completion rows](cli/delegated-work.md) from wait calls, preserving error visibility and agent transcript access.
+
+- **Update** Documented [concurrent approval handling](cli/delegated-work.md), per-request decisions and cancellation of queued reviews.
+
+- **Update** Separated [agent execution status from planning tasks](cli/delegated-work.md), labelled incomplete stops in results and notifications, and expanded the agent browser viewport.
+
+- **Update** Documented [bracketed paste and response boundaries](cli/terminal-design.md), character-count chips and named [delegation receipts](cli/delegated-work.md).
+
+- **Update** Made [agent permission reviews](cli/delegated-work.md) compact, grouping task rows by supplied workflow labels while retaining exact input behind `d`.
 
 - **Update** Clarified the subscription driver name in [native provider capabilities](sdk/native-provider-capabilities.md); scoped source-attribution and provider-fixture name-audit exceptions to their reviewed files.
 

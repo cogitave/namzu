@@ -128,7 +128,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 })
 
 const { App } = await import('../App.js')
-const { listRecent, loadConversation, openSessions } = await import(
+const { listRecent, loadConversation, openSessions, startConversation, appendMessages } = await import(
 	'../../integrations/sessions/store.js'
 )
 
@@ -581,4 +581,28 @@ it('suppresses per-round settled notifications while automatic work continues', 
 	await until(() => sends === 1, 'the admitted round never ran')
 	await tick(120)
 	expect(notificationRequests).toEqual([])
+})
+
+it.each(['resume', 'later'] as const)('asks before activating a resumed goal: %s', async (decision) => {
+ const root = await mkdtemp(join(tmpdir(), 'namzu-goal-resume-choice-'))
+ roots.push(root)
+ const sessions = await openSessions(root)
+ const sessionId = await startConversation(sessions)
+ await appendMessages(sessions, sessionId, [{ role: 'user', content: 'remember this work', timestamp: Date.now() }])
+ await sessions.goals.createGoal({ sessionId, objective: 'Finish the saved objective' }, sessions.tenantId)
+ let resumedRounds = 0
+ sendImplementation = async function* (_messages, options, bound) {
+  if (options?.goalRound) { resumedRounds++; await complete(bound, options.goalRound) }
+  yield { kind: 'done', stopReason: 'end_turn' }
+ }
+ const harness = render(<App ctx={{ cwd: root, version: 'test', initialConversationId: sessionId }} />)
+ mounted.push(harness)
+ await until(() => harness.lastFrame()?.includes('Continue the saved goal?') === true, 'goal decision missing')
+ expect(harness.lastFrame()).toContain('Finish the saved objective')
+ expect(resumedRounds).toBe(0)
+ await tick(40)
+ if (decision === 'later') { harness.stdin.write('\x1b[B'); await tick(40) }
+ harness.stdin.write('\r')
+ if (decision === 'resume') await until(() => resumedRounds === 1, 'goal did not resume')
+ else { await tick(100); expect(resumedRounds).toBe(0); expect(harness.lastFrame()).toContain('Goal paused (/goal resume)') }
 })

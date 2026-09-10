@@ -424,18 +424,19 @@ export class AgentManager {
 		const remaining = context.budget.remaining
 		const maxAllocation = Number.isFinite(remaining)
 			? Math.floor(Math.min(remaining * this.config.maxBudgetFraction, remaining / budgetShares))
-			: (options.budgetAllocation?.tokenBudget ??
-				(options.configOverrides?.tokenBudget === 0
-					? 200_000
-					: (options.configOverrides?.tokenBudget ?? 200_000)))
+			: (options.budgetAllocation?.tokenBudget ?? options.configOverrides?.tokenBudget ?? 200_000)
 		const allocatedTokens = Math.min(
 			options.budgetAllocation?.tokenBudget ?? maxAllocation,
 			maxAllocation,
 		)
-		if (!Number.isSafeInteger(allocatedTokens) || allocatedTokens <= 0) {
+		if (
+			!Number.isSafeInteger(allocatedTokens) ||
+			allocatedTokens < 0 ||
+			(allocatedTokens === 0 && Number.isFinite(remaining))
+		) {
 			throw new NamzuError({
 				code: 'invalid_config',
-				message: `Cannot spawn "${options.agentId}": the parent has ${remaining} tokens remaining; a child allocation must be a finite positive integer.`,
+				message: `Cannot spawn "${options.agentId}": the parent has ${remaining} tokens remaining; a child allocation must be a finite positive integer, or zero under an unlimited parent budget.`,
 			})
 		}
 		// No await between this check and reserve: a parent's response may start
@@ -686,9 +687,11 @@ export class AgentManager {
 				})
 			}
 			childConfig.tokenBudget =
-				childConfig.tokenBudget === 0
-					? allocatedTokens
-					: Math.min(childConfig.tokenBudget, allocatedTokens)
+				allocatedTokens === 0
+					? childConfig.tokenBudget
+					: childConfig.tokenBudget === 0
+						? allocatedTokens
+						: Math.min(childConfig.tokenBudget, allocatedTokens)
 			childBudget.narrow(childConfig.tokenBudget)
 
 			// Stamped AFTER the builder, for the fourth time and the same reason:

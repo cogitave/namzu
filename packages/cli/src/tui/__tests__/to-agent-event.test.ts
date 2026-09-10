@@ -488,3 +488,17 @@ it('preserves own usage and the separate tree summary through usage and terminal
 		expect(mapped).toHaveProperty('budget', budget)
 	}
 })
+
+it('carries the exact wait task identity without parsing its display summary', () => {
+	const event = toAgentEvent(
+		{
+			type: 'tool_executing',
+			runId,
+			toolUseId: 'wait-call',
+			toolName: 'wait_for_task',
+			input: { task_id: 'task-identity' },
+		} as RunEvent,
+		presenter,
+	)
+	expect(event).toMatchObject({ kind: 'tool-start', taskId: 'task-identity' })
+})

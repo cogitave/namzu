@@ -25,7 +25,11 @@ export interface TranscriptMessage {
 	readonly id: string
 	readonly role: MessageRole
 	readonly content: string
+	/** Structured operator status snapshot; plain content remains available for raw/export. */
+	readonly statusRows?: readonly (readonly [string, string])[]
 	readonly pending?: boolean
+	/** Compact successful observation, with full output available on expansion. */
+	readonly activity?: 'exploration' | 'catalogue'
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
 	/** Overrides the glyph color (e.g. red for a failed tool). */

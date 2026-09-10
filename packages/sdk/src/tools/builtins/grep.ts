@@ -98,6 +98,16 @@ export const GrepTool = defineTool({
 	readOnly: true,
 	destructive: false,
 	concurrencySafe: true,
+
+	presentCall(input) {
+		if (typeof input.pattern !== 'string') return undefined
+		return {
+			kind: 'generic',
+			label: `Search ${input.pattern} in ${input.path ?? '.'}`,
+			presentation: 'activity',
+			activity: 'exploration',
+		}
+	},
 	timeoutMs: 15_000,
 
 	async execute(input, context) {

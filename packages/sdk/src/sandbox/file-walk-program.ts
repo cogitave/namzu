@@ -51,6 +51,14 @@ async function run() {
     try { canonicalRoot = await fs.realpath(plan.root); }
     catch (error) { if (missing(error)) return; throw error; }
     if (canonicalRoot !== path.resolve(plan.root)) throw new Error('File walk root follows a symbolic link; use its authorized real directory');
+    const rootInfo = await fs.lstat(plan.root);
+    if (rootInfo.isFile()) {
+      visit(++visited);
+      if (matchers.some(matcher => matcher.test(path.basename(plan.root)))) {
+        await write({type:'entry', path:plan.root, size:rootInfo.size});
+      }
+      return;
+    }
     let start = plan.root;
     for (const part of plan.prefix) {
       start = path.join(start, part);

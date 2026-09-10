@@ -35,6 +35,8 @@ export type PermissionReviewResult =
 	| { readonly ok: false; readonly reason: 'too_large' | 'unrepresentable' }
 
 export interface PermissionReviewSummary {
+	/** Compact agent plan; full prepared arguments remain available in the exact view. */
+	readonly compactText?: string
 	/** Complete, terminal-safe source for the readable pager. */
 	readonly text: string
 	/** True only when the formatter knows every executable input field. */
@@ -261,6 +263,7 @@ export function buildPermissionSummary(review: string): PermissionReviewSummary 
 		readonly name: string
 		readonly isDestructive: boolean
 		readonly readable: ReadableCallSummary
+		readonly input: unknown
 	}> = []
 	let complete = true
 	for (let index = 0; index < parsed.calls.length; index += 1) {
@@ -275,8 +278,20 @@ export function buildPermissionSummary(review: string): PermissionReviewSummary 
 		}
 		const readable = summarizeKnownCall(call.name, call.input)
 		complete &&= readable.complete
-		calls.push({ name: call.name, isDestructive: call.isDestructive, readable })
+		calls.push({
+			name: call.name,
+			isDestructive: call.isDestructive,
+			readable,
+			input: call.input,
+		})
 	}
+
+	const compactText =
+		complete &&
+		calls.length > 0 &&
+		calls.every((call) => call.name === 'Agent' && call.readable.label !== undefined)
+			? compactAgentPlan(calls)
+			: undefined
 
 	if (
 		complete &&
@@ -295,11 +310,13 @@ export function buildPermissionSummary(review: string): PermissionReviewSummary 
 		)
 		return {
 			text: [...overview, '', 'Task details', '', ...details].join('\n'),
+			...(compactText !== undefined ? { compactText } : {}),
 			complete: true,
 		}
 	}
 
 	return {
+		...(compactText !== undefined ? { compactText } : {}),
 		text: calls
 			.map((call, index) =>
 				[
@@ -355,11 +372,13 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			// exact view has to show, not one this summary may pick a half of.
 			(input.content === undefined) !== (input.newStr === undefined)
 		if (shapeIsKnown) {
-			const lines = (body as string).split('\n')
+			const lines = (body as string) === '' ? [] : (body as string).split('\n')
+			if (lines.at(-1) === '') lines.pop()
 			return {
 				lines: [
 					`${input.path as string} · write ${lines.length} line${lines.length === 1 ? '' : 's'}`,
-					...diffLines('+', lines),
+					'Full replacement body · may overwrite an existing file',
+					...lines.map((line) => `  ${line}`),
 				],
 				complete: true,
 			}
@@ -371,6 +390,9 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			'description',
 			'prompt',
 			'subagent_type',
+			'model',
+			'provider',
+			'effort',
 			'role',
 			'workflow',
 			'phase',
@@ -384,6 +406,9 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			typeof input.prompt === 'string' &&
 			(input.run_in_background === undefined || typeof input.run_in_background === 'boolean') &&
 			(input.subagent_type === undefined || typeof input.subagent_type === 'string') &&
+			['model', 'provider', 'effort'].every(
+				(key) => input[key] === undefined || typeof input[key] === 'string',
+			) &&
 			(input.role === undefined || typeof input.role === 'string') &&
 			(input.workflow === undefined || typeof input.workflow === 'string') &&
 			(input.phase === undefined || typeof input.phase === 'string') &&
@@ -394,6 +419,9 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 				description: string
 				prompt: string
 				subagent_type?: string
+				model?: string
+				provider?: string
+				effort?: string
 				role?: string
 				workflow?: string
 				phase?: string
@@ -404,6 +432,9 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 				lines: [
 					...readableField('Task', known.description),
 					...readableField('Agent', agentTypeLabel(known.subagent_type)),
+					...(known.model !== undefined ? readableField('Model', known.model) : []),
+					...(known.provider !== undefined ? readableField('Provider', known.provider) : []),
+					...(known.effort !== undefined ? readableField('Effort', known.effort) : []),
 					...(known.run_in_background !== undefined
 						? [`Execution: ${known.run_in_background ? 'background' : 'wait for result'}`]
 						: []),
@@ -458,6 +489,40 @@ const PLAIN_TOOL_NAME = /^[\w.:-]+$/u
 
 /** The tools with a formatter above; an evolved shape of one opens exact-first. */
 const FORMATTED_TOOLS: ReadonlySet<string> = new Set(['bash', 'edit', 'write', 'Agent'])
+
+/** Labels group only the calls in this approval; they never invent execution phases. */
+function compactAgentPlan(calls: readonly { input: unknown; isDestructive: boolean }[]): string {
+	const lines: string[] = []
+	let previousGroup = ''
+	for (const [index, call] of calls.entries()) {
+		const input = call.input as Record<string, unknown>
+		const workflow = typeof input.workflow === 'string' ? oneLine(input.workflow) : ''
+		const phase = typeof input.phase === 'string' ? oneLine(input.phase) : ''
+		const group = JSON.stringify([workflow, phase])
+		if (group !== previousGroup) {
+			if (workflow || phase) lines.push([workflow, phase].filter(Boolean).join(' / '))
+			else if (previousGroup) lines.push('Other agents')
+			previousGroup = group
+		}
+		const type = input.subagent_type
+		const access =
+			type === 'explore'
+				? 'read-only'
+				: type === undefined || type === 'general-purpose'
+					? 'files + commands'
+					: String(type)
+		const background = input.run_in_background === true ? ' · background' : ''
+		const selection = [input.provider, input.model, input.effort]
+			.filter((value) => typeof value === 'string')
+			.map((value) => oneLine(String(value)))
+			.join(' / ')
+		const modelLabel = selection ? ` · ${selection}` : ''
+		lines.push(
+			`${index === calls.length - 1 ? '└' : '├'}─ [ ${index + 1}. ${oneLine(String(input.description))} · ${access}${modelLabel}${background}${call.isDestructive ? ' · destructive' : ''} ]`,
+		)
+	}
+	return terminalDisplayText(lines.join('\n'))
+}
 
 function agentTypeLabel(type: string | undefined): string {
 	if (type === undefined) return 'general-purpose (default)'

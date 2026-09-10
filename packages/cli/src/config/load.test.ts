@@ -558,7 +558,13 @@ describe('web', () => {
 		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  fetch: yes\n')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(/web\.fetch/)
 
+		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  search: live\n')
+		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).web).toEqual({
+			search: 'live',
+		})
 		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  search: true\n')
+		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(/web\.search/)
+		writeFileSync(join(home, '.namzu', 'config.yaml'), 'web:\n  search: [live]\n')
 		expect(() => loadConfig({ home, cwd: tmpdir(), env: {} })).toThrow(/web\.search/)
 	})
 
@@ -609,12 +615,13 @@ describe('compaction', () => {
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
-			'compaction:\n  strategy: salience\n  contextWindowTokens: 20000\n  consolidate: true\n',
+			'compaction:\n  strategy: salience\n  contextWindowTokens: 20000\n  consolidate: true\n  deduplicateObservations: false\n',
 		)
 		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({
 			strategy: 'salience',
 			contextWindowTokens: 20000,
 			consolidate: true,
+			deduplicateObservations: false,
 		})
 
 		for (const [bad, path] of [
@@ -622,6 +629,7 @@ describe('compaction', () => {
 			['compaction:\n  contextWindowTokens: many\n', 'compaction.contextWindowTokens'],
 			['compaction:\n  softTarget: 0.5\n', 'compaction.softTarget'],
 			['compaction:\n  consolidate: yes please\n', 'compaction.consolidate'],
+			['compaction:\n  deduplicateObservations: maybe\n', 'compaction.deduplicateObservations'],
 		]) {
 			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
 			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)

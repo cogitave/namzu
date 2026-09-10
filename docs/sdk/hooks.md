@@ -41,3 +41,40 @@ A `matcher` limits a tool hook to tool names: `*`, a name, or `a|b|prefix*`. On 
 ## In the CLI
 
 The `hooks` key of `namzu.config.json` or `~/.namzu/config.yaml` is event → list of `{ command, matcher?, timeoutMs? }`. The session fires `session_start` before its first turn — once the conversation has the durable id a run will carry, so a hook can match the two — and `session_end` when it closes, including on `/exit`, which now closes the session before the process leaves. `/hooks` lists what is attached.
+
+## Request context inventory
+
+`pre_llm_call.request.context` carries an immutable `snapshot` of content at
+Namzu's **provider-input boundary**, after SDK compaction and rich-content
+projection. `change` compares with the preceding `pre_llm_call` in the same
+run; it is absent on the first observation. A hook refusal still counts as an
+observation of a prepared request, not proof that the provider received it.
+
+Each part identifies its message/block position, role, kind, SHA-256 content
+digest and, for tool calls/results, its call ID. Tool results distinguish error
+from non-error status. Raw text and rich payloads are not copied into the
+inventory. Tool-call arguments and result blocks are separate parts: retaining
+a `read` call does not imply retaining the file content it returned. Repeated
+identical blocks are counted as occurrences rather than collapsed into a set.
+Message positions can shift without reporting unchanged content as removed.
+The inventory does not report order changes as additions or removals.
+
+`snapshotRequestContext(messages)` and `diffRequestContext(previous, next)` are
+also exported by `@namzu/sdk`. Hosts can keep a snapshot across runs and compare
+it themselves; the kernel's automatic baseline is run-local. Snapshots retain
+only metadata and hashes. There are no extra model calls, prompt instructions
+or filesystem reads. Automatic hashing runs only when a plugin manager is
+installed, alongside the existing model-call hook.
+
+This inventory describes SDK input, not the provider's final internal context.
+Adapter-private reasoning/replay state, server-side clearing, retries inside
+providers and transport-level image recovery are not separately inventoried.
+When calling the helper directly, pass the projected messages you intend to
+inspect; it does not resolve stored attachments or perform compaction itself.
+A stored reference identifies a reference, not its resolved bytes.
+
+Exact-block presence does not establish comprehension, full-file coverage,
+filesystem freshness or mutation permission. A shortened text block is reported
+as replacement, not as a byte-range diff. No automatic suppression of `read`
+is performed. Hooks can use this evidence to audit context policy without
+mistaking retained transcript data for content in the prepared request.

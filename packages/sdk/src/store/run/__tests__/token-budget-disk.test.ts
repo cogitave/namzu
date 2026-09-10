@@ -123,10 +123,52 @@ describe('a root token ledger survives a process boundary', () => {
 		expect(restored.remaining).toBe(0)
 		await expect(restored.beginRequest()).rejects.toThrow()
 		expect(restored.snapshot().requests).toEqual([
-			{ id: request, accountId: restored.binding!.accountId, runId: scope.runId, usage: usage(70) },
+			{
+				id: request,
+				accountId: restored.binding!.accountId,
+				runId: scope.runId,
+				usage: usage(70),
+				unresolved: true,
+			},
 		])
 	})
 
+	it('persists unlimited sibling progress without erasing the uncertain receipt', async () => {
+		const root = await openTokenBudget({
+			store: new DiskTokenBudgetStore({ baseDir }),
+			scope,
+			limit: 0,
+		})
+		const worker = root.reserve(0)
+		worker.bindRun(generateRunId())
+		const request = await worker.beginRequest()
+		await worker.failRequest(request, usage(30))
+		worker.settle()
+		await root.flush()
+		const reopened = await openTokenBudget({
+			store: new DiskTokenBudgetStore({ baseDir }),
+			scope,
+			requireExisting: true,
+		})
+		expect(reopened.summary()).toMatchObject({
+			poisoned: false,
+			unresolvedRequests: 1,
+			treeTokens: 30,
+		})
+		const healthyRequest = await reopened.beginRequest()
+		await reopened.finishRequest(healthyRequest, usage(20))
+		const again = await openTokenBudget({
+			store: new DiskTokenBudgetStore({ baseDir }),
+			scope,
+			requireExisting: true,
+		})
+		expect(again.summary()).toMatchObject({
+			poisoned: false,
+			unresolvedRequests: 1,
+			treeTokens: 50,
+		})
+		expect(again.snapshot().requests[0]).toMatchObject({ id: request, unresolved: true })
+	})
 	it('persists explicit host reconciliation and never clears unresolved sibling spend', async () => {
 		const root = await openTokenBudget({
 			store: new DiskTokenBudgetStore({ baseDir }),
@@ -145,7 +187,7 @@ describe('a root token ledger survives a process boundary', () => {
 			requireExisting: true,
 		})
 		await restored.reconcileRequest(rootRequest, usage(90))
-		expect(restored.snapshot().poisoned).toBe(true)
+		expect(restored.summary().poisoned).toBe(true)
 		await expect(restored.beginRequest()).rejects.toThrow()
 		await restored.account(child.accountId).reconcileRequest(childRequest, usage(50))
 		const reconciled = await openTokenBudget({
@@ -198,8 +240,10 @@ describe('a root token ledger survives a process boundary', () => {
 			scope,
 			requireExisting: true,
 		})
-		expect(reopened.snapshot().poisoned).toBe(true)
-		expect(reopened.snapshot().requests).toEqual(pending.requests)
+		expect(reopened.summary().poisoned).toBe(true)
+		expect(reopened.snapshot().requests).toEqual(
+			pending.requests.map((request) => ({ ...request, unresolved: true })),
+		)
 		expect(reopened.snapshot().accounts).toEqual(pending.accounts)
 	})
 
@@ -262,6 +306,26 @@ describe('a root token ledger survives a process boundary', () => {
 })
 
 describe('durable token records refuse damage', () => {
+	it('cannot clear uncertainty while a request remains active or has no usage receipt', async () => {
+		const store = new DiskTokenBudgetStore({ baseDir })
+		const request = {
+			id: generateRunId(),
+			accountId: snapshot.rootAccountId,
+			runId: scope.runId,
+			unresolved: true,
+		}
+		await store.save(scope, { ...snapshot, requests: [request] })
+		await expect(
+			store.save(scope, { ...snapshot, requests: [{ ...request, unresolved: false }] }),
+		).rejects.toThrow('unresolved')
+		await expect(
+			store.save(scope, {
+				...snapshot,
+				requests: [],
+				completedRequests: [{ ...request, unresolved: false }],
+			}),
+		).rejects.toThrow('unresolved')
+	})
 	it('requires measured completion receipts before clearing a poisoned ledger', async () => {
 		const store = new DiskTokenBudgetStore({ baseDir })
 		const request = { id: generateRunId(), accountId: snapshot.rootAccountId, runId: scope.runId }

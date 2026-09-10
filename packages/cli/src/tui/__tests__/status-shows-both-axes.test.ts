@@ -20,6 +20,8 @@ import { renderStatus } from '../slashCommands.js'
 
 function context(over: Partial<SlashContext> = {}): SlashContext {
 	return {
+		cwd: '/work',
+		reasoningEffort: { current: () => undefined },
 		builtins: [],
 		availableTools: () => [],
 		sandbox: null,

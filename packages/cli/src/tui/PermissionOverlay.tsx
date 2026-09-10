@@ -40,6 +40,9 @@ export interface PermissionOverlayProps {
 	readonly reviewOffset?: number
 	/** Which answer the cursor is on. */
 	readonly choice?: PermissionChoice
+	readonly queuedCount?: number
+	/** Host-resolved owner; never inferred from tool arguments. */
+	readonly sourceLabel?: string
 	/** Live terminal width. Re-wrapping on resize keeps every suffix reachable. */
 	readonly columns?: number
 	/** Live terminal height; the pager shows as much as the screen has room for. */
@@ -150,12 +153,15 @@ export function PermissionOverlay({
 	detailsOpen,
 	reviewOffset = 0,
 	choice = 0,
+	queuedCount = 0,
+	sourceLabel,
 	columns,
 	rows: terminalRows,
 }: PermissionOverlayProps) {
-	const pageRows = permissionReviewPageRows(terminalRows)
+	const pageRows = Math.max(1, permissionReviewPageRows(terminalRows) - (sourceLabel ? 1 : 0))
 	const single = toolCalls.length === 1
-	const source = detailsOpen ? review : readableBody(summary.text, single)
+	const compact = !detailsOpen && summary.compactText !== undefined
+	const source = detailsOpen ? review : (summary.compactText ?? readableBody(summary.text, single))
 	const rows = permissionReviewRows(source, columns)
 	const maxOffset = Math.max(0, rows.length - pageRows)
 	const offset = Math.min(Math.max(0, reviewOffset), maxOffset)
@@ -169,8 +175,8 @@ export function PermissionOverlay({
 	return (
 		<Box
 			flexDirection="column"
-			borderStyle="round"
-			borderColor={theme.status.warn}
+			borderStyle={compact ? 'single' : 'round'}
+			borderColor={compact ? theme.text.muted : theme.status.warn}
 			paddingX={1}
 			marginTop={1}
 		>
@@ -178,8 +184,16 @@ export function PermissionOverlay({
 				<Text color={theme.status.warn} bold>
 					{detailsOpen ? 'Exact prepared input' : terminalDisplayText(permissionTitle(toolCalls))}
 				</Text>
-				{destructive ? <Text color={theme.status.error}> · destructive</Text> : null}
+				{queuedCount > 0 ? (
+					<Text color={theme.text.muted}> · {queuedCount} more awaiting approval</Text>
+				) : null}
+				{destructive ? <Text color={theme.status.error}>{toolCalls.every((call) => call.name === 'write') ? ' · may overwrite' : ' · destructive'}</Text> : null}
 			</Text>
+			{sourceLabel ? (
+				<Text color={theme.text.secondary} wrap="truncate-end">
+					{terminalDisplayText(sourceLabel)}
+				</Text>
+			) : null}
 			<Box flexDirection="column" paddingLeft={2}>
 				{visibleRows.map((row) => (
 					<Box key={row.index} width="100%">
@@ -195,9 +209,11 @@ export function PermissionOverlay({
 				</Text>
 			) : null}
 			<Box flexDirection="column" paddingTop={1}>
-				<Text color={theme.text.primary} bold>
-					{terminalDisplayText(permissionQuestion(toolCalls))}
-				</Text>
+				{!compact ? (
+					<Text color={theme.text.primary} bold>
+						{terminalDisplayText(permissionQuestion(toolCalls))}
+					</Text>
+				) : null}
 				{choices.map((label, index) => {
 					const selected = index === choice
 					return (
@@ -211,7 +227,7 @@ export function PermissionOverlay({
 			<Box flexDirection="column">
 				<Text color={theme.text.muted}>
 					↑↓ select · enter confirm · y / a / n answer · d{' '}
-					{detailsOpen ? 'readable view' : 'exact input'}
+					{detailsOpen ? 'readable view' : compact ? 'full instructions' : 'exact input'}
 				</Text>
 				<Text color={theme.text.muted}>esc decline · ctrl+c decline and stop the turn</Text>
 			</Box>

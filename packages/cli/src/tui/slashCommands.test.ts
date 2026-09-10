@@ -531,6 +531,33 @@ describe('/cost', () => {
 		}
 	})
 
+	it('labels incomplete usage without claiming healthy unlimited branches are blocked', () => {
+		const result = runSlash(
+			'/cost',
+			context({
+				usage: {
+					totalTokens: 10,
+					cost: cost(1),
+					budget: {
+						limit: 0,
+						ownTokens: 10,
+						treeTokens: 15,
+						reservedTokens: 0,
+						remainingTokens: null,
+						inFlightRequests: 1,
+						unsettledChildren: 1,
+						poisoned: false,
+						unresolvedRequests: 1,
+					},
+				},
+			}),
+		)
+		expect(result?.kind).toBe('message')
+		if (result?.kind !== 'message') return
+		expect(result.content).toContain('1 provider receipt(s) unresolved')
+		expect(result.content).toContain('not a complete spend total')
+		expect(result.content).not.toContain('Further spending is blocked')
+	})
 	it('says the number is spend and not context fill', () => {
 		// The two were conflated once, in the gauge. A command that prints one
 		// without naming which it is invites the same misreading back.
@@ -1209,5 +1236,17 @@ describe('/jobs', () => {
 		expect(r.content).toContain('2 background jobs this session')
 		expect(r.content).toMatch(/job_1\s+running for \d+s\s+npm run dev/)
 		expect(r.content).toMatch(/job_2\s+exited 0\s+npm test/)
+	})
+})
+
+describe('/config entry', () => {
+	it('opens settings and exposes source details without a model turn', () => {
+		const ctx = context()
+		expect(runSlash('/config', ctx)).toEqual({ kind: 'settings-picker' })
+		expect(runSlash('/config sources', ctx)).toEqual(runSlash('/status config', ctx))
+		expect(runSlash('/config unknown', ctx)).toMatchObject({
+			kind: 'message',
+			content: expect.stringContaining('/config [sources]'),
+		})
 	})
 })

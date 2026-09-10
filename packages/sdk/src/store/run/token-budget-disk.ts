@@ -227,6 +227,9 @@ function assertSameRoot(before: TokenBudgetSnapshot, after: TokenBudgetSnapshot)
 			!current ||
 			current.accountId !== previous.accountId ||
 			current.runId !== previous.runId ||
+			(previous.unresolved === true &&
+				current.unresolved !== true &&
+				(active.has(previous.id) || current.usage === undefined)) ||
 			(reconciled && current.usage === undefined) ||
 			!usageAtLeast(current.usage, previous.usage)
 		) {

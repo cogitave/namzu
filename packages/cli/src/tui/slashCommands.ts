@@ -1,3 +1,5 @@
+import { installationRows } from '../installation.js'
+import { statusCard } from './status-card.js'
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
  *
@@ -56,12 +58,18 @@ export interface CommandPickerEntry {
 }
 
 export type SlashAction =
-	| { kind: 'message'; role: 'system'; content: string }
+	| {
+			kind: 'message'
+			role: 'system'
+			content: string
+			statusRows?: readonly (readonly [string, string])[]
+	  }
 	/** Choose and dispatch one exact command from the session's live vocabulary. */
 	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
 	/** Observe child runs retained by this TUI conversation. */
 	| { kind: 'agent-cockpit' }
 	| { kind: 'settings-picker' }
+	| { kind: 'provider-setup' }
 	| { kind: 'goal-picker' }
 	| { kind: 'goal-editor'; edit: boolean }
 	| { kind: 'exit' }
@@ -202,6 +210,10 @@ export interface CompactionSummary {
 }
 
 export interface SlashContext {
+	readonly columns?: number
+	readonly webSearchSummary?: string
+	readonly sessionId?: string
+
 	/** Canonical working directory owned by this TUI session. */
 	readonly cwd: string
 	/** Null before a session exists. */
@@ -635,6 +647,27 @@ function commandHelp(ctx: SlashContext, args: readonly string[]): SlashAction {
  * being restated in this file.
  */
 export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
+	{
+		name: 'setup',
+		description: 'Check provider installation and access; install optional CLIs or connect.',
+		action: () => ({ kind: 'provider-setup' }),
+	},
+	{
+		name: 'config',
+		description: 'View configuration and open model, reasoning and permission controls.',
+		help: { usage: ['/config', '/config sources'] },
+		action: (ctx, args) =>
+			args.length === 0
+				? { kind: 'settings-picker' }
+				: {
+						kind: 'message',
+						role: 'system',
+						content:
+							args.join(' ') === 'sources'
+								? renderConfigDebug(ctx.configDebug)
+								: 'Usage: /config [sources]',
+					},
+	},
 	{
 		name: 'settings',
 		description: 'View current settings and change model, reasoning or permissions.',
@@ -1075,7 +1108,12 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 					content: 'Usage: /status [details|config|tools]',
 				}
 			}
-			return { kind: 'message', role: 'system', content: renderStatus(ctx, which === 'details') }
+			return {
+				kind: 'message',
+				role: 'system',
+				content: renderStatus(ctx, which === 'details'),
+				...(which === '' ? { statusRows: statusRows(ctx) } : {}),
+			}
 		},
 	},
 	{
@@ -1369,6 +1407,10 @@ export function renderCost(
 		lines.push(
 			`Including delegated agents: ${usage.budget.treeTokens.toLocaleString('en-US')} tokens; limit ${usage.budget.limit === 0 ? 'unlimited' : usage.budget.limit.toLocaleString('en-US')}.`,
 		)
+		if ((usage.budget.unresolvedRequests ?? 0) > 0)
+			lines.push(
+				`${usage.budget.unresolvedRequests} provider receipt(s) unresolved; token totals are measured usage, not a complete spend total.`,
+			)
 		if (usage.budget.poisoned)
 			lines.push('Further spending is blocked until unresolved request usage is reconciled.')
 	}
@@ -1509,7 +1551,53 @@ export function renderMcp(mcp: ReturnType<SlashContext['mcp']>, details = false)
 	return lines.join('\n')
 }
 
+export function statusRows(ctx: SlashContext): [string, string][] {
+	const current = ctx.permissions.currentMode()
+	const permissions = effectivePermissionMode(current.mode, ctx.permissions.approvalLatched())
+	const rows: [string, string][] = [
+		...installationRows().map(([key, value]): [string, string] => [key, value]),
+		['Model', ctx.modelSummary ?? 'Not selected'],
+		['Reasoning', ctx.reasoningEffort.current() ?? 'Model default'],
+		['Provider', ctx.providerSummary ?? 'none — run /model to choose one'],
+		['Directory', ctx.cwd],
+		['Permissions', permissionModeLabel(permissions)],
+		[
+			'Sandbox',
+			!ctx.sandbox
+				? 'not resolved yet'
+				: ctx.sandbox.unconfined
+					? 'not confined; host access'
+					: `${ctx.sandbox.environment ?? 'Active'} · ${ctx.sandbox.enforced.join(', ')}`,
+		],
+		['Web search', ctx.webSearchSummary ?? 'not resolved yet'],
+		['Tools', String(ctx.availableTools().length)],
+		['Instructions', ctx.instructionFiles.join(', ') || 'None'],
+	]
+	if (ctx.sandbox?.workspace)
+		rows.push([
+			'Workspace',
+			ctx.sandbox.workspace === 'ephemeral'
+				? 'temporary files; removed when the run ends'
+				: 'real project files; edits persist',
+		])
+	if (ctx.sessionId) rows.push(['Session', ctx.sessionId])
+	if (ctx.usage) {
+		rows.push(['Tokens', `${ctx.usage.totalTokens.toLocaleString('en-US')} · current/latest run`])
+		rows.push(['Spend (current or latest run, own calls)', costAmount(ctx.usage.cost)])
+		if (ctx.usage.context) {
+			const context = ctx.usage.context
+			rows.push([
+				'Context',
+				`${context.tokens.toLocaleString('en-US')} / ${context.windowTokens.toLocaleString('en-US')}${context.measured && !context.windowAssumed ? '' : ' · estimated'}`,
+			])
+		}
+	}
+	return rows
+}
+
 export function renderStatus(ctx: SlashContext, details = false): string {
+	if (!details)
+		return `${statusCard(statusRows(ctx), ctx.columns)}\n/config to change settings · /status details for full rules`
 	const lines = [
 		`Provider: ${ctx.providerSummary ?? 'none — run /model to choose one'}`,
 		`Model: ${ctx.modelSummary ?? 'not selected'}`,

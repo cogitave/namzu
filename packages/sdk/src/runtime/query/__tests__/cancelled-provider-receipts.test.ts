@@ -101,9 +101,9 @@ describe('caller cancellation with the stream idle watchdog disabled', () => {
 			}).toMatchObject({
 				runTokens: 120,
 				budget: { ownTokens: 120, poisoned: true },
-				saved: { poisoned: true },
+				saved: { requests: [{ unresolved: true }] },
 			})
-			expect(saved?.poisoned).toBe(true)
+			expect(saved?.requests[0]?.unresolved).toBe(true)
 			expect(saved?.requests).toHaveLength(1)
 			expect(saved?.requests[0]?.usage?.totalTokens).toBe(120)
 			expect(saved?.completedRequests).toHaveLength(0)

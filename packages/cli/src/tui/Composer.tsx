@@ -10,7 +10,7 @@
  */
 
 import type { MessageAttachment } from '@namzu/sdk'
-import { Box, Text, useInput, useWindowSize } from 'ink'
+import { Box, Text, useInput, usePaste, useWindowSize } from 'ink'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { readClipboardImage } from '../integrations/clipboard/image.js'
@@ -486,6 +486,27 @@ export function Composer({
 		setSelectedIndex,
 	])
 
+	// Bracketed paste is one event even when the terminal splits its bytes.
+	// Its newlines are content, never Enter/shortcut events.
+	usePaste(
+		(text) => {
+			if (disabled || hidden) return
+			const normalized = text.replace(/\r\n?/g, '\n')
+			if (normalized.length === 0) return
+			if (normalized.includes('\n') || normalized.length > PASTE_THRESHOLD) {
+				setPastes((previous) => [...previous, normalized])
+				return
+			}
+			const position = cursorRef.current
+			setSelectedIndex(0)
+			editBuffer(
+				valueRef.current.slice(0, position) + normalized + valueRef.current.slice(position),
+				position + normalized.length,
+			)
+		},
+		{ isActive: !disabled && !hidden },
+	)
+
 	useInput(
 		(input, key) => {
 			// Hidden means the screen belongs to something else, so a keypress
@@ -943,7 +964,7 @@ export function Composer({
 					))}
 					{pastes.map((p, i) => (
 						<Text key={`paste-${i}`} color={theme.text.secondary}>
-							⎘ Pasted text #{i + 1} (+{p.split('\n').length} lines)
+							⎘ Pasted text #{i + 1} · {Array.from(p).length} chars
 						</Text>
 					))}
 				</Box>

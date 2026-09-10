@@ -8,7 +8,7 @@ export function buildTaskListTool(taskStore: TaskStore, runId: RunId): ToolDefin
 	return defineTool({
 		name: 'task_list',
 		description:
-			'List all tasks for the current run. Shows subject, status, owner, and unresolved blockers. Use this to review your plan and decide what to work on next.',
+			'List planning items for the current run, not delegated agent invocations. Use agent_task_list, when available, to inspect agent execution. Shows subject, status, owner, and unresolved blockers. Use this to review your plan and decide what to work on next.',
 		inputSchema: z.object({}),
 		category: 'custom',
 		permissions: [],
@@ -46,7 +46,7 @@ export function buildTaskListTool(taskStore: TaskStore, runId: RunId): ToolDefin
 				success: true,
 				output:
 					tasks.length === 0
-						? 'No tasks yet.'
+						? 'No planning tasks yet. This list does not report delegated agent status; use agent_task_list when available.'
 						: `${stats.total} tasks: ${stats.completed} completed, ${stats.in_progress} in progress, ${stats.pending} pending.`,
 				data: { tasks: summary, stats },
 			}

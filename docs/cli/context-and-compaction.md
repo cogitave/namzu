@@ -22,6 +22,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | --- | --- |
 | `strategy` | `salience` (the default), the scored working set described in [The salience-scored working set](../sdk/salience-working-set.md), or `structured`, the previous behaviour: positional retention and a pass only at the trigger. |
 | `contextWindowTokens` | The window the kernel measures fullness against, when the model's table entry is wrong or a project wants compaction earlier. Absent, the kernel resolves it from the model. |
+| `deduplicateObservations` | Enabled by default. Repeated identical read-only text observations share one full result in each model request. Set `false` to preserve the previous representation. Tool execution and canonical history are unchanged; see the [SDK policy and limits](../sdk/salience-working-set.md#exact-repeated-observations-in-the-active-request). |
 | `consolidate` | `true` selects one consolidated `learning` entry per run instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 
 The CLI uses one of these writers per run, including resumed runs. Retrieval is

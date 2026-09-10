@@ -34,6 +34,8 @@ export interface ChatCompletionParams {
 	 * calls may omit it; a provider then uses its own id, `model`, and index 0.
 	 */
 	providerRoute?: ProviderRoute
+	/** Opt in to provider-hosted web search. Absent means no hosted search. */
+	webSearch?: { mode: 'cached' | 'live' }
 	tools?: LLMToolSchema[]
 	/**
 	 * Provider hint naming tools whose model-facing JSON Schema should be

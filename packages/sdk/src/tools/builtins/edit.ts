@@ -362,12 +362,18 @@ export const EditTool = defineTool({
 		return withFileMutationLock(lockKey, async () => {
 			if (context.sandbox) {
 				const buffer = await context.sandbox.readFile(parsed.data.path)
-				const result = applyEdit(buffer.toString('utf-8'), normalized.operations)
+				const content = buffer.toString('utf-8')
+				const seen = context.fileReadTracker?.fingerprint?.(parsed.data.path)
+				if (seen !== undefined && seen !== fingerprintContent(content)) {
+					return { success: false as const, output: '', error: staleFileError(parsed.data.path) }
+				}
+				const result = applyEdit(content, normalized.operations)
 				if (!result.success) {
 					return { success: false as const, output: '', error: result.error }
 				}
 
 				await context.sandbox.writeFile(parsed.data.path, result.content)
+				context.fileReadTracker?.recordRead(parsed.data.path, result.content)
 				return {
 					success: true as const,
 					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) [sandboxed]`,
@@ -378,33 +384,12 @@ export const EditTool = defineTool({
 			const hostPath = filePath as string
 			const content = await readFile(hostPath, 'utf-8')
 
-			const result = applyEdit(content, normalized.operations)
-			if (!result.success) {
-				// The anchor did not match what is on disk. Two very different
-				// situations produce that, and the difference is the whole
-				// value of the fingerprint:
-				//
-				// The file is as the agent left it, and the anchor is simply
-				// wrong — "not found, match the whitespace exactly" is the
-				// right thing to say.
-				//
-				// Or the file moved after the read — a person in an editor,
-				// another process, a second agent — and the same message is a
-				// lie that sends the agent to re-check text that was never the
-				// problem, so it retries the identical edit against the same
-				// moved file.
-				//
-				// Deliberately NOT a gate on the successful path. An anchor
-				// that still matches uniquely is well defined however much
-				// changed elsewhere in the file, and refusing there would
-				// reject safe edits every time anyone touched an unrelated
-				// line.
-				const seen = context.fileReadTracker?.fingerprint?.(hostPath)
-				if (seen !== undefined && seen !== fingerprintContent(content)) {
-					return { success: false as const, output: '', error: staleFileError(hostPath) }
-				}
-				return { success: false as const, output: '', error: result.error }
+			const seen = context.fileReadTracker?.fingerprint?.(hostPath)
+			if (seen !== undefined && seen !== fingerprintContent(content)) {
+				return { success: false as const, output: '', error: staleFileError(hostPath) }
 			}
+			const result = applyEdit(content, normalized.operations)
+			if (!result.success) return { success: false as const, output: '', error: result.error }
 
 			// Temp file, fsync, rename — a reader sees the old body or the new
 			// one, never a half-written one. A plain `writeFile` that fails

@@ -1,30 +1,4 @@
-/**
- * Collapsed tool output can be read in full, and the way it advertises works.
- *
- * Finalized rows render through Ink's `<Static>`, which keeps an index of what
- * it has already emitted, renders `items.slice(index)`, and calls the render
- * function only for items beyond it. So the key this replaces could not reopen
- * a body already on screen — measured, with a twelve-line body up: pressing it
- * produced one further frame whose transcript region was byte-identical.
- *
- * It was not inert, though, and getting that wrong is what shaped this file.
- * `<Static>` calls the CURRENT render closure for each newly appended item, so
- * pressing the key while a tool was still running made that tool's result print
- * in full when it arrived — a real behaviour, invisible, and available only to
- * someone who wanted the output before knowing it would be truncated.
- *
- * Either way the expansion has to be a NEW row, which is what Ctrl+O pushes
- * once the body has scrolled out of the redrawable window.
- * These tests are written against that distinction: the assertion is not "the
- * hidden lines are visible somewhere" but "a new row appeared containing them,
- * and the collapsed one is untouched", because the first would also pass for a
- * design that cannot reach the case anyone actually hits.
- *
- * Driven through a rendered `<App>` rather than `<Transcript>` alone, because
- * every part of this that can go wrong lives in the seam: whether the hint names
- * the key that works, and whether the key reaches a transcript that is still
- * being written to. A component test sees neither.
- */
+/** Ctrl+O reaches retained output through the App without appending copies. */
 
 import { render } from 'ink-testing-library'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -222,7 +196,7 @@ async function onAShortTerminal<T>(fn: () => Promise<T>): Promise<T> {
 }
 
 describe('a body that fits', () => {
-	it('is not what Ctrl+O reprints; the hidden one is', async () => {
+	it('is not what Ctrl+O opens; the hidden one is', async () => {
 		// The turn ends with a three-line body: fully visible, no hint, nothing
 		// concealed. Treating it as "the most recent block" would reprint three
 		// lines the operator can already read while the twelve-line body above
@@ -238,6 +212,8 @@ describe('a body that fits', () => {
 			await frameShows(harness.lastFrame, 'short-c')
 
 			harness.stdin.write('\x0f') // Ctrl+O
+			await frameShows(harness.lastFrame, 'Tool output')
+			harness.stdin.write('G')
 			await frameShows(harness.lastFrame, 'result-line-7')
 
 			expect(harness.lastFrame() ?? '', 'Ctrl+O reprinted a body that was already whole').toContain(
@@ -248,24 +224,19 @@ describe('a body that fits', () => {
 })
 
 describe('Ctrl+O', () => {
-	// Opening in place while a row is still redrawable is covered by
-	// `a-body-reopens-where-it-is` on a real PTY; this harness keeps no row
-	// redrawable, so every press here takes the reprint path.
-
-	it('reprints the most recent body as a NEW row once the rows have scrolled away', async () => {
-		// Rows printed to the terminal's own scrollback cannot be rewritten, so
-		// on a terminal too short to keep one redrawable the key appends a copy
-		// that says what it is of — and leaves the collapsed row exactly as it
-		// was, which is the assertion that separates emitting from mutating.
+	it('opens older output in a bounded viewer without appending a transcript row', async () => {
 		await onAShortTerminal(async () => {
 			const harness = await twoCollapsedBlocks()
 
 			harness.stdin.write('\x0f')
+			await frameShows(harness.lastFrame, 'Tool output')
+			harness.stdin.write('G')
 			await frameShows(harness.lastFrame, 'result-line-7')
 
 			const frame = harness.lastFrame() ?? ''
 			expect(frame, 'the hidden lines never appeared').toContain('result-line-7')
-			expect(frame, 'the reprint did not say what it is of').toContain('in full (12 lines)')
+			expect(frame).toContain('Tool output')
+			expect(frame).not.toContain('in full (12 lines)')
 			expect(frame, 'the most recent body is the one reprinted').not.toContain('call-line-7')
 		})
 	})

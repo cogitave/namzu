@@ -59,7 +59,7 @@ export type HooksConfig = ShellHooksConfig
 export interface RunLimitsConfig {
 	/** Model calls one run may make. Default 50. */
 	readonly maxIterations?: number
-	/** Tokens one run may spend in total, prompt and completion. Default 1,000,000. */
+	/** Aggregate prompt and completion tokens for the run and descendants. Omitted means unlimited. */
 	readonly tokenBudget?: number
 	/**
 	 * Milliseconds a headless run may spend waiting out provider pauses — a
@@ -71,6 +71,8 @@ export interface RunLimitsConfig {
 
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
+	/** Mask exact repeated read-only observations in model requests; enabled unless false. */
+	readonly deduplicateObservations?: boolean
 	/**
 	 * Which context-management strategy the kernel runs. `salience` is the
 	 * default: every message scored, the context held near half the window
@@ -95,6 +97,10 @@ export interface CompactionCliConfig {
 
 /** See `NamzuCliConfig.web`. */
 export interface WebConfig {
+	/** Web search is live by default. Set off to disable it. */
+	readonly search?: 'off' | 'cached' | 'live'
+	/** Auto prefers declared native support, otherwise Exa. Explicit choices never silently switch. */
+	readonly backend?: 'auto' | 'exa' | 'native'
 	/** Mount `web_fetch` over the guarded provider. Default `false`. */
 	readonly fetch?: boolean
 }
@@ -179,7 +185,7 @@ export interface NamzuCliConfig {
 	 * How far one run may go before the kernel stops it. Headless `run` and
 	 * `run-stream` read these; `--max-iterations` and `--token-budget` override
 	 * them for one run. Absent means the defaults a chat turn gets: 50 model
-	 * calls and one million tokens, which a long autonomous task outgrows.
+	 * calls and no cumulative token limit. Explicit token budgets cover descendants.
 	 */
 	readonly limits?: RunLimitsConfig
 	/**
@@ -199,13 +205,11 @@ export interface NamzuCliConfig {
 	/**
 	 * Whether the agent may reach the web, and how.
 	 *
-	 * Off by default and opted into by name: a model that can fetch a URL can
-	 * be steered by a page, and a session that never asked for that should
-	 * not have it because a kernel happened to ship a tool. `fetch: true`
-	 * mounts `web_fetch` over the SDK's guarded provider — private and
-	 * loopback addresses refused, redirects and body bounded — and every
-	 * fetch is reviewed like a shell command. There is no search backend in
-	 * this kernel, so there is no `search` key to turn on.
+	 * Search defaults to automatic native/Exa routing; set `search: off`
+	 * to disable it. Queries are sent only when the tool runs, subject to
+	 * normal network-tool review. `backend: native` selects provider-hosted
+	 * search instead, without local-tool review. `fetch: true` separately
+	 * mounts guarded URL fetching; fetch remains off by default.
 	 */
 	readonly web?: WebConfig
 	/**

@@ -119,7 +119,7 @@ function commit(cwd: string, subject: string): void {
 const DOCTRINE_SENTENCES = [
 	'The requested scope is the deliverable.',
 	'If tests fail, say so and show the output.',
-	'Read a file before you edit it',
+	'Before editing, use the relevant file content already available from a successful read or write',
 	'Never push, force-push, reset, rebase, clean',
 	'Before a batch of tool calls, say in one short line',
 ]
@@ -154,7 +154,7 @@ describe('the working doctrine', () => {
 			expect(systemPrompt).toContain(sentence)
 		}
 		expect(
-			systemPrompt.indexOf('You are namzu'),
+			systemPrompt.indexOf('You are Namzu'),
 			'identity first, then how to work — the model weights early text more',
 		).toBeLessThan(systemPrompt.indexOf('## How you work'))
 	})

@@ -38,6 +38,7 @@ const TWO_BLOCKS = 'First paragraph here.\n\nSecond paragraph, the tail.'
  */
 const ONE_BLOCK = 'A short answer with no blank line anywhere in it.'
 let reply = TWO_BLOCKS
+let separateMessages = false
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -85,6 +86,12 @@ vi.mock('../agent.js', async (importOriginal) => {
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			send: async function* (): AsyncIterable<AgentEvent> {
+				if (separateMessages) {
+					yield { kind: 'delta', text: 'CLI review is running.', messageId: 'first' }
+					yield { kind: 'delta', text: 'CLI review completed.', messageId: 'second' }
+					yield { kind: 'done' }
+					return
+				}
 				// One character per event: the shape that produced the typing
 				// effect, and the shape that catches a splitter that releases a
 				// partial word.
@@ -113,6 +120,7 @@ const mounted: Array<{ unmount: () => void }> = []
 afterEach(() => {
 	for (const m of mounted.splice(0)) m.unmount()
 	reply = TWO_BLOCKS
+	separateMessages = false
 	vi.clearAllMocks()
 })
 
@@ -202,4 +210,14 @@ describe('a streamed reply', () => {
 		const occurrences = final.split('First paragraph here.').length - 1
 		expect(occurrences, 'the first block was rendered more than once').toBe(1)
 	})
+})
+
+
+it('separates a completion follow-up from the earlier status answer without dropping either tail', async () => {
+	separateMessages = true
+	const { final } = await runTurnCapturing('CLI review completed.')
+	expect(final).toContain('CLI review is running.')
+	expect(final).toContain('CLI review completed.')
+	expect(final).not.toContain('running.CLI')
+	expect(final.match(/∴/g)).toHaveLength(2)
 })

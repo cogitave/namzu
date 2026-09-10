@@ -274,7 +274,7 @@ it('shows effective settings without sending a turn or changing them on cancel',
 	await until(() => scope?.sessionId !== undefined, 'conversation did not become ready')
 	await submit(harness, '/settings')
 	await until(
-		() => harness.lastFrame()?.includes('Settings') ?? false,
+		() => harness.lastFrame()?.includes('Configuration') ?? false,
 		'settings menu did not open',
 	)
 	expect(harness.lastFrame()).toContain('goal-provider')

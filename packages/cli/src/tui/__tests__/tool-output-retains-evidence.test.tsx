@@ -185,11 +185,24 @@ it.each(['\u000f', '/raw'])(
 		screen.press(command)
 		await screen.waitForRender()
 		if (command.startsWith('/')) screen.press('\r')
-		await until(screen, () => text().includes('MIDDLE_DIAGNOSTIC'))
-		expect(text()).toContain('FIRST_LINE_END')
-		const restored = text()
-			.split('\n')
-			.map((line) => line.replace(/^\s*(?:▏\s*)?/, ''))
+		let restoredText: string
+		if (command === '\u000f') {
+			await until(screen, () => screen.viewport().join('\n').includes('Tool output'))
+			const pages = [screen.viewport().join('\n')]
+			for (let page=0; page<20 && !pages.at(-1)!.includes('FINAL_DIAGNOSTIC'); page++) {
+				const previous = screen.viewport().join('\n')
+				screen.press(' ')
+				await until(screen, () => screen.viewport().join('\n') !== previous)
+				pages.push(screen.viewport().join('\n'))
+			}
+			restoredText = pages.join('\n').replace(/^[ ]*│ ?(.*?) *│[ ]*$/gm, '$1')
+		} else {
+			await until(screen, () => text().includes('MIDDLE_DIAGNOSTIC'))
+			restoredText = text()
+		}
+		expect(restoredText).toContain('FIRST_LINE_END')
+		expect(restoredText).toContain('MIDDLE_DIAGNOSTIC')
+		const restored = restoredText.split('\n').map((line) => line.replace(/^\s*(?:▏\s*)?/, ''))
 		expect(restored).toEqual(expect.arrayContaining(OUTPUT.split('\n').slice(1)))
 	},
 )

@@ -25,6 +25,7 @@ import type { ToolRegistry } from '../../registry/tool/execute.js'
 import { isTrustedReadOnly } from '../../tools/trusted-read-only.js'
 import type { HITLResumeDecision, ResumeHandler, ToolCallSummary } from '../../types/hitl/index.js'
 import type { ApprovalPolicy } from '../../types/hitl/policy.js'
+import type { RunId } from '../../types/ids/index.js'
 import { PLAN_MODE_REFUSAL } from '../../types/permission/index.js'
 
 export type ReviewMode =
@@ -141,6 +142,8 @@ export function batchNeedsReview(
 
 /** The batch a person is asked about. */
 export interface ToolReviewRequest {
+	/** Originating run, preserved by createReviewHandler for host attribution. */
+	readonly runId?: RunId
 	readonly toolCalls: readonly ToolCallSummary[]
 }
 
@@ -204,7 +207,10 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		if (mode === 'auto' || !prompt || remembered.all) {
 			return { action: 'approve_tools' }
 		}
-		const answer = await prompt({ toolCalls: request.toolCalls })
+		const answer = await prompt({
+			runId: request.runId,
+			toolCalls: request.toolCalls,
+		})
 		switch (answer.kind) {
 			case 'approve':
 				return { action: 'approve_tools' }

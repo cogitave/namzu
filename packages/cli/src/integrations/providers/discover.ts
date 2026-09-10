@@ -2,7 +2,8 @@
  * Discover usable credential sources, reachable local servers, and public Zen.
  *
  * Claude/Codex device sessions precede Namzu-owned sign-ins and their optional
- * API environment alternatives. Zen/Go use direct API environment variables,
+ * API environment alternatives. Gemini prefers explicit API keys, then reuses its
+ * installed CLI Google session. Zen/Go use direct API environment variables,
  * then exact API entries in OpenCode's owner store. Anonymous Zen is available
  * without a credential or local installation and is ordered last.
  *
@@ -19,6 +20,7 @@ import {
 	readStoredCodexCredential,
 	readStoredSubscriptionCredential,
 } from './credential-store.js'
+import { readGeminiFileCredentialCandidates } from './gemini-credentials.js'
 import {
 	preferFresherCredential,
 	readClaudeFileCredentialCandidates,
@@ -41,6 +43,8 @@ export type DetectionSource =
 	| { readonly kind: 'claude-file'; readonly path: string }
 	/** A read-only ChatGPT/Codex OAuth envelope owned by the Codex CLI. */
 	| { readonly kind: 'codex-file'; readonly path: string }
+	/** A Google account session owned by Gemini CLI. */
+	| { readonly kind: 'gemini-file'; readonly path: string }
 	/**
 	 * namzu's own credential store — a subscription the operator signed in to
 	 * from inside namzu. Carries the path because "where did this come from"
@@ -88,6 +92,8 @@ export interface DetectedProvider {
 		readonly expiresAt?: number
 		readonly origin: 'codex-file' | 'stored'
 	}
+	/** Exact owner file and optional Google Cloud billing project, never a Namzu project ID. */
+	readonly gemini?: { readonly sourcePath: string; readonly projectId?: string }
 	/** Other sources that also satisfy this provider — informational. */
 	readonly alternatives: readonly DetectionSource[]
 }
@@ -128,6 +134,7 @@ export function signedInSubscriptionProviders(
 	detected: readonly DetectedProvider[],
 ): readonly DetectedProvider[] {
 	return detected.filter((provider) => {
+		if (provider.entry.id === 'google') return provider.source.kind === 'gemini-file'
 		if (provider.entry.subscriptionLogin === undefined) return false
 		return [provider.source, ...provider.alternatives].some(
 			(source) =>
@@ -153,6 +160,7 @@ export async function discoverProviders(
 	// The vocabulary agreement is asserted instead, where it can fail loudly.
 	const credentials = new EnvCredentialProvider({ env, anyKey: true })
 	const detected: DetectedProvider[] = []
+	const geminiCredentials = readGeminiFileCredentialCandidates(opts.home, env, opts.windowsHome)
 
 	// Read both credential sources once, up front, so the loop body stays
 	// uniform. Only anthropic consumes either.
@@ -217,6 +225,7 @@ export async function discoverProviders(
 		let anonymousSelected = false
 		let oauth: DetectedProvider['oauth']
 		let codex: DetectedProvider['codex']
+		let gemini: DetectedProvider['gemini']
 
 		if (id === 'anthropic') {
 			const borrowedCandidates = [
@@ -331,6 +340,15 @@ export async function discoverProviders(
 				sources.push({ kind: 'env', envName })
 			}
 		}
+		if (id === 'google') {
+			const borrowed = geminiCredentials[0]
+			if (borrowed && apiKey === undefined) {
+				apiKey = borrowed.credential.accessToken
+				sources.push({ kind: 'gemini-file', path: borrowed.path })
+				const projectId = env.GOOGLE_CLOUD_PROJECT?.trim() || env.GOOGLE_CLOUD_PROJECT_ID?.trim()
+				gemini = { sourcePath: borrowed.path, ...(projectId ? { projectId } : {}) }
+			}
+		}
 		if (id === 'zen' || id === 'zen-go') {
 			for (const candidate of openCodeCredentials) {
 				if (anonymousSelected) break
@@ -355,6 +373,7 @@ export async function discoverProviders(
 				baseUrl: entry.defaultBaseUrl,
 				...(oauth ? { oauth } : {}),
 				...(codex ? { codex } : {}),
+				...(gemini ? { gemini } : {}),
 				alternatives: sources.slice(1),
 			})
 		}

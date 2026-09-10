@@ -62,6 +62,11 @@ export async function ensureRegistered(id: ProviderId): Promise<void> {
 			mod.registerAnthropic()
 			break
 		}
+		case 'google': {
+			const mod = await import('@namzu/google')
+			mod.registerGoogle()
+			break
+		}
 		case 'openai': {
 			const mod = await import('@namzu/openai')
 			mod.registerOpenAI()

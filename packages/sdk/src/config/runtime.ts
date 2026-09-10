@@ -17,6 +17,8 @@ export const TaskRouterConfigSchema = z
 	.optional()
 
 export const CompactionConfigSchema = z.object({
+	/** Request-only exact duplicate observation masking. Enabled unless false; disabled strategy opts out too. */
+	deduplicateObservations: z.boolean().optional(),
 	/**
 	 * `salience` is the default: every message scored without a model, the
 	 * context held from half the window. `structured` is the previous

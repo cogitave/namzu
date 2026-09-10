@@ -725,3 +725,47 @@ describe('withProviderFallback over withProviderRetry', () => {
 		expect(fallback.calls).toBe(0)
 	})
 })
+
+it('does not repeat a hosted search on a fallback after its activity has started', async () => {
+	const primary = member('primary', [
+		async function* () {
+			yield {
+				id: 'c',
+				delta: {
+					hostedTool: { id: 'search-1', name: 'web_search', status: 'running' },
+				},
+			}
+			throw httpError(503)
+		},
+	])
+	const fallback = member('fallback', [
+		async function* () {
+			yield chunk('unexpected')
+		},
+	])
+	await expect(
+		collectChunks(
+			withProviderFallback([{ provider: primary }, { provider: fallback }]).chatStream(PARAMS),
+		),
+	).rejects.toThrow()
+	expect(fallback.calls).toBe(0)
+})
+
+it('refuses hosted search on an unsupported route before a request is sent', async () => {
+	const primary = member('primary', [
+		async function* () {
+			yield chunk('unexpected')
+		},
+	])
+	const fallback = member('fallback', [])
+	await expect(
+		collectChunks(
+			withProviderFallback([{ provider: primary }, { provider: fallback }]).chatStream({
+				...PARAMS,
+				webSearch: { mode: 'live' },
+			}),
+		),
+	).rejects.toThrow(/hosted web search/)
+	expect(primary.calls).toBe(0)
+	expect(fallback.calls).toBe(0)
+})

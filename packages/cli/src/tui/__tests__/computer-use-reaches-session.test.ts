@@ -167,6 +167,7 @@ describe('computer use session reachability', () => {
 				'Agent',
 				'update_memory',
 				'wait_for_task',
+				'web_search',
 			].sort(),
 		)
 		const computerUse = queryTools.find((t) => t.function.name === 'computer_use')?.function

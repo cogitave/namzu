@@ -217,7 +217,9 @@ describe('glob keeps the requested search scope', () => {
 	it('names both the pattern and directory in the tool call view', () => {
 		expect(GlobTool.presentCall?.({ pattern: '*', path: '/home/arda' })).toEqual({
 			kind: 'generic',
-			label: '* in /home/arda',
+			label: 'Find * in /home/arda',
+			presentation: 'activity',
+			activity: 'exploration',
 		})
 	})
 })

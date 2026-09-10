@@ -36,6 +36,14 @@ const MAPPING: {
 } = {
 	// Internal cumulative admission ledger, not a public UI event.
 	tool_calls_admitted: null,
+	hosted_tool: {
+		wire: 'hosted.tool',
+		transform: (e, runId) => ({
+			run_id: runId,
+			iteration: e.iteration,
+			tool: e.tool,
+		}),
+	},
 	run_started: {
 		wire: 'run.started',
 		transform: (e, runId) => ({
@@ -54,7 +62,12 @@ const MAPPING: {
 	// needs in order to see supervision loosen.
 	approval_policy_changed: {
 		wire: 'approval_policy.changed',
-		transform: (e, runId) => ({ run_id: runId, from: e.from, to: e.to, reason: e.reason }),
+		transform: (e, runId) => ({
+			run_id: runId,
+			from: e.from,
+			to: e.to,
+			reason: e.reason,
+		}),
 	},
 
 	iteration_completed: {

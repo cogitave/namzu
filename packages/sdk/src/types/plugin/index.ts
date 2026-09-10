@@ -8,6 +8,10 @@ import {
 	MAX_TOOLS_PER_PLUGIN,
 	PLUGIN_NAME_MAX_LENGTH,
 } from '../../constants/plugin/index.js'
+import type {
+	RequestContextChange,
+	RequestContextSnapshot,
+} from '../../runtime/query/request-context.js'
 import type { PluginId, RunId, SessionId } from '../ids/index.js'
 import type { Message, ToolResultContent } from '../message/index.js'
 import type { CancelCause } from '../run/cancel-cause.js'
@@ -142,6 +146,12 @@ export function assertPluginHookEvent(event: PluginHookEvent): void {
  * contract by accident.
  */
 export interface PluginModelRequest {
+	/** SDK provider-input content inventory; excludes adapter/server-private transformations. */
+	readonly context?: {
+		readonly snapshot: RequestContextSnapshot
+		/** Compared with the preceding pre_llm_call in this run; absent on the first. */
+		readonly change?: RequestContextChange
+	}
 	readonly model: string
 	readonly messages: readonly Message[]
 	/** Names only. A hook auditing tool exposure needs the set, not the schemas. */

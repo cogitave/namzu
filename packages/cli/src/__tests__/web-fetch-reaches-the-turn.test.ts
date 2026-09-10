@@ -11,8 +11,8 @@
  *
  * The negative half is the one that matters for the default: a session that
  * did not opt in must not carry the tool, because a tool the model can see
- * is a tool it will reach for, and "no web access" must be true rather than
- * merely refused at execution time.
+ * is a tool it will reach for, and URL fetching must stay absent. Independent web search is
+ * enabled by default and tested separately below.
  */
 
 import { mkdirSync, mkdtempSync } from 'node:fs'
@@ -73,7 +73,11 @@ function detectedAnthropic(): DetectedProvider[] {
 	]
 }
 
-async function drive(web: { fetch?: boolean } | undefined) {
+async function drive(
+	web:
+		| { fetch?: boolean; search?: 'off' | 'cached' | 'live'; backend?: 'exa' | 'native' }
+		| undefined,
+) {
 	const { createAgentSession } = await import('../tui/agent.js')
 	const session = await createAgentSession(prefs, detectedAnthropic(), {
 		cwd: root,
@@ -89,6 +93,7 @@ async function drive(web: { fetch?: boolean } | undefined) {
 	const contributions = call.promptContributions as PromptContributionRegistry
 	return {
 		session,
+		runConfig: call.runConfig as { webSearch?: { mode: string } },
 		toolNames: tools.listNames(),
 		web: call.web as { fetch?: unknown } | undefined,
 		hasGuidance: contributions.has('namzu.web.citations'),
@@ -105,11 +110,11 @@ describe('web.fetch', () => {
 		expect(turn.hasGuidance).toBe(true)
 	})
 
-	it('is off by default: no tool, no provider, no guidance', async () => {
+	it('keeps fetch off by default while offering independent web search', async () => {
 		const turn = await drive(undefined)
 
 		expect(turn.toolNames).not.toContain('web_fetch')
-		expect(turn.toolNames).not.toContain('web_search')
+		expect(turn.toolNames).toContain('web_search')
 		expect(turn.web).toBeUndefined()
 		expect(turn.hasGuidance).toBe(false)
 	})
@@ -121,9 +126,23 @@ describe('web.fetch', () => {
 		expect(turn.web).toBeUndefined()
 	})
 
-	it('never offers search, which this kernel has no backend for', async () => {
+	it('does not conflate fetch with hosted search', async () => {
 		const turn = await drive({ fetch: true })
 
-		expect(turn.toolNames).not.toContain('web_search')
+		expect(turn.toolNames).toContain('web_search')
 	})
+})
+
+it('passes explicit hosted search to the run without mounting a local search function', async () => {
+	const turn = await drive({ search: 'live', backend: 'native' })
+	expect(turn.runConfig.webSearch).toEqual({ mode: 'live' })
+	expect(turn.toolNames).not.toContain('web_search')
+	expect(turn.web).toBeUndefined()
+	await turn.session.close()
+})
+
+it('keeps hosted search absent when switched off', async () => {
+	const turn = await drive({ search: 'off' })
+	expect(turn.runConfig.webSearch).toBeUndefined()
+	await turn.session.close()
 })

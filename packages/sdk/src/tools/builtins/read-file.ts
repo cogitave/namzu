@@ -32,6 +32,16 @@ export const ReadFileTool = defineTool({
 	destructive: false,
 	concurrencySafe: true,
 
+	presentCall(input) {
+		if (typeof input.path !== 'string') return undefined
+		return {
+			kind: 'generic',
+			label: `Read ${input.path}`,
+			presentation: 'activity',
+			activity: 'exploration',
+		}
+	},
+
 	async execute(input, context) {
 		// Sandbox-aware: route through sandbox.readFile() when available
 		if (context.sandbox) {

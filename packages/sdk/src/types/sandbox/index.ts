@@ -310,6 +310,7 @@ export interface Sandbox {
 	listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]>
 	/**
 	 * Lazily enumerate regular files as absolute paths, without following symlinks.
+	 * A regular-file root yields that file if its basename matches the pattern.
 	 * Cancellation and iterator return stop traversal. Exceeding the examined-entry
 	 * budget throws an error with code `ERR_FILE_WALK_LIMIT`; it is not an empty or
 	 * complete listing. Hosts requiring bounded search must refuse an absent method.

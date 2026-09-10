@@ -237,7 +237,7 @@ describe('the expand key, on a body that is still on screen', () => {
 				screen.scrollback().filter(call),
 				'resize printed a second durable tool row',
 			).toHaveLength(1)
-			expect(screen.scrollback().filter((line) => line.includes('NAMZU'))).toHaveLength(1)
+			expect(screen.scrollback().filter((line) => line.includes('█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █') || line.includes('∴ namzu'))).toHaveLength(1)
 			expect(screen.scrollback().join('\n')).toContain('result-line-12')
 		},
 		30_000,
@@ -288,4 +288,28 @@ describe('the expand key, on a body that is still on screen', () => {
 		expect(frame, 'the key only ever opened').toContain('… 6 lines omitted')
 		expect(frame, 'the body stayed open').not.toContain('result-line-4')
 	}, 30_000)
+})
+
+
+describe('older output in a small terminal', () => {
+ it('opens, pages and closes repeatedly without adding full copies to scrollback', async () => {
+  const screen = await aCollapsedBody()
+  await screen.resize(COLS, 18)
+  screen.press('draft stays here')
+  await screen.waitForRender()
+  const before = screen.scrollback().filter(line => line.includes('result-line-1')).length
+  for (let attempt=0; attempt<3; attempt++) {
+   screen.press('\x0f')
+   await screenShows(screen, 'Tool output')
+   expect(screen.viewport().join('\n')).not.toContain('in full (')
+   screen.press('G')
+   await screenShows(screen, 'result-line-12')
+   screen.press(attempt === 1 ? '\x0f' : 'q')
+   for (let i = 0; i < 100 && screen.viewport().join('\n').includes('Tool output'); i++) await screen.waitForRender()
+   expect(screen.viewport().join('\n')).not.toContain('Tool output')
+   expect(screen.viewport().join('\n')).toContain('draft stays here')
+  }
+  expect(screen.scrollback().filter(line => line.includes('result-line-1')).length).toBe(before)
+  expect(screen.scrollback().join('\n')).not.toContain('in full (')
+ })
 })

@@ -185,3 +185,25 @@ describe('reasoning blocks survive the stream', () => {
 		).toBe(false)
 	})
 })
+
+it('emits hosted search activity without manufacturing executable tool calls', async () => {
+	const { result, events } = await run([
+		{
+			id: 'c',
+			delta: {
+				hostedTool: { id: 'search-1', name: 'web_search', status: 'running' },
+			},
+		},
+		{
+			id: 'c',
+			delta: {
+				hostedTool: { id: 'search-1', name: 'web_search', status: 'completed' },
+			},
+		},
+		{ id: 'c', delta: { content: 'answer' } },
+		finish(),
+	])
+	expect(events.filter((e) => e.type === 'hosted_tool')).toHaveLength(2)
+	expect(events.some((e) => e.type === 'tool_input_started')).toBe(false)
+	expect(result).toBeDefined()
+})

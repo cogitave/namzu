@@ -180,6 +180,7 @@ export function AgentCockpit({
 		return (
 			<Box
 				flexDirection="column"
+				height={Math.max(8, terminalRows - 3)}
 				borderStyle="single"
 				borderColor={theme.border.default}
 				paddingX={1}
@@ -192,7 +193,7 @@ export function AgentCockpit({
 						Select a workflow to inspect its phases and agents.
 					</Text>
 				)}
-				<Box flexDirection="column" paddingTop={compact ? 0 : 1}>
+				<Box flexDirection="column" flexGrow={1} paddingTop={compact ? 0 : 1}>
 					{items.map((item) => (
 						<Box key={item.id} height={1} flexShrink={0}>
 							<Box width={4} flexShrink={0}>
@@ -238,6 +239,7 @@ export function AgentCockpit({
 	return (
 		<Box
 			flexDirection="column"
+			height={Math.max(8, terminalRows - 3)}
 			borderStyle="single"
 			borderColor={theme.border.default}
 			paddingX={1}
@@ -261,7 +263,7 @@ export function AgentCockpit({
 						: 'Select a phase, then inspect a child.'}
 				</Text>
 			)}
-			<Box flexDirection={sideBySide ? 'row' : 'column'} paddingTop={compact ? 0 : 1}>
+			<Box flexDirection={sideBySide ? 'row' : 'column'} flexGrow={1} paddingTop={compact ? 0 : 1}>
 				<Box
 					flexDirection="column"
 					width={
@@ -509,7 +511,7 @@ export function agentPhases(agents: readonly SubagentActivity[]): readonly Agent
 }
 
 export function agentPhasePageSize(terminalRows: number, wide = true): number {
-	const available = Math.max(2, terminalRows - (wide ? 14 : 16))
+	const available = Math.max(2, terminalRows - (wide ? 10 : 12))
 	return wide
 		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
 		: Math.max(1, Math.min(4, Math.floor(available * 0.4)))
@@ -611,7 +613,7 @@ export function AgentTranscript({
 }
 
 export function agentPickerPageSize(terminalRows: number, wide = true): number {
-	const available = Math.max(2, terminalRows - (wide ? 14 : 16))
+	const available = Math.max(2, terminalRows - (wide ? 10 : 12))
 	return wide
 		? Math.max(1, Math.min(MAX_PICKER_ROWS, available))
 		: Math.max(1, Math.min(MAX_PICKER_ROWS, available - agentPhasePageSize(terminalRows, false)))

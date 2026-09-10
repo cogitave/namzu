@@ -17,12 +17,12 @@ interface BrandHeaderProps {
 
 /** Printed once by the transcript's Static owner; active model state lives in the footer. */
 export function BrandHeader({ version, permissionMode }: BrandHeaderProps) {
-	const { columns } = useWindowSize()
-	const wordmark = columns >= NAMZU_WORDMARK_MIN_WIDTH ? NAMZU_WORDMARK : NAMZU_COMPACT_WORDMARK
+	const { columns, rows } = useWindowSize()
+	const wordmark = columns >= NAMZU_WORDMARK_MIN_WIDTH && rows >= 20 ? NAMZU_WORDMARK : NAMZU_COMPACT_WORDMARK
 	const attribution = `${columns >= 40 ? 'Cogitave ' : ''}v${terminalDisplayText(version)}`
 	return (
 		<Box flexDirection="column" marginY={1}>
-			<Box flexDirection="row">
+			<Box flexDirection="row" alignItems="flex-end">
 				<Box flexShrink={0}>
 					<Text color={NAMZU_MARK_COLOR} bold>
 						{wordmark}

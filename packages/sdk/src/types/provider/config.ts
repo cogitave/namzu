@@ -121,6 +121,8 @@ export interface MockProviderConfig extends MockScript {
  * degradation is loud instead of silent.
  */
 export interface ProviderCapabilities {
+	/** Explicit provider-hosted web search support; absent means unsupported. */
+	supportsHostedWebSearch?: boolean
 	/** Native JSON Schema response-format mapping. Absent means unsupported. */
 	supportsNativeStructuredOutput?: boolean
 	supportsTools: boolean

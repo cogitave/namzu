@@ -2,8 +2,8 @@
 type: Reference
 title: "@namzu/cli"
 description: >-
-  A terminal coding agent built on the Namzu kernel, from the same public API
-  you get. Interactive sessions, headless runs that stream structured events,
+  A terminal coding agent with interactive sessions, parallel agents, saved
+  conversations, headless runs that stream structured events,
   and a doctor that reports what the host can actually do.
 tags: [readme, package, cli, agent]
 status: stable
@@ -12,9 +12,9 @@ generated: { by: human:bahadirarda, at: 2026-09-01T00:00:00Z }
 
 <div align="center">
 
-<h1>@namzu/cli</h1>
+<img src="https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/namzu-terminal.svg" alt="Namzu CLI" width="1148" />
 
-**A terminal coding agent, built on [`@namzu/sdk`](https://www.npmjs.com/package/@namzu/sdk).**
+**Your work, your agents, your terminal.**
 
 [![npm](https://img.shields.io/npm/v/@namzu/cli.svg)](https://www.npmjs.com/package/@namzu/cli)
 [![build](https://github.com/cogitave/namzu/actions/workflows/ci.yml/badge.svg)](https://github.com/cogitave/namzu/actions/workflows/ci.yml)
@@ -26,10 +26,32 @@ generated: { by: human:bahadirarda, at: 2026-09-01T00:00:00Z }
 
 ---
 
-A terminal coding agent built entirely on the Namzu kernel, in the same
-repository, from the same public API you get. It exists as much to prove the
-kernel as to be used: every gap in the SDK showed up first as something the CLI
-had to work around.
+## From a request to a visible result
+
+Read and edit files, delegate independent tasks and continue saved conversations.
+The terminal keeps tool results, approvals and progress alongside your messages.
+
+![Namzu creates a TypeScript function and shows the added lines](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-editing.png)
+
+## Independent tasks, shared visibility
+
+Start agents with scoped tool access. Review the plan, watch their progress,
+and open an agent's transcript with `Ctrl+T` while the main composer remains
+available.
+
+![Two read-only agents working in parallel](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-agents.png)
+
+## Pick up the conversation
+
+Use `/resume` to choose a saved conversation or `namzu resume <id>` to reopen
+one directly. Resume retains conversation history; file tools check the current
+workspace before applying edits based on stale observations.
+
+![A resumed conversation reads an updated file before editing](https://raw.githubusercontent.com/cogitave/namzu/main/packages/cli/assets/cli-resume.png)
+
+Real terminal captures from isolated example projects. The
+[release validation notes](https://github.com/cogitave/namzu/blob/main/docs/cli/release-validation.md)
+describe the checks and their limits.
 
 ## Install
 
@@ -51,8 +73,7 @@ curl -fsSL https://raw.githubusercontent.com/cogitave/namzu/main/install.sh | sh
 irm https://raw.githubusercontent.com/cogitave/namzu/main/install.ps1 | iex
 ```
 
-Installing brings the kernel and six model drivers — Anthropic, OpenAI,
-DeepSeek, OpenRouter, Zen and Ollama — plus `@namzu/files` and
+The CLI bundles provider drivers, plus `@namzu/files` and
 `@namzu/computer-use`, as ordinary dependencies rather than peers. So a fresh
 install can already reach those services and expose desktop control when the
 device has a supported adapter. `@namzu/telemetry` and `@namzu/sandbox` remain

@@ -713,8 +713,13 @@ describe('Codex native response format', () => {
 		'preserves schema and strict=%s in Responses text.format',
 		async (strict) => {
 			const create = vi.fn(async (_request: unknown) => (async function* () {})())
-			const provider = new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
-			;(provider as unknown as { client: unknown }).client = { responses: { create } }
+			const provider = new CodexProvider({
+				accessToken: 'fixture',
+				accountId: 'fixture',
+			})
+			;(provider as unknown as { client: unknown }).client = {
+				responses: { create },
+			}
 			const schema = {
 				type: 'object',
 				properties: { score: { type: 'number' } },
@@ -724,13 +729,127 @@ describe('Codex native response format', () => {
 			for await (const _ of provider.chatStream({
 				model: 'gpt-5.6-luna',
 				messages: [{ role: 'user', content: 'Score' }],
-				responseFormat: { type: 'json_schema', json_schema: { name: 'score', schema, strict } },
+				responseFormat: {
+					type: 'json_schema',
+					json_schema: { name: 'score', schema, strict },
+				},
 			})) {
 			}
 			expect(create.mock.calls[0]?.[0]).toMatchObject({
-				text: { format: { type: 'json_schema', name: 'score', schema, strict } },
+				text: {
+					format: { type: 'json_schema', name: 'score', schema, strict },
+				},
 			})
 			expect(create.mock.calls[0]?.[0]).not.toHaveProperty('response_format')
 		},
 	)
+})
+
+it.each(['cached', 'live'] as const)(
+	'mounts %s hosted search alongside local functions',
+	(mode) => {
+		const tools = toCodexTools({
+			model: ROUTE.model,
+			messages: [],
+			webSearch: { mode },
+			tools: [
+				{
+					type: 'function',
+					function: { name: 'read', description: 'Read', parameters: {} },
+				},
+			],
+		})
+		expect(tools).toEqual([
+			expect.objectContaining({ type: 'function', name: 'read' }),
+			{ type: 'web_search', external_web_access: mode === 'live' },
+		])
+		expect(toCodexTools({ model: ROUTE.model, messages: [] })).toBeUndefined()
+	},
+)
+
+it('streams hosted activity without local execution and retains source links and native replay', async () => {
+	const item = {
+		id: 'search-1',
+		type: 'web_search_call',
+		status: 'completed',
+		action: { type: 'search', query: 'docs' },
+	}
+	const output = [
+		item,
+		{
+			id: 'message-1',
+			type: 'message',
+			role: 'assistant',
+			status: 'completed',
+			content: [
+				{
+					type: 'output_text',
+					text: 'The official docs.',
+					annotations: [
+						{
+							type: 'url_citation',
+							url: 'https://example.com/docs',
+							title: 'Official docs',
+							start_index: 0,
+							end_index: 18,
+						},
+					],
+				},
+			],
+		},
+	]
+	const create = vi.fn(async (_request: unknown) =>
+		(async function* () {
+			yield {
+				type: 'response.output_item.added',
+				output_index: 0,
+				item: { ...item, status: 'in_progress' },
+			}
+			yield { type: 'response.output_item.done', output_index: 0, item }
+			yield { type: 'response.output_text.delta', delta: 'The official docs.' }
+			yield {
+				type: 'response.completed',
+				response: {
+					id: 'response-1',
+					output,
+					usage: { input_tokens: 12, output_tokens: 8 },
+				},
+			}
+		})(),
+	)
+	const provider = new CodexProvider({
+		accessToken: 'fixture',
+		accountId: 'fixture',
+	})
+	;(provider as unknown as { client: { responses: { create: typeof create } } }).client = {
+		responses: { create },
+	}
+	const chunks = []
+	for await (const chunk of provider.chatStream({
+		model: ROUTE.model,
+		messages: [],
+		webSearch: { mode: 'live' },
+	}))
+		chunks.push(chunk)
+	expect(chunks.flatMap((c) => c.delta.toolCalls ?? [])).toEqual([])
+	expect(chunks.flatMap((c) => c.delta.hostedTool ?? [])).toEqual([
+		{ id: 'search-1', name: 'web_search', status: 'running' },
+		{ id: 'search-1', name: 'web_search', status: 'completed' },
+	])
+	const content = chunks.map((c) => c.delta.content ?? '').join('')
+	expect(content).toContain('[Official docs](<https://example.com/docs>)')
+	const replayState = chunks.at(-1)?.replayState
+	expect(
+		toCodexInput(
+			[
+				{
+					role: 'assistant',
+					content,
+					source: { type: 'model', ...ROUTE, replayState },
+				},
+			],
+			ROUTE,
+		),
+	).toEqual(output)
+	expect(chunks.at(-1)?.usage?.totalTokens).toBe(20)
 })

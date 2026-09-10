@@ -11,6 +11,9 @@
  *      automatic reuse is not mistaken for a durable operator preference.
  */
 
+import { discoverProviders } from '../integrations/providers/discover.js'
+import { ProviderSetup } from './ProviderSetup.js'
+import { ToolOutputViewer } from './ToolOutputViewer.js'
 import { join, relative } from 'node:path'
 import {
 	type CostInfo,
@@ -146,6 +149,7 @@ import { ResumePicker } from './ResumePicker.js'
 import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
+import { modelCatalogueView } from './model-catalogue-view.js'
 import { Transcript, willCollapse } from './Transcript.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
@@ -314,6 +318,15 @@ const FREE_TEXT_ANSWER = '__free_text__'
 
 type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?: object } & (
 	| {
+			readonly kind: 'resume-goal'
+			readonly title: string
+			readonly notice: string
+			readonly sessionId: string
+			readonly values: readonly ('resume' | 'later')[]
+			readonly options: readonly ChoicePickerOption[]
+	  }
+
+	| {
 			/**
 			 * A question the model put to the operator. `values` are option ids
 			 * plus `FREE_TEXT_ANSWER` when the model allowed an answer in the
@@ -437,6 +450,8 @@ const STREAM_RELEASE_MS = 250
 type StreamState = {
 	lastUsage?: Extract<AgentEvent, { kind: 'usage' }>
 	assistantId: string | null
+	/** Provider message boundary, independent of the parent run. */
+	sourceMessageId?: string
 	text: string
 	/** Exact provider-visible conversation state returned by the settled kernel run. */
 	conversationMessages?: readonly Message[]
@@ -564,6 +579,8 @@ export function projectConversation(
 /** A running tool tracked internally: the live row's fields plus what we need
  *  to commit it on completion (the tool name for matching, the call-time diff). */
 type RunningTool = ActiveTool & {
+	readonly activity?: 'exploration'
+	readonly taskId?: string
 	readonly runId?: string
 	readonly toolName: string
 	readonly detail?: readonly string[]
@@ -722,6 +739,7 @@ export function App({
 	const [messages, setMessages] = useState<readonly TranscriptMessage[]>([])
 	/** Plain, copy-friendly rendering of the same retained transcript rows. */
 	const [rawOutput, setRawOutput] = useState(false)
+	const [outputViewer, setOutputViewer] = useState<TranscriptMessage | null>(null)
 	/**
 	 * The conversation sent to the model, in the SDK's own lossless shape.
 	 *
@@ -1014,6 +1032,7 @@ export function App({
 		copyPickerCommittedRef.current = copyPicker
 	}, [copyPicker])
 	/** Finite slash-command choice owned synchronously until apply or cancel. */
+	const [providerSetup, setProviderSetup] = useState(false)
 	const [choicePicker, setChoicePickerState] = useState<ChoicePickerState | null>(null)
 	const choicePickerRef = useRef<ChoicePickerState | null>(null)
 	const [choiceQuery, setChoiceQuery] = useState('')
@@ -1197,6 +1216,26 @@ export function App({
 		setActiveTools([])
 	}, [])
 	const permissionResolveRef = useRef<((d: PermissionDecision) => void) | null>(null)
+	const permissionQueueRef = useRef<
+		Array<{
+			permission: PendingPermission
+			resolve: (decision: PermissionDecision) => void
+		}>
+	>([])
+	const [queuedPermissionCount, setQueuedPermissionCount] = useState(0)
+	useEffect(
+		() => () => {
+			const decision: PermissionDecision = {
+				kind: 'reject',
+				feedback: 'The approval screen closed.',
+			}
+			permissionResolveRef.current?.(decision)
+			permissionResolveRef.current = null
+			for (const pending of permissionQueueRef.current.splice(0)) pending.resolve(decision)
+		},
+		[],
+	)
+
 	/**
 	 * When the pending prompt took the screen, or `null` with none open.
 	 *
@@ -1256,6 +1295,7 @@ export function App({
 	const goalDriveInFlightRef = useRef(false)
 	const [goalDriveVersion, setGoalDriveVersion] = useState(0)
 	const [goalStatus, setGoalStatus] = useState<SessionGoal | null>(null)
+	const pendingGoalResumeRef = useRef<string | null>(null)
 	const wakeGoalDriver = useCallback(() => setGoalDriveVersion((version) => version + 1), [])
 	/**
 	 * Conversation writes in the order the operator produced them.
@@ -1456,6 +1496,7 @@ export function App({
 			detail?: readonly string[],
 			glyphColor?: string,
 			meta?: string,
+			activity?: TranscriptMessage['activity'],
 		) => {
 			const id = nextId()
 			setMessages((prev) => [
@@ -1469,6 +1510,7 @@ export function App({
 					detail,
 					glyphColor,
 					meta,
+					activity,
 					// Numbered only if this body will actually be COLLAPSED — the
 					// number exists to be read off a hint, and a body that fits
 					// prints no hint. Numbering every body instead would leave gaps
@@ -1479,7 +1521,7 @@ export function App({
 					//
 					// Derived from `prev` rather than a counter, so the number is a
 					// fact about the transcript rather than a second record of it.
-					...(willCollapse(detail)
+					...((activity && detail?.length) || willCollapse(detail)
 						? {
 								detailRef: prev.filter((m) => m.detailRef !== undefined).length + 1,
 							}
@@ -1490,6 +1532,41 @@ export function App({
 		},
 		[nextId],
 	)
+
+	const reportedAgentsRef = useRef(new Set<string>())
+	useEffect(() => {
+		reportedAgentsRef.current.clear()
+	}, [session])
+	useEffect(() => {
+		const current = session?.subagents?.getSnapshot() ?? []
+		for (const agent of subagents) {
+			if (
+				!current.some(
+					(item) =>
+						item.viewId === agent.viewId &&
+						item.workflowId === agent.workflowId &&
+						item.status === agent.status,
+				)
+			)
+				continue
+			if (!['completed', 'failed', 'cancelled'].includes(agent.status)) continue
+			if (reportedAgentsRef.current.has(agent.viewId)) continue
+			reportedAgentsRef.current.add(agent.viewId)
+			const completed = agent.status === 'completed'
+			const status = completed
+				? 'Completed'
+				: (agent.latestActivity ?? (agent.status === 'cancelled' ? 'Cancelled' : 'Failed'))
+			pushMessage(
+				'tool',
+				`${agent.description} · ${status}`,
+				false,
+				completed ? '✓' : '✗',
+				undefined,
+				completed ? theme.status.ok : theme.status.error,
+				'ctrl+t · agent details',
+			)
+		}
+	}, [subagents, pushMessage, session])
 
 	const applyPermissionMode = useCallback(
 		(mode: PermissionMode): void => {
@@ -2116,7 +2193,11 @@ export function App({
 				return
 			}
 			setChoicePicker(null)
-			if (picker.kind === 'command') {
+			if (picker.kind === 'resume-goal') {
+                if (value === 'resume' && scopeRef.current?.sessionId === picker.sessionId) commandPickerSubmitRef.current('/goal resume')
+                return
+            }
+            if (picker.kind === 'command') {
 				const command = value as CommandPickerEntry
 				if (command.problem) {
 					pushMessage('system', `Cannot run /${command.name}: ${command.problem}`)
@@ -2359,6 +2440,7 @@ export function App({
 			lastCompletedOutputRef.current = persistedOutput
 				? { text: persistedOutput, provenance: 'persisted' }
 				: null
+			pendingGoalResumeRef.current = requestedConversationId
 			initialConversationIdRef.current = undefined
 			conversationMaterializedRef.current = true
 		} else {
@@ -2498,6 +2580,7 @@ export function App({
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
 			// for the rest of the TUI's life.
+			const previousInstructionFiles = previousSessionRef.current?.instructionFiles
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
@@ -2541,7 +2624,11 @@ export function App({
 				// they did not expect — an instructions file in a parent directory
 				// they forgot about is exactly the thing that makes the agent
 				// behave oddly for no visible reason.
-				if (s.instructionFiles.length > 0) {
+				if (
+					s.instructionFiles.length > 0 &&
+					JSON.stringify([...s.instructionFiles].sort()) !==
+						JSON.stringify(previousInstructionFiles ? [...previousInstructionFiles].sort() : undefined)
+				) {
 					pushMessage(
 						'system',
 						`Project instructions: ${s.instructionFiles.map((p) => relative(activeCtx.cwd, p) || p).join(', ')}`,
@@ -2851,7 +2938,7 @@ export function App({
 					setPickerSelectionKind('signed-in-subscription')
 					setPickerInitialView('providers')
 					setPickerNotice(
-						'Claude and Codex subscriptions are already signed in on this device. Choose which one Namzu should use.',
+						'Multiple model sessions are already signed in on this device. Choose which one Namzu should use.',
 					)
 					setPhase('picker')
 					return
@@ -2932,6 +3019,12 @@ export function App({
 	// terminal scrollback; the live tail stays deliberately small so an activity
 	// tick never repaints the whole conversation.
 	//
+	useEffect(() => {
+		setOutputViewer(null)
+	}, [resetKey])
+	useEffect(() => {
+		if (permission !== null) setOutputViewer(null)
+	}, [permission])
 	// A ref, and mutated during render, because the split has to be MONOTONIC:
 	// a row that has been printed to scrollback can never come back, and `max`
 	// is idempotent, so a repeated render reaches the same answer.
@@ -2947,8 +3040,8 @@ export function App({
 	// Freeze the parent's Static floor while it is open; otherwise a parent turn
 	// settling in the background prints through the child screen. Returning
 	// advances the floor once and emits those finalized rows exactly once.
-	if (agentSurface === null) settledRef.current = window.settled
-	const renderedSettled = agentSurface === null ? window.settled : settledRef.current
+	if (agentSurface === null && outputViewer === null) settledRef.current = window.settled
+	const renderedSettled = agentSurface === null && outputViewer === null ? window.settled : settledRef.current
 
 	// One merged vocabulary for the session: this host's own commands plus
 	// whatever the kernel's registry reports. Built here so `/help`, the
@@ -3017,6 +3110,9 @@ export function App({
 		instructionFiles: session?.instructionFiles ?? [],
 		userCommands,
 		configDebug: ctx.configDebug ?? null,
+		webSearchSummary: session?.webSearchSummary,
+		columns: terminal.columns,
+		sessionId: scopeRef.current?.sessionId,
 	}
 
 	// `/resume`: open the picker with this folder's recent conversations.
@@ -3066,6 +3162,18 @@ export function App({
 				setState('thinking')
 				resolve(decision)
 			}
+			if (decision.kind === 'approve-all') {
+				for (const pending of permissionQueueRef.current.splice(0)) pending.resolve(decision)
+			}
+			const next = permissionQueueRef.current.shift()
+			setQueuedPermissionCount(permissionQueueRef.current.length)
+			if (next) {
+				permissionResolveRef.current = next.resolve
+				permissionOpenedAtRef.current = Date.now()
+				setPermissionDetailsOpen(!next.permission.summary.complete)
+				setPermission(next.permission)
+				setState('awaiting-permission')
+			}
 		},
 		[setPermissionDetailsOpen, setPermissionReviewOffset],
 	)
@@ -3090,6 +3198,10 @@ export function App({
 	 */
 	const interruptTurn = useCallback((): boolean => {
 		const cancelledSwitch = cancelPendingModelSwitch()
+		for (const pending of permissionQueueRef.current.splice(0)) {
+			pending.resolve({ kind: 'reject', feedback: 'User interrupted.' })
+		}
+		setQueuedPermissionCount(0)
 		if (permissionResolveRef.current)
 			resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
 		const ac = abortRef.current
@@ -3212,6 +3324,7 @@ export function App({
 			lastCompletedOutputRef.current = persistedOutput
 				? { text: persistedOutput, provenance: 'persisted' }
 				: null
+			pendingGoalResumeRef.current = conv.id
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
 			conversationMaterializedRef.current = true
 			pushMessage('system', `Resumed: ${conv.title}`)
@@ -3716,6 +3829,14 @@ export function App({
 			}
 			const summary = buildPermissionSummary(review.text)
 			return new Promise<PermissionDecision>((resolve) => {
+				if (permissionResolveRef.current) {
+					permissionQueueRef.current.push({
+						permission: { ...req, review: review.text, summary },
+						resolve,
+					})
+					setQueuedPermissionCount(permissionQueueRef.current.length)
+					return
+				}
 				permissionResolveRef.current = resolve
 				permissionOpenedAtRef.current = Date.now()
 				setPermissionReviewOffset(0)
@@ -3803,6 +3924,10 @@ export function App({
 			}
 			switch (event.kind) {
 				case 'delta': {
+					if (event.messageId && st.sourceMessageId !== event.messageId) {
+						if (st.sourceMessageId !== undefined) closeAssistant()
+						st.sourceMessageId = event.messageId
+					}
 					setState('thinking')
 					if (event.messageId && event.runId && st.sessionId) {
 						lastAssistantMessage.current = {
@@ -3846,11 +3971,23 @@ export function App({
 					closeAssistant()
 					setThinking(null)
 					setState('tool')
+					const waitingAgent =
+						event.toolName === 'wait_for_task' && event.taskId
+							? subagentsRef.current.find(
+									(agent) =>
+										agent.taskId === event.taskId &&
+										(event.runId === undefined || agent.workflowId === event.runId),
+								)
+							: undefined
 					const tool: RunningTool = {
+						...(waitingAgent ? { taskId: waitingAgent.taskId } : {}),
 						id: event.toolUseId,
 						...(event.runId ? { runId: event.runId } : {}),
 						toolName: event.toolName,
-						label: formatToolCall(event.toolName, event.summary, event.standalone),
+						activity: event.activity,
+						label: waitingAgent
+							? `Waiting · ${waitingAgent.description}`
+							: formatToolCall(event.toolName, event.summary, event.standalone),
 						startedAt: Date.now(),
 						detail: event.detail,
 					}
@@ -3899,6 +4036,16 @@ export function App({
 						activeToolsRef.current = [...running.slice(0, i), ...running.slice(i + 1)]
 						setActiveTools(activeToolsRef.current)
 					}
+					// Lifecycle updates own completion rows, even when the model never waits.
+					// Keep unknown waits and errors visible; never hide an unrepresented task.
+					const inspectableWait = done?.taskId && subagentsRef.current.some((agent) =>
+						agent.taskId === done.taskId &&
+						(event.runId === undefined || agent.workflowId === event.runId) &&
+						agent.transcript.some((row) => row.kind === 'assistant' && row.text.trim().length > 0))
+					if (!event.isError && inspectableWait && event.toolName === 'wait_for_task') {
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
 					const representedSuccessfulAgent =
 						!event.isError &&
 						event.toolName.toLowerCase() === 'agent' &&
@@ -3912,6 +4059,24 @@ export function App({
 						// start through settlement. Re-emitting its internal Agent call as
 						// a transcript tool row after the panel closes is duplicate protocol,
 						// not useful history. Failures remain durable transcript rows.
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
+					if (!event.isError && done?.activity === 'exploration') {
+						// Preserve the result, including the summary removed from detail by the adapter.
+						const output = event.output !== undefined
+							? event.output.split('\n')
+							: [...(event.summary ? [event.summary] : []), ...(event.detail ?? [])]
+						pushMessage('tool', done.label, false, '└', output,
+							theme.text.muted, output.length > 0 ? 'ctrl+o output' : undefined, 'exploration')
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
+					const catalogue = !event.isError && event.toolName === 'agent_models' && event.output !== undefined
+						? modelCatalogueView(event.output) : undefined
+					if (catalogue !== undefined) {
+						pushMessage('tool', catalogue, false, '✓', event.output?.split('\n'),
+							theme.status.ok, 'ctrl+o details', 'catalogue')
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}
@@ -4580,6 +4745,10 @@ export function App({
 					// around it are decoration too.
 					abortRef.current = null
 					if (ownsTurn) activeTurnTokenRef.current = null
+					permissionResolveRef.current?.({ kind: 'reject', feedback: 'The owning turn ended.' })
+					for (const pending of permissionQueueRef.current.splice(0))
+						pending.resolve({ kind: 'reject', feedback: 'The owning turn ended.' })
+					setQueuedPermissionCount(0)
 					permissionResolveRef.current = null
 					permissionOpenedAtRef.current = null
 					setPermission(null)
@@ -4981,7 +5150,15 @@ export function App({
 			if (slash) {
 				switch (slash.kind) {
 					case 'message':
-						pushMessage(slash.role, slash.content)
+						if (slash.statusRows) {
+							setMessages((previous) => [...previous, {
+								id: nextId(),
+								role: slash.role,
+								content: slash.content,
+								statusRows: slash.statusRows,
+							}])
+						}
+						else pushMessage(slash.role, slash.content)
 						return
 					case 'command-picker': {
 						if (slash.commands.length === 0) {
@@ -5014,6 +5191,10 @@ export function App({
 						}
 						return
 					}
+					case 'provider-setup':
+						if (state !== 'idle' || permission || choicePickerRef.current) { pushMessage('system', 'Provider setup is available once the active turn and prompts finish.'); return }
+						setProviderSetup(true)
+						return
 					case 'settings-picker': {
 						const commands: (CommandPickerEntry & { label: string })[] = [
 							{
@@ -5035,16 +5216,22 @@ export function App({
 								description: `${permissionModeLabel(effectivePermissionMode(permissionModeRef.current, session?.approvalLatched() ?? false))} · this session.`,
 							},
 							{
-								name: 'status config',
-								label: 'Configuration',
+								name: 'status',
+								label: 'Web & session',
+								description: `${session?.webSearchSummary ?? 'Not resolved'} · view tools, workspace and usage.`,
+							},
+							{ name: 'setup', label: 'Provider setup', description: 'Check installed CLIs and access; connect or install without leaving Namzu.' },
+							{
+								name: 'config sources',
+								label: 'Setting sources',
 								description: 'Show which configuration files and overrides are in use.',
 							},
 						]
 						setSelectedChoice(0)
 						setChoicePicker({
 							kind: 'command',
-							title: 'Settings',
-							notice: 'Select a setting to view or change it.',
+							title: 'Configuration',
+							notice: 'Model, reasoning and permission changes apply to this session.',
 							values: commands,
 							options: commands.map((command) => ({
 								label: command.label,
@@ -5906,6 +6093,19 @@ export function App({
 					return
 				}
 				setGoalStatus(goal)
+				if (pendingGoalResumeRef.current === sessionId && phase === 'ready' && !choicePickerRef.current) {
+					pendingGoalResumeRef.current = null
+					if (goal && (goal.phase === 'active' || goal.phase === 'paused')) {
+						setSelectedChoice(0)
+						setChoicePicker({ kind: 'resume-goal', title: 'Continue the saved goal?',
+							notice: goal.objective, sessionId, values: ['resume', 'later'],
+							options: [
+								{ label: 'Resume goal', description: 'Continue automatic work toward this objective.' },
+								{ label: 'Not now', description: 'Keep automatic work stopped; resume later with /goal resume.' },
+							],
+						})
+					}
+				}
 			})
 			.catch(() => {
 				if (!disposed && conversationGenRef.current === generation) setGoalStatus(null)
@@ -5913,7 +6113,7 @@ export function App({
 		return () => {
 			disposed = true
 		}
-	}, [goalDriveVersion, phase, session])
+	}, [goalDriveVersion, phase, session, setChoicePicker])
 
 	// Admit automatic work only at a whole-App durable boundary. This effect
 	// reserves; it never starts a turn itself. The one queue pump below remains
@@ -6219,6 +6419,7 @@ export function App({
 
 	useInput(
 		(input, key) => {
+			if (outputViewer !== null) return
 			// Startup has refused admission, so there is no draft or active turn to
 			// protect with the ready screen's two-press exit ladder.
 			if (phase === 'unhealthy') {
@@ -6340,9 +6541,9 @@ export function App({
 				if (permission && (key.pageUp || key.pageDown || key.home || key.end)) {
 					const source = permissionDetailsOpenRef.current
 						? permission.review
-						: permission.summary.text
+						: (permission.summary.compactText ?? permission.summary.text)
 					const count = permissionReviewRows(source, terminal.columns).length
-					const pageRows = permissionReviewPageRows(terminal.rows)
+					const pageRows = Math.max(1, permissionReviewPageRows(terminal.rows) - (permission.runId ? 1 : 0))
 					const maxOffset = Math.max(0, count - pageRows)
 					const current = Math.min(permissionReviewOffsetRef.current, maxOffset)
 					const next = key.home
@@ -6358,8 +6559,7 @@ export function App({
 				// Refusing is never deferred or gated — it is the direction a
 				// mistake is recoverable in, so it answers on the first press.
 				if (key.ctrl && input === 'c') {
-					resolvePermission({ kind: 'reject', feedback: 'User interrupted.' })
-					abortRef.current?.abort(new RunCancelled('user'))
+					interruptTurn()
 					return
 				}
 				if (ch === 'n' || key.escape) {
@@ -6709,65 +6909,25 @@ export function App({
 				pushMessage('system', 'Interrupted.')
 				return
 			}
-			// Ctrl+O expands the collapsed bodies that are still redrawable.
-			//
-			// It was advertised — on every collapsed body — as toggling full
-			// expansion for everything, and in that use it did nothing: finalized
-			// rows went through `<Static>`, which renders `items.slice(index)` and
-			// calls the render function only for items it has not emitted yet, so
-			// output already on screen was beyond its reach. Measured, with a
-			// twelve-line body up: pressing it produced one further frame whose
-			// transcript region was byte-identical to the one before.
-			//
-			// The rows at the end of the transcript are now drawn live rather than
-			// printed once, so for those the key does what it always claimed —
-			// flipping the flag re-renders the row where it already is. It reaches
-			// exactly as far back as the window does, and says so when that is
-			// nowhere. It does not quietly fall back to appending a copy: `/expand`
-			// is that, deliberately and visibly, and a key that sometimes redraws
-			// in place and sometimes prints a second copy further down would be two
-			// commands wearing one name.
+			// Small expansions stay in place. Older or oversized bodies open a viewer.
 			if (key.ctrl && input === 'o') {
-				// Taken outside the updater so both branches use the same one.
-				const id = nextId()
-				setMessages((prev) => {
-					const live = prev.filter((m) => !m.pending).slice(settledRef.current)
-					const collapsible = live.filter((m) => willCollapse(m.detail))
-					if (collapsible.length === 0) {
-						// Nothing redrawable is collapsed, so this reprints the most recent
-						// collapsed body as a new row — the rows above have been printed
-						// to the terminal's own scrollback, which cannot be rewritten.
-						const blocks = prev.filter((m) => m.detailRef !== undefined)
-						const block = blocks[blocks.length - 1]
-						if (!block) {
-							return [
-								...prev,
-								{
-									id,
-									role: 'system' as const,
-									content:
-										'Nothing to expand yet. Tool output longer than six lines collapses with a "… +N lines · ctrl+o" hint; Ctrl+O opens it in place while it is still on screen, and reprints the most recent one in full once it has scrolled away.',
-								},
-							]
-						}
-						return [
-							...prev,
-							{
-								id,
-								role: 'system' as const,
-								content: `${block.content} — in full (${block.detail?.length ?? 0} lines)`,
-								glyph: '⤢',
-								detail: block.detail,
-								detailExpanded: true,
-							},
-						]
-					}
-					// Expanded unless they are all open already, in which case this
-					// closes them again — the toggle it was always described as.
-					const expanding = collapsible.some((m) => m.detailExpanded !== true)
-					const ids = new Set(collapsible.map((m) => m.id))
-					return prev.map((m) => (ids.has(m.id) ? { ...m, detailExpanded: expanding } : m))
-				})
+				const live = messages.filter((m) => !m.pending).slice(settledRef.current)
+				const collapsible = live.filter((m) => (m.activity && (m.detail?.length ?? 0) > 0) || willCollapse(m.detail))
+				const blocks = messages.filter((m) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0)
+				const block = collapsible.at(-1) ?? blocks.at(-1)
+				if (!block) {
+					pushMessage('system', 'Nothing to expand yet. Ctrl+O opens retained tool output when available.')
+					return
+				}
+				const expanding = collapsible.some((m) => m.detailExpanded !== true)
+				const ids = new Set(collapsible.map((m) => m.id))
+				const proposed = messages.map((m) => ids.has(m.id) ? { ...m, detailExpanded: expanding } : m)
+				const projected = liveWindow({ messages: proposed.filter((m) => !m.pending), rows: terminal.rows,
+					columns: terminal.columns, furnitureRows: LIVE_FURNITURE_ROWS + taskFurniture + toolFurniture,
+					settled: settledRef.current, raw: rawOutput })
+				if (collapsible.length === 0 || (expanding && projected.settled > settledRef.current)) {
+					setOutputViewer(block)
+				} else setMessages(proposed)
 				return
 			}
 			if (key.ctrl && input === 'c') {
@@ -6792,7 +6952,7 @@ export function App({
 		// Active on every phase. It was gated off during the picker, which is what
 		// left that screen without a usable exit; the picker branch above returns
 		// immediately, so the Picker still owns everything except Ctrl+C.
-		{ isActive: externalEditorRequest === null },
+		{ isActive: externalEditorRequest === null && !providerSetup },
 	)
 
 	// Background is left natural — we inherit the terminal's own background
@@ -6818,10 +6978,15 @@ export function App({
 				? representedSubagentTools.has(JSON.stringify([tool.runId, tool.id]))
 				: representedUnscopedSubagentToolUseIds.has(tool.id)),
 	)
+	const outputBlocks = outputViewer
+		? messages.filter((m) => m.detailRef !== undefined && (m.detail?.length ?? 0) > 0)
+		: []
+	const outputIndex = outputBlocks.findIndex((m) => m.id === outputViewer?.id)
 	const selectedSubagent = agentSurface
 		? subagents.find((agent) => agent.viewId === agentSurface.selectedId)
 		: undefined
 	const lifecycleOwnsViewport =
+		outputViewer !== null ||
 		phase === 'trust' ||
 		phase === 'resume' ||
 		phase === 'edit' ||
@@ -6837,7 +7002,7 @@ export function App({
 		choicePicker === null &&
 		copyPicker === null &&
 		agentSurface === null
-			? goalStatusLabel(goalStatus)
+			? goalStatusLabel(goalStatus, goalStatus ? goalActivation.isArmed(goalStatus.sessionId, goalStatus) : false)
 			: null
 	const statusHint =
 		conversationMutation === 'fork'
@@ -6876,6 +7041,12 @@ export function App({
 																session?.hasProvider === true,
 																composerHasDraft,
 															)
+	const permissionOwner = permission?.runId
+		? subagents.find((agent) => agent.runId === permission.runId)
+		: undefined
+	const permissionSourceLabel = permission?.runId
+		? permissionOwner ? `Agent: ${permissionOwner.description}` : `Run: ${permission.runId}`
+		: undefined
 	const displayedPermissionMode = effectivePermissionMode(
 		permissionMode,
 		session?.approvalLatched() ?? false,
@@ -6905,7 +7076,20 @@ export function App({
 						}
 					/>
 				</TranscriptFrame>
-				{phase === 'trust' ? (
+				{providerSetup ? (
+					<ProviderSetup
+						cwd={ctx.cwd}
+						onClose={() => setProviderSetup(false)}
+						onConnect={() => {
+							setProviderSetup(false)
+							setPickerInitialView('providers')
+							setPickerDetected(null)
+							setPickerSelectionKind('provider-and-model')
+							setPhase('picker')
+							void discoverProviders({ skipProbes: true }).then(setPickerDetected).catch((error) => setPickerNotice(String(error)))
+						}}
+					/>
+				) : phase === 'trust' ? (
 					<TrustPrompt cwd={ctx.cwd} />
 				) : phase === 'unhealthy' ? (
 					<Box flexDirection="column" marginTop={1}>
@@ -6927,6 +7111,7 @@ export function App({
 						initialView={pickerInitialView}
 						onSubmit={handlePickerSubmit}
 						onCancel={handlePickerCancel}
+						onSetup={() => setProviderSetup(true)}
 						onCredential={handleTypedCredential}
 						onLogin={startLoginFromPicker}
 						onLoginComplete={finishLoginFromPicker}
@@ -6939,7 +7124,7 @@ export function App({
 						    scrollback, while activity and input follow the visible tail directly.
 						    A viewport-height blank box here creates dead space and makes resize
 						    depend on an estimate of rows Ink has already rendered. */}
-						{agentSurface === null ? (
+						{agentSurface === null && outputViewer === null ? (
 							<LiveActivity
 								compact={compactWork}
 								activeTools={visibleActiveTools}
@@ -6952,7 +7137,7 @@ export function App({
 						{/* The plan for this request, kept current as the model works.
 						    A sibling of the activity rows, not a mode: the composer
 						    below stays mounted and usable while it is up. */}
-						{agentSurface === null && permission === null ? (
+						{agentSurface === null && outputViewer === null && permission === null ? (
 							<TaskList tasks={tasks} compact={compactWork} />
 						) : null}
 						{/* Siblings, not a ternary. The overlay used to REPLACE the
@@ -6970,6 +7155,8 @@ export function App({
 								detailsOpen={permissionDetailsOpen}
 								reviewOffset={permissionReviewOffset}
 								choice={permissionChoice}
+								queuedCount={queuedPermissionCount}
+								sourceLabel={permissionSourceLabel}
 								columns={terminal.columns}
 								rows={terminal.rows}
 							/>
@@ -6982,11 +7169,11 @@ export function App({
 								placeholder={textPrompt.placeholder}
 								initialValue={textPrompt.initialValue}
 								emptyNotice={textPrompt.emptyNotice}
-								hidden={permission !== null || agentSurface !== null}
+								hidden={permission !== null || (agentSurface !== null || outputViewer !== null)}
 								onSubmit={submitTextPrompt}
 								onCancel={cancelTextPrompt}
 							/>
-						) : permission === null && agentSurface === null && choicePicker ? (
+						) : permission === null && agentSurface === null && outputViewer === null && choicePicker ? (
 							<ChoicePicker
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								title={choicePicker.title}
@@ -6996,7 +7183,7 @@ export function App({
 								selected={selectedChoice}
 								windowSize={choicePicker.kind === 'command' ? choicePicker.windowSize : undefined}
 							/>
-						) : permission === null && agentSurface === null && copyPicker ? (
+						) : permission === null && agentSurface === null && outputViewer === null && copyPicker ? (
 							<CopyPicker targets={copyPicker.targets} selected={selectedCopy} />
 						) : null}
 						<ComposerFrame
@@ -7010,14 +7197,14 @@ export function App({
 								textPrompt === null &&
 								choicePicker === null &&
 								copyPicker === null &&
-								agentSurface === null
+								agentSurface === null && outputViewer === null
 							}
 							hidden={
 								permission !== null ||
 								textPrompt !== null ||
 								choicePicker !== null ||
 								copyPicker !== null ||
-								agentSurface?.kind === 'transcript'
+								(agentSurface !== null || outputViewer !== null)
 							}
 						>
 							{pendingSteers.length > 0 &&
@@ -7025,7 +7212,7 @@ export function App({
 							textPrompt === null &&
 							choicePicker === null &&
 							copyPicker === null &&
-							agentSurface === null ? (
+							agentSurface === null && outputViewer === null ? (
 								<Box paddingX={1}>
 									<Text color={theme.accent.user}>
 										↳ {pendingSteers.length} message
@@ -7039,7 +7226,7 @@ export function App({
 							textPrompt === null &&
 							choicePicker === null &&
 							copyPicker === null &&
-							agentSurface === null ? (
+							agentSurface === null && outputViewer === null ? (
 								<Box paddingX={1}>
 									<Text color={theme.text.muted}>
 										{queuePause ? '⏸' : '⏎'} {queued.length} message
@@ -7057,19 +7244,20 @@ export function App({
 								permissionMode={displayedPermissionMode}
 								onCycleMode={cyclePermissionMode}
 								disabled={
+									outputViewer !== null ||
 									phase !== 'ready' ||
 									state === 'awaiting-permission' ||
 									compacting ||
 									conversationMutation !== null ||
 									externalEditorRequest !== null ||
-									agentSurface !== null
+									(agentSurface !== null || outputViewer !== null)
 								}
 								hidden={
 									permission !== null ||
 									textPrompt !== null ||
 									choicePicker !== null ||
 									copyPicker !== null ||
-									agentSurface?.kind === 'transcript'
+									(agentSurface !== null || outputViewer !== null)
 								}
 								// A turn is running, so Esc is the interrupt and not
 								// the composer's clear.
@@ -7097,7 +7285,7 @@ export function App({
 								history={history}
 							/>
 						</ComposerFrame>
-						{permission === null && agentSurface === null && liveSubagents.length > 0 ? (
+						{permission === null && agentSurface === null && outputViewer === null && liveSubagents.length > 0 ? (
 							<AgentTaskPanel
 								agents={liveSubagents}
 								terminalRows={terminal.rows}
@@ -7122,6 +7310,23 @@ export function App({
 						) : null}
 					</>
 				)}
+				{outputViewer && permission === null ? (
+					<ToolOutputViewer
+						key={outputViewer.id}
+						onPrevious={() => {
+							if (outputIndex > 0) setOutputViewer(outputBlocks[outputIndex - 1]!)
+						}}
+						onNext={() => {
+							if (outputIndex >= 0 && outputIndex + 1 < outputBlocks.length)
+								setOutputViewer(outputBlocks[outputIndex + 1]!)
+						}}
+						title={outputViewer.content}
+						lines={outputViewer.detail ?? []}
+						rows={terminal.rows}
+						columns={terminal.columns}
+						onClose={() => setOutputViewer(null)}
+					/>
+				) : null}
 				<Box paddingTop={1}>
 					<StatusBar
 						cwd={ctx.cwd}
@@ -7201,11 +7406,11 @@ function hintForPhase(
 	return ''
 }
 
-function goalStatusLabel(goal: SessionGoal | null): string | null {
+function goalStatusLabel(goal: SessionGoal | null, armed: boolean): string | null {
 	if (!goal) return null
 	switch (goal.phase) {
 		case 'active':
-			return 'Pursuing goal'
+			return armed ? 'Pursuing goal' : 'Goal paused (/goal resume)'
 		case 'paused':
 			return 'Goal paused (/goal resume)'
 		case 'blocked':

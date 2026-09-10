@@ -68,6 +68,12 @@ const AGENT_RESULT = {
 }
 
 export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
+	hosted_tool: () => ({
+		type: 'hosted_tool',
+		runId: FIXTURE_RUN_ID,
+		iteration: 1,
+		tool: { id: 'search-1', name: 'web_search', status: 'completed' },
+	}),
 	tool_calls_admitted: () => ({
 		type: 'tool_calls_admitted',
 		runId: FIXTURE_RUN_ID,
@@ -77,7 +83,11 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		limit: 5,
 	}),
 	run_started: () => ({ type: 'run_started', runId: FIXTURE_RUN_ID }),
-	iteration_started: () => ({ type: 'iteration_started', runId: FIXTURE_RUN_ID, iteration: 1 }),
+	iteration_started: () => ({
+		type: 'iteration_started',
+		runId: FIXTURE_RUN_ID,
+		iteration: 1,
+	}),
 	approval_policy_changed: () => ({
 		type: 'approval_policy_changed',
 		runId: FIXTURE_RUN_ID,
@@ -242,7 +252,11 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		stage: 'input',
 		action: 'block',
 	}),
-	run_completed: () => ({ type: 'run_completed', runId: FIXTURE_RUN_ID, result: 'x' }),
+	run_completed: () => ({
+		type: 'run_completed',
+		runId: FIXTURE_RUN_ID,
+		result: 'x',
+	}),
 	run_failed: () => ({
 		type: 'run_failed',
 		runId: FIXTURE_RUN_ID,
@@ -314,7 +328,11 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		runId: FIXTURE_RUN_ID,
 		planId: 'pln_wire' as PlanId,
 	}),
-	plan_failed: () => ({ type: 'plan_failed', runId: FIXTURE_RUN_ID, planId: 'pln_wire' as PlanId }),
+	plan_failed: () => ({
+		type: 'plan_failed',
+		runId: FIXTURE_RUN_ID,
+		planId: 'pln_wire' as PlanId,
+	}),
 	agent_pending: () => ({
 		type: 'agent_pending',
 		runId: FIXTURE_RUN_ID,

@@ -3,6 +3,12 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
+import type {
+	PluginHookContext,
+	PluginHookEvent,
+	PluginModelRequest,
+} from '../../../types/plugin/index.js'
+import { snapshotRequestContext } from '../request-context.js'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
@@ -21,6 +27,7 @@ import { drainQuery } from '../index.js'
 import {
 	DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 	projectRequestRichContent,
+	projectRequestWithoutImage,
 } from '../request-rich-content.js'
 
 registerMock()
@@ -68,6 +75,44 @@ async function run(opts: {
 }
 
 describe('the request-only rich-content projection', () => {
+	it.each(['budget', 'provider-rejected', 'invalid-image', 'retry'] as const)(
+		'preserves action evidence while making %s content loss explicit',
+		(reason) => {
+			const image = {
+				type: 'image' as const,
+				data: 'AAAA',
+				mediaType: 'image/png',
+				...(reason === 'provider-rejected' || reason === 'invalid-image'
+					? { modelOmission: { reason } }
+					: {}),
+			}
+			const result: ToolMessage = {
+				role: 'tool',
+				toolCallId: 'click-submit',
+				content: [{ type: 'text', text: 'Form submitted successfully.' }, image],
+			}
+			const history: Message[] = [result]
+			const original = structuredClone(history)
+			const projected =
+				reason === 'retry'
+					? projectRequestWithoutImage(history, image)
+					: projectRequestRichContent(history, reason === 'budget' ? 1 : 0)
+			const sent = projected[0] as ToolMessage
+			expect(sent.toolCallId).toBe('click-submit')
+			expect(sent.content).toEqual([
+				{ type: 'text', text: 'Form submitted successfully.' },
+				{
+					type: 'text',
+					text: expect.stringContaining('not available in the current model request'),
+				},
+			])
+			expect(JSON.stringify(sent.content)).toContain('Do not repeat a state-changing action')
+			expect(history).toEqual(original)
+			// Request-local budget eviction is reversible without rerunning the tool.
+			if (reason === 'budget') expect(projectRequestRichContent(history, 4)).toBe(history)
+		},
+	)
+
 	it('uses an admission-specific marker while retaining invalid bytes in durable history', () => {
 		const invalid = {
 			role: 'tool',
@@ -163,6 +208,7 @@ describe('one accumulated budget covers user and tool rich content', () => {
 		const first = 'A'.repeat(8)
 		const second = 'B'.repeat(8)
 		const pending = [first, second]
+		const requests: PluginModelRequest[] = []
 		const tools = new ToolRegistry()
 		tools.register(
 			defineTool({
@@ -201,9 +247,25 @@ describe('one accumulated budget covers user and tool rich content', () => {
 			tools,
 			messages: [{ role: 'user', content: 'capture twice' }],
 			runConfig: { maxRequestRichContentBytes: 10 },
+			pluginManager: {
+				executeHooks: async (event: PluginHookEvent, ctx: PluginHookContext) => {
+					if (event === 'pre_llm_call' && ctx.request) requests.push(ctx.request)
+					return []
+				},
+			} as unknown as PluginLifecycleManager,
 		})
 
 		expect(provider.requests).toHaveLength(3)
+		for (const [index, request] of requests.entries()) {
+			expect(request.context?.snapshot).toEqual(
+				snapshotRequestContext(provider.requests[index]!.messages),
+			)
+		}
+		expect(requests).toHaveLength(3)
+		expect(requests[0]?.context?.change).toBeUndefined()
+		expect(requests[2]?.context?.change?.removed).toContainEqual(
+			expect.objectContaining({ kind: 'image', toolCallId: 'call_first' }),
+		)
 		const sentTools = provider.requests[2]?.messages.filter(
 			(message): message is ToolMessage => message.role === 'tool',
 		)

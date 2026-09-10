@@ -125,3 +125,23 @@ describe('a sub-agent resolves its provider independently', () => {
 		vi.restoreAllMocks()
 	})
 })
+
+it('presents hosted search as a single activity label without a repeated success body', () => {
+	const event: RunEvent = {
+		type: 'hosted_tool',
+		runId: fallbackEvent().runId,
+		iteration: 1,
+		tool: { id: 'search-1', name: 'web_search', status: 'running' },
+	}
+	expect(toAgentEvent(event, presenter)).toMatchObject({
+		kind: 'tool-start',
+		summary: 'Web search',
+		standalone: true,
+	})
+	expect(
+		toAgentEvent({ ...event, tool: { ...event.tool, status: 'completed' } }, presenter),
+	).toMatchObject({ kind: 'tool-end', summary: '', isError: false })
+	expect(
+		toAgentEvent({ ...event, tool: { ...event.tool, status: 'failed' } }, presenter),
+	).toMatchObject({ kind: 'tool-end', summary: 'Provider-hosted search failed', isError: true })
+})

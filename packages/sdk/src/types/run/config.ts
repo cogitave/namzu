@@ -65,6 +65,8 @@ export interface AgentRunConfig {
 	 * high-effort and silently was not is worse than a startup error.
 	 */
 	effort?: import('../provider/index.js').ReasoningEffort
+	/** Provider-hosted search for this run. Explicit opt-in; no local network permission. */
+	webSearch?: import('../provider/index.js').ChatCompletionParams['webSearch']
 	tokenBudget: number
 	costLimitUsd?: number
 	maxIterations?: number

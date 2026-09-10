@@ -9,6 +9,7 @@
 export type ProviderId =
 	| 'anthropic'
 	| 'codex'
+	| 'google'
 	| 'openai'
 	| 'openrouter'
 	| 'zen'
@@ -113,6 +114,16 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 			subscriptionLogin: 'device',
 			constructible: true,
 			driverPackage: '@namzu/openai',
+		},
+		google: {
+			id: 'google',
+			label: 'Google (Gemini)',
+			envVars: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
+			defaultModel: 'gemini-2.5-flash',
+			requiresApiKey: true,
+			acceptsTypedCredential: true,
+			constructible: true,
+			driverPackage: '@namzu/google',
 		},
 		openai: {
 			id: 'openai',

@@ -48,6 +48,8 @@ const MAPPING: {
 } = {
 	// Internal cumulative admission ledger, not a public UI event.
 	tool_calls_admitted: null,
+	// Hosted activity is retained in the run log; A2A exposes the resulting answer.
+	hosted_tool: null,
 	run_started: (e, ctx) => statusEvent(e.runId, 'running', false, ctx),
 
 	run_completed: (e, ctx) => {

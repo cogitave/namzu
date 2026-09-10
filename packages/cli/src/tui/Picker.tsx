@@ -58,6 +58,7 @@ export interface PickerProps {
 	readonly currentModel?: string | null
 	readonly onSubmit: (selection: { provider: string; model?: string }, signal: AbortSignal) => void
 	readonly onCancel: () => void
+	readonly onSetup?: () => void
 	/**
 	 * Seam for tests: how the picker asks a provider what it has.
 	 *
@@ -198,6 +199,7 @@ export function Picker({
 	initialView = 'providers',
 	onSubmit,
 	onCancel,
+	onSetup,
 	describeModels = describeProviderModels,
 	onCredential,
 	onLogin,
@@ -521,6 +523,8 @@ export function Picker({
 			return
 		}
 
+		if (!modelPhase && !loginPhase && input === 's' && onSetup) { invalidateOperation(); onSetup(); return }
+
 		if (
 			modelPhase === null &&
 			(detected.length === 0 || keyEntryFor) &&
@@ -771,9 +775,9 @@ export function Picker({
 
 	// Above every screen this picker draws, so the reason is on the same frame as
 	// the choice it is asking for.
-	const noticeBox = notice ? (
+	const noticeBox = notice || onSetup ? (
 		<Box paddingBottom={1}>
-			<Text color={theme.status.warn}>{notice}</Text>
+			<Box flexDirection="column">{notice ? <Text color={theme.status.warn}>{notice}</Text> : null}{onSetup && !modelPhase && !loginPhase && !loginEntry && !keyEntry ? <Text dimColor>s provider setup · check installations and access</Text> : null}</Box>
 		</Box>
 	) : null
 
@@ -906,7 +910,7 @@ export function Picker({
 				<Text color={theme.text.muted}>
 					{existingCount > 0
 						? 'Reuse a signed-in device session, or start a separate Namzu-owned sign-in.'
-						: 'No usable Claude or Codex device session was found. Start a new subscription sign-in.'}
+						: 'No usable model session was found on this device. Start a new subscription sign-in.'}
 				</Text>
 				<Box flexDirection="column" paddingTop={1}>
 					{choices.map((choice, index) => (
@@ -1229,6 +1233,8 @@ function describeSource(d: DetectedProvider): string {
 			return `keychain · ${d.source.service}`
 		case 'claude-file':
 			return 'Claude session · this device'
+		case 'gemini-file':
+			return 'Gemini session · this device'
 		case 'codex-file':
 			return 'Codex session · this device'
 		case 'stored':

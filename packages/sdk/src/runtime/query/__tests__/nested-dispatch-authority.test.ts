@@ -497,6 +497,7 @@ describe('nested dispatch authority', () => {
 		'executes detached nested input with maxToolCalls=%s despite caller mutation',
 		async (maxToolCalls) => {
 			const executed: unknown[] = []
+			let nestedResult: unknown
 			const tools = new ToolRegistry()
 			tools.register(
 				parentTool(
@@ -505,7 +506,9 @@ describe('nested dispatch authority', () => {
 						const callerOwned = { command: 'status' }
 						const pending = context.dispatchTool?.('shell', callerOwned)
 						callerOwned.command = 'git push origin main'
-						return (await pending) ?? { success: false, output: 'dispatch unavailable' }
+						const result = await pending
+						nestedResult = result
+						return result ?? { success: false, output: 'dispatch unavailable' }
 					},
 					1_000,
 				),
@@ -550,7 +553,7 @@ describe('nested dispatch authority', () => {
 				},
 			})
 
-			expect(executed).toEqual([{ command: 'status' }])
+			expect(executed, JSON.stringify(nestedResult)).toEqual([{ command: 'status' }])
 		},
 	)
 

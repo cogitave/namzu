@@ -133,3 +133,28 @@ provider, token allowance, task state and tool access. Report correctness first,
 then model requests, tool calls, tokens, cost and elapsed time. Deterministic
 regressions verify contracts; model-backed comparisons are needed to establish
 whether those contracts improve task outcomes.
+
+## Steering and completion boundaries (2026-09-09)
+
+Compared the [Codex multi-agent tool contract](https://github.com/openai/codex/blob/17e64839eb1e30632eef4a0147862345fccb61cc/codex-rs/core/src/tools/handlers/multi_agents_spec.rs),
+[Pydantic AI deferred-tool events](https://pydantic.dev/docs/ai/tools-toolsets/deferred-tools/),
+and the [Pydantic harness delegate implementation](https://github.com/pydantic/pydantic-ai-harness/blob/8e863b5b88c9e41e638f0dc416b8946135b584b7/pydantic_ai_harness/subagents/_toolset.py).
+Codex distinguishes mailbox arrival, operator interruption and timeout; Pydantic
+separates deferred request/result events from their frontend presentation. Its
+harness delegates a self-contained task in an isolated run. These are useful
+contracts, not evidence that another product has no race conditions.
+
+A local Namzu transcript showed two distinct tasks, not duplicate execution:
+the first blocking CLI review yielded on operator input; the next requested
+agent was the SDK review, which was declined. Later, separate assistant message
+IDs carried an in-progress answer and a completion follow-up. The TUI appended
+both to one bubble, losing even the whitespace between answers. Completion was
+delivered; the visible history failed to preserve the message boundary.
+
+Repairs preserve provider message IDs as UI boundaries and name the task in
+released-wait receipts. Tool guidance explains parallel launch versus sequential
+blocking calls and prioritizes an operator question before further tool calls.
+This guidance cannot guarantee a model's next action. Screen regression tests
+check two separate answers and retained trailing text; scheduler tests check
+that steering leaves the same children running with identifiable receipts.
+No claim of improved model success rate is made from these deterministic tests.

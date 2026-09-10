@@ -381,6 +381,7 @@ describe('the notification says which task and what it produced', () => {
 		task.result.stopReason = 'token_budget'
 		const text = formatCompletionNotification([task])
 		expect(text).toContain('stop_reason: token_budget')
+		expect(text).toContain('outcome: incomplete')
 		expect(text).toContain('Partial findings remain useful.')
 	})
 

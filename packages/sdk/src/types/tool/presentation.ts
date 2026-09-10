@@ -22,6 +22,8 @@ export type ToolCallView =
 			readonly label: string
 			/** Render this complete authored label without adding the registry name. */
 			readonly presentation?: 'activity'
+			/** Successful observations may be grouped by hosts without discarding output. */
+			readonly activity?: 'exploration'
 			/** A successful result may add no information beyond the completed call row. */
 			readonly visibility?: 'hidden'
 	  }
@@ -32,6 +34,8 @@ export type ToolCallView =
 	 */
 	| {
 			readonly kind: 'diff'
+			/** Optional operation summary, distinct from the file path. */
+			readonly label?: string
 			readonly path?: string
 			readonly before: string
 			readonly after: string

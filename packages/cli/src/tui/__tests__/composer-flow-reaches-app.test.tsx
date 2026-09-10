@@ -507,7 +507,7 @@ describe('the two composer destinations', () => {
 				() => screen.viewport().some((line) => line.includes('first answer')),
 				'first streamed answer never reached the viewport',
 			)
-			const bannerRow = screen.viewport().findIndex((line) => line.includes('[ NAMZU ]'))
+			const bannerRow = screen.viewport().findIndex((line) => line.includes('Cogitave v'))
 			const firstPromptRow = screen.viewport().findIndex((line) => line.includes('start here'))
 			expect(bannerRow, 'the banner is not on screen').toBeGreaterThanOrEqual(0)
 			expect(

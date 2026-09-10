@@ -157,6 +157,8 @@ import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
 
 export interface QueryParams {
+	/** Share observations across turns of one conversation and filesystem; otherwise run-local. */
+	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
 	/** One account shared with the task scheduler and descendant runs. */
 	budget?: TokenBudget
 	/** Canonical tree ledger; defaults to disk beside the root run. */
@@ -1731,6 +1733,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// registry would answer about whatever the last run configured.
 			...(params.skillRegistry ? { skills: params.skillRegistry } : {}),
 			...(params.web ? { web: params.web } : {}),
+			...(params.fileReadTracker ? { fileReadTracker: params.fileReadTracker } : {}),
 			...(params.toolTimeoutMs !== undefined ? { toolTimeoutMs: params.toolTimeoutMs } : {}),
 			...(params.toolRetryBackoff !== undefined
 				? { toolRetryBackoff: params.toolRetryBackoff }

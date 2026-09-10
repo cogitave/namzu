@@ -48,6 +48,13 @@ repository, from the same public API you get. It exists as much to prove the
 kernel as to be used: every gap in the SDK showed up first as something the
 CLI had to work around.
 
+## Terminal application
+
+![Namzu CLI creating a small TypeScript greeting function](docs/assets/cli-greeting.png)
+
+A real CLI session in an isolated demonstration directory, using a small model
+at low reasoning effort. The terminal capture contains only example code.
+
 ## Who it is for
 
 Read on if any of these is your afternoon:

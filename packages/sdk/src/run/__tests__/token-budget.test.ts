@@ -33,6 +33,71 @@ async function spend(budget: TokenBudget, tokens: number): Promise<string> {
 }
 
 describe('a scoped token budget', () => {
+	it('tracks unlimited descendants and preserves a subsequently narrowed ancestor', async () => {
+		const root = TokenBudget.create(0, generateRunId())
+		const worker = child(root, 0)
+		const grandchild = child(worker, 0)
+		await spend(grandchild, 250_000)
+		expect(root.summary().treeTokens).toBe(250_000)
+		expect(worker.remaining).toBe(Number.POSITIVE_INFINITY)
+		const restored = TokenBudget.restore(root.snapshot())
+		expect(restored.account(grandchild.accountId).remaining).toBe(Number.POSITIVE_INFINITY)
+		root.narrow(250_010)
+		expect(grandchild.remaining).toBe(10)
+		expect(() => worker.reserve(0)).toThrow('cannot reserve')
+		await spend(grandchild, 10)
+		expect(worker.remaining).toBe(0)
+		await expect(grandchild.beginRequest()).rejects.toThrow()
+	})
+	it('isolates uncertain children without erasing usage or reopening their own account', async () => {
+		const root = TokenBudget.create(0, generateRunId())
+		const broken = child(root, 0)
+		const healthy = child(root, 0)
+		const request = await broken.beginRequest()
+		await broken.failRequest(request, usage(15))
+		expect(root.summary()).toMatchObject({ poisoned: false, unresolvedRequests: 1, treeTokens: 15 })
+		await expect(broken.beginRequest()).rejects.toThrow('unresolved')
+		await spend(healthy, 20)
+		await spend(root, 10)
+		const restored = TokenBudget.restore(root.snapshot())
+		expect(restored.summary()).toMatchObject({
+			treeTokens: 45,
+			unresolvedRequests: 1,
+			poisoned: false,
+		})
+		await spend(restored.account(healthy.accountId), 5)
+		restored.narrow(100)
+		expect(restored.account(healthy.accountId).remaining).toBe(0)
+		await restored.account(broken.accountId).finishRequest(request, usage(25))
+		expect(restored.summary().poisoned).toBe(true)
+		await restored.account(broken.accountId).reconcileRequest(request, usage(30))
+		expect(restored.summary()).toMatchObject({
+			treeTokens: 65,
+			unresolvedRequests: 0,
+			poisoned: false,
+		})
+	})
+	it('contains uncertainty within the finite branch that owns the missing receipt', async () => {
+		const root = TokenBudget.create(0, generateRunId())
+		const finite = child(root, 500)
+		const broken = child(finite, 100)
+		const sibling = child(finite, 100)
+		const outside = child(root, 200)
+		await broken.failRequest(await broken.beginRequest())
+		expect(sibling.remaining).toBe(0)
+		expect(finite.remaining).toBe(0)
+		await spend(outside, 20)
+		await spend(root, 10)
+		expect(root.treeTokens).toBe(30)
+	})
+	it('keeps legacy poisoned snapshots globally blocked even for unlimited trees', async () => {
+		const root = TokenBudget.create(0, generateRunId())
+		const worker = child(root, 0)
+		const restored = TokenBudget.restore({ ...root.snapshot(), poisoned: true })
+		await expect(restored.account(worker.accountId).beginRequest()).rejects.toThrow(
+			'accounting failure',
+		)
+	})
 	it('conserves measured usage and unspent reservations for arbitrary concurrent completions', async () => {
 		await fc.assert(
 			fc.asyncProperty(
@@ -548,9 +613,6 @@ describe('token budget snapshot ingress', () => {
 			},
 			(snapshot) => {
 				snapshot.accounts[1]!.parentId = worker.accountId
-			},
-			(snapshot) => {
-				snapshot.accounts[1]!.limit = 0
 			},
 			(snapshot) => {
 				snapshot.accounts[1]!.runId = root.rootRunId

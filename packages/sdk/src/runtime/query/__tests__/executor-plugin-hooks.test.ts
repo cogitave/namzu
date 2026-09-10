@@ -8,7 +8,7 @@ import type { RunId } from '../../../types/ids/index.js'
 import type { PluginHookResult } from '../../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
-import type { ToolRegistryContract } from '../../../types/tool/index.js'
+import type { ToolDefinition, ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
 
@@ -98,6 +98,51 @@ describe('ToolExecutor plugin hooks', () => {
 		const batch = await exec.executeBatch(buildResponse('echo', { msg: 'hi' }))
 		expect(batch.results[0]?.output).toBe('ok')
 	})
+
+	it.each(['visible', 'redacted', 'oversized', 'throws'] as const)(
+		'bounds completed diff presentation: %s',
+		async (mode) => {
+			const tools = makeToolRegistry(vi.fn(async () => ({ success: true, output: 'ok' })))
+			const view = {
+				kind: 'diff' as const,
+				path: 'x',
+				before: '',
+				after: mode === 'oversized' ? 'x'.repeat(2000) : 'new\n',
+			}
+			vi.mocked(tools.get).mockReturnValue({
+				presentResult: () => {
+					if (mode === 'throws') throw new Error('presentation failed')
+					return view
+				},
+			} as unknown as ToolDefinition)
+			const pluginManager = makePluginManager(async (event) =>
+				event === 'post_tool_use' && mode === 'redacted'
+					? ([{ action: 'replace', output: '[redacted]' }] as PluginHookResult[])
+					: [],
+			)
+			const executor = new ToolExecutor(
+				{
+					tools,
+					runId: mockRunId,
+					workingDirectory: '/tmp',
+					permissionMode: 'auto',
+					env: {},
+					abortSignal: new AbortController().signal,
+					maxToolOutputChars: 1000,
+					pluginManager,
+				},
+				activityStore,
+				emitEvent,
+				makeLogger(),
+			)
+			const batch = await executor.executeBatch(buildResponse('echo', {}))
+			expect(batch.results[0]?.isError).not.toBe(true)
+			const completed = emitted.find((event) => event.type === 'tool_completed')
+			expect(completed?.type).toBe('tool_completed')
+			if (completed?.type !== 'tool_completed') return
+			expect(completed.presentation).toEqual(mode === 'visible' ? view : undefined)
+		},
+	)
 
 	it('preserves tool stdout/stderr when a tool exits unsuccessfully', async () => {
 		const tools = makeToolRegistry(

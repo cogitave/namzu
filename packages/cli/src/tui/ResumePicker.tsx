@@ -4,7 +4,7 @@
  * selected index.
  */
 
-import { Box, Text } from 'ink'
+import { Box, Text, useStdout } from 'ink'
 
 import type { RecentConversation } from '../integrations/sessions/store.js'
 import { selectionWindow } from './selection-window.js'
@@ -16,6 +16,8 @@ export interface ResumePickerProps {
 }
 
 export function ResumePicker({ conversations, selected }: ResumePickerProps) {
+	const { stdout } = useStdout()
+	const showPreview = (stdout.rows ?? 24) >= 20
 	const { start, items: visible } = selectionWindow(conversations, selected)
 	return (
 		<Box
@@ -40,7 +42,7 @@ export function ResumePicker({ conversations, selected }: ResumePickerProps) {
 							<Box width={2} flexShrink={0}>
 								<Text color={theme.accent.user}>{index === selected ? '›' : ' '}</Text>
 							</Box>
-							<Box flexGrow={1}>
+							<Box flexGrow={1} flexShrink={1} minWidth={0}>
 								<Text
 									color={index === selected ? theme.text.primary : theme.text.secondary}
 									bold={index === selected}
@@ -62,6 +64,12 @@ export function ResumePicker({ conversations, selected }: ResumePickerProps) {
 					)
 				})}
 			</Box>
+			{showPreview && conversations[selected] && (
+                <Box flexDirection="column" paddingTop={1}>
+                    <Text color={theme.text.secondary} wrap="truncate-end">{conversations[selected]?.preview || 'No saved user prompt available.'}</Text>
+                    <Text color={theme.text.muted} wrap="truncate-end">{conversations[selected]?.count} messages · {conversations[selected]?.id}</Text>
+                </Box>
+            )}
 			<Box paddingTop={1}>
 				<Text color={theme.text.muted}>
 					↑↓ navigate · PgUp/PgDn jump · Home/End boundary · enter resume · esc cancel

@@ -227,6 +227,15 @@ async function* executeWalk(
 		}
 		if (canonicalRoot !== path.resolve(plan.root))
 			throw new Error('File walk root follows a symbolic link; use its authorized real directory')
+		// A named regular file is a one-entry search, not an empty directory.
+		const rootInfo = await wait(fs.lstat(plan.root))
+		check()
+		if (rootInfo.isFile()) {
+			noteVisit()
+			if (matchers.some((matcher) => matcher.test(path.basename(plan.root))))
+				yield { path: plan.root, size: rootInfo.size }
+			return
+		}
 		let start = plan.root
 		// Never follow a static-prefix symlink to speed up a pattern: traversal
 		// and its optimized starting point must have the same link policy.

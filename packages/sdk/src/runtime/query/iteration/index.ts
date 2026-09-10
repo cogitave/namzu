@@ -54,7 +54,13 @@ import { toErrorMessage } from '../../../utils/error.js'
 import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
 import type { ToolCallOutcome } from '../executor.js'
+import { projectObservationContext } from '../observation-context.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
+import {
+	type RequestContextSnapshot,
+	diffRequestContext,
+	snapshotRequestContext,
+} from '../request-context.js'
 import {
 	DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 	type RequestImageIdentity,
@@ -164,6 +170,14 @@ export class IterationOrchestrator {
 	 * one process must not suppress each other's first envelope.
 	 */
 	private lastEnvelopeKey: string | undefined
+	private previousRequestContext: RequestContextSnapshot | undefined
+
+	private projectObservations(messages: Message[]): Message[] {
+		const config = this.ctx.compactionConfig
+		return config && config.strategy !== 'disabled' && config.deduplicateObservations !== false
+			? projectObservationContext(messages, this.ctx.tools, config.preserveToolResultsFrom)
+			: messages
+	}
 	/** Rich tool blocks already reported; durable history is scanned every turn. */
 	private readonly warnedRichToolResults = new Set<string>()
 	/**
@@ -614,7 +628,7 @@ export class IterationOrchestrator {
 						? [...baseMessages, createSystemMessage(stepPreamble)]
 						: [...baseMessages]
 					const messages = projectRequestRichContent(
-						requestHistory,
+						this.projectObservations(requestHistory),
 						this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 					)
 					await this.reportUnsupportedToolResults(messages)
@@ -664,6 +678,16 @@ export class IterationOrchestrator {
 					}
 
 					if (this.ctx.pluginManager) {
+						const snapshot = snapshotRequestContext(messages)
+						const context = Object.freeze({
+							snapshot,
+							...(this.previousRequestContext
+								? {
+										change: diffRequestContext(this.previousRequestContext, snapshot),
+									}
+								: {}),
+						})
+						this.previousRequestContext = snapshot
 						const hookResults = await this.ctx.pluginManager.executeHooks(
 							'pre_llm_call',
 							{
@@ -673,6 +697,7 @@ export class IterationOrchestrator {
 								// Built inside the guard: a run with no plugins installed
 								// pays nothing for a projection nobody reads.
 								request: Object.freeze({
+									context,
 									model: stepModel,
 									// Copied per turn, not handed over live: these are the
 									// run's own message objects, and a hook writing into
@@ -752,6 +777,7 @@ export class IterationOrchestrator {
 							cacheControl: { type: 'auto' },
 							...(runConfig.thinking ? { thinking: runConfig.thinking } : {}),
 							...(runConfig.effort ? { effort: runConfig.effort } : {}),
+							...(!forceFinalize && runConfig.webSearch ? { webSearch: runConfig.webSearch } : {}),
 							// Thread the run abort into the model call so a Stop tears the
 							// in-flight turn down (provider passes it to fetch; the consumer
 							// also races it). Inert when never aborted.
@@ -2424,7 +2450,7 @@ export class IterationOrchestrator {
 				),
 			]
 			const finalMessages = projectRequestRichContent(
-				finalHistory,
+				this.projectObservations(finalHistory),
 				this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 			)
 			await this.reportUnsupportedToolResults(finalMessages)

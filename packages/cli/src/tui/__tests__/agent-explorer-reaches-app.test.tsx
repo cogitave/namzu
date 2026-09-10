@@ -473,8 +473,13 @@ describe('Ctrl+T', () => {
 			await Promise.all(executions)
 			await waitUntil(
 				screen,
-				() => !screen.viewport().join('\n').includes('Runtime child'),
+				() => !screen.viewport().join('\n').includes('active · 4 total'),
 				'settled runtime cohort remained visible',
+			)
+			await waitUntil(
+				screen,
+				() => painted(screen).includes('Runtime child 4 · Completed'),
+				'runtime completion missing',
 			)
 			expect(screen.viewport().join('\n')).toContain('Type a message')
 		} finally {
@@ -631,7 +636,7 @@ describe('Ctrl+T', () => {
 			() => screen.viewport().join('\n').includes('Phases'),
 			'cockpit missing',
 		)
-		expect(screen.viewport().join('\n')).toContain('draft survives')
+		expect(screen.viewport().join('\n')).not.toContain('draft survives')
 		screen.press('\x14')
 		await waitUntil(
 			screen,
@@ -656,7 +661,7 @@ describe('Ctrl+T', () => {
 		])
 		await waitUntil(
 			screen,
-			() => !screen.viewport().join('\n').includes('Alpha audit'),
+			() => !screen.viewport().join('\n').includes('active · 2 total'),
 			'settled cohort remained docked',
 		)
 		expect(screen.viewport().join('\n')).toContain('draft survives')
@@ -715,7 +720,7 @@ describe('Ctrl+T', () => {
 		expect(screen.viewport()).toHaveLength(14)
 	})
 
-	it('keeps the inspector, composer draft and status inside a short viewport', async () => {
+	it('gives the inspector its own short viewport and restores the composer draft', async () => {
 		activity.set([agent({ viewId: 'short-inspector', description: 'Short inspector child' })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 60, rows: 14 })
 		mounted = screen
@@ -730,7 +735,9 @@ describe('Ctrl+T', () => {
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Phases')
 		expect(frame).toContain('Agents')
-		expect(frame).toContain('draft remains visible')
+		expect(frame).not.toContain('draft remains visible')
+		screen.press('\x14')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('draft remains visible'), 'draft was not restored')
 		expect(frame).toContain('model')
 		expect(screen.viewport()).toHaveLength(14)
 	})
@@ -1227,7 +1234,7 @@ describe('Ctrl+T', () => {
 			() => painted(screen).includes('parent finished'),
 			'parent result missing after returning from the child',
 		)
-		expect(screen.viewport().join('\n')).not.toContain('Child run')
+		expect(screen.viewport().join('\n')).toContain('Child run · Completed')
 		expect(painted(screen).match(/parent finished/g)).toHaveLength(1)
 
 		await submit(screen, '/agents')
@@ -1553,5 +1560,81 @@ describe('agent explorer projection', () => {
 		expect(prompt).toContain('PROMPT_SUFFIX')
 		expect(answer).toContain('ANSWER_SUFFIX')
 		expect(tool).toContain('TOOL_SUFFIX')
+	})
+})
+
+describe('agent completion presentation', () => {
+	it.each([true, false])('shows all three outcomes, retaining wait evidence when inspection is unavailable (inspectable=%s)', async (inspectable) => {
+		const children = ['CLI review', 'SDK review', 'Package review'].map((description, i) =>
+			agent({ viewId: `child-${i}`, taskId: `task-${i}`, description }),
+		)
+		activity.set(children)
+		let finishWaits!: () => void
+		const waits = new Promise<void>((resolve) => {
+			finishWaits = resolve
+		})
+		sendOverride.current = async function* () {
+			for (let i = 0; i < 2; i++)
+				yield {
+					kind: 'tool-start',
+					toolUseId: `wait-${i}`,
+					toolName: 'wait_for_task',
+					taskId: `task-${i}`,
+					runId: 'run-parent',
+					summary: `{"task_id":"task-${i}"}`,
+				}
+			await waits
+			for (let i = 0; i < 2; i++)
+				yield {
+					kind: 'tool-end',
+					toolUseId: `wait-${i}`,
+					toolName: 'wait_for_task',
+					runId: 'run-parent',
+					isError: false,
+					summary: `task_id: task-${i}`,
+					detail: ['status: completed', 'Agent result:', 'full report from child'],
+				}
+			await parentGate
+			yield { kind: 'done', stopReason: 'end_turn' }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 36 })
+		mounted = screen
+		try {
+			await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+			await submit(screen, 'review')
+			await waitUntil(
+				screen,
+				() => screen.viewport().join('\n').includes('Waiting · CLI review'),
+				'named wait missing',
+			)
+			const finished = children.map((child) => ({
+				...child,
+				transcript: inspectable ? [{ id: 'answer', kind: 'assistant' as const, text: 'full report from child' }] : [],
+				status: 'completed' as const,
+				completedAt: 30,
+			}))
+			activity.set(finished)
+			finishWaits()
+			await waitUntil(
+				screen,
+				() => painted(screen).includes('Package review · Completed'),
+				'unwaited child completion missing',
+			)
+			activity.set([...finished])
+			await screen.waitForRender()
+			const output = painted(screen)
+			for (const child of children)
+				expect(output.split(`${child.description} · Completed`)).toHaveLength(2)
+			if (inspectable) {
+				expect(output).not.toContain('task_id:')
+				expect(output).not.toContain('Agent result:')
+			} else {
+				expect(output).toContain('task_id:')
+				expect(output).toContain('full report from child')
+			}
+			expect(output).toContain('ctrl+t · agent details')
+		} finally {
+			finishWaits()
+		}
 	})
 })

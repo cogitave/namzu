@@ -21,6 +21,8 @@ export interface TokenBudgetRequestSnapshot {
 	runId: RunId
 	/** Cumulative request usage already charged to the owning run. */
 	usage?: TokenUsage
+	/** No reliable final receipt; only explicit reconciliation clears this marker. */
+	unresolved?: boolean
 }
 
 /** Durable authority independent of a message checkpoint's cadence. */
@@ -49,8 +51,10 @@ export interface TokenBudgetSummary {
 	remainingTokens: number | null
 	inFlightRequests: number
 	unsettledChildren: number
-	/** An unresolved provider call or failed ledger write prevents admission. */
+	/** This account is blocked by accounting failure or uncertain finite allowance. */
 	poisoned: boolean
+	/** Unresolved receipts in this subtree, including retained completion records. */
+	unresolvedRequests?: number
 }
 
 interface SharedLedger {
@@ -150,9 +154,6 @@ export function validateTokenBudgetSnapshot(value: unknown): TokenBudgetSnapshot
 		const accountId = id(account.id, 'account id')
 		if (typeof account.settled !== 'boolean') throw new Error('Invalid token budget settled flag')
 		const limit = count(account.limit, 'limit')
-		if (accountId !== rootAccountId && limit === 0) {
-			throw new Error('A child token budget must have a positive limit')
-		}
 		const usage: Record<string, TokenUsage> = {}
 		for (const [runId, rawUsage] of Object.entries(object(account.usage, 'account usage'))) {
 			id(runId, 'usage run id')
@@ -198,6 +199,8 @@ export function validateTokenBudgetSnapshot(value: unknown): TokenBudgetSnapshot
 		const request = object(raw, 'request')
 		const requestId = id(request.id, 'request id')
 		const accountId = id(request.accountId, 'request account id')
+		if (request.unresolved !== undefined && typeof request.unresolved !== 'boolean')
+			throw new Error('Invalid unresolved request marker')
 		if (!isEntityId(request.runId, 'run')) throw new Error('Invalid token budget request run id')
 		if (requestIds.has(requestId)) throw new Error('Duplicate token budget request')
 		requestIds.add(requestId)
@@ -209,6 +212,7 @@ export function validateTokenBudgetSnapshot(value: unknown): TokenBudgetSnapshot
 			accountId,
 			runId: request.runId,
 			...(request.usage === undefined ? {} : { usage: usageValue(request.usage) }),
+			...(request.unresolved === true ? { unresolved: true } : {}),
 		}
 	}
 	const requests = source.requests.map(parseRequest)
@@ -346,9 +350,11 @@ export class TokenBudget {
 				rootAccountId: state.rootAccountId,
 				rootRunId: state.rootRunId,
 				accounts: new Map(state.accounts.map((account) => [account.id, account])),
-				requests: new Map(state.requests.map((request) => [request.id, request])),
+				requests: new Map(
+					state.requests.map((request) => [request.id, { ...request, unresolved: true }]),
+				),
 				finishedRequests: new Map(state.completedRequests.map((request) => [request.id, request])),
-				poisoned: state.poisoned === true || state.requests.length > 0,
+				poisoned: state.poisoned === true,
 				persistence,
 				writes: Promise.resolve(),
 			},
@@ -384,7 +390,7 @@ export class TokenBudget {
 	}
 
 	get remaining(): number {
-		if (this.ledger.poisoned || this.node.settled) return 0
+		if (this.admissionBlocked() || this.node.settled) return 0
 		let cursor = this.node
 		let available = this.free(cursor)
 		while (cursor.parentId !== undefined) {
@@ -430,7 +436,7 @@ export class TokenBudget {
 	reserve(tokens: number): TokenBudget {
 		count(tokens, 'reservation')
 		if (this.hasRequest(this.node)) throw new Error('Token budget has an in-flight request')
-		if (tokens === 0 || tokens > this.remaining)
+		if ((tokens === 0 && this.remaining !== Number.POSITIVE_INFINITY) || tokens > this.remaining)
 			throw new Error('Token budget cannot reserve the requested tokens')
 		count(this.totals(this.node).reserved + tokens, 'reserved allowance')
 		const accountId = randomUUID()
@@ -468,7 +474,8 @@ export class TokenBudget {
 	}
 
 	async beginRequest(): Promise<string> {
-		if (this.ledger.poisoned) throw new Error('Token budget has unresolved spend')
+		if (this.admissionBlocked())
+			throw new Error('Token budget has unresolved spend or an accounting failure')
 		if (this.node.settled) throw new Error('Token budget is settled')
 		if (this.remaining <= 0) throw new Error('Token budget is exhausted')
 		const runId = this.runId
@@ -504,10 +511,11 @@ export class TokenBudget {
 	async failRequest(requestId: string, usage?: TokenUsage): Promise<void> {
 		if (this.hasReceipt(requestId)) return this.flush()
 		const request = this.requireRequest(requestId)
-		this.ledger.poisoned = true
+		request.unresolved = true
 		try {
 			if (usage !== undefined) this.recordRequestUsage(request, usage)
 		} catch (error) {
+			this.ledger.poisoned = true
 			this.persist()
 			await this.flush()
 			throw error
@@ -518,9 +526,9 @@ export class TokenBudget {
 
 	/**
 	 * Explicit host recovery after obtaining the provider's final usage receipt.
-	 * Ordinary completion never reopens an uncertain ledger. Reconciliation can
-	 * do so only after every outstanding request has a measured receipt and all
-	 * accounting writes succeeded; it never resets usage or settled accounts.
+	 * Ordinary completion never clears uncertainty. Reconciliation resolves this
+	 * request after its receipt is persisted; other uncertain requests continue
+	 * to constrain their shared finite allowances. Usage and settlement are retained.
 	 */
 	async reconcileRequest(requestId: string, usage: TokenUsage): Promise<void> {
 		const measured = usageValue(usage)
@@ -536,6 +544,10 @@ export class TokenBudget {
 		} else {
 			await this.finishRequest(requestId, measured)
 		}
+		const receipt = this.ledger.finishedRequests.get(requestId)
+		if (receipt) receipt.unresolved = false
+		this.persist()
+		await this.flush()
 		if (this.ledger.requests.size === 0 && this.ledger.persistenceError === undefined) {
 			this.ledger.poisoned = false
 			this.persist()
@@ -574,7 +586,10 @@ export class TokenBudget {
 			).length,
 			unsettledChildren: this.children(this.node).filter((child) => !this.totals(child).closed)
 				.length,
-			poisoned: this.ledger.poisoned,
+			poisoned: this.admissionBlocked(),
+			unresolvedRequests: this.uncertainRequests().filter((request) =>
+				descendants.has(request.accountId),
+			).length,
 		}
 	}
 
@@ -593,6 +608,28 @@ export class TokenBudget {
 	async flush(): Promise<void> {
 		await this.ledger.writes
 		if (this.ledger.persistenceError !== undefined) throw this.ledger.persistenceError
+	}
+
+	private uncertainRequests(): TokenBudgetRequestSnapshot[] {
+		return [...this.ledger.requests.values(), ...this.ledger.finishedRequests.values()].filter(
+			(request) => request.unresolved === true,
+		)
+	}
+	private admissionBlocked(): boolean {
+		if (this.ledger.poisoned || this.ledger.persistenceError !== undefined) return true
+		const uncertain = this.uncertainRequests()
+		if (uncertain.length === 0) return false
+		// An account cannot resume its own uncertain request, even without a cap.
+		if (uncertain.some((request) => request.accountId === this.accountId)) return true
+		let cursor = this.node
+		for (;;) {
+			if (cursor.limit > 0) {
+				const descendants = this.descendants(cursor)
+				if (uncertain.some((request) => descendants.has(request.accountId))) return true
+			}
+			if (cursor.parentId === undefined) return false
+			cursor = this.requireAccount(cursor.parentId)
+		}
 	}
 
 	private get node(): TokenBudgetAccountSnapshot {

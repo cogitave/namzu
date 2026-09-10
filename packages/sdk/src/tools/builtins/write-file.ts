@@ -7,6 +7,7 @@ import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
 import { fingerprintContent, staleFileError } from './content-fingerprint.js'
 import { withFileMutationLock } from './file-mutation-lock.js'
+import { fileWriteResult } from './file-write-result.js'
 
 const inputSchema = z
 	.object({
@@ -81,40 +82,35 @@ export const WriteFileTool = defineTool({
 	destructive: true,
 	concurrencySafe: false,
 
-	/**
-	 * The whole file body, described by the tool.
-	 *
-	 * A `diff` with an EMPTY `before`, which is what a write actually is:
-	 * whatever was there is gone and this is what replaces it. `edit`
-	 * declines to do that for an insert — there, an empty `before` would
-	 * claim the whole file was added and it was not. Here it is true.
-	 *
-	 * A host with nothing to contrast against renders the `after` plainly
-	 * rather than as `+` lines, which is the row a reader wants: they are
-	 * approving a file, not reviewing a patch.
-	 */
+	// Input alone cannot establish whether this replaces an existing file.
 	presentCall(input: WriteInput) {
-		const content = input.content ?? input.newStr
-		if (typeof content !== 'string') return undefined
-		return {
-			kind: 'diff' as const,
-			...(input.path ? { path: input.path } : {}),
-			before: '',
-			after: content,
-		}
+		return { kind: 'generic' as const, label: input.path }
 	},
 
-	/**
-	 * A label, deliberately — which is what suppresses the detail block.
-	 *
-	 * The content was already shown under the CALL, where the user could
-	 * act on it. Repeating it under the result doubles the longest rows in
-	 * the transcript to say nothing new. A host used to decide this by
-	 * matching `name === 'write' || name === 'edit'`; it is the tool's to
-	 * say, and now it says it.
-	 */
+	/** The receipt names the observed operation; failures retain their error output. */
 	presentResult(_input: WriteInput, result: ToolResult) {
-		return { kind: 'generic' as const, label: result.output?.split('\n')[0] ?? '' }
+		const data = result.data as
+			| { fileChange?: { preview?: { before?: unknown; after?: unknown } } }
+			| undefined
+		const preview = data?.fileChange?.preview
+		if (
+			result.success &&
+			typeof preview?.before === 'string' &&
+			typeof preview.after === 'string'
+		) {
+			return {
+				kind: 'diff' as const,
+				path: _input.path,
+				label: result.output?.split('\n')[0],
+				before: preview.before,
+				after: preview.after,
+			}
+		}
+		return {
+			kind: 'generic' as const,
+			label: result.output?.split('\n')[0] ?? '',
+			...(result.success ? { presentation: 'activity' as const } : {}),
+		}
 	},
 
 	async execute(input: WriteInput, context) {
@@ -146,7 +142,7 @@ export const WriteFileTool = defineTool({
 		return withFileMutationLock(lockKey, async () => {
 			if (context.sandbox) {
 				const current = await readSandboxFileIfPresent(context, valid.path)
-				if (current !== undefined) {
+				if (current !== undefined && current !== null) {
 					const guard = enforceFreshOverwrite(context, valid.path, current.toString('utf-8'))
 					if (guard) return guard
 				}
@@ -155,11 +151,12 @@ export const WriteFileTool = defineTool({
 				// the boolean would leave an older content fingerprint in place and
 				// make the next same-run write refuse its own predecessor as drift.
 				context.fileReadTracker?.recordRead(valid.path, content)
-				return {
-					success: true as const,
-					output: `File written successfully: ${valid.path} (${content.length} chars) [sandboxed]`,
-					data: { path: valid.path, size: content.length, sandboxed: true },
-				}
+				return fileWriteResult(
+					valid.path,
+					current === null ? null : current?.toString('utf-8'),
+					content,
+					true,
+				)
 			}
 
 			const hostPath = filePath as string
@@ -176,11 +173,7 @@ export const WriteFileTool = defineTool({
 			await atomicWriteFile(hostPath, content)
 			context.fileReadTracker?.recordRead(hostPath, content)
 
-			return {
-				success: true as const,
-				output: `File written successfully: ${hostPath} (${content.length} chars)`,
-				data: { path: hostPath, size: content.length },
-			}
+			return fileWriteResult(hostPath, current, content)
 		})
 	},
 })
@@ -237,14 +230,16 @@ function isMissingFileError(error: unknown): boolean {
 async function readSandboxFileIfPresent(
 	context: ToolContext,
 	path: string,
-): Promise<Buffer | undefined> {
+): Promise<Buffer | undefined | null> {
 	if (!context.sandbox) return undefined
 	try {
 		return await context.sandbox.readFile(path)
-	} catch {
+	} catch (error) {
+		if (isMissingFileError(error)) return undefined
 		// `Sandbox` currently has no typed missing-file result. Preserve the
 		// existing create behavior for all backends; when a read succeeds, the
 		// exact body above is still a real admission-time freshness check.
-		return undefined
+		// An untyped read failure does not prove that the target was absent.
+		return null
 	}
 }

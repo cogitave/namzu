@@ -17,6 +17,7 @@ import type { Message } from '../message/index.js'
 import type { PlanStep } from '../plan/index.js'
 import type { PluginHookEvent, PluginHookResult } from '../plugin/index.js'
 import type { TaskStatus } from '../task/index.js'
+import type { ToolResultView } from '../tool/presentation.js'
 import type { CancelCause } from './cancel-cause.js'
 import type { FencingToken } from './checkpoint-store.js'
 import type { Lineage } from './lineage.js'
@@ -367,6 +368,13 @@ type CoreRunEvent =
 			/** Optional completion in [0,1] when the tool genuinely knows it. */
 			fraction?: number
 	  }
+	/** Provider-executed activity, retained as evidence rather than a local tool request. */
+	| {
+			type: 'hosted_tool'
+			runId: RunId
+			iteration: number
+			tool: NonNullable<import('../provider/index.js').StreamChunk['delta']['hostedTool']>
+	  }
 	/**
 	 * A model call failed transiently and is being retried after a backoff.
 	 *
@@ -426,6 +434,8 @@ type CoreRunEvent =
 	  }
 	| {
 			type: 'tool_completed'
+			/** Bounded result view; omitted when output was overridden or truncated. */
+			presentation?: ToolResultView
 			runId: RunId
 			toolUseId: ToolUseId
 			toolName: string

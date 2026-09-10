@@ -83,3 +83,19 @@ export function assertNativeStructuredOutputSupported(
 		})
 	}
 }
+
+/** Refuse a hosted search request before dispatch when the route cannot honor it. */
+export function assertHostedWebSearchSupported(
+	provider: Pick<LLMProvider, 'id' | 'capabilities'>,
+	params: Pick<ChatCompletionParams, 'webSearch'>,
+): void {
+	if (params.webSearch && provider.capabilities?.supportsHostedWebSearch !== true) {
+		throw new ProviderRequestError({
+			kind: 'bad_request',
+			providerId: provider.id,
+			providerCode: 'hosted_web_search_unsupported',
+			detail:
+				'This provider does not support hosted web search. Disable web.search or select a supported provider.',
+		})
+	}
+}

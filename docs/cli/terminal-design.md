@@ -10,17 +10,32 @@ status: stable
 # Terminal design
 
 Namzu uses neutral text with phosphor-green accents on the terminal's own
-background. The compact `[ NAMZU ]` wordmark and version form a single opening
-line; narrow terminals use the plain `NAMZU` name. The header is printed once
+background. A two-row block-letter wordmark carries the opening identity, with a muted
+version beside it. Terminals narrower than 48 columns or shorter than 20 rows
+use the compact `∴ namzu` signature. The header is printed once
 into native scrollback. The footer alone shows the current model, reasoning
 effort and working directory, with interaction keys taking priority on narrow
 screens. Provider and tool details remain available through `/status` and
 `/status tools`. A normal startup does not add a redundant connection message
 to the conversation; explicit provider/model changes still receive confirmation.
+Switching models does not repeat the project-instructions notice when the loaded
+file list is unchanged. A newly loaded non-empty list is announced; instruction
+loading itself still runs for the replacement session.
 The composer owns the empty-conversation typing hint. Colors use
 explicit ANSI 256-color indices so the green accent and neutral text do not
 shift hue through RGB-to-palette approximation. Terminals with color disabled
 retain the same text, symbols and boundaries.
+
+## Compact tool activity
+
+Successful built-in file reads, searches and file discovery share an `Explored` heading when consecutive. Each operation keeps its own row and retained output; `Ctrl+O` expands the output, and errors remain explicit ungrouped failures. The CLI `tool-end` event includes optional `output` containing retained tool text before preview formatting; the built-in event adapter supplies it. Background job reads and stops identify the action and job instead of displaying JSON arguments. Reading job output is not an interactive terminal wait or a write to stdin; those operations are not provided by the current job tool.
+
+Model discovery (`agent_models`) shows a compact catalogue: model name and
+provider, exact ID, published context size and effort menu. At most five entries
+appear, with an explicit remaining count. Empty results and unavailable catalogues
+are distinct. Ctrl+O expands the original retained JSON; malformed receipts and
+tool failures keep the ordinary output view. This is a TUI projection only and
+does not change the model-facing tool result.
 
 ## Reading the conversation
 
@@ -214,3 +229,55 @@ notice replaces the writing area. The detailed error remains in scrollback;
 Esc or one Ctrl+C closes the application so the operator can repair the named
 file and restart. A startup refusal does not create an unscoped session or
 silently replace an installation identity.
+
+## Paste and response boundaries
+
+The composer enables terminal bracketed paste while it owns input. A paste split
+across terminal input chunks is assembled before editing the draft; pasted
+newlines do not submit it. Windows CRLF and CR line endings become LF. Large or
+multiline text has a `Pasted text #N · N chars` chip; the count uses Unicode code
+points, including emoji as one code point. Short single-line pastes insert at
+the cursor. Terminals without bracketed-paste support retain chunk-based fallback
+handling, which cannot reconstruct a paste boundary the terminal does not send.
+
+Separate provider message IDs create separate assistant transcript entries,
+including completion follow-ups inside one parent run. Pending text is flushed
+at that boundary so the last status sentence cannot merge with the next answer.
+
+
+The agent browser owns its viewport rather than sharing it with an inactive
+composer. Its navigation stays at the bottom and list capacity grows with the
+terminal height. Returning to the main conversation restores its draft.
+
+## File write presentation
+
+A write approval shows the proposed complete body, labelled as a possible
+replacement rather than a confirmed new-file diff. Its line count excludes a
+final line terminator while preserving real blank lines. On completion the
+SDK receipt supplies Created, Updated, Unchanged or Wrote (unknown prior state),
+UTF-8 byte count and, when available, the changed-region preview. The diff label
+is independent of the path. Final-newline-only changes are explicitly named.
+This display change does not grant permission to overwrite a file.
+
+## Task continuity in the CLI prompt
+
+The CLI identity describes Namzu as an agent kernel with a TypeScript SDK and
+the CLI as one interface. Completed prior-turn tool actions remain usable
+evidence; the identity does not require a fresh action just to report earlier
+work. It still forbids invented actions and distinguishes current execution
+from history. An unavailable capability blocks dependent work, not unrelated
+parts that can still be completed. Shared coding guidance uses proportional
+verification and defers concurrency guarantees to runtime metadata.
+
+
+Ctrl+O does not reprint an old result into scrollback. When an expansion cannot
+fit the live region, a bounded output viewer owns that region instead. It
+paginates physical rows, preserves retained text, and supports left/right output
+navigation. Closing it restores the composer draft. Incoming approvals close the
+viewer so permission input stays reachable. This changes only presentation, not
+model history or tool execution. Existing static scrollback is not erased.
+
+Screen regressions use the existing `@xterm/headless` emulator with production
+Ink rendering to exercise repeated opening/closing, pagination and scrollback
+counts. It interprets emitted terminal control sequences; it does not replace
+Ink's component layout or require a browser terminal in the CLI.

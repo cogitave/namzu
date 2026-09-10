@@ -548,13 +548,25 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as {
 			strategy?: unknown
+			deduplicateObservations?: unknown
 			contextWindowTokens?: unknown
 			consolidate?: unknown
 		}
 		for (const key of Object.keys(v)) {
-			if (key !== 'strategy' && key !== 'contextWindowTokens' && key !== 'consolidate') {
+			if (
+				key !== 'strategy' &&
+				key !== 'contextWindowTokens' &&
+				key !== 'consolidate' &&
+				key !== 'deduplicateObservations'
+			) {
 				return invalidConfigValue(context, [key], 'is not a compaction key')
 			}
+		}
+		if (
+			raw.deduplicateObservations !== undefined &&
+			typeof raw.deduplicateObservations !== 'boolean'
+		) {
+			return invalidConfigValue(context, ['deduplicateObservations'], 'must be true or false')
 		}
 		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
 			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
@@ -580,6 +592,9 @@ const CONFIG_READERS: ConfigReaders = {
 				? { contextWindowTokens: raw.contextWindowTokens }
 				: {}),
 			...(raw.consolidate !== undefined ? { consolidate: raw.consolidate } : {}),
+			...(raw.deduplicateObservations !== undefined
+				? { deduplicateObservations: raw.deduplicateObservations }
+				: {}),
 		} as CompactionCliConfig
 	},
 	additionalDirectories: (v, context) => {
@@ -660,10 +675,25 @@ const CONFIG_READERS: ConfigReaders = {
 	web: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'fetch')
+			if (key !== 'fetch' && key !== 'search' && key !== 'backend')
 				return invalidConfigValue(context, [key], 'is not a recognized web setting')
 		}
-		const raw = v as { fetch?: unknown }
+		const raw = v as { fetch?: unknown; search?: unknown; backend?: unknown }
+		if (
+			raw.backend !== undefined &&
+			raw.backend !== 'auto' &&
+			raw.backend !== 'exa' &&
+			raw.backend !== 'native'
+		)
+			return invalidConfigValue(context, ['backend'], 'must be auto, exa or native')
+		if (raw.search === 'cached' && raw.backend === 'exa')
+			return invalidConfigValue(context, ['backend'], 'cached search requires native')
+		if (
+			raw.search !== undefined &&
+			(typeof raw.search !== 'string' || !['off', 'cached', 'live'].includes(raw.search))
+		) {
+			return invalidConfigValue(context, ['search'], 'must be off, cached, or live')
+		}
 		if (raw.fetch !== undefined && typeof raw.fetch !== 'boolean') {
 			return invalidConfigValue(context, ['fetch'], 'must be a boolean')
 		}

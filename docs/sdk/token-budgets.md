@@ -101,7 +101,8 @@ snapshot:
 | `remainingTokens` | Available admission allowance; `null` is unlimited. |
 | `inFlightRequests` | Requests whose final receipts are still outstanding. |
 | `unsettledChildren` | Direct child subtrees that still hold execution authority. |
-| `poisoned` | Unresolved provider spend or a failed durable write blocks admission. |
+| `poisoned` | Admission for this account is blocked by accounting failure or applicable unresolved spend. |
+| `unresolvedRequests` | Requests in this subtree lacking explicit final-receipt reconciliation, including retained completion records. Token totals may be incomplete. |
 
 These are snapshots, not incremental charges. `treeTokens` already includes
 `ownTokens`. An ancestor summary already includes its descendants; adding their
@@ -130,20 +131,25 @@ that continued after that checkpoint.
 
 A cold reopen retains unfinished child reservations. It does not recreate their
 workers or infer that they finished because an in-memory task registry is empty.
-An outstanding provider request on cold reopen blocks admissions. Partial usage
+An outstanding provider request on cold reopen is marked unresolved. It blocks
+its own account and any branch sharing a finite ancestor allowance. Healthy
+branches under unlimited ancestors can continue. Partial usage
 already observed remains counted, and a broken stream cannot receive a refund
 based on an absent final receipt. A typed rejection before any generation, such
 as a context-size rejection or throttling, resolves with zero usage. Unknown
-transport failures keep their unresolved marker. Automatic recovery does not
-clear that uncertainty.
+transport failures keep their per-request `unresolved` marker. Automatic recovery
+does not clear that uncertainty. `TokenBudgetSummary.unresolvedRequests` counts
+these markers in the observed subtree; measured token totals may be incomplete.
 
 If the host later obtains the provider's final usage receipt, it can call
 `await account.reconcileRequest(requestId, usage)`. This explicit operation
 keeps the larger observed usage, never charges the same receipt twice, and
-unblocks the ledger only after every outstanding request is resolved and all
-accounting writes succeed. It does not reopen settled accounts or reset spend.
-Ordinary `finishRequest` calls and automatic retries never clear this block.
-Without a reliable final receipt, the request must remain unresolved.
+clears that request’s uncertainty after its receipt is persisted. Other unresolved
+requests continue to constrain the finite allowances they share. It does not reopen settled accounts or reset spend.
+Ordinary `finishRequest` calls and automatic retries never clear unresolved markers.
+Without a reliable final receipt, the request must remain unresolved. Invalid
+usage arithmetic, failed ledger writes and legacy `poisoned` snapshots still
+block every account, regardless of its limit.
 
 The built-in disk store atomically replaces private files and rejects regressing
 usage, grants and receipts. The store contract assumes one active writer for the
@@ -162,3 +168,14 @@ reported usage; an unreported vendor charge cannot be inferred from a transcript
 Token accounting does not establish dollar prices. `costInfo` and dollar limits
 remain local to a run. When the ledger has measured usage newer than the restored
 message checkpoint, the missing price attribution is reported as unpriced tokens.
+
+## Unlimited child accounts
+
+`reserve(0)` creates an unlimited child only when the parent account has unlimited
+remaining allowance. It retains usage, request receipts, persistence and cancellation
+ownership. A finite ancestor, including one narrowed after launch, still constrains
+all descendants. Restored snapshots may contain zero-limit child accounts.
+
+AgentManager accepts an explicit child `configOverrides.tokenBudget: 0` under an
+unlimited parent without substituting 200,000 tokens. Omitted SDK child allocations
+keep the 200,000-token fallback; finite parents still allocate finite shares.

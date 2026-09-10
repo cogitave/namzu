@@ -152,8 +152,10 @@ describe("the project's instructions", () => {
 
 		const { systemPrompt, projectPrompt } = await drive(pkg)
 
-		expect(systemPrompt).toContain('You are namzu')
-		expect(systemPrompt).toContain('CRITICAL — never fabricate')
+		expect(systemPrompt).toContain('You are Namzu')
+		expect(systemPrompt).toContain(
+			'Ground action claims in successful tool results from this conversation.',
+		)
 		expect(projectPrompt).toContain('Never use a default export.')
 	})
 
@@ -167,7 +169,7 @@ describe("the project's instructions", () => {
 		// identity block and the skills block, on every run in every directory
 		// with no AGENTS.md — while the assertion above still passes.
 		expect(systemPrompt, 'an absent block must be absent, not the word null').not.toContain('null')
-		expect(systemPrompt, 'the identity block still has to be there').toContain('You are namzu')
+		expect(systemPrompt, 'the identity block still has to be there').toContain('You are Namzu')
 	})
 
 	it('are reported by the session, as the exact set that was injected', async () => {

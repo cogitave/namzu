@@ -439,3 +439,9 @@ export type {
 	DiskTokenBudgetStoreConfig,
 	OpenTokenBudgetOptions,
 } from './store/run/token-budget-disk.js'
+
+export type {
+	RequestContextPart,
+	RequestContextSnapshot,
+	RequestContextChange,
+} from './runtime/query/request-context.js'

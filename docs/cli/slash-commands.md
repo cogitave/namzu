@@ -19,7 +19,8 @@ explain why they cannot run and are checked again when selected.
 | Command | What it does |
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
-| `/settings` | View the current model, reasoning effort and permission mode; open their controls or configuration-source details. |
+| `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
+| `/config`, `/settings` | View the current model, reasoning effort and permission mode; open their controls or configuration-source details. |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
@@ -80,8 +81,14 @@ refers to a different global installation. Embedded hosts without an explicit
 launch command use the `namzu` fallback. Copy the full command when resuming
 from another directory.
 
-`/settings` shows Model, Reasoning effort and Permissions with their effective
-values, and opens the corresponding controls. Configuration opens source details.
+`/config` (also available as `/settings`) shows Model, Reasoning effort and
+Permissions with their effective values, and opens the corresponding controls.
+Setting sources opens provenance details; `/config sources` opens it directly.
+Web & session opens the bounded `/status` card with the current search backend,
+workspace, model and usage. The status snapshot is rendered as an Ink card with aligned label/value columns,
+stacking on narrow terminals. Full paths wrap rather than being truncated.
+The plain-text snapshot remains available in raw mode. It reports known runtime
+usage, not an inferred subscription quota.
 Its permission value includes a previous approval of all tools for the session.
 It is not a general configuration-file editor and
 does not display credentials. `/status config` remains a report of sources;
@@ -217,6 +224,46 @@ terminals place descriptions below labels.
 - **Esc Esc** on an empty composer opens the picker of earlier prompts. Picking one forks the conversation before that prompt and reopens it for editing; the original conversation is left where it was.
 - **Esc** while a turn runs interrupts it. **Ctrl+C** is reserved for exit.
 - **Shift+Tab** cycles the permission mode: `prompt`, `accept-edits`, `plan`.
-- **Ctrl+O** expands collapsed tool output that is still on screen.
+- **Ctrl+O** expands small tool output in place. Older or oversized output opens a bounded viewer without appending transcript copies. Use ↑↓ or PgUp/PgDn to scroll, ←→ to switch retained outputs, g/G for the beginning/end, and Esc, q or Ctrl+O to close.
 - **Ctrl+T** opens or closes delegated activity, also reachable with `/agents`.
 - **`!command`** runs on the host without the model; **`#note`** remembers. See [The composer prefixes](composer-prefixes.md).
+
+### Resuming a conversation
+
+`/resume` derives unnamed conversation titles from the first authored prompt,
+not project instructions. Old derived `Conversation` placeholders are replaced
+in the list when the original prompt is still available; deliberately chosen
+names are preserved. On terminals at least 20 rows high, the selected row shows
+the last authored prompt, saved message count and full conversation UUID. Short
+terminals retain the compact list so navigation remains visible.
+
+When an active or paused goal is present after opening a saved conversation,
+Namzu offers **Resume goal** or **Not now**. Opening history alone does not arm
+automatic work. Choosing Resume uses the existing `/goal resume` path and its
+budget checks; dismissing the picker leaves automatic work stopped. Completed
+or blocked goals are not automatically offered for continuation.
+
+Provider setup is also reachable with `s` in the provider picker. Namzu does not
+require an external CLI for its own Codex/Claude sign-in or anonymous Zen models.
+The setup screen probes `--version` with bounded subprocesses and displays only
+credential source kinds, never credentials. `i` proposes the exact npm global
+install command for a missing CLI; only `y` on that confirmation runs it.
+Installation can execute third-party package scripts. Escape cancels the owned
+installer process group; files already installed may remain. After it finishes,
+Namzu checks the executable again. `c` opens connection/model selection with
+fresh credential discovery. Installation success does not establish sign-in or
+account quota. npm must already be available on PATH; failures remain visible.
+
+Installation recipes use the published package names from
+[Codex](https://www.npmjs.com/package/@openai/codex),
+[Claude Code](https://support.claude.com/en/articles/14552382-your-first-day-in-claude-code),
+and [OpenCode](https://opencode.ai/docs/).
+
+### Installation identity
+
+`/status` shows the owning CLI package version, absolute CLI entrypoint, and a
+16-character SHA-256 fingerprint of its executable CLI files. The fingerprint
+is cached on first use; restart after updating files. It identifies CLI file
+content, not a Git commit or the contents of dependency packages. This lets two
+installations with the same version number be distinguished without reading
+credentials or contacting a provider.

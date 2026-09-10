@@ -32,7 +32,15 @@ afterEach(async () => {
 })
 
 async function run(overrides: Partial<AgentRunConfig>, turns: unknown[]): Promise<MockLLMProvider> {
-	const provider = new MockLLMProvider({ turns: turns as never })
+	const provider = new MockLLMProvider({
+		turns: turns as never,
+		capabilities: {
+			supportsTools: true,
+			supportsStreaming: true,
+			supportsFunctionCalling: true,
+			supportsHostedWebSearch: true,
+		},
+	})
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-effort-'))
 	workdirs.push(dir)
 
@@ -124,7 +132,9 @@ describe('the front door forwards it too, not only the kernel', () => {
 	 */
 	it('reaches the provider through runAgent', async () => {
 		const { runAgent } = await import('../../../agents/runAgent.js')
-		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] as never })
+		const provider = new MockLLMProvider({
+			turns: [{ text: 'done' }] as never,
+		})
 		const dir = await mkdtemp(join(tmpdir(), 'namzu-effort-door-'))
 		workdirs.push(dir)
 
@@ -144,4 +154,9 @@ describe('the front door forwards it too, not only the kernel', () => {
 		expect(provider.requests[0]?.effort, 'the front door dropped effort').toBe('xhigh')
 		expect(provider.requests[0]?.thinking?.type, 'the front door dropped thinking').toBe('adaptive')
 	})
+})
+
+it('forwards explicit hosted search into the model request', async () => {
+	const provider = await run({ webSearch: { mode: 'live' } }, [{ text: 'done' }])
+	expect(provider.requests[0]?.webSearch).toEqual({ mode: 'live' })
 })

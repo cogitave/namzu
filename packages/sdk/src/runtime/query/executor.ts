@@ -11,8 +11,8 @@ import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
 import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
-import { fingerprintContent } from '../../tools/builtins/content-fingerprint.js'
 import { SKILL_TOOL_NAME } from '../../tools/builtins/skill.js'
+import { createFileReadTracker } from '../../tools/file-read-tracker.js'
 import type { RunId, ToolUseId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
@@ -290,6 +290,7 @@ function parseArguments(raw: string): unknown {
 }
 
 export interface ToolExecutorConfig {
+	fileReadTracker?: FileReadTracker
 	tools: ToolRegistryContract
 	runId: RunId
 	workingDirectory: string
@@ -501,20 +502,7 @@ export class ToolExecutor {
 	private readonly preparedBatches = new WeakSet<PreparedToolBatch>()
 	/** Set per turn by the orchestrator; see {@link setStepAllowedTools}. */
 	private stepAllowedTools?: readonly string[]
-	private readonly readPaths: Set<string> = new Set()
-	private readonly readFingerprints: Map<string, string> = new Map()
-	private readonly fileReadTracker: FileReadTracker = {
-		recordRead: (key: string, content?: string) => {
-			this.readPaths.add(key)
-			// Only when the reader had the body. A tool that records a read
-			// without one leaves the previous fingerprint alone rather than
-			// clearing it, so a later write is still checked against the last
-			// body anyone actually saw.
-			if (content !== undefined) this.readFingerprints.set(key, fingerprintContent(content))
-		},
-		hasRead: (key: string) => this.readPaths.has(key),
-		fingerprint: (key: string) => this.readFingerprints.get(key),
-	}
+	private readonly fileReadTracker: FileReadTracker
 
 	constructor(
 		config: ToolExecutorConfig,
@@ -532,6 +520,7 @@ export class ToolExecutor {
 				config.readToolCallBudgetEvents,
 			)
 		}
+		this.fileReadTracker = config.fileReadTracker ?? createFileReadTracker()
 		this.config = config
 		this.activityStore = activityStore
 		this.emitEvent = emitEvent
@@ -1211,6 +1200,7 @@ export class ToolExecutor {
 			toolUseId: nestedId,
 			toolName: name,
 			result: budgeted.output,
+			...(!budgeted.truncated ? this.resultPresentation(name, preparedInput, result) : {}),
 			isError: !result.success,
 			durationMs: Date.now() - startedAt,
 			outputLength: budgeted.originalLength,
@@ -1228,6 +1218,21 @@ export class ToolExecutor {
 		})
 
 		return visibleResult
+	}
+
+	private resultPresentation(name: string, input: unknown, result: ToolResult) {
+		if (!result.success) return {}
+		try {
+			const view = this.config.tools.get(name)?.presentResult?.(input, result)
+			if (view?.kind !== 'diff') return {}
+			const serialized = JSON.stringify(view)
+			if (serialized.length > (this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS))
+				return {}
+			return { presentation: view }
+		} catch {
+			// A presentation hook must not fail an already completed mutation.
+			return {}
+		}
 	}
 
 	private buildToolContext(
@@ -1721,6 +1726,9 @@ export class ToolExecutor {
 			toolUseId: toolCall.id,
 			toolName,
 			result: output,
+			...(!postOverride && !budgeted.truncated && rawOutput === output
+				? this.resultPresentation(toolName, input, result)
+				: {}),
 			isError: effectiveIsError,
 			durationMs,
 			// Pre-truncation size, so a host can show "returned 2.1 MB" even

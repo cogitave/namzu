@@ -10,7 +10,8 @@
  *
  * The runtime is fully self-contained: a dedicated in-memory session/thread
  * store backs the AgentManager, so sub-agent bookkeeping never touches the
- * CLI's on-disk `/resume` conversation store.
+ * CLI's on-disk `/resume` conversation store. A separate session-scoped
+ * receipt archive preserves observed outcomes without restoring execution authority.
  */
 
 import {
@@ -40,6 +41,7 @@ import {
 	type ProjectInstructionContext,
 	ReactiveAgent,
 	type ReactiveAgentConfig,
+	type ReasoningEffort,
 	type ResumeHandler,
 	RunCancelled,
 	type RunEvent,
@@ -77,6 +79,7 @@ import {
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
+import { DelegationHistory, HISTORY_GUIDANCE } from './history.js'
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from './policy.js'
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
@@ -127,19 +130,35 @@ export interface SubagentParent {
 	readonly sessionId: SessionId
 }
 
+export interface DelegatedModel {
+	readonly provider: string
+	readonly model: string
+	readonly effort?: ReasoningEffort
+}
+
 export interface SubagentRuntimeOptions {
 	/** Resolve the actual invoking run; reject calls whose parent no longer exists. */
 	readonly resolveParent: (runId: RunId) => Promise<SubagentParent>
 	readonly cwd: string
+	/** Private project root for session-scoped delegation receipts. */
+	readonly historyRoot?: string
 	readonly model: string
-	/** Aggregate parent-and-descendant limit; defaults to the CLI's one million tokens. */
+	/** Aggregate parent-and-descendant limit; absent or zero means unlimited. */
 	readonly tokenBudget?: number
 	/** Durable layout for child runs; omitted preserves the SDK default. */
 	readonly pathBuilder?: PathBuilder
 	/** Root every child allocation at the session workspace or a fresh temp tree. */
 	readonly sandboxWorkspace?: 'working-directory' | 'ephemeral'
 	/** Construct a fresh provider with the invoking conversation and current credential. */
-	readonly buildProvider: (parentSessionId?: SessionId) => LLMProvider
+	readonly buildProvider: (
+		parentSessionId?: SessionId,
+		selection?: DelegatedModel,
+	) => LLMProvider | Promise<LLMProvider>
+	readonly resolveModel?: (
+		request: { model: string; provider?: string; effort?: string },
+		signal: AbortSignal,
+	) => Promise<DelegatedModel>
+	readonly listModels?: (query: string, signal: AbortSignal) => Promise<string>
 	/** Build the sub-agent's tool registry (its own working set). */
 	readonly buildTools: () => ToolRegistryContract
 	readonly authorizationGate?: AuthorizationGateConfig
@@ -185,11 +204,14 @@ export interface SubagentRuntime {
 	completionInboxForRun(runId: RunId): Promise<CompletionInbox>
 	/** Release a settled parent's bookkeeping and cancel children it still owns. */
 	releaseRun(runId: RunId): Promise<void>
+	readonly modelCatalogueTool?: ToolDefinition
 	readonly agentTool: ToolDefinition
 	/** Retrieve a child result without starting another task. */
 	readonly waitForTaskTool: ToolDefinition
+	readonly agentTaskListTool: ToolDefinition
 	/** Queue a correction for an owned task that has not finished. */
 	readonly sendMessageTool: ToolDefinition
+	readonly cancelAgentTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
@@ -432,7 +454,7 @@ export async function createSubagentRuntime(
 						sessionId: parent.sessionId,
 						runId,
 					},
-					limit: opts.tokenBudget ?? 1_000_000,
+					limit: opts.tokenBudget ?? 0,
 					pathBuilder: opts.pathBuilder,
 					workingDirectory: opts.cwd,
 				})
@@ -532,7 +554,8 @@ export async function createSubagentRuntime(
 	const agentTool = defineTool({
 		name: 'Agent',
 		description: [
-			'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working. Use send_message to correct a running task, and wait_for_task to retrieve its result; never launch duplicate work.',
+			'Delegate a self-contained task to a sub-agent. Set run_in_background: true to receive its task ID immediately and continue independent work; completion arrives as a task notification. Otherwise wait for its result. Operator input can also release a blocking wait while the child keeps working. Use agent_task_list for current agent status (task_list is only the planning list), send_message to correct a running task, cancel_agent to stop only one owned task, and wait_for_task to retrieve its result; never launch duplicate work.',
+			'For a request to run multiple independent tasks in parallel, issue all Agent calls together in one response, or set run_in_background: true on each launch before waiting. A single blocking Agent call followed by another call runs them sequentially.',
 			'Pick `subagent_type: "explore"` for anything that only needs to look — where is X defined, which files reference Y, how does Z work — it has reading and searching tools only and never asks for permission.',
 			'Use the default "general-purpose" when the task must change files or run commands.',
 			'Define a specialist inline with `role` — a system prompt describing who the sub-agent is and how to behave (e.g.',
@@ -570,6 +593,21 @@ export async function createSubagentRuntime(
 							? ` This project also defines: ${fileAgentSummary}. Prefer a project-defined type when its description fits the task.`
 							: ''
 					}`,
+				},
+				model: {
+					type: 'string',
+					description:
+						'Exact child model ID. Omit to inherit the session model. Use agent_models to discover available IDs; do not search repository files.',
+				},
+				provider: {
+					type: 'string',
+					description:
+						'Provider for this child only. Requires model; does not switch the parent conversation.',
+				},
+				effort: {
+					type: 'string',
+					description:
+						'Exact reasoning effort supported by the child model. Requires model. Omit for its provider default.',
 				},
 				role: {
 					type: 'string',
@@ -614,8 +652,14 @@ export async function createSubagentRuntime(
 				phase,
 				phase_order,
 				run_in_background,
+				model: requestedModel,
+				provider: requestedProvider,
+				effort: requestedEffort,
 			} = input as {
 				description: string
+				model?: string
+				provider?: string
+				effort?: string
 				prompt: string
 				subagent_type?: string
 				role?: string
@@ -624,11 +668,21 @@ export async function createSubagentRuntime(
 				phase_order?: number
 				run_in_background?: boolean
 			}
+			if (!requestedModel && (requestedProvider || requestedEffort))
+				throw new Error('Supply model when selecting a child provider or effort.')
+			if (requestedModel && !opts.resolveModel)
+				throw new Error('Child model selection is unavailable in this host.')
+			const selection = requestedModel
+				? await opts.resolveModel?.(
+						{ model: requestedModel, provider: requestedProvider, effort: requestedEffort },
+						context.abortSignal,
+					)
+				: undefined
 			const explore = subagent_type === EXPLORE_SUBAGENT
 			const fileAgent = subagent_type !== undefined ? fileAgents.get(subagent_type) : undefined
 			let agentId = fileAgent?.name ?? (explore ? EXPLORE_SUBAGENT : GENERAL_PURPOSE_SUBAGENT)
 			const persona = typeof role === 'string' ? role.trim() : ''
-			const dynamic = persona.length > 0
+			const dynamic = persona.length > 0 || selection !== undefined
 			if (dynamic) {
 				// A role on top of a type keeps that type's roster and model: the
 				// persona says who the child is, the type says what it may touch,
@@ -640,14 +694,17 @@ export async function createSubagentRuntime(
 					buildDefinition(
 						agentId,
 						`Dynamic specialist: ${agentId}`,
-						fileAgent ? `${fileAgent.prompt}\n\n${persona}` : persona,
+						fileAgent
+							? `${fileAgent.prompt}\n\n${persona}`
+							: persona || (explore ? EXPLORE_PROMPT : SUBAGENT_PROMPT),
 						opts,
 						fileAgent
 							? fileAgentTools(fileAgent, opts)
 							: explore
 								? () => filterReadOnlyTools(opts.buildTools())
 								: opts.buildTools,
-						fileAgent?.model ?? opts.model,
+						selection?.model ?? fileAgent?.model ?? opts.model,
+						selection,
 					),
 				)
 			}
@@ -670,6 +727,8 @@ export async function createSubagentRuntime(
 			// longer be proved.
 			const resumeHandler = opts.resolveResumeHandler?.(context.runId) ?? refuseUnownedChildReview
 			const configOverrides = {
+				tokenBudget: opts.tokenBudget ?? 0,
+				...(selection ? { model: selection.model, effort: selection.effort } : {}),
 				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
 				resumeHandler,
 			}
@@ -679,16 +738,33 @@ export async function createSubagentRuntime(
 			}
 			try {
 				const completionInbox = await completionInboxForRun(context.runId)
+				const parent = await resolveParent(context.runId)
+				const history = opts.historyRoot
+					? new DelegationHistory(opts.historyRoot, parent.sessionId)
+					: undefined
+				const save = (handle: TaskHandle, terminal: boolean): void => {
+					history?.write({
+						taskId: handle.taskId,
+						parentRunId: context.runId,
+						description,
+						status: terminal ? agentTaskOutcome(handle) : 'unresolved',
+						...(terminal ? { output: String(completedAgentResult(handle).output ?? '') } : {}),
+					})
+				}
 				const outcome = await runBlockingAgentTask({
 					gateway: await gatewayForRun(context.runId),
 					signal: context.abortSignal,
 					waitForInbound: opts.resolveWaitForInbound?.(context.runId),
 					background: run_in_background === true,
 					completionInbox,
-					onCreated: () => {
+					onCreated: (handle) => {
+						save(handle, false)
 						taskOwnsCleanup = true
 					},
-					onSettled: (completed) => tracker.settle(completed),
+					onSettled: (completed) => {
+						save(completed, true)
+						tracker.settle(completed)
+					},
 					onFailed: (error) => tracker.fail(error),
 					onFinished: cleanupDefinition,
 					create: {
@@ -710,7 +786,7 @@ export async function createSubagentRuntime(
 						outcome.handle.state === 'pending' ? 'queued for an available slot' : 'still running'
 					return {
 						success: true,
-						output: `Sub-agent ${agentId} is ${progress} as task ${outcome.handle.taskId}; it has not completed. ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Respond to that message.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
+						output: `Sub-agent ${agentId} for task ${JSON.stringify(description)} is ${progress} as task ${outcome.handle.taskId}; it has not completed. ${run_in_background ? 'Continue independent work while this task runs in the background.' : 'Waiting was released because the operator sent a message. Answer their question or status request before making further tool calls; preserve existing work unless they ask to cancel or change it.'} Its actual result will arrive as a task notification; do not launch the same work again.`,
 						data: {
 							task_id: outcome.handle.taskId,
 							state: outcome.handle.state,
@@ -729,6 +805,63 @@ export async function createSubagentRuntime(
 			}
 		},
 	})
+	const agentTaskListTool = defineTool({
+		name: 'agent_task_list',
+		description:
+			'List the agent invocations launched by this run and their current status, without waiting or starting work. Use this for agent progress questions. task_list contains planning items, not agent invocations. Use wait_for_task with a live ID for its result. Set history: true to inspect saved receipts from this conversation, optionally task_id for one saved result; archives do not prove liveness.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: { history: { type: 'boolean' }, task_id: { type: 'string' } },
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		async execute(input, context) {
+			const request = input as { history?: boolean; task_id?: string }
+			if (request.history || request.task_id) {
+				if (!opts.historyRoot)
+					return { success: false, output: 'Saved delegation history is unavailable in this host.' }
+				const parent = await resolveParent(context.runId)
+				const history = new DelegationHistory(opts.historyRoot, parent.sessionId)
+				const saved = request.task_id
+					? { tasks: [history.read(request.task_id)], omitted: 0 }
+					: history.list()
+				const tasks = saved.tasks.map(({ output, ...row }) =>
+					request.task_id ? { ...row, output } : row,
+				)
+				return {
+					success: true,
+					output: JSON.stringify({ ...saved, tasks, guidance: HISTORY_GUIDANCE }),
+				}
+			}
+			const gateway = await gatewayForRun(context.runId)
+			const tasks = gateway.listTasks()
+			const labels = new Map(
+				activity.getSnapshot().map((entry) => [entry.taskId, entry.description]),
+			)
+			const shown = tasks.slice(-40).map((task) => ({
+				description: labels.get(task.taskId) ?? task.agentId,
+				task_id: task.taskId,
+				agent: task.agentId,
+				state: task.state,
+				status: agentTaskOutcome(task),
+				...(task.result?.stopReason ? { stop_reason: task.result.stopReason } : {}),
+			}))
+			return {
+				success: true,
+				output: JSON.stringify({
+					tasks: shown,
+					total: tasks.length,
+					omitted: tasks.length - shown.length,
+				}),
+				data: { tasks: shown, total: tasks.length, omitted: tasks.length - shown.length },
+			}
+		},
+	})
+
 	const waitForTaskTool = defineTool({
 		name: 'wait_for_task',
 		description:
@@ -843,6 +976,52 @@ export async function createSubagentRuntime(
 		},
 	})
 
+	const cancelAgentTool = defineTool({
+		name: 'cancel_agent',
+		description:
+			'Request cancellation of one running or queued agent task owned by this run. Other agents and the parent continue. Acceptance is not proof of termination; check agent_task_list or wait_for_task for the terminal outcome. Does not restart finished tasks.',
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				task_id: {
+					type: 'string',
+					description: 'Exact task UUID returned by Agent or agent_task_list.',
+				},
+			},
+			required: ['task_id'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		readOnly: false,
+		destructive: false,
+		concurrencySafe: false,
+		async execute(input, context) {
+			context.abortSignal.throwIfAborted()
+			const taskId = asTaskId((input as { task_id: string }).task_id)
+			const gateway = await gatewayForRun(context.runId)
+			const task = gateway.getTask(taskId)
+			if (!task)
+				return {
+					success: false,
+					output: '',
+					error: `Task ${taskId} does not belong to this parent run.`,
+				}
+			if (isTerminalAgentTaskState(task.state))
+				return {
+					success: true,
+					output: `Task ${taskId} already ended: ${agentTaskOutcome(task)}. No cancellation sent.`,
+				}
+			context.abortSignal.throwIfAborted()
+			gateway.cancelTask(taskId, 'user')
+			return {
+				success: true,
+				output: `Cancellation requested for task ${taskId}. Other tasks continue. Use agent_task_list or wait_for_task to confirm its terminal outcome.`,
+				data: { task_id: taskId, status: 'cancellation_requested' },
+			}
+		},
+	})
+
 	let closePromise: Promise<void> | undefined
 	const close = (): Promise<void> => {
 		if (closePromise) return closePromise
@@ -851,12 +1030,44 @@ export async function createSubagentRuntime(
 		return closePromise
 	}
 
+	const listModels = opts.listModels
+	const modelCatalogueTool = listModels
+		? defineTool({
+				name: 'agent_models',
+				description:
+					'Discover connected provider/model IDs and published capabilities for delegation. Search here before choosing a child model; capability metadata is not a quality ranking.',
+				inputSchema: mcpJsonSchemaToZod({
+					type: 'object',
+					properties: {
+						query: { type: 'string', description: 'Optional provider or model name filter.' },
+					},
+				}),
+				category: 'custom',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				async execute(input, context) {
+					return {
+						success: true,
+						output: await listModels(
+							(input as { query?: string }).query ?? '',
+							context.abortSignal,
+						),
+					}
+				},
+			})
+		: undefined
+
 	return {
+		cancelAgentTool,
+		modelCatalogueTool,
 		gatewayForRun,
 		completionInboxForRun,
 		releaseRun,
 		agentTool,
 		waitForTaskTool,
+		agentTaskListTool,
 		sendMessageTool,
 		allowedAgentIds: agentTypeIds,
 		activity,
@@ -870,7 +1081,7 @@ type BlockingAgentTaskInput = {
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
 	readonly background?: boolean
 	readonly completionInbox: CompletionInbox
-	readonly onCreated: () => void
+	readonly onCreated: (handle: TaskHandle) => void
 	readonly onSettled: (handle: TaskHandle) => void
 	readonly onFailed: (error: unknown) => void
 	readonly onFinished: () => void
@@ -922,17 +1133,23 @@ async function runBlockingAgentTask(
 			cancel(handle)
 			signal.throwIfAborted()
 		}
-		input.onCreated()
+		input.onCreated(handle)
 		input.completionInbox.launched(handle.taskId)
 		const completion = gateway.waitForTask(handle.taskId).then(
 			(completed) => {
-				input.onSettled(completed)
-				input.onFinished()
+				try {
+					input.onSettled(completed)
+				} finally {
+					input.onFinished()
+				}
 				return { kind: 'completed' as const, handle: completed }
 			},
 			(error) => {
-				input.onFailed(error)
-				input.onFinished()
+				try {
+					input.onFailed(error)
+				} finally {
+					input.onFinished()
+				}
 				throw error
 			},
 		)
@@ -970,11 +1187,19 @@ async function runBlockingAgentTask(
 	}
 }
 
+function agentTaskOutcome(task: TaskHandle): string {
+	const run = task.result
+	if (run?.status && run.status !== 'completed') return run.status
+	if (task.state === 'completed' && run?.stopReason && run.stopReason !== 'end_turn')
+		return 'incomplete'
+	return task.state
+}
+
 /** Lifecycle completion is not proof the requested task finished successfully. */
 function completedAgentResult(completed: TaskHandle): ToolResult {
 	const run = completed.result
-	const succeeded =
-		completed.state === 'completed' && (run?.status === undefined || run.status === 'completed')
+	const status = agentTaskOutcome(completed)
+	const succeeded = status === 'completed'
 	const value = run?.structuredOutput ?? run?.result
 	let resultText =
 		typeof value === 'string' ? value : value === undefined ? '' : JSON.stringify(value)
@@ -998,20 +1223,19 @@ function completedAgentResult(completed: TaskHandle): ToolResult {
 	// ToolResult.data is host metadata, not necessarily model-visible content.
 	// Keep the handle and terminal status separate from arbitrary child output
 	// (which may itself contain UUIDs or text such as "Task 1").
-	const status = succeeded ? 'completed' : (run?.status ?? completed.state)
 	const output = `task_id: ${completed.taskId}\nstatus: ${status}\n\nAgent result:\n${stopNote}${resultText || '(sub-agent returned no text)'}`
 	return {
 		success: succeeded,
 		output,
 		...(!succeeded
 			? {
-					error: `Sub-agent ${completed.agentId} ${completed.state}: ${run?.lastError ?? ''}\n${output}`,
+					error: `Sub-agent ${completed.agentId} ${status}: ${run?.lastError ?? ''}\n${output}`,
 				}
 			: {}),
 		data: {
 			task_id: completed.taskId,
 			state: completed.state,
-			...(run?.status ? { status: run.status } : {}),
+			status,
 			...(run?.stopReason ? { stop_reason: run.stopReason } : {}),
 		},
 	}
@@ -1031,6 +1255,7 @@ function buildDefinition(
 	tools: () => ToolRegistryContract = opts.buildTools,
 	/** This definition's model; absent means the session's. */
 	model: string = opts.model,
+	selection?: DelegatedModel,
 ): AgentDefinition {
 	const agent = new ReactiveAgent({
 		id,
@@ -1052,7 +1277,7 @@ function buildDefinition(
 			category: 'general',
 			description,
 			tools: [],
-			defaults: { model, tokenBudget: 200_000 },
+			defaults: { model, tokenBudget: opts.tokenBudget ?? 0 },
 		},
 		// ReactiveAgent is Agent<ReactiveAgentConfig,…>; the registry stores the
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
@@ -1071,10 +1296,11 @@ function buildDefinition(
 				: undefined
 			return {
 				model: options.model ?? model,
-				tokenBudget: options.tokenBudget ?? 200_000,
+				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
 				timeoutMs: options.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 				maxIterations: 40,
-				provider: opts.buildProvider(parent?.sessionId),
+				provider: await opts.buildProvider(parent?.sessionId, selection),
+				...(selection?.effort ? { effort: selection.effort } : {}),
 				tools: tools(),
 				systemPrompt: environment ? `${base}\n\n${environment}` : base,
 				...(opts.projectInstructionContext

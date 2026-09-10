@@ -1,4 +1,5 @@
 import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
+import type { SubagentRuntimeOptions } from '../../integrations/subagents/runtime.js'
 /** OAuth refresh cancellation and serialization at the real AgentSession boundary. */
 
 import { mkdtempSync } from 'node:fs'
@@ -142,8 +143,10 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	}
 })
 
+const auxiliary = vi.hoisted(() => ({ options: null as SubagentRuntimeOptions | null }))
 vi.mock('../../integrations/subagents/runtime.js', () => ({
-	createSubagentRuntime: async () => {
+	createSubagentRuntime: async (options: SubagentRuntimeOptions) => {
+		auxiliary.options = options
 		throw new Error('subagent intentionally unavailable in token refresh fixture')
 	},
 }))
@@ -237,6 +240,7 @@ async function borrowedSession(): Promise<AgentSession> {
 }
 
 beforeEach(() => {
+	auxiliary.options = null
 	stored.current = {
 		accessToken: 'cc-old',
 		refreshToken: 'rt-old',
@@ -693,4 +697,85 @@ describe('one session publishes refresh state in order', () => {
 		expect(readStored).toHaveBeenCalledTimes(2)
 		expect(runCalls.resumes.map(providerToken)).toEqual(['cc-fresh', 'cc-fresh'])
 	})
+})
+
+async function crossProviderSession() {
+	const cwd = mkdtempSync(join(tmpdir(), 'namzu-cross-provider-auth-'))
+	roots.push(cwd)
+	const open = await createAgentSession(
+		{ version: 3, providers: [{ id: 'openai' }] },
+		[
+			{
+				entry: PROVIDER_REGISTRY.openai,
+				source: { kind: 'env', envName: 'OPENAI_API_KEY' },
+				apiKey: 'test-api-key',
+				alternatives: [],
+			},
+			...detectedBorrowedSubscription(),
+		] as never,
+		{ cwd },
+	)
+	sessions.push(open)
+	expect(auxiliary.options).not.toBeNull()
+	return auxiliary.options!
+}
+
+it('rereads Claude-owned credentials when an OpenAI conversation builds an Anthropic child', async () => {
+	borrowedExternal.current = {
+		accessToken: 'cc-borrowed',
+		refreshToken: 'rt-borrowed',
+		expiresAt: Date.now() + 3600000,
+	}
+	const options = await crossProviderSession()
+	borrowedExternal.current = {
+		accessToken: 'cc-rotated-by-claude',
+		refreshToken: 'rt-successor',
+		expiresAt: Date.now() + 3600000,
+	}
+	const child = await options.buildProvider(undefined, {
+		provider: 'anthropic',
+		model: 'claude-sonnet-4',
+	})
+	expect((child as unknown as { token: string }).token).toBe('cc-rotated-by-claude')
+})
+
+it('serializes auxiliary Claude refresh so parallel children use one rotating grant', async () => {
+	borrowedExternal.current = {
+		accessToken: 'cc-borrowed',
+		refreshToken: 'rt-borrowed',
+		expiresAt: 0,
+	}
+	const fetchSpy = vi.fn(
+		async () =>
+			new Response(
+				JSON.stringify({
+					access_token: 'cc-child-fresh',
+					refresh_token: 'rt-child-fresh',
+					expires_in: 3600,
+				}),
+				{ status: 200 },
+			),
+	)
+	vi.stubGlobal('fetch', fetchSpy)
+	const options = await crossProviderSession()
+	const children = await Promise.all(
+		[1, 2].map(() =>
+			options.buildProvider(undefined, { provider: 'anthropic', model: 'claude-sonnet-4' }),
+		),
+	)
+	expect(children.map((child) => (child as unknown as { token: string }).token)).toEqual([
+		'cc-child-fresh',
+		'cc-child-fresh',
+	])
+	expect(fetchSpy).toHaveBeenCalledTimes(1)
+	expect(borrowedExternal.current?.accessToken).toBe('cc-child-fresh')
+})
+
+it('does not revive a logged-out Claude credential from the discovery snapshot', async () => {
+	borrowedExternal.current = { accessToken: 'cc-borrowed', expiresAt: Date.now() + 3600000 }
+	const options = await crossProviderSession()
+	borrowedExternal.current = null
+	await expect(
+		options.buildProvider(undefined, { provider: 'anthropic', model: 'claude-sonnet-4' }),
+	).rejects.toBeInstanceOf(CredentialWithdrawnError)
 })

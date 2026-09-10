@@ -142,3 +142,16 @@ test('provider selection fixtures may name wire keys without exempting adjacent 
 	assert.equal(result.status, 1)
 	assert.match(result.stderr, /packages\/cli\/src\/tui\/unrelated.ts/)
 })
+
+test('device provider attribution stays scoped to integration docs and exact credential accesses', () => {
+	const root = repository()
+	mkdirSync(join(root, 'docs/cli'), { recursive: true })
+	mkdirSync(join(root, 'packages/cli/src/tui'), { recursive: true })
+	writeFileSync(join(root, 'docs/cli/google.md'), '# Gemini CLI credential reuse\n')
+	writeFileSync(join(root, 'packages/cli/src/tui/agent.ts'), 'const token = det?.gemini\n')
+	assert.equal(runAudit(root).status, 0)
+	writeFileSync(join(root, 'packages/cli/src/tui/agent.ts'), '/' + '/ We copied Gemini here\nconst gemini = 1\n')
+	const result = runAudit(root)
+	assert.equal(result.status, 1)
+	assert.match(result.stderr, /packages\/cli\/src\/tui\/agent.ts/)
+})

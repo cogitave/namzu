@@ -20,6 +20,7 @@ import { ToolExecutor } from './executor.js'
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
 export interface ToolingBootstrapConfig {
+	fileReadTracker?: import('../../types/tool/index.js').FileReadTracker
 	tools: ToolRegistryContract
 	runId: RunId
 	workingDirectory: string
@@ -67,6 +68,7 @@ export class ToolingBootstrap {
 		return new ToolExecutor(
 			{
 				tools: config.tools,
+				...(config.fileReadTracker ? { fileReadTracker: config.fileReadTracker } : {}),
 				runId: config.runId,
 				workingDirectory: config.workingDirectory,
 				...(config.additionalDirectories?.length

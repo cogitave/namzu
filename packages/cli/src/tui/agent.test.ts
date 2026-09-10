@@ -31,6 +31,7 @@ import {
 	makeResumeHandler,
 	toAgentEvent,
 	viewToLines,
+	viewToSummary,
 } from './agent.js'
 import { MAX_PERMISSION_REVIEW_BYTES } from './permission-review.js'
 
@@ -144,6 +145,7 @@ describe('toAgentEvent', () => {
 		} as unknown as RunEvent
 		expect(toAgentEvent(ev, presenter)).toEqual({
 			kind: 'tool-end',
+			output: 'multi\n  line  ',
 			runId,
 			toolUseId,
 			toolName: 'bash',
@@ -200,6 +202,7 @@ describe('toAgentEvent', () => {
 			),
 		).toEqual({
 			kind: 'tool-end',
+			output: 'ok',
 			runId,
 			toolUseId,
 			toolName: 'desktop_control',
@@ -504,8 +507,55 @@ describe('the rows under a tool call', () => {
 		])
 	})
 
-	it('returns the content lines for write', () => {
-		expect(callRows('write', { path: '/x', content: 'one\ntwo' })).toEqual(['one', 'two'])
+	it('does not invent a creation diff before write executes', () => {
+		expect(callRows('write', { path: '/x', content: 'one\ntwo' })).toBeUndefined()
+	})
+
+	it('uses the executor diff in completed tool events', () => {
+		const event = toAgentEvent(
+			{
+				type: 'tool_completed',
+				runId,
+				toolUseId,
+				toolName: 'write',
+				isError: false,
+				result: 'Created x (+1 -0)',
+				presentation: {
+					kind: 'diff',
+					path: 'x',
+					label: 'Created x (+1 -0)',
+					before: '',
+					after: 'one\n',
+				},
+			},
+			presenter,
+		)
+		expect(event).toMatchObject({
+			kind: 'tool-end',
+			summary: 'Created x (+1 -0)',
+			detail: ['+ one'],
+		})
+	})
+
+	it('renders creation diffs without a phantom final line', () => {
+		expect(
+			viewToLines({
+				kind: 'diff',
+				label: 'Created x (+2 -0)',
+				path: 'x',
+				before: '',
+				after: 'one\n\n',
+			}),
+		).toEqual(['+ one', '+ '])
+		expect(
+			viewToSummary({
+				kind: 'diff',
+				label: 'Created x (+1 -0)',
+				path: 'x',
+				before: '',
+				after: 'one\n',
+			}),
+		).toBe('Created x (+1 -0)')
 	})
 
 	it('returns undefined for non-mutating tools', () => {

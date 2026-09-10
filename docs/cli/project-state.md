@@ -32,6 +32,12 @@ Its filesystem inventory still covers the working directory's `.namzu` and
 the application home; run it at the checkout root to count root-level authored
 memory as well.
 
+The resume picker uses project-scoped session enumeration when the store supports
+it, then checks Topic membership. The built-in disk store does not scan unrelated
+Projects to list the current checkout. Message logs are still read to derive
+missing titles, previews and counts; a bounded metadata index remains a separate
+optimization.
+
 Tool execution, project trust and configuration continue to use the selected
 working directory. Nested repositories and worktrees have distinct roots.
 Unrelated scratch directories are separate Projects: their common `/tmp`

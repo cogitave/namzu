@@ -58,7 +58,9 @@ function streamResponse(turn: number): Response {
 	return new Response(body, { status: 200, headers: { 'content-type': 'text/event-stream' } })
 }
 
-function toolStreamResponse(): Response {
+function toolStreamResponse(
+	tool = { name: 'glob', arguments: '{"pattern":"NO_MATCH_REPLAY_*"}' },
+): Response {
 	const chunks = [
 		{
 			id: 'chatcmpl-tool',
@@ -83,7 +85,7 @@ function toolStreamResponse(): Response {
 								index: 0,
 								id: 'call_glob_exact',
 								type: 'function',
-								function: { name: 'glob', arguments: '{"pattern":"NO_MATCH_REPLAY_*"}' },
+								function: tool,
 							},
 						],
 					},
@@ -302,4 +304,70 @@ it('replays a persisted reasoning tool turn after rebuilding the same route', as
 		tool_calls: [{ id: 'call_glob_exact', function: { name: 'glob' } }],
 	})
 	expect(switchedAssistant).not.toHaveProperty('reasoning_content')
+})
+
+it('carries a successful write and its exact content into the next provider request', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-write-evidence-'))
+	roots.push(cwd)
+	const body = 'Merhaba!\nNamzu is an agent kernel.\n'
+	const requests: Array<{ messages?: Record<string, unknown>[] }> = []
+	vi.stubGlobal(
+		'fetch',
+		vi.fn<typeof fetch>(async (_input, init) => {
+			requests.push(JSON.parse(String(init?.body)))
+			return requests.length === 1
+				? toolStreamResponse({
+						name: 'write',
+						arguments: JSON.stringify({ path: 'hello.txt', content: body }),
+					})
+				: streamResponse(requests.length)
+		}),
+	)
+	const preferences: Preferences = {
+		version: 3,
+		providers: [{ id: 'deepseek' }],
+		subagents: { active: [] },
+	}
+	const detected = [
+		{
+			entry: PROVIDER_REGISTRY.deepseek,
+			source: { kind: 'env', envName: 'DEEPSEEK_API_KEY' },
+			apiKey: 'not-a-real-key',
+			alternatives: [],
+		} as DetectedProvider,
+	]
+	const session = await createAgentSession(preferences, detected, { cwd, permissionMode: 'auto' })
+	let history: readonly Message[] | undefined
+	try {
+		for await (const _event of session.send([createUserMessage('Create a greeting file')], {
+			onConversationMessages: (messages) => {
+				history = messages
+			},
+		})) {
+			/* drain */
+		}
+		if (!history) throw new Error('No conversation published')
+		for await (const _event of session.send([
+			...history,
+			createUserMessage('Add a sentence to it'),
+		])) {
+			/* drain */
+		}
+	} finally {
+		await session.close()
+	}
+	expect(requests).toHaveLength(3)
+	const next = requests[2]?.messages ?? []
+	const call = next
+		.flatMap(
+			(message) =>
+				(message.tool_calls ?? []) as Array<{ function: { name: string; arguments: string } }>,
+		)
+		.find((tool) => tool.function.name === 'write')
+	expect(JSON.parse(call?.function.arguments ?? '{}')).toEqual({ path: 'hello.txt', content: body })
+	const result = next.find(
+		(message) => message.role === 'tool' && message.tool_call_id === 'call_glob_exact',
+	)
+	expect(String(result?.content)).toContain('Created')
+	expect(String(result?.content)).not.toContain('Error:')
 })

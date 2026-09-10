@@ -181,9 +181,33 @@ describe('operator input releases delegation waits without cancelling children',
 				const receipts = firstResponse.messages.filter((message) => message.role === 'tool')
 				expect(receipts).toHaveLength(3)
 				expect(new Set(receipts.map((message) => message.toolCallId)).size).toBe(3)
-				for (const receipt of receipts) expect(String(receipt.content)).toContain('still running')
+				for (const [index, receipt] of receipts.entries()) {
+					expect(String(receipt.content)).toContain('still running')
+					expect(String(receipt.content)).toContain(`child ${index}`)
+				}
 				expect(signals.every((signal) => !signal.aborted)).toBe(true)
 				expect(gateway.listTasks().every((task) => task.state === 'running')).toBe(true)
+				const listing = await runtime.agentTaskListTool.execute(
+					{},
+					{
+						runId: parent.scope.runId,
+						workingDirectory: cwd,
+						abortSignal: caller.signal,
+						env: {},
+						log() {},
+					},
+				)
+				const listed = JSON.parse(listing.output)
+				expect(listed.total).toBe(3)
+				expect(listed.tasks.map((task: { task_id: string }) => task.task_id).sort()).toEqual(
+					gateway
+						.listTasks()
+						.map((task) => task.taskId)
+						.sort(),
+				)
+				expect(listed.tasks.every((task: { status: string }) => task.status === 'running')).toBe(
+					true,
+				)
 
 				// The parent has answered but remains in its idle completion hold.
 				await inbox.waiting(1)
@@ -541,10 +565,28 @@ describe('operator input releases delegation waits without cancelling children',
 					log() {},
 				},
 			)
-			expect(result.data).toMatchObject({ stop_reason: 'token_budget' })
+			expect(result.data).toMatchObject({ stop_reason: 'token_budget', status: 'incomplete' })
+			expect(result.success).toBe(false)
+			expect(result.output).toContain('status: incomplete')
+			expect(result.output).not.toContain('status: completed')
 			expect(result.output).toContain('token_budget')
 			expect(result.output).toContain('does not establish task completion')
 			expect(result.output).toContain('Partial finding from the child.')
+			expect(runtime.activity.getSnapshot().at(-1)?.status).toBe('failed')
+			const listing = await runtime.agentTaskListTool.execute(
+				{},
+				{
+					runId: parent.scope.runId,
+					workingDirectory: cwd,
+					abortSignal: new AbortController().signal,
+					env: {},
+					log() {},
+				},
+			)
+			expect(JSON.parse(listing.output).tasks[0]).toMatchObject({
+				status: 'incomplete',
+				stop_reason: 'token_budget',
+			})
 		} finally {
 			await runtime.close()
 		}
