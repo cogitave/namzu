@@ -1,5 +1,69 @@
 # Changelog
 
+## 38.0.0
+
+### Major Changes
+
+- 7785cb4: CLI runs and their children no longer default to finite cumulative token limits. Set limits.tokenBudget to 1000000 to retain the previous CLI tree limit. Iteration and cancellation limits remain active; token usage is still recorded.
+
+  Agent accepts model, provider and effort selections for a child without changing the parent conversation. Use agent_models to discover connected model IDs and published capabilities.
+
+  SDK AgentManager now honors explicit configOverrides.tokenBudget: 0 under an unlimited parent instead of substituting 200000. Specify 200000 to retain that previous behavior. TokenBudget.reserve(0) supports unlimited child accounts; finite ancestor budgets remain binding. Omitted SDK child budgets retain their existing fallback.
+
+- 7785cb4: Enabled compaction now deduplicates long, identical read-only text observations
+  in model requests by default. The first full result remains; later identical
+  results reference it. This changes the content seen by providers and model-call
+  hooks, while leaving tool execution and canonical conversation history intact.
+
+  To keep the previous request representation, set `deduplicateObservations: false`
+  in SDK compaction configuration, or `compaction.deduplicateObservations: false`
+  in CLI configuration. SDK runs without compaction configuration or with the
+  `disabled` strategy remain unchanged. Distinct outputs, partial ranges, errors,
+  retained results and results of tools not explicitly read-only are not merged.
+
+- 7785cb4: Edits now refuse a file whose captured content fingerprint differs from its
+  current contents, even if the requested anchor still matches. This applies to
+  local and sandbox edits. Read the changed file again before retrying; unrelated
+  external changes no longer silently pass edit admission.
+
+  The interactive CLI retains file observations across turns of a live agent
+  session. SDK hosts can share `createFileReadTracker()` through
+  `query({ fileReadTracker })` across their conversation's turns. Keep trackers
+  isolated by conversation and filesystem; an omitted tracker remains run-local.
+  Observations are in memory, not a durable resume record. No atomic exclusion
+  of external writers after admission is promised.
+
+- 7785cb4: An unresolved provider receipt no longer blocks healthy sibling accounts whose shared ancestors are unlimited. Finite shared allowances remain blocked, as does the account owning the unresolved receipt. To retain tree-wide blocking on unknown spend, configure a finite root token budget. Invalid accounting and failed persistence still block the entire tree.
+
+  Snapshots retain uncertainty on individual request records via unresolved; only explicit final-receipt reconciliation clears it. Cold restore marks pending requests unresolved. TokenBudgetSummary adds unresolvedRequests; poisoned now reports whether the observed account is blocked. CLI usage identifies incomplete measured totals instead of implying that unknown usage was free.
+
+### Minor Changes
+
+- 7785cb4: Add optional exploration presentation metadata to tool call views. The CLI groups consecutive successful file observations while preserving their complete retained output behind Ctrl+O. CLI tool-end events additionally expose retained `output` before preview formatting, so hosts can recover exact text. Background job calls now identify the operation and job. Failures remain visible outside compact groups.
+
+  Fix grep returning no matches when its path names a regular file. Local and guest traversal now search that file without enumerating its parent.
+
+- 7785cb4: Add observed write receipts with operation, UTF-8 byte count, SHA-256 and changed-region preview. Diff presentation accepts an optional summary label. Completed tool events carry bounded diff presentation so hosts do not have to reconstruct it from text. Existing write input, character-size metadata and permission defaults remain unchanged.
+
+  CLI write approvals describe a possible full replacement instead of implying creation; completed writes display the observed operation and diff. Final newline terminators no longer add a phantom line, and real blank lines remain visible. Backends with unknown prior state report Wrote rather than Created.
+
+- 7785cb4: Enable provider-hosted web search with `web.search: live` or `cached` in CLI configuration, or `webSearch: { mode: 'live' | 'cached' }` in SDK run/completion parameters. Search remains off by default. Currently the Codex subscription driver supports it; unsupported provider routes refuse explicitly. Hosted searches display activity and retain source links and native replay evidence without executing local shell commands. Enabling this setting authorizes server-side searches without per-search local-tool approval. Model token usage remains accounted in the enclosing request; separate search fees are not measured by the token ledger.
+
+  SDK event consumers can handle the new `hosted_tool` event (`hosted.tool` on SSE). These observations never request local tool execution.
+
+- 7785cb4: Tool review prompts now carry the originating run ID. The CLI uses this identity to show which agent requested an approval, retaining the attribution as concurrent requests advance through the queue. Unrecognized runs display their ID instead of an inferred agent name.
+- 7785cb4: Expose immutable request-context snapshots and occurrence-aware differences through `snapshotRequestContext`, `diffRequestContext` and `pre_llm_call.request.context`. Snapshots identify exact content blocks after SDK context reduction and request projection, including tool inputs separately from their results, without retaining raw content. Changes compare consecutive prepared requests within a run; hosts can compare snapshots across runs using the exported helper.
+
+  This is SDK-side context observability, not a guarantee about provider-private context, file freshness or complete file coverage. It does not suppress tool calls or add model instructions.
+
+### Patch Changes
+
+- 7785cb4: CLI adds agent_task_list for the invoking run's delegated work, separate from planning tasks. Budget-stopped child results are reported as incomplete rather than successful completion; notifications explicitly distinguish lifecycle termination from task success. The agent browser uses the terminal height and preserves the main draft while its composer is hidden.
+- 7785cb4: Correct recovery instructions when tool-result images or documents are omitted from model context. Payload limits, invalid images and provider-image rejection no longer instruct an agent to repeat the producing tool, which may have changed external state. Accompanying result text and original history remain intact; recovery guidance uses an available artifact or read-only observation without claiming a recovery tool exists.
+- 7785cb4: Remove the coding doctrine's unconditional read-before-edit instruction. Agents can reuse content from successful prior reads or writes, while re-observing missing, stale or partial evidence and respecting project instructions and tool prerequisites. Clarify that tool intentions and failed calls do not establish completion. Runtime permissions and freshness checks are unchanged.
+
+  Clarify prior-turn action evidence and Namzu’s kernel/SDK identity in the CLI. Make verification proportional to the task and remove unconditional concurrency and child-context claims from shared guidance.
+
 ## 37.0.0
 
 ### Major Changes

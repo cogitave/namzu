@@ -1,5 +1,23 @@
 # @namzu/sandbox
 
+## 11.0.0
+
+### Patch Changes
+
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+  - @namzu/sdk@38.0.0
+
 ## 10.0.0
 
 ### Patch Changes
