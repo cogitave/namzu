@@ -94,6 +94,43 @@ and validate its golden guest image from the same release. Firecracker hosts
 can import `FIRECRACKER_AGENT_PROTOCOL_VERSION` to apply the same admission
 check in their own warm-pool probe.
 
+Roll the coupled Firecracker artifacts in this order: build the guest agent
+from the target Namzu release, publish and canary a golden image containing
+that agent, then deploy hosts that require its protocol version. Keep the
+previous host and golden-image pair available together for rollback. Rolling
+back only one side is intentionally rejected at readiness, so a mismatched
+guest never accepts work under an unverified wire contract.
+
+## Firecracker workspace channels
+
+The Firecracker backend exposes two optional same-sandbox channels. Call
+`sandbox.openTerminal()` for an interactive pseudo-terminal whose process tree
+is owned by the guest. The returned `TerminalSession` supports input, output,
+resize and close without substituting host pipes for terminal semantics. Call
+`sandbox.openTcpConnection()` to reach an IPv4 or IPv6 loopback service inside
+that same guest. Its `SandboxTcpConnection` exposes bounded write/backpressure,
+incoming-data pause and resume, half-close and final closure. This channel can
+publish a development server or WebSocket preview without moving the checkout
+to another runtime or widening guest egress.
+
+Both methods are capability-checked. A backend that cannot preserve the same
+isolation and ownership boundary omits them; callers must not fall back to a
+host process or a different sandbox.
+
+## Firecracker network policy
+
+At microVM creation, the Firecracker backend maps the resolved egress decision
+to an explicit orchestrator policy: deny-all becomes `none`, allow-all becomes
+`open`, and a static or resolved host list becomes `allowlist` with the exact
+allowed hosts. An omitted egress setting retains the orchestrator's legacy
+no-interface behavior. In particular, an empty resolved allowlist remains an
+explicit deny-all decision rather than collapsing to an absent policy.
+
+`sandbox.setNetworkPolicy()` remains the live-sandbox contract for backends
+that can change egress after admission. A backend must throw when it cannot
+enforce a requested live policy; accepting without applying it would erase the
+security boundary the host relied on.
+
 ## Documentation
 
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)
