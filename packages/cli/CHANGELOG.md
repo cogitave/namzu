@@ -1,5 +1,121 @@
 # @namzu/cli
 
+## 22.0.0
+
+### Major Changes
+
+- 7785cb4: Web search now defaults to automatic search routing for conversation models, instead of being disabled. A supported native driver is preferred for a single-provider session; other routes use Exa under the normal network-tool permission policy. Neither Exa nor public Zen requires OpenCode installation. The public endpoint has free-tier limits. Set `web.search: off` to retain the old disabled behavior; set `web.backend: native` to use the existing provider-hosted search route instead.
+
+  Add `/config` as an entry to session settings and `/config sources` for configuration provenance. `/status` now presents a compact, wrapping session card including the search backend. `/setup` separates optional CLI installation from account access, offers confirmed npm installation with cancellation, and rechecks installation before connecting.
+
+- 7785cb4: CLI runs and their children no longer default to finite cumulative token limits. Set limits.tokenBudget to 1000000 to retain the previous CLI tree limit. Iteration and cancellation limits remain active; token usage is still recorded.
+
+  Agent accepts model, provider and effort selections for a child without changing the parent conversation. Use agent_models to discover connected model IDs and published capabilities.
+
+  SDK AgentManager now honors explicit configOverrides.tokenBudget: 0 under an unlimited parent instead of substituting 200000. Specify 200000 to retain that previous behavior. TokenBudget.reserve(0) supports unlimited child accounts; finite ancestor budgets remain binding. Omitted SDK child budgets retain their existing fallback.
+
+- 7785cb4: Enabled compaction now deduplicates long, identical read-only text observations
+  in model requests by default. The first full result remains; later identical
+  results reference it. This changes the content seen by providers and model-call
+  hooks, while leaving tool execution and canonical conversation history intact.
+
+  To keep the previous request representation, set `deduplicateObservations: false`
+  in SDK compaction configuration, or `compaction.deduplicateObservations: false`
+  in CLI configuration. SDK runs without compaction configuration or with the
+  `disabled` strategy remain unchanged. Distinct outputs, partial ranges, errors,
+  retained results and results of tools not explicitly read-only are not merged.
+
+- 7785cb4: Edits now refuse a file whose captured content fingerprint differs from its
+  current contents, even if the requested anchor still matches. This applies to
+  local and sandbox edits. Read the changed file again before retrying; unrelated
+  external changes no longer silently pass edit admission.
+
+  The interactive CLI retains file observations across turns of a live agent
+  session. SDK hosts can share `createFileReadTracker()` through
+  `query({ fileReadTracker })` across their conversation's turns. Keep trackers
+  isolated by conversation and filesystem; an omitted tracker remains run-local.
+  Observations are in memory, not a durable resume record. No atomic exclusion
+  of external writers after admission is promised.
+
+- 7785cb4: Stop bundling OAuth application credentials for borrowed Google sessions. Expired sessions now require renewal in their owning CLI, unless GOOGLE_OAUTH_CLIENT_ID and GOOGLE_OAUTH_CLIENT_SECRET are explicitly configured for the application that issued the refresh token. Fresh owner sessions and API-key access continue to work.
+
+### Minor Changes
+
+- 7785cb4: CLI adds agent_task_list for the invoking run's delegated work, separate from planning tasks. Budget-stopped child results are reported as incomplete rather than successful completion; notifications explicitly distinguish lifecycle termination from task success. The agent browser uses the terminal height and preserves the main draft while its composer is hidden.
+- 7785cb4: Add cancel_agent to request cancellation of one owned running or queued child without cancelling the parent or its other tasks. Finished tasks return their existing status. Confirm termination through agent_task_list or wait_for_task; acceptance alone is not completion. Unresolved provider usage still follows the shared token ledger's admission policy.
+
+  Load catalogue-backed reasoning profiles before validating or executing explicitly selected child effort, fixing rejected low-effort Codex delegations on fresh provider instances.
+
+- 7785cb4: Add optional exploration presentation metadata to tool call views. The CLI groups consecutive successful file observations while preserving their complete retained output behind Ctrl+O. CLI tool-end events additionally expose retained `output` before preview formatting, so hosts can recover exact text. Background job calls now identify the operation and job. Failures remain visible outside compact groups.
+
+  Fix grep returning no matches when its path names a regular file. Local and guest traversal now search that file without enumerating its parent.
+
+- 7785cb4: Retain session-scoped agent receipts across CLI restarts. Resumed conversations receive a bounded summary of earlier tasks; `agent_task_list` accepts `history: true` and an optional `task_id` to inspect saved outcomes and result previews without launching another agent. Tasks without a terminal receipt remain explicitly unresolved, not falsely running or completed. This does not automatically restart child processes.
+- 7785cb4: Add Google model access with a native SDK provider and CLI model selection. Reuse an existing Gemini CLI Google sign-in from this device, including the paired Windows home under WSL, without requiring a new API key. Explicit Gemini or Google API keys remain an alternative and take precedence when configured. Borrowed sign-ins are refreshed in memory without rewriting their owner file; Google account access retains the Code Assist route rather than being sent to the API-key endpoint.
+- 7785cb4: Enable provider-hosted web search with `web.search: live` or `cached` in CLI configuration, or `webSearch: { mode: 'live' | 'cached' }` in SDK run/completion parameters. Search remains off by default. Currently the Codex subscription driver supports it; unsupported provider routes refuse explicitly. Hosted searches display activity and retain source links and native replay evidence without executing local shell commands. Enabling this setting authorizes server-side searches without per-search local-tool approval. Model token usage remains accounted in the enclosing request; separate search fees are not measured by the token ledger.
+
+  SDK event consumers can handle the new `hosted_tool` event (`hosted.tool` on SSE). These observations never request local tool execution.
+
+- 7785cb4: An unresolved provider receipt no longer blocks healthy sibling accounts whose shared ancestors are unlimited. Finite shared allowances remain blocked, as does the account owning the unresolved receipt. To retain tree-wide blocking on unknown spend, configure a finite root token budget. Invalid accounting and failed persistence still block the entire tree.
+
+  Snapshots retain uncertainty on individual request records via unresolved; only explicit final-receipt reconciliation clears it. Cold restore marks pending requests unresolved. TokenBudgetSummary adds unresolvedRequests; poisoned now reports whether the observed account is blocked. CLI usage identifies incomplete measured totals instead of implying that unknown usage was free.
+
+### Patch Changes
+
+- 7785cb4: Prevent Ctrl+O from repeatedly appending full tool results and diffs to the
+  transcript. Older outputs and expansions that exceed the live viewport open in
+  a bounded, scrollable detail view. Use arrows and Page Up/Down to navigate,
+  left/right to switch outputs, and Escape or Ctrl+O to return. Small results
+  still expand in place. Viewing output does not alter conversation history.
+- 7785cb4: Show the CLI version, absolute entrypoint and executable-file fingerprint in /status so stale installations can be distinguished from a newer local build with the same package version.
+- 7785cb4: Show agent approvals as compact task rows grouped by workflow and phase labels. Full prompts remain accessible with `d`, and long batches retain pagination. Unknown input shapes still open as exact prepared input.
+- 7785cb4: Show model discovery as a compact catalogue with provider, exact model ID, context size and effort options. Ctrl+O preserves access to the original JSON. Empty results and unavailable catalogues remain explicit, and malformed output falls back to the ordinary tool view.
+- 7785cb4: Refresh Anthropic OAuth credentials before cross-provider agent launches and model discovery instead of reusing the startup token. Concurrent launches share serialized renewal and honor credentials removed or rotated by their owner.
+- 7785cb4: Honor GEMINI_CLI_HOME when reusing Gemini CLI Google sign-ins. Read the selected home’s .gemini/oauth_creds.json and avoid falling back to another Linux or Windows account when that explicitly selected owner is signed out. Empty values preserve the normal lookup.
+- 7785cb4: Add observed write receipts with operation, UTF-8 byte count, SHA-256 and changed-region preview. Diff presentation accepts an optional summary label. Completed tool events carry bounded diff presentation so hosts do not have to reconstruct it from text. Existing write input, character-size metadata and permission defaults remain unchanged.
+
+  CLI write approvals describe a possible full replacement instead of implying creation; completed writes display the observed operation and diff. Final newline terminators no longer add a phantom line, and real blank lines remain visible. Backends with unknown prior state report Wrote rather than Created.
+
+- 7785cb4: Show one named status row for every observed agent completion, including tasks the model never explicitly waits on. Label active waits with the task name and avoid repeating successful wait protocol payloads in the main transcript. Agent reports remain available through Ctrl+T; unknown waits and tool errors stay visible.
+- 7785cb4: Assemble bracketed terminal pastes before editing the composer, normalize Windows line endings and show character counts for collapsed text. Preserve separate assistant messages when a task completion follows an earlier status answer. Delegation receipts now name the running task, and parallel-launch guidance explains how to avoid serial waits.
+- 7785cb4: Keep successful wait results visible when a scheduler supplies no assistant transcript for the agent inspector. This preserves the only available report while normal inspected agents retain compact completion rows. Generalize the startup session notice for additional model providers.
+- 7785cb4: Queue concurrent terminal permission requests so one agent cannot overwrite another agent’s pending approval. Show the remaining queue count, reset the consent window for each review, and settle all pending reviews on cancellation or application exit. Explicit session-wide approval includes queued reviews.
+- 7785cb4: Avoid repeating the project-instructions notice when switching models with the same loaded instruction files. Replacement sessions still load their instructions, and changed non-empty file lists are announced.
+- 7785cb4: Fix derived resume titles being stuck at `Conversation` when project instructions were saved before the first user prompt. Preserve explicitly named conversations, add selected-conversation previews on taller terminals, and offer an explicit continuation choice for saved active or paused goals without automatically starting work on resume.
+
+  Use project-scoped session listing in the disk-backed resume picker instead of scanning every project in the application home.
+
+- 7785cb4: Remove the coding doctrine's unconditional read-before-edit instruction. Agents can reuse content from successful prior reads or writes, while re-observing missing, stale or partial evidence and respecting project instructions and tool prerequisites. Clarify that tool intentions and failed calls do not establish completion. Runtime permissions and freshness checks are unchanged.
+
+  Clarify prior-turn action evidence and Namzu’s kernel/SDK identity in the CLI. Make verification proportional to the task and remove unconditional concurrency and child-context claims from shared guidance.
+
+- 7785cb4: Tool review prompts now carry the originating run ID. The CLI uses this identity to show which agent requested an approval, retaining the attribution as concurrent requests advance through the queue. Unrecognized runs display their ID instead of an inferred agent name.
+- 7785cb4: Render `/status` as a structured terminal card with aligned fields, wrapping paths and stacked narrow-screen layout. Keep the plain report available in raw mode and account for the card height in transcript scrolling.
+- 7785cb4: Refresh the CLI README with compact terminal captures of editing, parallel work and resumed conversations.
+- 7785cb4: Replace the bracketed opening banner with a two-row green terminal wordmark.
+  Narrow or short terminals use a compact text signature. Version attribution
+  remains beside the mark, and the opening header still prints only once.
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+- Updated dependencies [7785cb4]
+  - @namzu/sdk@38.0.0
+  - @namzu/google@0.2.0
+  - @namzu/openai@3.1.0
+  - @namzu/computer-use@1.4.2
+  - @namzu/anthropic@5.0.0
+  - @namzu/ollama@2.2.2
+  - @namzu/openrouter@2.4.0
+
 ## 21.0.0
 
 ### Major Changes
