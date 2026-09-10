@@ -26,6 +26,7 @@ export function formatTuiExitSummary(
 	const command = [...(invocation.command ?? ['namzu']), 'resume', summary.conversationId]
 		.map(shellWord)
 		.join(' ')
-	const directory = invocation.cwd ? `cd ${shellWord(invocation.cwd)} && ` : ''
+	const directory =
+		invocation.cwd && invocation.cwd !== process.cwd() ? `cd ${shellWord(invocation.cwd)} && ` : ''
 	return `To resume this conversation, run: ${directory}${command}\n`
 }

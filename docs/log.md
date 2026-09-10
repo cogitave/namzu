@@ -2,6 +2,8 @@
 
 ## 2026-09-10
 
+- **Update** Shortened exit resume commands for matching PATH installations and omitted redundant working-directory changes.
+
 - **Update** Removed bundled OAuth application credentials from the Google integration; expired borrowed sessions require owner renewal or explicit matching application configuration.
 
 - **Update** Recorded live CLI creation, external-edit preservation after resume, and approved parallel-agent checks; prepared an example-only terminal capture for the READMEs.

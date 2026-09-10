@@ -74,12 +74,12 @@ the template contains `$ARGUMENTS`. Help does not expand or execute the template
 
 ## Settings and model changes
 
-On exit, the production CLI prints a resume command with the absolute working
-directory and the Node executable and entrypoint that launched it. This keeps
-a checkout build’s sessions attached to that build, even when `namzu` on PATH
-refers to a different global installation. Embedded hosts without an explicit
-launch command use the `namzu` fallback. Copy the full command when resuming
-from another directory.
+On exit, the CLI prints `namzu resume <id>` when the executable on PATH resolves
+to the running CLI. Alternate installations and source launches retain their
+explicit executable and loader arguments. A `cd` prefix is included only when
+the conversation directory differs from the current working directory. Windows
+retains the explicit executable because command wrappers are not resolved by
+this check.
 
 `/config` (also available as `/settings`) shows Model, Reasoning effort and
 Permissions with their effective values, and opens the corresponding controls.
