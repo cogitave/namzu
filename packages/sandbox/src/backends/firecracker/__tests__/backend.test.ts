@@ -10,7 +10,7 @@
  * the agent's healthz (not the orchestrator 2xx).
  */
 
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { type Server, type Socket, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -18,8 +18,8 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { checkFileWalkOwnership, fileWalkExec } from '../../__tests__/fixtures/file-walk-exec.js'
 import { createSandboxProvider } from '../../../index.js'
+import { checkFileWalkOwnership, fileWalkExec } from '../../__tests__/fixtures/file-walk-exec.js'
 import { buildFirecrackerBackend, normalizeHandle } from '../index.js'
 import { VsockAgentTransport, type WireSandboxAgentHandle, __framing } from '../transport.js'
 import { localIpcPath } from './fixtures/ipc-path.js'
@@ -54,7 +54,7 @@ const realFetch = globalThis.fetch
 let realPath: string | undefined
 
 beforeEach(() => {
-	workDir = mkdtempSync(join(tmpdir(), 'fc-backend-test-'))
+	workDir = realpathSync(mkdtempSync(join(tmpdir(), 'fc-backend-test-')))
 	sockPath = localIpcPath(workDir)
 	realPath = process.env.PATH
 	process.env.NAMZU_SANDBOX_WORKSPACE = workDir

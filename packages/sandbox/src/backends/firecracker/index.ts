@@ -56,9 +56,9 @@ import type {
 	SandboxFileEntry,
 	SandboxId,
 	SandboxStatus,
-	SandboxWalkFilesOptions,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
+	SandboxWalkFilesOptions,
 	TerminalSession,
 } from '@namzu/sdk'
 import { walkFilesViaExec } from '@namzu/sdk'

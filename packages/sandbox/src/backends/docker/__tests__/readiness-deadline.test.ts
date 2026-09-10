@@ -81,7 +81,7 @@ describe('docker worker readiness deadline', () => {
 	it.each(['complete', 'return', 'caller', 'unknown'] as const)(
 		'owns a lazy file walk until worker termination after %s',
 		async (stop) => {
-			globalThis.fetch = vi.fn(async () => new Response('ok', { status: 200 })) as typeof fetch
+			globalThis.fetch = vi.fn(async () => workerHealthResponse()) as typeof fetch
 			const sandbox = await backend(100).create({ workingDirectory: workDir })
 			const entry = { path: `${sandbox.rootDir}/first.ts`, size: 3 }
 			const worker = fileWalkExec(entry)
