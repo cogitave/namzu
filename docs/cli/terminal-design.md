@@ -61,20 +61,18 @@ limits add an explicit incomplete-search notice. See
 A square message frame marks the writing area. Green corners and the `MESSAGE`
 label identify the active input; its long edges stay quiet. The two frame rows
 take the place of vertical padding, so the frame adds no height to the previous
-input layout. While a turn is working, a short green light travels clockwise
-around the border and fades behind its leading edge. The message text and
-label stay steady. The light follows the actual frame dimensions, including
-multiline drafts and terminal resizing, without adding rows or moving input.
-Opening a permission prompt or text/command picker hides the
-frame while keeping the composer mounted, so its draft and attachments survive
-the transition. The light stops while input belongs to another surface and
-when the turn ends. It is disabled for non-interactive output, screen readers,
-`NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb`.
-Existing submit, queue, steering and history keys keep their behavior.
+input layout. The frame stays static while working. Opening a permission prompt
+or text/command picker hides it while keeping the composer mounted, so drafts
+and attachments survive the transition.
 
-The Working indicator and the border light share the renderer's animation
-scheduler. Border ticks update only the decorative overlay, leaving the input
-and transcript components alone. Reply marks and tool rows remain steady.
+The Working indicator uses the Namzu wordmark with a repeating green fill and
+pale leading edge, alongside elapsed time. This is activity, not percentage
+progress. Short or narrow screens use the compact signature. Animation stops
+for permission and text prompts and disappears when work ends; no success is
+inferred from a stopped turn. Decorative motion is disabled for non-interactive
+output, screen readers, `NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb`.
+Animation ticks update only the live activity region, leaving the input and
+transcript components alone.
 Elapsed time, bounded progress text and task status carry the details. Agent
 panels use the same quiet rules and highlight the current selection with the
 accent color.

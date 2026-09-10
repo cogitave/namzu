@@ -1,13 +1,14 @@
 /**
  * The live region rendered just below the (static) transcript: the tool(s)
  * currently executing, with elapsed time and progress, or a "thinking" line
- * before the first token of a reply. One spinner on the Working row marks the
+ * before the first token of a reply. One filling wordmark on the Working row marks the
  * active turn. These rows stay tiny to keep per-frame cost bounded.
  */
 
-import { Box, Text, useAnimation } from 'ink'
+import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useRef } from 'react'
 
+import { NAMZU_COMPACT_WORDMARK, NAMZU_WORDMARK } from './logo.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -41,7 +42,6 @@ export interface LiveActivityProps {
 	readonly thinking?: string | null
 }
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'] as const
 const MAX_VISIBLE_TOOLS = 3
 
 export function LiveActivity({
@@ -53,13 +53,48 @@ export function LiveActivity({
 	animate = true,
 	thinking = null,
 }: LiveActivityProps) {
+	const { stdout } = useStdout()
+	const screenReader = useIsScreenReaderEnabled()
+	const motion =
+		animate &&
+		stdout.isTTY === true &&
+		!screenReader &&
+		process.env.NO_COLOR === undefined &&
+		process.env.FORCE_COLOR !== '0' &&
+		process.env.TERM !== 'dumb'
 	const active = activeTools.length > 0 || working
 	const startedAtRef = useRef<number | null>(null)
 	if (active && startedAtRef.current === null) startedAtRef.current = Date.now()
 	if (!active) startedAtRef.current = null
-	const { frame: tick } = useAnimation({ isActive: active && animate, interval: 120 })
+	const { frame: tick } = useAnimation({ isActive: active && motion, interval: 120 })
 	if (!active) return null
-	const spinner = SPINNER_FRAMES[tick % SPINNER_FRAMES.length] ?? '⠋'
+	const logo =
+		compact || screenReader || (stdout.columns ?? 80) < 60 ? NAMZU_COMPACT_WORDMARK : NAMZU_WORDMARK
+	const width = Math.max(...logo.split('\n').map((line) => line.length))
+	const mark = (
+		<Box flexDirection="column" marginRight={1} flexShrink={0}>
+			{logo.split('\n').map((line, row) => (
+				<Text key={row}>
+					{Array.from(line, (char, column) => (
+						<Text
+							key={column}
+							color={
+								!motion
+									? theme.accent.assistant
+									: column < tick % width
+										? 'greenBright'
+										: column === tick % width
+											? 'whiteBright'
+											: theme.text.muted
+							}
+						>
+							{char}
+						</Text>
+					))}
+				</Text>
+			))}
+		</Box>
+	)
 	const now = Date.now()
 	const elapsed = formatElapsed(now - (startedAtRef.current ?? now))
 	const visibleTools = activeTools.slice(0, MAX_VISIBLE_TOOLS)
@@ -69,8 +104,8 @@ export function LiveActivity({
 		const current = activeTools[0]
 		return (
 			<Box flexDirection="column">
-				<Text wrap="truncate-end">
-					<Text color={theme.accent.assistant}>{spinner} </Text>
+				<Box>
+					{mark}
 					<Text color={theme.text.secondary}>Working</Text>
 					<Text color={theme.text.muted}>
 						{' · '}
@@ -79,7 +114,7 @@ export function LiveActivity({
 							? ` · ${activeTools.length} tool${activeTools.length === 1 ? '' : 's'}`
 							: ''}
 					</Text>
-				</Text>
+				</Box>
 				{current ? (
 					<Box paddingLeft={2}>
 						<Text color={theme.text.secondary} wrap="truncate-end">
@@ -103,7 +138,7 @@ export function LiveActivity({
 	return (
 		<Box flexDirection="column">
 			<Box flexDirection="row">
-				<Text color={theme.accent.assistant}>{animate ? spinner : '∴'} </Text>
+				{mark}
 				<Text color={theme.text.secondary}>Working</Text>
 				<Text color={theme.text.muted}>
 					{' ('}

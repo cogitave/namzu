@@ -1,14 +1,14 @@
-/** Motion belongs to the working frame, and never owns the operator's draft. */
+/** Motion belongs to the Working wordmark, and never owns the operator's draft. */
 
 import { createRequire } from 'node:module'
 
 import type { Message } from '@namzu/sdk'
 import { Terminal } from '@xterm/headless'
 import { Box, Text } from 'ink'
-import type { ComponentProps } from 'react'
 import { afterAll, afterEach, beforeAll, beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
+import { LiveActivity } from '../LiveActivity.js'
 import { ComposerFrame } from '../ComposerFrame.js'
 import { fakeAgentSession } from '../__fixtures__/agent-session.js'
 import type { AgentEvent, PermissionDecision } from '../agent.js'
@@ -219,6 +219,16 @@ function borderProbe(screen: Screen, initialCols: number, initialRows: number) {
 			}
 			return cells
 		},
+		wordmarkColors() {
+			const buffer = terminal.buffer.active
+			for (let y = rows - 1; y >= 0; y--) {
+				const line = buffer.getLine(buffer.baseY + y)
+				if (line?.translateToString(true).includes('█▄ █ ▄▀█')) {
+					return Array.from({ length: 21 }, (_, x) => line.getCell(x)?.getFgColor())
+				}
+			}
+			return []
+		},
 		resize(nextCols: number, nextRows: number) {
 			cols = nextCols
 			rows = nextRows
@@ -230,24 +240,15 @@ function borderProbe(screen: Screen, initialCols: number, initialRows: number) {
 	}
 }
 
-async function expectBorderMotion(screen: Screen, border: ReturnType<typeof borderProbe>) {
+async function expectStaticBorder(screen: Screen, border: ReturnType<typeof borderProbe>) {
 	const first = await border.read()
 	expect(first?.length).toBeGreaterThan(20)
-	let moved = false
-	const deadline = performance.now() + 3_000
-	do {
-		await pause()
-		await screen.waitForRender()
-		const next = await border.read()
-		expect(next?.map(({ x, y, glyph }) => ({ x, y, glyph }))).toEqual(
-			first?.map(({ x, y, glyph }) => ({ x, y, glyph })),
-		)
-		moved = JSON.stringify(next) !== JSON.stringify(first)
-	} while (!moved && performance.now() < deadline)
-	expect(moved, 'Working never changed the rendered border colors').toBe(true)
+	await new Promise((resolve) => setTimeout(resolve, 300))
+	await screen.waitForRender()
+	expect(await border.read()).toEqual(first)
 }
 
-it('moves the working border, stops for a prompt and idle, and preserves the typed draft', async () => {
+it('keeps the working border still through prompts and resizing and preserves the typed draft', async () => {
 	const screen = await renderToScreen(
 		<App ctx={{ cwd: '/workspace/namzu', version: '0.0.0-test' }} />,
 		{ cols: 60, rows: 22 },
@@ -281,7 +282,7 @@ it('moves the working border, stops for a prompt and idle, and preserves the typ
 			'Draft did not appear',
 		)
 
-		await expectBorderMotion(screen, border)
+		await expectStaticBorder(screen, border)
 
 		requestPermission()
 		await waitUntil(
@@ -304,7 +305,7 @@ it('moves the working border, stops for a prompt and idle, and preserves the typ
 		)
 		expect(decisions).toEqual([{ kind: 'reject' }])
 
-		// A wrapping draft changes the perimeter; the light must remain on it.
+		// A wrapping draft changes geometry; the border must remain intact.
 		await border.read()
 		border.resize(40, 22)
 		await screen.resize(40, 22)
@@ -322,7 +323,7 @@ it('moves the working border, stops for a prompt and idle, and preserves the typ
 		const bottom = Math.max(...(narrow?.map(({ y }) => y) ?? []))
 		expect(narrow?.every(({ x, y }) => x === 0 || x === 37 || y === 0 || y === bottom)).toBe(true)
 		expect(screen.viewport().join('\n')).toContain('layouts')
-		await expectBorderMotion(screen, border)
+		await expectStaticBorder(screen, border)
 
 		completeTurn()
 		await waitUntil(
@@ -355,113 +356,41 @@ it('moves the working border, stops for a prompt and idle, and preserves the typ
 	}
 })
 
-it('travels clockwise through every corner without rendering the input or transcript again', async () => {
+it('fills the wordmark without rerendering the input, and stops when animation is disabled', async () => {
 	const restoreClock = controlAnimationClock()
 	const inputRender = vi.fn()
-	const transcriptRender = vi.fn()
 	function Input() {
 		inputRender()
-		return <Text>{'draft\nsecond\nthird\nfourth\nfifth\nsixth\nseventh'}</Text>
+		return <Text>Retained draft</Text>
 	}
-	function Transcript() {
-		transcriptRender()
-		return <Text>Conversation stays steady</Text>
-	}
-	const screen = await renderToScreen(
+	const view = (animate: boolean) => (
 		<Box flexDirection="column">
-			<Transcript />
-			<ComposerFrame working focus>
+			<LiveActivity activeTools={[]} working animate={animate} />
+			<ComposerFrame focus>
 				<Input />
 			</ComposerFrame>
-		</Box>,
-		{ cols: 32, rows: 20 },
+		</Box>
 	)
-	const border = borderProbe(screen, 32, 20)
+	const screen = await renderToScreen(view(true), { cols: 80, rows: 20 })
+	const border = borderProbe(screen, 80, 20)
 	try {
-		const stableText = screen.viewport()
 		const first = await border.read()
-		const geometry = first?.map(({ x, y, glyph }) => ({ x, y, glyph }))
-		// These checkpoints cover the top moving right, the right moving down,
-		// the bottom moving left, the left moving up, then the next lap.
-		const checkpoints = new Map([
-			[400, { x: 16, y: 0 }],
-			[560, { x: 22, y: 0 }],
-			[880, { x: 31, y: 2 }],
-			[1040, { x: 31, y: 5 }],
-			[1280, { x: 27, y: 8 }],
-			[1440, { x: 21, y: 8 }],
-			[2080, { x: 0, y: 6 }],
-			[2240, { x: 0, y: 3 }],
-			[2720, { x: 14, y: 0 }],
-		])
-		const visitedCorners = new Set<string>()
-		const writesBefore = screen.writes().length
-		for (let elapsed = 80; elapsed <= 2720; elapsed += 80) {
-			await vi.advanceTimersByTimeAsync(80)
-			await screen.waitForRender()
-			const cells = await border.read()
-			expect(cells?.map(({ x, y, glyph }) => ({ x, y, glyph }))).toEqual(geometry)
-			expect(screen.viewport()).toEqual(stableText)
-			for (const cell of cells ?? []) {
-				if ('┌┐└┘'.includes(cell.glyph) && cell.color !== 83) visitedCorners.add(cell.glyph)
-			}
-			const checkpoint = checkpoints.get(elapsed)
-			if (checkpoint)
-				expect(cells).toContainEqual(expect.objectContaining({ ...checkpoint, color: 194 }))
-		}
-		expect(visitedCorners).toEqual(new Set(['┌', '┐', '└', '┘']))
+		const colors = border.wordmarkColors()
+		expect(colors.length).toBeGreaterThan(0)
+		const before = screen.bytesWritten()
+		await vi.advanceTimersByTimeAsync(480)
+		await screen.waitForRender()
+		expect(screen.bytesWritten()).toBeGreaterThan(before)
+		expect(screen.viewport().join('\n')).toContain('█▄ █ ▄▀█')
+		expect(await border.read()).toEqual(first)
+		expect(border.wordmarkColors()).not.toEqual(colors)
 		expect(inputRender).toHaveBeenCalledTimes(1)
-		expect(transcriptRender).toHaveBeenCalledTimes(1)
-		// At most one terminal repaint per 80 ms animation interval.
-		expect(
-			screen
-				.writes()
-				.slice(writesBefore)
-				.filter((write) => write.includes('MESSAGE')).length,
-		).toBeLessThanOrEqual(34)
-	} finally {
-		await screen.unmount()
-		border.dispose()
-		restoreClock()
-	}
-})
-
-it.each([
-	{ name: 'idle', props: { working: false } },
-	{ name: 'unfocused', props: { focus: false } },
-	{ name: 'hidden', props: { hidden: true } },
-	{ name: 'animation disabled', props: { animate: false } },
-	{ name: 'NO_COLOR', env: ['NO_COLOR', '1'] },
-	{ name: 'FORCE_COLOR=0', env: ['FORCE_COLOR', '0'] },
-	{ name: 'TERM=dumb', env: ['TERM', 'dumb'] },
-] satisfies readonly {
-	readonly name: string
-	readonly props?: Partial<ComponentProps<typeof ComposerFrame>>
-	readonly env?: readonly [string, string]
-}[])('removes the light and its scheduler subscription when $name', async (mode) => {
-	const restoreClock = controlAnimationClock()
-	const props: ComponentProps<typeof ComposerFrame> = {
-		working: true,
-		focus: true,
-		children: <Text>Retained draft</Text>,
-	}
-	const screen = await renderToScreen(<ComposerFrame {...props} />, { cols: 32, rows: 12 })
-	const border = borderProbe(screen, 32, 12)
-	try {
-		await vi.advanceTimersByTimeAsync(400)
+		screen.rerender(view(false))
 		await screen.waitForRender()
-		expect((await border.read())?.some(({ color }) => color === 194)).toBe(true)
-		if ('env' in mode && mode.env) vi.stubEnv(...mode.env)
-		screen.rerender(<ComposerFrame {...props} {...('props' in mode ? mode.props : {})} />)
-		await screen.waitForRender()
-		const stopped = await border.read()
-		expect(stopped?.some(({ color }) => color === 194) ?? false).toBe(false)
-		const writesBefore = screen.bytesWritten()
+		const stopped = screen.bytesWritten()
 		await vi.advanceTimersByTimeAsync(1600)
 		await screen.waitForRender()
-		expect(await border.read()).toEqual(stopped)
-		expect(screen.bytesWritten()).toBe(writesBefore)
-		expect(vi.getTimerCount()).toBe(0)
+		expect(screen.bytesWritten()).toBe(stopped)
 	} finally {
 		await screen.unmount()
 		border.dispose()
@@ -490,13 +419,21 @@ it.each([2, 8, 11, 12, 40])('keeps both frame corners on one row at %i columns',
 	}
 })
 
-it('never schedules decorative motion for a screen reader', async () => {
-	vi.stubEnv('INK_SCREEN_READER', 'true')
+it.each([
+	['INK_SCREEN_READER', 'true'],
+	['NO_COLOR', '1'],
+	['FORCE_COLOR', '0'],
+	['TERM', 'dumb'],
+])('never schedules decorative motion with %s=%s', async (key, value) => {
+	vi.stubEnv(key, value)
 	const restoreClock = controlAnimationClock()
 	const screen = await renderToScreen(
-		<ComposerFrame working focus>
-			<Text>Accessible draft</Text>
-		</ComposerFrame>,
+		<Box flexDirection="column">
+			<LiveActivity working activeTools={[]} />
+			<ComposerFrame focus>
+				<Text>Accessible draft</Text>
+			</ComposerFrame>
+		</Box>,
 		{ cols: 32, rows: 12 },
 	)
 	try {

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-11
+
+- **Update** Moved Working animation into the Namzu wordmark and kept the composer frame static, with prompt and accessibility fallbacks.
+
 ## 2026-09-10
 
 - **Update** Added an interactive wordmark fill during CLI upgrades, with verified completion, bounded failure diagnostics and static output fallbacks.

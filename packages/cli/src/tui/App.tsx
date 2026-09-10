@@ -7130,7 +7130,7 @@ export function App({
 								activeTools={visibleActiveTools}
 								working={state === 'thinking' || state === 'tool'}
 								interruptible={abortRef.current !== null}
-								animate={stdout.isTTY === true}
+								animate={stdout.isTTY === true && permission === null && textPrompt === null}
 								thinking={thinking}
 							/>
 						) : null}
