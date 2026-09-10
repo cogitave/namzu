@@ -162,11 +162,7 @@ function deferred(): {
 
 async function until(check: () => boolean, why: string): Promise<void> {
 	const started = performance.now()
-	// The full CLI suite transforms and renders many integration-shaped tests
-	// concurrently. Leave enough observation time for the expected frame under
-	// that measured contention while the enclosing 15-second test budget still
-	// catches a real hang.
-	while (!check() && performance.now() - started < 8_000) await tick()
+	while (!check() && performance.now() - started < 5_000) await tick()
 	expect(check(), why).toBe(true)
 }
 
@@ -424,13 +420,19 @@ it('disarms after an abnormal turn and requires an explicit /goal resume', async
 		yield { kind: 'done', stopReason: 'end_turn' }
 	}
 
-	const { harness } = await mountedApp('namzu-goal-app-failure-')
+	const { root, harness } = await mountedApp('namzu-goal-app-failure-')
 	await submit(harness, '/goal recover only when asked')
 	await until(() => calls === 1, 'the first goal round never started')
 	await tick(120)
 	expect(calls).toBe(1)
 
+	const sessions = await openSessions(root)
 	await submit(harness, '/goal pause')
+	await untilAsync(
+		async () =>
+			(await sessions.goals.getGoal(scope!.sessionId, sessions.tenantId))?.phase === 'paused',
+		'the pause command did not reach durable goal state',
+	)
 	await until(
 		() => harness.lastFrame()?.includes('Goal paused (/goal resume)') === true,
 		'the durable paused goal did not reach the footer',
