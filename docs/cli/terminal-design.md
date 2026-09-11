@@ -65,9 +65,9 @@ input layout. The frame stays static while working. Opening a permission prompt
 or text/command picker hides it while keeping the composer mounted, so drafts
 and attachments survive the transition.
 
-The Working indicator uses the Namzu wordmark with a repeating green fill and
-pale leading edge, alongside elapsed time. This is activity, not percentage
-progress. Short or narrow screens use the compact signature. Animation stops
+The Working label itself has a repeating green fill and pale leading edge,
+alongside elapsed time. No extra logo is added to the activity row. This is activity, not percentage
+progress. Short screens retain the same animated label. Animation stops
 for permission and text prompts and disappears when work ends; no success is
 inferred from a stopped turn. Decorative motion is disabled for non-interactive
 output, screen readers, `NO_COLOR`, `FORCE_COLOR=0` and `TERM=dumb`.

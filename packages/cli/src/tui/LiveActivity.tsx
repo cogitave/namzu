@@ -1,14 +1,13 @@
 /**
  * The live region rendered just below the (static) transcript: the tool(s)
  * currently executing, with elapsed time and progress, or a "thinking" line
- * before the first token of a reply. One filling wordmark on the Working row marks the
+ * before the first token of a reply. A green fill through the Working label marks the
  * active turn. These rows stay tiny to keep per-frame cost bounded.
  */
 
 import { Box, Text, useAnimation, useIsScreenReaderEnabled, useStdout } from 'ink'
 import { useRef } from 'react'
 
-import { NAMZU_COMPACT_WORDMARK, NAMZU_WORDMARK } from './logo.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
 
@@ -68,32 +67,27 @@ export function LiveActivity({
 	if (!active) startedAtRef.current = null
 	const { frame: tick } = useAnimation({ isActive: active && motion, interval: 120 })
 	if (!active) return null
-	const logo =
-		compact || screenReader || (stdout.columns ?? 80) < 60 ? NAMZU_COMPACT_WORDMARK : NAMZU_WORDMARK
-	const width = Math.max(...logo.split('\n').map((line) => line.length))
+	const label = 'Working'
+	const edge = tick % (label.length + 1)
 	const mark = (
-		<Box flexDirection="column" marginRight={1} flexShrink={0}>
-			{logo.split('\n').map((line, row) => (
-				<Text key={row}>
-					{Array.from(line, (char, column) => (
-						<Text
-							key={column}
-							color={
-								!motion
-									? theme.accent.assistant
-									: column < tick % width
-										? 'greenBright'
-										: column === tick % width
-											? 'whiteBright'
-											: theme.text.muted
-							}
-						>
-							{char}
-						</Text>
-					))}
+		<Text>
+			{Array.from(label, (char, column) => (
+				<Text
+					key={column}
+					color={
+						!motion
+							? theme.text.secondary
+							: column < edge
+								? 'greenBright'
+								: column === edge
+									? 'whiteBright'
+									: theme.text.muted
+					}
+				>
+					{char}
 				</Text>
 			))}
-		</Box>
+		</Text>
 	)
 	const now = Date.now()
 	const elapsed = formatElapsed(now - (startedAtRef.current ?? now))
@@ -106,7 +100,6 @@ export function LiveActivity({
 			<Box flexDirection="column">
 				<Box>
 					{mark}
-					<Text color={theme.text.secondary}>Working</Text>
 					<Text color={theme.text.muted}>
 						{' · '}
 						{elapsed}
@@ -139,7 +132,6 @@ export function LiveActivity({
 		<Box flexDirection="column">
 			<Box flexDirection="row">
 				{mark}
-				<Text color={theme.text.secondary}>Working</Text>
 				<Text color={theme.text.muted}>
 					{' ('}
 					{elapsed}

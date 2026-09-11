@@ -1,4 +1,4 @@
-/** Motion belongs to the Working wordmark, and never owns the operator's draft. */
+/** Motion belongs to the Working label, and never owns the operator's draft. */
 
 import { createRequire } from 'node:module'
 
@@ -219,12 +219,12 @@ function borderProbe(screen: Screen, initialCols: number, initialRows: number) {
 			}
 			return cells
 		},
-		wordmarkColors() {
+		workingColors() {
 			const buffer = terminal.buffer.active
 			for (let y = rows - 1; y >= 0; y--) {
 				const line = buffer.getLine(buffer.baseY + y)
-				if (line?.translateToString(true).includes('█▄ █ ▄▀█')) {
-					return Array.from({ length: 21 }, (_, x) => line.getCell(x)?.getFgColor())
+				if (line?.translateToString(true).startsWith('Working')) {
+					return Array.from({ length: 7 }, (_, x) => line.getCell(x)?.getFgColor())
 				}
 			}
 			return []
@@ -356,7 +356,7 @@ it('keeps the working border still through prompts and resizing and preserves th
 	}
 })
 
-it('fills the wordmark without rerendering the input, and stops when animation is disabled', async () => {
+it('fills the Working label without rerendering the input, and stops when animation is disabled', async () => {
 	const restoreClock = controlAnimationClock()
 	const inputRender = vi.fn()
 	function Input() {
@@ -375,15 +375,16 @@ it('fills the wordmark without rerendering the input, and stops when animation i
 	const border = borderProbe(screen, 80, 20)
 	try {
 		const first = await border.read()
-		const colors = border.wordmarkColors()
+		const colors = border.workingColors()
 		expect(colors.length).toBeGreaterThan(0)
 		const before = screen.bytesWritten()
 		await vi.advanceTimersByTimeAsync(480)
 		await screen.waitForRender()
 		expect(screen.bytesWritten()).toBeGreaterThan(before)
-		expect(screen.viewport().join('\n')).toContain('█▄ █ ▄▀█')
+		expect(screen.viewport().join('\n')).toContain('Working')
+		expect(screen.viewport().join('\n')).not.toMatch(/█|∴ namzu/)
 		expect(await border.read()).toEqual(first)
-		expect(border.wordmarkColors()).not.toEqual(colors)
+		expect(border.workingColors()).not.toEqual(colors)
 		expect(inputRender).toHaveBeenCalledTimes(1)
 		screen.rerender(view(false))
 		await screen.waitForRender()

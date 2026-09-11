@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Applied the activity fill directly to the Working text, removing the additional activity wordmark.
+
 - **Update** Moved Working animation into the Namzu wordmark and kept the composer frame static, with prompt and accessibility fallbacks.
 
 ## 2026-09-10
