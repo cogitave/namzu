@@ -1,4 +1,4 @@
-import { mkdtemp } from 'node:fs/promises'
+import { appendFile, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -8,13 +8,15 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { RunPersistence } from '../../../manager/run/persistence.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { RunDiskStore } from '../../../store/run/disk.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { RunEvent } from '../../../types/run/events.js'
 import { isEphemeralEvent } from '../../../types/run/events.js'
+import type { RunStore } from '../../../types/run/store.js'
 import { EventTranslator } from '../events.js'
-import { type QueryParams, query } from '../index.js'
+import { type QueryParams, drainQuery, query } from '../index.js'
 
 /**
  * A cursor is only worth having if it reaches the surface a host actually
@@ -47,14 +49,14 @@ async function workdir(): Promise<string> {
 }
 
 /** The real class over the injected store — the shape production builds. */
-function persistence(runStore: InMemoryRunStore, runId: string): RunPersistence {
+function persistence(runStore: RunStore, runId: string): RunPersistence {
 	return new RunPersistence({
 		runId,
 		agentId: 'a',
 		agentName: 'A',
 		runConfig: {},
 		providerId: 'mock',
-		// Nothing may be written: the injected store is not a filesystem.
+		// The injected store owns its location; this fallback must never be written.
 		outputDir: '/namzu-nonexistent-should-never-be-written',
 		log: LOG,
 		sessionId: '1b9fa4ed-2300-43ac-9ee1-c641c9ae66d1',
@@ -64,6 +66,14 @@ function persistence(runStore: InMemoryRunStore, runId: string): RunPersistence 
 		runStore,
 		// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.
 	} as any)
+}
+
+function latch() {
+	let resolve!: () => void
+	const promise = new Promise<void>((done) => {
+		resolve = done
+	})
+	return { promise, resolve }
 }
 
 function registryWithEcho(): ToolRegistry {
@@ -81,7 +91,7 @@ function registryWithEcho(): ToolRegistry {
  * A run with a tool call in it, so the stream carries more than one lifecycle
  * event and the numbering has something to be wrong about.
  */
-async function params(runStore: InMemoryRunStore): Promise<QueryParams> {
+async function params(runStore: RunStore): Promise<QueryParams> {
 	return {
 		messages: [createUserMessage('go')],
 		provider: new MockLLMProvider({
@@ -243,6 +253,160 @@ describe('emits that overlap still get distinct numbers', () => {
 
 		expect(numbers).toEqual(Array.from({ length: 20 }, (_, i) => i + 1))
 		expect(new Set(numbers).size).toBe(20)
+	})
+})
+
+describe('a live transcript snapshot stays between whole appends', () => {
+	it('waits for a partial append and holds subsequent appends until the read finishes', async () => {
+		const store = new RunDiskStore({ baseDir: await workdir() })
+		const runId = fixtureId.run('snapshot')
+		const mgr = persistence(store, runId)
+		await mgr.init()
+		const emitter = new EventTranslator(mgr)
+		const transcript = join(store.getRunDir() as string, 'transcript.jsonl')
+		const partialWritten = latch()
+		const finishAppend = latch()
+		const readStarted = latch()
+		const finishRead = latch()
+		const readEvents = store.readEvents.bind(store)
+		const append = vi.spyOn(store, 'appendEvent').mockImplementationOnce(async (event) => {
+			const line = JSON.stringify({ ...event, timestamp: 1 })
+			const split = Math.floor(line.length / 2)
+			await appendFile(transcript, line.slice(0, split))
+			partialWritten.resolve()
+			await finishAppend.promise
+			await appendFile(transcript, `${line.slice(split)}\n`)
+		})
+		const read = vi.spyOn(store, 'readEvents').mockImplementationOnce(async (options) => {
+			readStarted.resolve()
+			await finishRead.promise
+			return readEvents(options)
+		})
+		const first = emitter.emitEvent({ type: 'iteration_started', runId, iteration: 1 })
+		await partialWritten.promise
+		const snapshot = emitter.readEvents({ integrity: 'strict' })
+		void snapshot.catch(() => {})
+		const second = emitter.emitEvent({ type: 'iteration_started', runId, iteration: 2 })
+		try {
+			await new Promise<void>((resolve) => setImmediate(resolve))
+			expect(read).not.toHaveBeenCalled()
+			expect(append).toHaveBeenCalledTimes(1)
+			finishAppend.resolve()
+			await readStarted.promise
+			await new Promise<void>((resolve) => setImmediate(resolve))
+			expect(append).toHaveBeenCalledTimes(1)
+			finishRead.resolve()
+			expect((await snapshot).map((event) => event.seq)).toEqual([1])
+			await second
+			expect((await emitter.readEvents({ integrity: 'strict' })).map((event) => event.seq)).toEqual(
+				[1, 2],
+			)
+		} finally {
+			finishAppend.resolve()
+			finishRead.resolve()
+			await Promise.allSettled([first, snapshot, second])
+		}
+	})
+
+	it('initializes the query tool budget after an in-flight activity append finishes', async () => {
+		const store = new RunDiskStore({ baseDir: await workdir() })
+		const partialWritten = latch()
+		const finishAppend = latch()
+		const snapshotRequested = latch()
+		const appendEvent = store.appendEvent.bind(store)
+		let held = false
+		vi.spyOn(store, 'appendEvent').mockImplementation(async (event) => {
+			if (event.type !== 'activity_updated' || event.status !== 'completed' || held) {
+				return appendEvent(event)
+			}
+			held = true
+			const transcript = join(store.getRunDir() as string, 'transcript.jsonl')
+			const line = JSON.stringify({ ...event, timestamp: 1 })
+			const split = Math.floor(line.length / 2)
+			await appendFile(transcript, line.slice(0, split))
+			partialWritten.resolve()
+			await finishAppend.promise
+			await appendFile(transcript, `${line.slice(split)}\n`)
+		})
+		const readEvents = store.readEvents.bind(store)
+		vi.spyOn(store, 'readEvents').mockImplementation(async (options) => {
+			if (options?.integrity !== 'strict') return readEvents(options)
+			await partialWritten.promise
+			try {
+				return await readEvents(options)
+			} finally {
+				// If query bypasses the queued snapshot, capture its real strict-read
+				// failure before letting the held partial append finish.
+				snapshotRequested.resolve()
+			}
+		})
+		const readSnapshot = EventTranslator.prototype.readEvents
+		const snapshot = vi.spyOn(EventTranslator.prototype, 'readEvents').mockImplementation(function (
+			this: EventTranslator,
+			options,
+		) {
+			const pending = readSnapshot.call(this, options)
+			if (options?.integrity === 'strict') snapshotRequested.resolve()
+			return pending
+		})
+		let executions = 0
+		const tools = new ToolRegistry()
+		tools.register({
+			name: 'echo',
+			description: 'records budgeted execution',
+			inputSchema: z.object({ text: z.string() }),
+			execute: async () => {
+				executions++
+				return { success: true, output: 'hi' }
+			},
+		})
+		const running = drainQuery({
+			...(await params(store)),
+			tools,
+			maxToolCalls: 1,
+			authorizationGate: {
+				enabled: true,
+				rules: [{ type: 'allow_by_name', toolNames: ['echo'] }],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+		})
+		try {
+			await partialWritten.promise
+			await snapshotRequested.promise
+			finishAppend.resolve()
+			const result = await running
+			expect(result.status, result.lastError).toBe('completed')
+			expect(executions).toBe(1)
+		} finally {
+			finishAppend.resolve()
+			await running.catch(() => {})
+			snapshot.mockRestore()
+		}
+	})
+
+	it('still refuses a torn transcript and releases the queue after the failed read', async () => {
+		const store = new RunDiskStore({ baseDir: await workdir() })
+		const runId = fixtureId.run('corrupt-snapshot')
+		const mgr = persistence(store, runId)
+		await mgr.init()
+		const emitter = new EventTranslator(mgr)
+		const transcript = join(store.getRunDir() as string, 'transcript.jsonl')
+		await emitter.emitEvent({ type: 'iteration_started', runId, iteration: 1 })
+		const intact = await readFile(transcript, 'utf8')
+		await appendFile(transcript, '{"type":')
+
+		await expect(emitter.readEvents({ integrity: 'strict' })).rejects.toThrow(
+			'final record is not newline-terminated',
+		)
+
+		// Repair only the fixture bytes, then prove a failed snapshot did not poison the queue.
+		await writeFile(transcript, intact)
+		await emitter.emitEvent({ type: 'iteration_started', runId, iteration: 2 })
+		expect(
+			(await emitter.readEvents({ integrity: 'strict', sinceSeq: 1 })).map((event) => event.seq),
+		).toEqual([2])
 	})
 })
 

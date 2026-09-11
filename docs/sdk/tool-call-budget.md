@@ -45,6 +45,12 @@ The event carries `kind` (`initialize`, `batch`, `nested`, or `retry`), `count`,
 cumulative `used`, and the configured `limit`. Initialization has count zero.
 The SSE and A2A bridges omit these internal ledger events.
 
+The runtime reads the ledger through the same queue that writes durable events.
+It waits for earlier writes and holds later writes until the read settles, so
+an in-flight append cannot look like a torn transcript. This ordering does not
+relax integrity checks: an incomplete record left by a settled write still
+prevents admission.
+
 Compacting message history does not erase the ledger. Resume the same native run
 with `maxToolCalls` supplied again: the host owns the policy, and this option is
 not inherited from a checkpoint when omitted. Changing the configured limit

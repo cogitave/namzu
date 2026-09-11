@@ -1741,8 +1741,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			...(params.maxToolCalls !== undefined
 				? {
 						maxToolCalls: params.maxToolCalls,
-						readToolCallBudgetEvents: () =>
-							ctx.runMgr.getRunStore().readEvents({ integrity: 'strict' }),
+						readToolCallBudgetEvents: () => eventTranslator.readEvents({ integrity: 'strict' }),
 					}
 				: {}),
 			...(params.maxToolConcurrency !== undefined

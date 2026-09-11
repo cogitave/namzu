@@ -7,8 +7,9 @@ import type { ProbeObservation } from '../../probe/registry.js'
 import type { ActivityEvent, ActivityStore } from '../../store/activity/memory.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { FencingToken } from '../../types/run/checkpoint-store.js'
-import { isEphemeralEvent } from '../../types/run/events.js'
+import { type PersistedRunEvent, isEphemeralEvent } from '../../types/run/events.js'
 import type { RunEvent } from '../../types/run/index.js'
+import type { ReadRunEventsOptions } from '../../types/run/store.js'
 import type { TaskEvent, TaskStore } from '../../types/task/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
@@ -55,8 +56,27 @@ export class EventTranslator {
 	 */
 	private generation: FencingToken | undefined
 
-	/** Serializes sequence assignment against the append. See {@link emitEvent}. */
+	/** Serializes sequence assignment, appends, and transcript snapshots. */
 	private appendChain: Promise<void> = Promise.resolve()
+
+	private async withTranscriptLock<T>(operation: () => Promise<T>): Promise<T> {
+		const previous = this.appendChain
+		let release!: () => void
+		this.appendChain = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		try {
+			await previous
+			return await operation()
+		} finally {
+			release()
+		}
+	}
+
+	/** Keep a live transcript read between whole appends, including later queued writes. */
+	readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]> {
+		return this.withTranscriptLock(() => this.runMgr.getRunStore().readEvents(options))
+	}
 
 	setGeneration(fence: FencingToken | undefined): void {
 		this.generation = fence
@@ -109,15 +129,7 @@ export class EventTranslator {
 		// took the number 15 and two took 12. A duplicated sequence is worse
 		// than a missing one — a consumer asking for everything above 15 is
 		// handed part of the run it already had, spliced in as if it were new.
-		const previous = this.appendChain
-		let release!: () => void
-		this.appendChain = new Promise<void>((resolve) => {
-			release = resolve
-		})
-
-		try {
-			await previous
-
+		await this.withTranscriptLock(async () => {
 			// The number is a claim that the event is IN the log, so it is taken
 			// against the append and not before it. The candidate goes to the
 			// store first; only a write that landed advances the counter and
@@ -143,9 +155,7 @@ export class EventTranslator {
 
 			this.runMgr.commitEventSeq(seq)
 			this.pendingEvents.push(stamped)
-		} finally {
-			release()
-		}
+		})
 	};
 
 	*drainPending(): Generator<RunEvent> {
