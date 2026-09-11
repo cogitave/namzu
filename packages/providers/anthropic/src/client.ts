@@ -27,6 +27,7 @@ import {
 	toolResultToText,
 } from '@namzu/sdk'
 import { attributionHeaders } from '@namzu/sdk'
+import { SearchBlocks, restoreSearch } from './search-replay.js'
 import {
 	MODEL_ID_GRAMMAR,
 	resolveEffort,
@@ -418,6 +419,17 @@ function toAnthropicMessages(
 	for (const msg of messages) {
 		if (msg.role === 'system') continue
 
+		if (msg.role === 'assistant') {
+			const restored = restoreSearch(msg, targetRoute)
+			if (restored) {
+				flushToolResults()
+				out.push({
+					role: 'assistant',
+					content: restored as unknown as AnthropicContentBlock[],
+				})
+				continue
+			}
+		}
 		if (msg.role === 'tool') {
 			const toolMsg = msg as {
 				toolCallId?: string
@@ -852,6 +864,7 @@ interface StreamEvent {
  */
 export const ANTHROPIC_CAPABILITIES: ProviderCapabilities = {
 	supportsNativeStructuredOutput: true,
+	supportsHostedWebSearch: true,
 	supportsTools: true,
 	supportsStreaming: true,
 	supportsFunctionCalling: true,
@@ -923,6 +936,17 @@ export class AnthropicProvider implements LLMProvider {
 		return model
 	}
 
+	supportsHostedWebSearchFor(model: string, mode: 'live' | 'cached'): boolean {
+		return (
+			mode === 'live' &&
+			/^claude-(?:(?:opus|sonnet|haiku|fable)-[45](?:-|$)|3-5-(?:sonnet|haiku)(?:-|$)|3-7-sonnet(?:-|$)|mythos-)/.test(
+				model,
+			) &&
+			(!this.config.baseURL ||
+				this.config.baseURL.replace(/\/$/, '') === 'https://api.anthropic.com')
+		)
+	}
+
 	private buildCreateParams(
 		params: ChatCompletionParams,
 		stream: boolean,
@@ -965,7 +989,18 @@ export class AnthropicProvider implements LLMProvider {
 		} else if (system) {
 			body.system = system
 		}
-		if (tools) body.tools = tools
+		if (
+			params.webSearch &&
+			(params.responseFormat || !this.supportsHostedWebSearchFor(model, params.webSearch.mode))
+		)
+			throw new Error(
+				'Anthropic native search requires a supported Claude API model and live mode.',
+			)
+		if (tools || params.webSearch)
+			body.tools = [
+				...(tools ?? []),
+				...(params.webSearch ? [{ type: 'web_search_20250305', name: 'web_search' }] : []),
+			]
 		// tool_choice is only legal alongside tools (the API rejects it
 		// otherwise) — this also drops a parallelToolCalls-derived choice on
 		// tool-less requests.
@@ -1066,6 +1101,9 @@ export class AnthropicProvider implements LLMProvider {
 		// Track active tool-use blocks by content_block index so input_json_delta
 		// fragments can reference the right tool call.
 		const activeTools = new Map<number, { id: string; name: string }>()
+		const searchBlocks = new SearchBlocks()
+		let searchReplayEmitted = false
+		const serverTools = new Map<number, string>()
 		const activeReasoning = new Set<number>()
 		const nativeReasoning = new Map<number, AnthropicReplayBlock>()
 		let replayStateEmitted = false
@@ -1151,6 +1189,42 @@ export class AnthropicProvider implements LLMProvider {
 						case 'content_block_start': {
 							const idx = event.index ?? 0
 							const block = event.content_block
+							if (block) searchBlocks.start(idx, block as Record<string, unknown>)
+							if (block?.type === 'server_tool_use') {
+								if (block.name !== 'web_search')
+									throw new Error('Unexpected hosted tool in Anthropic search response.')
+								const serverId = block.id ?? `search-${idx}`
+								serverTools.set(idx, serverId)
+								yield {
+									id: messageId,
+									delta: {
+										hostedTool: {
+											id: serverId,
+											name: 'web_search',
+											status: 'running',
+										},
+									},
+								}
+								break
+							}
+							if (block?.type === 'web_search_tool_result') {
+								const result = block as unknown as {
+									tool_use_id: string
+									content: unknown
+								}
+								const failed = !Array.isArray(result.content)
+								yield {
+									id: messageId,
+									delta: {
+										hostedTool: {
+											id: result.tool_use_id,
+											name: 'web_search',
+											status: failed ? 'failed' : 'completed',
+										},
+									},
+								}
+								break
+							}
 							if (block?.type === 'thinking' || block?.type === 'redacted_thinking') {
 								activeReasoning.add(idx)
 								if (block.type === 'thinking') {
@@ -1199,6 +1273,8 @@ export class AnthropicProvider implements LLMProvider {
 						case 'content_block_delta': {
 							const idx = event.index ?? 0
 							const delta = event.delta
+							if (delta) searchBlocks.delta(idx, delta)
+							if (serverTools.has(idx)) break
 							if (delta?.type === 'text_delta' && delta.text) {
 								yield { id: messageId, delta: { content: delta.text } }
 							} else if (delta?.type === 'thinking_delta' && delta.thinking !== undefined) {
@@ -1243,6 +1319,8 @@ export class AnthropicProvider implements LLMProvider {
 							break
 						}
 						case 'content_block_stop': {
+							searchBlocks.stop(event.index ?? 0)
+							if (serverTools.delete(event.index ?? 0)) break
 							// For tool_use blocks we MUST emit a `toolCallEnd`
 							// signal so the consumer-side aggregator (sdk
 							// runtime/query/iteration) can flush the buffered
@@ -1277,7 +1355,12 @@ export class AnthropicProvider implements LLMProvider {
 						}
 						case 'message_delta': {
 							if (event.delta?.stop_reason) {
-								const replayState = completedReplayState()
+								if (event.delta.stop_reason === 'pause_turn')
+									throw new Error('Anthropic paused hosted search before completing its answer.')
+								const search = searchBlocks.complete(providerRoute)
+								if (search?.appendix) yield { id: messageId, delta: { content: search.appendix } }
+								searchReplayEmitted = Boolean(search)
+								const replayState = search?.replay ?? completedReplayState()
 								yield {
 									id: messageId,
 									...(replayState !== undefined ? { replayState } : {}),
@@ -1295,6 +1378,13 @@ export class AnthropicProvider implements LLMProvider {
 							break
 						}
 						case 'message_stop': {
+							if (searchReplayEmitted) return
+							const search = searchBlocks.complete(providerRoute)
+							if (search) {
+								if (search.appendix) yield { id: messageId, delta: { content: search.appendix } }
+								yield { id: messageId, delta: {}, replayState: search.replay }
+								return
+							}
 							const replayState = completedReplayState()
 							if (replayState !== undefined) {
 								yield { id: messageId, delta: {}, replayState }

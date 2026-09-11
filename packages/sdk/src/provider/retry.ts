@@ -270,6 +270,12 @@ export function withProviderRetry(
 		...(provider.doctorCheck
 			? { doctorCheck: (model?: string) => provider.doctorCheck?.(model) }
 			: {}),
+		...(provider.supportsHostedWebSearchFor
+			? {
+					supportsHostedWebSearchFor: (model: string, mode: 'live' | 'cached') =>
+						provider.supportsHostedWebSearchFor?.(model, mode) ?? false,
+				}
+			: {}),
 		...(provider.reasoningEffortLevelsFor
 			? {
 					reasoningEffortLevelsFor: (

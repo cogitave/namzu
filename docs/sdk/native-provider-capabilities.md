@@ -57,3 +57,14 @@ be nonnegative integers. This is separate from schema correction attempts and
 host retry policies; a transport quota response is not a schema validation failure.
 
 The rate-limit diagnostic reports provider delay without assuming retries occurred.
+
+## Hosted web search admission
+
+`supportsHostedWebSearch: true` declares a native search wire implementation.
+`LLMProvider.supportsHostedWebSearchFor(model, mode)` optionally refines the flag;
+when present, it must accept the exact model and `live`/`cached` mode before
+query dispatch. Absence preserves the driver-wide declaration. Retry and idle
+watchdog wrappers bind the original receiver. Fallback wrappers evaluate each
+member's actual configured model; they cannot advertise a head-only guarantee.
+`ReactiveAgentConfig.webSearch` forwards the same setting into the query run.
+See [Web search](../cli/web-search.md) for driver restrictions and replay behavior.

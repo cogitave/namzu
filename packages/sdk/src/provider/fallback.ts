@@ -505,6 +505,12 @@ export function withProviderFallback(
 		// the request that may actually traverse the whole chain. The method is
 		// always present on a multi-member wrapper: `undefined` is its honest
 		// answer when any member cannot enumerate its selected model.
+		supportsHostedWebSearchFor: (model: string, mode: 'live' | 'cached') =>
+			members.every(
+				(member) =>
+					member.provider.capabilities?.supportsHostedWebSearch === true &&
+					(member.provider.supportsHostedWebSearchFor?.(member.model ?? model, mode) ?? true),
+			),
 		reasoningEffortLevelsFor: (model: string, thinking?: ThinkingConfig) =>
 			commonReasoningEffortLevels(members, model, thinking),
 		// Present on the chain wrapper for the same reason the menu method is:

@@ -34,6 +34,19 @@ export function routeFor(p: ChatCompletionParams) {
 export function partDigest(parts: Part[]): string {
 	return createHash('sha256').update(JSON.stringify(parts)).digest('hex')
 }
+/** Models whose GenerateContent wire supports grounding alongside function tools. */
+export function supportsGoogleSearch(model: string): boolean {
+	return [
+		'gemini-3-flash-preview',
+		'gemini-3-pro-preview',
+		'gemini-3.1-pro-preview',
+		'gemini-3.5-flash',
+		'gemini-3.5-flash-lite',
+		'gemini-3.6-flash',
+		'gemini-3.7-flash',
+		'gemini-3.8-flash',
+	].includes(model)
+}
 export function buildRequest(p: ChatCompletionParams, scope = 'api-key'): Record<string, unknown> {
 	for (const key of ['parallelToolCalls', 'repetitionPenalty'] as const)
 		if (p[key] !== undefined) throw new Error(`Gemini does not support explicit ${key}.`)
@@ -169,6 +182,16 @@ export function buildRequest(p: ChatCompletionParams, scope = 'api-key'): Record
 		}
 		if (parts.length) contents.push({ role: m.role === 'assistant' ? 'model' : 'user', parts })
 	}
+	if (
+		p.webSearch &&
+		(p.responseFormat ||
+			scope !== 'api-key' ||
+			p.webSearch.mode !== 'live' ||
+			!supportsGoogleSearch(p.model))
+	)
+		throw new Error(
+			'Google native search requires a supported Gemini 3 API-key route and live mode.',
+		)
 	const req: Record<string, unknown> = { contents, generationConfig }
 	if (system.length) req.systemInstruction = { parts: system }
 	if (p.tools?.length)
@@ -181,6 +204,7 @@ export function buildRequest(p: ChatCompletionParams, scope = 'api-key'): Record
 				})),
 			},
 		]
+	if (p.webSearch) req.tools = [...((req.tools as unknown[]) ?? []), { googleSearch: {} }]
 	if (p.toolChoice)
 		req.toolConfig = {
 			functionCallingConfig:

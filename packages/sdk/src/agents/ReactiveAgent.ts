@@ -128,6 +128,7 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.parentSpan ? { parentSpan: config.parentSpan } : {}),
 				runConfig: {
 					model: config.model,
+					...(config.webSearch ? { webSearch: config.webSearch } : {}),
 					tokenBudget: config.tokenBudget,
 					timeoutMs: config.timeoutMs,
 					...(config.sandbox ? { sandbox: config.sandbox } : {}),

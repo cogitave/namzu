@@ -48,7 +48,25 @@ vi.mock('../integrations/subagents/runtime.js', async (load) => {
 	return {
 		...actual,
 		createSubagentRuntime: async (options: Parameters<typeof actual.createSubagentRuntime>[0]) => {
-			childToolBuilders.push(options.buildTools)
+			childToolBuilders.push(() => {
+				const tools = options.buildTools()
+				options.configureWebSearch?.(
+					{
+						id: 'fixture',
+						name: 'fixture',
+						capabilities: {
+							supportsTools: true,
+							supportsStreaming: true,
+							supportsFunctionCalling: true,
+							supportsHostedWebSearch: false,
+						},
+						chatStream: async function* () {},
+					},
+					'fixture',
+					tools,
+				)
+				return tools
+			})
 			return actual.createSubagentRuntime(options)
 		},
 	}
@@ -93,7 +111,11 @@ function detectedAnthropic(): DetectedProvider[] {
 
 async function drive(
 	web:
-		| { fetch?: boolean; search?: 'off' | 'cached' | 'live'; backend?: 'exa' | 'native' }
+		| {
+				fetch?: boolean
+				search?: 'off' | 'cached' | 'live'
+				backend?: 'exa' | 'native'
+		  }
 		| undefined,
 ) {
 	const { createAgentSession } = await import('../tui/agent.js')
@@ -129,11 +151,12 @@ describe('web.fetch', () => {
 		expect(turn.hasGuidance).toBe(true)
 	})
 
-	it('keeps fetch off by default while offering independent web search', async () => {
+	it('keeps fetch off by default while using supported native search', async () => {
 		const turn = await drive(undefined)
 
 		expect(turn.toolNames).not.toContain('web_fetch')
-		expect(turn.toolNames).toContain('web_search')
+		expect(turn.toolNames).not.toContain('web_search')
+		expect(turn.runConfig.webSearch).toEqual({ mode: 'live' })
 		expect(turn.web).toBeUndefined()
 		expect(turn.hasGuidance).toBe(false)
 	})
@@ -148,7 +171,8 @@ describe('web.fetch', () => {
 	it('does not conflate fetch with hosted search', async () => {
 		const turn = await drive({ fetch: true })
 
-		expect(turn.toolNames).toContain('web_search')
+		expect(turn.toolNames).not.toContain('web_search')
+		expect(turn.runConfig.webSearch).toEqual({ mode: 'live' })
 	})
 })
 
@@ -189,3 +213,10 @@ it.each([{ search: 'off' as const }, { search: 'cached' as const, backend: 'nati
 		}
 	},
 )
+
+it('preserves an explicit common backend even on a native-capable model', async () => {
+	const turn = await drive({ backend: 'exa' })
+	expect(turn.toolNames).toContain('web_search')
+	expect(turn.runConfig.webSearch).toBeUndefined()
+	await turn.session.close()
+})

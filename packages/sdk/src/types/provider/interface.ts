@@ -19,6 +19,9 @@ export interface LLMProvider {
 	 */
 	readonly capabilities?: ProviderCapabilities
 
+	/** Refine hosted search support for a model and mode. Absent uses the driver-wide declaration. */
+	supportsHostedWebSearchFor?(model: string, mode: 'live' | 'cached'): boolean
+
 	/**
 	 * Retry behaviour this DRIVER wants, when the generic default is wrong
 	 * for the vendor behind it.

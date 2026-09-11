@@ -1870,7 +1870,14 @@ export async function createAgentSession(
 	// command (see `isPromptExempt`).
 	// Mixed fallback chains use a common tool, so provider fallback cannot silently lose search.
 	const nativeSearchAvailable =
-		provider.capabilities?.supportsHostedWebSearch === true && prefs.providers.length === 1
+		provider.capabilities?.supportsHostedWebSearch === true &&
+		!options.structuredOutput &&
+		(provider.supportsHostedWebSearchFor?.(
+			model,
+			options.web?.search === 'cached' ? 'cached' : 'live',
+		) ??
+			true) &&
+		prefs.providers.length === 1
 	const webSearch = resolveWebSearch(options.web, nativeSearchAvailable)
 	const nativeWebSearch =
 		webSearch.mode !== 'off' && webSearch.backend === 'native'
@@ -2036,6 +2043,18 @@ export async function createAgentSession(
 				if (selection?.effort) await prepareDelegatedEffort(childProvider, selectedModel)
 				return childProvider
 			},
+			configureWebSearch: (childProvider, childModel, tools) => {
+				if (webSearch.mode === 'off') return undefined
+				const supported =
+					childProvider.capabilities?.supportsHostedWebSearch === true &&
+					(childProvider.supportsHostedWebSearchFor?.(childModel, webSearch.mode) ?? true)
+				// A restricted specialist roster cannot gain network access through a hosted tool.
+				if (!tools.has('web_search')) return undefined
+				const choice = resolveWebSearch(options.web, supported)
+				if (choice.backend !== 'native') return undefined
+				tools.unregister('web_search')
+				return { mode: webSearch.mode }
+			},
 			buildTools: () => {
 				// Sub-agents get the parent's working set minus `search_tools`:
 				// they run without a task store, so nothing in their registry is
@@ -2051,6 +2070,7 @@ export async function createAgentSession(
 				// with a child. Preserve the parent's configured backend/off choice.
 				const search = registry.get('web_search')
 				if (search) childTools.register(search)
+				else if (webSearch.mode !== 'off') childTools.register(createWebSearchTool())
 				return childTools
 			},
 			authorizationGate: gateFor(options.rules),

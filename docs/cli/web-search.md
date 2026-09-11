@@ -47,9 +47,23 @@ Responses are bounded to 1 MiB and retain source links and untrusted provenance.
 
 For provider-hosted search, explicitly choose `web.backend: native` and
 `web.search: live` or `cached`. Cached mode implies native when backend is omitted;
-Exa plus cached is rejected because Exa may fetch live pages. Currently only the
-Codex subscription driver declares native support. Other native routes fail
-explicitly; use the default Exa tool with those providers. Native search executes
+Exa plus cached is rejected because Exa may fetch live pages. Native support is resolved against the driver, selected model and mode:
+
+- Codex subscription supports live and cached search.
+- Anthropic's direct Claude API route supports live search for the recognized
+  Claude model families. Compatible proxy URLs and cached mode are not admitted.
+- Google's API-key route supports live grounding with function tools on the
+  Gemini 3 models enumerated by `supportsGoogleSearch` in the driver. Code Assist
+  sessions, older models and cached mode keep the common backend under `auto`.
+- Zen and other drivers without native search mapping keep Exa. A model name or
+  Responses-compatible endpoint alone is not evidence of hosted search support.
+
+Native search is not auto-selected for structured-output sessions. An explicit
+unsupported native request fails rather than silently changing backend or mode.
+Provider account quotas and organization settings can still reject a request.
+Subagents resolve search against their own route; a restricted specialist roster
+without web search does not gain hosted network access. Common result previews
+omit the internal provenance wrapper; the model and durable raw result retain it. Native search executes
 inside the provider request, without a local-tool approval prompt. The following
 native protocol details apply to that optional backend.
 
@@ -60,9 +74,12 @@ matching-route continuation reuses them. Cross-provider continuation retains the
 readable answer and source links, not another provider's private protocol items.
 Retrieved content remains untrusted data.
 
-SDK callers opt in through `AgentRunConfig.webSearch` or direct
+SDK callers opt in through `ReactiveAgentConfig.webSearch`, `AgentRunConfig.webSearch` or direct
 `ChatCompletionParams.webSearch`, with `{ mode: 'live' }` or `{ mode: 'cached' }`.
-Drivers explicitly declare `supportsHostedWebSearch`. Hosted work emits
+Drivers explicitly declare `supportsHostedWebSearch` and may refine it with
+`supportsHostedWebSearchFor(model, mode)`. Retry/idle-timeout decorators preserve
+that refinement, and fallback chains require support from every selected member.
+Hosted work emits
 `StreamChunk.delta.hostedTool`, translated to durable `hosted_tool` run events
 and `hosted.tool` SSE events. These are observations, never executable tool calls.
 A2A exposes the resulting answer rather than a separate hosted-activity event.
@@ -74,3 +91,13 @@ claim to measure separate hosted-search fees. Forced closing summaries do not
 start further searches. Run resumes use the current host's configuration.
 
 Protocol reference: [OpenAI web search](https://developers.openai.com/api/docs/guides/tools-web-search).
+
+Anthropic replays complete search content blocks on an unchanged matching route,
+including encrypted results and citation indices. Modified text, tool calls or
+reasoning invalidate this private replay; portable answer text and source links
+remain available. A server `pause_turn` is reported as unfinished, not a complete
+answer; automatic multi-request continuation of that stop reason is not implemented.
+Google grounding sources are appended as links when missing from the answer.
+
+References: [Anthropic web search](https://platform.claude.com/docs/en/agents-and-tools/tool-use/web-search-tool),
+[Google grounding](https://ai.google.dev/gemini-api/docs/google-search).

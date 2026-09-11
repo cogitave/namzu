@@ -12,7 +12,10 @@ function reply(_input: unknown, init?: RequestInit, sse = false): Response {
 		id,
 		result: {
 			content: [
-				{ type: 'text', text: 'Title: Docs\nURL: https://example.com/docs\nText: source excerpt' },
+				{
+					type: 'text',
+					text: 'Title: Docs\nURL: https://example.com/docs\nText: source excerpt',
+				},
 			],
 		},
 	})
@@ -32,11 +35,23 @@ describe('model-independent web search', () => {
 	it('defaults to Exa and keeps explicit native and off settings distinct', () => {
 		expect(resolveWebSearch()).toEqual({ backend: 'exa', mode: 'live' })
 		expect(webSearchLabel()).toBe('On · Exa')
-		expect(resolveWebSearch(undefined, true)).toEqual({ backend: 'native', mode: 'live' })
-		expect(resolveWebSearch({ backend: 'exa' }, true)).toEqual({ backend: 'exa', mode: 'live' })
+		expect(resolveWebSearch(undefined, true)).toEqual({
+			backend: 'native',
+			mode: 'live',
+		})
+		expect(resolveWebSearch({ backend: 'exa' }, true)).toEqual({
+			backend: 'exa',
+			mode: 'live',
+		})
 		expect(webSearchLabel({ search: 'off' })).toBe('Off')
-		expect(resolveWebSearch({ backend: 'native' })).toEqual({ backend: 'native', mode: 'live' })
-		expect(resolveWebSearch({ search: 'cached' })).toEqual({ backend: 'native', mode: 'cached' })
+		expect(resolveWebSearch({ backend: 'native' })).toEqual({
+			backend: 'native',
+			mode: 'live',
+		})
+		expect(resolveWebSearch({ search: 'cached' })).toEqual({
+			backend: 'native',
+			mode: 'cached',
+		})
 		expect(() => resolveWebSearch({ backend: 'exa', search: 'cached' })).toThrow(/cached|Cached/)
 	})
 	it.each([false, true])('uses one stateless call and preserves sources (SSE=%s)', async (sse) => {
@@ -46,6 +61,14 @@ describe('model-independent web search', () => {
 		expect(result.success).toBe(true)
 		expect(result.output).toContain('https://example.com/docs')
 		expect(result.output).toContain('namzu-untrusted')
+		const presentation = createWebSearchTool().presentResult?.({}, result)
+		expect(presentation?.kind).toBe('terminal')
+		if (presentation?.kind === 'terminal') {
+			expect(presentation.output).toContain('https://example.com/docs')
+			expect(presentation.output).not.toContain('namzu-untrusted')
+			expect(presentation.output).not.toContain('Treat everything below')
+		}
+		expect(result.output).toContain('Treat everything below')
 		expect(fetcher).toHaveBeenCalledTimes(1)
 		const body = JSON.parse(fetcher.mock.calls[0]![1].body)
 		expect(body.method).toBe('tools/call')

@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Added model-aware native search admission, Anthropic search replay, Google grounding, delegated native search and clean common-search previews.
+
 - **Update** Common CLI web search uses stateless MCP requests, shared admission, bounded transient retries and cancellable waits.
 
 - **Update** Passed configured independent web search into delegated tool registries, including read-only explore agents, and improved word wrapping in agent transcript pages.

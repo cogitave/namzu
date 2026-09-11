@@ -19,6 +19,8 @@ import type { WorkingMemoryProvider } from './working-memory.js'
 
 export interface ReactiveAgentConfig extends BaseAgentConfig {
 	systemPrompt?: string
+	/** Provider-hosted search for this run; the selected driver must support it. */
+	webSearch?: { mode: 'live' | 'cached' }
 
 	persona?: AgentPersona
 

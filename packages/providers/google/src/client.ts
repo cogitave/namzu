@@ -9,7 +9,14 @@ import type {
 	ToolCall,
 } from '@namzu/sdk'
 import type { GoogleConfig } from './types.js'
-import { type Part, buildRequest, effortLevels, partDigest, routeFor } from './wire.js'
+import {
+	type Part,
+	buildRequest,
+	effortLevels,
+	partDigest,
+	routeFor,
+	supportsGoogleSearch,
+} from './wire.js'
 export const DEFAULT_GEMINI_MODEL = 'gemini-2.5-flash'
 // Standard text/image API reference prices, USD per million; not subscription billing.
 const PRICES: Record<string, readonly [number, number]> = {
@@ -25,12 +32,20 @@ export const GOOGLE_CAPABILITIES: ProviderCapabilities = {
 	supportsToolResultImages: true,
 	supportsToolResultDocuments: true,
 	supportsNativeStructuredOutput: true,
+	supportsHostedWebSearch: true,
 }
 const API = 'https://generativelanguage.googleapis.com/v1beta'
 const ASSIST = 'https://cloudcode-pa.googleapis.com/v1internal'
 interface ResponseBody {
 	response?: ResponseBody
-	candidates?: Array<{ content?: { parts?: Part[] }; finishReason?: string }>
+	candidates?: Array<{
+		content?: { parts?: Part[] }
+		finishReason?: string
+		groundingMetadata?: {
+			webSearchQueries?: string[]
+			groundingChunks?: Array<{ web?: { uri?: string; title?: string } }>
+		}
+	}>
 	promptFeedback?: { blockReason?: string }
 	usageMetadata?: {
 		promptTokenCount?: number
@@ -57,6 +72,9 @@ export class GoogleProvider implements LLMProvider {
 			throw new Error('Gemini timeoutMs must be positive.')
 		this.fetcher = config.fetch ?? globalThis.fetch
 		this.projectId = config.projectId
+	}
+	supportsHostedWebSearchFor(model: string, mode: 'live' | 'cached') {
+		return !this.config.getAccessToken && mode === 'live' && supportsGoogleSearch(model)
 	}
 	reasoningEffortLevelsFor(model: string) {
 		return effortLevels(model)
@@ -209,6 +227,8 @@ export class GoogleProvider implements LLMProvider {
 		let buffer = ''
 		let terminal = false
 		let text = ''
+		let searched = false
+		const sources = new Map<string, string>()
 		let toolIndex = 0
 		let reasoningIndex = 0
 		const parts: Part[] = []
@@ -243,6 +263,28 @@ export class GoogleProvider implements LLMProvider {
 						finish = 'content_filter'
 					}
 					const candidate = chunk.candidates?.[0]
+					const grounding = candidate?.groundingMetadata
+					if (
+						grounding &&
+						(grounding.webSearchQueries?.length || grounding.groundingChunks?.length)
+					) {
+						if (!searched)
+							yield {
+								id,
+								delta: {
+									hostedTool: {
+										id: `${id}-search`,
+										name: 'web_search',
+										status: 'running',
+									},
+								},
+							}
+						searched = true
+						for (const source of grounding.groundingChunks ?? []) {
+							const url = source.web?.uri
+							if (url && /^https?:\/\//.test(url)) sources.set(url, source.web?.title ?? url)
+						}
+					}
 					for (const part of candidate?.content?.parts ?? []) {
 						parts.push(part)
 						if (part.functionCall) {
@@ -325,6 +367,24 @@ export class GoogleProvider implements LLMProvider {
 				if (next.done) break
 			}
 			if (!terminal) throw new Error('Gemini stream ended without a terminal finish reason.')
+			if (searched)
+				yield {
+					id,
+					delta: {
+						hostedTool: {
+							id: `${id}-search`,
+							name: 'web_search',
+							status: 'completed',
+						},
+					},
+				}
+			const missing = [...sources.keys()].filter((url) => !text.includes(url))
+			if (missing.length) {
+				const appendix = `\n\nSources:\n${missing.map((url) => `- ${url}`).join('\n')}`
+				text += appendix
+				yield { id, delta: { content: appendix } }
+			}
+
 			yield {
 				id,
 				delta: {},

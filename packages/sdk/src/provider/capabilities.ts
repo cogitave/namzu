@@ -86,10 +86,15 @@ export function assertNativeStructuredOutputSupported(
 
 /** Refuse a hosted search request before dispatch when the route cannot honor it. */
 export function assertHostedWebSearchSupported(
-	provider: Pick<LLMProvider, 'id' | 'capabilities'>,
-	params: Pick<ChatCompletionParams, 'webSearch'>,
+	provider: Pick<LLMProvider, 'id' | 'capabilities' | 'supportsHostedWebSearchFor'>,
+	params: Pick<ChatCompletionParams, 'webSearch'> & Partial<Pick<ChatCompletionParams, 'model'>>,
 ): void {
-	if (params.webSearch && provider.capabilities?.supportsHostedWebSearch !== true) {
+	if (
+		params.webSearch &&
+		(provider.capabilities?.supportsHostedWebSearch !== true ||
+			(provider.supportsHostedWebSearchFor &&
+				!provider.supportsHostedWebSearchFor(params.model ?? '', params.webSearch.mode)))
+	) {
 		throw new ProviderRequestError({
 			kind: 'bad_request',
 			providerId: provider.id,

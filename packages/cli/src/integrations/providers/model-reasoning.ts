@@ -46,6 +46,11 @@ export function modelReasoningView(
 		id: provider.id,
 		name: provider.name,
 		capabilities: provider.capabilities,
+		...(provider.supportsHostedWebSearchFor
+			? {
+					supportsHostedWebSearchFor: provider.supportsHostedWebSearchFor.bind(provider),
+				}
+			: {}),
 		chatStream: (params) => provider.chatStream(params),
 		reasoningEffortLevelsFor: (requested) => (requested === model ? menu : undefined),
 		reasoningEffortDefaultFor: (requested) => (requested === model ? defaultEffort : undefined),

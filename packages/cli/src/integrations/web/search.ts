@@ -23,8 +23,18 @@ export function webSearchLabel(config?: WebConfig, nativeAvailable = false): str
 const inputSchema = {
 	type: 'object' as const,
 	properties: {
-		query: { type: 'string', minLength: 1, maxLength: 2000, description: 'The search query.' },
-		limit: { type: 'integer', minimum: 1, maximum: 10, description: 'Maximum results, default 5.' },
+		query: {
+			type: 'string',
+			minLength: 1,
+			maxLength: 2000,
+			description: 'The search query.',
+		},
+		limit: {
+			type: 'integer',
+			minimum: 1,
+			maximum: 10,
+			description: 'Maximum results, default 5.',
+		},
 	},
 	required: ['query'],
 	additionalProperties: false,
@@ -44,6 +54,21 @@ export function createWebSearchTool(): ToolDefinition {
 		concurrencySafe: true,
 		timeoutMs: 30_000,
 		presentCall: (input) => ({ kind: 'generic', label: String(input.query) }),
+		presentResult: (_input, result) => {
+			const raw = String(result.output ?? result.error ?? '')
+			const boundary = raw.indexOf('\n\n')
+			const wrapped =
+				raw.startsWith(
+					'<namzu-untrusted kind="connector-tool-result" server="exa" tool="web_search_exa">',
+				) && raw.endsWith('</namzu-untrusted>')
+			return {
+				kind: 'terminal',
+				output:
+					wrapped && boundary >= 0
+						? raw.slice(boundary + 2, -'</namzu-untrusted>'.length).trim()
+						: raw,
+			}
+		},
 		async execute(input, context) {
 			return searchExa(String(input.query), Number(input.limit ?? 5), context)
 		},

@@ -78,3 +78,12 @@ instructions](https://geminicli.com/docs/get-started/authentication/) and the
 public [Code Assist implementation](https://github.com/google-gemini/gemini-cli/tree/main/packages/core/src/code_assist).
 OAuth application configuration must match the issuer of the borrowed refresh
 token; unrelated application credentials cannot renew that session.
+
+## Web search
+
+Under `web.backend: auto`, a supported Gemini 3 API-key model uses native Google
+Search grounding alongside function tools. The driver's `supportsGoogleSearch`
+list defines the supported models; unknown models, Gemini 2.5 and Code Assist
+sessions use common Exa search. Native Google cached search is not supported.
+Grounded source URLs are retained in the answer and conversation history.
+See [Web search](web-search.md) for selection, permission and fallback behavior.
