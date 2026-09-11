@@ -1,5 +1,74 @@
 # @namzu/cli
 
+## 24.0.0
+
+### Major Changes
+
+- 1efafcb: Resident `run` and `start` now default to a resident-specific context profile
+  instead of the interactive coding and plan-mode prompt. Read-only residents
+  can complete read-only objectives without being instructed to pause for an
+  interactive plan approval. Pass `--context-profile interactive` to preserve
+  the previous guidance. Ordinary chat, tool permissions, output validation and
+  claim settlement are unchanged.
+
+  The SDK exports `createResidentStepContributions` and `ResidentStepPromptOptions`
+  for stable resident guidance and captured invocation-specific continuity through
+  the existing prompt registry. Prompt-cache validation now checks rendered
+  instructions so replacing content under the same contribution or skill name
+  cannot retain stale guidance. Full-prompt cache hits still render once locally.
+
+### Minor Changes
+
+- 09c5993: Add experimental `namzu resident` commands to save, inspect, execute, pause, resume, wake, reconcile and archive project-bound pursuits. Execution reuses the configured CLI runtime, requires a finite step cap and defaults to read-only plan mode; provider/tool/token options apply to each invocation or SDK step as documented. Saved execution directories, last-step summaries and private attempt receipts survive reopening. Interrupted work retains its exact claim and requires explicit inspection before reconciliation; no service, automatic replay, external messaging or ordinary TUI default is enabled.
+
+  Add an optional durable `pauseGeneration` to resident agendas. Each successful `setPaused(true)` increments it, and resume preserves it, allowing a CLI runner to notice even a rapid pause/resume between local checks. SDK agenda writes use schema 5; schemas 1–4 remain readable with an absent generation interpreted as zero. Older writers refuse the new schema rather than drop stop authority. SDK hosts remain opt-in; existing local `ResidentHost.pause()` behavior is unchanged.
+
+- e5bd6a2: Add `ToolRegistry.fork()` and `ToolRegistryForkOptions` to snapshot tool membership and availability independently for a run. Optional `deferExcept` hides currently active schemas until discovery without changing handlers, authorization or the source registry. Definitions and configuration remain shared; this is not a deep clone. Exact short/generic deferred tool names can now be discovered, and scoped prompts only recommend `search_tools` when it is available to that scope.
+
+  Add opt-in `namzu resident run|start --tool-loading deferred` to load optional tool schemas on demand for each step. The default remains `eager`; project instructions, memory recall, continuation evidence, permissions and provider-native search are unchanged. Discovery may require another model response. The internal CLI session option applies to fresh sends, not checkpoint resume.
+
+- b7f6720: Add opt-in `ResidentHostRunOptions.keepAlive` while preserving the default idle-return behavior. A keep-alive invocation retains its original finite step budget and performs no model calls when no work is due; it requires a positive `maxIdleMs`.
+
+  Add `namzu resident start --max-steps <n>` for managed background execution, `stop` for exact-runner drainage, and `release <runner-id> --executor-stopped` for inspected crash recovery. Foreground and background CLI runners share exclusive immutable ownership. Status distinguishes live control replies from unresponsive retained state; failed cleanup does not establish drainage. No OS service or automatic replay is installed. Existing interrupted pursuit claims still require explicit reconciliation.
+
+### Patch Changes
+
+- e376b7c: Fix Windows startup rejecting private CLI state directories whose ACL includes
+  the operating system's SYSTEM account (`SY`). The current user must still have
+  access; grants to other users or groups remain refused. This fixes a local
+  state-permission failure that could appear after selecting a discovered Claude
+  session, without requiring another provider sign-in.
+
+  Claude session discovery now honors `CLAUDE_CONFIG_DIR`, including directories
+  with spaces. An explicitly selected profile cannot silently fall back to the
+  default Claude profile, the paired Windows home, or the default macOS Keychain.
+  Custom macOS Keychain entries remain unsupported.
+
+- 63328d0: Fix npm startup failures in Windows provider setup and `namzu upgrade` by running npm's JavaScript entry point with the Node runtime that runs Namzu. Arguments, including installation paths with spaces or shell characters, remain literal. Windows uses the npm bundled with that runtime; if it is absent, Namzu explains how to repair it instead of trying a custom PATH wrapper. Cancelling provider installation requests termination of its Windows process tree and reports if cleanup cannot be confirmed.
+
+  CLI 23.0.0's existing Windows updater cannot acquire this fix itself when it fails with `spawn EINVAL`. Run `npm.cmd install --global @namzu/cli@latest` once using the same Node installation; include `--prefix "<existing-prefix>"` for a custom global prefix. Restart Namzu afterward.
+
+- 3225450: Make the Windows conversation resume hint executable in PowerShell, including Windows PowerShell 5.1. The hint explicitly names PowerShell, quotes paths and arguments literally, and resumes only after a required directory change succeeds.
+- 63328d0: Fix Windows startup failing on nested private state directories. Current-user
+  access now propagates to new child directories and files instead of leaving
+  Windows to assign its default ACL. Protecting a named private directory removes
+  an existing Administrators grant, including after an earlier failed startup;
+  it does not accept that group or unrelated accounts as private.
+
+  Existing descendant files with explicit grants are not recursively migrated.
+  POSIX permissions and credential-file ACL validation are unchanged.
+
+- Updated dependencies [449988e]
+- Updated dependencies [09c5993]
+- Updated dependencies [0c9c98a]
+- Updated dependencies [1efafcb]
+- Updated dependencies [f3fa065]
+- Updated dependencies [e5bd6a2]
+- Updated dependencies [8400937]
+- Updated dependencies [44b8dcf]
+- Updated dependencies [b7f6720]
+  - @namzu/sdk@38.2.0
+
 ## 23.0.0
 
 ### Major Changes

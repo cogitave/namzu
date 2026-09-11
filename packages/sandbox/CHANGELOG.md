@@ -1,5 +1,11 @@
 # @namzu/sandbox
 
+## 12.0.1
+
+### Patch Changes
+
+- 2d71d68: Make worker lease regression tests deterministic under slow scheduling by controlling the test worker's clock. This changes validation only; sandbox runtime behavior is unchanged.
+
 ## 12.0.0
 
 ### Major Changes
