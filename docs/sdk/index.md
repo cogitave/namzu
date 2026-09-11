@@ -42,3 +42,5 @@ The kernel.
 * [Memory retrieval research](memory-research.md) - Source-backed retrieval gaps, admission fix and evaluation priorities.
 * [Measured automatic memory recall](memory-recall-scores.md) - Live paired Luna low correctness and consumption results.
 * [Resident agents experiment](resident-agents.md) - Staged continuity plan, durable pursuit admission and bounded internal continuation.
+
+* [Resident initiative experiment](resident-initiative.md) - Explainable selection, verified observations, bounded subgoal proposals and measured tradeoffs.

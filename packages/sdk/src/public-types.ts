@@ -463,3 +463,18 @@ export type {
 	ResidentHostRunOptions,
 	ResidentPursuitStep,
 } from './manager/resident/host.js'
+
+export type {
+	ResidentObservation,
+	ResidentFeedback,
+	ResidentSelectionConfig,
+	ResidentCandidate,
+	ResidentSelection,
+	ResidentSelector,
+} from './manager/resident/initiative.js'
+export type { ResidentHostOptions, ResidentObserver } from './manager/resident/host.js'
+export type {
+	ResidentProposal,
+	ResidentProposalLimits,
+	ResidentProposalOrigin,
+} from './manager/resident/proposal.js'

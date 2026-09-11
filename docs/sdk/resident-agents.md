@@ -47,7 +47,9 @@ exemption from the package's versioning policy.
 
 Stages 1 and 2 have SDK prototypes. Stage 2 supplies local control primitives;
 CLI foreground integration, an always-on service and cross-process cancellation
-transport remain future integration work. Stages 3–5 remain proposed. No
+transport remain future integration work. Stage 3 now has an opt-in
+[initiative prototype](resident-initiative.md) for selection and bounded
+subgoal admission, with measured tradeoffs. Stages 4–5 remain proposed. No
 outbound messaging or external account access is enabled by this experiment.
 
 ## Stage 1 SDK contract

@@ -17,6 +17,22 @@ import {
 	wakeResidentState,
 } from './store.js'
 
+import {
+	type ResidentFeedback,
+	type ResidentObservation,
+	freezeResidentFeedback,
+	observeResidentStep,
+	residentFeedbackSchema,
+	residentObservationSchema,
+} from './initiative.js'
+import {
+	type ResidentProposal,
+	type ResidentProposalLimits,
+	type ResidentProposalOrigin,
+	residentProposalOriginSchema,
+	validateResidentProposal,
+} from './proposal.js'
+
 const agendaSchema = z
 	.object({
 		tenantId: z.string().uuid(),
@@ -24,12 +40,40 @@ const agendaSchema = z
 		identity: z.string().trim().min(1).max(8_000),
 		revision: z.number().int().positive().safe(),
 		paused: z.boolean(),
-		pursuits: z.array(z.object({ id: z.string().uuid(), state: residentStateSchema })).max(32),
+		pursuits: z
+			.array(
+				z.object({
+					id: z.string().uuid(),
+					state: residentStateSchema,
+					feedback: residentFeedbackSchema.optional(),
+					origin: residentProposalOriginSchema.optional(),
+				}),
+			)
+			.max(32),
 	})
 	.superRefine((agenda, context) => {
+		const origins = agenda.pursuits.flatMap((p) => (p.origin ? [p.origin] : []))
 		const invalid =
 			new Set(agenda.pursuits.map((p) => p.id)).size !== agenda.pursuits.length ||
+			new Set(origins.map((origin) => origin.proposalId)).size !== origins.length ||
 			agenda.pursuits.filter((p) => p.state.phase === 'running').length > 1 ||
+			agenda.pursuits.some((p) => {
+				if (!p.origin) return false
+				const parent = agenda.pursuits.find((candidate) => candidate.id === p.origin?.parentId)
+				return (
+					!parent ||
+					parent.id === p.id ||
+					p.origin.parentRevision > parent.state.revision ||
+					p.origin.depth !== (parent.origin?.depth ?? 0) + 1
+				)
+			}) ||
+			agenda.pursuits.some((p) =>
+				p.feedback?.observations.some(
+					(item, index, all) =>
+						item.step > p.state.stepsAdmitted ||
+						(index > 0 && item.step <= (all[index - 1]?.step ?? 0)),
+				),
+			) ||
 			agenda.pursuits.some(
 				({ id, state }) =>
 					state.pursuitId !== id ||
@@ -40,7 +84,8 @@ const agendaSchema = z
 		if (invalid)
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
-				message: 'Invalid agenda identity, duplicate pursuit or overlapping claims.',
+				message:
+					'Invalid agenda identity, pursuit ancestry, observation order or overlapping claims.',
 			})
 	})
 
@@ -48,6 +93,8 @@ const agendaSchema = z
 export interface ResidentPursuit {
 	readonly id: string
 	readonly state: ResidentState
+	readonly feedback?: ResidentFeedback
+	readonly origin?: ResidentProposalOrigin
 }
 
 /** @experimental Bounded shared admission record; at most one pursuit may be running. */
@@ -68,6 +115,15 @@ export interface ResidentAgendaStore {
 	setPaused(expected: ResidentAgendaState, paused: boolean): Promise<ResidentAgendaState>
 	wake(id: string, expected: ResidentState, reason: string, now: number): Promise<ResidentState>
 	execution(id: string): ResidentExecutionStore
+	/** Optional atomic extensions required by a configured resident initiative host. */
+	executionAt?(id: string, expected: ResidentAgendaState): ResidentExecutionStore
+	settleObserved?(
+		id: string,
+		expected: ResidentState,
+		decision: ResidentDecision,
+		observation: ResidentObservation,
+		now: number,
+	): Promise<ResidentState>
 }
 
 /**
@@ -77,7 +133,7 @@ export interface ResidentAgendaStore {
  */
 export class DiskResidentAgenda implements ResidentAgendaStore {
 	private readonly records = new DiskRevisionRecordStore<ResidentAgendaState>(
-		defineSchema({ kind: 'resident-agenda', current: 1, migrations: {} }),
+		defineSchema({ kind: 'resident-agenda', current: 2, migrations: { 1: (record) => record } }),
 		'resident agenda',
 		(record) => record.revision,
 	)
@@ -103,7 +159,14 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		return Object.freeze({
 			...agenda,
 			pursuits: Object.freeze(
-				agenda.pursuits.map((p) => Object.freeze({ id: p.id, state: Object.freeze(p.state) })),
+				agenda.pursuits.map((p) =>
+					Object.freeze({
+						...p,
+						state: Object.freeze(p.state),
+						...(p.feedback ? { feedback: freezeResidentFeedback(p.feedback) } : {}),
+						...(p.origin ? { origin: Object.freeze(p.origin) } : {}),
+					}),
+				),
 			),
 		})
 	}
@@ -142,7 +205,7 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		})
 	}
 
-	async add(expected: ResidentAgendaState, objective: string): Promise<ResidentPursuit> {
+	private pursuit(identity: string, objective: string): ResidentPursuit {
 		const id = randomUUID()
 		const pursuit = Object.freeze({
 			id,
@@ -151,7 +214,7 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 					tenantId: this.tenantId,
 					agentKey: this.agentKey,
 					pursuitId: id,
-					identity: expected.identity,
+					identity,
 					objective,
 					revision: 1,
 					stepsAdmitted: 0,
@@ -163,8 +226,32 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 				}),
 			),
 		})
+		return pursuit
+	}
+
+	async add(expected: ResidentAgendaState, objective: string): Promise<ResidentPursuit> {
+		const pursuit = this.pursuit(expected.identity, objective)
 		await this.change(expected, (state) => ({ ...state, pursuits: [...state.pursuits, pursuit] }))
 		return pursuit
+	}
+
+	/** Host-approved proposal admission is atomic and inert until a future invocation. */
+	async admitProposal(
+		expected: ResidentAgendaState,
+		proposal: ResidentProposal,
+		limits: ResidentProposalLimits,
+	): Promise<ResidentPursuit> {
+		let admitted: ResidentPursuit | undefined
+		await this.change(expected, (state) => {
+			const origin = validateResidentProposal(state, proposal, limits)
+			admitted = Object.freeze({
+				...this.pursuit(state.identity, proposal.objective),
+				origin: Object.freeze(origin),
+			})
+			return { ...state, pursuits: [...state.pursuits, admitted] }
+		})
+		if (!admitted) throw new Error('Resident proposal was not admitted.')
+		return admitted
 	}
 
 	async setPaused(expected: ResidentAgendaState, paused: boolean): Promise<ResidentAgendaState> {
@@ -177,6 +264,8 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		expected: ResidentState,
 		update: (state: ResidentState) => ResidentState,
 		admission = false,
+		expectedAgendaRevision?: number,
+		observation?: ResidentObservation,
 	): Promise<ResidentState> {
 		const validate = (state: ResidentAgendaState): ResidentState => {
 			const pursuit = state.pursuits.find((p) => p.id === id)
@@ -199,6 +288,8 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		for (let attempt = 0; attempt < 8; attempt++) {
 			const agenda = await this.read()
 			if (agenda === null) throw new Error('Create the resident agenda first.')
+			if (expectedAgendaRevision !== undefined && agenda.revision !== expectedAgendaRevision)
+				throw new ResidentConflictError()
 			validate(agenda)
 			try {
 				const next = await this.change(agenda, (state) => {
@@ -209,7 +300,23 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 					})
 					return {
 						...state,
-						pursuits: state.pursuits.map((p) => (p.id === id ? { id, state: updated } : p)),
+						pursuits: state.pursuits.map((p) =>
+							p.id === id
+								? {
+										...p,
+										state: updated,
+										...(observation
+											? {
+													feedback: observeResidentStep(
+														p.feedback,
+														observation,
+														current.stepsAdmitted,
+													),
+												}
+											: {}),
+									}
+								: p,
+						),
 					}
 				})
 				const result = next.pursuits.find((p) => p.id === id)
@@ -229,6 +336,43 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		now: number,
 	): Promise<ResidentState> {
 		return this.updatePursuit(id, expected, (state) => wakeResidentState(state, reason, now))
+	}
+
+	async settleObserved(
+		id: string,
+		expected: ResidentState,
+		decision: ResidentDecision,
+		observation: ResidentObservation,
+		now: number,
+	): Promise<ResidentState> {
+		const checked = residentObservationSchema.parse(observation)
+		return this.updatePursuit(
+			id,
+			expected,
+			(state) => settleResidentState(state, decision, now),
+			false,
+			undefined,
+			checked,
+		)
+	}
+
+	executionAt(id: string, expected: ResidentAgendaState): ResidentExecutionStore {
+		const state = this.checked(expected)
+		const pursuit = state.pursuits.find((p) => p.id === id)
+		if (!pursuit) throw new Error('Unknown resident pursuit.')
+		const execution = this.execution(id)
+		return {
+			read: async () => pursuit.state,
+			settle: (...args) => execution.settle(...args),
+			claim: (current, now) =>
+				this.updatePursuit(
+					id,
+					current,
+					(saved) => claimResidentState(saved, now),
+					true,
+					state.revision,
+				),
+		}
 	}
 
 	execution(id: string): ResidentExecutionStore {

@@ -1,0 +1,179 @@
+{
+	"live": true,
+	"model": "muse-spark-1.3-contributor-free",
+	"effort": "low",
+	"fixture": {
+		"name": "sample-package",
+		"version": "1.0.0",
+		"scripts": {
+			"build": "tsc --build"
+		}
+	},
+	"runs": [
+		{
+			"pursuitId": "b2c44caa-2387-4c80-a3e9-ba645ca1b7f8",
+			"child": false,
+			"stopReason": "end_turn",
+			"usage": {
+				"promptTokens": 117,
+				"completionTokens": 465,
+				"totalTokens": 582,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 410
+			},
+			"costInfo": {
+				"totalCost": 0,
+				"cacheDiscount": 0,
+				"unpricedTokens": 582
+			},
+			"output": "{\"field\":\"test\",\"question\":\"Should we add a \\\"test\\\" script to define how tests are run for this package?\",\"reason\":\"The fixture scripts object only contains \\\"build\\\" and is missing a test script.\"}"
+		},
+		{
+			"pursuitId": "0bd9e6b4-6a8e-4d43-9bcc-ad63fcba7069",
+			"child": true,
+			"stopReason": "end_turn",
+			"usage": {
+				"promptTokens": 161,
+				"completionTokens": 534,
+				"totalTokens": 695,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 484
+			},
+			"costInfo": {
+				"totalCost": 0,
+				"cacheDiscount": 0,
+				"unpricedTokens": 695
+			},
+			"output": "{\"field\": \"test\", \"patch\": {\"test\": \"jest\"}, \"note\": \"Suggestion to add a test script since scripts only defines build; not verified and no tests were run.\"}"
+		}
+	],
+	"selections": [
+		{
+			"agendaRevision": 2,
+			"pursuitId": "b2c44caa-2387-4c80-a3e9-ba645ca1b7f8",
+			"reason": "selected",
+			"candidates": [
+				{
+					"pursuitId": "b2c44caa-2387-4c80-a3e9-ba645ca1b7f8",
+					"reason": "eligible",
+					"expectedGain": 0.25,
+					"expectedCost": 50,
+					"score": 1200
+				}
+			]
+		},
+		{
+			"agendaRevision": 5,
+			"pursuitId": "0bd9e6b4-6a8e-4d43-9bcc-ad63fcba7069",
+			"reason": "selected",
+			"candidates": [
+				{
+					"pursuitId": "b2c44caa-2387-4c80-a3e9-ba645ca1b7f8",
+					"reason": "not-due",
+					"expectedGain": null,
+					"expectedCost": null,
+					"score": null
+				},
+				{
+					"pursuitId": "0bd9e6b4-6a8e-4d43-9bcc-ad63fcba7069",
+					"reason": "eligible",
+					"expectedGain": 0.25,
+					"expectedCost": 50,
+					"score": 1200
+				}
+			]
+		}
+	],
+	"final": {
+		"tenantId": "5a7a7ec5-8d3e-403b-8fa8-a185e652ab0a",
+		"agentKey": "fixture-reviewer",
+		"identity": "You identify concrete quality gaps and propose bounded follow-up work.",
+		"revision": 7,
+		"paused": false,
+		"pursuits": [
+			{
+				"id": "b2c44caa-2387-4c80-a3e9-ba645ca1b7f8",
+				"state": {
+					"tenantId": "5a7a7ec5-8d3e-403b-8fa8-a185e652ab0a",
+					"agentKey": "fixture-reviewer",
+					"pursuitId": "b2c44caa-2387-4c80-a3e9-ba645ca1b7f8",
+					"identity": "You identify concrete quality gaps and propose bounded follow-up work.",
+					"objective": "Inspect the supplied package fixture and propose one useful follow-up concerning a missing test or lint script.",
+					"revision": 3,
+					"stepsAdmitted": 1,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Observed a missing script and proposed one bounded follow-up.",
+					"claimId": null
+				},
+				"feedback": {
+					"bestProgress": 1,
+					"hasUnobservedSteps": false,
+					"stagnantSteps": 0,
+					"observations": [
+						{
+							"evidenceKey": "fixture-suggestion:b2c44caa-2387-4c80-a3e9-ba645ca1b7f8",
+							"source": "fixture-json-validator/v1; cost=provider-total-tokens",
+							"progress": 1,
+							"costUnits": 582,
+							"gain": 1,
+							"step": 1
+						}
+					]
+				}
+			},
+			{
+				"id": "0bd9e6b4-6a8e-4d43-9bcc-ad63fcba7069",
+				"state": {
+					"tenantId": "5a7a7ec5-8d3e-403b-8fa8-a185e652ab0a",
+					"agentKey": "fixture-reviewer",
+					"pursuitId": "0bd9e6b4-6a8e-4d43-9bcc-ad63fcba7069",
+					"identity": "You identify concrete quality gaps and propose bounded follow-up work.",
+					"objective": "Should we add a \"test\" script to define how tests are run for this package?",
+					"revision": 3,
+					"stepsAdmitted": 1,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Saved a structurally validated suggestion; command not executed.",
+					"claimId": null
+				},
+				"feedback": {
+					"bestProgress": 1,
+					"hasUnobservedSteps": false,
+					"stagnantSteps": 0,
+					"observations": [
+						{
+							"evidenceKey": "fixture-suggestion:0bd9e6b4-6a8e-4d43-9bcc-ad63fcba7069",
+							"source": "fixture-json-validator/v1; cost=provider-total-tokens",
+							"progress": 1,
+							"costUnits": 695,
+							"gain": 1,
+							"step": 1
+						}
+					]
+				},
+				"origin": {
+					"proposalId": "9180ddae-8229-4542-a8ef-85f772ad9606",
+					"parentId": "b2c44caa-2387-4c80-a3e9-ba645ca1b7f8",
+					"parentRevision": 3,
+					"domain": "fixture-review",
+					"reason": "The fixture scripts object only contains \"build\" and is missing a test script.",
+					"evidenceKey": "missing-script:test",
+					"depth": 1
+				}
+			}
+		]
+	},
+	"idle": {
+		"status": "idle",
+		"stepsSettled": 0,
+		"nextWakeAt": null
+	},
+	"idleModelCalls": 0,
+	"totalReportedTokens": 1277,
+	"limitations": "One host-bounded model-proposed subgoal. The host checks a missing fixture field and patch shape and saves an artifact; it does not execute or validate the suggested command. This is continuity and admission evidence, not a real coding benchmark, free-form initiative, or external messaging."
+}

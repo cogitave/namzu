@@ -1346,3 +1346,6 @@ export { DiskResidentStore, ResidentConflictError } from './manager/resident/sto
 export { runResident, stepResident } from './manager/resident/loop.js'
 export { DiskResidentAgenda } from './manager/resident/agenda.js'
 export { ResidentHost } from './manager/resident/host.js'
+
+export { createResidentSelector } from './manager/resident/initiative.js'
+export { validateResidentProposal } from './manager/resident/proposal.js'
