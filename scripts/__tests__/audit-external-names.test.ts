@@ -152,6 +152,19 @@ test('commissioned research may attribute its source without exempting other pro
 	assert.match(result.stderr, /docs\/sdk\/unrelated.md/)
 })
 
+test('an exact release-history attribution does not exempt adjacent log prose', () => {
+	const root = repository()
+	mkdirSync(join(root, 'docs'), { recursive: true })
+	const attribution =
+		"- **Update** Scoped the Anthropic provider's optional Claude Code version probe out of framework filesystem tracing so server bundles do not absorb the consumer's complete project tree.\n"
+	writeFileSync(join(root, 'docs/log.md'), attribution)
+	assert.equal(runAudit(root).status, 0)
+	writeFileSync(join(root, 'docs/log.md'), `${attribution}- **Update** Claude shapes this project.\n`)
+	const result = runAudit(root)
+	assert.equal(result.status, 1)
+	assert.match(result.stderr, /docs\/log\.md/)
+})
+
 test('provider selection fixtures may name wire keys without exempting adjacent code', () => {
 	const root = repository()
 	mkdirSync(join(root, 'packages/cli/src/tui'), { recursive: true })

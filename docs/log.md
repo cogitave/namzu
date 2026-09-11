@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-11
+
+- **Fix** Waited for asynchronous plan approval listeners before resolving the approval, preventing durable plan events from outliving run storage while preserving listener-failure isolation.
+
 ## 2026-09-10
 
 - **Update** Shortened exit resume commands for matching PATH installations and omitted redundant working-directory changes.
