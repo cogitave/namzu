@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process'
-import { access, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import net from 'node:net'
 import os from 'node:os'
 import path from 'node:path'
@@ -48,6 +48,27 @@ async function spawnWorker(env, transformSource = (source) => source) {
 		async stop() {
 			child.kill('SIGKILL')
 			await rm(workspace, { recursive: true, force: true })
+		},
+	}
+}
+
+/** Freeze only the copied worker's clock; HTTP and process scheduling remain real. */
+async function spawnWorkerWithClock(env) {
+	const worker = await spawnWorker(env, (source) =>
+		[
+			"const namzuTestClockFile = require('node:path').join(__dirname, 'test-clock')",
+			"require('node:fs').writeFileSync(namzuTestClockFile, '1000')",
+			"Date.now = () => Number(require('node:fs').readFileSync(namzuTestClockFile, 'utf8'))",
+			source,
+		].join('\n'),
+	)
+	return {
+		...worker,
+		async setTime(now) {
+			const clockFile = path.join(worker.workspace, 'test-clock')
+			// Publish before the next request, without exposing a partially written clock.
+			await writeFile(`${clockFile}.next`, String(now))
+			await rename(`${clockFile}.next`, clockFile)
 		},
 	}
 }
@@ -268,7 +289,7 @@ describe('worker execution leases and cancellation', () => {
 	])(
 		'keeps an expiring reservation after %s instead of leaking starting capacity',
 		async (_label, invalid, error) => {
-			worker = await spawnWorker({
+			worker = await spawnWorkerWithClock({
 				NAMZU_SANDBOX_EXECUTION_LEASE_TTL_MS: '40',
 				NAMZU_SANDBOX_MAX_TRACKED_EXECUTIONS: '1',
 			})
@@ -285,6 +306,9 @@ describe('worker execution leases and cancellation', () => {
 			})
 			expect(rejected.status).toBe(400)
 			expect((await rejected.json()).error).toBe(error)
+			// Exceed the 40ms lease in real time, as a busy CI runner can between requests.
+			// Only the worker's controlled clock decides whether the reservation expired.
+			await new Promise((resolve) => setTimeout(resolve, 80))
 			expect(
 				(
 					await fetch(`${worker.baseUrl}/executions/reserve`, {
@@ -293,7 +317,7 @@ describe('worker execution leases and cancellation', () => {
 				).status,
 			).toBe(503)
 
-			await new Promise((resolve) => setTimeout(resolve, 80))
+			await worker.setTime(lease.leaseExpiresAt)
 			expect(
 				(
 					await fetch(`${worker.baseUrl}/executions/reserve`, {
