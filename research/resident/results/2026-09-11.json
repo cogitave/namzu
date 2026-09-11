@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-11",
+  "kind": "bounded SDK continuity smoke experiment",
+  "provider": "zen",
+  "model": "muse-spark-1.3-contributor-free",
+  "effort": "low",
+  "tools": 0,
+  "humanObjectives": 1,
+  "modelRuns": 2,
+  "reopenedStoreBetweenSteps": true,
+  "runs": [
+    {
+      "stopReason": "end_turn",
+      "output": "{\"kind\": \"wait\", \"summary\": \"Draft v1 checklist: 1) Isolation & tool permissions 2) Observability & audit trail 3) Resource limits & safe shutdown\"}"
+    },
+    {
+      "stopReason": "end_turn",
+      "output": "{\"kind\": \"complete\", \"summary\": \"Revised checklist: 1) Sandbox isolation + least-privilege tools 2) Full audit trace + eval hooks 3) CPU/memory/time caps + kill-switch\"}"
+    }
+  ],
+  "finalPhase": "complete",
+  "admissions": 2,
+  "idleModelCalls": 0,
+  "limits": {
+    "maxIterationsPerRun": 2,
+    "tokenBudgetPerRun": 6000,
+    "timeoutMsPerRun": 30000
+  },
+  "limitations": [
+    "Stage order is explicitly instructed; this is not spontaneous goal discovery.",
+    "Reopened store in one host process; separate process ownership is tested independently.",
+    "Token usage and cost were not measured in this smoke experiment."
+  ]
+}

@@ -41,3 +41,4 @@ The kernel.
 * [Paired harness verification](harness-verification.md) - Trace-attributed comparison and fresh confirmation of harness candidates.
 * [Memory retrieval research](memory-research.md) - Source-backed retrieval gaps, admission fix and evaluation priorities.
 * [Measured automatic memory recall](memory-recall-scores.md) - Live paired Luna low correctness and consumption results.
+* [Resident agents experiment](resident-agents.md) - Staged continuity plan, durable pursuit admission and bounded internal continuation.

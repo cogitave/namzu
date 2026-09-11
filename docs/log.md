@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Creation** Added the resident-agent roadmap and opt-in SDK experiment for durable pursuit state, exclusive admission and internal continuation without another user message.
+
 - **Update** Added model-aware native search admission, Anthropic search replay, Google grounding, delegated native search and clean common-search previews.
 
 - **Update** Common CLI web search uses stateless MCP requests, shared admission, bounded transient retries and cancellable waits.

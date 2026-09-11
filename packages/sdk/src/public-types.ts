@@ -445,3 +445,10 @@ export type {
 	RequestContextSnapshot,
 	RequestContextChange,
 } from './runtime/query/request-context.js'
+
+export type { ResidentDecision, ResidentState, ResidentStore } from './manager/resident/store.js'
+export type {
+	ResidentStep,
+	ResidentStepResult,
+	ResidentLoopOptions,
+} from './manager/resident/loop.js'

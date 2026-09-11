@@ -1341,3 +1341,6 @@ export { DiskTokenBudgetStore, openTokenBudget } from './store/run/token-budget-
 export { validateTokenBudgetBinding } from './types/run/token-budget-store.js'
 
 export { snapshotRequestContext, diffRequestContext } from './runtime/query/request-context.js'
+
+export { DiskResidentStore, ResidentConflictError } from './manager/resident/store.js'
+export { runResident, stepResident } from './manager/resident/loop.js'
