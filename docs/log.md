@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Corrected the Windows resume hint to name PowerShell and use its invocation and quoting rules, guarding directory changes before reopening a conversation.
+
 - **Update** Documented the one-time native Windows installation step for CLI 23.0.0 users whose existing updater cannot launch npm.
 
 - **Update** Exercised packaged CLI startup and real TUI interactions on native Windows in PowerShell and Git Bash; corrected private-directory inheritance and scoped Administrators-grant removal, preserving refusal of unrelated accounts.

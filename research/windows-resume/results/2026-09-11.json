@@ -1,0 +1,15 @@
+{
+	"date": "2026-09-11",
+	"platform": "win32",
+	"node": "v22.20.0",
+	"powershell": "5.1.19041.7725",
+	"checks": {
+		"originalQuotedExecutableRejected": true,
+		"handoffNamesPowerShell": true,
+		"quotedExecutableAndArgvPreserved": true,
+		"literalDirectoryChangeSucceeded": true,
+		"sameDirectoryInvocationSucceeded": true,
+		"failedDirectoryChangeDoesNotLaunch": true
+	},
+	"boundary": "Repository formatter executed with native Windows Node and Windows PowerShell against temporary synthetic scripts and paths. No CLI conversation, provider, login, installation, or upgrade was run."
+}

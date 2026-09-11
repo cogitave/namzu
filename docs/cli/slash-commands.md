@@ -79,7 +79,10 @@ to the running CLI. Alternate installations and source launches retain their
 explicit executable and loader arguments. A `cd` prefix is included only when
 the conversation directory differs from the current working directory. Windows
 retains the explicit executable because command wrappers are not resolved by
-this check.
+this check. Its resume hint explicitly targets PowerShell, with a call operator
+for the quoted executable. When a directory change is needed, it uses a literal
+path and resumes only if that change succeeds, including in Windows PowerShell
+5.1. Users exiting from Git Bash can run the labelled command in PowerShell.
 
 `/config` (also available as `/settings`) shows Model, Reasoning effort and
 Permissions with their effective values, and opens the corresponding controls.

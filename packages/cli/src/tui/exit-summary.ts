@@ -17,16 +17,29 @@ function shellWord(source: string): string {
 	return `'${value.replace(/'/g, `'"'"'`)}'`
 }
 
+function powershellWord(source: string): string {
+	return `'${terminalDisplayText(source).replace(/'/g, "''")}'`
+}
+
 /** A useful shell handoff, never the TUI's buffered internal diagnostics. */
 export function formatTuiExitSummary(
 	summary: TuiExitSummary | null,
 	invocation: TuiResumeInvocation = {},
+	platform: NodeJS.Platform = process.platform,
 ): string {
 	if (!summary?.conversationId) return ''
-	const command = [...(invocation.command ?? ['namzu']), 'resume', summary.conversationId]
-		.map(shellWord)
-		.join(' ')
-	const directory =
-		invocation.cwd && invocation.cwd !== process.cwd() ? `cd ${shellWord(invocation.cwd)} && ` : ''
+	const args = [...(invocation.command ?? ['namzu']), 'resume', summary.conversationId]
+	const cwd = invocation.cwd && invocation.cwd !== process.cwd() ? invocation.cwd : undefined
+	if (platform === 'win32') {
+		const command = `& ${args.map(powershellWord).join(' ')}`
+		// Name the shell rather than guessing it from inherited environment.
+		// Windows PowerShell 5.1 lacks &&; resume only after Set-Location succeeds.
+		const handoff = cwd
+			? `Set-Location -LiteralPath ${powershellWord(cwd)}; if ($?) { ${command} }`
+			: command
+		return `To resume this conversation, run in PowerShell: ${handoff}\n`
+	}
+	const command = args.map(shellWord).join(' ')
+	const directory = cwd ? `cd ${shellWord(cwd)} && ` : ''
 	return `To resume this conversation, run: ${directory}${command}\n`
 }
