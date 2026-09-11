@@ -259,19 +259,22 @@ describe('the file is private, and the store proves it', () => {
 		expect(mode & 0o077).toBe(0)
 	})
 
-	it.skipIf(platform() !== 'win32')('grants exactly the current account, and nobody else', () => {
-		writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
-		// Asserted from OUTSIDE the write, against the real list the filesystem
-		// ended up with. Checking only that the write did not throw would leave
-		// the whole protection step deletable without a single test noticing,
-		// on the platform the step exists for.
-		const sddl = readAclSddl(credentialsPath(home))
-		const sid = currentUserSid()
-		expect(sid).not.toBeNull()
-		expect(sddl).not.toBeNull()
-		expect(() => assertSoleOwnerSddl(sddl as string, sid as string, 'p')).not.toThrow()
-		expect(readStoredSubscriptionCredential(home)?.accessToken).toBe(SECRET)
-	})
+	it.skipIf(platform() !== 'win32')(
+		'grants the current account with only LocalSystem also permitted',
+		() => {
+			writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
+			// Asserted from OUTSIDE the write, against the real list the filesystem
+			// ended up with. Checking only that the write did not throw would leave
+			// the whole protection step deletable without a single test noticing,
+			// on the platform the step exists for.
+			const sddl = readAclSddl(credentialsPath(home))
+			const sid = currentUserSid()
+			expect(sid).not.toBeNull()
+			expect(sddl).not.toBeNull()
+			expect(() => assertSoleOwnerSddl(sddl as string, sid as string, 'p')).not.toThrow()
+			expect(readStoredSubscriptionCredential(home)?.accessToken).toBe(SECRET)
+		},
+	)
 
 	it.skipIf(platform() !== 'win32')('does not leave the directory it inherited from open', () => {
 		writeStoredSubscriptionCredential({ accessToken: SECRET }, home)
@@ -333,6 +336,53 @@ describe('assertSoleOwnerSddl', () => {
 
 	it('accepts a differently-cased identifier', () => {
 		expect(() => assertSoleOwnerSddl(`D:PAI(A;;FA;;;${US.toLowerCase()})`, US, 'p')).not.toThrow()
+	})
+
+	it.each(['SY', 'sy', 'S-1-5-18'])(
+		'accepts LocalSystem (%s) beside the current account',
+		(system) => {
+			expect(() =>
+				assertSoleOwnerSddl(`D:PAI(A;;FA;;;${system})(A;;FA;;;${US})`, US, 'p'),
+			).not.toThrow()
+		},
+	)
+
+	it.each(['WD', 'BU', 'AU', 'BA', 'S-1-1-0', 'S-1-5-32-544', 'S-1-5-21-1-2-3-1002'])(
+		'refuses additional access for %s even beside trusted SYSTEM',
+		(other) => {
+			expect(() =>
+				assertSoleOwnerSddl(`D:P(A;;FA;;;SY)(A;;FA;;;${US})(A;;FA;;;${other})`, US, 'p'),
+			).toThrow(CredentialStoreError)
+		},
+	)
+
+	it.each(['(A;;FA;;;SY)', `(A;;FA;;;SY)(A;OIIO;FA;;;${US})`])(
+		'requires access on this path for the current account: %s',
+		(entries) => {
+			expect(() => assertSoleOwnerSddl(`D:P${entries}`, US, 'p')).toThrow(/your account/)
+		},
+	)
+
+	it.each(['(OA;;FA;;;WD)', '(XA;;FA;;;WD;(true))', '(UNKNOWN;;FA;;;WD)', '(A;;FA;;;WD;extra)'])(
+		'refuses unsupported or malformed ACEs instead of ignoring them: %s',
+		(entry) => {
+			expect(() => assertSoleOwnerSddl(`D:P(A;;FA;;;${US})${entry}`, US, 'p')).toThrow(
+				CredentialStoreError,
+			)
+		},
+	)
+
+	it('reads the whole saved descriptor, including a following system ACL', () => {
+		expect(() =>
+			assertSoleOwnerSddl(
+				`\uFEFFcli\r\nD:PAI(A;;FA;;;SY)(A;;FA;;;${US})S:(AU;SA;FA;;;WD)\r\n`,
+				US,
+				'p',
+			),
+		).not.toThrow()
+		expect(() => assertSoleOwnerSddl(`D:P(A;;FA;;;${US})unparsed`, US, 'p')).toThrow(
+			CredentialStoreError,
+		)
 	})
 
 	it('refuses a second allow entry naming somebody else', () => {

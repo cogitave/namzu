@@ -9,6 +9,7 @@ import {
 } from './credential-store.js'
 import { discoverProviders, findDetected, signedInSubscriptionProviders } from './discover.js'
 import { claudeCredentialsPath, codexCredentialsPath } from './harness-credentials.js'
+import * as keychain from './keychain.js'
 
 function tmpHome(): string {
 	const home = mkdtempSync(join(tmpdir(), 'namzu-discover-'))
@@ -24,7 +25,10 @@ describe('discoverProviders — env-var scan', () => {
 	it('discovers Zen and Go from their own credentials without crossing billing routes', async () => {
 		const zen = await discoverProviders({
 			...HERMETIC,
-			env: { OPENCODE_API_KEY: 'zen-primary', OPENCODE_ZEN_API_KEY: 'zen-alternative' },
+			env: {
+				OPENCODE_API_KEY: 'zen-primary',
+				OPENCODE_ZEN_API_KEY: 'zen-alternative',
+			},
 			home: tmpHome(),
 		})
 		expect(findDetected(zen, 'zen')).toMatchObject({
@@ -110,6 +114,56 @@ describe('discoverProviders — env-var scan', () => {
 })
 
 describe('discoverProviders — installed harness sessions', () => {
+	it('does not read the default Keychain account for an explicit Claude profile', async () => {
+		const home = tmpHome()
+		const readKeychain = vi.spyOn(keychain, 'readAgentKeychainCredential').mockReturnValue({
+			accessToken: 'different-account',
+		})
+		try {
+			const list = await discoverProviders({
+				...HERMETIC,
+				skipKeychain: false,
+				home,
+				env: { CLAUDE_CONFIG_DIR: join(home, 'absent-profile') },
+			})
+			expect(findDetected(list, 'anthropic')).toBeNull()
+			expect(readKeychain).not.toHaveBeenCalled()
+		} finally {
+			readKeychain.mockRestore()
+		}
+	})
+
+	it('discovers a custom Claude profile with its exact refresh publication path', async () => {
+		const home = tmpHome()
+		const custom = join(home, 'Claude profile')
+		mkdirSync(custom)
+		const path = join(custom, '.credentials.json')
+		writeFileSync(
+			path,
+			JSON.stringify({
+				claudeAiOauth: {
+					accessToken: 'custom-claude',
+					refreshToken: 'custom-refresh',
+					expiresAt: 1,
+				},
+			}),
+		)
+		const list = await discoverProviders({
+			...HERMETIC,
+			home,
+			env: { CLAUDE_CONFIG_DIR: custom },
+		})
+		expect(findDetected(list, 'anthropic')).toMatchObject({
+			apiKey: 'custom-claude',
+			source: { kind: 'claude-file', path },
+			oauth: {
+				origin: 'claude-file',
+				sourcePath: path,
+				refreshToken: 'custom-refresh',
+			},
+		})
+	})
+
 	it('uses active Windows harness sessions from WSL when the Linux records are empty', async () => {
 		const linuxHome = tmpHome()
 		const windowsHome = tmpHome()
@@ -117,7 +171,7 @@ describe('discoverProviders — installed harness sessions', () => {
 			mkdirSync(dirname(path), { recursive: true })
 			writeFileSync(path, JSON.stringify(value), { mode: 0o600 })
 		}
-		write(claudeCredentialsPath(linuxHome), {
+		write(claudeCredentialsPath(linuxHome, {}), {
 			claudeAiOauth: {
 				accessToken: '',
 				refreshToken: '',
@@ -125,7 +179,7 @@ describe('discoverProviders — installed harness sessions', () => {
 				subscriptionType: 'max',
 			},
 		})
-		write(claudeCredentialsPath(windowsHome), {
+		write(claudeCredentialsPath(windowsHome, {}), {
 			claudeAiOauth: {
 				accessToken: 'windows-claude',
 				refreshToken: 'windows-claude-refresh',
@@ -144,15 +198,21 @@ describe('discoverProviders — installed harness sessions', () => {
 		})
 		expect(findDetected(list, 'anthropic')).toMatchObject({
 			apiKey: 'windows-claude',
-			source: { kind: 'claude-file', path: claudeCredentialsPath(windowsHome) },
+			source: {
+				kind: 'claude-file',
+				path: claudeCredentialsPath(windowsHome, {}),
+			},
 			oauth: {
 				origin: 'claude-file',
-				sourcePath: claudeCredentialsPath(windowsHome),
+				sourcePath: claudeCredentialsPath(windowsHome, {}),
 			},
 		})
 		expect(findDetected(list, 'codex')).toMatchObject({
 			apiKey: 'windows-codex',
-			source: { kind: 'codex-file', path: codexCredentialsPath(windowsHome, {}) },
+			source: {
+				kind: 'codex-file',
+				path: codexCredentialsPath(windowsHome, {}),
+			},
 			codex: { accountId: 'windows-account' },
 		})
 		expect(signedInSubscriptionProviders(list).map((provider) => provider.entry.id)).toEqual([
@@ -167,7 +227,7 @@ describe('discoverProviders — installed harness sessions', () => {
 			mkdirSync(dirname(path), { recursive: true })
 			writeFileSync(path, JSON.stringify(value), { mode: 0o600 })
 		}
-		write(claudeCredentialsPath(home), {
+		write(claudeCredentialsPath(home, {}), {
 			claudeAiOauth: {
 				accessToken: 'claude-harness',
 				refreshToken: 'claude-refresh',
@@ -222,9 +282,9 @@ describe('discoverProviders — installed harness sessions', () => {
 
 	it('prefers usable device sessions over Namzu-owned fallback credentials', async () => {
 		const home = tmpHome()
-		mkdirSync(dirname(claudeCredentialsPath(home)), { recursive: true })
+		mkdirSync(dirname(claudeCredentialsPath(home, {})), { recursive: true })
 		writeFileSync(
-			claudeCredentialsPath(home),
+			claudeCredentialsPath(home, {}),
 			JSON.stringify({ claudeAiOauth: { accessToken: 'device-claude' } }),
 		)
 		mkdirSync(dirname(codexCredentialsPath(home, {})), { recursive: true })
@@ -251,9 +311,9 @@ describe('discoverProviders — installed harness sessions', () => {
 
 	it('admits an expired Claude file only when its rotating grant can refresh it', async () => {
 		const home = tmpHome()
-		mkdirSync(dirname(claudeCredentialsPath(home)), { recursive: true })
+		mkdirSync(dirname(claudeCredentialsPath(home, {})), { recursive: true })
 		writeFileSync(
-			claudeCredentialsPath(home),
+			claudeCredentialsPath(home, {}),
 			JSON.stringify({
 				claudeAiOauth: {
 					accessToken: 'expired-but-refreshable',
@@ -271,7 +331,7 @@ describe('discoverProviders — installed harness sessions', () => {
 			apiKey: 'expired-but-refreshable',
 			oauth: {
 				origin: 'claude-file',
-				sourcePath: claudeCredentialsPath(home),
+				sourcePath: claudeCredentialsPath(home, {}),
 			},
 		})
 		expect(signedInSubscriptionProviders(anthropic ? [anthropic] : [])).toHaveLength(1)
@@ -279,9 +339,9 @@ describe('discoverProviders — installed harness sessions', () => {
 
 	it('does not advertise expired borrowed sessions without a refresh grant', async () => {
 		const home = tmpHome()
-		mkdirSync(dirname(claudeCredentialsPath(home)), { recursive: true })
+		mkdirSync(dirname(claudeCredentialsPath(home, {})), { recursive: true })
 		writeFileSync(
-			claudeCredentialsPath(home),
+			claudeCredentialsPath(home, {}),
 			JSON.stringify({
 				claudeAiOauth: {
 					accessToken: 'expired',

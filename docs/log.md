@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Corrected Windows private-state ACL validation to accept LocalSystem alongside the current account while refusing broader grants; added isolated subscription profile discovery through `CLAUDE_CONFIG_DIR` and native Windows regression evidence.
+
 - **Update** Added independent SDK tool-registry forks and opt-in resident deferred schema loading; preserved eager defaults, instructions and permission checks, and corrected exact-name deferred discovery and scoped discovery guidance.
 
 - **Update** Added opt-in managed resident background runners, SDK keep-alive waiting, immutable invocation ownership, authenticated local status/stop, and inspected crash release; kept work limits across idle waits and retained ownership when cleanup is unconfirmed.

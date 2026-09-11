@@ -93,7 +93,10 @@ export interface DetectedProvider {
 		readonly origin: 'codex-file' | 'stored'
 	}
 	/** Exact owner file and optional Google Cloud billing project, never a Namzu project ID. */
-	readonly gemini?: { readonly sourcePath: string; readonly projectId?: string }
+	readonly gemini?: {
+		readonly sourcePath: string
+		readonly projectId?: string
+	}
 	/** Other sources that also satisfy this provider — informational. */
 	readonly alternatives: readonly DetectionSource[]
 }
@@ -196,7 +199,10 @@ export async function discoverProviders(
 		: readStoredCodexCredential(...(opts.home === undefined ? [] : [opts.home]))
 	// macOS-only: the OAuth credential a co-installed tool keeps in the login
 	// Keychain.
-	const keychainCredential = opts.skipKeychain ? null : readAgentKeychainCredential()
+	// A custom Claude profile has its own Keychain service. This reader only
+	// knows the default service, so it must not supply a different account.
+	const keychainCredential =
+		opts.skipKeychain || env.CLAUDE_CONFIG_DIR ? null : readAgentKeychainCredential()
 	const claudeFileCredentials = readClaudeFileCredentialCandidates(opts.home, env, opts.windowsHome)
 	const openCodeCredentials = readOpenCodeApiCredentialCandidates(opts.home, env, opts.windowsHome)
 	const codexFileCredentials = readCodexFileCredentialCandidates(
@@ -346,7 +352,10 @@ export async function discoverProviders(
 				apiKey = borrowed.credential.accessToken
 				sources.push({ kind: 'gemini-file', path: borrowed.path })
 				const projectId = env.GOOGLE_CLOUD_PROJECT?.trim() || env.GOOGLE_CLOUD_PROJECT_ID?.trim()
-				gemini = { sourcePath: borrowed.path, ...(projectId ? { projectId } : {}) }
+				gemini = {
+					sourcePath: borrowed.path,
+					...(projectId ? { projectId } : {}),
+				}
 			}
 		}
 		if (id === 'zen' || id === 'zen-go') {

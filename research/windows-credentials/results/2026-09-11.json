@@ -1,0 +1,27 @@
+{
+	"date": "2026-09-11",
+	"baselineCommit": "e5bd6a27",
+	"platform": "win32",
+	"node": "v22.20.0",
+	"originalError": "<fixture>/cli grants access to an account other than yours (SY) — refusing to keep a credential there.",
+	"checks": {
+		"originalSystemRefusalReproduced": true,
+		"ownerAndSystemAccepted": true,
+		"repeatedStartupAccepted": true,
+		"everyoneGrantRefused": true,
+		"systemOnlyDescriptorRefused": true,
+		"freshPrivateDirectoryAccepted": true,
+		"customClaudeProfileWithSpacesRead": true
+	},
+	"exercised": [
+		"ensurePrivateStateDirectory",
+		"restrictToOwner",
+		"currentUserSid",
+		"readAclSddl",
+		"assertSoleOwnerSddl",
+		"readClaudeFileCredentialCandidates",
+		"native whoami.exe",
+		"native icacls.exe"
+	],
+	"boundary": "Repository TypeScript modules transpiled into isolated Windows TEMP directories and executed by native Windows Node. Synthetic credentials only. No full Windows TUI, real provider inference, or login test."
+}

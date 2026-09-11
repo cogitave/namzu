@@ -33,8 +33,12 @@ export interface ClaudeCredentialReplaceResult {
 	readonly current: AgentOAuthCredential | null
 }
 
-export function claudeCredentialsPath(home: string = homedir()): string {
-	return join(home, '.claude', '.credentials.json')
+export function claudeCredentialsPath(
+	home: string = homedir(),
+	env: NodeJS.ProcessEnv = process.env,
+): string {
+	const configured = env.CLAUDE_CONFIG_DIR
+	return join(configured ? resolve(configured) : join(home, '.claude'), '.credentials.json')
 }
 
 /** Convert an absolute Windows path into the drive mount WSL exposes. */
@@ -93,10 +97,14 @@ export function readClaudeFileCredentialCandidates(
 	env: NodeJS.ProcessEnv = process.env,
 	windowsHome: string | null | undefined = home === undefined ? wslWindowsHome(env) : null,
 ): readonly HarnessCredentialCandidate<AgentOAuthCredential>[] {
-	const paths = [
-		claudeCredentialsPath(home),
-		...(windowsHome ? [claudeCredentialsPath(windowsHome)] : []),
-	]
+	// The override selects one owner store. A missing or unusable custom
+	// credential must not revive another account from either default home.
+	const paths = env.CLAUDE_CONFIG_DIR
+		? [claudeCredentialsPath(home, env)]
+		: [
+				claudeCredentialsPath(home, env),
+				...(windowsHome ? [claudeCredentialsPath(windowsHome, {})] : []),
+			]
 	const unique = [...new Set(paths)]
 	return unique.flatMap((path) => {
 		const credential = readClaudeCredentialFile(path)
@@ -212,8 +220,11 @@ function optionalStringArray(value: unknown): readonly string[] | undefined {
 	return value as string[]
 }
 
-export function readClaudeFileCredential(home: string = homedir()): AgentOAuthCredential | null {
-	return readClaudeCredentialFile(claudeCredentialsPath(home))
+export function readClaudeFileCredential(
+	home: string = homedir(),
+	env: NodeJS.ProcessEnv = process.env,
+): AgentOAuthCredential | null {
+	return readClaudeCredentialFile(claudeCredentialsPath(home, env))
 }
 
 /** Read a Claude-owned credential from the exact path discovery admitted. */

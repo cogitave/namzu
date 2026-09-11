@@ -28,9 +28,9 @@
  *  - Windows: POSIX modes do not exist — `fs.chmod` there only toggles the
  *    read-only attribute, so a `0600` that "succeeded" would prove nothing.
  *    The equivalent is a discretionary ACL, so inheritance is removed and a
- *    single full-control entry is granted to the current user's SID; the ACL
- *    is then saved back as SDDL and required to contain exactly that one
- *    allow entry and nothing else.
+ *    full-control entry is granted to the current user's SID; the ACL is then
+ *    saved back as SDDL and checked for access by that user. An existing
+ *    LocalSystem grant is permitted; grants to other accounts are refused.
  *
  * ## What is in the file
  *
@@ -467,8 +467,9 @@ function publishLockAtomically(
 	}
 }
 /**
- * Make `path` readable and writable by its owner and by nobody else, and
- * PROVE it. Throws `CredentialStoreError` when the proof cannot be produced.
+ * Make `path` private to the current account, and PROVE it. Windows may retain
+ * access for the operating system's LocalSystem account. Throws
+ * `CredentialStoreError` when the proof cannot be produced.
  *
  * Exported because it is the load-bearing half of this module and a security
  * property nobody can check by reading the caller.
@@ -511,8 +512,9 @@ export function assertOwnerOnlyMode(mode: number, path: string): void {
 
 /**
  * The Windows half: remove inheritance, grant the current user's SID full
- * control, then read the resulting ACL back as SDDL and require it to be
- * exactly that one allow entry.
+ * control, then read the resulting ACL back as SDDL. Existing explicit grants
+ * survive `/inheritance:r` and `/grant:r`; only LocalSystem may remain beside
+ * the current account. Other account grants are refused, never ignored.
  *
  * Both helpers are invoked by absolute path under `%SystemRoot%\System32`.
  * Resolving them through `PATH` is how a same-named executable earlier on the
@@ -605,8 +607,8 @@ export function currentUserSid(): string | null {
 }
 
 /**
- * Require an SDDL discretionary ACL to grant exactly one principal, and that
- * principal to be `sid`.
+ * Require a protected SDDL discretionary ACL that grants the current account
+ * access, with no other allowed principal except Windows LocalSystem.
  *
  * Split out from the spawning above because it is the actual assertion, and
  * an assertion that can only run on one operating system is an assertion
@@ -615,10 +617,10 @@ export function currentUserSid(): string | null {
  * at a match would call that private.
  */
 export function assertSoleOwnerSddl(sddl: string, sid: string, path: string): void {
-	const dacl = sddl.match(/D:([A-Z]*)((?:\([^)]*\))*)/)
+	const dacl = sddl.match(/D:([A-Z]*)(.*?)(?=[OGS]:|[\r\n]|$)/u)
 	const flags = dacl?.[1] ?? ''
 	const body = dacl?.[2] ?? ''
-	if (!dacl || body.length === 0) {
+	if (!dacl || !/^(?:\([^()]*\))+$/u.test(body)) {
 		throw new CredentialStoreError(
 			`the access-control list of ${path} could not be read back, so its privacy is unestablished.`,
 		)
@@ -634,20 +636,35 @@ export function assertSoleOwnerSddl(sddl: string, sid: string, path: string): vo
 			`the access-control list of ${path} could not be read back, so its privacy is unestablished.`,
 		)
 	}
+	let grantsCurrentAccount = false
+	const normalizeSid = (value: string): string =>
+		value.toUpperCase() === 'SY' ? 'S-1-5-18' : value.toUpperCase()
 	for (const ace of aces) {
 		const type = ace[0] ?? ''
 		const trustee = ace[5] ?? ''
-		// Only an ALLOW entry grants anything; a DENY entry narrows and is safe.
-		if (type !== 'A' && type !== 'AI') continue
-		if (trustee.toUpperCase() !== sid.toUpperCase()) {
+		// Object/conditional ACEs need a different parser. They cannot be
+		// classified as harmless merely because their type is not plain A.
+		if (ace.length !== 6 || (type !== 'A' && type !== 'D') || ace[3] || ace[4]) {
+			throw new CredentialStoreError(
+				`the access-control list of ${path} contains an unsupported entry, so its privacy is unestablished.`,
+			)
+		}
+		if (type === 'D') continue
+		const currentAccount = normalizeSid(trustee) === normalizeSid(sid)
+		if (!currentAccount && normalizeSid(trustee) !== 'S-1-5-18') {
 			throw new CredentialStoreError(
 				`${path} grants access to an account other than yours (${trustee}) — refusing to keep a credential there.`,
 			)
 		}
+		// An inherit-only grant applies to descendants, not this path. A
+		// SYSTEM-only list likewise says nothing about the current user's access.
+		if (currentAccount && !(ace[1] ?? '').includes('IO') && ace[2]) {
+			grantsCurrentAccount = true
+		}
 	}
-	if (!aces.some((ace) => (ace[0] ?? '') === 'A' || (ace[0] ?? '') === 'AI')) {
+	if (!grantsCurrentAccount) {
 		throw new CredentialStoreError(
-			`${path} ended with no account able to read it, which is not a credential store — refusing.`,
+			`${path} ended with no access granted to your account, which is not a credential store — refusing.`,
 		)
 	}
 }

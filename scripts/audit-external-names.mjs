@@ -459,7 +459,7 @@ const DRIVEN_SERVICES = new Set([
 // and log name the research pages they catalogue.
 const RESEARCH_SOURCE_DOCS = new Map([
 	// Setup instructions must identify the credential owner and link its sign-in documentation.
-	['claude', new Set(['docs/cli/slash-commands.md'])],
+	['claude', new Set(['docs/cli/slash-commands.md', 'docs/cli/credentials.md'])],
 	['gemini', new Set(['docs/cli/google.md', 'docs/cli/index.md', 'docs/log.md', 'docs/sdk/native-provider-capabilities.md'])],
 	[
 		'pydantic',

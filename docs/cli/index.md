@@ -11,6 +11,7 @@ The operator application.
 * [Command experience audit](command-experience-audit.md) - Verified command defects, comparison with Codex source, and proposed interaction improvements.
 * [Harness efficiency review](harness-efficiency-review.md) - Revision-pinned comparisons, existing strengths and measurable improvements to tool and delegation workflows.
 * [Project and session state](project-state.md) - How working directories select a Project, where identities live, and how existing histories stay reachable.
+* [Provider credentials and private state](credentials.md) - Existing subscription profiles, credential discovery, and Windows and POSIX storage privacy checks.
 
 * [Context and compaction in the CLI](context-and-compaction.md) - The file-only compaction key that picks the kernel's strategy or overrides the model's window, and the /context command that shows what compaction has done in a session.
 * [Where the CLI stands against its peers](competitive-gaps.md) - What `Claude Code`, `Codex CLI`, `Gemini CLI` and `OpenCode` offer that namzu does not, what namzu does better, and the backlog that follows.

@@ -1,9 +1,11 @@
+import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, mkdtempSync, symlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { currentUserSid, readAclSddl } from '../providers/credential-store.js'
 import { ensurePrivateStateDirectory } from './private-directory.js'
 
 const dirs: string[] = []
@@ -20,6 +22,30 @@ function root(): string {
 }
 
 describe('generated CLI state privacy boundary', () => {
+	it.runIf(process.platform === 'win32')(
+		'accepts explicit LocalSystem access while refusing an explicit Everyone grant',
+		() => {
+			const stateRoot = root()
+			const path = join(stateRoot, 'cli')
+			mkdirSync(path)
+			const sid = currentUserSid()
+			if (!sid) throw new Error('Native Windows account SID was not available')
+			const icacls = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe')
+			execFileSync(icacls, [path, '/inheritance:r', '/grant:r', `*${sid}:F`, '*S-1-5-18:F'], {
+				stdio: 'ignore',
+			})
+
+			expect(ensurePrivateStateDirectory(stateRoot, 'cli')).toBe(path)
+			expect(readAclSddl(path)).toContain(';;;SY)')
+			expect(ensurePrivateStateDirectory(stateRoot, 'cli')).toBe(path)
+
+			execFileSync(icacls, [path, '/grant:r', '*S-1-1-0:F'], { stdio: 'ignore' })
+			expect(() => ensurePrivateStateDirectory(stateRoot, 'cli')).toThrow(
+				/grants access to an account other than yours/,
+			)
+		},
+	)
+
 	it('refuses a partition name that could leave the state root', () => {
 		expect(() => ensurePrivateStateDirectory(join(root(), '.namzu'), '../outside')).toThrow(
 			/safe path segment/,

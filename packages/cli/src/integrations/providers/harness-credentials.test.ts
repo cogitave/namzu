@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { dirname, join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 
 import {
@@ -9,6 +9,7 @@ import {
 	preferFresherCredential,
 	readClaudeCredentialFile,
 	readClaudeFileCredential,
+	readClaudeFileCredentialCandidates,
 	readCodexFileCredential,
 	replaceClaudeCredentialFile,
 	windowsPathToWsl,
@@ -29,9 +30,42 @@ function jwt(payload: Record<string, unknown>): string {
 }
 
 describe('readClaudeFileCredential', () => {
+	it('reads the configured profile and pins a relative directory to its exact owner path', () => {
+		const root = home()
+		const custom = join(root, 'Claude profile with spaces')
+		const env = { CLAUDE_CONFIG_DIR: custom }
+		const path = join(custom, '.credentials.json')
+		writeJson(path, { claudeAiOauth: { accessToken: 'configured-session' } })
+		expect(readClaudeFileCredential(root, env)?.accessToken).toBe('configured-session')
+		expect(readClaudeFileCredentialCandidates(root, env)).toMatchObject([{ path }])
+		expect(claudeCredentialsPath(root, { CLAUDE_CONFIG_DIR: 'relative-profile' })).toBe(
+			join(resolve('relative-profile'), '.credentials.json'),
+		)
+	})
+
+	it.each(['missing', 'malformed', 'signed-out'])(
+		'does not fall back to another account when the selected profile is %s',
+		(state) => {
+			const root = home()
+			const windowsHome = home()
+			for (const defaultHome of [root, windowsHome]) {
+				writeJson(claudeCredentialsPath(defaultHome, {}), {
+					claudeAiOauth: { accessToken: 'other-account' },
+				})
+			}
+			const env = { CLAUDE_CONFIG_DIR: join(root, 'selected-profile') }
+			if (state !== 'missing') {
+				writeJson(claudeCredentialsPath(root, env), {
+					claudeAiOauth: { accessToken: state === 'malformed' ? 7 : '' },
+				})
+			}
+			expect(readClaudeFileCredentialCandidates(root, env, windowsHome)).toEqual([])
+		},
+	)
+
 	it('reads the exact refreshable Claude Code envelope without returning unrelated fields', () => {
 		const root = home()
-		writeJson(claudeCredentialsPath(root), {
+		writeJson(claudeCredentialsPath(root, {}), {
 			claudeAiOauth: {
 				accessToken: 'claude-access',
 				refreshToken: 'claude-refresh',
@@ -40,7 +74,7 @@ describe('readClaudeFileCredential', () => {
 			},
 			primaryApiKey: 'must-not-be-read',
 		})
-		expect(readClaudeFileCredential(root)).toEqual({
+		expect(readClaudeFileCredential(root, {})).toEqual({
 			accessToken: 'claude-access',
 			refreshToken: 'claude-refresh',
 			expiresAt: 42,
@@ -50,17 +84,17 @@ describe('readClaudeFileCredential', () => {
 
 	it('refuses malformed and oversized credential records', () => {
 		const root = home()
-		writeJson(claudeCredentialsPath(root), {
+		writeJson(claudeCredentialsPath(root, {}), {
 			claudeAiOauth: { accessToken: 7 },
 		})
-		expect(readClaudeFileCredential(root)).toBeNull()
-		writeFileSync(claudeCredentialsPath(root), 'x'.repeat(1024 * 1024 + 1))
-		expect(readClaudeFileCredential(root)).toBeNull()
+		expect(readClaudeFileCredential(root, {})).toBeNull()
+		writeFileSync(claudeCredentialsPath(root, {}), 'x'.repeat(1024 * 1024 + 1))
+		expect(readClaudeFileCredential(root, {})).toBeNull()
 	})
 
 	it('publishes a rotating refresh grant back to the exact owner envelope', () => {
 		const root = home()
-		const path = claudeCredentialsPath(root)
+		const path = claudeCredentialsPath(root, {})
 		writeJson(path, {
 			claudeAiOauth: {
 				accessToken: 'claude-access',
@@ -99,7 +133,7 @@ describe('readClaudeFileCredential', () => {
 
 	it('lets a newer owner credential win instead of overwriting it', () => {
 		const root = home()
-		const path = claudeCredentialsPath(root)
+		const path = claudeCredentialsPath(root, {})
 		writeJson(path, {
 			claudeAiOauth: {
 				accessToken: 'owner-winner',
@@ -112,7 +146,11 @@ describe('readClaudeFileCredential', () => {
 			replaceClaudeCredentialFile(
 				path,
 				{ accessToken: 'stale', refreshToken: 'stale-refresh', expiresAt: 1 },
-				{ accessToken: 'derived', refreshToken: 'derived-refresh', expiresAt: 200 },
+				{
+					accessToken: 'derived',
+					refreshToken: 'derived-refresh',
+					expiresAt: 200,
+				},
 			),
 		).toEqual({
 			replaced: false,

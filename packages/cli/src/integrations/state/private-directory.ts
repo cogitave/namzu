@@ -36,8 +36,8 @@ export function ensurePrivateStateDirectory(stateRoot: string, segment: string):
 	}
 	if (process.platform !== 'win32') chmodSync(path, PRIVATE_DIRECTORY_MODE)
 	// POSIX reads back the tightened mode; Windows replaces inheritance with a
-	// single current-user ACL and reads that descriptor back. A mode-only branch
-	// on Windows would prove nothing because chmod controls only read-only there.
+	// current-user ACL, permits an existing LocalSystem grant, and reads that
+	// descriptor back. Windows chmod controls only the read-only attribute.
 	restrictToOwner(path)
 	return path
 }
