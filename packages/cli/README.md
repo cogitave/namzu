@@ -106,6 +106,12 @@ JavaScript entry point directly, preserving paths and arguments without a
 command shell. Custom npm wrappers on PATH are not used; a missing runtime
 bundle produces a repair instruction before installation starts.
 
+When upgrading from CLI 23.0.0 on native Windows, its old updater can fail with
+`spawn EINVAL` before npm starts. Run `npm.cmd install --global @namzu/cli@latest`
+once in PowerShell or Git Bash using the Node installation that owns Namzu.
+For a custom global prefix, include `--prefix "<existing-prefix>"`. Restart
+Namzu afterward; the updated CLI includes the corrected npm launcher.
+
 Generated CLI state now lives below the application home: `~/.namzu` by
 default, or the existing real directory named by `NAMZU_HOME`. New directories
 inside the same checkout share one Project, keyed by its canonical root; a

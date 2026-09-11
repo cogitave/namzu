@@ -69,3 +69,11 @@ local state-permission failure. It can occur after a provider credential has
 already been found. Earlier versions incorrectly rejected an explicit `SY`
 grant as another user's access; signing in to Claude again does not repair
 that local ACL interpretation.
+
+The fixes must be installed before retrying startup. On native Windows, CLI
+23.0.0's own `namzu upgrade` can fail with `spawn EINVAL` because it tries to
+launch npm's command shim directly. Install the update once from PowerShell
+or Git Bash with `npm.cmd install --global @namzu/cli@latest`, using the same
+Node installation and adding `--prefix "<existing-prefix>"` for a custom
+global installation. Restart Namzu after installation; another provider login
+is not needed to fix this updater failure.
