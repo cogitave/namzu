@@ -100,6 +100,12 @@
 			"symbol": "process.stderr.write",
 			"count": 1,
 			"reason": "installTuiLogSink's fatal handler. Ink owns the screen while the TUI runs, so this sink buffers rather than writes; on a crash it flushes the buffer and then writes the error itself, after Ink's render loop has stopped. This file IS the TUI's sink implementation — the one place permitted to touch the stream directly on the way out of a process that is already ending."
+		},
+		{
+			"file": "packages/cli/src/commands/upgrade.ts",
+			"symbol": "process.stderr.write",
+			"count": 1,
+			"reason": "Upgrade command replays bounded, terminal-control-stripped installer output after stopping the animation; this is operator-facing subprocess output, not a structured log event."
 		}
 	],
 	"$comment_floors": "getRootLoggerCount and unnamespacedBindingCount are FLOORED at 0 by checkZeroFloors in scripts/check-log-standard.mjs (LOG-20). They are still exact-equality ratchets, but the value 0 is the only legal one: the process-wide logger export no longer exists and every component: binding became a namespaced attribute, so a non-zero here is a reintroduction rather than a count to re-record. `--write` refuses to raise either one."

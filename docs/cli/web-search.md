@@ -50,10 +50,9 @@ For provider-hosted search, explicitly choose `web.backend: native` and
 Exa plus cached is rejected because Exa may fetch live pages. Native support is resolved against the driver, selected model and mode:
 
 - Codex subscription supports live and cached search.
-- Anthropic's direct Claude API route supports live search for the recognized
-  Claude model families. Compatible proxy URLs and cached mode are not admitted.
+- Anthropic's direct API route supports live search for recognized models. Compatible proxy URLs and cached mode are not admitted.
 - Google's API-key route supports live grounding with function tools on the
-  Gemini 3 models enumerated by `supportsGoogleSearch` in the driver. Code Assist
+  models enumerated by `supportsGoogleSearch` in the driver. Code Assist
   sessions, older models and cached mode keep the common backend under `auto`.
 - Zen and other drivers without native search mapping keep Exa. A model name or
   Responses-compatible endpoint alone is not evidence of hosted search support.
