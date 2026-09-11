@@ -1,5 +1,57 @@
 # Changelog
 
+## 38.2.0
+
+### Minor Changes
+
+- 449988e: Add experimental `DiskResidentAgenda` and `ResidentHost` APIs for multiple persistent pursuits under one agent identity. Shared admission prevents overlapping pursuits across local processes; pause persists across restart, while resume explicitly reopens admission and wake interrupts local idle waiting. Interrupted admitted work remains unresolved until the host stops its executor and reconciles effects. Storage contention retries preserve the exact target claim and never repeat its callback. These APIs do not start a daemon, send notifications or change CLI defaults.
+
+  Expose `ResidentAgendaStore`, `ResidentAgendaState`, `ResidentPursuit`, `ResidentPursuitStep`, `ResidentHostRunOptions`, `ResidentHostResult` and the narrower execution dependency `ResidentExecutionStore`. Agenda snapshots include an optional `ResidentState.pursuitId`; standalone snapshots omit it. Fix cancellation during an asynchronous state read and safely address long Unicode agent keys while preserving existing filesystem segments that fit the filename limit.
+
+- 09c5993: Add experimental `namzu resident` commands to save, inspect, execute, pause, resume, wake, reconcile and archive project-bound pursuits. Execution reuses the configured CLI runtime, requires a finite step cap and defaults to read-only plan mode; provider/tool/token options apply to each invocation or SDK step as documented. Saved execution directories, last-step summaries and private attempt receipts survive reopening. Interrupted work retains its exact claim and requires explicit inspection before reconciliation; no service, automatic replay, external messaging or ordinary TUI default is enabled.
+
+  Add an optional durable `pauseGeneration` to resident agendas. Each successful `setPaused(true)` increments it, and resume preserves it, allowing a CLI runner to notice even a rapid pause/resume between local checks. SDK agenda writes use schema 5; schemas 1–4 remain readable with an absent generation interpreted as zero. Older writers refuse the new schema rather than drop stop authority. SDK hosts remain opt-in; existing local `ResidentHost.pause()` behavior is unchanged.
+
+- 0c9c98a: Add optional resident communication APIs. Hosts can prepare a validated outbound message and commit its intent with pursuit settlement and observed progress in one agenda revision. `deliverResidentMessage` claims one pending message, applies host delivery gates and records destination acknowledgment separately from generated content. Uncertain sends stay unresolved until explicit host reconciliation; retries require evidence of non-acceptance. No external channel, CLI default or automatic background service is enabled.
+
+  Add `createResidentDeliveryWindow` for daily allowed hours in an explicit named timezone, including overnight windows and DST transitions. Delivery callbacks remain host-owned and must enforce recipient authorization and receiver idempotency.
+
+  Agenda schema 3 retains up to 128 immutable intents including acknowledged/cancelled entries for deduplication. Schemas 1 and 2 remain readable; older writers refuse schema-3 records. Custom stores opt into atomic message settlement and delivery methods. This prototype has no outbox archival, automatic ambiguous-send takeover or exactly-once remote-delivery guarantee.
+
+- 1efafcb: Resident `run` and `start` now default to a resident-specific context profile
+  instead of the interactive coding and plan-mode prompt. Read-only residents
+  can complete read-only objectives without being instructed to pause for an
+  interactive plan approval. Pass `--context-profile interactive` to preserve
+  the previous guidance. Ordinary chat, tool permissions, output validation and
+  claim settlement are unchanged.
+
+  The SDK exports `createResidentStepContributions` and `ResidentStepPromptOptions`
+  for stable resident guidance and captured invocation-specific continuity through
+  the existing prompt registry. Prompt-cache validation now checks rendered
+  instructions so replacing content under the same contribution or skill name
+  cannot retain stale guidance. Full-prompt cache hits still render once locally.
+
+- f3fa065: Add opt-in experimental resident-agent state and bounded continuation: `DiskResidentStore`, `ResidentStore`, `stepResident` and `runResident`. Hosts can persist one identity and pursuit across conversations, schedule another step or rest without model calls, and prevent competing owners from admitting the same step. Failed or interrupted steps remain unresolved until explicitly reconciled; no automatic process takeover, external notification delivery or CLI behavior change is introduced.
+- e5bd6a2: Add `ToolRegistry.fork()` and `ToolRegistryForkOptions` to snapshot tool membership and availability independently for a run. Optional `deferExcept` hides currently active schemas until discovery without changing handlers, authorization or the source registry. Definitions and configuration remain shared; this is not a deep clone. Exact short/generic deferred tool names can now be discovered, and scoped prompts only recommend `search_tools` when it is available to that scope.
+
+  Add opt-in `namzu resident run|start --tool-loading deferred` to load optional tool schemas on demand for each step. The default remains `eager`; project instructions, memory recall, continuation evidence, permissions and provider-native search are unchanged. Discovery may require another model response. The internal CLI session option applies to fresh sends, not checkpoint resume.
+
+- 8400937: Add opt-in resident initiative APIs: `createResidentSelector`, host `select`/`observe` options, atomic observed settlement and selection-bound admission in `DiskResidentAgenda`. Hosts can retain verified progress and measured costs, inspect selection reasons and abstain without model calls. The experimental selector can stop before delayed payoffs and provides no general performance or starvation guarantee; the default fair host policy is unchanged.
+
+  Add bounded `ResidentProposal` validation and atomic `admitProposal` with parent revision checks, domain allowlists, child/depth limits and durable deduplication. Domain metadata does not authorize tools or prove semantic scope; hosts still validate objectives and bind existing execution controls. No CLI defaults, always-on services or external messages are enabled.
+
+  Agenda schema 2 stores optional feedback and proposal ancestry. Existing schema-1 agendas remain readable without invented observations; older SDK writers refuse new records to prevent data loss. Alternative agenda backends can opt into `executionAt` and `settleObserved`; hosts reject configured extensions when their atomic storage support is absent.
+
+- 44b8dcf: Add opt-in resident learning: versioned host-evidenced self-description and preference corrections, content-hash-bound guidance promotion through the existing paired harness verification gate, and rollback preserving current preferences. `ResidentHost` can expose a frozen learning snapshot via its new contextual callback when `learning: true`; existing two-argument callbacks and default hosts remain compatible. `projectResidentLearning` bounds selected guidance by characters without installing code or granting tool authority.
+
+  Add explicit terminal pursuit/message archival, immutable historical reads and paged archive events. Historical proposal/message deduplication and retired child counts survive active-slot reuse. Active state stays bounded; exact historical lookups grow with archive events and physical history compaction is not included.
+
+  Agenda schema 4 reads schemas 1–3 without invented learning or archive records; older writers refuse new records to prevent data loss. These are experimental SDK capabilities with reproducible continuity/evaluation/delivery tests, not new CLI defaults, an always-on service, or permission to contact people.
+
+- b7f6720: Add opt-in `ResidentHostRunOptions.keepAlive` while preserving the default idle-return behavior. A keep-alive invocation retains its original finite step budget and performs no model calls when no work is due; it requires a positive `maxIdleMs`.
+
+  Add `namzu resident start --max-steps <n>` for managed background execution, `stop` for exact-runner drainage, and `release <runner-id> --executor-stopped` for inspected crash recovery. Foreground and background CLI runners share exclusive immutable ownership. Status distinguishes live control replies from unresponsive retained state; failed cleanup does not establish drainage. No OS service or automatic replay is installed. Existing interrupted pursuit claims still require explicit reconciliation.
+
 ## 38.1.0
 
 ### Minor Changes
