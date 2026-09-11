@@ -80,7 +80,7 @@ it('atomically persists host observations and reproduces selection explanations 
 		`${state.revision}.json`,
 	)
 	const raw = JSON.parse(await readFile(path, 'utf8'))
-	expect(raw.schemaVersion).toBe(4)
+	expect(raw.schemaVersion).toBe(5)
 	expect(() =>
 		migrate(defineSchema({ kind: 'resident-agenda', current: 1, migrations: {} }), raw),
 	).toThrow(SchemaVersionError)
@@ -263,7 +263,7 @@ it('reads a schema-1 agenda without inventing feedback or proposal ancestry', as
 			'utf8',
 		),
 	)
-	expect(raw.schemaVersion).toBe(4)
+	expect(raw.schemaVersion).toBe(5)
 })
 
 it('refuses corrupt persisted ancestry instead of treating it as a valid proposal', async () => {

@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Added opt-in resident CLI work with project-bound directories, bounded foreground execution through the existing CLI runtime, durable pause generations, execution receipts and explicit inspected recovery; tested cross-process interruption and no-replay behavior.
+
 - **Update** Completed the five-stage SDK resident experiment with versioned profile correction, existing paired-test skill promotion, rollback and bounded context; added terminal archival preserving deduplication and lifetime ancestry limits, with end-to-end and low-effort live evidence.
 
 - **Update** Added SDK resident communication with atomic outgoing intent, acknowledged delivery, explicit uncertain-send recovery and timezone-aware windows; tested local disconnect, lost acknowledgment and process death.

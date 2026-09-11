@@ -20,6 +20,7 @@ import { drainCommand } from './commands/drain.js'
 import { evalCommand } from './commands/eval.js'
 import { loginCommand, logoutCommand } from './commands/login.js'
 import { registerAll } from './commands/registry.js'
+import { residentCommand } from './commands/resident.js'
 import {
 	historyCommand,
 	providersJSONCommand,
@@ -268,10 +269,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 		return recoveryCtx
 	}
 
+	// Stopping or inspecting a resident must remain possible with broken config.
+	// Its run action resolves this bridge only after trusting the bound cwd.
+	const getResidentContext = () =>
+		bindTrustedProjectContext(getRecoveryContext(), getTrustedContext)
 	for (const def of [
 		acpCommand,
 		doctorCommand,
 		runCommand,
+		residentCommand,
 		loginCommand,
 		logoutCommand,
 		drainCommand,
@@ -287,16 +293,18 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 	]) {
 		registerAll(program, [def], {
 			getContext:
-				def === stateCommand
-					? getRecoveryContext
-					: def === acpCommand ||
-							def === runCommand ||
-							def === runStreamCommand ||
-							def === drainCommand ||
-							def === skillsCommand ||
-							def === upgradeCommand
-						? getBootstrapContext
-						: getContext,
+				def === residentCommand
+					? getResidentContext
+					: def === stateCommand
+						? getRecoveryContext
+						: def === acpCommand ||
+								def === runCommand ||
+								def === runStreamCommand ||
+								def === drainCommand ||
+								def === skillsCommand ||
+								def === upgradeCommand
+							? getBootstrapContext
+							: getContext,
 			setExitCode,
 		})
 	}

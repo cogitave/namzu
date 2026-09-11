@@ -70,7 +70,7 @@ deduplication evidence. Explicit [archival](resident-retention.md) can free
 active slots while retaining those records in immutable history. Physical
 garbage collection is not implemented. Schema 3 introduced communication;
 schema 4 adds archival and learning. Schemas 1 and 2 read without invented
-messages; subsequent writes use schema 4. Older writers refuse the
+messages; current writes use schema 5, also preserving durable pause generations. Older writers refuse the
 new schema rather than dropping its delivery state.
 
 ## Delivery and recovery

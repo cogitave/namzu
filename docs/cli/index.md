@@ -21,6 +21,7 @@ The operator application.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
 * [Background jobs in the CLI](background-jobs.md) - How a command started with run_in_background outlives its turn, what /jobs shows, and how supported sandboxes own detached processes.
+* [Resident work in the CLI](resident-work.md) - Durable pursuits, bounded foreground execution, pause observation and inspected recovery.
 * [Tool servers](mcp-servers.md) - The mcpServers config key: a server by command or by URL, the environment its child gets, how long each has to connect, and what happens when one does not.
 * [Exit codes of a headless run](run-exit-codes.md) - What $? says after namzu run, including 75 for a run the provider paused with a checkpoint kept, and what a wrapper should do with each code.
 * [Current-run task context](task-context.md) - Bounded unfinished-task reminders, scope and research boundaries.

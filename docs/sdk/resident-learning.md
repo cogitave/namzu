@@ -13,7 +13,9 @@ This completes the five-stage [resident SDK experiment](resident-agents.md)
 with versioned self-description/preferences and evaluated reusable guidance.
 It is behavioral adaptation through persisted context, not model-weight
 training, autonomous authority, or evidence of general intelligence. All stages
-remain optional SDK capabilities; CLI integration and service hosting are separate.
+remain optional SDK capabilities. The [resident CLI](../cli/resident-work.md)
+can project approved learning into foreground steps; service hosting and a
+learning-management UI are separate.
 
 ## Research and existing kernel mechanisms
 

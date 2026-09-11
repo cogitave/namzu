@@ -167,7 +167,7 @@ message; there is no unlimited self-spawning loop or notification transport.
 
 Feedback and ancestry were introduced in agenda schema 2; schema 3 also adds
 [communication state](resident-communication.md). Schema-1 records read without
-invented observations; later writes use schema 4, which also records
+invented observations; current writes use schema 5, which preserves durable pause generations plus
 [learning](resident-learning.md) and [archival](resident-retention.md). Older writers refuse these
 new records rather than silently removing fields. Nested feedback and ancestry
 are immutable; invalid persisted ancestry and observation ordering fail reads.

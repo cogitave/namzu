@@ -69,6 +69,7 @@ const agendaSchema = z
 		identity: z.string().trim().min(1).max(8_000),
 		revision: z.number().int().positive().safe(),
 		paused: z.boolean(),
+		pauseGeneration: z.number().int().nonnegative().safe().optional(),
 		archiveHead: z.number().int().min(2).safe().optional(),
 		learning: residentLearningSchema.optional(),
 		outbox: z.array(residentOutboxMessageSchema).max(128).optional(),
@@ -149,6 +150,8 @@ export interface ResidentAgendaState {
 	readonly identity: string
 	readonly revision: number
 	readonly paused: boolean
+	/** Durable pause requests; absent means zero. Resuming never resets this generation. */
+	readonly pauseGeneration?: number
 	readonly pursuits: readonly ResidentPursuit[]
 	readonly outbox?: readonly ResidentOutboxMessage[]
 	readonly archiveHead?: number
@@ -183,8 +186,13 @@ export interface ResidentArchiveListOptions {
 
 const agendaRecordSchema = defineSchema({
 	kind: 'resident-agenda',
-	current: 4,
-	migrations: { 1: (record) => record, 2: (record) => record, 3: (record) => record },
+	current: 5,
+	migrations: {
+		1: (record) => record,
+		2: (record) => record,
+		3: (record) => record,
+		4: (record) => record,
+	},
 })
 
 const archiveRequestSchema = z.object({
@@ -197,6 +205,7 @@ export interface ResidentAgendaStore {
 	read(): Promise<ResidentAgendaState | null>
 	create(identity: string): Promise<ResidentAgendaState>
 	add(expected: ResidentAgendaState, objective: string): Promise<ResidentPursuit>
+	/** Each committed true request advances pauseGeneration, even when already paused. */
 	setPaused(expected: ResidentAgendaState, paused: boolean): Promise<ResidentAgendaState>
 	wake(id: string, expected: ResidentState, reason: string, now: number): Promise<ResidentState>
 	execution(id: string): ResidentExecutionStore
@@ -524,7 +533,11 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 
 	async setPaused(expected: ResidentAgendaState, paused: boolean): Promise<ResidentAgendaState> {
 		z.boolean().parse(paused)
-		return this.change(expected, (state) => ({ ...state, paused }))
+		return this.change(expected, (state) => ({
+			...state,
+			paused,
+			...(paused ? { pauseGeneration: (state.pauseGeneration ?? 0) + 1 } : {}),
+		}))
 	}
 
 	private async learn(

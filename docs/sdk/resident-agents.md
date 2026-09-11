@@ -46,15 +46,16 @@ exemption from the package's versioning policy.
 | 5 — learning | Versioned identity/preferences and evaluated reusable skills | Contradict stale beliefs with evidence; evaluate a proposed skill before promotion and roll it back when it regresses |
 
 Stages 1 and 2 have SDK prototypes. Stage 2 supplies local control primitives;
-CLI foreground integration, an always-on service and cross-process cancellation
-transport remain future integration work. Stage 3 now has an opt-in
+the [resident CLI](../cli/resident-work.md) now hosts explicit foreground work
+and observes durable pause generations across local processes. Always-on service
+hosting and ordinary TUI integration remain future work. Stage 3 has an opt-in
 [initiative prototype](resident-initiative.md) for selection and bounded
 subgoal admission, with measured tradeoffs. Stage 4 has a
 [communication prototype](resident-communication.md) with atomic outgoing intent,
 acknowledged delivery and explicit allowed time windows. Stage 5 now has
 [versioned learning and rollback](resident-learning.md), joined with
 [terminal archival](resident-retention.md) in an end-to-end SDK experiment. All
-five stages have tested prototypes; service and CLI integration are separate. No
+five stages have tested prototypes; the CLI exposes a bounded subset. No
 outbound messaging or external account access is enabled by this experiment.
 
 ## Stage 1 SDK contract
@@ -111,6 +112,15 @@ admission count and claim. `ResidentState.pursuitId` is populated for agenda
 entries and absent in the standalone store. Terminal entries remain in
 the active 32-entry bound until explicit [archival](resident-retention.md).
 Physical revision compaction is not implemented.
+
+`ResidentAgendaState.pauseGeneration` records durable pause requests. Its absent
+value means zero; reading an older agenda does not invent the field. Every
+successful `setPaused(expected, true)` increments this nonnegative safe integer,
+including requests while already paused. Resuming preserves it. A host can
+capture the generation at invocation start and detect a pause even if another
+process resumes before its next state read. Observing this field does not itself
+deliver cancellation or prove executor quiescence. Agenda writes use schema 5;
+schemas 1–4 remain readable, while older writers refuse schema 5.
 
 `ResidentAgendaStore` is the atomic backend contract. All pursuits for an agent
 share admission: two processes choosing **different** pursuits still cannot

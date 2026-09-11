@@ -1,0 +1,194 @@
+{
+	"kind": "resident-cli-live-smoke",
+	"baseRevision": "44b8dcf67de59162ff278bea3358d2858cea0444",
+	"workingTreeDirty": true,
+	"fixtureRoot": "/tmp/namzu-resident-cli-smoke-yjparscm",
+	"fixtureNote": "Namzu retains an authorized objective and its last summary across resident steps. Waiting without useful work must make zero model calls.\n",
+	"execution": "Real built CLI in separate foreground PTY processes; final idle check also captured through a JSON pipe.",
+	"initialObjective": "Read note.txt. On your first step, save a concise summary and schedule one immediate follow-up. On the follow-up, use your saved summary to give a two-item checklist and complete this pursuit. Only read the file; do not execute commands or change files.",
+	"sequence": [
+		"status (empty, no initialization)",
+		"add --trust",
+		"run --max-steps 1 (wait)",
+		"pause",
+		"run --max-steps 1 (paused, zero settled steps)",
+		"resume",
+		"run --max-steps 1 (complete)",
+		"run --max-steps 1 (idle, zero settled steps)"
+	],
+	"runOptions": {
+		"provider": "zen",
+		"model": "muse-spark-1.3-contributor-free",
+		"effort": "low",
+		"maxSteps": 1,
+		"maxIterations": 4,
+		"tokenBudgetPerStep": 50000,
+		"permissionMode": "plan"
+	},
+	"steps": [
+		{
+			"receipt": {
+				"version": 1,
+				"pursuitId": "af26b7c5-11df-4a41-84e4-9ae02ec20b65",
+				"claimId": "85f8ee43-61f9-4bfb-bbb8-8742d3de59b8",
+				"sessionId": "b73a24b6-09f9-4c94-bd55-9c72cc24597f",
+				"runId": "1804e2dd-384c-4e7c-8cb4-082ebfbb07f3",
+				"finishedAt": 1789136582371,
+				"stopReason": "end_turn",
+				"decision": {
+					"kind": "wait",
+					"summary": "note.txt read (1 line): Namzu retains an authorized objective and its last summary across resident steps. Waiting without useful work must make zero model calls. Next follow-up: give two-item checklist and complete pursuit. save_memory unavailable in plan mode, so this summary carries the evidence.",
+					"wakeAfterMs": 0
+				},
+				"error": null,
+				"usage": {
+					"totalTokens": 25891,
+					"cost": {
+						"totalCost": 0,
+						"cacheDiscount": 0,
+						"unpricedTokens": 25891
+					}
+				},
+				"budget": {
+					"limit": 50000,
+					"ownTokens": 25891,
+					"treeTokens": 25891,
+					"reservedTokens": 0,
+					"remainingTokens": 24109,
+					"inFlightRequests": 0,
+					"unsettledChildren": 0,
+					"poisoned": false,
+					"unresolvedRequests": 0
+				}
+			},
+			"tokenUsage": {
+				"promptTokens": 25444,
+				"completionTokens": 447,
+				"totalTokens": 25891,
+				"cachedTokens": 16610,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 139
+			},
+			"modelResponses": 3,
+			"toolResults": [
+				{
+					"name": "read",
+					"isError": false
+				},
+				{
+					"name": "save_memory",
+					"isError": true
+				}
+			]
+		},
+		{
+			"receipt": {
+				"version": 1,
+				"pursuitId": "af26b7c5-11df-4a41-84e4-9ae02ec20b65",
+				"claimId": "0016cedb-0bc2-4e36-9817-839dec7b0036",
+				"sessionId": "f9a68f95-9b47-4019-bd20-9b3a03a48600",
+				"runId": "d1b524da-166b-46ce-acd2-cf8e2fef310e",
+				"finishedAt": 1789136674948,
+				"stopReason": "end_turn",
+				"decision": {
+					"kind": "complete",
+					"summary": "note.txt read: 'Namzu retains an authorized objective and its last summary across resident steps. Waiting without useful work must make zero model calls.' Checklist: [x] Read note.txt (read-only, no commands/changes) [x] Used saved summary to complete pursuit. Objective achieved."
+				},
+				"error": null,
+				"usage": {
+					"totalTokens": 17269,
+					"cost": {
+						"totalCost": 0,
+						"cacheDiscount": 0,
+						"unpricedTokens": 17269
+					}
+				},
+				"budget": {
+					"limit": 50000,
+					"ownTokens": 17269,
+					"treeTokens": 17269,
+					"reservedTokens": 0,
+					"remainingTokens": 32731,
+					"inFlightRequests": 0,
+					"unsettledChildren": 0,
+					"poisoned": false,
+					"unresolvedRequests": 0
+				}
+			},
+			"tokenUsage": {
+				"promptTokens": 16902,
+				"completionTokens": 367,
+				"totalTokens": 17269,
+				"cachedTokens": 8305,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 224
+			},
+			"modelResponses": 2,
+			"toolResults": [
+				{
+					"name": "read",
+					"isError": false
+				}
+			]
+		}
+	],
+	"modelResponses": 5,
+	"totalTokens": 43160,
+	"cachedTokens": 24915,
+	"secondStepContainsPreviousSummary": true,
+	"projectFilesUnchanged": true,
+	"pausedRunStepsSettled": 0,
+	"idleExecution": {
+		"status": "idle",
+		"stepsSettled": 0,
+		"nextWakeAt": null
+	},
+	"finalAgenda": {
+		"tenantId": "a337b9c8-c7ce-4b0e-9a30-207aec217d0f",
+		"agentKey": "default",
+		"identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+		"revision": 8,
+		"paused": false,
+		"pauseGeneration": 1,
+		"pursuits": [
+			{
+				"id": "af26b7c5-11df-4a41-84e4-9ae02ec20b65",
+				"state": {
+					"tenantId": "a337b9c8-c7ce-4b0e-9a30-207aec217d0f",
+					"agentKey": "default",
+					"pursuitId": "af26b7c5-11df-4a41-84e4-9ae02ec20b65",
+					"identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+					"objective": "Read note.txt. On your first step, save a concise summary and schedule one immediate follow-up. On the follow-up, use your saved summary to give a two-item checklist and complete this pursuit. Only read the file; do not execute commands or change files.",
+					"revision": 5,
+					"stepsAdmitted": 2,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "note.txt read: 'Namzu retains an authorized objective and its last summary across resident steps. Waiting without useful work must make zero model calls.' Checklist: [x] Read note.txt (read-only, no commands/changes) [x] Used saved summary to complete pursuit. Objective achieved.",
+					"claimId": null
+				}
+			}
+		]
+	},
+	"fingerprints": {
+		"packages/cli/src/commands/resident.ts": "bd353b70b397f42904edaad26d5c4b4796a1842a2eafed5f9e8e5138e889cefb",
+		"packages/cli/src/commands/resident-flags.ts": "d623b56d91fcab7e9a519c2701d51a9f5e520a4874f636d8503f82fc1e466576",
+		"packages/cli/src/integrations/resident/foreground.ts": "22ce913bf1fc270208cf81b2151dd9d94ee25246faa76d7397b07409700aa1e1",
+		"packages/cli/src/integrations/resident/session-step.ts": "1678ea790b075cc13be47dc9089bb644514f0c4b57c116b80e9a7a10f99df7ab",
+		"packages/cli/src/integrations/resident/storage.ts": "0aa6895fc606fda3673b5603fe88b6d4369d3a1d09effc6ef8dadec61304a3d4",
+		"packages/sdk/src/manager/resident/agenda.ts": "07322806b73bfe746e62f172df5072c28bb507a47ba860fa2965637565fd3e35",
+		"packages/sdk/src/manager/resident/host.ts": "d014b01ba766776e4de1b8c6157b7233f0dcf699eac370eb458fe4bc392866ff",
+		"packages/cli/dist/commands/resident.js": "f60787caed5d767cc1a55508e5f97b14fb9658be138cbb31498b1e13791bac17",
+		"packages/cli/dist/integrations/resident/session-step.js": "4f95e505e9eea6293ab97c5a0159a5642fd741affb8f0ad338ae0f33ce9c0804",
+		"packages/cli/dist/integrations/resident/foreground.js": "a3d4e11994706ec9d51ee8b1cb774fd9de413901e243008d000b641b7ef40679",
+		"packages/sdk/dist/manager/resident/agenda.js": "8b3c224fe18c31be0cf69a56a0d0ae118cbce97df9a5bdb571ea70123606ee1f"
+	},
+	"limitations": [
+		"The two-step task was explicitly prescribed; this does not establish spontaneous goal creation.",
+		"The model reread note.txt in the second isolated session; full file/transcript context is not carried between steps.",
+		"A save_memory attempt was refused by plan mode. The host retained the decision summary without that tool.",
+		"Reported token totals include repeated and cached prompt tokens. The cost ledger marks these tokens unpriced; no billing or efficiency improvement is established.",
+		"Pause during active work and process death were tested separately with deterministic worker processes, not by killing a live model.",
+		"No external messaging or always-on service was installed."
+	]
+}
