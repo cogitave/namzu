@@ -37,6 +37,35 @@ memory, compaction and configured telemetry. It accepts the existing
 `--gate` and `--gate-retries` options. Gate commands are explicitly supplied host
 verification commands; the tool permission mode does not sandbox those commands.
 
+### Context for a resident step
+
+`run` and `start` accept `--context-profile resident|interactive`, default
+`resident`. The resident profile uses the SDK's
+[resident context contributions](../sdk/resident-context.md) to separate stable
+work and evidence guidance from the current objective, saved summary, wake
+reason and approved learning. The CLI also supplies current environment,
+memory recall and host instructions outside the stable prefix. These snapshots
+are captured for each admitted invocation and remain present on every model
+iteration, including after compaction.
+
+Project instructions and tool permission enforcement use their existing paths.
+The default read-only mode still forbids mutations, while allowing a read-only
+objective to finish. It no longer tells a resident to produce an interactive
+coding plan and wait for the user to leave plan mode. The host retains its
+decision format, answer validation and claim settlement rules.
+
+Use `--context-profile interactive` to retain the previous CLI coding doctrine
+and interactive plan guidance, including the resident continuation appended to
+that prompt. This option is invocation-local and reaches the managed worker;
+it is not saved by `add`. Ordinary interactive chat is unchanged.
+
+In the [2026-09-11 context comparison](../../research/resident/context-profile.md),
+both profiles waited for reviewer evidence, retained the prior summary, reread
+changed notes and completed the review, including a managed background continuation.
+The resident profile used 19.35% fewer reported input tokens with the same model
+response count in this small synthetic scenario; the result does not establish
+improved quality or a measured monetary saving.
+
 ### Optional tool schema loading
 
 `run` and `start` accept `--tool-loading eager|deferred`, default `eager`.
@@ -53,9 +82,9 @@ round trip when an optional tool is needed.
 namzu resident run --trust --max-steps 2 --tool-loading deferred
 ```
 
-Project instructions, CLI working guidance, environment, memory recall and the
-resident continuation summary remain in context. This is not a compact prompt
-profile or an authorization change. The option belongs to the invocation, is
+Project instructions, environment, memory recall and the resident continuation
+remain in context. Tool loading is independent of `--context-profile` and does
+not change authorization. The option belongs to the invocation, is
 not saved by `add`, and does not change ordinary interactive chat. Internally,
 `AgentSessionOptions.toolLoading` applies to fresh sends. Checkpoint resume uses
 the existing session registry; the fork's activation snapshot is not persisted
@@ -65,7 +94,8 @@ claims for inspection instead of replaying them.
 In the [2026-09-11 synthetic CLI comparison](../../research/resident/tool-loading.md),
 two small tasks used about 29% fewer reported input tokens with deferred loading.
 Both completed under both modes; one deferred run used the detached worker.
-These tasks needed no optional tool, so the result does not measure discovery's
+That comparison used the interactive context profile. These tasks needed no
+optional tool, so the result does not measure discovery's
 extra round trip or establish a general performance gain.
 
 Iteration and token limits apply **per SDK step**, not cumulatively across a

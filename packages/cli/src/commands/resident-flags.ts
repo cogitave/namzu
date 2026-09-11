@@ -22,6 +22,7 @@ export interface ResidentFlags {
 	readonly maxSteps: number | null
 	readonly maxIdleMs: number
 	readonly toolLoading: 'eager' | 'deferred'
+	readonly contextProfile: 'resident' | 'interactive'
 	readonly claim: string | null
 	readonly revision: number | null
 	readonly outcome: 'wait' | 'complete' | 'blocked' | null
@@ -63,6 +64,7 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 				'--max-steps',
 				'--max-idle-ms',
 				'--tool-loading',
+				'--context-profile',
 				'--claim',
 				'--revision',
 				'--outcome',
@@ -98,6 +100,11 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 	const rawIdle = own.get('--max-idle-ms')
 	const rawRevision = own.get('--revision')
 	const toolLoading = own.get('--tool-loading') ?? 'eager'
+	const contextProfile = own.get('--context-profile') ?? 'resident'
+	if (contextProfile !== 'resident' && contextProfile !== 'interactive')
+		throw new Error('--context-profile must be resident or interactive.')
+	if (!execution && own.has('--context-profile'))
+		throw new Error('--context-profile applies to resident run or start.')
 	if (toolLoading !== 'eager' && toolLoading !== 'deferred')
 		throw new Error('--tool-loading must be eager or deferred.')
 	if (!execution && own.has('--tool-loading'))
@@ -164,6 +171,7 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		maxSteps,
 		maxIdleMs,
 		toolLoading,
+		contextProfile,
 		claim,
 		revision,
 		outcome: outcome as ResidentFlags['outcome'],

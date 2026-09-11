@@ -378,6 +378,7 @@ export type {
 	PromptContribution,
 	PromptContributionContext,
 	PromptPlacement,
+	ResidentStepPromptOptions,
 } from './prompt/index.js'
 
 export type {

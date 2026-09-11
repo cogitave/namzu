@@ -49,6 +49,13 @@ tool-availability snapshot for each admitted step. The default is `eager`.
 See [optional tool schema loading](resident-work.md#optional-tool-schema-loading)
 for the discovery behavior and its extra-round-trip tradeoff.
 
+`--context-profile resident|interactive` is also transferred to the worker.
+The default `resident` profile captures fresh continuation, memory and
+environment for every admission while keeping stable work guidance separate.
+Select `interactive` to retain the previous coding and plan-mode prompt;
+neither profile changes permission enforcement or settlement. See
+[resident step context](resident-work.md#context-for-a-resident-step).
+
 An idle runner makes **zero model calls**. SDK `keepAlive` waits for scheduled
 work or fresh agenda state; the CLI observes local controls every 250 ms.
 `--max-idle-ms` defaults to 60,000 and must be positive for `start`: it bounds an

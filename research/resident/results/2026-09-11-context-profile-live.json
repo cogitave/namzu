@@ -1,0 +1,799 @@
+{
+	"version": 1,
+	"kind": "resident-context-profile-live",
+	"manifest": "/tmp/namzu-resident-context-eru38mnz/manifest.json",
+	"conditions": {
+		"objective": "Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.",
+		"wakeEvidence": "Reviewer approval is available in notes.md. Check its current contents and finish the requested shipping review.",
+		"initialNotes": "# Shipping review\n\nShipping date: 2026-10-01\nReview: pending\nNext action: wait for reviewer sign-off.\nEvidence tag: amber-review-113\n",
+		"approvedNotes": "# Shipping review\n\nShipping date: 2026-10-08\nReview: approved\nNext action: prepare the release packaging checklist.\nEvidence tag: amber-approved-827\n",
+		"provider": "zen",
+		"model": "muse-spark-1.3-contributor-free",
+		"effort": "low",
+		"requestedPermissionMode": "plan",
+		"toolLoading": "deferred",
+		"maxStepsPerInvocation": 1,
+		"maxIterations": 4,
+		"tokenBudgetPerStep": 40000
+	},
+	"executedBuild": {
+		"hashes": {
+			"packages/cli/dist/bin.js": "12026f1cd49e1b549b81d4dc19a2dfa78f82d4dd2c2889516d6bf1b9f519e4a8",
+			"packages/cli/dist/tui/agent.js": "bd207405d02f090b6ea64197db797ed0bdf58e3be81709892a18e0f5a195cf91",
+			"packages/cli/dist/commands/resident-flags.js": "c7bb50d507534bd70f83f3970f0109d3dfd458216b8dcdd0a28f3c14a937954b",
+			"packages/cli/dist/integrations/resident/session-step.js": "6d8f71d23c6091dafb8f136ca807f96b30257110ca51aaa4a3d421ff734b4788",
+			"packages/cli/dist/integrations/resident/runner-worker.js": "4ff8db59c785bd45217d9a577c7f1f462110c4bf2a1bda78badc118ede3aaeae",
+			"packages/sdk/dist/prompt/resident-step.js": "b0b477e7ab93553f082d2c0c5ec813f0a8bf3523041ce0bafb83aa782f24796e",
+			"packages/sdk/dist/runtime/query/prompt-cache.js": "65720284293f78f8cffd6c3accaa1726142a54df896f3391cccb714e1916dbaf",
+			"research/resident/context-profile.py": "5391ee250ed8af4de3733c7f1133892a999cfeaf605d8b50aaead94b5d065756",
+			"research/resident/tool-loading.py": "9bf1df3e551865e742b5d7c9ad94e9d37349f076d787fcdc13aeb15878a935c4"
+		},
+		"gitHead": "e5bd6a27075b13be82afa4d2a504aeed671c0642",
+		"workingTreeDirty": true
+	},
+	"profiles": [
+		{
+			"profile": "interactive",
+			"actions": ["run", "run"],
+			"attempts": [
+				{
+					"startedAt": 1789147021504,
+					"finishedAt": 1789147024855,
+					"startReceipt": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/cli/residents/default/attempts/cc3e6a4f-83aa-46cd-84cc-40b2d5496ac1/start.json",
+					"finishReceipt": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/cli/residents/default/attempts/cc3e6a4f-83aa-46cd-84cc-40b2d5496ac1/finish.json",
+					"runMetadata": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/sessions/92e46173-f1c8-4123-b025-68fa8f50e9a4/runs/7ade97cd-74cc-4139-a600-3e9dcb4dd4ed/run.json",
+					"messagesPath": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/sessions/92e46173-f1c8-4123-b025-68fa8f50e9a4/runs/7ade97cd-74cc-4139-a600-3e9dcb4dd4ed/messages.json",
+					"transcript": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/sessions/92e46173-f1c8-4123-b025-68fa8f50e9a4/runs/7ade97cd-74cc-4139-a600-3e9dcb4dd4ed/transcript.jsonl",
+					"firstEnvelopePath": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/cli/residents/default/attempts/cc3e6a4f-83aa-46cd-84cc-40b2d5496ac1/first-envelope.json",
+					"pursuitId": "a1567a99-1fd2-4268-b79f-cd1ecbe4c378",
+					"sessionId": "92e46173-f1c8-4123-b025-68fa8f50e9a4",
+					"runId": "7ade97cd-74cc-4139-a600-3e9dcb4dd4ed",
+					"selectedProvider": "Zen",
+					"selectedModel": "muse-spark-1.3-contributor-free",
+					"persistedSdkPermissionMode": "auto",
+					"runStatus": "completed",
+					"stopReason": "end_turn",
+					"cleanup": "confirmed",
+					"decision": {
+						"kind": "wait",
+						"summary": "Shipping review in notes.md: shipping date 2026-10-01, review status pending, next action wait for reviewer sign-off, evidence tag amber-review-113. Review not yet approved; awaiting new reviewer evidence.",
+						"wakeAfterMs": null
+					},
+					"hasError": false,
+					"actualUsage": {
+						"promptTokens": 12458,
+						"completionTokens": 205,
+						"totalTokens": 12663,
+						"cachedTokens": 6242,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 68
+					},
+					"responses": [
+						{
+							"iteration": 1,
+							"stopReason": "tool_use",
+							"usage": {
+								"promptTokens": 6157,
+								"completionTokens": 74,
+								"totalTokens": 6231,
+								"cachedTokens": 113,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 6
+							}
+						},
+						{
+							"iteration": 2,
+							"stopReason": "end_turn",
+							"usage": {
+								"promptTokens": 6301,
+								"completionTokens": 131,
+								"totalTokens": 6432,
+								"cachedTokens": 6129,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 62
+							}
+						}
+					],
+					"modelResponses": 2,
+					"firstRequest": {
+						"iteration": 1,
+						"toolNames": [
+							"bash",
+							"glob",
+							"grep",
+							"job",
+							"read",
+							"edit",
+							"write",
+							"web_search",
+							"search_tools"
+						],
+						"toolCount": 9,
+						"toolSchemaDigest": "5db343b50fdfc131",
+						"systemPromptChars": 14360,
+						"systemPromptSha256": "edfdc535d5fe471248fca01b7df7b043b22b5f10d7db96f36aab3d213749634e",
+						"providerUsage": {
+							"promptTokens": 6157,
+							"completionTokens": 74,
+							"totalTokens": 6231,
+							"cachedTokens": 113,
+							"cacheWriteTokens": 0,
+							"reasoningTokens": 6
+						}
+					},
+					"segments": {
+						"staticChars": 12107,
+						"staticSha256": "f6b786f91142d5677faf60c948bc1dd9a90fd12a842d71a48bbc8f2760d65764",
+						"dynamicChars": 2251,
+						"dynamicSha256": "105a25970202dae0a16b770291fe939b068570fbb6a083d469b660e1659c89a5",
+						"objectiveInStatic": true,
+						"objectiveInDynamic": false,
+						"oldShippingDateInStatic": false,
+						"oldShippingDateInDynamic": false,
+						"projectPolicyRetained": true,
+						"curatedMemoryPresent": true,
+						"planReplyDoctrinePresent": true,
+						"residentGuidancePresent": false
+					},
+					"capturedSnapshotText": "{\"identity\":\"Pursue only objectives explicitly added by this project\u2019s operator. Respect project instructions and current tool permissions.\",\"objective\":\"Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.\",\"previousSummary\":null,\"admission\":1,\"wakeReason\":\"Initial pursuit\"}",
+					"toolEvents": [
+						{
+							"type": "tool_executing",
+							"toolName": "read",
+							"toolUseId": "call_01a0917905187551a6ea91e20c8da571",
+							"input": {
+								"path": "notes.md"
+							}
+						},
+						{
+							"type": "tool_completed",
+							"toolName": "read",
+							"toolUseId": "call_01a0917905187551a6ea91e20c8da571",
+							"isError": false,
+							"result": "1\t# Shipping review\n2\t\n3\tShipping date: 2026-10-01\n4\tReview: pending\n5\tNext action: wait for reviewer sign-off.\n6\tEvidence tag: amber-review-113\n7\t"
+						}
+					],
+					"onlyReadNotes": true,
+					"successfulReads": 1,
+					"readSawPending": true,
+					"readSawApproved": false,
+					"cost": {
+						"totalCost": 0,
+						"cacheDiscount": 0,
+						"unpricedTokens": 12663
+					},
+					"measuredCostUsd": null
+				},
+				{
+					"startedAt": 1789147026097,
+					"finishedAt": 1789147029349,
+					"startReceipt": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/cli/residents/default/attempts/cfcae47f-668b-46e2-8f34-3e68484557a7/start.json",
+					"finishReceipt": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/cli/residents/default/attempts/cfcae47f-668b-46e2-8f34-3e68484557a7/finish.json",
+					"runMetadata": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/sessions/c9f234e5-317b-454c-bdc2-1d04517e2c8a/runs/4b471787-d06c-48a5-bf55-b2cfad23e784/run.json",
+					"messagesPath": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/sessions/c9f234e5-317b-454c-bdc2-1d04517e2c8a/runs/4b471787-d06c-48a5-bf55-b2cfad23e784/messages.json",
+					"transcript": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/sessions/c9f234e5-317b-454c-bdc2-1d04517e2c8a/runs/4b471787-d06c-48a5-bf55-b2cfad23e784/transcript.jsonl",
+					"firstEnvelopePath": "/tmp/namzu-resident-context-eru38mnz/interactive/home/projects/b991861e-2b54-4b1f-bdba-e128ba3a1c2f/cli/residents/default/attempts/cfcae47f-668b-46e2-8f34-3e68484557a7/first-envelope.json",
+					"pursuitId": "a1567a99-1fd2-4268-b79f-cd1ecbe4c378",
+					"sessionId": "c9f234e5-317b-454c-bdc2-1d04517e2c8a",
+					"runId": "4b471787-d06c-48a5-bf55-b2cfad23e784",
+					"selectedProvider": "Zen",
+					"selectedModel": "muse-spark-1.3-contributor-free",
+					"persistedSdkPermissionMode": "auto",
+					"runStatus": "completed",
+					"stopReason": "end_turn",
+					"cleanup": "confirmed",
+					"decision": {
+						"kind": "complete",
+						"summary": "Shipping review in notes.md: shipping date 2026-10-08, review status approved, next action prepare the release packaging checklist, evidence tag amber-approved-827. Reviewer approval arrived; review complete."
+					},
+					"hasError": false,
+					"actualUsage": {
+						"promptTokens": 12576,
+						"completionTokens": 189,
+						"totalTokens": 12765,
+						"cachedTokens": 6129,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 64
+					},
+					"responses": [
+						{
+							"iteration": 1,
+							"stopReason": "tool_use",
+							"usage": {
+								"promptTokens": 6218,
+								"completionTokens": 70,
+								"totalTokens": 6288,
+								"cachedTokens": 0,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 6
+							}
+						},
+						{
+							"iteration": 2,
+							"stopReason": "end_turn",
+							"usage": {
+								"promptTokens": 6358,
+								"completionTokens": 119,
+								"totalTokens": 6477,
+								"cachedTokens": 6129,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 58
+							}
+						}
+					],
+					"modelResponses": 2,
+					"firstRequest": {
+						"iteration": 1,
+						"toolNames": [
+							"bash",
+							"glob",
+							"grep",
+							"job",
+							"read",
+							"edit",
+							"write",
+							"web_search",
+							"search_tools"
+						],
+						"toolCount": 9,
+						"toolSchemaDigest": "5db343b50fdfc131",
+						"systemPromptChars": 14660,
+						"systemPromptSha256": "c8d841137ab3faf1c8abb9937258cc13ce109db6fb0e78f45b054672a8d7ee74",
+						"providerUsage": {
+							"promptTokens": 6218,
+							"completionTokens": 70,
+							"totalTokens": 6288,
+							"cachedTokens": 0,
+							"cacheWriteTokens": 0,
+							"reasoningTokens": 6
+						}
+					},
+					"segments": {
+						"staticChars": 12407,
+						"staticSha256": "faab2d61c7e2106d30b6febda8a6689d40892e12f35dc60277f811bf0c572dcd",
+						"dynamicChars": 2251,
+						"dynamicSha256": "105a25970202dae0a16b770291fe939b068570fbb6a083d469b660e1659c89a5",
+						"objectiveInStatic": true,
+						"objectiveInDynamic": false,
+						"oldShippingDateInStatic": true,
+						"oldShippingDateInDynamic": false,
+						"projectPolicyRetained": true,
+						"curatedMemoryPresent": true,
+						"planReplyDoctrinePresent": true,
+						"residentGuidancePresent": false
+					},
+					"capturedSnapshotText": "{\"identity\":\"Pursue only objectives explicitly added by this project\u2019s operator. Respect project instructions and current tool permissions.\",\"objective\":\"Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.\",\"previousSummary\":\"Shipping review in notes.md: shipping date 2026-10-01, review status pending, next action wait for reviewer sign-off, evidence tag amber-review-113. Review not yet approved; awaiting new reviewer evidence.\",\"admission\":2,\"wakeReason\":\"Reviewer approval is available in notes.md. Check its current contents and finish the requested shipping review.\"}",
+					"toolEvents": [
+						{
+							"type": "tool_executing",
+							"toolName": "read",
+							"toolUseId": "call_01a0917915d777f0b67cef972e1ef78e",
+							"input": {
+								"path": "notes.md"
+							}
+						},
+						{
+							"type": "tool_completed",
+							"toolName": "read",
+							"toolUseId": "call_01a0917915d777f0b67cef972e1ef78e",
+							"isError": false,
+							"result": "1\t# Shipping review\n2\t\n3\tShipping date: 2026-10-08\n4\tReview: approved\n5\tNext action: prepare the release packaging checklist.\n6\tEvidence tag: amber-approved-827\n7\t"
+						}
+					],
+					"onlyReadNotes": true,
+					"successfulReads": 1,
+					"readSawPending": false,
+					"readSawApproved": true,
+					"cost": {
+						"totalCost": 0,
+						"cacheDiscount": 0,
+						"unpricedTokens": 12765
+					},
+					"measuredCostUsd": null
+				}
+			],
+			"checks": {
+				"exactlyTwoAdmissions": true,
+				"firstWaitsForEvidence": true,
+				"firstReadPending": true,
+				"firstRetainsPendingFacts": true,
+				"secondReadFreshApproval": true,
+				"secondCompletesCurrentReview": true,
+				"secondReceivesExactSavedSummary": true,
+				"objectivePreserved": true,
+				"wakeEvidencePreserved": true,
+				"isolatedSessions": true,
+				"cleanSettlements": true,
+				"onlyFileReads": true,
+				"projectPolicyAndMemoryRetained": true,
+				"firstClaimDrained": true,
+				"finalClaimDrained": true,
+				"finalFixtureOnlyHostChanged": true
+			},
+			"taskVerified": true,
+			"totalUsage": {
+				"promptTokens": 25034,
+				"completionTokens": 394,
+				"totalTokens": 25428,
+				"cachedTokens": 12371,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 132
+			},
+			"modelResponses": 4,
+			"firstState": [
+				{
+					"tenantId": "ac8896a6-b663-4e06-b2b7-0b211f93e887",
+					"agentKey": "default",
+					"pursuitId": "a1567a99-1fd2-4268-b79f-cd1ecbe4c378",
+					"identity": "Pursue only objectives explicitly added by this project\u2019s operator. Respect project instructions and current tool permissions.",
+					"objective": "Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.",
+					"revision": 3,
+					"stepsAdmitted": 1,
+					"phase": "waiting",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Shipping review in notes.md: shipping date 2026-10-01, review status pending, next action wait for reviewer sign-off, evidence tag amber-review-113. Review not yet approved; awaiting new reviewer evidence.",
+					"claimId": null
+				}
+			],
+			"finalState": [
+				{
+					"tenantId": "ac8896a6-b663-4e06-b2b7-0b211f93e887",
+					"agentKey": "default",
+					"pursuitId": "a1567a99-1fd2-4268-b79f-cd1ecbe4c378",
+					"identity": "Pursue only objectives explicitly added by this project\u2019s operator. Respect project instructions and current tool permissions.",
+					"objective": "Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.",
+					"revision": 6,
+					"stepsAdmitted": 2,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Shipping review in notes.md: shipping date 2026-10-08, review status approved, next action prepare the release packaging checklist, evidence tag amber-approved-827. Reviewer approval arrived; review complete.",
+					"claimId": null
+				}
+			],
+			"firstRunner": {
+				"version": 1,
+				"revision": 3,
+				"instanceId": "69e2466a-5161-450f-8af0-df0cd22d4417",
+				"tenantId": "ac8896a6-b663-4e06-b2b7-0b211f93e887",
+				"projectId": "b991861e-2b54-4b1f-bdba-e128ba3a1c2f",
+				"agentKey": "default",
+				"cwd": "/tmp/namzu-resident-context-eru38mnz/interactive/project",
+				"mode": "foreground",
+				"phase": "stopped",
+				"reservedAt": 1789147021485,
+				"maxSteps": 1,
+				"pauseGeneration": 0,
+				"pid": 1098923,
+				"port": 42729,
+				"endedAt": 1789147024860,
+				"outcome": "limit"
+			},
+			"finalRunner": {
+				"version": 1,
+				"revision": 6,
+				"instanceId": "9ee30b04-f1ea-496c-8ac2-2443b254a9dc",
+				"tenantId": "ac8896a6-b663-4e06-b2b7-0b211f93e887",
+				"projectId": "b991861e-2b54-4b1f-bdba-e128ba3a1c2f",
+				"agentKey": "default",
+				"cwd": "/tmp/namzu-resident-context-eru38mnz/interactive/project",
+				"mode": "foreground",
+				"phase": "stopped",
+				"reservedAt": 1789147026078,
+				"maxSteps": 1,
+				"pauseGeneration": 0,
+				"pid": 1099112,
+				"port": 41179,
+				"endedAt": 1789147029353,
+				"outcome": "limit"
+			}
+		},
+		{
+			"profile": "resident",
+			"actions": ["run", "start"],
+			"attempts": [
+				{
+					"startedAt": 1789147030524,
+					"finishedAt": 1789147033156,
+					"startReceipt": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/cli/residents/default/attempts/aece3eeb-1db3-42e2-9caa-21f0a3a6420f/start.json",
+					"finishReceipt": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/cli/residents/default/attempts/aece3eeb-1db3-42e2-9caa-21f0a3a6420f/finish.json",
+					"runMetadata": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/sessions/924c88ee-e181-4580-ba35-622f1a8c6ec1/runs/afc96bd5-f2b7-4621-b6f5-b49f5303fe8c/run.json",
+					"messagesPath": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/sessions/924c88ee-e181-4580-ba35-622f1a8c6ec1/runs/afc96bd5-f2b7-4621-b6f5-b49f5303fe8c/messages.json",
+					"transcript": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/sessions/924c88ee-e181-4580-ba35-622f1a8c6ec1/runs/afc96bd5-f2b7-4621-b6f5-b49f5303fe8c/transcript.jsonl",
+					"firstEnvelopePath": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/cli/residents/default/attempts/aece3eeb-1db3-42e2-9caa-21f0a3a6420f/first-envelope.json",
+					"pursuitId": "1b62cc6c-23f9-4f1f-975a-ee6ff3076c71",
+					"sessionId": "924c88ee-e181-4580-ba35-622f1a8c6ec1",
+					"runId": "afc96bd5-f2b7-4621-b6f5-b49f5303fe8c",
+					"selectedProvider": "Zen",
+					"selectedModel": "muse-spark-1.3-contributor-free",
+					"persistedSdkPermissionMode": "auto",
+					"runStatus": "completed",
+					"stopReason": "end_turn",
+					"cleanup": "confirmed",
+					"decision": {
+						"kind": "wait",
+						"summary": "Shipping review in notes.md: shipping date 2026-10-01, review status pending, next action wait for reviewer sign-off, evidence tag amber-review-113. Review remains pending so pursuit stays open awaiting reviewer evidence.",
+						"wakeAfterMs": null
+					},
+					"hasError": false,
+					"actualUsage": {
+						"promptTokens": 10007,
+						"completionTokens": 222,
+						"totalTokens": 10229,
+						"cachedTokens": 4849,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 85
+					},
+					"responses": [
+						{
+							"iteration": 1,
+							"stopReason": "tool_use",
+							"usage": {
+								"promptTokens": 4932,
+								"completionTokens": 73,
+								"totalTokens": 5005,
+								"cachedTokens": 0,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 6
+							}
+						},
+						{
+							"iteration": 2,
+							"stopReason": "end_turn",
+							"usage": {
+								"promptTokens": 5075,
+								"completionTokens": 149,
+								"totalTokens": 5224,
+								"cachedTokens": 4849,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 79
+							}
+						}
+					],
+					"modelResponses": 2,
+					"firstRequest": {
+						"iteration": 1,
+						"toolNames": [
+							"bash",
+							"glob",
+							"grep",
+							"job",
+							"read",
+							"edit",
+							"write",
+							"web_search",
+							"search_tools"
+						],
+						"toolCount": 9,
+						"toolSchemaDigest": "5db343b50fdfc131",
+						"systemPromptChars": 8789,
+						"systemPromptSha256": "d9237a01884365d38d670dc0400fd2276c824cbede353f5fa6dde6e51de33bf7",
+						"providerUsage": {
+							"promptTokens": 4932,
+							"completionTokens": 73,
+							"totalTokens": 5005,
+							"cachedTokens": 0,
+							"cacheWriteTokens": 0,
+							"reasoningTokens": 6
+						}
+					},
+					"segments": {
+						"staticChars": 5303,
+						"staticSha256": "3d6caeb1a07e0fecd32714bf414a6ea40ee6a2455c1037ddf9ac414461960b94",
+						"dynamicChars": 3484,
+						"dynamicSha256": "762432500d3332779c9ed484aeab914b21c59ad37a9b7bed158d97cfdc0fc2b3",
+						"objectiveInStatic": false,
+						"objectiveInDynamic": true,
+						"oldShippingDateInStatic": false,
+						"oldShippingDateInDynamic": false,
+						"projectPolicyRetained": true,
+						"curatedMemoryPresent": true,
+						"planReplyDoctrinePresent": false,
+						"residentGuidancePresent": true
+					},
+					"capturedSnapshotText": "{\"identity\":\"Pursue only objectives explicitly added by this project\u2019s operator. Respect project instructions and current tool permissions.\",\"objective\":\"Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.\",\"previousSummary\":null,\"admission\":1,\"wakeReason\":\"Initial pursuit\"}",
+					"toolEvents": [
+						{
+							"type": "tool_executing",
+							"toolName": "read",
+							"toolUseId": "call_01a09179279679a3ad9671a0cad4e7d9",
+							"input": {
+								"path": "notes.md"
+							}
+						},
+						{
+							"type": "tool_completed",
+							"toolName": "read",
+							"toolUseId": "call_01a09179279679a3ad9671a0cad4e7d9",
+							"isError": false,
+							"result": "1\t# Shipping review\n2\t\n3\tShipping date: 2026-10-01\n4\tReview: pending\n5\tNext action: wait for reviewer sign-off.\n6\tEvidence tag: amber-review-113\n7\t"
+						}
+					],
+					"onlyReadNotes": true,
+					"successfulReads": 1,
+					"readSawPending": true,
+					"readSawApproved": false,
+					"cost": {
+						"totalCost": 0,
+						"cacheDiscount": 0,
+						"unpricedTokens": 10229
+					},
+					"measuredCostUsd": null
+				},
+				{
+					"startedAt": 1789147034645,
+					"finishedAt": 1789147037746,
+					"startReceipt": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/cli/residents/default/attempts/d9a26469-d629-47bd-a3ef-ccd8c6be2872/start.json",
+					"finishReceipt": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/cli/residents/default/attempts/d9a26469-d629-47bd-a3ef-ccd8c6be2872/finish.json",
+					"runMetadata": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/sessions/ee40428f-e8c1-4afb-b990-ef683ecf9abb/runs/726aae43-06ef-499b-a847-d51a8e31ae03/run.json",
+					"messagesPath": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/sessions/ee40428f-e8c1-4afb-b990-ef683ecf9abb/runs/726aae43-06ef-499b-a847-d51a8e31ae03/messages.json",
+					"transcript": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/sessions/ee40428f-e8c1-4afb-b990-ef683ecf9abb/runs/726aae43-06ef-499b-a847-d51a8e31ae03/transcript.jsonl",
+					"firstEnvelopePath": "/tmp/namzu-resident-context-eru38mnz/resident/home/projects/ab6cdd87-b43d-4f5e-bddd-23e305d79b8f/cli/residents/default/attempts/d9a26469-d629-47bd-a3ef-ccd8c6be2872/first-envelope.json",
+					"pursuitId": "1b62cc6c-23f9-4f1f-975a-ee6ff3076c71",
+					"sessionId": "ee40428f-e8c1-4afb-b990-ef683ecf9abb",
+					"runId": "726aae43-06ef-499b-a847-d51a8e31ae03",
+					"selectedProvider": "Zen",
+					"selectedModel": "muse-spark-1.3-contributor-free",
+					"persistedSdkPermissionMode": "auto",
+					"runStatus": "completed",
+					"stopReason": "end_turn",
+					"cleanup": "confirmed",
+					"decision": {
+						"kind": "complete",
+						"summary": "Shipping review in notes.md: shipping date 2026-10-08, review status approved, next action prepare the release packaging checklist, evidence tag amber-approved-827. Reviewer approval arrived so review is complete."
+					},
+					"hasError": false,
+					"actualUsage": {
+						"promptTokens": 10182,
+						"completionTokens": 220,
+						"totalTokens": 10402,
+						"cachedTokens": 4977,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 73
+					},
+					"responses": [
+						{
+							"iteration": 1,
+							"stopReason": "tool_use",
+							"usage": {
+								"promptTokens": 4994,
+								"completionTokens": 124,
+								"totalTokens": 5118,
+								"cachedTokens": 0,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 39
+							}
+						},
+						{
+							"iteration": 2,
+							"stopReason": "end_turn",
+							"usage": {
+								"promptTokens": 5188,
+								"completionTokens": 96,
+								"totalTokens": 5284,
+								"cachedTokens": 4977,
+								"cacheWriteTokens": 0,
+								"reasoningTokens": 34
+							}
+						}
+					],
+					"modelResponses": 2,
+					"firstRequest": {
+						"iteration": 1,
+						"toolNames": [
+							"bash",
+							"glob",
+							"grep",
+							"job",
+							"read",
+							"edit",
+							"write",
+							"web_search",
+							"search_tools"
+						],
+						"toolCount": 9,
+						"toolSchemaDigest": "5db343b50fdfc131",
+						"systemPromptChars": 9105,
+						"systemPromptSha256": "d6486c93ca371d26d6738355445e6db08fbbad180c2659698c5e9c01e1916eaa",
+						"providerUsage": {
+							"promptTokens": 4994,
+							"completionTokens": 124,
+							"totalTokens": 5118,
+							"cachedTokens": 0,
+							"cacheWriteTokens": 0,
+							"reasoningTokens": 39
+						}
+					},
+					"segments": {
+						"staticChars": 5303,
+						"staticSha256": "3d6caeb1a07e0fecd32714bf414a6ea40ee6a2455c1037ddf9ac414461960b94",
+						"dynamicChars": 3800,
+						"dynamicSha256": "ff5774249b189e2902bd1bfdb18a3db5157fd3214aac19ad5b990962a87e8527",
+						"objectiveInStatic": false,
+						"objectiveInDynamic": true,
+						"oldShippingDateInStatic": false,
+						"oldShippingDateInDynamic": true,
+						"projectPolicyRetained": true,
+						"curatedMemoryPresent": true,
+						"planReplyDoctrinePresent": false,
+						"residentGuidancePresent": true
+					},
+					"capturedSnapshotText": "{\"identity\":\"Pursue only objectives explicitly added by this project\u2019s operator. Respect project instructions and current tool permissions.\",\"objective\":\"Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.\",\"previousSummary\":\"Shipping review in notes.md: shipping date 2026-10-01, review status pending, next action wait for reviewer sign-off, evidence tag amber-review-113. Review remains pending so pursuit stays open awaiting reviewer evidence.\",\"admission\":2,\"wakeReason\":\"Reviewer approval is available in notes.md. Check its current contents and finish the requested shipping review.\"}",
+					"toolEvents": [
+						{
+							"type": "tool_executing",
+							"toolName": "read",
+							"toolUseId": "call_01a0917939627d91b21fa537d781d4d9",
+							"input": {
+								"path": "/tmp/namzu-resident-context-eru38mnz/resident/project/notes.md"
+							}
+						},
+						{
+							"type": "tool_completed",
+							"toolName": "read",
+							"toolUseId": "call_01a0917939627d91b21fa537d781d4d9",
+							"isError": false,
+							"result": "1\t# Shipping review\n2\t\n3\tShipping date: 2026-10-08\n4\tReview: approved\n5\tNext action: prepare the release packaging checklist.\n6\tEvidence tag: amber-approved-827\n7\t"
+						}
+					],
+					"onlyReadNotes": true,
+					"successfulReads": 1,
+					"readSawPending": false,
+					"readSawApproved": true,
+					"cost": {
+						"totalCost": 0,
+						"cacheDiscount": 0,
+						"unpricedTokens": 10402
+					},
+					"measuredCostUsd": null
+				}
+			],
+			"checks": {
+				"exactlyTwoAdmissions": true,
+				"firstWaitsForEvidence": true,
+				"firstReadPending": true,
+				"firstRetainsPendingFacts": true,
+				"secondReadFreshApproval": true,
+				"secondCompletesCurrentReview": true,
+				"secondReceivesExactSavedSummary": true,
+				"objectivePreserved": true,
+				"wakeEvidencePreserved": true,
+				"isolatedSessions": true,
+				"cleanSettlements": true,
+				"onlyFileReads": true,
+				"projectPolicyAndMemoryRetained": true,
+				"firstClaimDrained": true,
+				"finalClaimDrained": true,
+				"finalFixtureOnlyHostChanged": true,
+				"stableStaticPrefix": true,
+				"refreshedDynamicSnapshot": true,
+				"secondActuallyBackground": true,
+				"profileReachesBothSteps": true
+			},
+			"taskVerified": true,
+			"totalUsage": {
+				"promptTokens": 20189,
+				"completionTokens": 442,
+				"totalTokens": 20631,
+				"cachedTokens": 9826,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 158
+			},
+			"modelResponses": 4,
+			"firstState": [
+				{
+					"tenantId": "50ca7f20-ad17-487c-9081-12ae275191a4",
+					"agentKey": "default",
+					"pursuitId": "1b62cc6c-23f9-4f1f-975a-ee6ff3076c71",
+					"identity": "Pursue only objectives explicitly added by this project\u2019s operator. Respect project instructions and current tool permissions.",
+					"objective": "Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.",
+					"revision": 3,
+					"stepsAdmitted": 1,
+					"phase": "waiting",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Shipping review in notes.md: shipping date 2026-10-01, review status pending, next action wait for reviewer sign-off, evidence tag amber-review-113. Review remains pending so pursuit stays open awaiting reviewer evidence.",
+					"claimId": null
+				}
+			],
+			"finalState": [
+				{
+					"tenantId": "50ca7f20-ad17-487c-9081-12ae275191a4",
+					"agentKey": "default",
+					"pursuitId": "1b62cc6c-23f9-4f1f-975a-ee6ff3076c71",
+					"identity": "Pursue only objectives explicitly added by this project\u2019s operator. Respect project instructions and current tool permissions.",
+					"objective": "Monitor the shipping review in notes.md. Read it and retain concise findings including the current shipping date and review status. While the review is pending, keep this pursuit open and wait for new reviewer evidence without scheduling polls. After reviewer approval arrives, check the current notes again and report the current shipping date and next action, then complete this review. This is read-only work: do not change files, run shell commands, save memory, delegate, or send messages.",
+					"revision": 6,
+					"stepsAdmitted": 2,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Shipping review in notes.md: shipping date 2026-10-08, review status approved, next action prepare the release packaging checklist, evidence tag amber-approved-827. Reviewer approval arrived so review is complete.",
+					"claimId": null
+				}
+			],
+			"firstRunner": {
+				"version": 1,
+				"revision": 3,
+				"instanceId": "881535d5-24a7-4e98-8bb6-d91616d2f3e1",
+				"tenantId": "50ca7f20-ad17-487c-9081-12ae275191a4",
+				"projectId": "ab6cdd87-b43d-4f5e-bddd-23e305d79b8f",
+				"agentKey": "default",
+				"cwd": "/tmp/namzu-resident-context-eru38mnz/resident/project",
+				"mode": "foreground",
+				"phase": "stopped",
+				"reservedAt": 1789147030506,
+				"maxSteps": 1,
+				"pauseGeneration": 0,
+				"pid": 1099159,
+				"port": 42575,
+				"endedAt": 1789147033161,
+				"outcome": "limit"
+			},
+			"finalRunner": {
+				"version": 1,
+				"revision": 6,
+				"instanceId": "60d71183-1976-4b25-ac37-4bdbc776742b",
+				"tenantId": "50ca7f20-ad17-487c-9081-12ae275191a4",
+				"projectId": "ab6cdd87-b43d-4f5e-bddd-23e305d79b8f",
+				"agentKey": "default",
+				"cwd": "/tmp/namzu-resident-context-eru38mnz/resident/project",
+				"mode": "background",
+				"phase": "stopped",
+				"reservedAt": 1789147034314,
+				"maxSteps": 1,
+				"pauseGeneration": 0,
+				"pid": 1099359,
+				"port": 38389,
+				"endedAt": 1789147037755,
+				"outcome": "limit"
+			}
+		}
+	],
+	"allTasksVerified": true,
+	"totalAdmittedSteps": 4,
+	"totalModelResponses": 8,
+	"comparisons": {
+		"promptTokens": {
+			"interactive": 25034,
+			"resident": 20189,
+			"residentChangePercent": -19.35367899656467
+		},
+		"completionTokens": {
+			"interactive": 394,
+			"resident": 442,
+			"residentChangePercent": 12.182741116751268
+		},
+		"totalTokens": {
+			"interactive": 25428,
+			"resident": 20631,
+			"residentChangePercent": -18.865030674846626
+		},
+		"cachedTokens": {
+			"interactive": 12371,
+			"resident": 9826,
+			"residentChangePercent": -20.57230619998383
+		},
+		"cacheWriteTokens": {
+			"interactive": 0,
+			"resident": 0,
+			"residentChangePercent": null
+		},
+		"reasoningTokens": {
+			"interactive": 132,
+			"resident": 158,
+			"residentChangePercent": 19.696969696969695
+		}
+	},
+	"measuredCostUsd": null,
+	"caveats": [
+		"One paired synthetic scenario with two admissions per profile; no general performance claim.",
+		"Different project identities and one managed background launch; context-profile order was fixed.",
+		"Provider token reports are actual usage; prompt character counts are not token estimates.",
+		"Each invocation uses a fresh session and retains the previous summary, not its old tool transcript.",
+		"SDK permissionMode auto sits below the CLI requested plan review policy.",
+		"Request envelopes retain tool names and a schema digest, not serialized schema bytes.",
+		"Reported unpriced zero cost does not establish a measured bill."
+	]
+}

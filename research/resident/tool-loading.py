@@ -82,6 +82,7 @@ def prepare():
         action = 'start' if name == 'no-tool-deferred' else 'run'
         execute = command(cell, action, '--trust', '--provider', 'zen', '--model', MODEL,
                           '--effort', 'low', '--permission-mode', 'plan',
+                          '--context-profile', 'interactive',
                           '--tool-loading', mode, '--max-steps', '1', '--max-idle-ms', '1000',
                           '--max-iterations', '4', '--token-budget', '40000')
         cells.append(dict(name=name, task=task, toolLoading=mode, action=action,
@@ -90,6 +91,7 @@ def prepare():
                           execute=execute, readmeSha256=sha(cell / 'project' / 'README.md')))
     manifest = dict(version=1, repo=str(REPO), cli=str(BIN), cells=cells,
                     provider='zen', model=MODEL, effort='low', permissionMode='plan',
+                    contextProfile='interactive',
                     maxSteps=1, maxIterations=4, tokenBudget=40000,
                     explicitPublicProvider=True,
                     note='One sample per task/mode; no-tool deferred uses background start. Compare first request and whole-step totals separately. Actual schemas are not persisted; envelope records names/digest only.')

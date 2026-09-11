@@ -22,6 +22,7 @@ export interface ResidentWorkerLaunch {
 	readonly config: CommandContext['config']
 	readonly flags: RunFlags
 	readonly toolLoading?: 'eager' | 'deferred'
+	readonly contextProfile?: 'resident' | 'interactive'
 	readonly maxIdleMs: number
 }
 
@@ -31,6 +32,7 @@ export async function startResidentRunner(options: {
 	readonly ctx: CommandContext
 	readonly flags: RunFlags
 	readonly toolLoading?: 'eager' | 'deferred'
+	readonly contextProfile?: 'resident' | 'interactive'
 	readonly maxSteps: number
 	readonly maxIdleMs: number
 }) {
@@ -58,6 +60,7 @@ export async function startResidentRunner(options: {
 		config: options.ctx.config,
 		flags: options.flags,
 		toolLoading: options.toolLoading,
+		contextProfile: options.contextProfile,
 		maxIdleMs: options.maxIdleMs,
 	}
 	let child: ReturnType<typeof fork>

@@ -60,6 +60,8 @@ export interface ResidentSessionStepOptions {
 	readonly flags: RunFlags
 	/** Defer optional tool schemas per step; authority and instructions remain unchanged. */
 	readonly toolLoading?: 'eager' | 'deferred'
+	/** Resident policy with layered snapshots by default; interactive preserves the earlier prompt. */
+	readonly contextProfile?: 'resident' | 'interactive'
 	/** Private, host-owned directory for per-claim receipts. */
 	readonly artifactsRoot: string
 }
@@ -331,7 +333,17 @@ export function createResidentSessionStep(
 					signal,
 					runId,
 					permissionMode: mode.mode,
-					extraSystem: residentContext(pursuit, context, skills),
+					...(options.contextProfile === 'interactive'
+						? { extraSystem: residentContext(pursuit, context, skills) }
+						: {
+								residentContext: {
+									state: pursuit.state,
+									learning: context.learning,
+									readOnly: mode.mode === 'plan',
+									skillsContext: skills,
+									outputInstructions: DECISION_CONTRACT,
+								},
+							}),
 					...(flags.effort !== null ? { effort: flags.effort } : {}),
 				},
 			)) {

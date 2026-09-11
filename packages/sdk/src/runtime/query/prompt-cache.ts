@@ -39,12 +39,6 @@ export class PromptCache {
 	}
 
 	getSystemPrompt(input: PromptCacheInput): string {
-		const hash = this.computeConfigHash(input)
-
-		if (this.cachedPrompt && this.cachedConfigHash === hash) {
-			return this.cachedPrompt
-		}
-
 		const builder = new PromptBuilder({
 			systemPrompt: input.systemPrompt,
 			persona: input.persona,
@@ -56,7 +50,14 @@ export class PromptCache {
 			...(input.contributions ? { contributions: input.contributions } : {}),
 		})
 
-		this.cachedPrompt = builder.build()
+		const prompt = builder.build()
+		const hash = this.computeConfigHash(input, prompt)
+
+		if (this.cachedPrompt !== undefined && this.cachedConfigHash === hash) {
+			return this.cachedPrompt
+		}
+
+		this.cachedPrompt = prompt
 		this.cachedConfigHash = hash
 		return this.cachedPrompt
 	}
@@ -67,7 +68,7 @@ export class PromptCache {
 
 	needsRebuild(input: PromptCacheInput): boolean {
 		if (!this.cachedConfigHash) return true
-		return this.computeConfigHash(input) !== this.cachedConfigHash
+		return this.computeConfigHash(input, new PromptBuilder(input).build()) !== this.cachedConfigHash
 	}
 
 	getSystemPromptSegmented(
@@ -75,8 +76,6 @@ export class PromptCache {
 		contextLevel: AgentContextLevel = 'full',
 		workingDirectory?: string,
 	): PromptSegments {
-		const staticHash = this.computeStaticHash(input)
-
 		const builder = new PromptBuilder({
 			systemPrompt: input.systemPrompt,
 			persona: input.persona,
@@ -89,6 +88,7 @@ export class PromptCache {
 		})
 
 		const segments = builder.buildSegmented(contextLevel, workingDirectory)
+		const staticHash = this.computeStaticHash(segments.static)
 
 		if (this.cachedStaticHash === staticHash && this.cachedStaticSegment !== undefined) {
 			return {
@@ -110,47 +110,24 @@ export class PromptCache {
 		this.cachedStaticHash = undefined
 	}
 
-	private computeStaticHash(input: PromptCacheInput): string {
-		const parts: string[] = [
-			this.agentId,
-			input.systemPrompt ?? '',
-			input.persona?.identity?.role ?? '',
-			input.persona?.identity?.description ?? '',
-			input.basePrompt ?? '',
-			...(input.skills?.map((s) => s.metadata.name) ?? []),
-			// The STATIC ones only, because this hash guards the static
-			// segment. A `dynamic` or `turn` contributor coming or going does
-			// not change the cached prefix, and folding it in here would
-			// invalidate that prefix for a change it does not describe.
-			...(input.contributions
-				?.list()
-				.filter((c) => c.placement === 'static')
-				.map((c) => c.id) ?? []),
-		]
-
-		return createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 16)
+	private computeStaticHash(staticSegment: string): string {
+		// Static means stable within a run, but a cache can outlive that run.
+		// A fresh registry or a replacement can keep the same ids while its
+		// instructions change. Hash the text already built for this request,
+		// including persona, skills and context-level choices, without
+		// rendering any contribution twice or including dynamic/turn text.
+		return createHash('sha256').update(staticSegment).digest('hex').slice(0, 16)
 	}
 
-	private computeConfigHash(input: PromptCacheInput): string {
-		const parts: string[] = [
+	private computeConfigHash(input: PromptCacheInput, prompt: string): string {
+		const parts = [
 			this.agentId,
-			input.systemPrompt ?? '',
-			input.persona?.identity?.role ?? '',
-			input.persona?.identity?.description ?? '',
-			input.basePrompt ?? '',
-			...(input.skills?.map((s) => s.metadata.name) ?? []),
-			...(input.allowedTools ?? []),
-			JSON.stringify(input.runtimeContext ?? {}),
-			// Ids and placements, not rendered text. Rendering every
-			// contribution to hash it would run them twice per request for a
-			// value the cache exists to avoid computing — and a contributor
-			// whose OUTPUT changes while its id does not is exactly the one
-			// that must declare `dynamic` or `turn` rather than `static`.
-			// Hashing the identity is what catches the change this cache can
-			// actually be wrong about: a different SET of contributors.
-			...(input.contributions?.list().map((c) => `${c.id}:${c.placement}`) ?? []),
+			prompt,
+			// Keep placement changes visible to needsRebuild even when the
+			// unsegmented text happens to be identical.
+			input.contributions?.list().map((c) => [c.id, c.placement]) ?? [],
 		]
 
-		return createHash('sha256').update(parts.join('\0')).digest('hex').slice(0, 16)
+		return createHash('sha256').update(JSON.stringify(parts)).digest('hex').slice(0, 16)
 	}
 }

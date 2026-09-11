@@ -41,7 +41,10 @@ export interface PromptContributionContext {
  *
  * Not cosmetic, and the wrong answer is expensive in a way nothing reports.
  * `static` is the segment the prompt cache keeps and a provider caches
- * across turns; `dynamic` is re-sent every iteration. A contributor whose
+ * across turns; `dynamic` is the uncached invocation snapshot. `query`
+ * assembles both once at invocation start and sends them on every iteration.
+ * Use `turn` for a renderer that must observe changes during the invocation.
+ * A contributor whose
  * text varies per turn but declares `static` either invalidates the cached
  * prefix on every iteration — paying full price for a cache that never
  * hits — or, worse, gets served the first turn's text forever.
@@ -55,7 +58,7 @@ export type PromptPlacement = 'static' | 'dynamic' | 'turn'
  * `turn` is a third thing, not a looser `dynamic`.
  *
  * `static` and `dynamic` are both parts of the SYSTEM PROMPT: assembled
- * once per request, sent as system messages, and — for `static` — cached by
+ * once per invocation, sent as system messages, and — for `static` — cached by
  * the provider across turns. `turn` is not in the system prompt at all. It
  * rides the ephemeral trailing message that a step's guidance, its skills
  * and the approval-policy notice already use: appended to the request,

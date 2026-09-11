@@ -76,6 +76,11 @@ Preparation and `collect` make no model calls. `run` invokes the selected public
 model and keeps artifacts in private synthetic directories. It does not modify
 the working project or the user's ordinary Namzu state.
 
+The reproduction script now explicitly selects `--context-profile interactive`
+to retain the prompt used for this schema-loading comparison. The recorded
+September 11 commands predate that option; their archived evidence is unchanged.
+The resident-specific prompt profile is a separate comparison.
+
 ## Boundaries still to improve
 
 A controlled fake-provider capture used the real CLI session and SDK query.

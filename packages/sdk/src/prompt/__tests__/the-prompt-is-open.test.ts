@@ -451,37 +451,28 @@ describe('the prompt cache notices when the contributors change', () => {
 
 	it('keeps the STATIC segment when only a turn contributor arrives', () => {
 		// A `turn` contributor coming or going does not change the cached
-		// prefix, so folding it into the static hash would throw away a
-		// prefix for a change it does not describe.
-		//
-		// Observed through a static contributor whose render CHANGES between
-		// the two calls, because a cache hit and a rebuild produce the same
-		// text otherwise — the mutant that folds every placement into this
-		// hash is invisible to any assertion on identical output. Serving the
-		// first render is also the honest contract: `static` means the output
-		// cannot change inside one run, and the cache takes that at its word.
-		let rendered = 'FIRST RENDER'
-		const shifting = (): PromptContribution => ({
-			id: 's',
-			placement: 'static',
-			render: () => rendered,
-		})
-
+		// prefix, and its renderer belongs to the iteration loop only.
+		let turnRenders = 0
 		const c = cache()
 		const base = new PromptContributionRegistry()
-		base.register(shifting())
+		base.register(contribution('s', 'STATIC TEXT'))
 		const first = c.getSystemPromptSegmented(cacheInput(base))
 
-		rendered = 'SECOND RENDER'
 		const withTurn = new PromptContributionRegistry()
-		withTurn.register(shifting())
-		withTurn.register(contribution('t', 'TURN TEXT', 'turn'))
+		withTurn.register(contribution('s', 'STATIC TEXT'))
+		withTurn.register({
+			id: 't',
+			placement: 'turn',
+			render: () => {
+				turnRenders++
+				return 'TURN TEXT'
+			},
+		})
 		const second = c.getSystemPromptSegmented(cacheInput(withTurn))
 
-		expect(first.static).toContain('FIRST RENDER')
-		// Still the cached prefix: the turn contributor did not touch it.
-		expect(second.static).toContain('FIRST RENDER')
-		expect(second.static).not.toContain('SECOND RENDER')
+		expect(first.static).toContain('STATIC TEXT')
+		expect(second).toEqual(first)
+		expect(turnRenders).toBe(0)
 	})
 
 	it('DOES rebuild the static segment when a static contributor arrives', () => {

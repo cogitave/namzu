@@ -2,6 +2,32 @@ import { describe, expect, it } from 'vitest'
 import { parseResidentFlags } from '../resident-flags.js'
 
 describe('resident command argument boundaries', () => {
+	it.each(['run', 'start'])(
+		'selects resident context by default and accepts explicit interactive for %s',
+		(action) => {
+			expect(parseResidentFlags([action, '--max-steps', '1']).contextProfile).toBe('resident')
+			expect(
+				parseResidentFlags([action, '--max-steps', '1', '--context-profile=interactive'])
+					.contextProfile,
+			).toBe('interactive')
+		},
+	)
+	it.each([
+		['status', '--context-profile', 'resident'],
+		['add', 'review', '--context-profile', 'interactive'],
+		['run', '--max-steps', '1', '--context-profile', 'unknown'],
+		[
+			'run',
+			'--max-steps',
+			'1',
+			'--context-profile',
+			'resident',
+			'--context-profile',
+			'interactive',
+		],
+	])('rejects invalid context profiles before admission: %j', (...args) => {
+		expect(() => parseResidentFlags(args)).toThrow('--context-profile')
+	})
 	it.each(['run', 'start'])('keeps deferred schemas opt-in for %s', (action) => {
 		expect(parseResidentFlags([action, '--max-steps', '1']).toolLoading).toBe('eager')
 		expect(

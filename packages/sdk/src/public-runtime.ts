@@ -1217,6 +1217,7 @@ export {
 	PromptContributionRegistry,
 	SKILLS_CONTRIBUTION_ID,
 	codingAgentDoctrineContribution,
+	createResidentStepContributions,
 	skillsContribution,
 } from './prompt/index.js'
 

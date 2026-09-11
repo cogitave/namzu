@@ -7,6 +7,7 @@ import {
 	ResidentHost,
 	type ResidentLearningState,
 	type ResidentStepContext,
+	createResidentStepContributions,
 	generateRunId,
 	hashResidentSkill,
 } from '@namzu/sdk'
@@ -105,11 +106,36 @@ async function receipt(artifactsRoot: string, name: string): Promise<Record<stri
 	return JSON.parse(await readFile(join(artifactsRoot, claims[0], name), 'utf8'))
 }
 
+function renderedResidentContext(options: SendOptions): string {
+	return options.residentContext
+		? createResidentStepContributions(options.residentContext)
+				.map((part) => part.render({}))
+				.join('\n\n')
+		: (options.extraSystem ?? '')
+}
+
 function creationOptions(): AgentSessionOptions {
 	return mocks.create.mock.calls[0]?.[2] as AgentSessionOptions
 }
 
 describe('normal CLI runtime reaches a resident admission', () => {
+	it('can explicitly retain the interactive prompt profile for comparison', async () => {
+		const f = await fixture()
+		const sent: SendOptions[] = []
+		mocks.create.mockResolvedValue(
+			fakeAgentSession({
+				send: (_messages, options) => {
+					sent.push(options!)
+					return stream([{ kind: 'done', stopReason: 'end_turn', text: JSON.stringify(complete) }])
+				},
+				close: mocks.close,
+			}),
+		)
+		const step = createResidentSessionStep({ ...f.options, contextProfile: 'interactive' })
+		await new ResidentHost(f.agenda, step).run({ signal, maxSteps: 1 })
+		expect(sent[0].residentContext).toBeUndefined()
+		expect(sent[0].extraSystem).toContain('Only the saved summary continues')
+	})
 	it.each([undefined, 'eager', 'deferred'] as const)(
 		'passes tool loading %s through admission without changing permissions',
 		async (toolLoading) => {
@@ -226,10 +252,11 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		const sent = send.mock.calls[0][1]!
 		expect(sent).toMatchObject({ effort: 'low', permissionMode: 'plan' })
 		expect(sent.signal).toBeInstanceOf(AbortSignal)
-		expect(sent.extraSystem).toContain('Prefer retained source references.')
-		expect(sent.extraSystem).toContain('Carefully check evidence.')
-		expect(sent.extraSystem).toContain(f.pursuit.state.objective)
-		expect(sent.extraSystem).toContain('Only the saved summary continues')
+		expect(renderedResidentContext(sent)).toContain('Prefer retained source references.')
+		expect(renderedResidentContext(sent)).toContain('Carefully check evidence.')
+		expect(renderedResidentContext(sent)).toContain(f.pursuit.state.objective)
+		expect(sent.residentContext?.state).toMatchObject({ objective: f.pursuit.state.objective })
+		expect(sent.extraSystem).toBeUndefined()
 		const start = await receipt(f.options.artifactsRoot, 'start.json')
 		const finish = await receipt(f.options.artifactsRoot, 'finish.json')
 		expect(start).toMatchObject({
@@ -287,7 +314,7 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		await host.wake(f.pursuit.id, 'Continue from the retained evidence.')
 		await host.run({ signal, maxSteps: 1 })
 		expect(sent).toHaveLength(2)
-		expect(sent[1].extraSystem).toContain('First step evidence.')
+		expect(renderedResidentContext(sent[1])).toContain('First step evidence.')
 		expect(sent[0].runId).not.toBe(sent[1].runId)
 		expect(mocks.create.mock.calls[0][2].scope.sessionId).not.toBe(
 			mocks.create.mock.calls[1][2].scope.sessionId,
@@ -664,11 +691,11 @@ it('projects saved summaries and approved learning without changing session auth
 		learning,
 	} satisfies ResidentStepContext)
 	expect(sent!.signal).toBe(signal)
-	expect(sent!.extraSystem).toContain('Prior evidence was retained.')
-	expect(sent!.extraSystem).toContain('A new source arrived.')
-	expect(sent!.extraSystem).toContain('A concise researcher.')
-	expect(sent!.extraSystem).toContain('Turkish')
-	expect(sent!.extraSystem).toContain(candidate.body)
+	expect(renderedResidentContext(sent!)).toContain('Prior evidence was retained.')
+	expect(renderedResidentContext(sent!)).toContain('A new source arrived.')
+	expect(renderedResidentContext(sent!)).toContain('A concise researcher.')
+	expect(renderedResidentContext(sent!)).toContain('Turkish')
+	expect(renderedResidentContext(sent!)).toContain(candidate.body)
 	expect(creationOptions().permissionMode).toBe('plan')
 	expect(creationOptions()).not.toHaveProperty('sessionGoals')
 })

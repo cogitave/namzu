@@ -65,6 +65,7 @@ async function main(): Promise<number> {
 			sessions,
 			flags: launch.flags,
 			toolLoading: launch.toolLoading,
+			contextProfile: launch.contextProfile,
 			artifactsRoot: resident.artifactsRoot,
 		})
 		lifecycleStarted = true
