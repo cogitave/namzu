@@ -10,8 +10,10 @@ const PRIVATE_DIRECTORY_MODE = 0o700
  * content such as project commands and plugins.
  *
  * The partition is the privacy boundary: store files may inherit portable
- * defaults, but an owner-only parent keeps transcripts, generated memory and
- * task state private to the account running Namzu. Existing directories are
+ * defaults. POSIX parent traversal and inheritable Windows current-user ACLs
+ * protect newly generated transcripts, memory and task state. Repairing a
+ * Windows parent does not remove explicit grants on existing descendants.
+ * Existing directories are
  * tightened too; otherwise upgrading would protect only newly-created repos.
  *
  * Symlinks are refused before chmod. Following a project-controlled
@@ -36,7 +38,7 @@ export function ensurePrivateStateDirectory(stateRoot: string, segment: string):
 	}
 	if (process.platform !== 'win32') chmodSync(path, PRIVATE_DIRECTORY_MODE)
 	// POSIX reads back the tightened mode; Windows replaces inheritance with a
-	// current-user ACL, permits an existing LocalSystem grant, and reads that
+	// inheritable current-user ACL, permits an existing LocalSystem grant, and reads that
 	// descriptor back. Windows chmod controls only the read-only attribute.
 	restrictToOwner(path)
 	return path

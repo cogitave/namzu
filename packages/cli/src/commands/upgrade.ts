@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { stripVTControlCharacters } from 'node:util'
 
 import { EXIT_FAIL, EXIT_OK, EXIT_UNAVAILABLE, EXIT_USAGE } from '../exit-codes.js'
+import { resolveNpmInvocation } from '../integrations/npm-invocation.js'
 import { compareVersions, latestNamzuVersion } from '../integrations/updates.js'
 import type { CommandDef } from './types.js'
 import { startUpgradeProgress } from './upgrade-progress.js'
@@ -71,13 +72,15 @@ function readInstalledVersion(packageRoot: string): string {
 	return parsed.version
 }
 
-function runNpm(request: NpmUpgradeRequest): Promise<number> {
+export function runNpmUpgrade(request: NpmUpgradeRequest): Promise<number> {
 	return new Promise((resolveRun, reject) => {
-		const child = spawn(request.executable, [...request.args], {
+		const invocation = resolveNpmInvocation(request.executable, request.args)
+		const child = spawn(invocation.executable, [...invocation.args], {
 			cwd: request.prefix,
 			env: process.env,
 			stdio: request.onOutput ? ['inherit', 'pipe', 'pipe'] : 'inherit',
 			shell: false,
+			windowsHide: true,
 		})
 		if (request.onOutput) {
 			child.stdout?.setEncoding('utf8').on('data', request.onOutput)
@@ -95,7 +98,7 @@ const productionDeps: UpgradeCommandDeps = {
 	packageRoot: PACKAGE_ROOT,
 	platform: process.platform,
 	latestVersion: latestNamzuVersion,
-	runNpm,
+	runNpm: runNpmUpgrade,
 	installedVersion: readInstalledVersion,
 }
 

@@ -1,11 +1,11 @@
 import { execFileSync } from 'node:child_process'
-import { lstatSync, mkdirSync, mkdtempSync, symlinkSync } from 'node:fs'
+import { lstatSync, mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { currentUserSid, readAclSddl } from '../providers/credential-store.js'
+import { assertSoleOwnerSddl, currentUserSid, readAclSddl } from '../providers/credential-store.js'
 import { ensurePrivateStateDirectory } from './private-directory.js'
 
 const dirs: string[] = []
@@ -22,6 +22,49 @@ function root(): string {
 }
 
 describe('generated CLI state privacy boundary', () => {
+	it.runIf(process.platform === 'win32')(
+		'keeps nested project directories and newly written files private through inheritance',
+		() => {
+			const projects = ensurePrivateStateDirectory(root(), 'projects')
+			const project = join(projects, 'project-id')
+			mkdirSync(project)
+			const cli = ensurePrivateStateDirectory(project, 'cli')
+			const nested = join(cli, 'nested')
+			mkdirSync(nested)
+			const file = join(nested, 'state.json')
+			writeFileSync(file, '{}')
+			const sid = currentUserSid()
+			if (!sid) throw new Error('Native Windows account SID was not available')
+			for (const path of [project, cli, nested, file]) {
+				const descriptor = readAclSddl(path)
+				expect(descriptor).not.toMatch(/;;;(?:BA|WD|BU|AU)\)/)
+				expect(descriptor).toContain(`;;;${sid})`)
+			}
+			expect(readAclSddl(projects)).toContain(`(A;OICI;FA;;;${sid})`)
+			expect(ensurePrivateStateDirectory(project, 'cli')).toBe(cli)
+		},
+	)
+
+	it.runIf(process.platform === 'win32')(
+		'tightens a preexisting generated directory without accepting Administrators as private',
+		() => {
+			const stateRoot = root()
+			const cli = join(stateRoot, 'cli')
+			mkdirSync(cli)
+			const sid = currentUserSid()
+			if (!sid) throw new Error('Native Windows account SID was not available')
+			const icacls = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'icacls.exe')
+			execFileSync(icacls, [cli, '/inheritance:r', '/grant:r', `*${sid}:F`, '*S-1-5-32-544:F'], {
+				stdio: 'ignore',
+			})
+			expect(() => assertSoleOwnerSddl(readAclSddl(cli) ?? '', sid, cli)).toThrow()
+			expect(ensurePrivateStateDirectory(stateRoot, 'cli')).toBe(cli)
+			const descriptor = readAclSddl(cli) ?? ''
+			expect(descriptor).not.toContain(';;;BA)')
+			expect(() => assertSoleOwnerSddl(descriptor, sid, cli)).not.toThrow()
+		},
+	)
+
 	it.runIf(process.platform === 'win32')(
 		'accepts explicit LocalSystem access while refusing an explicit Everyone grant',
 		() => {

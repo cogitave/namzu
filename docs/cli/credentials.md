@@ -46,13 +46,23 @@ state directories are restricted to mode `0700`. On Windows, Namzu removes
 inherited permissions, grants the current account access, and reads the
 resulting protected discretionary ACL back from Windows.
 
+Directory grants include inheritance for child files and directories. Otherwise,
+a new partition below a protected parent can receive the creator's default ACL
+instead, including an explicit Administrators grant. Securing a named private
+directory removes that group grant and installs inheritable current-user access;
+the group is not accepted as private. This also permits startup after the older
+non-inheritable directory grant caused a failed launch. This is not a recursive
+migration of old files: explicit permissions on existing descendants are not
+removed by repairing their parent alone.
+
 An existing grant to Windows LocalSystem is accepted alongside access for the
 current account. Windows may serialize this account as `SY` or `S-1-5-18`;
 `SY` denotes the operating system, as documented in Microsoft's
 [SDDL SID reference](https://learn.microsoft.com/en-us/windows/win32/secauthz/sid-strings).
 SYSTEM-only access does not establish access for the current user. Grants to
-Everyone, Users, Authenticated Users, Administrators, or another user remain
-refused. Unsupported or malformed ACL entries also cause refusal.
+Everyone, Users, Authenticated Users, or another user remain refused. A remaining
+Administrators grant also fails validation, including on credential files.
+Unsupported or malformed ACL entries cause refusal.
 
 A startup error naming `projects/<projectId>/cli` and a Windows account is a
 local state-permission failure. It can occur after a provider credential has

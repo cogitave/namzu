@@ -1,4 +1,6 @@
-import { spawn } from 'node:child_process'
+import { execFile, spawn } from 'node:child_process'
+import { join } from 'node:path'
+import { resolveNpmInvocation } from '../npm-invocation.js'
 import type { DetectedProvider } from './discover.js'
 
 export const SETUP_HARNESSES = [
@@ -38,11 +40,13 @@ export function runSetupCommand(
 	},
 ): Promise<{ code: number | null; output: string; missing: boolean }> {
 	options.signal.throwIfAborted()
-	return new Promise((resolve) => {
-		const child = spawn(command, [...args], {
+	return new Promise((resolve, reject) => {
+		const invocation = resolveNpmInvocation(command, args)
+		const child = spawn(invocation.executable, [...invocation.args], {
 			cwd: options.cwd,
 			shell: false,
 			detached: process.platform !== 'win32',
+			windowsHide: true,
 			stdio: ['ignore', 'pipe', 'pipe'],
 		})
 		let output = ''
@@ -53,9 +57,50 @@ export function runSetupCommand(
 		}
 		child.stdout.on('data', append)
 		child.stderr.on('data', append)
+		let stopped = false
+		let stopCompletion: Promise<void> | undefined
+		let stopError: Error | undefined
 		const stop = () => {
+			if (stopped) return
+			stopped = true
 			try {
-				if (process.platform !== 'win32' && child.pid) process.kill(-child.pid, 'SIGKILL')
+				if (process.platform === 'win32' && child.pid) {
+					// npm may own package-script children. Terminating only Node
+					// leaves those children and their output pipes alive.
+					const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe')
+					const pid = child.pid
+					stopCompletion = new Promise((resolveStop) => {
+						const finishStop = (error: Error | null) => {
+							if (error) {
+								stopError = new Error(
+									'Windows could not confirm that all installer child processes stopped.',
+									{ cause: error },
+								)
+								child.kill('SIGKILL')
+								// A surviving descendant can hold these pipes open after
+								// npm exits. Release our handles so failure can settle;
+								// this does not claim that the descendant was terminated.
+								child.stdout.destroy()
+								child.stderr.destroy()
+							}
+							resolveStop()
+						}
+						try {
+							execFile(
+								taskkill,
+								['/PID', String(pid), '/T', '/F'],
+								{
+									windowsHide: true,
+									timeout: 3000,
+									killSignal: 'SIGKILL',
+								},
+								finishStop,
+							)
+						} catch (error) {
+							finishStop(error instanceof Error ? error : new Error(String(error)))
+						}
+					})
+				} else if (child.pid) process.kill(-child.pid, 'SIGKILL')
 				else child.kill('SIGKILL')
 			} catch {
 				child.kill('SIGKILL')
@@ -69,7 +114,12 @@ export function runSetupCommand(
 			settled = true
 			clearTimeout(timer)
 			options.signal.removeEventListener('abort', stop)
-			resolve({ code, output, missing })
+			// Closing npm's pipes does not prove that taskkill has finished its
+			// descendant walk. A stopped operation settles after that bounded job.
+			void (stopCompletion ?? Promise.resolve()).then(() => {
+				if (stopError) reject(stopError)
+				else resolve({ code: stopped ? null : code, output, missing })
+			})
 		}
 		child.on('error', (error) => {
 			missing = (error as NodeJS.ErrnoException).code === 'ENOENT'

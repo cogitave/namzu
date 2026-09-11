@@ -2,6 +2,10 @@
 
 ## 2026-09-11
 
+- **Update** Exercised packaged CLI startup and real TUI interactions on native Windows in PowerShell and Git Bash; corrected private-directory inheritance and scoped Administrators-grant removal, preserving refusal of unrelated accounts.
+
+- **Update** Routed Windows setup and upgrade through npm bundled with the running Node executable, avoiding command-shim spawning failures and awaiting bounded installer process-tree cancellation.
+
 - **Update** Corrected Windows private-state ACL validation to accept LocalSystem alongside the current account while refusing broader grants; added isolated subscription profile discovery through `CLAUDE_CONFIG_DIR` and native Windows regression evidence.
 
 - **Update** Added SDK resident context contributions and the default resident CLI context profile, preserving project policies, permission checks and refreshed continuation across admissions; corrected prompt-cache validation for changed instructions under existing names.

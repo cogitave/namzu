@@ -1,0 +1,49 @@
+{
+	"date": "2026-09-11",
+	"kind": "native-windows-installed-cli-privacy",
+	"platform": "win32",
+	"node": "v22.20.0",
+	"installedVersions": {
+		"cli": "23.0.0",
+		"sdk": "38.1.0"
+	},
+	"installedSha256": {
+		"credentialStore": "98e4dec93543c56bffafd1ee732f83fb865be8ab15e1f741311ec38ee40537d0",
+		"privateDirectory": "24b967f7e6167d56217bc0f57149f998258a8c97c610518847f8a779b909a64c",
+		"cliBin": "12026f1cd49e1b549b81d4dc19a2dfa78f82d4dd2c2889516d6bf1b9f519e4a8"
+	},
+	"checks": {
+		"installedDistImports": true,
+		"securedProjectsHasInheritableOwnerGrant": true,
+		"plainProjectInheritsOwnerWithoutForeignGrants": true,
+		"nestedCliPartitionIsPrivateAndInheritable": true,
+		"plainDescendantAndStateFileInheritOnlyOwner": true,
+		"explicitAdministratorsDirectoryInitiallyRefused": true,
+		"namedDirectoryAdministratorsGrantRepaired": true,
+		"parserStillRefusesAdministratorsIndependently": true,
+		"repairDoesNotMigrateExistingExplicitDescendantGrants": true,
+		"ownerAndLocalSystemAccepted": true,
+		"everyoneGrantStillRefused": true,
+		"installedBinVersionRuns": true,
+		"installedResidentAddRunsWithoutProvider": true,
+		"installedResidentStatusRetainsUnadmittedObjective": true,
+		"installedCliGeneratedStateHasNoForeignAllowGrants": true,
+		"privateFixtureRemoved": true
+	},
+	"generatedEntriesChecked": 22,
+	"modelCalls": 0,
+	"installs": 0,
+	"loginAttempts": 0,
+	"commands": [
+		"installed bin --version",
+		"resident add --trust",
+		"resident status"
+	],
+	"boundary": "Actual installed CLI dist modules and bin executed by native Windows Node against fresh private TEMP fixtures. Child CLI environment uses isolated Namzu, profile and XDG directories; no credentials or live provider calls are involved.",
+	"limitations": [
+		"Directory repair tightens the named directory; it does not migrate existing descendants with explicit Administrators grants.",
+		"LocalSystem is allowed; Administrators remains refused by the descriptor parser and is removed only during named-directory repair.",
+		"This check covers local installed CLI startup and resident state creation, not a full TUI or provider login/inference."
+	],
+	"passed": true
+}

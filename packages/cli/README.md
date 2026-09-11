@@ -100,6 +100,12 @@ same package back before reporting success. It refuses local checkouts and
 unknown package-manager layouts instead of guessing at another binary on
 `PATH`; update those with the package manager that installed them.
 
+On native Windows, `namzu upgrade` and provider installation from `/setup` use
+the npm bundled with the Node runtime running Namzu. They execute npm's
+JavaScript entry point directly, preserving paths and arguments without a
+command shell. Custom npm wrappers on PATH are not used; a missing runtime
+bundle produces a repair instruction before installation starts.
+
 Generated CLI state now lives below the application home: `~/.namzu` by
 default, or the existing real directory named by `NAMZU_HOME`. New directories
 inside the same checkout share one Project, keyed by its canonical root; a

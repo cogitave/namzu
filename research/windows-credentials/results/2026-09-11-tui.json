@@ -1,0 +1,80 @@
+{
+	"date": "2026-09-11",
+	"sourceHead": "1efafcba",
+	"sourceHadUncommittedAclInheritanceFix": true,
+	"environment": {
+		"platform": "win32",
+		"node": "v22.20.0",
+		"terminal": "Git for Windows winpty; native stdin/stdout TTY",
+		"install": "11 local Namzu package tarballs installed with native npm in isolated Windows TEMP consumer; dependency lifecycle scripts disabled",
+		"globalInstallationChanged": false
+	},
+	"checks": {
+		"originalFullTuiFailure": "BA grant on generated projects/<id>/cli after non-inheritable parent ACL",
+		"previouslyFailedPowerShellHomeNowStarts": true,
+		"powerShellStatusScreenVerified": true,
+		"existingClaudeFileDiscoveredWithoutNewLogin": true,
+		"gitBashFreshHomeTrustAndStartup": true,
+		"gitBashModelSwitchAndEffortLow": true,
+		"gitBashReadMarkerExact": true,
+		"fixtureFileUnchanged": true,
+		"bothTuiProcessesExitedZero": true,
+		"gitBashResumeRestoredPromptAndAnswerWithoutModelRequest": true
+	},
+	"runs": [
+		{
+			"shell": "PowerShell 5.1",
+			"provider": "anthropic",
+			"model": "claude-haiku-4-5",
+			"effort": "default",
+			"status": "failed",
+			"modelIterations": 1,
+			"tokenUsage": {
+				"promptTokens": 0,
+				"completionTokens": 0,
+				"totalTokens": 0,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0
+			},
+			"providerErrorKind": "HTTP 429 rate_limit_error",
+			"completedTools": 0,
+			"observedTuiResult": "provider.rate_limit with retry delay about 22 hours",
+			"sandboxDestroyed": true
+		},
+		{
+			"shell": "Git Bash",
+			"provider": "zen",
+			"model": "muse-spark-1.3-contributor-free",
+			"effort": "low",
+			"status": "completed",
+			"modelIterations": 2,
+			"tokenUsage": {
+				"promptTokens": 19394,
+				"completionTokens": 251,
+				"totalTokens": 19645,
+				"cachedTokens": 9585,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 143
+			},
+			"providerErrorKind": null,
+			"completedTools": 1,
+			"observedTuiResult": "Windows test marker: SILVER-482",
+			"sandboxDestroyed": true
+		}
+	],
+	"resumeBoundary": "Direct model/effort changes were invocation-local. On restart the saved Anthropic/Haiku default was selected; the transcript was preserved. No claim that last live model/effort is restored.",
+	"privacyBoundary": "No credential values or existing user documents copied into this artifact. Existing provider credential was consumed by Namzu discovery/request; real credential files were not manually edited.",
+	"providerBoundary": "Anthropic generation did not succeed: the provider returned HTTP 429. Successful tool execution used the public free Zen model.",
+	"packagedModuleHashes": {
+		"dist/bin.js": "12026f1cd49e1b549b81d4dc19a2dfa78f82d4dd2c2889516d6bf1b9f519e4a8",
+		"dist/integrations/providers/credential-store.js": "98e4dec93543c56bffafd1ee732f83fb865be8ab15e1f741311ec38ee40537d0",
+		"dist/integrations/state/private-directory.js": "41f69bb113c9131fe1d998d305e79d5f670b816ce5bf9f46d4b1fd3dc84591a2"
+	},
+	"nativeNpmVersionProbe": {
+		"npm": "10.9.3",
+		"node": "v22.20.0",
+		"usedCurrentNode": true,
+		"command": "--version",
+		"installedAnything": false
+	}
+}

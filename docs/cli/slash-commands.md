@@ -252,7 +252,12 @@ Installation can execute third-party package scripts. Escape cancels the owned
 installer process group; files already installed may remain. After it finishes,
 Namzu checks the executable again. `c` opens connection/model selection with
 fresh credential discovery. Installation success does not establish sign-in or
-account quota. npm must already be available on PATH; failures remain visible.
+account quota. On POSIX systems npm must already be available on PATH. On native
+Windows, installation runs npm's JavaScript entry point bundled beside the Node
+runtime running Namzu, without a command shell. Custom PATH wrappers are not
+used; a missing npm bundle is reported with a repair instruction. Escape requests
+termination of the Windows installer process tree; a failure to confirm cleanup
+is reported. Installation failures remain visible.
 
 Installation recipes use the published package names from
 [Codex](https://www.npmjs.com/package/@openai/codex),

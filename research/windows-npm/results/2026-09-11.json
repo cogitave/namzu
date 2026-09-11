@@ -1,0 +1,17 @@
+{
+	"date": "2026-09-11",
+	"platform": "win32",
+	"node": "v22.20.0",
+	"checks": {
+		"originalCmdEinvalReproduced": true,
+		"literalArgumentsPreserved": true,
+		"setupInstallerRouted": true,
+		"upgradePrefixPreserved": true,
+		"cancelledInstallerTreeStopped": true,
+		"failedCleanupReported": true,
+		"timeoutWithInheritedPipesRejected": true,
+		"failedCleanupDidNotClaimDescendantsStopped": true,
+		"missingBundleDiagnostic": true
+	},
+	"boundary": "Native Windows Node executes repository modules with an isolated synthetic npm-cli.js beside a temporary copy of Node. No real npm installation, upgrade, login, or provider call occurred."
+}

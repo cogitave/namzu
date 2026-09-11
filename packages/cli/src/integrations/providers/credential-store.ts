@@ -514,7 +514,10 @@ export function assertOwnerOnlyMode(mode: number, path: string): void {
  * The Windows half: remove inheritance, grant the current user's SID full
  * control, then read the resulting ACL back as SDDL. Existing explicit grants
  * survive `/inheritance:r` and `/grant:r`; only LocalSystem may remain beside
- * the current account. Other account grants are refused, never ignored.
+ * the current account. Directory grants propagate to children, so Windows does
+ * not substitute the creator token's default ACL for new state partitions.
+ * Directory protection also removes the built-in Administrators grant; it does
+ * not accept that group as private. Other account grants are refused.
  *
  * Both helpers are invoked by absolute path under `%SystemRoot%\System32`.
  * Resolving them through `PATH` is how a same-named executable earlier on the
@@ -546,7 +549,17 @@ function restrictToOwnerWindows(path: string): void {
 		)
 	}
 
-	run('icacls.exe', [path, '/inheritance:r', '/grant:r', `*${sid}:F`])
+	const directory = statSync(path).isDirectory()
+	run('icacls.exe', [
+		path,
+		'/inheritance:r',
+		'/grant:r',
+		`*${sid}:${directory ? '(OI)(CI)F' : 'F'}`,
+		// Tighten the named private directory, including older generated state
+		// whose non-inheritable parent caused Windows to add this default grant.
+		// Never reset the ACL through a potentially wider parent descriptor.
+		...(directory ? ['/remove:g', '*S-1-5-32-544'] : []),
+	])
 
 	const saved = readAclSddl(path)
 	if (saved === null) {
