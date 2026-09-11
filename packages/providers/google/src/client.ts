@@ -382,6 +382,7 @@ export class GoogleProvider implements LLMProvider {
 			if (missing.length) {
 				const appendix = `\n\nSources:\n${missing.map((url) => `- ${url}`).join('\n')}`
 				text += appendix
+				parts.push({ text: appendix })
 				yield { id, delta: { content: appendix } }
 			}
 

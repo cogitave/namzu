@@ -44,6 +44,28 @@ it('combines native search and functions and retains grounded links', async () =
 		'running',
 		'completed',
 	])
+	const content = chunks.map((c) => c.delta.content ?? '').join('')
+	const replayState = chunks.find((c) => c.replayState)?.replayState
+	for await (const _ of provider.chatStream({
+		model: 'gemini-3-flash-preview',
+		messages: [
+			{
+				role: 'assistant',
+				content,
+				source: {
+					type: 'model',
+					providerId: 'google',
+					model: 'gemini-3-flash-preview',
+					chainIndex: 0,
+					replayState,
+				},
+			},
+			{ role: 'user', content: 'Which source was that?' },
+		],
+	})) {
+	}
+	const resumed = JSON.parse(String(fetch.mock.calls[1]?.[1]?.body))
+	expect(JSON.stringify(resumed.contents[0].parts)).toContain('https://example.com/source')
 	expect(provider.supportsHostedWebSearchFor('gemini-2.5-flash', 'live')).toBe(false)
 	expect(provider.supportsHostedWebSearchFor('gemini-3-flash-preview', 'cached')).toBe(false)
 	expect(
