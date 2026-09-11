@@ -3,7 +3,7 @@ export { ManagedRegistry } from './ManagedRegistry.js'
 export type { ManagedRegistryConfig } from './ManagedRegistry.js'
 
 export { ToolNameCollisionError, ToolRegistry } from './tool/execute.js'
-export type { ToolExecutionResult } from './tool/execute.js'
+export type { ToolExecutionResult, ToolRegistryForkOptions } from './tool/execute.js'
 export {
 	ToolCatalog,
 	createToolCatalogFromRegistry,

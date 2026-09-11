@@ -413,6 +413,20 @@ describe('ToolRegistry — toPromptSection + toLLMTools', () => {
 		expect(s).toContain('Use search_tools to load these before use')
 	})
 
+	it('toPromptSection only recommends discovery when the scoped roster permits it', () => {
+		const r = new ToolRegistry()
+		r.register(makeTool('search_tools'))
+		r.register(makeTool('lookup'), 'deferred')
+		expect(r.toPromptSection(['lookup'])).not.toContain('search_tools')
+		expect(r.toPromptSection(['lookup'])).toContain('until the runtime activates them')
+		expect(r.toPromptSection(['lookup', 'search_tools'])).toContain(
+			'Use search_tools to load these before use',
+		)
+		expect(r.toPromptSection([])).toBe('')
+		r.suspendAll()
+		expect(r.toPromptSection(['lookup', 'search_tools'])).not.toContain('Use search_tools')
+	})
+
 	it('toLLMTools: converts active + suspended tools', () => {
 		const r = new ToolRegistry()
 		r.register(makeTool('a'))

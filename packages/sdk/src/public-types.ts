@@ -173,6 +173,7 @@ export type {
 export type {
 	ManagedRegistryConfig,
 	ToolExecutionResult,
+	ToolRegistryForkOptions,
 } from './registry/index.js'
 
 export type { PluginLifecycleManagerConfig } from './plugin/lifecycle.js'

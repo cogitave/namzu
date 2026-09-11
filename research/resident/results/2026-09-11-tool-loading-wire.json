@@ -1,0 +1,85 @@
+{
+	"date": "2026-09-11",
+	"baseRevision": "b7f672002743634e6dcc796cb6bd63fcd8bd27ea",
+	"workingTreeDirty": true,
+	"transport": "Fake DeepSeek chat-completions transport; real CLI AgentSession and SDK query",
+	"schemaVersion": 1,
+	"measurement": "UTF-16 JavaScript serialized character counts from fake transport, not provider tokens, compressed bytes, bill or latency.",
+	"localArtifactRoot": "/tmp/namzu-tool-loading-wire-pnqEPU",
+	"fingerprints": {
+		"packages/cli/dist/tui/agent.js": "650216cf9d0cfcf82b8579b6d4b65f1b41986a48b9237a0bccea4e8a03de0346",
+		"packages/sdk/dist/registry/tool/execute.js": "53b7ad7854568f5401ae5133996d973cf449502f4765a82762c7790d116a4222",
+		"packages/sdk/dist/runtime/query/index.js": "5f649b2eac696226d2b397235dfe4edaaae8c2a35e85d6328604eed4cfa84f69",
+		"research/resident/tool-loading-wire.mjs": "db454fd8612c0fabf76d6082273c8b77d6d974142dfb2dfa55a6aba0de0afd3d"
+	},
+	"results": {
+		"no-tools-eager": {
+			"requests": 1,
+			"first": {
+				"toolCount": 22,
+				"toolsChars": 21851,
+				"messagesChars": 12269,
+				"requestBodyChars": 34242
+			},
+			"total": {
+				"toolsChars": 21851,
+				"messagesChars": 12269,
+				"requestBodyChars": 34242
+			},
+			"retainedInstructionsAndPermissionDoctrine": true
+		},
+		"no-tools-deferred": {
+			"requests": 1,
+			"first": {
+				"toolCount": 9,
+				"toolsChars": 10317,
+				"messagesChars": 13481,
+				"requestBodyChars": 23920
+			},
+			"total": {
+				"toolsChars": 10317,
+				"messagesChars": 13481,
+				"requestBodyChars": 23920
+			},
+			"retainedInstructionsAndPermissionDoctrine": true
+		},
+		"task-eager": {
+			"requests": 2,
+			"first": {
+				"toolCount": 22,
+				"toolsChars": 21851,
+				"messagesChars": 12294,
+				"requestBodyChars": 34267
+			},
+			"total": {
+				"toolsChars": 43702,
+				"messagesChars": 25370,
+				"requestBodyChars": 69316
+			},
+			"retainedInstructionsAndPermissionDoctrine": true
+		},
+		"task-deferred": {
+			"requests": 3,
+			"first": {
+				"toolCount": 9,
+				"toolsChars": 10317,
+				"messagesChars": 13506,
+				"requestBodyChars": 23945
+			},
+			"total": {
+				"toolsChars": 33105,
+				"messagesChars": 42340,
+				"requestBodyChars": 75811
+			},
+			"retainedInstructionsAndPermissionDoctrine": true
+		},
+		"no-tools-comparison": {
+			"staticSystemEqualExceptDiscoveryGuidance": true,
+			"sharedToolSchemasEqual": true
+		},
+		"task-comparison": {
+			"staticSystemEqualExceptDiscoveryGuidance": true,
+			"sharedToolSchemasEqual": true
+		}
+	}
+}

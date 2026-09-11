@@ -37,6 +37,37 @@ memory, compaction and configured telemetry. It accepts the existing
 `--gate` and `--gate-retries` options. Gate commands are explicitly supplied host
 verification commands; the tool permission mode does not sandbox those commands.
 
+### Optional tool schema loading
+
+`run` and `start` accept `--tool-loading eager|deferred`, default `eager`.
+`deferred` keeps reading, file search, editing, shell/job and available web tools
+ready, but loads optional schemas such as delegation, task management and memory
+through `search_tools` when requested. Each step owns a fresh SDK
+[registry fork](../sdk/tool-discovery.md); discovery in one step cannot activate
+another step's tools. Newly loaded tools still pass the same permission rules,
+plan restrictions, sandbox and execution gates. Provider-native web search is
+unchanged. This option reduces initial schema context; discovery adds a model
+round trip when an optional tool is needed.
+
+```bash
+namzu resident run --trust --max-steps 2 --tool-loading deferred
+```
+
+Project instructions, CLI working guidance, environment, memory recall and the
+resident continuation summary remain in context. This is not a compact prompt
+profile or an authorization change. The option belongs to the invocation, is
+not saved by `add`, and does not change ordinary interactive chat. Internally,
+`AgentSessionOptions.toolLoading` applies to fresh sends. Checkpoint resume uses
+the existing session registry; the fork's activation snapshot is not persisted
+or restored. Resident execution refuses checkpoint resume and retains interrupted
+claims for inspection instead of replaying them.
+
+In the [2026-09-11 synthetic CLI comparison](../../research/resident/tool-loading.md),
+two small tasks used about 29% fewer reported input tokens with deferred loading.
+Both completed under both modes; one deferred run used the detached worker.
+These tasks needed no optional tool, so the result does not measure discovery's
+extra round trip or establish a general performance gain.
+
 Iteration and token limits apply **per SDK step**, not cumulatively across a
 resident's lifetime. `--max-steps` bounds the number of admitted steps. Provider
 failures and interrupted steps can consume tokens without settling a step.

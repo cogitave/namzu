@@ -2,6 +2,20 @@ import { describe, expect, it } from 'vitest'
 import { parseResidentFlags } from '../resident-flags.js'
 
 describe('resident command argument boundaries', () => {
+	it.each(['run', 'start'])('keeps deferred schemas opt-in for %s', (action) => {
+		expect(parseResidentFlags([action, '--max-steps', '1']).toolLoading).toBe('eager')
+		expect(
+			parseResidentFlags([action, '--max-steps', '1', '--tool-loading=deferred']).toolLoading,
+		).toBe('deferred')
+	})
+	it.each([
+		['add', 'review', '--tool-loading', 'deferred'],
+		['status', '--tool-loading', 'eager'],
+		['run', '--max-steps', '1', '--tool-loading', 'unknown'],
+		['start', '--max-steps', '1', '--tool-loading', 'eager', '--tool-loading', 'deferred'],
+	])('rejects invalid schema-loading options before admission: %j', (...args) => {
+		expect(() => parseResidentFlags(args)).toThrow('--tool-loading')
+	})
 	it.each([
 		['start'],
 		['start', '--max-steps', '0'],

@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Added independent SDK tool-registry forks and opt-in resident deferred schema loading; preserved eager defaults, instructions and permission checks, and corrected exact-name deferred discovery and scoped discovery guidance.
+
 - **Update** Added opt-in managed resident background runners, SDK keep-alive waiting, immutable invocation ownership, authenticated local status/stop, and inspected crash release; kept work limits across idle waits and retained ownership when cleanup is unconfirmed.
 
 - **Update** Added opt-in resident CLI work with project-bound directories, bounded foreground execution through the existing CLI runtime, durable pause generations, execution receipts and explicit inspected recovery; tested cross-process interruption and no-replay behavior.

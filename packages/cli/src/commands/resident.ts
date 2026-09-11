@@ -139,6 +139,7 @@ export const residentCommand: CommandDef = {
 		'Run options: --provider <id>, --model <id>, --effort <level>,',
 		'  --permission-mode <mode> (default: plan, read-only), --skills <a,b>,',
 		'  --max-iterations <n>, --token-budget <n> (limits apply per SDK step),',
+		'  --tool-loading eager|deferred (default: eager; defer optional schemas per step),',
 		'  --gate <command>, --gate-retries <n>, --max-idle-ms <n> (default: 60000).',
 		'Run and start require a finite --max-steps. No OS service is installed.',
 		'Start survives the launching terminal; it stops at that limit, pause, failure or stop.',
@@ -317,6 +318,7 @@ export const residentCommand: CommandDef = {
 						cwd: resident.cwd,
 						sessions,
 						flags: flags.run,
+						toolLoading: flags.toolLoading,
 						artifactsRoot: resident.artifactsRoot,
 					})
 					if (flags.action === 'start') {
@@ -324,6 +326,7 @@ export const residentCommand: CommandDef = {
 							resident,
 							ctx,
 							flags: flags.run,
+							toolLoading: flags.toolLoading,
 							maxSteps: flags.maxSteps,
 							maxIdleMs: flags.maxIdleMs,
 						})

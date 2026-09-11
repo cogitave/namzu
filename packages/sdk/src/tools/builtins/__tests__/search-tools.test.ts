@@ -62,6 +62,37 @@ describe('search_tools receipts', () => {
 		},
 	)
 
+	it.each(['read', 'ls', 'search'])(
+		'loads the exact deferred name %s without activating generic matches',
+		async (name) => {
+			const registry = new ToolRegistry()
+			registry.register(tool(name), 'deferred')
+			registry.register(tool(`${name}_something`, `Use ${name} to inspect a record.`), 'deferred')
+			registry.register(tool('unrelated', `A capability that mentions ${name}.`), 'deferred')
+			const result = await SearchToolsTool.execute(
+				{ query: ` ${name.toUpperCase()} ` },
+				context(registry),
+			)
+			expect(result.data).toEqual({ activated: [name], count: 1, nearMisses: [] })
+			expect(registry.getAvailability(name)).toBe('active')
+			expect(registry.getAvailability(`${name}_something`)).toBe('deferred')
+			expect(registry.getAvailability('unrelated')).toBe('deferred')
+		},
+	)
+
+	it('does not reveal or activate a forbidden exact deferred name', async () => {
+		const registry = new ToolRegistry()
+		registry.register(tool('read'), 'deferred')
+		registry.register(tool('permitted'))
+		const result = await SearchToolsTool.execute(
+			{ query: 'read' },
+			context(registry, ['permitted']),
+		)
+		expect(result.output).toContain('No matching active tools were found.')
+		expect(result.data).toBeUndefined()
+		expect(registry.getAvailability('read')).toBe('deferred')
+	})
+
 	it.each(['invoices', 'accountId'])(
 		'finds active capabilities by description or schema: %s',
 		async (query) => {

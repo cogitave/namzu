@@ -1094,6 +1094,23 @@ function credentialGap(
 // insertLine:"end" covers it.)
 const EXCLUDED_BUILTINS = new Set(['verify_outputs'])
 
+/** Common tools remain ready; other capabilities load through SDK discovery. */
+const EAGER_TOOLS_WHEN_DEFERRED = [
+	'read',
+	'glob',
+	'grep',
+	'write',
+	'edit',
+	'bash',
+	'job',
+	'web_search',
+	'web_fetch',
+	// query mounts discovery when absent; an existing discovery tool must stay ready.
+	'search_tools',
+] as const
+const DEFERRED_TOOL_GUIDANCE =
+	'Before using a tool listed under deferred_tools, call search_tools with its exact name to load it. Loading a tool does not change its permissions.'
+
 // namzu's own identity. Injected as system context so the agent presents as
 // namzu, and nothing else, whatever identity the credential path needs
 // on the wire. Some OAuth token types require a fixed prefix block before
@@ -1221,6 +1238,13 @@ async function currentPluginSkills(registry: SkillRegistry): Promise<Skill[]> {
 
 export interface AgentSessionOptions {
 	readonly structuredOutput?: StructuredOutputConfig
+	/**
+	 * Fresh sends may defer less common tool schemas until search_tools loads them.
+	 * Defaults to eager. Each send owns its activation state; the session registry
+	 * and other sends are unchanged. Checkpoint resume uses the existing session
+	 * registry and does not restore this fork's activation snapshot.
+	 */
+	readonly toolLoading?: 'eager' | 'deferred'
 	/** Session/thread/project/tenant identity for this run. Minted when absent. */
 	readonly scope?: RunScope
 	/**
@@ -2671,11 +2695,12 @@ export async function createAgentSession(
 					const selectTaskStore = beginTaskStoreReadout()
 					const runId = opts?.runId ?? generateRunId()
 					const turnOpts: SendOptions = { ...opts, runId, signal }
+					let runTools = registry
 					const resumeHandler = makeResumeHandler(
 						approval,
 						opts?.onPermission,
 						opts?.permissionMode ?? options.permissionMode,
-						(name, input) => isPromptExempt(registry, name, input),
+						(name, input) => isPromptExempt(runTools, name, input),
 					)
 					if (delegatedResumeHandlers.has(runId)) {
 						throw new Error(`Run ${runId} already owns a delegated review channel.`)
@@ -2703,6 +2728,12 @@ export async function createAgentSession(
 						const pluginSkills = pluginRuntime
 							? await currentPluginSkills(pluginRuntime.skills)
 							: undefined
+						// One fork after plugin refresh, held through every iteration of
+						// this send. Discovery cannot activate another send's schemas.
+						if (options.toolLoading === 'deferred')
+							runTools = registry.fork({
+								deferExcept: EAGER_TOOLS_WHEN_DEFERRED.filter((name) => registry.has(name)),
+							})
 						const curatedMemory = readMemory(undefined, cwd)
 						for (const notice of formatMemoryDiagnostics(curatedMemory)) {
 							yield { kind: 'context' as const, text: notice, shed: false }
@@ -2748,6 +2779,7 @@ export async function createAgentSession(
 								NAMZU_IDENTITY,
 								NAMZU_WORKING_DOCTRINE,
 								NAMZU_DELEGATION_DOCTRINE,
+								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
 								// Present only while the turn runs under `plan`. A mode change
 								// is rare, so the cached prefix it re-keys is a price paid once
 								// per switch rather than once per turn.
@@ -2810,7 +2842,7 @@ export async function createAgentSession(
 								// survive. Building a driver is a client object, not a request.
 								fallbackProviders: fallbackPlan.build(currentToken, turnScope.sessionId),
 								model,
-								tools: registry,
+								tools: runTools,
 								pluginManager: pluginRuntime?.manager,
 								skillRegistry: pluginRuntime?.skills,
 								skills: pluginSkills,
@@ -2850,13 +2882,12 @@ export async function createAgentSession(
 								promptContributions,
 								...(webCapability ? { web: webCapability } : {}),
 								...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
-								// Active, not deferred: the doctrine tells the model to open a
-								// task list for multi-step work, and a tool it has to search
-								// for first is a tool it will skip.
+								// Tasks join this run's registry inside query, after the fork.
+								// Keep the existing eager path unless deferral was requested.
 								runtimeToolOverrides: {
-									task_create: 'active',
-									task_update: 'active',
-									task_list: 'active',
+									task_create: options.toolLoading === 'deferred' ? 'deferred' : 'active',
+									task_update: options.toolLoading === 'deferred' ? 'deferred' : 'active',
+									task_list: options.toolLoading === 'deferred' ? 'deferred' : 'active',
 								},
 								onRunEvent: options.onRunEvent,
 								...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),

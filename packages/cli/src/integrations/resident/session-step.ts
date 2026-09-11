@@ -58,6 +58,8 @@ export interface ResidentSessionStepOptions {
 	readonly cwd: string
 	readonly sessions: CliSessions
 	readonly flags: RunFlags
+	/** Defer optional tool schemas per step; authority and instructions remain unchanged. */
+	readonly toolLoading?: 'eager' | 'deferred'
 	/** Private, host-owned directory for per-claim receipts. */
 	readonly artifactsRoot: string
 }
@@ -262,6 +264,7 @@ export function createResidentSessionStep(
 			sessionCreationAttempted = true
 			session = await createAgentSession(prefs, probe.detected, {
 				cwd,
+				toolLoading: options.toolLoading,
 				scope: {
 					sessionId,
 					topicId: sessions.topicId,

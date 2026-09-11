@@ -25,6 +25,17 @@ import { ToolResultHalted, screenToolResult } from './screen.js'
 
 export type { ToolExecutionResult }
 
+/** Options for an independent registry membership and availability snapshot. */
+export interface ToolRegistryForkOptions {
+	/**
+	 * Defer currently active tools outside this exact list. Omission preserves
+	 * every availability; an empty list defers every active tool. Listed tools
+	 * that are already deferred or suspended keep that state. Names must be
+	 * unique, valid registered names; a misspelling is refused.
+	 */
+	readonly deferExcept?: readonly string[]
+}
+
 // Tokens too generic to identify a tool by name — ignored when matching a
 // batched `search_tools` query so they can't activate the whole catalog
 // (every bridged tool name shares the `clawtool` prefix, for instance).
@@ -153,6 +164,45 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 		})
 		this.tierConfig = config?.tierConfig
 		this.resultGuardrails = config?.resultGuardrails
+	}
+
+	/**
+	 * Snapshot membership and availability for another run without changing this
+	 * registry. Discovery, registration and suspension then affect only the fork.
+	 * Definitions, handlers and configuration remain shared; this is not a deep
+	 * clone or an authorization boundary. Prepared executions belong only to the
+	 * registry that prepared them and do not transfer to the fork.
+	 */
+	fork(options: ToolRegistryForkOptions = {}): ToolRegistry {
+		let retained: Set<string> | undefined
+		if (options.deferExcept !== undefined) {
+			if (!Array.isArray(options.deferExcept))
+				throw new TypeError('ToolRegistry.fork deferExcept must be an array of tool names.')
+			retained = new Set()
+			for (const name of options.deferExcept) {
+				if (typeof name !== 'string' || !TOOL_NAME_PATTERN.test(name))
+					throw new TypeError('ToolRegistry.fork deferExcept must contain valid tool names.')
+				if (retained.has(name))
+					throw new TypeError(`ToolRegistry.fork deferExcept contains duplicate tool "${name}".`)
+				this.getOrThrow(name)
+				retained.add(name)
+			}
+		}
+
+		const fork = new ToolRegistry({
+			logger: this.log,
+			tierConfig: this.tierConfig,
+			resultGuardrails: this.resultGuardrails,
+		})
+		fork.items = new Map(this.items)
+		fork.availability = new Map(this.availability)
+		if (retained) {
+			for (const name of fork.listNames()) {
+				if (fork.getAvailability(name) === 'active' && !retained.has(name))
+					fork.availability.set(name, 'deferred')
+			}
+		}
+		return fork
 	}
 
 	override register(id: string, tool: ToolDefinition): void
@@ -294,25 +344,20 @@ export class ToolRegistry extends ManagedRegistry<ToolDefinition> {
 
 	/** Active matches use the same ranking, also recognizing exact short or generic names. */
 	searchActive(query: string): ToolDefinition[] {
-		return this.searchByAvailability(query, ['active'], true)
+		return this.searchByAvailability(query, ['active'])
 	}
 
-	private searchByAvailability(
-		query: string,
-		states: ToolAvailability[],
-		allowExactName = false,
-	): ToolDefinition[] {
+	private searchByAvailability(query: string, states: ToolAvailability[]): ToolDefinition[] {
 		const q = query.toLowerCase().trim()
 		if (q.length === 0) return []
 		const terms = q.split(/\s+/).filter((tok) => tok.length >= 3 && !SEARCH_STOP_TOKENS.has(tok))
-		if (terms.length === 0 && !allowExactName) return []
 
 		const scored: Array<{ tool: ToolDefinition; score: number }> = []
 		for (const tool of this.getByAvailability(states)) {
 			const name = tool.name.toLowerCase()
 			const description = tool.description.toLowerCase()
 			const argumentNames = listArgumentNames(tool)
-			let score = allowExactName && terms.length === 0 && name === q ? SEARCH_WEIGHT_NAME_EXACT : 0
+			let score = terms.length === 0 && name === q ? SEARCH_WEIGHT_NAME_EXACT : 0
 			for (const term of terms) {
 				if (name === term) {
 					score += SEARCH_WEIGHT_NAME_EXACT
@@ -388,7 +433,9 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				})
 				.join('\n')
 			const deferredIntro =
-				this.has('search_tools') && this.getAvailability('search_tools') === 'active'
+				this.has('search_tools') &&
+				this.getAvailability('search_tools') === 'active' &&
+				(!toolNames || toolNames.includes('search_tools'))
 					? 'Use search_tools to load these before use:'
 					: 'Deferred tools are discoverable but not executable until the runtime activates them:'
 			parts.push(`<deferred_tools>\n${deferredIntro}\n${entries}\n</deferred_tools>`)

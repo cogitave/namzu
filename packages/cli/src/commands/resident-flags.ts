@@ -21,6 +21,7 @@ export interface ResidentFlags {
 	readonly agent: string
 	readonly maxSteps: number | null
 	readonly maxIdleMs: number
+	readonly toolLoading: 'eager' | 'deferred'
 	readonly claim: string | null
 	readonly revision: number | null
 	readonly outcome: 'wait' | 'complete' | 'blocked' | null
@@ -57,9 +58,15 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		}
 		const [name, ...suffix] = item.split('=')
 		if (
-			['--agent', '--max-steps', '--max-idle-ms', '--claim', '--revision', '--outcome'].includes(
-				name,
-			)
+			[
+				'--agent',
+				'--max-steps',
+				'--max-idle-ms',
+				'--tool-loading',
+				'--claim',
+				'--revision',
+				'--outcome',
+			].includes(name)
 		) {
 			if (own.has(name)) throw new Error(`Duplicate ${name}.`)
 			const value = suffix.length ? suffix.join('=') : raw[++i]
@@ -90,6 +97,11 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 	const rawSteps = own.get('--max-steps')
 	const rawIdle = own.get('--max-idle-ms')
 	const rawRevision = own.get('--revision')
+	const toolLoading = own.get('--tool-loading') ?? 'eager'
+	if (toolLoading !== 'eager' && toolLoading !== 'deferred')
+		throw new Error('--tool-loading must be eager or deferred.')
+	if (!execution && own.has('--tool-loading'))
+		throw new Error('--tool-loading applies to resident run or start.')
 	const maxSteps = rawSteps !== undefined ? integer(rawSteps, '--max-steps') : null
 	const maxIdleMs = rawIdle !== undefined ? integer(rawIdle, '--max-idle-ms', true) : 60_000
 	if (maxIdleMs > 2_147_483_647) throw new Error('--max-idle-ms exceeds the supported timer range.')
@@ -151,6 +163,7 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		agent,
 		maxSteps,
 		maxIdleMs,
+		toolLoading,
 		claim,
 		revision,
 		outcome: outcome as ResidentFlags['outcome'],

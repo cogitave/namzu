@@ -110,6 +110,19 @@ function creationOptions(): AgentSessionOptions {
 }
 
 describe('normal CLI runtime reaches a resident admission', () => {
+	it.each([undefined, 'eager', 'deferred'] as const)(
+		'passes tool loading %s through admission without changing permissions',
+		async (toolLoading) => {
+			const f = await fixture()
+			const step = createResidentSessionStep({ ...f.options, toolLoading })
+			expect(mocks.create).not.toHaveBeenCalled()
+			expect(await new ResidentHost(f.agenda, step).run({ signal, maxSteps: 1 })).toMatchObject({
+				stepsSettled: 1,
+			})
+			expect(creationOptions()).toMatchObject({ toolLoading, permissionMode: 'plan' })
+			expect(mocks.close).toHaveBeenCalledOnce()
+		},
+	)
 	it('constructs no provider or receipts before admission, including idle and paused hosts', async () => {
 		const f = await fixture()
 		const step = f.step()

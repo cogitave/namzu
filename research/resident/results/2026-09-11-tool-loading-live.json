@@ -1,0 +1,654 @@
+{
+	"schemaVersion": 1,
+	"date": "2026-09-11",
+	"startedAtUtc": "2026-09-11T15:23:39.809534+00:00",
+	"scope": "Four actual built-CLI resident executions in isolated synthetic project and NAMZU_HOME directories. One sample per task and loading mode; no additional live retries.",
+	"harness": "research/resident/tool-loading.py",
+	"localArtifactRoot": "/tmp/namzu-resident-tools-vlb3_giv",
+	"reproduction": {
+		"prepare": "python3 research/resident/tool-loading.py",
+		"run": "python3 research/resident/tool-loading.py run <prepared-directory>",
+		"collect": "python3 research/resident/tool-loading.py collect <prepared-directory>",
+		"defaultMakesModelCalls": false,
+		"note": "Executed from a temporary copy before moving the harness into the repository and replacing its repository path with a relative resolution. Raw receipts, status, transcripts and run snapshots remain under localArtifactRoot; per-cell metrics link their exact paths."
+	},
+	"execution": {
+		"provider": "zen",
+		"model": "muse-spark-1.3-contributor-free",
+		"effort": "low",
+		"permissionMode": "plan",
+		"maxStepsPerCase": 1,
+		"maxIterationsPerStep": 4,
+		"tokenBudgetPerStep": 40000,
+		"maxIdleMs": 1000,
+		"explicitPublicProvider": true,
+		"operatorCredentialsCopied": false,
+		"ambientProviderAndNamzuOverridesInherited": false,
+		"commandTimeoutSeconds": 150
+	},
+	"fixture": {
+		"path": "README.md",
+		"content": "# Synthetic resident benchmark\n\nThe verification tag is amber-river-731.\n",
+		"sha256": "5d111bf1abcdfb13ca0b139bd165b3ad65e21b9422843af464094b009e3ad075",
+		"sameContentAcrossAllCases": true,
+		"projectConfigFiles": [],
+		"operatorInstructions": []
+	},
+	"executedBuildSha256": {
+		"packages/cli/dist/bin.js": "12026f1cd49e1b549b81d4dc19a2dfa78f82d4dd2c2889516d6bf1b9f519e4a8",
+		"packages/cli/dist/tui/agent.js": "650216cf9d0cfcf82b8579b6d4b65f1b41986a48b9237a0bccea4e8a03de0346",
+		"packages/cli/dist/commands/resident-flags.js": "762eaa56dc4bf433e2daf305fac31060472688447e997b44c91537483f95ba4e",
+		"packages/cli/dist/integrations/resident/session-step.js": "49423af1a66273fb0534deffe257339b6b619d7a22d6b22424e7dc9286ef2ad2",
+		"packages/cli/dist/integrations/resident/runner-worker.js": "adb4b5a2c8fd7202db3dd0dff701c7761867d35f7af4d5781d39d5849c966129"
+	},
+	"cases": [
+		{
+			"case": "no-tool-eager",
+			"objective": "This is a minimal synthetic task. Complete this pursuit now with the exact summary resident-benchmark-ready. Do not use tools, search for tools, read files, run commands, write memory, delegate work, or change anything. Use the required resident JSON decision format.",
+			"toolLoading": "eager",
+			"executionMode": "foreground",
+			"cliArguments": {
+				"add": [
+					"node",
+					"packages/cli/dist/bin.js",
+					"--format",
+					"json",
+					"resident",
+					"add",
+					"--cwd",
+					"<cell>/project",
+					"--trust",
+					"--",
+					"This is a minimal synthetic task. Complete this pursuit now with the exact summary resident-benchmark-ready. Do not use tools, search for tools, read files, run commands, write memory, delegate work, or change anything. Use the required resident JSON decision format."
+				],
+				"execute": [
+					"node",
+					"packages/cli/dist/bin.js",
+					"--format",
+					"json",
+					"resident",
+					"run",
+					"--cwd",
+					"<cell>/project",
+					"--trust",
+					"--provider",
+					"zen",
+					"--model",
+					"muse-spark-1.3-contributor-free",
+					"--effort",
+					"low",
+					"--permission-mode",
+					"plan",
+					"--tool-loading",
+					"eager",
+					"--max-steps",
+					"1",
+					"--max-idle-ms",
+					"1000",
+					"--max-iterations",
+					"4",
+					"--token-budget",
+					"40000"
+				]
+			},
+			"selectedProvider": "Zen",
+			"selectedModel": "muse-spark-1.3-contributor-free",
+			"requestedCliPermissionMode": "plan",
+			"persistedSdkPermissionMode": "auto",
+			"actualUsage": {
+				"promptTokens": 8314,
+				"completionTokens": 105,
+				"totalTokens": 8419,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 82
+			},
+			"summedResponseUsageMatchesRun": true,
+			"modelResponses": [
+				{
+					"iteration": 1,
+					"stopReason": "end_turn",
+					"usage": {
+						"promptTokens": 8314,
+						"completionTokens": 105,
+						"totalTokens": 8419,
+						"cachedTokens": 0,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 82
+					}
+				}
+			],
+			"requestEnvelopes": [
+				{
+					"iteration": 1,
+					"toolNames": [
+						"bash",
+						"glob",
+						"grep",
+						"job",
+						"read",
+						"edit",
+						"write",
+						"search_memory",
+						"read_memory",
+						"save_memory",
+						"update_memory",
+						"delete_memory",
+						"web_search",
+						"Agent",
+						"wait_for_task",
+						"agent_models",
+						"agent_task_list",
+						"send_message",
+						"cancel_agent",
+						"task_create",
+						"task_update",
+						"task_list"
+					],
+					"toolCount": 22,
+					"toolSchemaDigest": "5c702783c25045c8",
+					"systemPromptChars": 12637,
+					"systemPromptUtf8Bytes": 12663
+				}
+			],
+			"toolOutcomes": [],
+			"successfulReads": 0,
+			"readContainsExpectedTag": false,
+			"decision": {
+				"kind": "complete",
+				"summary": "resident-benchmark-ready"
+			},
+			"stopReason": "end_turn",
+			"cleanup": "confirmed",
+			"hasError": false,
+			"runStatus": "completed",
+			"finalPursuit": {
+				"phase": "complete",
+				"hasUnresolvedClaim": false,
+				"stepsAdmitted": 1
+			},
+			"finalRunner": {
+				"phase": "stopped",
+				"outcome": "limit"
+			},
+			"finalAdmissionPaused": false,
+			"fixtureUnchanged": true,
+			"taskVerified": true,
+			"costLedger": {
+				"totalCost": 0,
+				"cacheDiscount": 0,
+				"unpricedTokens": 8419
+			},
+			"localEvidenceDirectory": "no-tool-eager"
+		},
+		{
+			"case": "no-tool-deferred",
+			"objective": "This is a minimal synthetic task. Complete this pursuit now with the exact summary resident-benchmark-ready. Do not use tools, search for tools, read files, run commands, write memory, delegate work, or change anything. Use the required resident JSON decision format.",
+			"toolLoading": "deferred",
+			"executionMode": "background",
+			"cliArguments": {
+				"add": [
+					"node",
+					"packages/cli/dist/bin.js",
+					"--format",
+					"json",
+					"resident",
+					"add",
+					"--cwd",
+					"<cell>/project",
+					"--trust",
+					"--",
+					"This is a minimal synthetic task. Complete this pursuit now with the exact summary resident-benchmark-ready. Do not use tools, search for tools, read files, run commands, write memory, delegate work, or change anything. Use the required resident JSON decision format."
+				],
+				"execute": [
+					"node",
+					"packages/cli/dist/bin.js",
+					"--format",
+					"json",
+					"resident",
+					"start",
+					"--cwd",
+					"<cell>/project",
+					"--trust",
+					"--provider",
+					"zen",
+					"--model",
+					"muse-spark-1.3-contributor-free",
+					"--effort",
+					"low",
+					"--permission-mode",
+					"plan",
+					"--tool-loading",
+					"deferred",
+					"--max-steps",
+					"1",
+					"--max-idle-ms",
+					"1000",
+					"--max-iterations",
+					"4",
+					"--token-budget",
+					"40000"
+				]
+			},
+			"selectedProvider": "Zen",
+			"selectedModel": "muse-spark-1.3-contributor-free",
+			"requestedCliPermissionMode": "plan",
+			"persistedSdkPermissionMode": "auto",
+			"actualUsage": {
+				"promptTokens": 5882,
+				"completionTokens": 128,
+				"totalTokens": 6010,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 105
+			},
+			"summedResponseUsageMatchesRun": true,
+			"modelResponses": [
+				{
+					"iteration": 1,
+					"stopReason": "end_turn",
+					"usage": {
+						"promptTokens": 5882,
+						"completionTokens": 128,
+						"totalTokens": 6010,
+						"cachedTokens": 0,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 105
+					}
+				}
+			],
+			"requestEnvelopes": [
+				{
+					"iteration": 1,
+					"toolNames": [
+						"bash",
+						"glob",
+						"grep",
+						"job",
+						"read",
+						"edit",
+						"write",
+						"web_search",
+						"search_tools"
+					],
+					"toolCount": 9,
+					"toolSchemaDigest": "5db343b50fdfc131",
+					"systemPromptChars": 13845,
+					"systemPromptUtf8Bytes": 13875
+				}
+			],
+			"toolOutcomes": [],
+			"successfulReads": 0,
+			"readContainsExpectedTag": false,
+			"decision": {
+				"kind": "complete",
+				"summary": "resident-benchmark-ready"
+			},
+			"stopReason": "end_turn",
+			"cleanup": "confirmed",
+			"hasError": false,
+			"runStatus": "completed",
+			"finalPursuit": {
+				"phase": "complete",
+				"hasUnresolvedClaim": false,
+				"stepsAdmitted": 1
+			},
+			"finalRunner": {
+				"phase": "stopped",
+				"outcome": "limit"
+			},
+			"finalAdmissionPaused": false,
+			"fixtureUnchanged": true,
+			"taskVerified": true,
+			"costLedger": {
+				"totalCost": 0,
+				"cacheDiscount": 0,
+				"unpricedTokens": 6010
+			},
+			"localEvidenceDirectory": "no-tool-deferred"
+		},
+		{
+			"case": "readme-eager",
+			"objective": "Read only README.md in the current directory exactly once using the file-reading tool. If the tool is deferred, discover it first. Complete this pursuit with a short summary containing the verification tag found in that file. Do not read other files, execute shell commands, change files, write memory, delegate work, or send messages. Use the required resident JSON decision format.",
+			"toolLoading": "eager",
+			"executionMode": "foreground",
+			"cliArguments": {
+				"add": [
+					"node",
+					"packages/cli/dist/bin.js",
+					"--format",
+					"json",
+					"resident",
+					"add",
+					"--cwd",
+					"<cell>/project",
+					"--trust",
+					"--",
+					"Read only README.md in the current directory exactly once using the file-reading tool. If the tool is deferred, discover it first. Complete this pursuit with a short summary containing the verification tag found in that file. Do not read other files, execute shell commands, change files, write memory, delegate work, or send messages. Use the required resident JSON decision format."
+				],
+				"execute": [
+					"node",
+					"packages/cli/dist/bin.js",
+					"--format",
+					"json",
+					"resident",
+					"run",
+					"--cwd",
+					"<cell>/project",
+					"--trust",
+					"--provider",
+					"zen",
+					"--model",
+					"muse-spark-1.3-contributor-free",
+					"--effort",
+					"low",
+					"--permission-mode",
+					"plan",
+					"--tool-loading",
+					"eager",
+					"--max-steps",
+					"1",
+					"--max-idle-ms",
+					"1000",
+					"--max-iterations",
+					"4",
+					"--token-budget",
+					"40000"
+				]
+			},
+			"selectedProvider": "Zen",
+			"selectedModel": "muse-spark-1.3-contributor-free",
+			"requestedCliPermissionMode": "plan",
+			"persistedSdkPermissionMode": "auto",
+			"actualUsage": {
+				"promptTokens": 16982,
+				"completionTokens": 289,
+				"totalTokens": 17271,
+				"cachedTokens": 8305,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 172
+			},
+			"summedResponseUsageMatchesRun": true,
+			"modelResponses": [
+				{
+					"iteration": 1,
+					"stopReason": "tool_use",
+					"usage": {
+						"promptTokens": 8356,
+						"completionTokens": 228,
+						"totalTokens": 8584,
+						"cachedTokens": 0,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 143
+					}
+				},
+				{
+					"iteration": 2,
+					"stopReason": "end_turn",
+					"usage": {
+						"promptTokens": 8626,
+						"completionTokens": 61,
+						"totalTokens": 8687,
+						"cachedTokens": 8305,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 29
+					}
+				}
+			],
+			"requestEnvelopes": [
+				{
+					"iteration": 1,
+					"toolNames": [
+						"bash",
+						"glob",
+						"grep",
+						"job",
+						"read",
+						"edit",
+						"write",
+						"search_memory",
+						"read_memory",
+						"save_memory",
+						"update_memory",
+						"delete_memory",
+						"web_search",
+						"Agent",
+						"wait_for_task",
+						"agent_models",
+						"agent_task_list",
+						"send_message",
+						"cancel_agent",
+						"task_create",
+						"task_update",
+						"task_list"
+					],
+					"toolCount": 22,
+					"toolSchemaDigest": "5c702783c25045c8",
+					"systemPromptChars": 12752,
+					"systemPromptUtf8Bytes": 12778
+				}
+			],
+			"toolOutcomes": [
+				{
+					"toolName": "read",
+					"isError": false
+				}
+			],
+			"successfulReads": 1,
+			"readContainsExpectedTag": true,
+			"decision": {
+				"kind": "complete",
+				"summary": "Read README.md once. Verification tag is amber-river-731."
+			},
+			"stopReason": "end_turn",
+			"cleanup": "confirmed",
+			"hasError": false,
+			"runStatus": "completed",
+			"finalPursuit": {
+				"phase": "complete",
+				"hasUnresolvedClaim": false,
+				"stepsAdmitted": 1
+			},
+			"finalRunner": {
+				"phase": "stopped",
+				"outcome": "limit"
+			},
+			"finalAdmissionPaused": false,
+			"fixtureUnchanged": true,
+			"taskVerified": true,
+			"costLedger": {
+				"totalCost": 0,
+				"cacheDiscount": 0,
+				"unpricedTokens": 17271
+			},
+			"localEvidenceDirectory": "readme-eager"
+		},
+		{
+			"case": "readme-deferred",
+			"objective": "Read only README.md in the current directory exactly once using the file-reading tool. If the tool is deferred, discover it first. Complete this pursuit with a short summary containing the verification tag found in that file. Do not read other files, execute shell commands, change files, write memory, delegate work, or send messages. Use the required resident JSON decision format.",
+			"toolLoading": "deferred",
+			"executionMode": "foreground",
+			"cliArguments": {
+				"add": [
+					"node",
+					"packages/cli/dist/bin.js",
+					"--format",
+					"json",
+					"resident",
+					"add",
+					"--cwd",
+					"<cell>/project",
+					"--trust",
+					"--",
+					"Read only README.md in the current directory exactly once using the file-reading tool. If the tool is deferred, discover it first. Complete this pursuit with a short summary containing the verification tag found in that file. Do not read other files, execute shell commands, change files, write memory, delegate work, or send messages. Use the required resident JSON decision format."
+				],
+				"execute": [
+					"node",
+					"packages/cli/dist/bin.js",
+					"--format",
+					"json",
+					"resident",
+					"run",
+					"--cwd",
+					"<cell>/project",
+					"--trust",
+					"--provider",
+					"zen",
+					"--model",
+					"muse-spark-1.3-contributor-free",
+					"--effort",
+					"low",
+					"--permission-mode",
+					"plan",
+					"--tool-loading",
+					"deferred",
+					"--max-steps",
+					"1",
+					"--max-idle-ms",
+					"1000",
+					"--max-iterations",
+					"4",
+					"--token-budget",
+					"40000"
+				]
+			},
+			"selectedProvider": "Zen",
+			"selectedModel": "muse-spark-1.3-contributor-free",
+			"requestedCliPermissionMode": "plan",
+			"persistedSdkPermissionMode": "auto",
+			"actualUsage": {
+				"promptTokens": 12062,
+				"completionTokens": 236,
+				"totalTokens": 12298,
+				"cachedTokens": 5873,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 114
+			},
+			"summedResponseUsageMatchesRun": true,
+			"modelResponses": [
+				{
+					"iteration": 1,
+					"stopReason": "tool_use",
+					"usage": {
+						"promptTokens": 5924,
+						"completionTokens": 172,
+						"totalTokens": 6096,
+						"cachedTokens": 0,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 86
+					}
+				},
+				{
+					"iteration": 2,
+					"stopReason": "end_turn",
+					"usage": {
+						"promptTokens": 6138,
+						"completionTokens": 64,
+						"totalTokens": 6202,
+						"cachedTokens": 5873,
+						"cacheWriteTokens": 0,
+						"reasoningTokens": 28
+					}
+				}
+			],
+			"requestEnvelopes": [
+				{
+					"iteration": 1,
+					"toolNames": [
+						"bash",
+						"glob",
+						"grep",
+						"job",
+						"read",
+						"edit",
+						"write",
+						"web_search",
+						"search_tools"
+					],
+					"toolCount": 9,
+					"toolSchemaDigest": "5db343b50fdfc131",
+					"systemPromptChars": 13960,
+					"systemPromptUtf8Bytes": 13990
+				}
+			],
+			"toolOutcomes": [
+				{
+					"toolName": "read",
+					"isError": false
+				}
+			],
+			"successfulReads": 1,
+			"readContainsExpectedTag": true,
+			"decision": {
+				"kind": "complete",
+				"summary": "Read README.md once. Verification tag found: amber-river-731. Objective achieved."
+			},
+			"stopReason": "end_turn",
+			"cleanup": "confirmed",
+			"hasError": false,
+			"runStatus": "completed",
+			"finalPursuit": {
+				"phase": "complete",
+				"hasUnresolvedClaim": false,
+				"stepsAdmitted": 1
+			},
+			"finalRunner": {
+				"phase": "stopped",
+				"outcome": "limit"
+			},
+			"finalAdmissionPaused": false,
+			"fixtureUnchanged": true,
+			"taskVerified": true,
+			"costLedger": {
+				"totalCost": 0,
+				"cacheDiscount": 0,
+				"unpricedTokens": 12298
+			},
+			"localEvidenceDirectory": "readme-deferred"
+		}
+	],
+	"totals": {
+		"modelResponses": 6,
+		"actualUsage": {
+			"promptTokens": 43240,
+			"completionTokens": 758,
+			"totalTokens": 43998,
+			"cachedTokens": 14178,
+			"cacheWriteTokens": 0,
+			"reasoningTokens": 473
+		},
+		"allTasksVerified": true,
+		"allFourClaimsComplete": true,
+		"allFourRunnersStopped": true,
+		"allFourCleanupsConfirmed": true,
+		"allFixturesUnchanged": true,
+		"extraLiveRuns": 0
+	},
+	"comparisons": [
+		{
+			"task": "no-tool",
+			"promptTokensSaved": 2432,
+			"promptTokensReductionPercent": 29.25,
+			"totalTokensSaved": 2409,
+			"totalTokensReductionPercent": 28.61
+		},
+		{
+			"task": "readme",
+			"promptTokensSaved": 4920,
+			"promptTokensReductionPercent": 28.97,
+			"totalTokensSaved": 4973,
+			"totalTokensReductionPercent": 28.79
+		}
+	],
+	"caveats": [
+		"One sample per case, not a statistical performance or billing benchmark.",
+		"The no-tool eager case ran foreground and no-tool deferred ran background to exercise worker flag propagation; both use the resident session-step adapter.",
+		"Reported prompt/completion/cache counts are actual provider usage, and each run total equals the sum of its response usage. Reasoning tokens are reported separately and are not added to totalTokens again.",
+		"Request envelopes record tool names and a schema digest, not the actual schema bytes sent on the wire. Unchanged later envelopes may be omitted.",
+		"Initial tool count decreased from 22 to 9. The common read tool stays immediately available; neither README run invoked search_tools. These cases do not test activating a deferred tool.",
+		"The no-tool system prompt grew from 12637 to 13845 characters because deferred tool catalogue and discovery guidance remain in context. Input reduction does not mean project or authority instructions were removed.",
+		"The explicit CLI review mode was plan. Persisted SDK metadata records auto below the separately supplied CLI review handler; these read-only tasks alone do not prove write-denial enforcement.",
+		"Separate synthetic state and project identities can cause small prompt differences between samples. OS HOME was preserved; provider keys were not copied and public access was explicitly selected.",
+		"The cost ledger marks all tokens unpriced. Zero recorded cost is not proof of a measured bill."
+	]
+}

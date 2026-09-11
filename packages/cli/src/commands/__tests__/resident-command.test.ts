@@ -269,7 +269,10 @@ describe('resident commands reach durable project state', () => {
 			summary: 'Read the test setup; waiting for the fixture to arrive.',
 			wakeAt: null,
 		})
-		expect((await command(['run', '--trust', '--max-steps', '1'])).code).toBe(0)
+		expect(
+			(await command(['run', '--trust', '--max-steps', '1', '--tool-loading', 'deferred'])).code,
+		).toBe(0)
+		expect(adapter.create.mock.calls[0]?.[0].toolLoading).toBe('deferred')
 		expect(adapter.step).toHaveBeenCalledTimes(1)
 		const reopened = await active()
 		expect(reopened.pursuit).toMatchObject({
