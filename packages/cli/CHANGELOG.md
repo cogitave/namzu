@@ -1,5 +1,33 @@
 # @namzu/cli
 
+## 23.0.0
+
+### Major Changes
+
+- 64d9b9b: CLI auto search now selects native live search for supported direct Anthropic and Google API-key models instead of Exa. Native requests use provider quotas and execute without local tool approval. Set `web.backend: exa` to keep the previous common-search behavior on these routes. Unsupported model/endpoint combinations retain common search under auto; cached mode is never silently changed to live.
+
+  Add model/mode-aware hosted-search capability checks, preserve them through provider wrappers, and forward hosted search through ReactiveAgent and delegated runs. Anthropic retains encrypted search blocks and citation indices for unchanged matching-route continuation; Google retains grounding source links. Common search previews omit internal provenance framing while preserving raw results for the model and history.
+
+### Patch Changes
+
+- 3a42206: Reduce common web-search request bursts with a shared queue and stateless Exa calls. Retry transient HTTP failures within a cancellable deadline and report rate-limit waits and exhausted retries clearly.
+- 2847265: Make the parent’s configured Exa web search available to delegated agents, including explore agents, while retaining disabled and native-only search settings.
+
+  Keep words intact when wrapping the agent transcript where space permits.
+
+- 99e9c13: Animate the Namzu wordmark during interactive upgrades and fill it on successful installation verification. Keep redirected, quiet, structured, and no-color output static. When animation is active, retain the last 16,384 characters of npm output for failure diagnostics instead of interleaving installer logs with the animation.
+- d4ffd86: Animate the Working text itself instead of placing an additional Namzu logo beside it.
+- 1e72c50: Show a filling Namzu wordmark while working, with a static composer border. Pause decorative motion for approval prompts and retain compact and accessible terminal output.
+- Updated dependencies [786ca01]
+- Updated dependencies [786ca01]
+- Updated dependencies [64d9b9b]
+- Updated dependencies [786ca01]
+- Updated dependencies [786ca01]
+- Updated dependencies [786ca01]
+  - @namzu/sdk@38.1.0
+  - @namzu/anthropic@5.1.0
+  - @namzu/google@0.3.0
+
 ## 22.0.1
 
 ### Patch Changes

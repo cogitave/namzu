@@ -1,5 +1,20 @@
 # @namzu/sandbox
 
+## 12.0.0
+
+### Major Changes
+
+- 786ca01: Require container workers and Firecracker guests to publish the exact remote-execution protocol during readiness, refuse missing or mismatched peers before command admission, remove identity-less legacy execution, and export the Firecracker guest protocol version for host warm-pool admission checks. Rebuild worker images, standby-pool profiles, and microVM goldens from the same release before deploying the matching host.
+
+### Minor Changes
+
+- 786ca01: Carry explicit Firecracker network intent on the orchestrator create request.
+  `allow-all`, `deny-all`, and resolved allowlists now have distinct wire shapes;
+  an absent policy keeps the legacy request unchanged.
+- 786ca01: Add guest-owned pseudo-terminal and loopback TCP stream capabilities to the
+  Firecracker sandbox, including lifecycle ownership and bidirectional
+  backpressure.
+
 ## 11.0.0
 
 ### Patch Changes
