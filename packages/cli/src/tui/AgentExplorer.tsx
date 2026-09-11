@@ -699,15 +699,21 @@ export function agentTranscriptRows(
 			let continuation = sourceLine > 0
 			for (const { segment: point } of graphemes.segment(expandTabs(logical))) {
 				const pointCells = stringWidth(point)
-				if (text.length > 0 && cells + pointCells > width) {
+				while (text.length > 0 && cells + pointCells > width) {
+					// Prefer a word boundary, retaining whitespace so paging never
+					// drops content. Unbroken URLs/code still split at graphemes.
+					const boundary = text.lastIndexOf(' ') + 1
+					const split = boundary > 0 && text.slice(0, boundary).trim().length > 0
+						? boundary : text.length
+					const rest = text.slice(split)
 					lines.push({
 						id: `${source.id}:${sourceLine++}`,
-						text,
+						text: text.slice(0, split),
 						continuation,
 						source: source.source,
 					})
-					text = ''
-					cells = 0
+					text = rest
+					cells = stringWidth(rest)
 					continuation = true
 				}
 				text += point

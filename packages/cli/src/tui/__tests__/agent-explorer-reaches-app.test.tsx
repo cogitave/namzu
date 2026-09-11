@@ -1518,6 +1518,14 @@ describe('agent explorer projection', () => {
 		}
 	})
 
+	it('wraps prose at word boundaries and retains every original character', () => {
+		const text = 'Microsoft stratejisini araştır ve resmi kaynakları karşılaştır.'
+		const rows = agentTranscriptRows(agent({ viewId: 'word-wrap', prompt: text, transcript: [] }), 35)
+		expect(rows.map(row => row.text).join('')).toBe(text)
+		expect(rows[0]?.text).toBe('Microsoft stratejisini ')
+		for (const row of rows) expect(row.text.length).toBeLessThanOrEqual(25)
+	})
+
 	it('wraps before paging so multiline answer and tool suffixes are reachable', () => {
 		const long = agent({
 			viewId: 'long',

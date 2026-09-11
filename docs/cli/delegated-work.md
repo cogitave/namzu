@@ -8,6 +8,12 @@ tags: [cli, agents, concurrency]
 
 # Delegated work
 
+When the parent mounts independent `web_search` (Exa), delegated agents receive
+the same search tool, including read-only `explore` agents. Each call owns its
+connection and cancellation. Search remains subject to the parent’s authorization
+rules. This does not enable search when it is off or substitute live Exa search
+for an explicitly native/cached-only configuration.
+
 Before constructing a delegated Anthropic client or querying its model catalogue,
 the session rereads the selected credential owner. File-backed OAuth credentials
 are renewed when needed, with concurrent renewals serialized; borrowed keychain
@@ -146,3 +152,6 @@ the omitted count discloses the remainder. Exact-ID reads can retrieve a record
 outside that listing. Model context includes at most eight earlier records and
 omits the summary under tight context pressure. Corrupt records produce an error
 rather than an apparently empty history.
+
+Agent transcript pages wrap prose at word boundaries. Long unbroken URLs or
+code still wrap at grapheme boundaries, preserving all retained characters.

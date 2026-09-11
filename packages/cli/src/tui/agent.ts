@@ -1862,10 +1862,10 @@ export async function createAgentSession(
 		computerUseReady: computerUseHost !== undefined,
 		...(computerUseError ? { computerUseError } : {}),
 	})
-	// Web reach, opted into in the config file and nowhere else. The parent's
-	// registry only: a child's config carries no provider, and a tool whose
-	// provider is missing is a tool that reports itself unwired — truthful,
-	// and noise. The guarded provider refuses private and loopback addresses
+	// URL fetching is separately opt-in and parent-only: children do not
+	// carry its guarded provider. Independent search is shared below because
+	// each search call owns its connection. The guarded fetch provider refuses
+	// private and loopback addresses
 	// and bounds redirects and body; every fetch is reviewed like a shell
 	// command (see `isPromptExempt`).
 	// Mixed fallback chains use a common tool, so provider fallback cannot silently lose search.
@@ -2046,7 +2046,12 @@ export async function createAgentSession(
 				// delegation, and a parent that delegated six times would leave
 				// seven accounts of one piece of work for the next run to read.
 				// The parent's settle is the one that speaks for the whole task.
-				return buildToolRegistry(cwd, projectStateRoot, backgroundJobs).registry
+				const childTools = buildToolRegistry(cwd, projectStateRoot, backgroundJobs).registry
+				// Search owns its provider connection per call, so it is safe to share
+				// with a child. Preserve the parent's configured backend/off choice.
+				const search = registry.get('web_search')
+				if (search) childTools.register(search)
+				return childTools
 			},
 			authorizationGate: gateFor(options.rules),
 		})

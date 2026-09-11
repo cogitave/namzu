@@ -21,7 +21,12 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../__fixtures__/temp-dir.js'
 
-import type { Message, PromptContributionRegistry } from '@namzu/sdk'
+import {
+	type Message,
+	type PromptContributionRegistry,
+	type ToolRegistryContract,
+	filterReadOnlyTools,
+} from '@namzu/sdk'
 
 import type { DetectedProvider, Preferences } from '../integrations/providers/index.js'
 
@@ -37,10 +42,23 @@ vi.mock('@namzu/sdk', async (importOriginal) => {
 	}
 })
 
+const childToolBuilders: (() => ToolRegistryContract)[] = []
+vi.mock('../integrations/subagents/runtime.js', async (load) => {
+	const actual = await load<typeof import('../integrations/subagents/runtime.js')>()
+	return {
+		...actual,
+		createSubagentRuntime: async (options: Parameters<typeof actual.createSubagentRuntime>[0]) => {
+			childToolBuilders.push(options.buildTools)
+			return actual.createSubagentRuntime(options)
+		},
+	}
+})
+
 let root: string
 
 beforeEach(() => {
 	queryCalls.length = 0
+	childToolBuilders.length = 0
 	root = mkdtempSync(join(tmpdir(), 'namzu-web-'))
 	mkdirSync(join(root, '.git'))
 })
@@ -95,6 +113,7 @@ async function drive(
 		session,
 		runConfig: call.runConfig as { webSearch?: { mode: string } },
 		toolNames: tools.listNames(),
+		childTools: childToolBuilders.at(-1)?.(),
 		web: call.web as { fetch?: unknown } | undefined,
 		hasGuidance: contributions.has('namzu.web.citations'),
 	}
@@ -146,3 +165,27 @@ it('keeps hosted search absent when switched off', async () => {
 	expect(turn.runConfig.webSearch).toBeUndefined()
 	await turn.session.close()
 })
+
+it('gives independent search to explore children without granting file writes', async () => {
+	const turn = await drive(undefined)
+	try {
+		expect(turn.childTools).toBeDefined()
+		const explore = filterReadOnlyTools(turn.childTools!)
+		expect(explore.listNames()).toContain('web_search')
+		expect(explore.listNames()).not.toContain('write')
+		expect(explore.listNames()).not.toContain('edit')
+	} finally {
+		await turn.session.close()
+	}
+})
+it.each([{ search: 'off' as const }, { search: 'cached' as const, backend: 'native' as const }])(
+	'does not grant independent child search for %j',
+	async (config) => {
+		const turn = await drive(config)
+		try {
+			expect(turn.childTools?.listNames()).not.toContain('web_search')
+		} finally {
+			await turn.session.close()
+		}
+	},
+)

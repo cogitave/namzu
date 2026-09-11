@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Passed configured independent web search into delegated tool registries, including read-only explore agents, and improved word wrapping in agent transcript pages.
+
 - **Update** Applied the activity fill directly to the Working text, removing the additional activity wordmark.
 
 - **Update** Moved Working animation into the Namzu wordmark and kept the composer frame static, with prompt and accessibility fallbacks.
