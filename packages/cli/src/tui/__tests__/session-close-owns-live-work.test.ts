@@ -202,6 +202,45 @@ describe('AgentSession close owns its live work', () => {
 		expect(operations.order.filter((event) => event === 'subagent-close')).toHaveLength(1)
 	})
 
+	it('keeps exclusive resource changes owned until settled and refuses new work', async () => {
+		const cleanup = vi.fn(async () => {})
+		const owner = new SessionOperationOwner(cleanup)
+		let release!: () => void
+		const gate = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		const change = owner.exclusive(async () => {
+			await gate
+		})
+		await expect(owner.promise(undefined, async () => {})).rejects.toThrow(/plugin change/)
+		await expect(owner.exclusive(async () => {})).rejects.toThrow(/active session operation/)
+		const stream = owner
+			.stream(undefined, async function* () {
+				yield 1
+			})
+			[Symbol.asyncIterator]()
+		await expect(stream.next()).rejects.toThrow(/plugin change/)
+		const closing = owner.close()
+		await Promise.resolve()
+		expect(cleanup).not.toHaveBeenCalled()
+		release()
+		await change
+		await closing
+		expect(cleanup).toHaveBeenCalledOnce()
+		await expect(owner.exclusive(async () => {})).rejects.toThrow(/closed/i)
+	})
+
+	it('releases the resource-change gate after failure', async () => {
+		const owner = new SessionOperationOwner(async () => {})
+		await expect(
+			owner.exclusive(async () => {
+				throw new Error('load failed')
+			}),
+		).rejects.toThrow('load failed')
+		await expect(owner.promise(undefined, async () => 'usable')).resolves.toBe('usable')
+		await owner.close()
+	})
+
 	it('keeps a stream owned when throw and return yield cleanup values', async () => {
 		const order: string[] = []
 		const owner = new SessionOperationOwner(async () => {

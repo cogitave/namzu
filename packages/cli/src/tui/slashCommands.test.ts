@@ -79,6 +79,27 @@ function context(over: Partial<SlashContext> = {}): SlashContext {
 	}
 }
 
+it('routes plugin inspection locally and includes it in the command catalogue', () => {
+	expect(runSlash('/plugins', context())).toEqual({
+		kind: 'plugins',
+		list: false,
+	})
+	expect(runSlash('/plugins list', context())).toEqual({
+		kind: 'plugins',
+		list: true,
+	})
+	expect(runSlash('/plugins ledger', context())).toEqual({
+		kind: 'plugins',
+		list: false,
+		name: 'ledger',
+	})
+	expect(runSlash('/plugins enable ledger', context())).toMatchObject({
+		kind: 'message',
+		content: 'Usage: /plugins [list|name]',
+	})
+	expect(CLI_LOCAL_COMMANDS.some((command) => command.name === 'plugins')).toBe(true)
+})
+
 const ctx: SlashContext = context()
 
 const ctxWithTools: SlashContext = context({

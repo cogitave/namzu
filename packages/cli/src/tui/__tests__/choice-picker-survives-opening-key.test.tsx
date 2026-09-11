@@ -25,6 +25,11 @@ const feedback = vi.hoisted(() => ({
 	writes: [] as Record<string, unknown>[],
 }))
 const skillLoads = vi.hoisted(() => [] as string[])
+const plugins = vi.hoisted(() => ({
+	enabled: true,
+	changes: [] as boolean[],
+	fail: false,
+}))
 const reviewPrompts = vi.hoisted(() => [] as string[])
 const reviewRepository = vi.hoisted(() => ({
 	mergeBase: 'a'.repeat(40),
@@ -162,6 +167,27 @@ vi.mock('../agent.js', async (importOriginal) => {
 			detected: [],
 		}),
 		createAgentSession: async (): Promise<AgentSession> => ({
+			plugins: {
+				list: () => [
+					{
+						name: 'ledger',
+						version: '1.0.0',
+						description: 'Review ledger entries',
+						scope: 'project',
+						rootDir: '/w/.namzu/plugins/ledger',
+						status: plugins.enabled ? 'enabled' : 'disabled',
+						tools: plugins.enabled ? ['ledger__audit'] : [],
+						skills: [],
+						hookModules: [],
+						mcpServers: [],
+					},
+				],
+				setEnabled: async (_name, enabled) => {
+					if (plugins.fail) throw new Error('fixture activation refused')
+					plugins.changes.push(enabled)
+					plugins.enabled = enabled
+				},
+			},
 			hasProvider: true,
 			sandbox: { unconfined: true, enforced: [], required: [] },
 			providerSummary: 'OpenAI (Codex subscription)',
@@ -211,6 +237,9 @@ afterEach(async () => {
 	feedback.writes.length = 0
 	feedback.configs.length = 0
 	skillLoads.length = 0
+	plugins.enabled = true
+	plugins.changes.length = 0
+	plugins.fail = false
 	reviewPrompts.length = 0
 	credentials.primary = true
 	credentials.codex = true
@@ -225,6 +254,57 @@ async function waitUntil(screen: Screen, predicate: () => boolean, attempts = 80
 function painted(screen: Screen): string {
 	return screen.scrollback().join('\n')
 }
+
+it.each([60, 120])(
+	'inspects plugins before an explicit session change at %s columns',
+	async (cols) => {
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
+		screen.press('/plugins')
+		await screen.waitForRender()
+		screen.press('\r')
+		screen.press('\r')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Loaded in this session'))
+		expect(plugins.changes).toEqual([])
+		screen.press('\r')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this session'))
+		expect(plugins.changes).toEqual([])
+		screen.press('2')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Enable for this session'))
+		expect(plugins.changes).toEqual([false])
+		expect(screen.viewport().join('\n')).toContain('0 tools')
+		screen.press('2')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this session'))
+		expect(plugins.changes).toEqual([false, true])
+	expect(screen.viewport().join('\n')).toContain('1 tool')
+		screen.press('1')
+		await waitUntil(screen, () => painted(screen).includes('Registered tools: ledger__audit'))
+		expect(painted(screen)).toContain('/w/.namzu/plugins/ledger')
+		expect(reviewPrompts).toEqual([])
+	},
+)
+
+it('keeps the real enabled state when a plugin change fails', async () => {
+	const screen = await renderToScreen(<App ctx={ctx} />, {
+		cols: 120,
+		rows: 28,
+	})
+	mounted = screen
+	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
+	screen.press('/plugins')
+	await screen.waitForRender()
+	screen.press('\r')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Loaded in this session'))
+	screen.press('\r')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this session'))
+	plugins.fail = true
+	screen.press('2')
+	await waitUntil(screen, () => screen.viewport().join('\n').includes('fixture activation refused'))
+	expect(plugins.enabled).toBe(true)
+	expect(screen.viewport().join('\n')).toContain('Disable for this session')
+	expect(reviewPrompts).toEqual([])
+})
 
 it('paints /permissions choices before a later key can select one', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, {

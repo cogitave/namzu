@@ -16,7 +16,23 @@ export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
 	readonly skills: SkillRegistry
 	readonly pluginCount: number
+	list(): readonly CliPluginInfo[]
+	setEnabled(name: string, enabled: boolean): Promise<void>
 	close(): Promise<void>
+}
+
+/** Public operator metadata only; never expose MCP environment or hook bodies. */
+export interface CliPluginInfo {
+	readonly name: string
+	readonly version: string
+	readonly description: string
+	readonly scope: PluginScope
+	readonly rootDir: string
+	readonly status: string
+	readonly tools: readonly string[]
+	readonly skills: readonly string[]
+	readonly hookModules: readonly string[]
+	readonly mcpServers: readonly string[]
 }
 
 function message(error: unknown): string {
@@ -104,13 +120,67 @@ export async function createCliPluginRuntime(
 	}
 
 	let closePromise: Promise<void> | undefined
+	let closed = false
+	let mutation: Promise<void> | undefined
+	const syncSkillTool = () => {
+		if (skills.size > 0 && !tools.has(SkillTool.name)) {
+			tools.register(SkillTool)
+			ownsSkillTool = true
+		} else if (skills.size === 0 && ownsSkillTool) {
+			tools.unregister(SkillTool.name)
+			ownsSkillTool = false
+		}
+	}
 	return {
 		manager,
 		skills,
 		pluginCount: installed.length,
+		list: () =>
+			plugins
+				.getAll()
+				.map((plugin) => {
+					const prefix = `${plugin.manifest.name}__`
+					return {
+						name: plugin.manifest.name,
+						version: plugin.manifest.version,
+						description: plugin.manifest.description,
+						scope: plugin.scope,
+						rootDir: plugin.rootDir,
+						status: plugin.status,
+						tools: tools
+							.listNames()
+							.filter((name) => name.startsWith(prefix))
+							.sort(),
+						skills: skills
+							.list()
+							.map((skill) => skill.metadata.name)
+							.filter((name) => name.startsWith(prefix))
+							.sort(),
+						hookModules: [...(plugin.manifest.hooks ?? [])],
+						mcpServers: (plugin.manifest.mcpServers ?? []).map((server) => server.name),
+					}
+				})
+				.sort((a, b) => a.name.localeCompare(b.name)),
+		async setEnabled(name, enabled) {
+			if (closed) throw new Error('Plugin runtime is closed.')
+			if (mutation) throw new Error('Another plugin change is in progress.')
+			const plugin = plugins.findByName(name)
+			if (!plugin) throw new Error(`Plugin "${name}" is not loaded in this session.`)
+			if ((enabled && plugin.status === 'enabled') || (!enabled && plugin.status === 'disabled'))
+				return
+			mutation = enabled ? manager.enable(plugin.id) : manager.disable(plugin.id)
+			try {
+				await mutation
+			} finally {
+				syncSkillTool()
+				mutation = undefined
+			}
+		},
 		close() {
 			if (closePromise) return closePromise
+			closed = true
 			closePromise = (async () => {
+				if (mutation) await mutation.catch(() => {})
 				const errors: unknown[] = []
 				if (ownsSkillTool) {
 					tools.unregister(SkillTool.name)

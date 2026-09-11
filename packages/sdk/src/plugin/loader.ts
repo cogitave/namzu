@@ -268,7 +268,10 @@ export async function discoverAllPluginDirs(
 	const projectRoot = workingDirectory ?? process.cwd()
 	const userRoot = options?.userRoot ?? homedir()
 	const userPluginDir = options?.userRoot ? 'plugins' : USER_PLUGIN_DIR
-	const sharedRoot = await samePhysicalDirectory(projectRoot, userRoot)
+	const sharedRoot = await samePhysicalDirectory(
+		join(projectRoot, PROJECT_PLUGIN_DIR),
+		join(userRoot, userPluginDir),
+	)
 
 	const [project, user] = await Promise.all([
 		mayScan('project') && !sharedRoot
@@ -290,11 +293,13 @@ export async function discoverAllPluginDirs(
 }
 
 /**
- * Whether two scope roots name the same directory, including through a
+ * Whether two plugin directories name the same directory, including through a
  * symlink. When home is the working directory, `.namzu/plugins` is user state:
  * treating the same bytes as project state would let a project-only trust
  * policy admit user-owned executable code, while scanning both installs it
- * twice. Missing roots fall back to normalized absolute names; discovery will
+ * twice. Hosts may pass the application home rather than the OS home, so the
+ * comparison includes each scope's relative plugin path. Missing directories
+ * fall back to normalized absolute names; discovery will
  * independently report them empty.
  */
 async function samePhysicalDirectory(left: string, right: string): Promise<boolean> {

@@ -1,5 +1,11 @@
 # Documentation update log
 
+## 2026-09-12
+
+- **Update** Corrected plugin discovery to compare physical plugin directories when the CLI supplies its application home, avoiding duplicate loading while retaining user-scope admission.
+
+- **Update** Added `/plugins` inspection and session enable/disable controls backed by the CLI's real SDK plugin runtime, with invocation exclusion, contribution reporting and documented loading boundaries.
+
 ## 2026-09-11
 
 - **Update** Serialized tool-budget ledger reads with durable event writes after reproducing a race that falsely treated an in-flight append as a corrupt transcript; retained strict corruption refusal.

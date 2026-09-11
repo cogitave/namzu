@@ -133,6 +133,7 @@ import {
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
+import { emptyPluginReport, pluginDetails, pluginOption, pluginSummary } from './plugin-view.js'
 import {
 	Composer,
 	type ComposerDraft,
@@ -316,7 +317,18 @@ type ConversationExportDestination =
 /** The value a question row carries: an option id, or the free-text escape. */
 const FREE_TEXT_ANSWER = '__free_text__'
 
+type PluginChoiceState = ({ readonly kind: 'plugin' } | { readonly kind: 'plugin-action' }) & {
+	readonly title: string
+	readonly notice?: string
+	readonly owner: AgentSession
+	readonly pluginName?: string
+	readonly busy?: boolean
+	readonly values: readonly string[]
+	readonly options: readonly ChoicePickerOption[]
+}
+
 type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?: object } & (
+	| PluginChoiceState
 	| {
 			readonly kind: 'resume-goal'
 			readonly title: string
@@ -2006,6 +2018,69 @@ export function App({
 			const value = picker.values[index]
 			if (index < 0 || index >= picker.values.length) return
 			if (picker.options[index]?.disabledReason) return
+			if (picker.kind === 'plugin' || picker.kind === 'plugin-action') {
+				if (picker.busy || picker.owner !== session) return
+				if (picker.kind === 'plugin') {
+					const child = pluginActionPicker(picker.owner, value as string)
+					setSelectedChoice(0)
+					setChoicePicker(child ? { ...child, back: picker } : null)
+					return
+				}
+				const plugin = picker.owner.plugins?.list().find((item) => item.name === picker.pluginName)
+				if (!plugin || !picker.owner.plugins) return
+				if (value === 'details') {
+					setChoicePicker(null)
+					pushMessage('system', pluginDetails(plugin))
+					return
+				}
+				if (state !== 'idle' || permission) {
+					setChoicePicker({
+						...picker,
+						notice: 'Wait for the active turn and permission prompts to finish.',
+					})
+					return
+				}
+				const enabled = value === 'enable'
+				const pending: ChoicePickerState = {
+					...picker,
+					busy: true,
+					notice: enabled ? 'Enabling plugin…' : 'Disabling plugin…',
+				}
+				setChoicePicker(pending)
+				const generation = conversationGenRef.current
+				void picker.owner.plugins.setEnabled(plugin.name, enabled).then(
+					() => {
+						if (
+							appLifetime.signal.aborted ||
+							conversationGenRef.current !== generation ||
+							choicePickerRef.current !== pending
+						)
+							return
+						const updated = pluginActionPicker(picker.owner, plugin.name)
+						setSelectedChoice(0)
+						setChoicePicker(updated ? { ...updated, back: loadedPluginPicker(picker.owner) } : null)
+					},
+					(error: unknown) => {
+						if (
+							appLifetime.signal.aborted ||
+							conversationGenRef.current !== generation ||
+							choicePickerRef.current !== pending
+						)
+							return
+						const updated = pluginActionPicker(picker.owner, plugin.name)
+						setChoicePicker(
+							updated
+								? {
+										...updated,
+										back: loadedPluginPicker(picker.owner),
+										notice: `Could not change plugin: ${error instanceof Error ? error.message : String(error)}`,
+									}
+								: null,
+						)
+					},
+				)
+				return
+			}
 			if (picker.kind === 'review-preset') {
 				if (reviewChoiceInFlightRef.current) return
 				if (value === 'custom') {
@@ -2291,6 +2366,8 @@ export function App({
 			setSelectedChoice,
 			setTextPrompt,
 			session,
+			state,
+			permission,
 		],
 	)
 
@@ -5601,6 +5678,34 @@ export function App({
 						pushMessage('system', `Skills (● active):\n  ${lines.join('\n  ')}`)
 						return
 					}
+					case 'plugins': {
+						const plugins = session?.plugins?.list() ?? []
+						if (slash.name) {
+							const plugin = plugins.find((item) => item.name === slash.name)
+							pushMessage(
+								'system',
+								plugin
+									? pluginDetails(plugin)
+									: `Plugin "${slash.name}" is not loaded in this session. Use /plugins to inspect availability.`,
+							)
+						} else if (plugins.length === 0 || !session) {
+							pushMessage('system', emptyPluginReport(ctx.plugins, ctx.cwd))
+						} else if (slash.list) {
+							pushMessage(
+								'system',
+								`Plugins\n${plugins
+									.map((plugin) => {
+										const option = pluginOption(plugin)
+										return `${option.label} · ${option.description}`
+									})
+									.join('\n')}`,
+							)
+						} else {
+							setSelectedChoice(0)
+							setChoicePicker(loadedPluginPicker(session))
+						}
+						return
+					}
 					case 'skill-picker': {
 						const skills = discoverSkills({ cwd: ctx.cwd })
 						if (skills.length === 0) {
@@ -6776,6 +6881,7 @@ export function App({
 			// menu, so a provider/session change cannot silently reinterpret Enter.
 			if (choicePickerRef.current) {
 				const picker = choicePickerRef.current
+				if ((picker.kind === 'plugin' || picker.kind === 'plugin-action') && picker.busy) return
 				// Composer publishes a chooser while handling Return. App receives the
 				// same input dispatch (and key repeat can arrive before the commit), so
 				// the synchronous ref is an ownership fence but not yet an actionable
@@ -7175,6 +7281,7 @@ export function App({
 							/>
 						) : permission === null && agentSurface === null && outputViewer === null && choicePicker ? (
 							<ChoicePicker
+								busy={'busy' in choicePicker && choicePicker.busy === true}
 								columns={Math.max(1, (terminal.columns ?? 80) - 2)}
 								title={choicePicker.title}
 								notice={choicePicker.notice}
@@ -7426,7 +7533,47 @@ function labelOfOption(question: UserQuestion, optionId: string): string {
 }
 
 function choicePickerSearchable(picker: ChoicePickerState): boolean {
-	return ['command', 'skill', 'review-branch', 'review-commit'].includes(picker.kind)
+	return ['command', 'skill', 'plugin', 'review-branch', 'review-commit'].includes(picker.kind)
+}
+
+function loadedPluginPicker(owner: AgentSession): ChoicePickerState {
+	const plugins = owner.plugins?.list() ?? []
+	return {
+		kind: 'plugin',
+		owner,
+		title: 'Plugins',
+		notice: 'Loaded in this session · select to inspect or change state',
+		values: plugins.map((plugin) => plugin.name),
+		options: plugins.map(pluginOption),
+	}
+}
+
+function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerState | null {
+	const plugin = owner.plugins?.list().find((item) => item.name === name)
+	if (!plugin) return null
+	const enabled = plugin.status === 'enabled'
+	return {
+		kind: 'plugin-action',
+		owner,
+		pluginName: name,
+		title: `${plugin.name} · ${plugin.version}`,
+		notice: pluginSummary(plugin),
+		values: ['details', enabled ? 'disable' : 'enable'],
+		options: [
+			{
+				label: 'Details',
+				description: 'Show directory and contributions.',
+				selectedDescription: plugin.description,
+			},
+			{
+				label: enabled ? 'Disable for this session' : 'Enable for this session',
+				description: enabled
+					? 'Remove its tools, skills and hooks; disconnect its MCP servers.'
+					: 'Load this trusted plugin’s tools, skills, hooks and MCP servers.',
+				selectedDescription: 'Resets on restart or model switch. An idle session is required.',
+			},
+		],
+	}
 }
 
 function permissionPicker(

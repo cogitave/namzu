@@ -16,6 +16,7 @@ export interface ChoicePickerOption {
 }
 
 export interface ChoicePickerProps {
+	readonly busy?: boolean
 	readonly title: string
 	readonly notice?: string
 	/** Already filtered; each row retains the caller's original option identity. */
@@ -31,6 +32,7 @@ export interface ChoicePickerProps {
 
 /** Finite command chooser; App owns keys and applies the selected authority. */
 export function ChoicePicker({
+	busy = false,
 	title,
 	notice,
 	options,
@@ -77,8 +79,9 @@ export function ChoicePicker({
 		1,
 		rowWidth - labelWidth - markerWidth - (markerWidth > 0 ? 2 : 1),
 	)
-	const footer =
-		columns >= 100
+	const footer = busy
+		? 'Ctrl+C exit'
+		: columns >= 100
 			? query !== undefined
 				? 'Type to filter · ↑↓ navigate · PgUp/PgDn jump · enter apply · esc back'
 				: '↑↓ navigate · PgUp/PgDn jump · Home/End · 1–9 select · enter apply · esc back'

@@ -20,6 +20,7 @@ The operator application.
 * [Memory](memory.md) - The curated files injected into every turn, per project and per user, and the kernel's searchable store; where each lives and what writes to it.
 * [Run limits](run-limits.md) - How far one headless run may go before the kernel stops it: the limits config key and the --max-iterations and --token-budget flags.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
+* [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.
 * [Background jobs in the CLI](background-jobs.md) - How a command started with run_in_background outlives its turn, what /jobs shows, and how supported sandboxes own detached processes.
 * [Resident work in the CLI](resident-work.md) - Durable pursuits, bounded foreground execution, pause observation and inspected recovery.

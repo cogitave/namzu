@@ -94,6 +94,32 @@ describe('a working directory that is the user home', () => {
 		{ allowedScopes: ['user'] as const, project: 0, user: 1 },
 		{ allowedScopes: ['project', 'user'] as const, project: 0, user: 1 },
 	])(
+		'keeps a CLI application-home alias in user scope for $allowedScopes',
+		async ({ allowedScopes, project, user }) => {
+			const { discoverAllPluginDirs } = await import('../loader.js')
+			const found = await discoverAllPluginDirs(home, {
+				userRoot: join(home, '.namzu'),
+				allowedScopes,
+			})
+			expect(found.project).toHaveLength(project)
+			expect(found.user).toHaveLength(user)
+		},
+	)
+
+	it('keeps distinct plugin directories when the application root itself is the cwd', async () => {
+		const { discoverAllPluginDirs } = await import('../loader.js')
+		const userRoot = join(home, '.namzu')
+		await plantPlugin(join(userRoot, PROJECT_PLUGIN_DIR), 'nested-project')
+		const found = await discoverAllPluginDirs(userRoot, { userRoot })
+		expect(found.project).toEqual([join(userRoot, PROJECT_PLUGIN_DIR, 'nested-project')])
+		expect(found.user).toEqual([join(userRoot, 'plugins', 'user-plugin')])
+	})
+
+	it.each([
+		{ allowedScopes: ['project'] as const, project: 0, user: 0 },
+		{ allowedScopes: ['user'] as const, project: 0, user: 1 },
+		{ allowedScopes: ['project', 'user'] as const, project: 0, user: 1 },
+	])(
 		'classifies the shared directory as user state for $allowedScopes',
 		async ({ allowedScopes, project, user }) => {
 			const { discoverAllPluginDirs } = await import('../loader.js')

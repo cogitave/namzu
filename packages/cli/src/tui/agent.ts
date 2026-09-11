@@ -150,7 +150,7 @@ import {
 	type McpServersConfig,
 	connectMcpServers,
 } from '../integrations/mcp/servers.js'
-import { createCliPluginRuntime } from '../integrations/plugins/runtime.js'
+import { type CliPluginRuntime, createCliPluginRuntime } from '../integrations/plugins/runtime.js'
 import { hasApiCredential, requiresCredentialForModel } from '../integrations/providers/access.js'
 import { canSelectModel } from '../integrations/providers/access.js'
 import { createGeminiAccessTokenResolver } from '../integrations/providers/gemini-credentials.js'
@@ -547,6 +547,8 @@ export interface ResumePausedParams {
 }
 
 export interface AgentSession {
+	/** Loaded extensions; changes require an idle session and reset when it is rebuilt. */
+	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled'>
 	readonly webSearchSummary?: string
 	readonly hasProvider: boolean
 	/**
@@ -848,9 +850,24 @@ export class SessionOperationOwner {
 	private readonly streamClosers = new Set<() => Promise<void>>()
 	private readonly closeReason = new DOMException('Agent session closed.', 'AbortError')
 	private closed = false
+	private exclusiveOperation = false
 	private closePromise: Promise<void> | undefined
 
 	constructor(private readonly cleanup: () => Promise<void>) {}
+
+	/** Change shared session resources only when no invocation can still use them. */
+	exclusive<T>(start: (signal: AbortSignal) => Promise<T>): Promise<T> {
+		if (this.active.size > 0 || this.exclusiveOperation) {
+			return Promise.reject(
+				new Error('Wait for the active session operation to finish before changing plugins.'),
+			)
+		}
+		const operation = this.promise(undefined, start)
+		this.exclusiveOperation = true
+		return operation.finally(() => {
+			this.exclusiveOperation = false
+		})
+	}
 
 	promise<T>(
 		callerSignal: AbortSignal | undefined,
@@ -985,18 +1002,19 @@ export class SessionOperationOwner {
 
 	private operationSignal(callerSignal: AbortSignal | undefined): AbortSignal {
 		if (this.closed) throw this.closeReason
+		if (this.exclusiveOperation)
+			throw new Error('A plugin change is in progress; try again when it finishes.')
 		return callerSignal
 			? AbortSignal.any([callerSignal, this.lifetime.signal])
 			: this.lifetime.signal
 	}
 
 	private track(operation: PromiseLike<unknown>): void {
-		const settlement = Promise.resolve(operation).then(
-			() => {},
-			() => {},
-		)
+		const release = () => {
+			this.active.delete(settlement)
+		}
+		const settlement = Promise.resolve(operation).then(release, release)
 		this.active.add(settlement)
-		void settlement.then(() => this.active.delete(settlement))
 	}
 
 	private async finishClose(): Promise<void> {
@@ -2646,6 +2664,17 @@ export async function createAgentSession(
 				.getCallableTools()
 				.map((t) => t.name)
 				.filter((name) => !goalToolNames.has(name)),
+		...(pluginRuntime
+			? {
+					plugins: {
+						list: pluginRuntime.list,
+						setEnabled: (name: string, enabled: boolean) =>
+							operations.exclusive(async () => {
+								await pluginRuntime.setEnabled(name, enabled)
+							}),
+					},
+				}
+			: {}),
 		agentIds: allowedAgentIds,
 		currentTaskStore,
 		resetTaskStore,

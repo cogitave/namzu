@@ -95,6 +95,7 @@ export type SlashAction =
 	| { kind: 'remember'; text: string; scope: 'project' | 'user' }
 	| { kind: 'show-memory' }
 	| { kind: 'list-skills' }
+	| { kind: 'plugins'; list: boolean; name?: string }
 	| { kind: 'skill-picker' }
 	| { kind: 'load-skill'; name: string }
 	| { kind: 'resume' }
@@ -912,6 +913,28 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 			if (choice.toLowerCase() === 'list') return { kind: 'list-skills' }
 			return { kind: 'load-skill', name: choice }
 		},
+	},
+	{
+		name: 'plugins',
+		description: 'Inspect loaded plugins and enable or disable them for this session.',
+		help: {
+			usage: ['/plugins', '/plugins list', '/plugins <name>'],
+			details: [
+				'Choose a plugin to inspect its contributions or change its session state. Changes require an idle session and reset on restart or model switch. Plugin loading must first be enabled in configuration.',
+			],
+		},
+		action: (_ctx, args) =>
+			args.length > 1
+				? {
+						kind: 'message',
+						role: 'system',
+						content: 'Usage: /plugins [list|name]',
+					}
+				: {
+						kind: 'plugins',
+						list: args[0] === 'list',
+						...(args[0] && args[0] !== 'list' ? { name: args[0] } : {}),
+					},
 	},
 	{
 		name: 'resume',

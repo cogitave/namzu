@@ -157,6 +157,70 @@ async function projectWithPlugin(manifest: unknown): Promise<string> {
 }
 
 describe('the CLI owns a real plugin runtime', () => {
+	it('observes and changes the live contributions only between invocations', async () => {
+		const cwd = await projectWithPlugin({
+			name: 'ledger',
+			version: '1.0.0',
+			description: 'Ledger tools',
+			tools: ['tools.mjs'],
+			skills: ['skills/reconcile'],
+		})
+		const root = join(cwd, '.namzu', 'plugins', 'ledger')
+		await writeFile(
+			join(root, 'tools.mjs'),
+			"export const tools = [{ name: 'audit', description: 'audit', async execute() { return { success: true, output: 'ok' }; } }];\n",
+		)
+		await writeFile(
+			join(root, 'skills', 'reconcile', 'SKILL.md'),
+			'---\nname: reconcile\ndescription: Reconcile ledger\n---\n\nRead ledger.\n',
+		)
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			plugins: { enabled: true, allowedScopes: ['project'] },
+		})
+		try {
+			expect(session.hasProvider, session.errorHint ?? '').toBe(true)
+			const plugins = session.plugins!
+			expect(plugins.list()).toEqual([
+				expect.objectContaining({
+					name: 'ledger',
+					status: 'enabled',
+					tools: ['ledger__audit'],
+					skills: ['ledger__reconcile'],
+					rootDir: root,
+				}),
+			])
+			const stream = session
+				.send([createUserMessage('held before provider invocation')])
+				[Symbol.asyncIterator]()
+			await expect(plugins.setEnabled('ledger', false)).rejects.toThrow(/active session operation/)
+			expect(plugins.list()[0]?.status).toBe('enabled')
+			await stream.return?.()
+			await plugins.setEnabled('ledger', false)
+			expect(plugins.list()[0]).toMatchObject({
+				status: 'disabled',
+				tools: [],
+				skills: [],
+			})
+			expect(session.toolNames()).not.toContain('ledger__audit')
+			expect(session.toolNames()).not.toContain('skill')
+			await plugins.setEnabled('ledger', false)
+			await plugins.setEnabled('ledger', true)
+			await plugins.setEnabled('ledger', true)
+			expect(plugins.list()[0]).toMatchObject({
+				status: 'enabled',
+				tools: ['ledger__audit'],
+				skills: ['ledger__reconcile'],
+			})
+			expect(session.toolNames()).toContain('skill')
+			await expect(plugins.setEnabled('absent', true)).rejects.toThrow(/not loaded/)
+		} finally {
+			await session.close()
+		}
+		expect(session.plugins?.list()).toEqual([])
+		await expect(session.plugins?.setEnabled('ledger', true)).rejects.toThrow(/closed/i)
+	})
+
 	it.skipIf(process.platform === 'win32')(
 		'does not follow a project-scope ancestor link outside the trusted cwd',
 		async () => {
