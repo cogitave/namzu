@@ -46,3 +46,6 @@ The kernel.
 * [Resident initiative experiment](resident-initiative.md) - Explainable selection, verified observations, bounded subgoal proposals and measured tradeoffs.
 
 * [Resident communication experiment](resident-communication.md) - Atomic outbound intents, acknowledged delivery and explicit time windows.
+
+* [Resident learning experiment](resident-learning.md) - Evidence-backed behavioral revisions, evaluated guidance and admitted context.
+* [Resident retention and history](resident-retention.md) - Terminal archival with durable deduplication and ancestry limits.

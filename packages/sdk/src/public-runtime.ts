@@ -1352,3 +1352,5 @@ export { validateResidentProposal } from './manager/resident/proposal.js'
 
 export { deliverResidentMessage } from './manager/resident/outbox.js'
 export { createResidentDeliveryWindow } from './manager/resident/delivery-window.js'
+
+export { hashResidentSkill, projectResidentLearning } from './manager/resident/learning.js'

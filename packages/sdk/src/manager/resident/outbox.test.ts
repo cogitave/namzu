@@ -98,7 +98,7 @@ it('commits pursuit completion, observed progress and notification in one revisi
 	expect(admission.pursuits[0].state.phase).toBe('running')
 	expect(admission.outbox).toBeUndefined()
 	const raw = JSON.parse(await readFile(join(revisions, `${state.revision}.json`), 'utf8'))
-	expect(raw.schemaVersion).toBe(3)
+	expect(raw.schemaVersion).toBe(4)
 	expect(() =>
 		migrate(
 			defineSchema({ kind: 'resident-agenda', current: 2, migrations: { 1: (v) => v } }),

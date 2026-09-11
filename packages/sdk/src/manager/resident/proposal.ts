@@ -11,7 +11,7 @@ const domain = z
 const reason = z.string().trim().min(1).max(1_000)
 const evidenceKey = z.string().trim().min(1).max(256)
 
-const proposalSchema = z.object({
+export const residentProposalSchema = z.object({
 	id: identifier,
 	parentId: identifier,
 	parentRevision: revision,
@@ -21,7 +21,7 @@ const proposalSchema = z.object({
 	evidenceKey,
 })
 
-const limitsSchema = z.object({
+export const residentProposalLimitsSchema = z.object({
 	domains: z.array(domain).min(1),
 	maxChildrenPerParent: z.number().int().min(1).max(8),
 	maxDepth: z.number().int().min(1).max(4),
@@ -69,8 +69,8 @@ export function validateResidentProposal(
 	input: ResidentProposal,
 	limits: ResidentProposalLimits,
 ): ResidentProposalOrigin {
-	const proposal = proposalSchema.parse(input)
-	const policy = limitsSchema.parse(limits)
+	const proposal = residentProposalSchema.parse(input)
+	const policy = residentProposalLimitsSchema.parse(limits)
 	if (agenda.paused) throw new Error('A paused agenda cannot admit resident proposals.')
 	if (agenda.pursuits.length >= 32) throw new Error('Resident agenda pursuit bound reached.')
 	if (agenda.pursuits.some((pursuit) => pursuit.origin?.proposalId === proposal.id))
@@ -84,7 +84,8 @@ export function validateResidentProposal(
 	if (!policy.domains.includes(proposal.domain))
 		throw new Error('Resident proposal domain is not host-approved.')
 	if (
-		agenda.pursuits.filter((pursuit) => pursuit.origin?.parentId === parent.id).length >=
+		agenda.pursuits.filter((pursuit) => pursuit.origin?.parentId === parent.id).length +
+			(parent.retiredChildren ?? 0) >=
 		policy.maxChildrenPerParent
 	)
 		throw new Error('Resident proposal parent child bound reached.')

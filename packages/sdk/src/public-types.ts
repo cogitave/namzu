@@ -491,3 +491,22 @@ export type {
 	ResidentDeliveryResult,
 } from './manager/resident/outbox.js'
 export type { ResidentDeliveryWindowConfig } from './manager/resident/delivery-window.js'
+
+export type { ResidentStepContext, ResidentContextualStep } from './manager/resident/host.js'
+export type {
+	ResidentLearningEvidence,
+	ResidentSkillCandidate,
+	ResidentLearnedSkill,
+	ResidentLearningState,
+	ResidentProfileUpdate,
+	ResidentSkillEvaluation,
+	ResidentLearningProjectionOptions,
+	ResidentLearningProjection,
+} from './manager/resident/learning.js'
+
+export type {
+	ResidentArchiveRequest,
+	ResidentArchiveEntry,
+	ResidentArchivePage,
+	ResidentArchiveListOptions,
+} from './manager/resident/agenda.js'

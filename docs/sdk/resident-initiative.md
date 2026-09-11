@@ -151,8 +151,10 @@ limits)` performs validation and creation in one revision transaction:
   parents are refused. Paused agendas cannot admit proposals.
 - `ResidentProposalLimits.domains` is an exact host-supplied allowlist;
   `maxChildrenPerParent` is 1–8 and `maxDepth` is 1–4.
-- A proposal UUID can be admitted once. Concurrent duplicate admissions cannot
-  create two children. The 32-entry agenda limit includes terminal entries.
+- A proposal UUID can be admitted once, including after archival. Concurrent
+  duplicate admissions cannot create two children. The 32-entry active limit
+  includes terminal entries until explicit archival; retired children still
+  count against their parent’s lifetime allowance.
 - `ResidentProposalOrigin` records the parent, source revision, evidence,
   domain, reason and depth. It survives later child execution and reopening.
 
@@ -165,7 +167,8 @@ message; there is no unlimited self-spawning loop or notification transport.
 
 Feedback and ancestry were introduced in agenda schema 2; schema 3 also adds
 [communication state](resident-communication.md). Schema-1 records read without
-invented observations; later writes use schema 3. Older writers refuse these
+invented observations; later writes use schema 4, which also records
+[learning](resident-learning.md) and [archival](resident-retention.md). Older writers refuse these
 new records rather than silently removing fields. Nested feedback and ancestry
 are immutable; invalid persisted ancestry and observation ordering fail reads.
 
@@ -220,5 +223,6 @@ without necessarily finishing a difficult task. The measured policy remains
 opt-in. Further promotion needs independent tasks, calibrated outcome criteria,
 actual tool-cost accounting and comparison under matching budgets. The
 [communication prototype](resident-communication.md) now supplies delivery
-primitives. Adaptive preferences, learned policies, always-on hosting and
-end-user notification integration remain later work.
+primitives, and the [learning prototype](resident-learning.md) provides
+profile corrections and evaluated guidance. Learned selection policies,
+always-on hosting and end-user notification integration remain later work.

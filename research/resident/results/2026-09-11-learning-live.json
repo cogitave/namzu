@@ -1,0 +1,117 @@
+{
+	"root": "/tmp/namzu-resident-learning-live-nXqYGQ",
+	"live": true,
+	"model": "muse-spark-1.3-contributor-free",
+	"modelCalls": 2,
+	"scriptedSdkCalls": 0,
+	"tokens": 1098,
+	"idleCalls": 0,
+	"runs": [
+		{
+			"language": "English",
+			"learningRevision": 1,
+			"agendaRevision": 3,
+			"projectedChars": 188,
+			"stopReason": "end_turn",
+			"output": "Ready",
+			"usage": {
+				"promptTokens": 107,
+				"completionTokens": 405,
+				"totalTokens": 512,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 394
+			},
+			"costInfo": {
+				"totalCost": 0,
+				"cacheDiscount": 0,
+				"unpricedTokens": 512
+			},
+			"previousSummary": null
+		},
+		{
+			"language": "Turkish",
+			"learningRevision": 2,
+			"agendaRevision": 7,
+			"projectedChars": 188,
+			"stopReason": "end_turn",
+			"output": "hazır",
+			"usage": {
+				"promptTokens": 117,
+				"completionTokens": 469,
+				"totalTokens": 586,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 457
+			},
+			"costInfo": {
+				"totalCost": 0,
+				"cacheDiscount": 0,
+				"unpricedTokens": 586
+			},
+			"previousSummary": "Readiness was reported in the former preferred language."
+		}
+	],
+	"fingerprints": {
+		"packages/sdk/src/manager/resident/learning.ts": "c84098e3d875273503c2505985bb30246d769178d95addd7a00739559c2cd41f",
+		"packages/sdk/src/manager/resident/host.ts": "d014b01ba766776e4de1b8c6157b7233f0dcf699eac370eb458fe4bc392866ff",
+		"packages/sdk/dist/manager/resident/learning.js": "50ccf1c65822319ec0bf4d1254caa17b2e045bd4aa9e01c29aad01480cd22159",
+		"packages/sdk/dist/manager/resident/host.js": "e9bdc46648c63850dbff4b859ad64bf893652f2a29ad8e1983fd7f92e7ab15e5",
+		"research/resident/learning-live.mjs": "48683dbde833dd505656865927ff644b3b3b0130b60e12c6ebd2898aaf3ca1fe"
+	},
+	"state": {
+		"tenantId": "82c875f1-c539-4e25-9f93-eeb165aa7456",
+		"agentKey": "preference-smoke",
+		"identity": "Report readiness using the current host preference.",
+		"revision": 9,
+		"paused": false,
+		"learning": {
+			"revision": 2,
+			"preferences": [
+				{
+					"key": "language",
+					"value": "Turkish",
+					"evidence": {
+						"key": "language-2",
+						"source": "synthetic host preference",
+						"reason": "Controlled preference correction for the smoke test"
+					}
+				}
+			],
+			"skills": [],
+			"lastChange": {
+				"key": "language-2",
+				"source": "synthetic host preference",
+				"reason": "Controlled preference correction for the smoke test"
+			}
+		},
+		"pursuits": [
+			{
+				"id": "5444ecd2-7426-4790-8fb9-863b034f660c",
+				"state": {
+					"tenantId": "82c875f1-c539-4e25-9f93-eeb165aa7456",
+					"agentKey": "preference-smoke",
+					"pursuitId": "5444ecd2-7426-4790-8fb9-863b034f660c",
+					"identity": "Report readiness using the current host preference.",
+					"objective": "Report readiness in two successive steps.",
+					"revision": 6,
+					"stepsAdmitted": 2,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Readiness was reported using the corrected preference.",
+					"claimId": null
+				}
+			}
+		]
+	},
+	"limitations": "Two-step language-preference smoke only. Host supplies the correction; this does not measure skill learning or general intelligence. No tools, external messages or service installation.",
+	"postRunValidation": {
+		"note": "The live-run fingerprints above are retained as recorded. Afterwards only script formatting and equivalent string concatenation-to-template rewrites changed. Production source/build fingerprints remain identical. The current script passed a separate mock SDK smoke; no additional live model calls were made.",
+		"scriptSha256": "0d6096b2b969e76123662a27500126f6fb9b46adcd2a23d204d166bda5ea79d7",
+		"scriptedSdkCalls": 2,
+		"modelCalls": 0,
+		"idleCalls": 0,
+		"stopReasons": ["end_turn", "end_turn"]
+	}
+}

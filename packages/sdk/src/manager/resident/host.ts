@@ -6,6 +6,7 @@ import {
 	type ResidentSelector,
 	residentObservationSchema,
 } from './initiative.js'
+import { type ResidentLearningState, freezeResidentLearning } from './learning.js'
 import { type ResidentStep, stepResident } from './loop.js'
 import { type ResidentMessageInput, residentMessageInputSchema } from './outbox.js'
 import { ResidentConflictError, type ResidentDecision, residentDecisionSchema } from './store.js'
@@ -25,10 +26,23 @@ export interface ResidentHostRunOptions {
 	readonly maxIdleMs?: number
 }
 
+/** @experimental Immutable context from the agenda snapshot that authorized this admission. */
+export interface ResidentStepContext {
+	readonly agendaRevision: number
+	readonly learning?: ResidentLearningState
+}
+
 /** @experimental A developer callback may bind a different SDK run for each pursuit. */
 export type ResidentPursuitStep = (
 	pursuit: ResidentPursuit,
 	signal: AbortSignal,
+) => ReturnType<ResidentStep>
+
+/** @experimental Context-aware callback; existing two-argument steps remain assignable. */
+export type ResidentContextualStep = (
+	pursuit: ResidentPursuit,
+	signal: AbortSignal,
+	context: ResidentStepContext,
 ) => ReturnType<ResidentStep>
 
 /** @experimental Inspect actual outcomes and resource receipts independently of model prose. */
@@ -50,6 +64,8 @@ export interface ResidentHostOptions {
 	readonly select?: ResidentSelector
 	readonly observe?: ResidentObserver
 	readonly prepareMessage?: ResidentMessageFactory
+	/** Bind approved learning to the exact admission snapshot. Default false. */
+	readonly learning?: boolean
 }
 
 /**
@@ -68,11 +84,13 @@ export class ResidentHost {
 
 	constructor(
 		private readonly agenda: ResidentAgendaStore,
-		private readonly step: ResidentPursuitStep,
+		private readonly step: ResidentContextualStep,
 		options: ResidentHostOptions = {},
 	) {
-		if (options.select && !agenda.executionAt)
-			throw new TypeError('Resident selection requires atomic executionAt support.')
+		if (options.learning !== undefined && typeof options.learning !== 'boolean')
+			throw new TypeError('Resident learning must be explicitly enabled with a boolean.')
+		if ((options.select || options.learning) && !agenda.executionAt)
+			throw new TypeError('Resident selection or learning requires atomic executionAt support.')
 		if (options.observe && !agenda.settleObserved)
 			throw new TypeError('Resident observation requires atomic settleObserved support.')
 		if (options.prepareMessage && !agenda.settleWithMessage)
@@ -210,9 +228,16 @@ export class ResidentHost {
 
 				if (due) {
 					const selected = due
-					const execution = this.options.select
-						? this.agenda.executionAt?.(selected.id, state)
-						: this.agenda.execution(selected.id)
+					const context: ResidentStepContext = Object.freeze({
+						agendaRevision: state.revision,
+						...(this.options.learning && state.learning
+							? { learning: freezeResidentLearning(state.learning) }
+							: {}),
+					})
+					const execution =
+						this.options.select || this.options.learning
+							? this.agenda.executionAt?.(selected.id, state)
+							: this.agenda.execution(selected.id)
 					if (!execution) throw new Error('Resident executionAt support was removed.')
 					const observe = this.options.observe
 					const prepareMessage = this.options.prepareMessage
@@ -275,7 +300,7 @@ export class ResidentHost {
 							: execution
 					const result = await stepResident(
 						observedExecution,
-						(current, abort) => this.step({ ...selected, state: current }, abort),
+						(current, abort) => this.step({ ...selected, state: current }, abort, context),
 						signal,
 					)
 					if (result.status === 'idle')

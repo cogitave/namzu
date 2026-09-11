@@ -66,10 +66,11 @@ payload is refused. Deduplication is by stable identity, not semantic similarity
 
 `ResidentAgendaState.outbox` is an optional immutable list of at most 128
 intents. Acknowledged and cancelled entries remain in that bound to retain
-deduplication evidence. There is no archival or garbage-collection API yet.
-The bounded store therefore needs a retention design before long-lived
-production use. Agenda schema 3 adds these records. Schemas 1 and 2 read without
-invented messages; subsequent writes use schema 3. Older writers refuse the
+deduplication evidence. Explicit [archival](resident-retention.md) can free
+active slots while retaining those records in immutable history. Physical
+garbage collection is not implemented. Schema 3 introduced communication;
+schema 4 adds archival and learning. Schemas 1 and 2 read without invented
+messages; subsequent writes use schema 4. Older writers refuse the
 new schema rather than dropping its delivery state.
 
 ## Delivery and recovery

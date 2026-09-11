@@ -1,0 +1,3435 @@
+{
+	"kind": "resident-lifecycle-deterministic-fixture",
+	"revision": "0c9c98abe8ae8e8476c860febc10cb5f37889aed",
+	"workingTreeDirty": true,
+	"fingerprints": {
+		"packages/sdk/src/manager/resident/agenda.ts": "a3bc47865b3d5da4b303fc9647e4fc5747a39977a56ec76b110d4c256108f02b",
+		"packages/sdk/src/manager/resident/host.ts": "d014b01ba766776e4de1b8c6157b7233f0dcf699eac370eb458fe4bc392866ff",
+		"packages/sdk/src/manager/resident/learning.ts": "c84098e3d875273503c2505985bb30246d769178d95addd7a00739559c2cd41f",
+		"packages/sdk/src/manager/resident/outbox.ts": "a7e4da4c5797631d5c159dbee89a77eb83d4e4074a2b08e433a7ef6f962222a1",
+		"packages/sdk/src/manager/resident/delivery-window.ts": "8e26ecc44fcc53aed7f017a7a0fbd0fb5eef89c58e21c58178f0fd60968e72d6",
+		"packages/sdk/src/eval/experiment.ts": "0320c355f569a89a214420a17720c9e2d0baa19b5cd2dec49e2e101c4bc6b41d",
+		"packages/sdk/src/eval/harness-verification.ts": "65d1a8b3e3663a3b321daacd16c4d43d49eed88be8003fe371187952b5f8b03c",
+		"packages/sdk/dist/manager/resident/agenda.js": "0a3b62fda81b89a95a0ef702b4e2817e805aa8d7628e4c9e14334d9a3bfa1198",
+		"packages/sdk/dist/manager/resident/host.js": "e9bdc46648c63850dbff4b859ad64bf893652f2a29ad8e1983fd7f92e7ab15e5",
+		"packages/sdk/dist/manager/resident/learning.js": "50ccf1c65822319ec0bf4d1254caa17b2e045bd4aa9e01c29aad01480cd22159",
+		"packages/sdk/dist/eval/experiment.js": "46e88455665462b1dec0e850df2905db4d2fe876f656b6bc3a06a0c497845f9b",
+		"packages/sdk/dist/eval/harness-verification.js": "9a96246feddf4f15518e9b35ca2fc334b6afc5c4e82e2536799a7c77dd12786c",
+		"research/resident/lifecycle.mjs": "b3bf386e2dc940793c3b7208792f4d467787f059123ae56abe35d9b6e7a36cbb"
+	},
+	"root": "/tmp/namzu-resident-lifecycle-PKkLJX",
+	"initialPursuits": 1,
+	"additionalUserPrompts": 0,
+	"counts": {
+		"fixtureRuns": 80,
+		"residentSteps": 3,
+		"transportCalls": 1,
+		"networkAttempts": 0,
+		"modelCalls": 0,
+		"modelTokens": 0,
+		"modelCostUsd": 0,
+		"idleModelCalls": 0,
+		"quietTransportCalls": 0
+	},
+	"candidate": {
+		"name": "normalize-fixture-value",
+		"description": "Trim surrounding whitespace from the value in a key=value fixture.",
+		"body": "{\"trimValue\":true,\"uppercase\":false}"
+	},
+	"regressingCandidate": {
+		"name": "normalize-fixture-value",
+		"description": "Trim surrounding whitespace from the value in a key=value fixture.",
+		"body": "{\"trimValue\":true,\"uppercase\":true}"
+	},
+	"verification": {
+		"baselineRevision": "none",
+		"candidateRevision": "08549f29acc604f02ea70bdb4b5035758910f111a8871323f650fbe83297b6d6",
+		"baseline": [
+			{
+				"taskId": "verification/plain",
+				"trial": 0,
+				"conditions": "bf43474b5fd8043876796cfdc0d8fd9f1daf6abafec71d5f6571c77b458cc1d7",
+				"trajectoryId": "verification/baseline/0/de7a9f72d49734e6",
+				"result": {
+					"case": "verification/plain/0",
+					"run": {
+						"output": "{\"value\":\"verification-value-0\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.011599999999987176
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-0\" equals expected \"verification-value-0\".",
+							"details": {
+								"actual": "verification-value-0",
+								"expected": "verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/plain",
+				"trial": 1,
+				"conditions": "f68e0a839e8adebbb3279a6b2b7e530682f62117a621d30af0ade106198c0a7f",
+				"trajectoryId": "verification/baseline/1/7812264366a22d28",
+				"result": {
+					"case": "verification/plain/1",
+					"run": {
+						"output": "{\"value\":\"verification-value-1\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.007699999999999818
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-1\" equals expected \"verification-value-1\".",
+							"details": {
+								"actual": "verification-value-1",
+								"expected": "verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/spaces",
+				"trial": 0,
+				"conditions": "0de4403e4495418cdb9951168a8216724fa70f782b047412a056106012f5198d",
+				"trajectoryId": "verification/baseline/2/136ec1f61971085c",
+				"result": {
+					"case": "verification/spaces/0",
+					"run": {
+						"output": "{\"value\":\"  verification-value-0  \",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0039000000000157797
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"  verification-value-0  \" differs from expected \"verification-value-0\".",
+							"details": {
+								"actual": "  verification-value-0  ",
+								"expected": "verification-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "verification/spaces",
+				"trial": 1,
+				"conditions": "3c02c7b7e3e913f3a2354b88e421c6355b7264253337130f55f8b8933129b689",
+				"trajectoryId": "verification/baseline/3/f9834ebcde17c402",
+				"result": {
+					"case": "verification/spaces/1",
+					"run": {
+						"output": "{\"value\":\"  verification-value-1  \",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.006700000000023465
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"  verification-value-1  \" differs from expected \"verification-value-1\".",
+							"details": {
+								"actual": "  verification-value-1  ",
+								"expected": "verification-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "verification/tabs",
+				"trial": 0,
+				"conditions": "90da557e12359da0c15de407df62729cf70af16a89b9ef18d448777f1338d51f",
+				"trajectoryId": "verification/baseline/4/e00487b999b6e4c4",
+				"result": {
+					"case": "verification/tabs/0",
+					"run": {
+						"output": "{\"value\":\"\\tverification-value-0\\t\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0046999999999854936
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"\\tverification-value-0\\t\" differs from expected \"verification-value-0\".",
+							"details": {
+								"actual": "\tverification-value-0\t",
+								"expected": "verification-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "verification/tabs",
+				"trial": 1,
+				"conditions": "a28bffaf8db9b515fda80e5d69f0af123d17ed93388e12dfd1cf19faeb36d0aa",
+				"trajectoryId": "verification/baseline/5/346eabaacefc2ed5",
+				"result": {
+					"case": "verification/tabs/1",
+					"run": {
+						"output": "{\"value\":\"\\tverification-value-1\\t\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.007300000000014961
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"\\tverification-value-1\\t\" differs from expected \"verification-value-1\".",
+							"details": {
+								"actual": "\tverification-value-1\t",
+								"expected": "verification-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "verification/nonbreaking-space",
+				"trial": 0,
+				"conditions": "33122fdbe66390abeeeffe5e784392e2c35430f694536a33e46a3555a8bbf136",
+				"trajectoryId": "verification/baseline/6/5070059562e63642",
+				"result": {
+					"case": "verification/nonbreaking-space/0",
+					"run": {
+						"output": "{\"value\":\" verification-value-0 \",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.002600000000001046
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \" verification-value-0 \" differs from expected \"verification-value-0\".",
+							"details": {
+								"actual": " verification-value-0 ",
+								"expected": "verification-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "verification/nonbreaking-space",
+				"trial": 1,
+				"conditions": "84f8663642d2b589daf180c860a22a3127ac10bae6d2fa64bab532e6cba113af",
+				"trajectoryId": "verification/baseline/7/1c43151b52f6fb06",
+				"result": {
+					"case": "verification/nonbreaking-space/1",
+					"run": {
+						"output": "{\"value\":\" verification-value-1 \",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.007800000000003138
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \" verification-value-1 \" differs from expected \"verification-value-1\".",
+							"details": {
+								"actual": " verification-value-1 ",
+								"expected": "verification-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "verification/embedded-equals",
+				"trial": 0,
+				"conditions": "67e1671a45cba8d121e52bd3de79f1880d0dc464e49f01979c3034df081e92c4",
+				"trajectoryId": "verification/baseline/8/273699b7d69a846a",
+				"result": {
+					"case": "verification/embedded-equals/0",
+					"run": {
+						"output": "{\"value\":\"verification-value-0=kept\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.005699999999990268
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-0=kept\" equals expected \"verification-value-0=kept\".",
+							"details": {
+								"actual": "verification-value-0=kept",
+								"expected": "verification-value-0=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/embedded-equals",
+				"trial": 1,
+				"conditions": "48ff4740931b6ce64057b5a914f4e3ef07d7679465ffb62ba43b0f15686b5ab1",
+				"trajectoryId": "verification/baseline/9/f2cfcf228d45b3ee",
+				"result": {
+					"case": "verification/embedded-equals/1",
+					"run": {
+						"output": "{\"value\":\"verification-value-1=kept\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.017599999999987403
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-1=kept\" equals expected \"verification-value-1=kept\".",
+							"details": {
+								"actual": "verification-value-1=kept",
+								"expected": "verification-value-1=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			}
+		],
+		"candidate": [
+			{
+				"taskId": "verification/plain",
+				"trial": 0,
+				"conditions": "bf43474b5fd8043876796cfdc0d8fd9f1daf6abafec71d5f6571c77b458cc1d7",
+				"trajectoryId": "verification/candidate/0/54ba54c13a9e4017",
+				"result": {
+					"case": "verification/plain/0",
+					"run": {
+						"output": "{\"value\":\"verification-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.026299999999991996
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-0\" equals expected \"verification-value-0\".",
+							"details": {
+								"actual": "verification-value-0",
+								"expected": "verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/plain",
+				"trial": 1,
+				"conditions": "f68e0a839e8adebbb3279a6b2b7e530682f62117a621d30af0ade106198c0a7f",
+				"trajectoryId": "verification/candidate/1/6ba456bbf2867927",
+				"result": {
+					"case": "verification/plain/1",
+					"run": {
+						"output": "{\"value\":\"verification-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.003200000000020964
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-1\" equals expected \"verification-value-1\".",
+							"details": {
+								"actual": "verification-value-1",
+								"expected": "verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/spaces",
+				"trial": 0,
+				"conditions": "0de4403e4495418cdb9951168a8216724fa70f782b047412a056106012f5198d",
+				"trajectoryId": "verification/candidate/2/54ba54c13a9e4017",
+				"result": {
+					"case": "verification/spaces/0",
+					"run": {
+						"output": "{\"value\":\"verification-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0018999999999778083
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-0\" equals expected \"verification-value-0\".",
+							"details": {
+								"actual": "verification-value-0",
+								"expected": "verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/spaces",
+				"trial": 1,
+				"conditions": "3c02c7b7e3e913f3a2354b88e421c6355b7264253337130f55f8b8933129b689",
+				"trajectoryId": "verification/candidate/3/6ba456bbf2867927",
+				"result": {
+					"case": "verification/spaces/1",
+					"run": {
+						"output": "{\"value\":\"verification-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0013999999999896318
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-1\" equals expected \"verification-value-1\".",
+							"details": {
+								"actual": "verification-value-1",
+								"expected": "verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/tabs",
+				"trial": 0,
+				"conditions": "90da557e12359da0c15de407df62729cf70af16a89b9ef18d448777f1338d51f",
+				"trajectoryId": "verification/candidate/4/54ba54c13a9e4017",
+				"result": {
+					"case": "verification/tabs/0",
+					"run": {
+						"output": "{\"value\":\"verification-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.003899999999987358
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-0\" equals expected \"verification-value-0\".",
+							"details": {
+								"actual": "verification-value-0",
+								"expected": "verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/tabs",
+				"trial": 1,
+				"conditions": "a28bffaf8db9b515fda80e5d69f0af123d17ed93388e12dfd1cf19faeb36d0aa",
+				"trajectoryId": "verification/candidate/5/6ba456bbf2867927",
+				"result": {
+					"case": "verification/tabs/1",
+					"run": {
+						"output": "{\"value\":\"verification-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0014999999999929514
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-1\" equals expected \"verification-value-1\".",
+							"details": {
+								"actual": "verification-value-1",
+								"expected": "verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/nonbreaking-space",
+				"trial": 0,
+				"conditions": "33122fdbe66390abeeeffe5e784392e2c35430f694536a33e46a3555a8bbf136",
+				"trajectoryId": "verification/candidate/6/54ba54c13a9e4017",
+				"result": {
+					"case": "verification/nonbreaking-space/0",
+					"run": {
+						"output": "{\"value\":\"verification-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0012000000000114142
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-0\" equals expected \"verification-value-0\".",
+							"details": {
+								"actual": "verification-value-0",
+								"expected": "verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/nonbreaking-space",
+				"trial": 1,
+				"conditions": "84f8663642d2b589daf180c860a22a3127ac10bae6d2fa64bab532e6cba113af",
+				"trajectoryId": "verification/candidate/7/6ba456bbf2867927",
+				"result": {
+					"case": "verification/nonbreaking-space/1",
+					"run": {
+						"output": "{\"value\":\"verification-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0010000000000047748
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-1\" equals expected \"verification-value-1\".",
+							"details": {
+								"actual": "verification-value-1",
+								"expected": "verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/embedded-equals",
+				"trial": 0,
+				"conditions": "67e1671a45cba8d121e52bd3de79f1880d0dc464e49f01979c3034df081e92c4",
+				"trajectoryId": "verification/candidate/8/f97b0d70b8cb7e59",
+				"result": {
+					"case": "verification/embedded-equals/0",
+					"run": {
+						"output": "{\"value\":\"verification-value-0=kept\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0010999999999796728
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-0=kept\" equals expected \"verification-value-0=kept\".",
+							"details": {
+								"actual": "verification-value-0=kept",
+								"expected": "verification-value-0=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "verification/embedded-equals",
+				"trial": 1,
+				"conditions": "48ff4740931b6ce64057b5a914f4e3ef07d7679465ffb62ba43b0f15686b5ab1",
+				"trajectoryId": "verification/candidate/9/1a442814354df38c",
+				"result": {
+					"case": "verification/embedded-equals/1",
+					"run": {
+						"output": "{\"value\":\"verification-value-1=kept\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.005400000000008731
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"verification-value-1=kept\" equals expected \"verification-value-1=kept\".",
+							"details": {
+								"actual": "verification-value-1=kept",
+								"expected": "verification-value-1=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			}
+		],
+		"attributions": [
+			{
+				"taskId": "verification/spaces",
+				"effect": "improvement",
+				"reason": "Host exact-value trace review: baseline outputs [\"  verification-value-0  \",\"  verification-value-1  \"]; candidate outputs [\"verification-value-0\",\"verification-value-1\"]; expected [\"verification-value-0\",\"verification-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"verification/baseline/2/136ec1f61971085c",
+					"verification/baseline/3/f9834ebcde17c402"
+				],
+				"candidateTrajectories": [
+					"verification/candidate/2/54ba54c13a9e4017",
+					"verification/candidate/3/6ba456bbf2867927"
+				]
+			},
+			{
+				"taskId": "verification/tabs",
+				"effect": "improvement",
+				"reason": "Host exact-value trace review: baseline outputs [\"\\tverification-value-0\\t\",\"\\tverification-value-1\\t\"]; candidate outputs [\"verification-value-0\",\"verification-value-1\"]; expected [\"verification-value-0\",\"verification-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"verification/baseline/4/e00487b999b6e4c4",
+					"verification/baseline/5/346eabaacefc2ed5"
+				],
+				"candidateTrajectories": [
+					"verification/candidate/4/54ba54c13a9e4017",
+					"verification/candidate/5/6ba456bbf2867927"
+				]
+			},
+			{
+				"taskId": "verification/nonbreaking-space",
+				"effect": "improvement",
+				"reason": "Host exact-value trace review: baseline outputs [\" verification-value-0 \",\" verification-value-1 \"]; candidate outputs [\"verification-value-0\",\"verification-value-1\"]; expected [\"verification-value-0\",\"verification-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"verification/baseline/6/5070059562e63642",
+					"verification/baseline/7/1c43151b52f6fb06"
+				],
+				"candidateTrajectories": [
+					"verification/candidate/6/54ba54c13a9e4017",
+					"verification/candidate/7/6ba456bbf2867927"
+				]
+			}
+		]
+	},
+	"confirmation": {
+		"baselineRevision": "none",
+		"candidateRevision": "08549f29acc604f02ea70bdb4b5035758910f111a8871323f650fbe83297b6d6",
+		"baseline": [
+			{
+				"taskId": "confirmation/plain",
+				"trial": 0,
+				"conditions": "a7e9fecf5bedf1f5f0344c6b62e14c188d530cde998586ca324d450b2d20b995",
+				"trajectoryId": "confirmation/baseline/0/45c20b6f5d53e51f",
+				"result": {
+					"case": "confirmation/plain/0",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-0\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0023999999999944066
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-0\" equals expected \"confirmation-value-0\".",
+							"details": {
+								"actual": "confirmation-value-0",
+								"expected": "confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/plain",
+				"trial": 1,
+				"conditions": "e8c2cd4ca1945d1dbd18ede98b2c46d66784f2f8419452dca4dc66239c54616a",
+				"trajectoryId": "confirmation/baseline/1/a4176ea0d47de171",
+				"result": {
+					"case": "confirmation/plain/1",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-1\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011999999999829924
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-1\" equals expected \"confirmation-value-1\".",
+							"details": {
+								"actual": "confirmation-value-1",
+								"expected": "confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/spaces",
+				"trial": 0,
+				"conditions": "be75afb7da351bd43ed4f91099ed6a76c062535dc44c198b847d64f33a4dee21",
+				"trajectoryId": "confirmation/baseline/2/49488d8702c55510",
+				"result": {
+					"case": "confirmation/spaces/0",
+					"run": {
+						"output": "{\"value\":\"  confirmation-value-0  \",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0007999999999981355
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"  confirmation-value-0  \" differs from expected \"confirmation-value-0\".",
+							"details": {
+								"actual": "  confirmation-value-0  ",
+								"expected": "confirmation-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "confirmation/spaces",
+				"trial": 1,
+				"conditions": "0b677806e54818ce6173054fb7cf5d03420f29dc9c69438b4e741e908dd2dbe5",
+				"trajectoryId": "confirmation/baseline/3/4b94394b4a606c8a",
+				"result": {
+					"case": "confirmation/spaces/1",
+					"run": {
+						"output": "{\"value\":\"  confirmation-value-1  \",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0005999999999914962
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"  confirmation-value-1  \" differs from expected \"confirmation-value-1\".",
+							"details": {
+								"actual": "  confirmation-value-1  ",
+								"expected": "confirmation-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "confirmation/tabs",
+				"trial": 0,
+				"conditions": "786e888fb816bf003b69d96d1c5742b0278192c7a2a1b5d0df3972f5e3b21d41",
+				"trajectoryId": "confirmation/baseline/4/8eb38a9db8390775",
+				"result": {
+					"case": "confirmation/tabs/0",
+					"run": {
+						"output": "{\"value\":\"\\tconfirmation-value-0\\t\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0006999999999948159
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"\\tconfirmation-value-0\\t\" differs from expected \"confirmation-value-0\".",
+							"details": {
+								"actual": "\tconfirmation-value-0\t",
+								"expected": "confirmation-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "confirmation/tabs",
+				"trial": 1,
+				"conditions": "a58e9ad9e156b84e9c6045c2df90c39ac46d5f53ed1f237e9b42b517db09712f",
+				"trajectoryId": "confirmation/baseline/5/d83634844b40c24f",
+				"result": {
+					"case": "confirmation/tabs/1",
+					"run": {
+						"output": "{\"value\":\"\\tconfirmation-value-1\\t\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0006000000000199179
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"\\tconfirmation-value-1\\t\" differs from expected \"confirmation-value-1\".",
+							"details": {
+								"actual": "\tconfirmation-value-1\t",
+								"expected": "confirmation-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "confirmation/nonbreaking-space",
+				"trial": 0,
+				"conditions": "b6de9c8bf6cb1a813990dc4ddcbb249d7fdda854f7795860dba2e652db3d541a",
+				"trajectoryId": "confirmation/baseline/6/39af75659c762228",
+				"result": {
+					"case": "confirmation/nonbreaking-space/0",
+					"run": {
+						"output": "{\"value\":\" confirmation-value-0 \",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0007999999999981355
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \" confirmation-value-0 \" differs from expected \"confirmation-value-0\".",
+							"details": {
+								"actual": " confirmation-value-0 ",
+								"expected": "confirmation-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "confirmation/nonbreaking-space",
+				"trial": 1,
+				"conditions": "cbb98071d97da26483e4f6c64f5e5f3da1937114e070cfb205ef907317630164",
+				"trajectoryId": "confirmation/baseline/7/41c5541928a6faaa",
+				"result": {
+					"case": "confirmation/nonbreaking-space/1",
+					"run": {
+						"output": "{\"value\":\" confirmation-value-1 \",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0006000000000199179
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \" confirmation-value-1 \" differs from expected \"confirmation-value-1\".",
+							"details": {
+								"actual": " confirmation-value-1 ",
+								"expected": "confirmation-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "confirmation/embedded-equals",
+				"trial": 0,
+				"conditions": "21191650eda16ae4bb875b39e7eb7f7aab4835078c329f4157f259d67bc2fd99",
+				"trajectoryId": "confirmation/baseline/8/d937641cd19662dd",
+				"result": {
+					"case": "confirmation/embedded-equals/0",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-0=kept\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0006999999999948159
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-0=kept\" equals expected \"confirmation-value-0=kept\".",
+							"details": {
+								"actual": "confirmation-value-0=kept",
+								"expected": "confirmation-value-0=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/embedded-equals",
+				"trial": 1,
+				"conditions": "23794e22247fa720a3b39cc151ce98a7be9a7d51344f695d38a3b015f30cc5ab",
+				"trajectoryId": "confirmation/baseline/9/2e610d6316d7596b",
+				"result": {
+					"case": "confirmation/embedded-equals/1",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-1=kept\",\"appliedRule\":{}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0006000000000199179
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-1=kept\" equals expected \"confirmation-value-1=kept\".",
+							"details": {
+								"actual": "confirmation-value-1=kept",
+								"expected": "confirmation-value-1=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			}
+		],
+		"candidate": [
+			{
+				"taskId": "confirmation/plain",
+				"trial": 0,
+				"conditions": "a7e9fecf5bedf1f5f0344c6b62e14c188d530cde998586ca324d450b2d20b995",
+				"trajectoryId": "confirmation/candidate/0/89368851e5c8e405",
+				"result": {
+					"case": "confirmation/plain/0",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0023999999999944066
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-0\" equals expected \"confirmation-value-0\".",
+							"details": {
+								"actual": "confirmation-value-0",
+								"expected": "confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/plain",
+				"trial": 1,
+				"conditions": "e8c2cd4ca1945d1dbd18ede98b2c46d66784f2f8419452dca4dc66239c54616a",
+				"trajectoryId": "confirmation/candidate/1/e3e9327843e890bd",
+				"result": {
+					"case": "confirmation/plain/1",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0013999999999896318
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-1\" equals expected \"confirmation-value-1\".",
+							"details": {
+								"actual": "confirmation-value-1",
+								"expected": "confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/spaces",
+				"trial": 0,
+				"conditions": "be75afb7da351bd43ed4f91099ed6a76c062535dc44c198b847d64f33a4dee21",
+				"trajectoryId": "confirmation/candidate/2/89368851e5c8e405",
+				"result": {
+					"case": "confirmation/spaces/0",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011000000000080945
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-0\" equals expected \"confirmation-value-0\".",
+							"details": {
+								"actual": "confirmation-value-0",
+								"expected": "confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/spaces",
+				"trial": 1,
+				"conditions": "0b677806e54818ce6173054fb7cf5d03420f29dc9c69438b4e741e908dd2dbe5",
+				"trajectoryId": "confirmation/candidate/3/e3e9327843e890bd",
+				"result": {
+					"case": "confirmation/spaces/1",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011000000000080945
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-1\" equals expected \"confirmation-value-1\".",
+							"details": {
+								"actual": "confirmation-value-1",
+								"expected": "confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/tabs",
+				"trial": 0,
+				"conditions": "786e888fb816bf003b69d96d1c5742b0278192c7a2a1b5d0df3972f5e3b21d41",
+				"trajectoryId": "confirmation/candidate/4/89368851e5c8e405",
+				"result": {
+					"case": "confirmation/tabs/0",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0010999999999796728
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-0\" equals expected \"confirmation-value-0\".",
+							"details": {
+								"actual": "confirmation-value-0",
+								"expected": "confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/tabs",
+				"trial": 1,
+				"conditions": "a58e9ad9e156b84e9c6045c2df90c39ac46d5f53ed1f237e9b42b517db09712f",
+				"trajectoryId": "confirmation/candidate/5/e3e9327843e890bd",
+				"result": {
+					"case": "confirmation/tabs/1",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011000000000080945
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-1\" equals expected \"confirmation-value-1\".",
+							"details": {
+								"actual": "confirmation-value-1",
+								"expected": "confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/nonbreaking-space",
+				"trial": 0,
+				"conditions": "b6de9c8bf6cb1a813990dc4ddcbb249d7fdda854f7795860dba2e652db3d541a",
+				"trajectoryId": "confirmation/candidate/6/89368851e5c8e405",
+				"result": {
+					"case": "confirmation/nonbreaking-space/0",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0010000000000047748
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-0\" equals expected \"confirmation-value-0\".",
+							"details": {
+								"actual": "confirmation-value-0",
+								"expected": "confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/nonbreaking-space",
+				"trial": 1,
+				"conditions": "cbb98071d97da26483e4f6c64f5e5f3da1937114e070cfb205ef907317630164",
+				"trajectoryId": "confirmation/candidate/7/e3e9327843e890bd",
+				"result": {
+					"case": "confirmation/nonbreaking-space/1",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011000000000080945
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-1\" equals expected \"confirmation-value-1\".",
+							"details": {
+								"actual": "confirmation-value-1",
+								"expected": "confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/embedded-equals",
+				"trial": 0,
+				"conditions": "21191650eda16ae4bb875b39e7eb7f7aab4835078c329f4157f259d67bc2fd99",
+				"trajectoryId": "confirmation/candidate/8/d47e9db5d1d5ef17",
+				"result": {
+					"case": "confirmation/embedded-equals/0",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-0=kept\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011000000000080945
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-0=kept\" equals expected \"confirmation-value-0=kept\".",
+							"details": {
+								"actual": "confirmation-value-0=kept",
+								"expected": "confirmation-value-0=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "confirmation/embedded-equals",
+				"trial": 1,
+				"conditions": "23794e22247fa720a3b39cc151ce98a7be9a7d51344f695d38a3b015f30cc5ab",
+				"trajectoryId": "confirmation/candidate/9/f407fce59ae4ac4b",
+				"result": {
+					"case": "confirmation/embedded-equals/1",
+					"run": {
+						"output": "{\"value\":\"confirmation-value-1=kept\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0013999999999896318
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"confirmation-value-1=kept\" equals expected \"confirmation-value-1=kept\".",
+							"details": {
+								"actual": "confirmation-value-1=kept",
+								"expected": "confirmation-value-1=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			}
+		],
+		"attributions": [
+			{
+				"taskId": "confirmation/spaces",
+				"effect": "improvement",
+				"reason": "Host exact-value trace review: baseline outputs [\"  confirmation-value-0  \",\"  confirmation-value-1  \"]; candidate outputs [\"confirmation-value-0\",\"confirmation-value-1\"]; expected [\"confirmation-value-0\",\"confirmation-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"confirmation/baseline/2/49488d8702c55510",
+					"confirmation/baseline/3/4b94394b4a606c8a"
+				],
+				"candidateTrajectories": [
+					"confirmation/candidate/2/89368851e5c8e405",
+					"confirmation/candidate/3/e3e9327843e890bd"
+				]
+			},
+			{
+				"taskId": "confirmation/tabs",
+				"effect": "improvement",
+				"reason": "Host exact-value trace review: baseline outputs [\"\\tconfirmation-value-0\\t\",\"\\tconfirmation-value-1\\t\"]; candidate outputs [\"confirmation-value-0\",\"confirmation-value-1\"]; expected [\"confirmation-value-0\",\"confirmation-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"confirmation/baseline/4/8eb38a9db8390775",
+					"confirmation/baseline/5/d83634844b40c24f"
+				],
+				"candidateTrajectories": [
+					"confirmation/candidate/4/89368851e5c8e405",
+					"confirmation/candidate/5/e3e9327843e890bd"
+				]
+			},
+			{
+				"taskId": "confirmation/nonbreaking-space",
+				"effect": "improvement",
+				"reason": "Host exact-value trace review: baseline outputs [\" confirmation-value-0 \",\" confirmation-value-1 \"]; candidate outputs [\"confirmation-value-0\",\"confirmation-value-1\"]; expected [\"confirmation-value-0\",\"confirmation-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"confirmation/baseline/6/39af75659c762228",
+					"confirmation/baseline/7/41c5541928a6faaa"
+				],
+				"candidateTrajectories": [
+					"confirmation/candidate/6/89368851e5c8e405",
+					"confirmation/candidate/7/e3e9327843e890bd"
+				]
+			}
+		]
+	},
+	"review": {
+		"decision": "accept",
+		"reason": "Both rounds support improvement without observed regression; confirmation improves the paired pass rate.",
+		"verification": {
+			"tasks": [
+				{
+					"taskId": "verification/plain",
+					"status": "stable-success",
+					"baselinePasses": 2,
+					"candidatePasses": 2,
+					"trials": 2
+				},
+				{
+					"taskId": "verification/spaces",
+					"status": "recovered",
+					"baselinePasses": 0,
+					"candidatePasses": 2,
+					"trials": 2
+				},
+				{
+					"taskId": "verification/tabs",
+					"status": "recovered",
+					"baselinePasses": 0,
+					"candidatePasses": 2,
+					"trials": 2
+				},
+				{
+					"taskId": "verification/nonbreaking-space",
+					"status": "recovered",
+					"baselinePasses": 0,
+					"candidatePasses": 2,
+					"trials": 2
+				},
+				{
+					"taskId": "verification/embedded-equals",
+					"status": "stable-success",
+					"baselinePasses": 2,
+					"candidatePasses": 2,
+					"trials": 2
+				}
+			],
+			"positiveEvidence": [
+				"verification/spaces",
+				"verification/tabs",
+				"verification/nonbreaking-space"
+			],
+			"regressions": [],
+			"unresolved": [],
+			"usage": {
+				"rollouts": 20,
+				"tokens": 0,
+				"costUsd": 0,
+				"durationMs": 0.12249999999997385
+			},
+			"passRateDelta": 0.6
+		},
+		"confirmation": {
+			"tasks": [
+				{
+					"taskId": "confirmation/plain",
+					"status": "stable-success",
+					"baselinePasses": 2,
+					"candidatePasses": 2,
+					"trials": 2
+				},
+				{
+					"taskId": "confirmation/spaces",
+					"status": "recovered",
+					"baselinePasses": 0,
+					"candidatePasses": 2,
+					"trials": 2
+				},
+				{
+					"taskId": "confirmation/tabs",
+					"status": "recovered",
+					"baselinePasses": 0,
+					"candidatePasses": 2,
+					"trials": 2
+				},
+				{
+					"taskId": "confirmation/nonbreaking-space",
+					"status": "recovered",
+					"baselinePasses": 0,
+					"candidatePasses": 2,
+					"trials": 2
+				},
+				{
+					"taskId": "confirmation/embedded-equals",
+					"status": "stable-success",
+					"baselinePasses": 2,
+					"candidatePasses": 2,
+					"trials": 2
+				}
+			],
+			"positiveEvidence": [
+				"confirmation/spaces",
+				"confirmation/tabs",
+				"confirmation/nonbreaking-space"
+			],
+			"regressions": [],
+			"unresolved": [],
+			"usage": {
+				"rollouts": 20,
+				"tokens": 0,
+				"costUsd": 0,
+				"durationMs": 0.021800000000013142
+			},
+			"passRateDelta": 0.6
+		}
+	},
+	"regressionVerification": {
+		"baselineRevision": "08549f29acc604f02ea70bdb4b5035758910f111a8871323f650fbe83297b6d6",
+		"candidateRevision": "2e7ebd7bf0207657138ce8bb6f6c78be9edc50646d7a3e00e25c64293a1481e6",
+		"baseline": [
+			{
+				"taskId": "regression-verification/plain",
+				"trial": 0,
+				"conditions": "d86213ed822d4bb3ca16a205262907f82f08de7db4eeaf69bb771cc6b112055d",
+				"trajectoryId": "regression-verification/baseline/0/ae80f6939bb74ee7",
+				"result": {
+					"case": "regression-verification/plain/0",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.005699999999933425
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-0\" equals expected \"regression-verification-value-0\".",
+							"details": {
+								"actual": "regression-verification-value-0",
+								"expected": "regression-verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/plain",
+				"trial": 1,
+				"conditions": "be569a7c5eaf23d14fc7f168c5d8885fa20d5961c956c406781893c62752ef8f",
+				"trajectoryId": "regression-verification/baseline/1/62b660feb34b035e",
+				"result": {
+					"case": "regression-verification/plain/1",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0020999999999276042
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-1\" equals expected \"regression-verification-value-1\".",
+							"details": {
+								"actual": "regression-verification-value-1",
+								"expected": "regression-verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/spaces",
+				"trial": 0,
+				"conditions": "fe0b3f80096a1037d366df7b2f4a921d06b2cb34057264694cb5f22f85062b0f",
+				"trajectoryId": "regression-verification/baseline/2/ae80f6939bb74ee7",
+				"result": {
+					"case": "regression-verification/spaces/0",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0015000000000782165
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-0\" equals expected \"regression-verification-value-0\".",
+							"details": {
+								"actual": "regression-verification-value-0",
+								"expected": "regression-verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/spaces",
+				"trial": 1,
+				"conditions": "0bc3431671bb0bf1a583ff2de6218b031936d44b2795dc4a2fc237b24fab8395",
+				"trajectoryId": "regression-verification/baseline/3/62b660feb34b035e",
+				"result": {
+					"case": "regression-verification/spaces/1",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0029999999999290594
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-1\" equals expected \"regression-verification-value-1\".",
+							"details": {
+								"actual": "regression-verification-value-1",
+								"expected": "regression-verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/tabs",
+				"trial": 0,
+				"conditions": "2a6a5b579ddef369b4fe797775ecfb2d42e741d17b17293cd834b4c3eea6c4ec",
+				"trajectoryId": "regression-verification/baseline/4/ae80f6939bb74ee7",
+				"result": {
+					"case": "regression-verification/tabs/0",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.004899999999906868
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-0\" equals expected \"regression-verification-value-0\".",
+							"details": {
+								"actual": "regression-verification-value-0",
+								"expected": "regression-verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/tabs",
+				"trial": 1,
+				"conditions": "cd016d67a7d039bcc996cfdf5c7de98d9d3ad374d0e3869a7e21278fc235aaf6",
+				"trajectoryId": "regression-verification/baseline/5/62b660feb34b035e",
+				"result": {
+					"case": "regression-verification/tabs/1",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.002300000000104774
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-1\" equals expected \"regression-verification-value-1\".",
+							"details": {
+								"actual": "regression-verification-value-1",
+								"expected": "regression-verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/nonbreaking-space",
+				"trial": 0,
+				"conditions": "c842402937f72cc486f3a9d5268aea4690ddb95934d42afd49c0e4c7425c0f13",
+				"trajectoryId": "regression-verification/baseline/6/ae80f6939bb74ee7",
+				"result": {
+					"case": "regression-verification/nonbreaking-space/0",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0015000000000782165
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-0\" equals expected \"regression-verification-value-0\".",
+							"details": {
+								"actual": "regression-verification-value-0",
+								"expected": "regression-verification-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/nonbreaking-space",
+				"trial": 1,
+				"conditions": "09398c1a35939c9312fe1d619b67308c551b569a30ea1c692b301be748951df8",
+				"trajectoryId": "regression-verification/baseline/7/62b660feb34b035e",
+				"result": {
+					"case": "regression-verification/nonbreaking-space/1",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-1\" equals expected \"regression-verification-value-1\".",
+							"details": {
+								"actual": "regression-verification-value-1",
+								"expected": "regression-verification-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/embedded-equals",
+				"trial": 0,
+				"conditions": "573f445006cef5980206ed40850e7b73be58416e2ac36c08a9bd0d28f13fdfca",
+				"trajectoryId": "regression-verification/baseline/8/fc844974eeb8607f",
+				"result": {
+					"case": "regression-verification/embedded-equals/0",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-0=kept\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0028999999999541615
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-0=kept\" equals expected \"regression-verification-value-0=kept\".",
+							"details": {
+								"actual": "regression-verification-value-0=kept",
+								"expected": "regression-verification-value-0=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-verification/embedded-equals",
+				"trial": 1,
+				"conditions": "24085fc535649bf12905fff0747a5e5cbf573d85435884f59ffc06edd0c5989b",
+				"trajectoryId": "regression-verification/baseline/9/bb180ab594c3ec4b",
+				"result": {
+					"case": "regression-verification/embedded-equals/1",
+					"run": {
+						"output": "{\"value\":\"regression-verification-value-1=kept\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-verification-value-1=kept\" equals expected \"regression-verification-value-1=kept\".",
+							"details": {
+								"actual": "regression-verification-value-1=kept",
+								"expected": "regression-verification-value-1=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			}
+		],
+		"candidate": [
+			{
+				"taskId": "regression-verification/plain",
+				"trial": 0,
+				"conditions": "d86213ed822d4bb3ca16a205262907f82f08de7db4eeaf69bb771cc6b112055d",
+				"trajectoryId": "regression-verification/candidate/0/9b76db9ab5ffb7e6",
+				"result": {
+					"case": "regression-verification/plain/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0038999999999305146
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-0\" differs from expected \"regression-verification-value-0\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-0",
+								"expected": "regression-verification-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/plain",
+				"trial": 1,
+				"conditions": "be569a7c5eaf23d14fc7f168c5d8885fa20d5961c956c406781893c62752ef8f",
+				"trajectoryId": "regression-verification/candidate/1/d08bcdadb604fc41",
+				"result": {
+					"case": "regression-verification/plain/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0014999999998508429
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-1\" differs from expected \"regression-verification-value-1\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-1",
+								"expected": "regression-verification-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/spaces",
+				"trial": 0,
+				"conditions": "fe0b3f80096a1037d366df7b2f4a921d06b2cb34057264694cb5f22f85062b0f",
+				"trajectoryId": "regression-verification/candidate/2/9b76db9ab5ffb7e6",
+				"result": {
+					"case": "regression-verification/spaces/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0027999999999792635
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-0\" differs from expected \"regression-verification-value-0\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-0",
+								"expected": "regression-verification-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/spaces",
+				"trial": 1,
+				"conditions": "0bc3431671bb0bf1a583ff2de6218b031936d44b2795dc4a2fc237b24fab8395",
+				"trajectoryId": "regression-verification/candidate/3/d08bcdadb604fc41",
+				"result": {
+					"case": "regression-verification/spaces/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0012000000001535227
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-1\" differs from expected \"regression-verification-value-1\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-1",
+								"expected": "regression-verification-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/tabs",
+				"trial": 0,
+				"conditions": "2a6a5b579ddef369b4fe797775ecfb2d42e741d17b17293cd834b4c3eea6c4ec",
+				"trajectoryId": "regression-verification/candidate/4/9b76db9ab5ffb7e6",
+				"result": {
+					"case": "regression-verification/tabs/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-0\" differs from expected \"regression-verification-value-0\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-0",
+								"expected": "regression-verification-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/tabs",
+				"trial": 1,
+				"conditions": "cd016d67a7d039bcc996cfdf5c7de98d9d3ad374d0e3869a7e21278fc235aaf6",
+				"trajectoryId": "regression-verification/candidate/5/d08bcdadb604fc41",
+				"result": {
+					"case": "regression-verification/tabs/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0027000000000043656
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-1\" differs from expected \"regression-verification-value-1\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-1",
+								"expected": "regression-verification-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/nonbreaking-space",
+				"trial": 0,
+				"conditions": "c842402937f72cc486f3a9d5268aea4690ddb95934d42afd49c0e4c7425c0f13",
+				"trajectoryId": "regression-verification/candidate/6/9b76db9ab5ffb7e6",
+				"result": {
+					"case": "regression-verification/nonbreaking-space/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011000000001786248
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-0\" differs from expected \"regression-verification-value-0\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-0",
+								"expected": "regression-verification-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/nonbreaking-space",
+				"trial": 1,
+				"conditions": "09398c1a35939c9312fe1d619b67308c551b569a30ea1c692b301be748951df8",
+				"trajectoryId": "regression-verification/candidate/7/d08bcdadb604fc41",
+				"result": {
+					"case": "regression-verification/nonbreaking-space/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011000000001786248
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-1\" differs from expected \"regression-verification-value-1\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-1",
+								"expected": "regression-verification-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/embedded-equals",
+				"trial": 0,
+				"conditions": "573f445006cef5980206ed40850e7b73be58416e2ac36c08a9bd0d28f13fdfca",
+				"trajectoryId": "regression-verification/candidate/8/6e44590f10736e2f",
+				"result": {
+					"case": "regression-verification/embedded-equals/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-0=KEPT\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0027000000000043656
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-0=KEPT\" differs from expected \"regression-verification-value-0=kept\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-0=KEPT",
+								"expected": "regression-verification-value-0=kept"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-verification/embedded-equals",
+				"trial": 1,
+				"conditions": "24085fc535649bf12905fff0747a5e5cbf573d85435884f59ffc06edd0c5989b",
+				"trajectoryId": "regression-verification/candidate/9/b4c17411241b08f0",
+				"result": {
+					"case": "regression-verification/embedded-equals/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-VERIFICATION-VALUE-1=KEPT\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0011000000001786248
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-VERIFICATION-VALUE-1=KEPT\" differs from expected \"regression-verification-value-1=kept\".",
+							"details": {
+								"actual": "REGRESSION-VERIFICATION-VALUE-1=KEPT",
+								"expected": "regression-verification-value-1=kept"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			}
+		],
+		"attributions": [
+			{
+				"taskId": "regression-verification/plain",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-verification-value-0\",\"regression-verification-value-1\"]; candidate outputs [\"REGRESSION-VERIFICATION-VALUE-0\",\"REGRESSION-VERIFICATION-VALUE-1\"]; expected [\"regression-verification-value-0\",\"regression-verification-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-verification/baseline/0/ae80f6939bb74ee7",
+					"regression-verification/baseline/1/62b660feb34b035e"
+				],
+				"candidateTrajectories": [
+					"regression-verification/candidate/0/9b76db9ab5ffb7e6",
+					"regression-verification/candidate/1/d08bcdadb604fc41"
+				]
+			},
+			{
+				"taskId": "regression-verification/spaces",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-verification-value-0\",\"regression-verification-value-1\"]; candidate outputs [\"REGRESSION-VERIFICATION-VALUE-0\",\"REGRESSION-VERIFICATION-VALUE-1\"]; expected [\"regression-verification-value-0\",\"regression-verification-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-verification/baseline/2/ae80f6939bb74ee7",
+					"regression-verification/baseline/3/62b660feb34b035e"
+				],
+				"candidateTrajectories": [
+					"regression-verification/candidate/2/9b76db9ab5ffb7e6",
+					"regression-verification/candidate/3/d08bcdadb604fc41"
+				]
+			},
+			{
+				"taskId": "regression-verification/tabs",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-verification-value-0\",\"regression-verification-value-1\"]; candidate outputs [\"REGRESSION-VERIFICATION-VALUE-0\",\"REGRESSION-VERIFICATION-VALUE-1\"]; expected [\"regression-verification-value-0\",\"regression-verification-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-verification/baseline/4/ae80f6939bb74ee7",
+					"regression-verification/baseline/5/62b660feb34b035e"
+				],
+				"candidateTrajectories": [
+					"regression-verification/candidate/4/9b76db9ab5ffb7e6",
+					"regression-verification/candidate/5/d08bcdadb604fc41"
+				]
+			},
+			{
+				"taskId": "regression-verification/nonbreaking-space",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-verification-value-0\",\"regression-verification-value-1\"]; candidate outputs [\"REGRESSION-VERIFICATION-VALUE-0\",\"REGRESSION-VERIFICATION-VALUE-1\"]; expected [\"regression-verification-value-0\",\"regression-verification-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-verification/baseline/6/ae80f6939bb74ee7",
+					"regression-verification/baseline/7/62b660feb34b035e"
+				],
+				"candidateTrajectories": [
+					"regression-verification/candidate/6/9b76db9ab5ffb7e6",
+					"regression-verification/candidate/7/d08bcdadb604fc41"
+				]
+			},
+			{
+				"taskId": "regression-verification/embedded-equals",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-verification-value-0=kept\",\"regression-verification-value-1=kept\"]; candidate outputs [\"REGRESSION-VERIFICATION-VALUE-0=KEPT\",\"REGRESSION-VERIFICATION-VALUE-1=KEPT\"]; expected [\"regression-verification-value-0=kept\",\"regression-verification-value-1=kept\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-verification/baseline/8/fc844974eeb8607f",
+					"regression-verification/baseline/9/bb180ab594c3ec4b"
+				],
+				"candidateTrajectories": [
+					"regression-verification/candidate/8/6e44590f10736e2f",
+					"regression-verification/candidate/9/b4c17411241b08f0"
+				]
+			}
+		]
+	},
+	"regressionConfirmation": {
+		"baselineRevision": "08549f29acc604f02ea70bdb4b5035758910f111a8871323f650fbe83297b6d6",
+		"candidateRevision": "2e7ebd7bf0207657138ce8bb6f6c78be9edc50646d7a3e00e25c64293a1481e6",
+		"baseline": [
+			{
+				"taskId": "regression-confirmation/plain",
+				"trial": 0,
+				"conditions": "ee759b1c968a45e44b2b8cd499b2dbb749f32401e251d919a9d02a146fe02ce1",
+				"trajectoryId": "regression-confirmation/baseline/0/99b1cde53234c11a",
+				"result": {
+					"case": "regression-confirmation/plain/0",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0037999999999556167
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-0\" equals expected \"regression-confirmation-value-0\".",
+							"details": {
+								"actual": "regression-confirmation-value-0",
+								"expected": "regression-confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/plain",
+				"trial": 1,
+				"conditions": "7cb9a73057de1fb19f65997f0ed5049b78eda68d3bdf3b929ddd820e0df92fe6",
+				"trajectoryId": "regression-confirmation/baseline/1/556397b6ff7139f8",
+				"result": {
+					"case": "regression-confirmation/plain/1",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0019999999999527063
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-1\" equals expected \"regression-confirmation-value-1\".",
+							"details": {
+								"actual": "regression-confirmation-value-1",
+								"expected": "regression-confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/spaces",
+				"trial": 0,
+				"conditions": "7cb1648b0cb5834540b8350d6e65624c71df16eeac9dd33c80f2745b8f81bbbc",
+				"trajectoryId": "regression-confirmation/baseline/2/99b1cde53234c11a",
+				"result": {
+					"case": "regression-confirmation/spaces/0",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0030999999999039574
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-0\" equals expected \"regression-confirmation-value-0\".",
+							"details": {
+								"actual": "regression-confirmation-value-0",
+								"expected": "regression-confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/spaces",
+				"trial": 1,
+				"conditions": "0d48dd46fe78c5b335d99acfbb42f20906878244111084091c90532e35419cab",
+				"trajectoryId": "regression-confirmation/baseline/3/556397b6ff7139f8",
+				"result": {
+					"case": "regression-confirmation/spaces/1",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001299999999901047
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-1\" equals expected \"regression-confirmation-value-1\".",
+							"details": {
+								"actual": "regression-confirmation-value-1",
+								"expected": "regression-confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/tabs",
+				"trial": 0,
+				"conditions": "39f1596104eb0078f92ab309e99803872e18902d0793b3f99b2e808f90fd927b",
+				"trajectoryId": "regression-confirmation/baseline/4/99b1cde53234c11a",
+				"result": {
+					"case": "regression-confirmation/tabs/0",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0009999999999763531
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-0\" equals expected \"regression-confirmation-value-0\".",
+							"details": {
+								"actual": "regression-confirmation-value-0",
+								"expected": "regression-confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/tabs",
+				"trial": 1,
+				"conditions": "79f534ef2ed3b666f6bb681c4cb4527e3176e72ee86d4fedf7d02a997f66bac5",
+				"trajectoryId": "regression-confirmation/baseline/5/556397b6ff7139f8",
+				"result": {
+					"case": "regression-confirmation/tabs/1",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-1\" equals expected \"regression-confirmation-value-1\".",
+							"details": {
+								"actual": "regression-confirmation-value-1",
+								"expected": "regression-confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/nonbreaking-space",
+				"trial": 0,
+				"conditions": "942c53d2d6d3e68b77945a387330f352746194799ead5f4a17429b123608f26a",
+				"trajectoryId": "regression-confirmation/baseline/6/99b1cde53234c11a",
+				"result": {
+					"case": "regression-confirmation/nonbreaking-space/0",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-0\" equals expected \"regression-confirmation-value-0\".",
+							"details": {
+								"actual": "regression-confirmation-value-0",
+								"expected": "regression-confirmation-value-0"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/nonbreaking-space",
+				"trial": 1,
+				"conditions": "450b303354d0c024109b678428bb61dfb4101e592fec806ff3a43917ba485c61",
+				"trajectoryId": "regression-confirmation/baseline/7/556397b6ff7139f8",
+				"result": {
+					"case": "regression-confirmation/nonbreaking-space/1",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.003000000000156433
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-1\" equals expected \"regression-confirmation-value-1\".",
+							"details": {
+								"actual": "regression-confirmation-value-1",
+								"expected": "regression-confirmation-value-1"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/embedded-equals",
+				"trial": 0,
+				"conditions": "456725693b9caaa62baa0bcccdf95576270be54090bd4165fbcc37a44167fad0",
+				"trajectoryId": "regression-confirmation/baseline/8/e4afccec04f60c49",
+				"result": {
+					"case": "regression-confirmation/embedded-equals/0",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-0=kept\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-0=kept\" equals expected \"regression-confirmation-value-0=kept\".",
+							"details": {
+								"actual": "regression-confirmation-value-0=kept",
+								"expected": "regression-confirmation-value-0=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			},
+			{
+				"taskId": "regression-confirmation/embedded-equals",
+				"trial": 1,
+				"conditions": "0c8c0bf29548dea784434d767c768fe47c761b2081e82d04ca485b3107cf1d6d",
+				"trajectoryId": "regression-confirmation/baseline/9/bd4aa198ffadae01",
+				"result": {
+					"case": "regression-confirmation/embedded-equals/1",
+					"run": {
+						"output": "{\"value\":\"regression-confirmation-value-1=kept\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":false}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 1,
+							"reason": "Actual \"regression-confirmation-value-1=kept\" equals expected \"regression-confirmation-value-1=kept\".",
+							"details": {
+								"actual": "regression-confirmation-value-1=kept",
+								"expected": "regression-confirmation-value-1=kept"
+							}
+						}
+					},
+					"mean": 1,
+					"status": "passed",
+					"passed": true
+				}
+			}
+		],
+		"candidate": [
+			{
+				"taskId": "regression-confirmation/plain",
+				"trial": 0,
+				"conditions": "ee759b1c968a45e44b2b8cd499b2dbb749f32401e251d919a9d02a146fe02ce1",
+				"trajectoryId": "regression-confirmation/candidate/0/c0daf05cba6a83d4",
+				"result": {
+					"case": "regression-confirmation/plain/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0036999999999807187
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-0\" differs from expected \"regression-confirmation-value-0\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-0",
+								"expected": "regression-confirmation-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/plain",
+				"trial": 1,
+				"conditions": "7cb9a73057de1fb19f65997f0ed5049b78eda68d3bdf3b929ddd820e0df92fe6",
+				"trajectoryId": "regression-confirmation/candidate/1/3a53716298a138f9",
+				"result": {
+					"case": "regression-confirmation/plain/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0029999999999290594
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-1\" differs from expected \"regression-confirmation-value-1\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-1",
+								"expected": "regression-confirmation-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/spaces",
+				"trial": 0,
+				"conditions": "7cb1648b0cb5834540b8350d6e65624c71df16eeac9dd33c80f2745b8f81bbbc",
+				"trajectoryId": "regression-confirmation/candidate/2/c0daf05cba6a83d4",
+				"result": {
+					"case": "regression-confirmation/spaces/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001199999999926149
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-0\" differs from expected \"regression-confirmation-value-0\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-0",
+								"expected": "regression-confirmation-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/spaces",
+				"trial": 1,
+				"conditions": "0d48dd46fe78c5b335d99acfbb42f20906878244111084091c90532e35419cab",
+				"trajectoryId": "regression-confirmation/candidate/3/3a53716298a138f9",
+				"result": {
+					"case": "regression-confirmation/spaces/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001199999999926149
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-1\" differs from expected \"regression-confirmation-value-1\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-1",
+								"expected": "regression-confirmation-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/tabs",
+				"trial": 0,
+				"conditions": "39f1596104eb0078f92ab309e99803872e18902d0793b3f99b2e808f90fd927b",
+				"trajectoryId": "regression-confirmation/candidate/4/c0daf05cba6a83d4",
+				"result": {
+					"case": "regression-confirmation/tabs/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-0\" differs from expected \"regression-confirmation-value-0\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-0",
+								"expected": "regression-confirmation-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/tabs",
+				"trial": 1,
+				"conditions": "79f534ef2ed3b666f6bb681c4cb4527e3176e72ee86d4fedf7d02a997f66bac5",
+				"trajectoryId": "regression-confirmation/candidate/5/3a53716298a138f9",
+				"result": {
+					"case": "regression-confirmation/tabs/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001199999999926149
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-1\" differs from expected \"regression-confirmation-value-1\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-1",
+								"expected": "regression-confirmation-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/nonbreaking-space",
+				"trial": 0,
+				"conditions": "942c53d2d6d3e68b77945a387330f352746194799ead5f4a17429b123608f26a",
+				"trajectoryId": "regression-confirmation/candidate/6/c0daf05cba6a83d4",
+				"result": {
+					"case": "regression-confirmation/nonbreaking-space/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-0\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.0012000000001535227
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-0\" differs from expected \"regression-confirmation-value-0\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-0",
+								"expected": "regression-confirmation-value-0"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/nonbreaking-space",
+				"trial": 1,
+				"conditions": "450b303354d0c024109b678428bb61dfb4101e592fec806ff3a43917ba485c61",
+				"trajectoryId": "regression-confirmation/candidate/7/3a53716298a138f9",
+				"result": {
+					"case": "regression-confirmation/nonbreaking-space/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-1\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-1\" differs from expected \"regression-confirmation-value-1\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-1",
+								"expected": "regression-confirmation-value-1"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/embedded-equals",
+				"trial": 0,
+				"conditions": "456725693b9caaa62baa0bcccdf95576270be54090bd4165fbcc37a44167fad0",
+				"trajectoryId": "regression-confirmation/candidate/8/694ae0c4a1d90c99",
+				"result": {
+					"case": "regression-confirmation/embedded-equals/0",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-0=KEPT\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001199999999926149
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-0=KEPT\" differs from expected \"regression-confirmation-value-0=kept\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-0=KEPT",
+								"expected": "regression-confirmation-value-0=kept"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			},
+			{
+				"taskId": "regression-confirmation/embedded-equals",
+				"trial": 1,
+				"conditions": "0c8c0bf29548dea784434d767c768fe47c761b2081e82d04ca485b3107cf1d6d",
+				"trajectoryId": "regression-confirmation/candidate/9/ab762a394afbd6a6",
+				"result": {
+					"case": "regression-confirmation/embedded-equals/1",
+					"run": {
+						"output": "{\"value\":\"REGRESSION-CONFIRMATION-VALUE-1=KEPT\",\"appliedRule\":{\"trimValue\":true,\"uppercase\":true}}",
+						"steps": [],
+						"toolCalls": [],
+						"stopReason": "fixture-complete",
+						"totalTokens": 0,
+						"totalCostUsd": 0,
+						"durationMs": 0.001099999999951251
+					},
+					"scores": {
+						"exact-parsed-value": {
+							"score": 0,
+							"reason": "Actual \"REGRESSION-CONFIRMATION-VALUE-1=KEPT\" differs from expected \"regression-confirmation-value-1=kept\".",
+							"details": {
+								"actual": "REGRESSION-CONFIRMATION-VALUE-1=KEPT",
+								"expected": "regression-confirmation-value-1=kept"
+							}
+						}
+					},
+					"mean": 0,
+					"status": "failed",
+					"passed": false,
+					"failedGates": ["exact-parsed-value"]
+				}
+			}
+		],
+		"attributions": [
+			{
+				"taskId": "regression-confirmation/plain",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-confirmation-value-0\",\"regression-confirmation-value-1\"]; candidate outputs [\"REGRESSION-CONFIRMATION-VALUE-0\",\"REGRESSION-CONFIRMATION-VALUE-1\"]; expected [\"regression-confirmation-value-0\",\"regression-confirmation-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-confirmation/baseline/0/99b1cde53234c11a",
+					"regression-confirmation/baseline/1/556397b6ff7139f8"
+				],
+				"candidateTrajectories": [
+					"regression-confirmation/candidate/0/c0daf05cba6a83d4",
+					"regression-confirmation/candidate/1/3a53716298a138f9"
+				]
+			},
+			{
+				"taskId": "regression-confirmation/spaces",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-confirmation-value-0\",\"regression-confirmation-value-1\"]; candidate outputs [\"REGRESSION-CONFIRMATION-VALUE-0\",\"REGRESSION-CONFIRMATION-VALUE-1\"]; expected [\"regression-confirmation-value-0\",\"regression-confirmation-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-confirmation/baseline/2/99b1cde53234c11a",
+					"regression-confirmation/baseline/3/556397b6ff7139f8"
+				],
+				"candidateTrajectories": [
+					"regression-confirmation/candidate/2/c0daf05cba6a83d4",
+					"regression-confirmation/candidate/3/3a53716298a138f9"
+				]
+			},
+			{
+				"taskId": "regression-confirmation/tabs",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-confirmation-value-0\",\"regression-confirmation-value-1\"]; candidate outputs [\"REGRESSION-CONFIRMATION-VALUE-0\",\"REGRESSION-CONFIRMATION-VALUE-1\"]; expected [\"regression-confirmation-value-0\",\"regression-confirmation-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-confirmation/baseline/4/99b1cde53234c11a",
+					"regression-confirmation/baseline/5/556397b6ff7139f8"
+				],
+				"candidateTrajectories": [
+					"regression-confirmation/candidate/4/c0daf05cba6a83d4",
+					"regression-confirmation/candidate/5/3a53716298a138f9"
+				]
+			},
+			{
+				"taskId": "regression-confirmation/nonbreaking-space",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-confirmation-value-0\",\"regression-confirmation-value-1\"]; candidate outputs [\"REGRESSION-CONFIRMATION-VALUE-0\",\"REGRESSION-CONFIRMATION-VALUE-1\"]; expected [\"regression-confirmation-value-0\",\"regression-confirmation-value-1\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-confirmation/baseline/6/99b1cde53234c11a",
+					"regression-confirmation/baseline/7/556397b6ff7139f8"
+				],
+				"candidateTrajectories": [
+					"regression-confirmation/candidate/6/c0daf05cba6a83d4",
+					"regression-confirmation/candidate/7/3a53716298a138f9"
+				]
+			},
+			{
+				"taskId": "regression-confirmation/embedded-equals",
+				"effect": "regression",
+				"reason": "Host exact-value trace review: baseline outputs [\"regression-confirmation-value-0=kept\",\"regression-confirmation-value-1=kept\"]; candidate outputs [\"REGRESSION-CONFIRMATION-VALUE-0=KEPT\",\"REGRESSION-CONFIRMATION-VALUE-1=KEPT\"]; expected [\"regression-confirmation-value-0=kept\",\"regression-confirmation-value-1=kept\"]. Only the interpreted fixture rule changed.",
+				"baselineTrajectories": [
+					"regression-confirmation/baseline/8/e4afccec04f60c49",
+					"regression-confirmation/baseline/9/bd4aa198ffadae01"
+				],
+				"candidateTrajectories": [
+					"regression-confirmation/candidate/8/694ae0c4a1d90c99",
+					"regression-confirmation/candidate/9/ab762a394afbd6a6"
+				]
+			}
+		]
+	},
+	"regressionReview": {
+		"decision": "reject",
+		"reason": "Observed or attributed regression blocks promotion.",
+		"verification": {
+			"tasks": [
+				{
+					"taskId": "regression-verification/plain",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				},
+				{
+					"taskId": "regression-verification/spaces",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				},
+				{
+					"taskId": "regression-verification/tabs",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				},
+				{
+					"taskId": "regression-verification/nonbreaking-space",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				},
+				{
+					"taskId": "regression-verification/embedded-equals",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				}
+			],
+			"positiveEvidence": [],
+			"regressions": [
+				"regression-verification/plain",
+				"regression-verification/spaces",
+				"regression-verification/tabs",
+				"regression-verification/nonbreaking-space",
+				"regression-verification/embedded-equals"
+			],
+			"unresolved": [],
+			"usage": {
+				"rollouts": 20,
+				"tokens": 0,
+				"costUsd": 0,
+				"durationMs": 0.04530000000022483
+			},
+			"passRateDelta": -1
+		},
+		"confirmation": {
+			"tasks": [
+				{
+					"taskId": "regression-confirmation/plain",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				},
+				{
+					"taskId": "regression-confirmation/spaces",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				},
+				{
+					"taskId": "regression-confirmation/tabs",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				},
+				{
+					"taskId": "regression-confirmation/nonbreaking-space",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				},
+				{
+					"taskId": "regression-confirmation/embedded-equals",
+					"status": "regressed",
+					"baselinePasses": 2,
+					"candidatePasses": 0,
+					"trials": 2
+				}
+			],
+			"positiveEvidence": [],
+			"regressions": [
+				"regression-confirmation/plain",
+				"regression-confirmation/spaces",
+				"regression-confirmation/tabs",
+				"regression-confirmation/nonbreaking-space",
+				"regression-confirmation/embedded-equals"
+			],
+			"unresolved": [],
+			"usage": {
+				"rollouts": 20,
+				"tokens": 0,
+				"costUsd": 0,
+				"durationMs": 0.03459999999927277
+			},
+			"passRateDelta": -1
+		}
+	},
+	"admissions": [
+		{
+			"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+			"admission": 1,
+			"previous": null,
+			"stableIdentity": "An agent that checks synthetic fixture claims before reporting them.",
+			"agendaRevision": 3,
+			"learning": {
+				"revision": 1,
+				"identity": {
+					"text": "A fixture reviewer that retains checked rules and corrects stale preferences.",
+					"evidence": {
+						"key": "initial-profile",
+						"source": "local-lifecycle-fixture/v1",
+						"reason": "Synthetic initial preference record for the integration fixture."
+					}
+				},
+				"preferences": [
+					{
+						"key": "response-style",
+						"value": "verbose",
+						"evidence": {
+							"key": "initial-profile",
+							"source": "local-lifecycle-fixture/v1",
+							"reason": "Synthetic initial preference record for the integration fixture."
+						}
+					}
+				],
+				"skills": [],
+				"lastChange": {
+					"key": "initial-profile",
+					"source": "local-lifecycle-fixture/v1",
+					"reason": "Synthetic initial preference record for the integration fixture."
+				}
+			},
+			"projection": {
+				"text": "{\"kind\":\"self-description\",\"text\":\"A fixture reviewer that retains checked rules and corrects stale preferences.\",\"evidence\":{\"key\":\"initial-profile\",\"source\":\"local-lifecycle-fixture/v1\",\"reason\":\"Synthetic initial preference record for the integration fixture.\"}}\n{\"kind\":\"preference\",\"key\":\"response-style\",\"value\":\"verbose\",\"evidence\":{\"key\":\"initial-profile\",\"source\":\"local-lifecycle-fixture/v1\",\"reason\":\"Synthetic initial preference record for the integration fixture.\"}}",
+				"revision": 1,
+				"includedSkills": [],
+				"omitted": 1
+			}
+		},
+		{
+			"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+			"admission": 2,
+			"previous": "{\"input\":\"mode=  Ready to report  \",\"expected\":\"Ready to report\",\"actual\":\"  Ready to report  \"}",
+			"stableIdentity": "An agent that checks synthetic fixture claims before reporting them.",
+			"agendaRevision": 9,
+			"learning": {
+				"revision": 3,
+				"identity": {
+					"text": "A fixture reviewer that retains checked rules and corrects stale preferences.",
+					"evidence": {
+						"key": "initial-profile",
+						"source": "local-lifecycle-fixture/v1",
+						"reason": "Synthetic initial preference record for the integration fixture."
+					}
+				},
+				"preferences": [
+					{
+						"key": "response-style",
+						"value": "concise",
+						"evidence": {
+							"key": "corrected-profile",
+							"source": "local-lifecycle-fixture/v1",
+							"reason": "Synthetic explicit correction supersedes the earlier verbose preference; this is fixture administration, not an inferred user wish."
+						}
+					}
+				],
+				"skills": [
+					{
+						"name": "normalize-fixture-value",
+						"description": "Trim surrounding whitespace from the value in a key=value fixture.",
+						"body": "{\"trimValue\":true,\"uppercase\":false}",
+						"hash": "08549f29acc604f02ea70bdb4b5035758910f111a8871323f650fbe83297b6d6",
+						"evidence": {
+							"key": "skill-promotion",
+							"source": "local-lifecycle-fixture/v1",
+							"reason": "Exact-value fixture traces verify whitespace recovery with no observed regression in both paired rounds."
+						},
+						"verification": {
+							"baselineHash": "none",
+							"candidateHash": "08549f29acc604f02ea70bdb4b5035758910f111a8871323f650fbe83297b6d6",
+							"evidenceDigest": "eb48a7f770d5589b5df57894c514ec3d58f2e178bfae51dece668e4b50ecd549",
+							"verificationTasks": 5,
+							"confirmationTasks": 5
+						}
+					}
+				],
+				"lastChange": {
+					"key": "skill-promotion",
+					"source": "local-lifecycle-fixture/v1",
+					"reason": "Exact-value fixture traces verify whitespace recovery with no observed regression in both paired rounds."
+				}
+			},
+			"projection": {
+				"text": "{\"kind\":\"self-description\",\"text\":\"A fixture reviewer that retains checked rules and corrects stale preferences.\",\"evidence\":{\"key\":\"initial-profile\",\"source\":\"local-lifecycle-fixture/v1\",\"reason\":\"Synthetic initial preference record for the integration fixture.\"}}\n{\"kind\":\"preference\",\"key\":\"response-style\",\"value\":\"concise\",\"evidence\":{\"key\":\"corrected-profile\",\"source\":\"local-lifecycle-fixture/v1\",\"reason\":\"Synthetic explicit correction supersedes the earlier verbose preference; this is fixture administration, not an inferred user wish.\"}}\n{\"kind\":\"evaluated-guidance\",\"name\":\"normalize-fixture-value\",\"description\":\"Trim surrounding whitespace from the value in a key=value fixture.\",\"body\":\"{\\\"trimValue\\\":true,\\\"uppercase\\\":false}\",\"hash\":\"08549f29acc604f02ea70bdb4b5035758910f111a8871323f650fbe83297b6d6\",\"evidence\":{\"key\":\"skill-promotion\",\"source\":\"local-lifecycle-fixture/v1\",\"reason\":\"Exact-value fixture traces verify whitespace recovery with no observed regression in both paired rounds.\"}}",
+				"revision": 3,
+				"includedSkills": ["normalize-fixture-value"],
+				"omitted": 0
+			}
+		},
+		{
+			"pursuitId": "502b3733-7947-4620-8ba4-605db96db74d",
+			"admission": 1,
+			"previous": null,
+			"stableIdentity": "An agent that checks synthetic fixture claims before reporting them.",
+			"agendaRevision": 13,
+			"learning": {
+				"revision": 4,
+				"identity": {
+					"text": "A fixture reviewer that retains checked rules and corrects stale preferences.",
+					"evidence": {
+						"key": "initial-profile",
+						"source": "local-lifecycle-fixture/v1",
+						"reason": "Synthetic initial preference record for the integration fixture."
+					}
+				},
+				"preferences": [
+					{
+						"key": "response-style",
+						"value": "concise",
+						"evidence": {
+							"key": "corrected-profile",
+							"source": "local-lifecycle-fixture/v1",
+							"reason": "Synthetic explicit correction supersedes the earlier verbose preference; this is fixture administration, not an inferred user wish."
+						}
+					}
+				],
+				"skills": [],
+				"lastChange": {
+					"key": "skill-rollback",
+					"source": "local-lifecycle-fixture/v1",
+					"reason": "Synthetic rollback exercise restores the pre-promotion skill set while retaining corrected preferences."
+				}
+			},
+			"projection": {
+				"text": "{\"kind\":\"self-description\",\"text\":\"A fixture reviewer that retains checked rules and corrects stale preferences.\",\"evidence\":{\"key\":\"initial-profile\",\"source\":\"local-lifecycle-fixture/v1\",\"reason\":\"Synthetic initial preference record for the integration fixture.\"}}\n{\"kind\":\"preference\",\"key\":\"response-style\",\"value\":\"concise\",\"evidence\":{\"key\":\"corrected-profile\",\"source\":\"local-lifecycle-fixture/v1\",\"reason\":\"Synthetic explicit correction supersedes the earlier verbose preference; this is fixture administration, not an inferred user wish.\"}}",
+				"revision": 4,
+				"includedSkills": [],
+				"omitted": 1
+			}
+		}
+	],
+	"selections": [
+		{
+			"agendaRevision": 3,
+			"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+			"reason": "selected",
+			"candidates": [
+				{
+					"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+					"reason": "eligible",
+					"expectedGain": 0.5,
+					"expectedCost": 1,
+					"score": 4
+				}
+			]
+		},
+		{
+			"agendaRevision": 9,
+			"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+			"reason": "selected",
+			"candidates": [
+				{
+					"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+					"reason": "eligible",
+					"expectedGain": 0.5,
+					"expectedCost": 1,
+					"score": 4
+				}
+			]
+		},
+		{
+			"agendaRevision": 13,
+			"pursuitId": "502b3733-7947-4620-8ba4-605db96db74d",
+			"reason": "selected",
+			"candidates": [
+				{
+					"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+					"reason": "not-due",
+					"expectedGain": null,
+					"expectedCost": null,
+					"score": null
+				},
+				{
+					"pursuitId": "502b3733-7947-4620-8ba4-605db96db74d",
+					"reason": "eligible",
+					"expectedGain": 0.5,
+					"expectedCost": 1,
+					"score": 4
+				}
+			]
+		}
+	],
+	"first": {
+		"status": "limit",
+		"stepsSettled": 1,
+		"nextWakeAt": null
+	},
+	"paused": {
+		"status": "paused",
+		"stepsSettled": 0,
+		"nextWakeAt": null
+	},
+	"continued": {
+		"status": "idle",
+		"stepsSettled": 1,
+		"nextWakeAt": null
+	},
+	"followup": {
+		"status": "idle",
+		"stepsSettled": 1,
+		"nextWakeAt": null
+	},
+	"quiet": {
+		"status": "idle",
+		"reason": "window",
+		"nextCheckAt": 1789117200000
+	},
+	"delivered": {
+		"status": "settled",
+		"message": {
+			"id": "fdf23a62-56ac-4da9-a8c3-e49468d672d4",
+			"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+			"destination": "fixture:in-memory-recipient",
+			"body": "Checked fixture value: Ready to report",
+			"notBefore": 0,
+			"tenantId": "ac8f3a75-e316-4c9f-9512-57f71b684681",
+			"agentKey": "fixture-parser",
+			"sourceClaimId": "224e36c7-477a-4cd3-8202-3f5b787c3acd",
+			"revision": 3,
+			"attempts": 1,
+			"phase": "acknowledged",
+			"claimId": null,
+			"nextAttemptAt": null,
+			"receiptId": "local-fixture:fdf23a62-56ac-4da9-a8c3-e49468d672d4",
+			"acknowledgedAt": 1789117200000,
+			"lastReason": null
+		}
+	},
+	"idleHost": {
+		"status": "idle",
+		"stepsSettled": 0,
+		"nextWakeAt": null
+	},
+	"idleDelivery": {
+		"status": "idle",
+		"reason": "empty",
+		"nextCheckAt": null
+	},
+	"archive": {
+		"entries": [
+			{
+				"revision": 18,
+				"pursuits": [
+					{
+						"id": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+						"state": {
+							"tenantId": "ac8f3a75-e316-4c9f-9512-57f71b684681",
+							"agentKey": "fixture-parser",
+							"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+							"identity": "An agent that checks synthetic fixture claims before reporting them.",
+							"objective": "Inspect the fixture, evaluate a whitespace rule, then continue from the saved finding and report the checked value.",
+							"revision": 5,
+							"stepsAdmitted": 2,
+							"phase": "complete",
+							"wakeAt": null,
+							"reason": "Scheduled continuation",
+							"summary": "{\"value\":\"Ready to report\",\"skillHash\":\"08549f29acc604f02ea70bdb4b5035758910f111a8871323f650fbe83297b6d6\"}",
+							"claimId": null
+						},
+						"feedback": {
+							"bestProgress": 1,
+							"hasUnobservedSteps": false,
+							"stagnantSteps": 0,
+							"observations": [
+								{
+									"evidenceKey": "admission:174d09cf-211e-4eee-9cb1-83e87240f5f8",
+									"source": "local-fixture-assertions/v1; cost=callback-admissions",
+									"progress": 0.5,
+									"costUnits": 1,
+									"gain": 0.5,
+									"step": 1
+								},
+								{
+									"evidenceKey": "admission:224e36c7-477a-4cd3-8202-3f5b787c3acd",
+									"source": "local-fixture-assertions/v1; cost=callback-admissions",
+									"progress": 1,
+									"costUnits": 1,
+									"gain": 0.5,
+									"step": 2
+								}
+							]
+						}
+					},
+					{
+						"id": "502b3733-7947-4620-8ba4-605db96db74d",
+						"state": {
+							"tenantId": "ac8f3a75-e316-4c9f-9512-57f71b684681",
+							"agentKey": "fixture-parser",
+							"pursuitId": "502b3733-7947-4620-8ba4-605db96db74d",
+							"identity": "An agent that checks synthetic fixture claims before reporting them.",
+							"objective": "Verify rollback is reflected in the next context and the corrected preference remains.",
+							"revision": 3,
+							"stepsAdmitted": 1,
+							"phase": "complete",
+							"wakeAt": null,
+							"reason": "Scheduled continuation",
+							"summary": "Verified rolled-back skill is absent and corrected preference persists.",
+							"claimId": null
+						},
+						"feedback": {
+							"bestProgress": 1,
+							"hasUnobservedSteps": false,
+							"stagnantSteps": 0,
+							"observations": [
+								{
+									"evidenceKey": "admission:566e3188-d152-467f-8a61-83620736c34c",
+									"source": "local-fixture-assertions/v1; cost=callback-admissions",
+									"progress": 1,
+									"costUnits": 1,
+									"gain": 1,
+									"step": 1
+								}
+							]
+						},
+						"origin": {
+							"proposalId": "2fd2a1dd-8cb3-4c42-a84b-dc504e1c619a",
+							"parentId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+							"parentRevision": 5,
+							"domain": "fixture-review",
+							"reason": "The fixture has activated a new rollback revision that must reach subsequent work.",
+							"evidenceKey": "skill-rollback",
+							"depth": 1
+						}
+					}
+				],
+				"messages": [
+					{
+						"id": "fdf23a62-56ac-4da9-a8c3-e49468d672d4",
+						"pursuitId": "3c115279-6ccc-42ce-8cfe-e5b87b4c8208",
+						"destination": "fixture:in-memory-recipient",
+						"body": "Checked fixture value: Ready to report",
+						"notBefore": 0,
+						"tenantId": "ac8f3a75-e316-4c9f-9512-57f71b684681",
+						"agentKey": "fixture-parser",
+						"sourceClaimId": "224e36c7-477a-4cd3-8202-3f5b787c3acd",
+						"revision": 3,
+						"attempts": 1,
+						"phase": "acknowledged",
+						"claimId": null,
+						"nextAttemptAt": null,
+						"receiptId": "local-fixture:fdf23a62-56ac-4da9-a8c3-e49468d672d4",
+						"acknowledgedAt": 1789117200000,
+						"lastReason": null
+					}
+				]
+			}
+		],
+		"nextBeforeRevision": null
+	},
+	"final": {
+		"tenantId": "ac8f3a75-e316-4c9f-9512-57f71b684681",
+		"agentKey": "fixture-parser",
+		"identity": "An agent that checks synthetic fixture claims before reporting them.",
+		"revision": 18,
+		"paused": false,
+		"archiveHead": 18,
+		"learning": {
+			"revision": 4,
+			"identity": {
+				"text": "A fixture reviewer that retains checked rules and corrects stale preferences.",
+				"evidence": {
+					"key": "initial-profile",
+					"source": "local-lifecycle-fixture/v1",
+					"reason": "Synthetic initial preference record for the integration fixture."
+				}
+			},
+			"preferences": [
+				{
+					"key": "response-style",
+					"value": "concise",
+					"evidence": {
+						"key": "corrected-profile",
+						"source": "local-lifecycle-fixture/v1",
+						"reason": "Synthetic explicit correction supersedes the earlier verbose preference; this is fixture administration, not an inferred user wish."
+					}
+				}
+			],
+			"skills": [],
+			"lastChange": {
+				"key": "skill-rollback",
+				"source": "local-lifecycle-fixture/v1",
+				"reason": "Synthetic rollback exercise restores the pre-promotion skill set while retaining corrected preferences."
+			}
+		},
+		"outbox": [],
+		"pursuits": []
+	},
+	"limitations": [
+		"The host interprets a developer-authored JSON guidance rule in a deterministic parser. No LLM, learned weights, spontaneous goals or intelligence improvement is demonstrated.",
+		"Verification and confirmation use distinct declared fixture inputs from one narrow parser domain. These are real evaluated outputs, but not independent real-world generalization evidence.",
+		"Preference correction, promotion, rollback and bounded follow-up are prescribed local host controls within this test, not autonomous preference discovery.",
+		"The store reopens within one process. Separate process tests establish crash behavior; this experiment does not.",
+		"The recipient is an in-memory fixture. Acknowledgment means fixture acceptance, not external delivery or human reading. Quiet hours use a controlled delivery clock."
+	]
+}
