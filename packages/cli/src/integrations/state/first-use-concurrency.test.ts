@@ -13,13 +13,12 @@ import { join } from 'node:path'
 import { setTimeout } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
-import { DefaultPathBuilder, DiskSessionStore } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
+import { sessionDatabasePath, sessionStore } from '../sessions/database.js'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { openSessions } from '../sessions/store.js'
 import { loadIdentity } from './identity.js'
-import { ensurePrivateStateDirectory } from './private-directory.js'
 
 const TSX_IMPORT = createRequire(import.meta.url).resolve('tsx')
 const WORKER = fileURLToPath(new URL('./__fixtures__/first-use-worker.ts', import.meta.url))
@@ -99,34 +98,19 @@ describe('concurrent first use of CLI identities', () => {
 		expect(readdirSync(paths.stateRoot)).toEqual(['identity.json'])
 	}, 30_000)
 
-	it('returns the same complete project topic to every process', async () => {
+	it('shares one SQLite project and deterministic topic across simultaneous first launches', async () => {
 		const paths = workspace()
-		const tenantId = loadIdentity(paths.stateRoot).tenantId
-		const store = new DiskSessionStore({ rootDir: paths.stateRoot })
-		const project = await store.createProject(
-			{ tenantId, name: 'test project', rootPath: paths.cwd },
-			tenantId,
+		loadIdentity(paths.stateRoot)
+		const results = await initializeConcurrently(
+			'topic',
+			paths,
+			sessionDatabasePath(paths.stateRoot),
 		)
-		const controlRoot = ensurePrivateStateDirectory(
-			new DefaultPathBuilder(paths.stateRoot).projectDir(project.id),
-			'cli',
-		)
-		const recordPath = join(controlRoot, 'topic.json')
-		const results = await initializeConcurrently('topic', paths, recordPath)
-		const persisted = JSON.parse(readFileSync(recordPath, 'utf8'))
-		for (const result of results) expect(result).toEqual(persisted)
-		expect(readdirSync(controlRoot)).toEqual(['topic.json'])
+		for (const result of results) expect(result).toEqual(results[0])
+		const handle = await openSessions(paths.cwd, { stateRoot: paths.stateRoot })
+		expect(results[0]).toEqual({ projectId: handle.projectId, topicId: handle.topicId })
+		expect(await sessionStore(paths.stateRoot, true).listProjects(handle.tenantId)).toHaveLength(1)
+		expect(existsSync(join(paths.stateRoot, 'projects'))).toBe(false)
+		expect(existsSync(join(handle.controlRoot, 'topic.json'))).toBe(false)
 	}, 30_000)
-
-	it.each(['{not json', '{}', 'null', '[]', '{"topicId":42}', '{"topicId":"invalid"}'])(
-		'refuses an invalid topic without replacing it: %s',
-		async (contents) => {
-			const { cwd, stateRoot } = workspace()
-			const sessions = await openSessions(cwd, { stateRoot })
-			const path = join(sessions.controlRoot, 'topic.json')
-			writeFileSync(path, contents)
-			await expect(openSessions(cwd, { stateRoot })).rejects.toThrow(/topic file/)
-			expect(readFileSync(path, 'utf8')).toBe(contents)
-		},
-	)
 })

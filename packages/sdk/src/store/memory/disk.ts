@@ -149,6 +149,8 @@ function assertMemoryContent(value: unknown, expectedId: MemoryId): asserts valu
 
 export interface DiskMemoryStoreConfig {
 	baseDir: string
+	/** Exact memory directory; defaults to `baseDir/memory`. Hosts can partition by workspace. */
+	directory?: string
 	logger?: Logger
 	/** Maximum wait for another process's operation; default 10 seconds. Never breaks stale locks. */
 	lockTimeoutMs?: number
@@ -168,7 +170,8 @@ export class DiskMemoryStore implements MemoryStore {
 	private readonly indexRecords = new DiskRecordStore<unknown>(SCHEMA)
 
 	constructor(config: DiskMemoryStoreConfig) {
-		this.baseDir = join(config.baseDir, 'memory')
+		this.baseDir =
+			config.directory === undefined ? join(config.baseDir, 'memory') : resolve(config.directory)
 		this.log = resolveLogger(config.logger).child({ [SCOPE_ATTRIBUTE]: 'store/memory/disk' })
 		this.lockTimeoutMs = config.lockTimeoutMs ?? DEFAULT_MEMORY_LOCK_TIMEOUT_MS
 		validateMemoryLockTimeout(this.lockTimeoutMs)

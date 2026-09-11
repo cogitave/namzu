@@ -75,14 +75,7 @@ function location(resident: CliResident): { base: string; runner: string; revisi
 	) {
 		throw new Error('Invalid resident scope for runner ownership.')
 	}
-	const base = join(
-		resident.root,
-		'projects',
-		resident.projectId,
-		'cli',
-		'residents',
-		resident.agentKey,
-	)
+	const base = join(resident.root, 'residents', resident.projectId, resident.agentKey)
 	if (resident.artifactsRoot !== join(base, 'attempts')) {
 		throw new Error('Resident runner path does not match its bound project and agent.')
 	}
@@ -107,10 +100,8 @@ function revisions(resident: CliResident): number[] {
 	let current = resident.root
 	if (!realDirectory(current)) return []
 	for (const segment of [
-		'projects',
-		resident.projectId,
-		'cli',
 		'residents',
+		resident.projectId,
 		resident.agentKey,
 		'runner',
 		'revisions',

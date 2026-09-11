@@ -1,3 +1,5 @@
+import { ensurePrivateStateDirectory } from '../state/private-directory.js'
+import { CliPathBuilder } from './paths.js'
 /**
  * Durable correlation between one CLI conversation and the SDK runs that
  * carried its turns.
@@ -13,7 +15,6 @@ import { open, readFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
-	DefaultPathBuilder,
 	type ProjectId,
 	type RunId,
 	type SessionId,
@@ -145,13 +146,13 @@ export interface DiskConversationEvidenceOptions {
 }
 
 export class DiskConversationEvidence {
-	private readonly paths: DefaultPathBuilder
+	private readonly paths: CliPathBuilder
 	private readonly projectId: ProjectId
 	private readonly now: () => number
 	private tail: Promise<void> = Promise.resolve()
 
 	constructor(options: DiskConversationEvidenceOptions) {
-		this.paths = new DefaultPathBuilder(options.root)
+		this.paths = new CliPathBuilder(options.root)
 		this.projectId = options.projectId
 		this.now = options.now ?? Date.now
 	}
@@ -166,6 +167,10 @@ export class DiskConversationEvidence {
 				recordedAt: this.now(),
 				origin,
 			}
+			ensurePrivateStateDirectory(
+				ensurePrivateStateDirectory(this.paths.rootDir(), 'sessions'),
+				sessionId,
+			)
 			const path = this.path(sessionId)
 			let handle: Awaited<ReturnType<typeof open>> | undefined
 			try {

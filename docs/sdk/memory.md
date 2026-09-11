@@ -270,3 +270,8 @@ SDK hosts configure promotion and consolidation separately. Neither writing
 mechanism enables recall by itself, and neither turns an extracted claim into
 verified current state. [Pinned facts](pinned-facts.md) and the run's
 [working set](salience-working-set.md) have different retention lifetimes.
+
+Hosts that partition memory themselves can pass `directory` to
+`DiskMemoryStore` to select the exact memory directory instead of
+`baseDir/memory`. The default and record format are unchanged. Each directory
+has its own index, content and operation lock.

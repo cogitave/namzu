@@ -512,3 +512,5 @@ export type {
 	ResidentArchivePage,
 	ResidentArchiveListOptions,
 } from './manager/resident/agenda.js'
+
+export type { SqliteSessionStoreConfig } from './store/session/sqlite.js'

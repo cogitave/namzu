@@ -1,3 +1,4 @@
+import { CliPathBuilder } from '../integrations/sessions/paths.js'
 /**
  * TUI root. Composes the banner, transcript, composer, status bar, and
  * the first-run provider picker overlay.
@@ -18,7 +19,6 @@ import { join, relative } from 'node:path'
 import {
 	type CostInfo,
 	DEFAULT_MAX_GOAL_ROUNDS,
-	DefaultPathBuilder,
 	DiskMessageFeedbackStore,
 	type GoalRoundAuthority,
 	GoalRoundLimitError,
@@ -1728,7 +1728,7 @@ export function App({
 			// so the feedback store correctly refused every TUI rating as unverifiable.
 			// Bind both trees to the exact conversation captured with the streamed
 			// message; `/resume` may change the active scope before a delayed click.
-			const sessionDir = new DefaultPathBuilder(sessions.root).sessionDir(
+			const sessionDir = new CliPathBuilder(sessions.root).sessionDir(
 				sessions.projectId,
 				sessionId,
 			)

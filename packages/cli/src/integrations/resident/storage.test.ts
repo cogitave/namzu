@@ -87,7 +87,7 @@ describe('CLI resident project storage', () => {
 			root: stateRoot,
 			projectId: sessions.projectId,
 			tenantId: sessions.tenantId,
-			artifactsRoot: join(sessions.controlRoot, 'residents', 'default', 'attempts'),
+			artifactsRoot: join(sessions.root, 'residents', sessions.projectId, 'default', 'attempts'),
 		})
 		expect(await resident.agenda.read()).toMatchObject({
 			tenantId: sessions.tenantId,
@@ -107,7 +107,7 @@ describe('CLI resident project storage', () => {
 		expect(existsSync(join(workspace, '.namzu'))).toBe(false)
 		if (process.platform !== 'win32') {
 			for (const path of [
-				join(sessions.controlRoot, 'residents'),
+				join(sessions.root, 'residents', sessions.projectId),
 				dirname(resident.artifactsRoot),
 				resident.artifactsRoot,
 			]) {
@@ -206,7 +206,7 @@ describe('CLI resident project storage', () => {
 
 	it('returns a binding without an agenda read-only, and mutation finishes interrupted creation', async () => {
 		const sessions = await openSessions(workspace)
-		const agentRoot = join(sessions.controlRoot, 'residents', 'default')
+		const agentRoot = join(sessions.root, 'residents', sessions.projectId, 'default')
 		mkdirSync(agentRoot, { recursive: true })
 		writeFileSync(
 			join(agentRoot, 'binding.json'),

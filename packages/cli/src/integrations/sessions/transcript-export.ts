@@ -1,3 +1,4 @@
+import { CliPathBuilder } from './paths.js'
 /** Verified Markdown projection of one CLI conversation. */
 
 import { randomUUID } from 'node:crypto'
@@ -7,7 +8,6 @@ import { homedir } from 'node:os'
 import { basename, dirname, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
-	DefaultPathBuilder,
 	type Message,
 	type MessageAttachment,
 	type PersistedRunEvent,
@@ -99,7 +99,7 @@ export async function conversationMarkdown(
 		throw unavailable('nothing-to-export', `conversation ${sessionId} has no recorded turns`)
 	}
 
-	const paths = new DefaultPathBuilder(sessions.root)
+	const paths = new CliPathBuilder(sessions.root)
 	const runsRoot = join(paths.sessionDir(sessions.projectId, sessionId), 'runs')
 	const onDiskRunIds = await listRunIds(runsRoot)
 	const boundRunIds = new Set(lineage.localTurns.map((turn) => turn.started.runId as string))

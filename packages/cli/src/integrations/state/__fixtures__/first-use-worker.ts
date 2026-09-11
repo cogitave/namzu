@@ -34,7 +34,13 @@ if (kind === 'identity') {
 	const { loadIdentity } = await import('../identity.js')
 	process.stdout.write(JSON.stringify(loadIdentity(stateRoot)))
 } else {
+	fs.writeFileSync(readyPath, '')
+	const deadline = Date.now() + 20_000
+	while (!fs.existsSync(releasePath)) {
+		if (Date.now() >= deadline) throw new Error('database first-use barrier timed out')
+		Atomics.wait(pause, 0, 0, 10)
+	}
 	const { openSessions } = await import('../../sessions/store.js')
 	const sessions = await openSessions(cwd, { stateRoot })
-	process.stdout.write(JSON.stringify({ topicId: sessions.topicId }))
+	process.stdout.write(JSON.stringify({ topicId: sessions.topicId, projectId: sessions.projectId }))
 }

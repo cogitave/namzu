@@ -2,7 +2,6 @@ import { appendFile, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	DefaultPathBuilder,
 	asRunId,
 	createAssistantMessage,
 	createProjectInstructionMessage,
@@ -12,6 +11,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { CliPathBuilder } from './paths.js'
 import { appendMessages, forkConversation, openSessions, startConversation } from './store.js'
 
 const dirs: string[] = []
@@ -288,7 +288,7 @@ describe('CLI turn evidence', () => {
 		const sessions = await openSessions(root)
 		const sessionId = await startConversation(sessions)
 		const path = join(
-			new DefaultPathBuilder(sessions.root).sessionDir(sessions.projectId, sessionId),
+			new CliPathBuilder(sessions.root).sessionDir(sessions.projectId, sessionId),
 			'turns.jsonl',
 		)
 		await appendFile(path, '{"format":"namzu.cli-turn-evidence.v1"', 'utf-8')

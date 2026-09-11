@@ -50,3 +50,5 @@ The kernel.
 
 * [Resident learning experiment](resident-learning.md) - Evidence-backed behavioral revisions, evaluated guidance and admitted context.
 * [Resident retention and history](resident-retention.md) - Terminal archival with durable deduplication and ancestry limits.
+
+* [SQLite session storage](sqlite-sessions.md) - Indexed session metadata and atomic ownership updates with the optional native SQLite driver.

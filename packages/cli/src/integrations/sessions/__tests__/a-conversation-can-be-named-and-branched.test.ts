@@ -53,7 +53,7 @@ describe('naming a conversation', () => {
 			})
 			setTitle(s, id, 'private title')
 
-			expect(lstatSync(join(s.root, 'projects')).mode & 0o777).toBe(0o700)
+			expect(lstatSync(join(s.root, 'sessions')).mode & 0o777).toBe(0o700)
 			expect(lstatSync(join(s.root, 'goals')).mode & 0o777).toBe(0o700)
 			expect(lstatSync(join(s.controlRoot, 'titles.json')).mode & 0o777).toBe(0o600)
 		},

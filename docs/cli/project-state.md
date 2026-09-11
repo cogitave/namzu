@@ -25,18 +25,19 @@ The CLI canonicalizes the working directory, resolving symlinks, then:
 
 Opening a new checkout from its root or `packages/cli` now selects the same
 Project and Topic. A new Project's display name is its root directory's name.
-Its generated ID remains the stable storage key. The existing SDK root-path
-binding resolves the path to that key; no additional CLI project registry is
-maintained. `namzu state` uses the same central selector as session startup.
+Its generated ID remains a logical ownership key. SQLite indexes the canonical
+root and tenant; there is no directory or JSON registry per Project. `namzu state` uses the same central selector as session startup.
 Its filesystem inventory still covers the working directory's `.namzu` and
 the application home; run it at the checkout root to count root-level authored
 memory as well.
 
 The resume picker uses project-scoped session enumeration when the store supports
-it, then checks Topic membership. The built-in disk store does not scan unrelated
+it, then checks Topic membership. The SQLite store does not scan unrelated
 Projects to list the current checkout. Message logs are still read to derive
 missing titles, previews and counts; a bounded metadata index remains a separate
-optimization.
+optimization. `namzu history --session <id> --cwd <directory>` accepts a
+conversation UUID or a host session key. Omitting `--session` selects the most
+recent conversation for that workspace, as the command help describes.
 
 Tool execution, project trust and configuration continue to use the selected
 working directory. Nested repositories and worktrees have distinct roots.
@@ -51,14 +52,37 @@ Generated state lives under `~/.namzu`, or `NAMZU_HOME` when configured:
 - `plugin-settings/` holds explicitly saved per-plugin startup choices; see
   [Plugins](plugins.md). The state inventory classifies these private records
   as configuration.
-- `projects/<projectId>/project.json` records the Project and its root path.
-- `projects/<projectId>/cli/topic.json` holds the Project's CLI Topic.
-- Conversations live in the Project's sessions directory; CLI sidecars such as
-  titles and desktop session mappings live in its `cli` directory.
+- `state/sessions.sqlite` holds Projects, root bindings, Sessions, message records,
+  delegation links and summaries. Writes use SQLite transactions; ownership
+  checks and updates commit together, including across processes.
+- `sessions/<sessionId>/` holds conversation evidence and `runs/<runId>/`
+  transcripts and artifacts. There is no parent Project directory.
+- `cli/` holds titles and desktop mappings. Desktop keys include their Project
+  identity, so two workspaces can use the same external window key independently.
+- `memory/<projectId>/` isolates generated memories by workspace. This partition
+  is created when the agent opens its memory tools, not when listing sessions.
+- `residents/<projectId>/<agent>/` holds explicitly created resident state.
+- `checkpoints/<sessionId>/`, `delegation-history/<sessionId>/`, `goals/` and
+  `tenants/` retain their own session, run or tenant ownership boundaries.
 
-The installation identity and Topic are initialized once. Concurrent first
-launches publish one complete file and all use the winner. Existing malformed
-files cause an error; startup does not replace them with a new identity.
+The installation identity is published once. The CLI Topic is deterministically
+bound to the Project UUID without a separate topic file. Concurrent launches
+select one Project through a unique tenant/root constraint. Read-only inspection
+never creates a database or changes its schema. The database uses a rollback
+journal and short transactions; readers do not create WAL sidecars.
+
+The CLI requires Node.js 22.13 or newer for native SQLite. SDK consumers can
+continue using the existing disk or in-memory drivers on Node.js 20.
+
+### Previous storage format
+
+This is a new CLI storage format. Existing `projects/` trees are retained as
+historical data, not read, migrated or deleted automatically. Old conversations,
+resident state and generated memory are accessible with the matching older CLI
+and its original application home; they do not appear in the new database.
+Keep that home backed up before changing versions. Provider credentials,
+preferences, authored instructions and plugin settings retain their locations.
+New launches do not create or write a `projects/` directory.
 
 Entity IDs are opaque UUIDs. Prefixed IDs are rejected at admission. Callers use the SDK's constructors; tenant and Project
 membership are checked separately by the stores. The root-path binding selects
@@ -99,8 +123,8 @@ Settling or closing a parent releases its scheduler and cancels children it
 still owns.
 
 Child run artifacts live under
-`projects/<projectId>/subagents/sessions/<childSessionId>/runs/<parentRunId>/children/<childRunId>`.
-There is no second `projects/<newProjectId>` layer inside `subagents`. Child
+`sessions/<childSessionId>/runs/<parentRunId>/children/<childRunId>`.
+Child
 Session and Topic bookkeeping is an in-memory view of the actual parent
 identity, rather than another resumable CLI conversation. Existing child
 artifacts are left in place; this change does not migrate or resume historical

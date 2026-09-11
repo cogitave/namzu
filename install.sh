@@ -26,7 +26,8 @@
 set -eu
 
 NAMZU_PKG="@namzu/cli"
-NAMZU_MIN_NODE=20
+NAMZU_MIN_NODE=22
+NAMZU_MIN_NODE_MINOR=13
 # Pin with: NAMZU_VERSION=2.0.0 sh install.sh
 NAMZU_VERSION="${NAMZU_VERSION:-latest}"
 # Where a fallback install lands when the global prefix is not writable.
@@ -72,7 +73,7 @@ node_major() {
 # ---------------------------------------------------------------- node
 
 have node || die "no Node runtime on PATH.
-  namzu runs on Node ${NAMZU_MIN_NODE} or newer. Install it, then run this again."
+  namzu runs on Node ${NAMZU_MIN_NODE}.${NAMZU_MIN_NODE_MINOR} or newer. Install it, then run this again."
 
 NODE_MAJOR="$(node_major node)"
 case "$NODE_MAJOR" in
@@ -82,9 +83,10 @@ case "$NODE_MAJOR" in
 	;;
 esac
 
-if [ "$NODE_MAJOR" -lt "$NAMZU_MIN_NODE" ]; then
+NODE_MINOR="$(node -v | sed 's/^v[0-9]*\.//; s/\..*$//')"
+if [ "$NODE_MAJOR" -lt "$NAMZU_MIN_NODE" ] || { [ "$NODE_MAJOR" -eq "$NAMZU_MIN_NODE" ] && [ "$NODE_MINOR" -lt "$NAMZU_MIN_NODE_MINOR" ]; }; then
 	die "Node $(node -v) is too old.
-  namzu needs Node ${NAMZU_MIN_NODE} or newer."
+  namzu needs Node ${NAMZU_MIN_NODE}.${NAMZU_MIN_NODE_MINOR} or newer."
 fi
 
 have npm || die "found Node but no npm on PATH.

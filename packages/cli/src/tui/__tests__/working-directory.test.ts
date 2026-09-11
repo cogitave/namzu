@@ -125,10 +125,10 @@ describe('createAgentSession runs where it is told to', () => {
 				stateRoot,
 				scope: parentScope,
 			})
-			const projectRoot = join(stateRoot, 'projects', parentScope.projectId)
+			const projectRoot = stateRoot
 
 			expect(session.hasProvider).toBe(true)
-			expect(lstatSync(join(stateRoot, 'projects')).mode & 0o777).toBe(0o700)
+			expect(existsSync(join(stateRoot, 'projects'))).toBe(false)
 			expect(lstatSync(projectRoot).mode & 0o777).toBe(0o700)
 			expect(lstatSync(join(projectRoot, 'memory')).mode & 0o777).toBe(0o700)
 			expect(lstatSync(join(projectRoot, 'tenants')).mode & 0o777).toBe(0o700)

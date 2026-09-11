@@ -1,3 +1,4 @@
+import { sessionStore } from '../integrations/sessions/database.js'
 /**
  * `namzu drain` — one pass over a queue of durable runs.
  *
@@ -24,7 +25,6 @@
 
 import {
 	DiskCheckpointStore,
-	DiskSessionStore,
 	InvalidIdError,
 	asProjectId,
 	asSessionId,
@@ -315,7 +315,7 @@ export const drainCommand: CommandDef = {
 
 		let owningSession: Session | null
 		try {
-			owningSession = await new DiskSessionStore({ rootDir: stateRoot }).getSession(
+			owningSession = await sessionStore(stateRoot, true).getSession(
 				scope.sessionId,
 				scope.tenantId,
 			)

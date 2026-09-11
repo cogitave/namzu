@@ -122,7 +122,7 @@ and still executes in the saved directory. A missing directory, changed canonica
 target or mismatched Project refuses execution; it does not silently relocate work.
 
 Bindings and attempt receipts live below
-`NAMZU_HOME/projects/<projectId>/cli/residents/<agent>/`, or the equivalent
+`NAMZU_HOME/residents/<projectId>/<agent>/`, or the equivalent
 `~/.namzu` path. The SDK agenda uses its existing tenant/key layout within that
 resident state partition. Private directories protect generated state. Separate
 Projects, worktrees and agent names have separate agendas.

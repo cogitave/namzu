@@ -19,15 +19,16 @@ const drainRuns = vi.fn()
 const constructedStores: unknown[] = []
 const agentSpies = vi.hoisted(() => ({ createAgentSession: vi.fn(), getSession: vi.fn() }))
 
+vi.mock('../../integrations/sessions/database.js', () => ({
+	sessionStore: () => ({ getSession: agentSpies.getSession }),
+}))
+
 vi.mock('@namzu/sdk', async (importOriginal) => {
 	const actual = await importOriginal<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
 		configureLogger: () => {},
 		drainRuns: (params: unknown) => drainRuns(params),
-		DiskSessionStore: class {
-			getSession = agentSpies.getSession
-		},
 		DiskCheckpointStore: class {
 			constructor(config: unknown, attribution: unknown) {
 				constructedStores.push({ config, attribution })

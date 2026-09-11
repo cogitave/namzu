@@ -1,4 +1,5 @@
 import { createCurrentCredentialReader } from '../integrations/providers/current-credential.js'
+import { CliPathBuilder } from '../integrations/sessions/paths.js'
 import {
 	createWebSearchTool,
 	resolveWebSearch,
@@ -38,7 +39,6 @@ import {
 	type CompactionResult,
 	type CompletionInbox,
 	type CostInfo,
-	DefaultPathBuilder,
 	DiskCheckpointStore,
 	DiskMemoryStore,
 	DiskTaskStore,
@@ -1221,6 +1221,7 @@ function buildToolRegistry(
 	projectStateRoot = join(cwd, '.namzu'),
 	backgroundJobs = true,
 	checkpoints?: FileCheckpointStore,
+	projectId?: ProjectId,
 ): BuiltTools {
 	const registry = new ToolRegistry()
 	registry.register(builtinTools(backgroundJobs))
@@ -1240,8 +1241,9 @@ function buildToolRegistry(
 	// surfaces inject the central application-home hierarchy; embedded callers
 	// that omit it retain the historical `<cwd>/.namzu` layout.
 	// Separate from the user-curated MEMORY.md that is injected into the prompt.
-	ensurePrivateStateDirectory(projectStateRoot, 'memory')
-	const memoryStore = new DiskMemoryStore({ baseDir: projectStateRoot })
+	const memoryRoot = ensurePrivateStateDirectory(projectStateRoot, 'memory')
+	const directory = projectId ? ensurePrivateStateDirectory(memoryRoot, projectId) : memoryRoot
+	const memoryStore = new DiskMemoryStore({ baseDir: projectStateRoot, directory })
 	// Search through the store's async boundary. Its concrete index is lazy:
 	// handing `getIndex()` to the synchronous overload before the first store
 	// read makes a new process report every persisted memory as absent.
@@ -1410,13 +1412,10 @@ export async function createAgentSession(
 		)
 	}
 	const hierarchyRoot = resolve(options.stateRoot ?? join(cwd, '.namzu'))
-	const pathBuilder = new DefaultPathBuilder(hierarchyRoot)
-	let projectStateRoot = hierarchyRoot
+	const pathBuilder = new CliPathBuilder(hierarchyRoot)
+	const projectStateRoot = hierarchyRoot
 	try {
-		if (options.stateRoot) {
-			const projectsRoot = ensurePrivateStateDirectory(hierarchyRoot, 'projects')
-			projectStateRoot = ensurePrivateStateDirectory(projectsRoot, scope.projectId)
-		}
+		ensurePrivateStateDirectory(hierarchyRoot, 'sessions')
 		// Refuse an aliased or otherwise unsafe generated-state root before any
 		// provider, sandbox or plugin runtime is constructed. Project-authored
 		// `.namzu` content may coexist here, but generated memory must never be
@@ -1810,6 +1809,7 @@ export async function createAgentSession(
 		projectStateRoot,
 		backgroundJobs,
 		checkpoints,
+		options.stateRoot ? scope.projectId : undefined,
 	)
 	// Package presence is not tool reachability. The CLI used to probe and
 	// report @namzu/computer-use without ever constructing its host or mounting
@@ -2111,7 +2111,13 @@ export async function createAgentSession(
 				// delegation, and a parent that delegated six times would leave
 				// seven accounts of one piece of work for the next run to read.
 				// The parent's settle is the one that speaks for the whole task.
-				const childTools = buildToolRegistry(cwd, projectStateRoot, backgroundJobs).registry
+				const childTools = buildToolRegistry(
+					cwd,
+					projectStateRoot,
+					backgroundJobs,
+					undefined,
+					options.stateRoot ? scope.projectId : undefined,
+				).registry
 				// Search owns its provider connection per call, so it is safe to share
 				// with a child. Preserve the parent's configured backend/off choice.
 				const search = registry.get('web_search')
@@ -3531,7 +3537,7 @@ interface RunTurnParams {
 	readonly skills: Skill[] | undefined
 	readonly scope: RunScope
 	/** Exact durable layout shared by turns, resume, and boot migration. */
-	readonly pathBuilder: DefaultPathBuilder
+	readonly pathBuilder: CliPathBuilder
 	/** Directory every filesystem tool in this turn resolves against. */
 	readonly workingDirectory: string
 	/** See `QueryParams.additionalDirectories`. */

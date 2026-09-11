@@ -14,7 +14,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { loadIdentity } from './identity.js'
 
-import { DiskSessionStore } from '@namzu/sdk'
+import { sessionStore } from '../sessions/database.js'
 
 import { inspectNamzuState } from './report.js'
 
@@ -230,7 +230,7 @@ describe('read-only state inventory', () => {
 		const cwd = temporary('central-project')
 		const home = temporary('central-os-home')
 		const stateRoot = temporary('central-override')
-		const project = await new DiskSessionStore({ rootDir: stateRoot }).createProject(
+		const project = await sessionStore(stateRoot).createProject(
 			{ tenantId: loadIdentity(stateRoot).tenantId, name: 'central', rootPath: cwd },
 			loadIdentity(stateRoot).tenantId,
 		)

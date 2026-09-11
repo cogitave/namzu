@@ -2,7 +2,6 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	DefaultPathBuilder,
 	DiskMemoryStore,
 	type LLMProvider,
 	MockLLMProvider,
@@ -17,6 +16,7 @@ import {
 	query,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
+import { CliPathBuilder } from '../../integrations/sessions/paths.js'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
@@ -104,7 +104,7 @@ async function archive(cwd: string, sessions: CliSessions, sessionId: SessionId,
 		agentName: 'Archive fixture',
 		messages: [createUserMessage('Inspect the original.')],
 		workingDirectory: cwd,
-		pathBuilder: new DefaultPathBuilder(sessions.root),
+		pathBuilder: new CliPathBuilder(sessions.root),
 		sessionId,
 		topicId: sessions.topicId,
 		projectId: sessions.projectId,

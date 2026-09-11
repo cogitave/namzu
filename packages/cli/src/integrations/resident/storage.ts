@@ -1,14 +1,14 @@
+import { existsSync } from 'node:fs'
 import { lstatSync, readFileSync } from 'node:fs'
 import { realpath } from 'node:fs/promises'
 import { isAbsolute, join, relative, resolve, sep } from 'node:path'
 import {
-	DefaultPathBuilder,
 	DiskResidentAgenda,
-	DiskSessionStore,
 	type ProjectId,
 	ResidentConflictError,
 	type TenantId,
 } from '@namzu/sdk'
+import { sessionDatabasePath, sessionStore } from '../sessions/database.js'
 
 import { resolveNamzuHome } from '../state/home.js'
 import { readIdentity } from '../state/identity.js'
@@ -129,13 +129,12 @@ export async function lookupResident(cwd: string, agentKey: string): Promise<Cli
 	validateAgentKey(agentKey)
 	const root = resolveNamzuHome()
 	const identity = readIdentity(root)
-	if (!identity) return null
+	if (!identity || !existsSync(sessionDatabasePath(root))) return null
 	const workingDirectory = await realpath(resolve(cwd))
-	const store = new DiskSessionStore({ rootDir: root })
+	const store = sessionStore(root, true)
 	const project = await findCliProject(store, workingDirectory, identity.tenantId)
 	if (!project) return null
-	const projectStateRoot = new DefaultPathBuilder(root).projectDir(project.id)
-	const residentsRoot = join(projectStateRoot, 'cli', 'residents')
+	const residentsRoot = join(root, 'residents', project.id)
 	const binding = readBinding(
 		residentsRoot,
 		{ tenantId: identity.tenantId, projectId: project.id, agentKey },
@@ -150,7 +149,10 @@ export async function createResident(cwd: string, agentKey: string): Promise<Cli
 	const workingDirectory = await realpath(resolve(cwd))
 	const { openSessions } = await import('../sessions/store.js')
 	const sessions = await openSessions(workingDirectory)
-	const residentsRoot = ensurePrivateStateDirectory(sessions.controlRoot, 'residents')
+	const residentsRoot = ensurePrivateStateDirectory(
+		ensurePrivateStateDirectory(sessions.root, 'residents'),
+		sessions.projectId,
+	)
 	const agentRoot = ensurePrivateStateDirectory(residentsRoot, agentKey)
 	const expected = { tenantId: sessions.tenantId, projectId: sessions.projectId, agentKey }
 	const projectRoot = cliProjectRoot(workingDirectory)

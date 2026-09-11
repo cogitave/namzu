@@ -2,7 +2,6 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	DiskSessionStore,
 	MockLLMProvider,
 	type RunEvent,
 	type RunId,
@@ -13,6 +12,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
+import { sessionStore } from '../../sessions/database.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { SubagentPathBuilder, resolveSubagentParent } from '../parent.js'
 import { type SubagentParent, createSubagentRuntime } from '../runtime.js'
@@ -143,7 +143,7 @@ describe('delegation belongs to the actual parent', () => {
 	it('loads real project limits and the durable session topic on resume', async () => {
 		const cwd = directory()
 		const fixture = await subagentParentFixture(cwd)
-		const store = new DiskSessionStore({ rootDir: join(cwd, 'state') })
+		const store = sessionStore(join(cwd, 'state'))
 		await expect(resolveSubagentParent(fixture.scope, cwd, join(cwd, 'state'))).rejects.toThrow(
 			'missing',
 		)

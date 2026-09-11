@@ -581,13 +581,12 @@ describe('namzu drain crosses the same project trust boundary', () => {
 				plugins: { enabled: true, allowedScopes: ['project'] },
 			}),
 		)
-		const { DiskSessionStore, asTenantId, asSessionId, generateTopicId } = await import(
-			'@namzu/sdk'
-		)
+		const { asTenantId, asSessionId, generateTopicId } = await import('@namzu/sdk')
 		const stateRoot = join(home, '.namzu')
 		mkdirSync(stateRoot, { recursive: true })
 		vi.stubEnv('NAMZU_HOME', stateRoot)
-		const state = new DiskSessionStore({ rootDir: stateRoot })
+		const { sessionStore } = await import('../integrations/sessions/database.js')
+		const state = sessionStore(stateRoot)
 		const tenantId = asTenantId('8bce6ebb-557b-46c5-b492-d73f56d2dac6')
 		const project = await state.createProject({ tenantId, name: 'Drain fixture' }, tenantId)
 		await state.createSession(

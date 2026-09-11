@@ -40,7 +40,8 @@ describe('central CLI state routing', () => {
 
 		expect(later.projectId).toBe(first.projectId)
 		expect(first.root).toBe(stateRoot)
-		expect(first.projectStateRoot).toBe(join(stateRoot, 'projects', first.projectId))
+		expect(first.projectStateRoot).toBe(stateRoot)
+		expect(existsSync(join(stateRoot, 'projects'))).toBe(false)
 		expect(first.controlRoot).toBe(join(first.projectStateRoot, 'cli'))
 		expect(existsSync(join(cwd, '.namzu'))).toBe(false)
 	})
@@ -51,7 +52,7 @@ describe('central CLI state routing', () => {
 		const second = await openSessions(await temp('namzu-workspace-b-'), { stateRoot })
 
 		expect(first.projectId).not.toBe(second.projectId)
-		expect(first.projectStateRoot).not.toBe(second.projectStateRoot)
+		expect(first.projectStateRoot).toBe(second.projectStateRoot)
 	})
 
 	it('shares one checkout Project, topic and conversation from a package or symlink', async () => {
@@ -162,11 +163,16 @@ describe('central CLI state routing', () => {
 		)
 		const message = createUserMessage('Keep the exact conversation binding')
 		for (const id of [generated, legacy]) await appendMessages(sessions, id, [message])
-		const mappings = { generated, legacy }
+		const mappings = Object.fromEntries(
+			Object.entries({ generated, legacy }).map(([key, id]) => [
+				JSON.stringify([sessions.projectId, key]),
+				id,
+			]),
+		)
 		writeFileSync(join(sessions.controlRoot, 'desktop-sessions.json'), JSON.stringify(mappings))
 
 		const reopened = await openSessions(workspace, { stateRoot })
-		for (const [key, id] of Object.entries(mappings)) {
+		for (const [key, id] of Object.entries({ generated, legacy })) {
 			expect(await findMappedConversation(reopened, key)).toBe(id)
 			expect(await resolveConversation(reopened, key)).toBe(id)
 			expect(await loadResumableConversation(reopened, id)).toEqual([message])

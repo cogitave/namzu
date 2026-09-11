@@ -3,7 +3,6 @@ import { constants } from 'node:fs'
 import { lstat, open, opendir } from 'node:fs/promises'
 import { join, relative, resolve, sep } from 'node:path'
 import {
-	DefaultPathBuilder,
 	type SessionId,
 	type ToolContext,
 	type ToolDefinition,
@@ -12,6 +11,7 @@ import {
 	isEntityId,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
+import { CliPathBuilder } from './paths.js'
 import type { CliSessions } from './store.js'
 
 const RECORD_BYTES = 4 * 1024 * 1024
@@ -255,7 +255,7 @@ export async function searchConversation(
 		throw new Error('Supply a literal query of 1–256 characters.')
 	const limit = input.limit ?? 5
 	if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Limit must be 1–20.')
-	const paths = new DefaultPathBuilder(sessions.root)
+	const paths = new CliPathBuilder(sessions.root)
 	const runsRoot = join(paths.sessionDir(sessions.projectId, sessionId), 'runs')
 	await checkedPath(sessions.root, paths.sessionDir(sessions.projectId, sessionId))
 	const session = await sessions.store.getSession(sessionId, sessions.tenantId)
@@ -458,7 +458,7 @@ export async function readConversationEvidence(
 	const part = input.part ?? 0
 	if (!Number.isSafeInteger(input.seq) || input.seq < 1 || !Number.isSafeInteger(part) || part < 0)
 		throw new Error('Supply a positive event sequence and nonnegative part.')
-	const paths = new DefaultPathBuilder(sessions.root)
+	const paths = new CliPathBuilder(sessions.root)
 	await checkedPath(sessions.root, paths.sessionDir(sessions.projectId, sessionId))
 	const session = await sessions.store.getSession(sessionId, sessions.tenantId)
 	if (!session || session.projectId !== sessions.projectId)

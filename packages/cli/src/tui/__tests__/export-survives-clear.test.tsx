@@ -1,10 +1,10 @@
+import { CliPathBuilder } from '../../integrations/sessions/paths.js'
 /** `/export` reads durable run evidence, not the transcript `/clear-screen` removes. */
 
 import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	DefaultPathBuilder,
 	type Message,
 	createAssistantMessage,
 	createToolMessage,
@@ -77,7 +77,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					const runId = sendOptions?.runId
 					if (!runId) throw new Error('App did not reserve a run id')
 					const evidencePath = join(
-						new DefaultPathBuilder(stateRoot).sessionDir(
+						new CliPathBuilder(stateRoot).sessionDir(
 							scope.projectId,
 							scope.sessionId,
 						),
@@ -96,7 +96,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 					])
 					const result = createToolMessage('durable tool result', toolUseId)
 					const last = createAssistantMessage('Done.')
-					const runDir = new DefaultPathBuilder(stateRoot).runDir(
+					const runDir = new CliPathBuilder(stateRoot).runDir(
 						scope.projectId,
 						scope.sessionId,
 						runId,

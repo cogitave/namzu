@@ -1,9 +1,11 @@
+import { existsSync } from 'node:fs'
 import { constants, type Stats } from 'node:fs'
 import { lstat, open, opendir, realpath } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, isAbsolute, join, resolve, sep } from 'node:path'
+import { sessionDatabasePath, sessionStore } from '../sessions/database.js'
 
-import { DiskSessionStore, isEntityId } from '@namzu/sdk'
+import { asSessionId, isEntityId } from '@namzu/sdk'
 
 import { readIdentity } from './identity.js'
 import { findCliProject } from './project.js'
@@ -29,6 +31,12 @@ const RUNTIME_TOP_LEVEL = new Set([
 	'goals',
 	'memory',
 	'projects',
+	'state',
+	'sessions',
+	'cli',
+	'residents',
+	'checkpoints',
+	'delegation-history',
 	'tenants',
 	'titles.json',
 	'worktrees',
@@ -40,6 +48,12 @@ const PRIVATE_BOUNDARIES = [
 	'memory',
 	'plugin-settings',
 	'projects',
+	'state',
+	'sessions',
+	'cli',
+	'residents',
+	'checkpoints',
+	'delegation-history',
 	'tenants',
 ] as const
 
@@ -323,14 +337,14 @@ async function inspectCentralProjectBinding(
 	try {
 		// Read-only: an inventory reports what is there and mints nothing.
 		const identity = readIdentity(centralRoot)
-		if (!identity) {
+		if (!identity || !existsSync(sessionDatabasePath(centralRoot))) {
 			return {
 				status: 'uninitialized',
 				detail: 'No identity has been minted in this application home, so no Project can be bound.',
 			}
 		}
 		const project = await findCliProject(
-			new DiskSessionStore({ rootDir: centralRoot }),
+			sessionStore(centralRoot, true),
 			canonicalCwd,
 			identity.tenantId,
 		)
@@ -630,7 +644,27 @@ async function inventoryOf(collection: RootCollection, sink: IssueSink): Promise
 
 	const validSessions = new Map<string, Entry>()
 	let candidateAnalysisComplete = true
+	let identity: ReturnType<typeof readIdentity> = null
+	try {
+		identity = readIdentity(collection.root)
+	} catch (error) {
+		metadataIssue(sink, 'identity.json', error)
+		candidateAnalysisComplete = false
+	}
+	const database =
+		identity && existsSync(sessionDatabasePath(collection.root))
+			? sessionStore(collection.root, true)
+			: undefined
 	for (const directory of sessionDirs) {
+		if (directory.relative.startsWith('sessions/') && database && identity) {
+			try {
+				const id = asSessionId(basename(directory.relative))
+				if (await database.getSession(id, identity.tenantId)) validSessions.set(id, directory)
+			} catch (error) {
+				metadataIssue(sink, directory.relative, error)
+			}
+			continue
+		}
 		const record = files.get(`${directory.relative}/session.json`)
 		if (!record) continue
 		const parsed = await readJsonRecord(record, sink)
@@ -671,7 +705,10 @@ async function inventoryOf(collection: RootCollection, sink: IssueSink): Promise
 		attachmentKeys.set(key, pair)
 	}
 
-	const candidates = await originOnlyCandidates(files, validSessions, runDirs, sink)
+	// SQLite messages and links cannot be classified by inspecting files alone.
+	const candidates = database
+		? { complete: false, directories: [] }
+		: await originOnlyCandidates(files, validSessions, runDirs, sink)
 	candidateAnalysisComplete &&= candidates.complete
 
 	return {
@@ -707,22 +744,26 @@ async function inventoryOf(collection: RootCollection, sink: IssueSink): Promise
 function isCanonicalSessionDir(path: string): boolean {
 	const parts = path.split('/')
 	return (
-		parts.length === 4 &&
-		parts[0] === 'projects' &&
-		isEntityId(parts[1], 'project') &&
-		parts[2] === 'sessions' &&
-		isEntityId(parts[3], 'session')
+		(parts.length === 2 && parts[0] === 'sessions' && isEntityId(parts[1], 'session')) ||
+		(parts.length === 4 &&
+			parts[0] === 'projects' &&
+			isEntityId(parts[1], 'project') &&
+			parts[2] === 'sessions' &&
+			isEntityId(parts[3], 'session'))
 	)
 }
 
 function isCanonicalRunDir(path: string): boolean {
 	const parts = path.split('/')
+	const prefix = parts[0] === 'sessions' ? 2 : 4
 	return (
-		(parts.length === 6 ||
-			(parts.length === 8 && parts[6] === 'children' && isEntityId(parts[7], 'run'))) &&
-		isCanonicalSessionDir(parts.slice(0, 4).join('/')) &&
-		parts[4] === 'runs' &&
-		isEntityId(parts[5], 'run')
+		(parts.length === prefix + 2 ||
+			(parts.length === prefix + 4 &&
+				parts[prefix + 2] === 'children' &&
+				isEntityId(parts[prefix + 3], 'run'))) &&
+		isCanonicalSessionDir(parts.slice(0, prefix).join('/')) &&
+		parts[prefix] === 'runs' &&
+		isEntityId(parts[prefix + 1], 'run')
 	)
 }
 
@@ -739,12 +780,13 @@ function isCanonicalCheckpointFile(path: string): boolean {
 
 function isCanonicalEmergencyFile(path: string): boolean {
 	const parts = path.split('/')
-	const file = parts[6]
+	const prefix = parts[0] === 'sessions' ? 2 : 4
+	const file = parts[prefix + 2]
 	return (
-		parts.length === 7 &&
-		isCanonicalSessionDir(parts.slice(0, 4).join('/')) &&
-		parts[4] === 'runs' &&
-		parts[5] === 'emergency' &&
+		parts.length === prefix + 3 &&
+		isCanonicalSessionDir(parts.slice(0, prefix).join('/')) &&
+		parts[prefix] === 'runs' &&
+		parts[prefix + 1] === 'emergency' &&
 		file?.endsWith('.json') === true &&
 		isEntityId(file.slice(0, -5), 'run')
 	)

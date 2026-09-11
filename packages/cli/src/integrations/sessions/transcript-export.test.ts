@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	DefaultPathBuilder,
 	type Message,
 	type RunEvent,
 	type RunId,
@@ -20,6 +19,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { fixtureUuid } from '../../../../sdk/src/test-support/ids.js'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { CliPathBuilder } from './paths.js'
 import {
 	type CliSessions,
 	appendMessages,
@@ -97,7 +97,7 @@ async function publishCompleteRun(
 		readonly producedContext?: readonly Message[]
 	} = {},
 ): Promise<string> {
-	const paths = new DefaultPathBuilder(sessions.root)
+	const paths = new CliPathBuilder(sessions.root)
 	const runDir = paths.runDir(sessions.projectId, sessionId, runId)
 	await mkdir(runDir, { recursive: true })
 	const toolUseId = 'toolu_export_1'
@@ -198,7 +198,7 @@ async function publishSimpleTurn(
 		assistantText,
 	})
 	if (options.persist !== false) await appendMessages(sessions, sessionId, [user, assistant])
-	const runDir = new DefaultPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+	const runDir = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
 	await mkdir(runDir, { recursive: true })
 	const events = [
 		recordedEvent('run_started', runId, 1),
@@ -326,7 +326,7 @@ describe('verified conversation Markdown', () => {
 		const turn = await bindTurn(sessions, sessionId)
 		await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
 		await mkdir(
-			new DefaultPathBuilder(sessions.root).runDir(
+			new CliPathBuilder(sessions.root).runDir(
 				sessions.projectId,
 				sibling,
 				asRunId('e91e1416-09b3-4b55-8f32-748aa6e38f7a'),
@@ -373,7 +373,7 @@ describe('verified conversation Markdown', () => {
 			const turn = await bindTurn(sessions, sessionId)
 			await publishCompleteRun(sessions, sessionId, turn.runId, turn.user)
 			await mkdir(
-				new DefaultPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, unboundId),
+				new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, unboundId),
 				{ recursive: true },
 			)
 
@@ -387,7 +387,7 @@ describe('verified conversation Markdown', () => {
 		const sessions = await openSessions(await cwd())
 		const sessionId = await startConversation(sessions)
 		const turn = await bindTurn(sessions, sessionId, { settle: false })
-		const runDir = new DefaultPathBuilder(sessions.root).runDir(
+		const runDir = new CliPathBuilder(sessions.root).runDir(
 			sessions.projectId,
 			sessionId,
 			turn.runId,
@@ -446,7 +446,7 @@ describe('verified conversation Markdown', () => {
 			outcome: 'failed',
 			assistantText: 'partial before failure',
 		})
-		const runDir = new DefaultPathBuilder(sessions.root).runDir(
+		const runDir = new CliPathBuilder(sessions.root).runDir(
 			sessions.projectId,
 			sessionId,
 			turn.runId,
@@ -488,7 +488,7 @@ describe('verified conversation Markdown', () => {
 			outcome: 'cancelled',
 			assistantText: 'partial before cancel',
 		})
-		const runDir = new DefaultPathBuilder(sessions.root).runDir(
+		const runDir = new CliPathBuilder(sessions.root).runDir(
 			sessions.projectId,
 			sessionId,
 			turn.runId,

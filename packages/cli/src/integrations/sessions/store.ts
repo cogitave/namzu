@@ -1,6 +1,7 @@
+import { sessionStore } from './database.js'
 /**
  * Conversation persistence for the TUI, built on the SDK's session
- * hierarchy (`DiskSessionStore`). Each checkout is one Project (an immutable
+ * indexed SQLite session store. Each checkout is one Project (an immutable
  * root binding keeps its id stable across launches),
  * every conversation is a Session under a fixed CLI Topic, and the
  * conversation's messages are appended to the Session as turns complete.
@@ -11,7 +12,7 @@
  * Existing central bindings for individual working directories keep their history.
  */
 
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
 import {
 	chmodSync,
 	closeSync,
@@ -27,27 +28,24 @@ import { realpath } from 'node:fs/promises'
 import { basename, join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import {
-	DefaultPathBuilder,
 	DiskSessionGoalStore,
-	DiskSessionStore,
 	type Message,
 	type ProjectId,
 	type Session,
 	type SessionGoalStore,
 	type SessionId,
+	type SessionStore,
 	type TenantId,
 	type TopicId,
 	type UserMessage,
 	asSessionId,
 	asTopicId,
-	generateTopicId,
 	isEntityId,
 	requireOpenProject,
 } from '@namzu/sdk'
 import { restrictToOwner } from '../providers/credential-store.js'
 import { resolveNamzuHome } from '../state/home.js'
 import { loadIdentity } from '../state/identity.js'
-import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { cliProjectRoot, findCliProject } from '../state/project.js'
 import {
@@ -58,17 +56,17 @@ import {
 } from './turn-evidence.js'
 
 export interface CliSessions {
-	readonly store: DiskSessionStore
+	readonly store: Required<SessionStore>
 	/** Durable completion goal owned by each conversation Session. */
 	readonly goals: SessionGoalStore
 	readonly projectId: ProjectId
 	readonly topicId: TopicId
 	readonly tenantId: TenantId
-	/** Absolute hierarchy root used by the SDK path builder. */
+	/** Absolute application home used by the CLI path builder. */
 	readonly root: string
-	/** Generated state owned by this Project inside {@link root}. */
+	/** Shared application state root; individual capabilities apply their own ownership keys. */
 	readonly projectStateRoot: string
-	/** CLI-only sidecars for this Project. */
+	/** Shared CLI sidecars; workspace-specific bindings include their Project key. */
 	readonly controlRoot: string
 	/**
 	 * CLI-only turn/run correlation. Optional for embedded test doubles and
@@ -126,9 +124,9 @@ export async function openSessions(
 	)
 	// The installation owns the tenant; the canonical checkout owns the Project.
 	const tenantId = loadIdentity(root).tenantId
-	ensurePrivateStateDirectory(root, 'projects')
+	ensurePrivateStateDirectory(root, 'sessions')
 	ensurePrivateStateDirectory(root, 'goals')
-	const store = new DiskSessionStore({ rootDir: root })
+	const store = sessionStore(root)
 	let project = await findCliProject(store, workingDirectory, tenantId)
 	if (!project) {
 		const projectRoot = cliProjectRoot(workingDirectory)
@@ -143,13 +141,13 @@ export async function openSessions(
 		}
 	}
 	const projectId = project.id
-	const projectStateRoot = new DefaultPathBuilder(root).projectDir(projectId)
+	const projectStateRoot = root
 	const controlRoot = ensurePrivateStateDirectory(projectStateRoot, 'cli')
 	return {
 		store,
 		goals: new DiskSessionGoalStore({ rootDir: root, sessions: store }),
 		projectId,
-		topicId: topicIdFor(controlRoot),
+		topicId: topicIdFor(projectId),
 		tenantId,
 		root,
 		projectStateRoot,
@@ -158,33 +156,12 @@ export async function openSessions(
 	}
 }
 
-/**
- * The project's one topic, minted the first time the project is opened and
- * kept in its control directory. A topic groups a project's conversations;
- * the CLI keeps one per project, and it is an id like any other rather
- * than a constant string shared by every project on every machine.
- */
-function topicIdFor(controlRoot: string): TopicId {
-	const path = join(controlRoot, 'topic.json')
-	const existing = readTopicId(path)
-	if (existing) return existing
-	publishPrivateJsonIfAbsent(path, { topicId: generateTopicId() })
-	const published = readTopicId(path)
-	if (!published) throw new Error(`${path} disappeared while initializing the project topic`)
-	return published
-}
-
-function readTopicId(path: string): TopicId | null {
-	try {
-		const raw = JSON.parse(readFileSync(path, 'utf8')) as { topicId?: unknown }
-		if (raw && !Array.isArray(raw) && typeof raw.topicId === 'string') return asTopicId(raw.topicId)
-		throw new Error('expected an object containing a topicId string')
-	} catch (error) {
-		if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
-		throw new Error(
-			`${path} is not a readable topic file: ${error instanceof Error ? error.message : String(error)}. Fix or remove it; a new one is minted when it is absent.`,
-		)
-	}
+/** One stable CLI topic per logical workspace, without an extra binding file. */
+function topicIdFor(projectId: ProjectId): TopicId {
+	const digest = createHash('sha256').update(`namzu:cli-topic:${projectId}`).digest('hex')
+	return asTopicId(
+		`${digest.slice(0, 8)}-${digest.slice(8, 12)}-8${digest.slice(13, 16)}-a${digest.slice(17, 20)}-${digest.slice(20, 32)}`,
+	)
 }
 
 // Maps an embedder's own session key (e.g. a desktop host's uuid) to a
@@ -303,7 +280,7 @@ export async function resolveConversation(s: CliSessions, key: string): Promise<
 			return winner
 		}
 		const id = await startConversation(s)
-		map[key] = id
+		map[JSON.stringify([s.projectId, key])] = id
 		writePrivateJson(s.controlRoot, DESKTOP_MAP, map)
 		return id
 	} finally {
@@ -324,7 +301,7 @@ async function resolveExistingConversation(
 	key: string,
 	map: Readonly<Record<string, string>>,
 ): Promise<SessionId | null> {
-	const existing = map[key]
+	const existing = map[JSON.stringify([s.projectId, key])]
 	// readDesktopMap has validated the binding. A missing session may be
 	// recreated, but malformed identity metadata must never mint a replacement.
 	if (existing !== undefined) {

@@ -58,7 +58,14 @@
  * asked for rather than achieving it.
  */
 
-import { type Message, type SessionId, generateSessionId, jsonLinesSink } from '@namzu/sdk'
+import {
+	type Message,
+	type SessionId,
+	asSessionId,
+	generateSessionId,
+	isEntityId,
+	jsonLinesSink,
+} from '@namzu/sdk'
 
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_FAIL, EXIT_OK, EXIT_UNTRUSTED } from '../exit-codes.js'
@@ -66,6 +73,7 @@ import type { DetectedProvider, Preferences } from '../integrations/providers/in
 import {
 	appendMessages,
 	findMappedConversation,
+	listRecent,
 	loadConversation,
 	openSessions,
 	replaceConversation,
@@ -502,10 +510,7 @@ export const historyCommand: CommandDef = {
 	handler: async ({ rawArgs }) => {
 		const flags = parseRunFlags(rawArgs)
 		const key = flags.session
-		if (!key) {
-			process.stdout.write('[]\n')
-			return 0
-		}
+
 		try {
 			// `--cwd` is in this command's help too, and picks the central Project
 			// the session is read from. Reading the process's own directory
@@ -517,19 +522,21 @@ export const historyCommand: CommandDef = {
 				return 0
 			}
 			const cli = await openSessions(resolved.cwd)
-			const map = await import('../integrations/sessions/store.js')
-			// Resolve WITHOUT creating: only emit history for an existing mapping.
-			const existing = await findMappedConversation(cli, key)
+			// Host keys and CLI conversation UUIDs are distinct entry points. Both
+			// must pass the same workspace membership check before reading content.
+			const existing = key
+				? ((await findMappedConversation(cli, key)) ??
+					(isEntityId(key, 'session') ? asSessionId(key) : null))
+				: (await listRecent(cli, 1))[0]?.id
 			if (!existing) {
 				process.stdout.write('[]\n')
 				return 0
 			}
-			const messages = await loadConversation(cli, existing as never)
+			const messages = await loadConversation(cli, existing)
 			const out = messages
 				.filter((m) => (m.role === 'user' || m.role === 'assistant') && m.content)
 				.map((m) => ({ role: m.role, content: m.content }))
 			process.stdout.write(`${JSON.stringify(out)}\n`)
-			void map
 			return 0
 		} catch {
 			process.stdout.write('[]\n')

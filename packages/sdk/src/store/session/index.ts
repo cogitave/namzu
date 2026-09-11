@@ -8,6 +8,8 @@
 
 export { InMemorySessionStore } from './memory.js'
 export { DiskSessionStore } from './disk.js'
+export { SqliteSessionStore } from './sqlite.js'
+export type { SqliteSessionStoreConfig } from './sqlite.js'
 export type { DiskSessionStoreConfig } from './disk.js'
 export type { SessionMessage } from '../../types/session/messages.js'
 export { getAncestry, getChildren, orderChildren } from './linkage.js'

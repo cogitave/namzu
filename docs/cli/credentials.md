@@ -64,7 +64,7 @@ Everyone, Users, Authenticated Users, or another user remain refused. A remainin
 Administrators grant also fails validation, including on credential files.
 Unsupported or malformed ACL entries cause refusal.
 
-A startup error naming `projects/<projectId>/cli` and a Windows account is a
+A startup error naming `state/` or `cli/` and a Windows account is a
 local state-permission failure. It can occur after a provider credential has
 already been found. Earlier versions incorrectly rejected an explicit `SY`
 grant as another user's access; signing in to Claude again does not repair

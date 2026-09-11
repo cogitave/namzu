@@ -153,7 +153,10 @@ it.skipIf(process.platform === 'win32')(
 
 it.each([undefined, false])('recalls a persisted body-only fact with recall=%s', async (recall) => {
 	const state = await openSessions(cwd, { stateRoot: appHome })
-	const store = new DiskMemoryStore({ baseDir: state.projectStateRoot })
+	const store = new DiskMemoryStore({
+		baseDir: state.root,
+		directory: join(state.root, 'memory', state.projectId),
+	})
 	await store.create({
 		title: 'Earlier investigation',
 		summary: 'An implementation detail',
@@ -173,7 +176,10 @@ it.each([undefined, false])('recalls a persisted body-only fact with recall=%s',
 
 it('keeps automatic recall inside its owning project under the same application home', async () => {
 	const owner = await makeSession()
-	await new DiskMemoryStore({ baseDir: owner.state.projectStateRoot }).create({
+	await new DiskMemoryStore({
+		baseDir: owner.state.root,
+		directory: join(owner.state.root, 'memory', owner.state.projectId),
+	}).create({
 		title: 'Earlier investigation',
 		summary: 'An implementation detail',
 		content: 'cerulean-cache expires after 14 hours.',
@@ -182,7 +188,7 @@ it('keeps automatic recall inside its owning project under the same application 
 	mkdirSync(join(otherDirectory, '.git'), { recursive: true })
 	const other = await makeSession(undefined, otherDirectory)
 	expect(other.state.projectId).not.toBe(owner.state.projectId)
-	expect(other.state.projectStateRoot).not.toBe(owner.state.projectStateRoot)
+	expect(other.state.projectId).not.toBe(owner.state.projectId)
 	const query = 'What is the expiry for cerulean-cache?'
 	expect((await send(owner.session, query)).system).toContain('14 hours')
 	const unrelated = await send(other.session, query)

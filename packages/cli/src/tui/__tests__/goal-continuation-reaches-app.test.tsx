@@ -8,7 +8,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 
 import {
 	DiskSessionGoalStore,
-	DiskSessionStore,
+	SqliteSessionStore,
 	type GoalRoundAuthority,
 	type Message,
 	type SessionGoalStore,
@@ -546,7 +546,7 @@ it('fails closed when goal-turn evidence cannot be published', async () => {
 })
 
 it('disarms when admitted messages cannot be persisted', async () => {
-	vi.spyOn(DiskSessionStore.prototype, 'appendMessage').mockRejectedValueOnce(
+	vi.spyOn(SqliteSessionStore.prototype, 'appendMessage').mockRejectedValueOnce(
 		new Error('message disk unavailable'),
 	)
 	let sends = 0

@@ -397,9 +397,9 @@ it('opens bare /feedback as a finite chooser for the completed answer', async ()
 	expect(feedback.configs).toEqual([
 		{
 			rootDir:
-				'/tmp/.namzu/projects/b908c84b-ed5b-4dc3-aae8-e3483885fc5f/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/feedback',
+				'/tmp/.namzu/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/feedback',
 			runsDir:
-				'/tmp/.namzu/projects/b908c84b-ed5b-4dc3-aae8-e3483885fc5f/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/runs',
+				'/tmp/.namzu/sessions/0dd41fd1-f1a5-44cf-8b18-619da7d08376/runs',
 		},
 	])
 })

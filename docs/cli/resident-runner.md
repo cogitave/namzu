@@ -116,7 +116,7 @@ It cannot admit a step before the parent's explicit handoff. A disconnect before
 handoff aborts startup. A startup timeout does not authorize replacement.
 
 The private owner log lives in the resident partition at
-`NAMZU_HOME/projects/<projectId>/cli/residents/<agent>/runner/revisions/`.
+`NAMZU_HOME/residents/<projectId>/<agent>/runner/revisions/`.
 Complete numbered records are published exclusively; old revisions are never
 removed. Only the exact owner can publish its stopped receipt. An old delayed
 completion cannot erase or overwrite a newer owner's reservation. The log is

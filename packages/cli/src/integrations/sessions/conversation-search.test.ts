@@ -2,7 +2,6 @@ import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	DefaultPathBuilder,
 	MockLLMProvider,
 	type RunEvent,
 	type SessionId,
@@ -16,6 +15,7 @@ import {
 import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { readConversationEvidence, searchConversation } from './conversation-search.js'
+import { CliPathBuilder } from './paths.js'
 import {
 	type CliSessions,
 	appendMessages,
@@ -40,7 +40,7 @@ async function fixture() {
 
 async function transcript(sessions: CliSessions, sessionId: SessionId, text: string, tail = '') {
 	const runId = generateRunId()
-	const path = new DefaultPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+	const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
 	await mkdir(path, { recursive: true })
 	await writeFile(
 		join(path, 'transcript.jsonl'),
@@ -93,7 +93,7 @@ describe('bounded original conversation evidence', () => {
 			agentName: 'Evidence test',
 			messages: [createUserMessage('Inspect the source.')],
 			workingDirectory: cwd,
-			pathBuilder: new DefaultPathBuilder(sessions.root),
+			pathBuilder: new CliPathBuilder(sessions.root),
 			sessionId,
 			topicId: sessions.topicId,
 			projectId: sessions.projectId,
@@ -185,7 +185,7 @@ describe('bounded original conversation evidence', () => {
 		const other = await startConversation(sessions)
 		const foreign = await transcript(sessions, other, 'PRIVATE-ID')
 		const root = join(
-			new DefaultPathBuilder(sessions.root).sessionDir(sessions.projectId, sessionId),
+			new CliPathBuilder(sessions.root).sessionDir(sessions.projectId, sessionId),
 			'runs',
 		)
 		await mkdir(root, { recursive: true })

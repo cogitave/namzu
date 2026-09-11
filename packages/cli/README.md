@@ -60,7 +60,7 @@ npm install -g @namzu/cli     # the binary
 npx @namzu/cli                # or run it once without installing
 ```
 
-Requires Node.js 20+.
+Requires Node.js 22.13 or newer.
 
 There is also an installer, which checks the Node version, installs the package
 and then verifies the binary answers before claiming success. If the global

@@ -4,7 +4,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-	DiskSessionStore,
+	SqliteSessionStore,
 	createAssistantMessage,
 	createSystemMessage,
 	createToolMessage,
@@ -161,8 +161,8 @@ async function submit(
 }
 
 it('reopens the exact tool/reasoning history and sends it next turn', async () => {
-	const replacements = vi.spyOn(DiskSessionStore.prototype, 'replaceMessages')
-	const appends = vi.spyOn(DiskSessionStore.prototype, 'appendMessage')
+	const replacements = vi.spyOn(SqliteSessionStore.prototype, 'replaceMessages')
+	const appends = vi.spyOn(SqliteSessionStore.prototype, 'appendMessage')
 	const root = await mkdtemp(join(tmpdir(), 'namzu-opaque-history-app-'))
 	roots.push(root)
 	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
@@ -222,8 +222,8 @@ it('reopens the exact tool/reasoning history and sends it next turn', async () =
 })
 
 it('atomically replaces a prefix changed by in-run compaction', async () => {
-	const replacements = vi.spyOn(DiskSessionStore.prototype, 'replaceMessages')
-	const appends = vi.spyOn(DiskSessionStore.prototype, 'appendMessage')
+	const replacements = vi.spyOn(SqliteSessionStore.prototype, 'replaceMessages')
+	const appends = vi.spyOn(SqliteSessionStore.prototype, 'appendMessage')
 	const root = await mkdtemp(join(tmpdir(), 'namzu-compacted-history-app-'))
 	roots.push(root)
 	const harness = render(<App ctx={{ cwd: root, version: '0.0.0-test' } as TuiContext} />)
