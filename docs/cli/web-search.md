@@ -11,7 +11,7 @@ tags: [cli, sdk, providers, web]
 Web search is enabled by default for main conversations, independently of the
 selected provider/model. The default `web.backend: auto` prefers provider-hosted search when the active
 driver declares support and the session has no fallback chain. Otherwise Namzu
-mounts an Exa-backed `web_search` tool using its existing MCP client.
+mounts an Exa-backed `web_search` tool using a stateless MCP request.
 Explicit `native` or `exa` selections are respected. Provider switches rebuild
 the selection; a mixed fallback chain uses the common tool. Connections are lazy: starting Namzu sends no search query.
 Each invocation sends the query to Exa and follows normal network-tool permission
@@ -30,6 +30,17 @@ This restores the previous disabled default. `search: live` is the default;
 key in validation, but has free-tier limits and may reject or throttle requests.
 See the [official Exa MCP documentation](https://exa.ai/docs/reference/exa-mcp).
 No auxiliary language model is invoked for search.
+
+Common search sends one `tools/call` request per attempt, without a fresh MCP
+initialization handshake. Parent and child searches share a process-local queue
+with at least 500 ms between request starts. HTTP 429, 502, 503 and 504 receive
+at most three total attempts, honoring `Retry-After` or exponential backoff with
+jitter. Queueing, network requests and retries share a 25-second deadline;
+operator cancellation aborts waiting and active requests. Progress reports show
+queueing and rate-limit waits. A cooldown longer than the remaining deadline
+returns a failure with retry guidance, not fabricated results. This limits local
+bursts; it does not guarantee availability or coordinate separate CLI processes.
+Responses are bounded to 1 MiB and retain source links and untrusted provenance.
 
 `web.fetch` remains off by default and independently enables guarded URL fetching.
 `/status` shows the configured search mode; it is not a connectivity probe.

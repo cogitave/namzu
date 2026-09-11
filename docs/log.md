@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Common CLI web search uses stateless MCP requests, shared admission, bounded transient retries and cancellable waits.
+
 - **Update** Passed configured independent web search into delegated tool registries, including read-only explore agents, and improved word wrapping in agent transcript pages.
 
 - **Update** Applied the activity fill directly to the Working text, removing the additional activity wordmark.

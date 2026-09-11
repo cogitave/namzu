@@ -1,11 +1,6 @@
-import {
-	MCPClient,
-	type ToolDefinition,
-	defineTool,
-	mcpJsonSchemaToZod,
-	mcpToolToToolDefinition,
-} from '@namzu/sdk'
+import { type ToolDefinition, defineTool, mcpJsonSchemaToZod } from '@namzu/sdk'
 import type { WebConfig } from '../../config/schema.js'
+import { searchExa } from './exa-search.js'
 
 /** Resolution is shared by tool mounting and the operator's status display. */
 export function resolveWebSearch(config?: WebConfig, nativeAvailable = false) {
@@ -35,7 +30,7 @@ const inputSchema = {
 	additionalProperties: false,
 }
 
-/** One lazy connection per call: cancellation cannot abort a concurrent search. */
+/** Independent search with bounded retries and shared parent/child admission. */
 export function createWebSearchTool(): ToolDefinition {
 	return defineTool({
 		name: 'web_search',
@@ -50,42 +45,7 @@ export function createWebSearchTool(): ToolDefinition {
 		timeoutMs: 30_000,
 		presentCall: (input) => ({ kind: 'generic', label: String(input.query) }),
 		async execute(input, context) {
-			const signal = AbortSignal.any([context.abortSignal, AbortSignal.timeout(25_000)])
-			signal.throwIfAborted()
-			const client = new MCPClient({
-				serverName: 'exa-web-search',
-				requestTimeoutMs: 25_000,
-				transport: {
-					type: 'streamable-http',
-					url: 'https://mcp.exa.ai/mcp?tools=web_search_exa',
-					timeoutMs: 25_000,
-				},
-			})
-			const cancel = () => {
-				void client.disconnect().catch(() => {})
-			}
-			signal.addEventListener('abort', cancel, { once: true })
-			try {
-				await client.connect()
-				signal.throwIfAborted()
-				const remote = mcpToolToToolDefinition(
-					{ name: 'web_search_exa', inputSchema: { type: 'object' } },
-					client,
-					'exa',
-				)
-				return await remote.execute(
-					{
-						query: input.query,
-						numResults: input.limit ?? 5,
-						type: 'auto',
-						contextMaxCharacters: 12_000,
-					},
-					{ ...context, abortSignal: signal },
-				)
-			} finally {
-				signal.removeEventListener('abort', cancel)
-				await client.disconnect()
-			}
+			return searchExa(String(input.query), Number(input.limit ?? 5), context)
 		},
 	})
 }
