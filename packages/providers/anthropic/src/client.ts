@@ -62,7 +62,7 @@ function detectClaudeCodeVersion(): string {
 	if (claudeCodeVersionCache !== null) return claudeCodeVersionCache
 	for (const bin of ['claude', 'claude-code']) {
 		try {
-			const out = execFileSync(bin, ['--version'], {
+			const out = execFileSync(/* turbopackIgnore: true */ bin, ['--version'], {
 				encoding: 'utf8',
 				timeout: 5_000,
 				stdio: ['ignore', 'pipe', 'ignore'],

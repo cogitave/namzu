@@ -58,7 +58,9 @@ ls -1A "$W/home/.namzu/bin" 2>/dev/null || echo "(nothing)"
 # Matches the current wording and the one it replaced, so a regression to the
 # old phrasing is reported as "named the wrong directory" rather than as "named
 # nothing" — the failure should name the defect, not the rename.
-NAMED="$(printf '%s' "$OUT" | sed -n 's/.*\(The binary is in\|The files are in\) \(.*\)\. Add it to your PATH.*/\2/p')"
+NAMED="$(printf '%s' "$OUT" | sed -n \
+	-e 's/.*The binary is in \(.*\)\. Add it to your PATH.*/\1/p' \
+	-e 's/.*The files are in \(.*\)\. Add it to your PATH.*/\1/p')"
 echo "--- directory the installer named: ${NAMED:-<none>}"
 
 if [ -z "$NAMED" ]; then

@@ -1,4 +1,4 @@
-import { mkdtemp, symlink } from 'node:fs/promises'
+import { mkdtemp, realpath, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -111,6 +111,7 @@ describe('hydration attaches isolated work to established project and topic iden
 	it('canonicalizes hydrated roots and enforces uniqueness within each tenant', async () => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-hydrated-root-'))
 		temporaryDirectories.push(root)
+		const canonicalRoot = await realpath(root)
 		const alias = `${root}-alias`
 		await symlink(root, alias, 'junction')
 		temporaryDirectories.push(alias)
@@ -118,7 +119,7 @@ describe('hydration attaches isolated work to established project and topic iden
 		const bound = { ...project, rootPath: alias }
 		const sessions = new InMemorySessionStore([bound])
 		expect((await sessions.findProjectByRootPath(root, project.tenantId))?.id).toBe(project.id)
-		expect((await sessions.getProject(project.id, project.tenantId))?.rootPath).toBe(root)
+		expect((await sessions.getProject(project.id, project.tenantId))?.rootPath).toBe(canonicalRoot)
 		expect(
 			() =>
 				new InMemorySessionStore([bound, { ...project, id: generateProjectId(), rootPath: root }]),

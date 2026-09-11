@@ -63,7 +63,7 @@ const provider = createSandboxProvider({
 })
 ```
 
-## Cancellation and worker compatibility
+## Protocol readiness and cancellation
 
 Pass `SandboxExecOptions.signal` to stop a command on any shipped backend. A
 remote host reserves every command before admission and the container worker or
@@ -84,12 +84,52 @@ Concurrent destroy and automatic-retirement calls share one checked teardown;
 Docker removal is never reported as accepted after a non-zero or aborted
 `docker rm -f`.
 
-The cancellation path requires a worker or guest image built from the same
-release. A current host explicitly detects an older peer and remains compatible
-with legacy no-signal execution, but a signal sent to that peer is refused with
-a rebuild instruction. For a standby pool, publish a new container group
-profile revision containing the current worker before enabling cancellation;
-for a microVM deployment, rebuild its golden guest image.
+Every worker and microVM guest publishes its wire-protocol version in the
+readiness response. The host admits only the exact version implemented by its
+release; missing, older, and newer versions fail before a sandbox handle or
+command is returned. There is no identity-less legacy execution path. For a
+standby pool, publish a new container group profile revision containing the
+matching worker before deploying the host; for a microVM deployment, rebuild
+and validate its golden guest image from the same release. Firecracker hosts
+can import `FIRECRACKER_AGENT_PROTOCOL_VERSION` to apply the same admission
+check in their own warm-pool probe.
+
+Roll the coupled Firecracker artifacts in this order: build the guest agent
+from the target Namzu release, publish and canary a golden image containing
+that agent, then deploy hosts that require its protocol version. Keep the
+previous host and golden-image pair available together for rollback. Rolling
+back only one side is intentionally rejected at readiness, so a mismatched
+guest never accepts work under an unverified wire contract.
+
+## Firecracker workspace channels
+
+The Firecracker backend exposes two optional same-sandbox channels. Call
+`sandbox.openTerminal()` for an interactive pseudo-terminal whose process tree
+is owned by the guest. The returned `TerminalSession` supports input, output,
+resize and close without substituting host pipes for terminal semantics. Call
+`sandbox.openTcpConnection()` to reach an IPv4 or IPv6 loopback service inside
+that same guest. Its `SandboxTcpConnection` exposes bounded write/backpressure,
+incoming-data pause and resume, half-close and final closure. This channel can
+publish a development server or WebSocket preview without moving the checkout
+to another runtime or widening guest egress.
+
+Both methods are capability-checked. A backend that cannot preserve the same
+isolation and ownership boundary omits them; callers must not fall back to a
+host process or a different sandbox.
+
+## Firecracker network policy
+
+At microVM creation, the Firecracker backend maps the resolved egress decision
+to an explicit orchestrator policy: deny-all becomes `none`, allow-all becomes
+`open`, and a static or resolved host list becomes `allowlist` with the exact
+allowed hosts. An omitted egress setting retains the orchestrator's legacy
+no-interface behavior. In particular, an empty resolved allowlist remains an
+explicit deny-all decision rather than collapsing to an absent policy.
+
+`sandbox.setNetworkPolicy()` remains the live-sandbox contract for backends
+that can change egress after admission. A backend must throw when it cannot
+enforce a requested live policy; accepting without applying it would erase the
+security boundary the host relied on.
 
 ## Documentation
 

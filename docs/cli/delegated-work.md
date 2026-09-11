@@ -66,6 +66,14 @@ inside a model batch, so a following verification read sees completed foreground
 mutations. A background shell command releases that barrier after job launch;
 wait for the job before reading its eventual output.
 
+When an `Agent` call is associated with the active plan step, the scheduler
+retains that optional plan and step identity while the child is queued and after
+it is admitted. SDK hosts receive the same `planId` and `planStepId` on the
+initial `agent_pending` event, and SSE consumers receive `plan_id` and
+`plan_step_id`. This lets a host correlate pending delegated work before the
+child starts without treating display-oriented workflow or phase labels as plan
+dependencies.
+
 
 For parallel work, send the independent Agent calls in the same response or
 launch them with `run_in_background: true` before waiting. One blocking call

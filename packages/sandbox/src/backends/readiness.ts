@@ -7,6 +7,11 @@
  * transports can release their sockets too.
  */
 
+import {
+	REMOTE_EXECUTION_PROTOCOL_VERSION,
+	RemoteProtocolError,
+} from './remote-execution-controller.js'
+
 const MAX_NODE_TIMER_MS = 2_147_483_647
 
 /**
@@ -142,15 +147,42 @@ export async function probeHttpHealth(
 ): Promise<{ readonly ok: boolean; readonly status: number }> {
 	signal.throwIfAborted()
 	const response = await fetch(url, { signal })
-	const result = { ok: response.ok, status: response.status }
+	if (!response.ok) {
+		try {
+			await response.body?.cancel()
+		} catch {
+			// The status is already known. A body cancellation failure must not
+			// hide it; the owning deadline still aborts the transport if needed.
+		}
+		signal.throwIfAborted()
+		return { ok: false, status: response.status }
+	}
+
+	let payload: unknown
 	try {
-		await response.body?.cancel()
-	} catch {
-		// The status is already known. A body cancellation failure must not
-		// hide it; the owning deadline still aborts the transport if needed.
+		payload = await response.json()
+	} catch (error) {
+		throw new RemoteProtocolError(
+			`Sandbox worker health response is not valid JSON for protocol ${REMOTE_EXECUTION_PROTOCOL_VERSION}: ${error instanceof Error ? error.message : String(error)}`,
+		)
 	}
 	signal.throwIfAborted()
-	return result
+	const health = payload as { ok?: unknown; protocolVersion?: unknown }
+	if (
+		!health ||
+		typeof health !== 'object' ||
+		health.ok !== true ||
+		health.protocolVersion !== REMOTE_EXECUTION_PROTOCOL_VERSION
+	) {
+		const actual =
+			health && typeof health === 'object' && health.protocolVersion !== undefined
+				? JSON.stringify(health.protocolVersion)
+				: 'missing'
+		throw new RemoteProtocolError(
+			`Sandbox worker protocol version mismatch: expected ${REMOTE_EXECUTION_PROTOCOL_VERSION}, received ${actual}. Rebuild the worker image from the same Namzu release.`,
+		)
+	}
+	return { ok: true, status: response.status }
 }
 
 /**
