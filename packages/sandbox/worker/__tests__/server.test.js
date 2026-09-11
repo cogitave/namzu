@@ -5,6 +5,8 @@ import os from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
+import { REMOTE_EXECUTION_PROTOCOL_VERSION } from '../../src/backends/remote-execution-controller.js'
+
 /**
  * `worker/server.js` is a plain CommonJS script meant to run standalone
  * inside the sandbox container (see the Dockerfile `CMD`), not a module
@@ -136,6 +138,27 @@ function getFreePort() {
 		})
 	})
 }
+
+describe('worker protocol readiness', () => {
+	let worker
+
+	afterEach(async () => {
+		if (worker) await worker.stop()
+		worker = undefined
+	})
+
+	it('publishes the same exact protocol version the host accepts', async () => {
+		worker = await spawnWorker({})
+
+		const response = await fetch(`${worker.baseUrl}/healthz`)
+
+		expect(response.status).toBe(200)
+		await expect(response.json()).resolves.toEqual({
+			ok: true,
+			protocolVersion: REMOTE_EXECUTION_PROTOCOL_VERSION,
+		})
+	})
+})
 
 describe('worker /execute — timeoutMs ceiling', () => {
 	let worker

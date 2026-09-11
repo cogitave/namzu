@@ -86,3 +86,47 @@ describe('a plan settles on what its steps actually reported', () => {
 		expect(new PlanManager(RUN).completePlan()).toBeNull()
 	})
 })
+
+describe('plan approval event settlement', () => {
+	it('does not resolve an approval while an async listener is still persisting it', async () => {
+		let releaseListener!: () => void
+		let reportListenerStarted!: () => void
+		const listenerGate = new Promise<void>((resolve) => {
+			releaseListener = resolve
+		})
+		const listenerStarted = new Promise<void>((resolve) => {
+			reportListenerStarted = resolve
+		})
+		const manager = new PlanManager(RUN, async () => ({ approved: true }))
+		manager.startGenerating('a plan')
+		manager.markReady()
+		manager.on(async (event) => {
+			if (event.type !== 'plan.approved') return
+			reportListenerStarted()
+			await listenerGate
+		})
+		let approvalResolved = false
+
+		const approval = manager.requestApproval().then((response) => {
+			approvalResolved = true
+			return response
+		})
+		await listenerStarted
+
+		expect(approvalResolved).toBe(false)
+		releaseListener()
+		await expect(approval).resolves.toEqual({ approved: true })
+		expect(approvalResolved).toBe(true)
+	})
+
+	it('keeps listener failures isolated from the approval decision', async () => {
+		const manager = new PlanManager(RUN, async () => ({ approved: true }))
+		manager.startGenerating('a plan')
+		manager.markReady()
+		manager.on(async () => {
+			throw new Error('observer unavailable')
+		})
+
+		await expect(manager.requestApproval()).resolves.toEqual({ approved: true })
+	})
+})

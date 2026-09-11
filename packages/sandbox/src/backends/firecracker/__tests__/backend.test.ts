@@ -10,7 +10,7 @@
  * the agent's healthz (not the orchestrator 2xx).
  */
 
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { type Server, type Socket, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -18,6 +18,7 @@ import { join } from 'node:path'
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
+import { createSandboxProvider } from '../../../index.js'
 import { checkFileWalkOwnership, fileWalkExec } from '../../__tests__/fixtures/file-walk-exec.js'
 import { buildFirecrackerBackend, normalizeHandle } from '../index.js'
 import { VsockAgentTransport, type WireSandboxAgentHandle, __framing } from '../transport.js'
@@ -40,6 +41,7 @@ const IS_WINDOWS = process.platform === 'win32'
 const require_ = createRequire(import.meta.url)
 
 interface AgentModule {
+	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
 }
 
@@ -52,7 +54,7 @@ const realFetch = globalThis.fetch
 let realPath: string | undefined
 
 beforeEach(() => {
-	workDir = mkdtempSync(join(tmpdir(), 'fc-backend-test-'))
+	workDir = realpathSync(mkdtempSync(join(tmpdir(), 'fc-backend-test-')))
 	sockPath = localIpcPath(workDir)
 	realPath = process.env.PATH
 	process.env.NAMZU_SANDBOX_WORKSPACE = workDir
@@ -207,14 +209,17 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		expect(sandbox.environment).toBe('linux-namespace')
 		expect(sandbox.status).toBe('ready')
 
-		// Create body forwarded the resolved knobs + egress allowlist.
+		// Create body forwarded the resolved knobs + explicit network policy.
 		const createCall = calls.find((c) => c.method === 'POST')
 		expect(createCall?.body).toMatchObject({
 			template: 'golden-rev-7',
 			memoryLimitMb: 512,
 			maxProcesses: 64,
 			timeoutMs: 60_000,
-			egressAllowlist: ['api.example.com'],
+			networkPolicy: {
+				mode: 'allowlist',
+				allowedHosts: ['api.example.com'],
+			},
 		})
 
 		// exec over the wire.
@@ -247,6 +252,27 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		expect(calls.filter((c) => c.method === 'DELETE' && c.url.includes(':delete'))).toHaveLength(1)
 	})
 
+	it('carries open egress through the public provider front door', async () => {
+		server = await startAgent()
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const provider = createSandboxProvider({
+			backend: {
+				tier: 'microvm',
+				service: 'self-hosted',
+				orchestratorEndpoint: 'https://orchestrator.test/',
+				getToken: async () => 'tok',
+				readyTimeoutMs: 3_000,
+				readyPollIntervalMs: 50,
+			},
+			defaultEgress: { kind: 'allow-all' },
+		})
+
+		const sandbox = await provider.create({ workingDirectory: workDir })
+		const createCall = calls.find((call) => call.method === 'POST')
+		expect(createCall?.body).toEqual({ networkPolicy: { mode: 'open' } })
+		await sandbox.destroy()
+	})
+
 	it('tears down the microVM when the readiness fence times out (no orphan)', async () => {
 		// No agent listening → healthz never succeeds → readiness fence
 		// times out → backend must DELETE to avoid orphaning the microVM.
@@ -266,6 +292,29 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 			/did not become ready/,
 		)
 		expect(calls.some((c) => c.method === 'DELETE')).toBe(true)
+	})
+
+	it('tears down an unversioned guest immediately instead of admitting a stale golden', async () => {
+		server = await startAgentServer((socket) => {
+			const reader = new __framing.FrameReader()
+			socket.on('data', (chunk: Buffer) => {
+				if (reader.push(chunk)[0] !== undefined) {
+					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+				}
+			})
+		})
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 2_000,
+			readyPollIntervalMs: 100,
+		})
+
+		const startedAt = performance.now()
+		await expect(backend.create({ workingDirectory: workDir })).rejects.toThrow(/protocol version/i)
+		expect(performance.now() - startedAt).toBeLessThan(500)
+		expect(calls.filter((call) => call.method === 'DELETE')).toHaveLength(1)
 	})
 
 	it('honours public exec cancellation and keeps a confirmed-quiescent microVM reusable', async () => {
@@ -322,7 +371,14 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 				if (payload === undefined) return
 				const request = JSON.parse(payload) as { op?: string }
 				if (request.op === 'healthz') {
-					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+					socket.end(
+						__framing.frame(
+							JSON.stringify({
+								ok: true,
+								protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+							}),
+						),
+					)
 					return
 				}
 				if (request.op === 'reserve-execution') {
@@ -365,7 +421,14 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 				if (payload === undefined) return
 				const request = JSON.parse(payload) as { op?: string }
 				if (request.op === 'healthz') {
-					socket.end(__framing.frame(JSON.stringify({ ok: true })))
+					socket.end(
+						__framing.frame(
+							JSON.stringify({
+								ok: true,
+								protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+							}),
+						),
+					)
 					return
 				}
 				if (request.op === 'reserve-execution') {
@@ -642,6 +705,34 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 			false,
 		)
 		await sandbox.destroy()
+	})
+})
+
+describe.skipIf(process.platform !== 'linux')('buildFirecrackerBackend terminal ownership', () => {
+	it('kills and awaits every guest terminal before deleting the microVM', async () => {
+		server = await startAgent()
+		const { calls } = stubOrchestrator({ kind: 'unix', path: sockPath })
+		const backend = buildFirecrackerBackend({
+			orchestratorEndpoint: 'https://orchestrator.test/',
+			getToken: async () => 'tok',
+			readyTimeoutMs: 3_000,
+			readyPollIntervalMs: 50,
+		})
+		const sandbox = await backend.create({ workingDirectory: workDir })
+		expect(sandbox.openTerminal).toBeTypeOf('function')
+		const terminal = await sandbox.openTerminal?.({
+			command: '/bin/sh',
+			args: ['-lc', 'sleep 30'],
+			cwd: workDir,
+			size: { cols: 80, rows: 24 },
+		})
+		expect(terminal).toBeDefined()
+
+		await sandbox.destroy()
+		await expect(terminal?.exited).resolves.toMatchObject({
+			exitCode: expect.any(Number),
+		})
+		expect(calls.some((call) => call.method === 'DELETE')).toBe(true)
 	})
 })
 

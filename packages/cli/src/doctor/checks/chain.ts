@@ -17,6 +17,8 @@ export interface ProviderChainCheckOptions {
 	/** Explicit OS home seam. Production defaults honor `NAMZU_HOME`. */
 	readonly home?: string
 	readonly env?: DiscoverOptions['env']
+	/** Skip the macOS Keychain read so a hermetic caller sees only its inputs. */
+	readonly skipKeychain?: boolean
 	/** Skip localhost probes. Off in production: a local server being up is the answer. */
 	readonly skipProbes?: boolean
 }
@@ -108,6 +110,7 @@ export async function describeProviderChain(
 		detected = await discoverProviders({
 			...(options.env ? { env: options.env } : {}),
 			...(options.home ? { home: options.home } : {}),
+			...(options.skipKeychain ? { skipKeychain: true } : {}),
 			...(options.skipProbes ? { skipProbes: true } : {}),
 		})
 	} catch (err) {

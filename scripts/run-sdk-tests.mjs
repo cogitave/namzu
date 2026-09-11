@@ -203,7 +203,19 @@ async function main() {
 		validateOwnedRoot(ownedRoot, temporaryRoot);
 
 		if (!requestedSignal) {
-			const childEnvironment = { ...process.env, [TEST_ROOT_ENV]: ownedRoot };
+			// macOS commonly exposes the temporary directory as `/var/...` while
+			// `realpath` returns `/private/var/...`. Product code intentionally
+			// canonicalizes filesystem authority paths, so fixtures created through
+			// the alias otherwise compare two spellings of the same directory and
+			// report false containment, freshness, and ownership failures. Give every
+			// test process the already-resolved root used by this runner.
+			const childEnvironment = {
+				...process.env,
+				TMPDIR: temporaryRoot,
+				TMP: temporaryRoot,
+				TEMP: temporaryRoot,
+				[TEST_ROOT_ENV]: ownedRoot,
+			};
 			delete childEnvironment[WORKER_VERIFIED_ENV];
 			delete childEnvironment[DEBUG_ROOT_ENV];
 

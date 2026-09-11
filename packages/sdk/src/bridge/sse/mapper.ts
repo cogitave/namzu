@@ -435,6 +435,8 @@ const MAPPING: {
 			parent_agent_id: e.parentAgentId,
 			child_agent_id: e.childAgentId,
 			depth: e.depth,
+			...(e.planId ? { plan_id: e.planId } : {}),
+			...(e.planStepId ? { plan_step_id: e.planStepId } : {}),
 		}),
 	},
 

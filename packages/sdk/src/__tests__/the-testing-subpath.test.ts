@@ -26,4 +26,14 @@ describe('the testing subpath', () => {
 		expect(typeof testing.defineProviderDriverConformance).toBe('function')
 		expect(typeof testing.PROVIDER_DRIVER_CONTRACT_VERSION).toBe('number')
 	})
+
+	it('exports deterministic valid entity ids for consumer fixtures', async () => {
+		const testing = await import('../testing.js')
+
+		expect(testing.fixtureId.run('consumer')).toBe(testing.fixtureId.run('consumer'))
+		expect(testing.fixtureId.run('consumer')).not.toBe(testing.fixtureId.run('other'))
+		expect(testing.fixtureId.run('consumer')).toMatch(
+			/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+		)
+	})
 })

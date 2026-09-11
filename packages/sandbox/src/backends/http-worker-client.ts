@@ -1,7 +1,6 @@
 import { type SandboxExecOptions, type SandboxExecResult, withHint } from '@namzu/sdk'
 
 import {
-	RemoteCancellationUnsupportedError,
 	RemoteCommandError,
 	type RemoteExecutionAdapter,
 	RemoteExecutionController,
@@ -162,8 +161,8 @@ async function readExecution(
 }
 
 /**
- * A per-sandbox HTTP worker client. The controller caches protocol support for
- * that worker and gives every v2 command an identity before it can be admitted.
+ * A per-sandbox HTTP worker client. Every command must reserve an identity
+ * through the exact worker protocol before it can be admitted.
  */
 export class HttpWorkerClient {
 	private readonly controller: RemoteExecutionController
@@ -177,8 +176,8 @@ export class HttpWorkerClient {
 					signal,
 				})
 				if (response.status === 404) {
-					throw new RemoteCancellationUnsupportedError(
-						'This sandbox worker does not support the execution-cancellation lease protocol. Rebuild the worker image or standby-pool profile before passing SandboxExecOptions.signal; refusing rather than pretending cancellation is active.',
+					throw new RemoteProtocolError(
+						'The sandbox worker does not implement the required execution protocol. Rebuild the worker image or standby-pool profile from the same Namzu release before admitting commands.',
 					)
 				}
 				if (!response.ok) {
@@ -215,11 +214,7 @@ export class HttpWorkerClient {
 	}
 }
 
-/**
- * Compatibility entry point for focused consumers. Sandbox backends keep one
- * {@link HttpWorkerClient} per remote sandbox so capability state is not shared
- * across peers and is not re-probed for every command.
- */
+/** Convenience entry point for focused consumers. */
 export async function execViaHttpWorker(
 	baseUrl: string,
 	command: string,

@@ -43,6 +43,7 @@ const IS_WINDOWS = process.platform === 'win32'
 const require_ = createRequire(import.meta.url)
 
 interface AgentModule {
+	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
 }
 
@@ -243,7 +244,87 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 			kind: 'unix',
 			path: sockPath,
 		})
+		await expect(transport.request({ op: 'healthz' })).resolves.toMatchObject({
+			ok: true,
+			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+		})
 		expect(await transport.healthz()).toBe(true)
+	})
+
+	it.each([
+		['missing', { ok: true }],
+		['older', { ok: true, protocolVersion: 1 }],
+		['newer', { ok: true, protocolVersion: 3 }],
+	])('refuses a %s guest protocol before readiness', async (_label, reply) => {
+		server = await startAgentServer((socket) => {
+			const reader = new __framing.FrameReader()
+			socket.on('data', (chunk: Buffer) => {
+				if (reader.push(chunk)[0] !== undefined) {
+					socket.end(__framing.frame(JSON.stringify(reply)))
+				}
+			})
+		})
+		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+
+		const startedAt = performance.now()
+		await expect(transport.waitForReady(2_000, 100)).rejects.toThrow(/protocol version/i)
+		expect(performance.now() - startedAt).toBeLessThan(500)
+	})
+
+	it('never downgrades an unsupported reservation into identity-less execution', async () => {
+		let executeCalls = 0
+		server = await startAgentServer((socket) => {
+			const reader = new __framing.FrameReader()
+			socket.on('data', (chunk: Buffer) => {
+				const payload = reader.push(chunk)[0]
+				if (payload === undefined) return
+				const request = JSON.parse(payload) as { op?: string }
+				if (request.op === 'reserve-execution') {
+					socket.end(
+						__framing.frame(JSON.stringify({ ok: false, error: 'unknown_op:reserve-execution' })),
+					)
+					return
+				}
+				if (request.op === 'execute') executeCalls += 1
+				socket.end(__framing.frame(JSON.stringify({ ok: false, error: 'unexpected_op' })))
+			})
+		})
+		const transport = new VsockAgentTransport({ kind: 'unix', path: sockPath })
+
+		await expect(transport.exec('/bin/true')).rejects.toThrow(/protocol/i)
+		expect(executeCalls).toBe(0)
+	})
+
+	it('forwards a bidirectional guest-loopback TCP stream', async () => {
+		server = await startAgentServer(agent.handleConnection)
+		const upstream = createServer((socket) => {
+			socket.once('data', (chunk) => socket.end(Buffer.concat([Buffer.from('reply:'), chunk])))
+		})
+		await new Promise<void>((resolve, reject) => {
+			upstream.once('error', reject)
+			upstream.listen(0, '127.0.0.1', resolve)
+		})
+		try {
+			const address = upstream.address()
+			if (!address || typeof address === 'string') throw new Error('missing TCP test address')
+			const transport = new VsockAgentTransport({
+				kind: 'unix',
+				path: sockPath,
+			})
+			const connection = await transport.openTcpConnection({
+				port: address.port,
+			})
+			let output = ''
+			const dispose = connection.onData((chunk) => {
+				output += Buffer.from(chunk).toString('utf8')
+			})
+			expect(connection.write('hello')).toBe(true)
+			await expect(connection.closed).resolves.toBeUndefined()
+			expect(output).toBe('reply:hello')
+			dispose()
+		} finally {
+			await new Promise<void>((resolve) => upstream.close(() => resolve()))
+		}
 	})
 
 	it('fits a connected peer that never replies inside the readiness deadline', async () => {
@@ -478,6 +559,42 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		await expect(transport.readFile('x')).rejects.toThrow(/could not connect to agent/)
 	})
 })
+
+describe.skipIf(process.platform !== 'linux')(
+	'VsockAgentTransport guest PTY over a unix-socket loopback agent',
+	() => {
+		it('provides a real TTY with ordered input, resize, output, and exit', async () => {
+			server = await startAgentServer(agent.handleConnection)
+			const transport = new VsockAgentTransport({
+				kind: 'unix',
+				path: sockPath,
+			})
+			const terminal = await transport.openTerminal({
+				command: '/bin/sh',
+				args: ['-l'],
+				cwd: workDir,
+				size: { cols: 101, rows: 31 },
+			})
+			let output = ''
+			const unsubscribe = terminal.onData((chunk) => {
+				output += chunk
+			})
+
+			terminal.write(
+				'if [ -t 0 ] && [ -t 1 ]; then echo __REAL_PTY__; else echo __NOT_A_PTY__; fi; stty size\n',
+			)
+			await vi.waitFor(() => expect(output).toContain('__REAL_PTY__'))
+			await vi.waitFor(() => expect(output).toContain('31 101'))
+
+			terminal.resize({ cols: 120, rows: 40 })
+			terminal.write('sleep 0.1; stty size; echo __RESIZED__; exit 7\n')
+			await vi.waitFor(() => expect(output).toContain('__RESIZED__'))
+			await vi.waitFor(() => expect(output).toContain('40 120'))
+			await expect(terminal.exited).resolves.toMatchObject({ exitCode: 7 })
+			unsubscribe()
+		})
+	},
+)
 
 // ---------------------------------------------------------------------------
 // Ring-0 mTLS arm — pure-local TLS loopback "relay" (no Azure, no FC host)

@@ -61,6 +61,7 @@ const explodes = (): AsyncIterable<never> => ({
 async function runStartingAJob(
 	backgroundJobs: BackgroundJobRegistry,
 	command: string,
+	responseDelayMs = 0,
 ): Promise<Run | { error: unknown }> {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-runjobs-'))
 	dirs.push(workingDirectory)
@@ -69,6 +70,7 @@ async function runStartingAJob(
 	tools.register(BashTool)
 
 	const provider = new MockLLMProvider({
+		responseDelayMs,
 		turns: [
 			{
 				toolCalls: [
@@ -118,13 +120,17 @@ describe('a run takes its background jobs with it', () => {
 		// it is the one that keeps holding a port or a file lock.
 		const registry = new BackgroundJobRegistry()
 
-		const run = (await runStartingAJob(registry, 'sleep 30 & echo $!; wait')) as Run
+		// Hold the final model turn briefly so the shell has emitted the PID.
+		// Without this synchronization the run can finish before the spawned
+		// shell gets scheduled; `Number('')` then produces the valid-looking PID
+		// zero and `kill(0, 0)` probes this test process's own group.
+		const run = (await runStartingAJob(registry, 'sleep 30 & echo $!; wait', 100)) as Run
 		const job = registry.list(run.id)[0]
 		if (!job) throw new Error('the run started no job')
 		const printed = registry.read(job.id).chunk.trim().split('\n')[0]
 		const grandchild = Number(printed)
 
-		expect(Number.isFinite(grandchild)).toBe(true)
+		expect(Number.isSafeInteger(grandchild) && grandchild > 0).toBe(true)
 		await settle(300)
 		expect(alive(grandchild)).toBe(false)
 	})

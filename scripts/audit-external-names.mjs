@@ -477,6 +477,26 @@ const RESEARCH_SOURCE_DOCS = new Map([
 	],
 ])
 
+// Historical release notes may identify the external executable whose
+// integration changed. Keep these exceptions exact by term, path and line so
+// they cannot become a general licence for product positioning in the log.
+const HISTORY_SOURCE_LINES = new Map([
+	[
+		'claude',
+		new Map([
+			[
+				'docs/log.md',
+				new Set([
+					"- **Update** Scoped the Anthropic provider's optional Claude Code version probe out of framework filesystem tracing so server bundles do not absorb the consumer's complete project tree.",
+				]),
+			],
+		]),
+	],
+])
+
+const isHistorySourceLine = (term, path, line) =>
+	HISTORY_SOURCE_LINES.get(term)?.get(path)?.has(line.trim()) ?? false
+
 /**
  * Strip what markdown uses for the same job a string literal does in code.
  *
@@ -830,6 +850,7 @@ function findings(source, path) {
 			for (const term of TERMS) {
 				if (DRIVEN_SERVICES.has(term.name)) continue
 				if (RESEARCH_SOURCE_DOCS.get(term.name)?.has(path)) continue
+				if (isHistorySourceLine(term.name, path, line)) continue
 				if (matches(term, prose)) {
 					hits.push({ path, line: index + 1, name: term.name, text: line.trim() })
 				}

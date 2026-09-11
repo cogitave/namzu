@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, test } from 'node:test'
@@ -10,6 +10,18 @@ const here = dirname(fileURLToPath(import.meta.url))
 const audit = join(here, '..', 'audit-external-names.mjs')
 const roots: string[] = []
 const forbiddenProse = '# We copied Gemini to shape this interface.\n'
+
+function caseVariantsAreDistinct(): boolean {
+	const root = mkdtempSync(join(tmpdir(), 'namzu-name-case-'))
+	try {
+		mkdirSync(join(root, '.namzu'))
+		return !existsSync(join(root, '.NAMZU'))
+	} finally {
+		rmSync(root, { recursive: true, force: true })
+	}
+}
+
+const CASE_VARIANTS_ARE_DISTINCT = caseVariantsAreDistinct()
 
 afterEach(() => {
 	for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true })
@@ -42,19 +54,28 @@ test('ignored runtime state is outside the authored-file inventory', () => {
 })
 
 for (const directory of ['.namzu-cache', '.NAMZU']) {
-	test(`a similarly named ${directory} directory remains auditable`, () => {
-		const root = repository()
-		const path = join(root, 'packages/sdk', directory)
-		mkdirSync(path, { recursive: true })
-		writeFileSync(join(path, 'authored.md'), forbiddenProse, 'utf8')
+	test(
+		`a similarly named ${directory} directory remains auditable`,
+		{
+			skip:
+				directory === '.NAMZU' && !CASE_VARIANTS_ARE_DISTINCT
+					? 'the filesystem resolves .NAMZU to the ignored .namzu directory'
+					: false,
+		},
+		() => {
+			const root = repository()
+			const path = join(root, 'packages/sdk', directory)
+			mkdirSync(path, { recursive: true })
+			writeFileSync(join(path, 'authored.md'), forbiddenProse, 'utf8')
 
-		const result = runAudit(root)
-		assert.equal(result.status, 1, result.stderr)
-		assert.match(
-			result.stderr,
-			new RegExp(`packages/sdk/${directory.replace('.', '\\.')}\\/authored\\.md`),
-		)
-	})
+			const result = runAudit(root)
+			assert.equal(result.status, 1, result.stderr)
+			assert.match(
+				result.stderr,
+				new RegExp(`packages/sdk/${directory.replace('.', '\\.')}\\/authored\\.md`),
+			)
+		},
+	)
 }
 
 test('force-tracked prose remains auditable below an ignored directory', () => {
@@ -129,6 +150,19 @@ test('commissioned research may attribute its source without exempting other pro
 	const result = runAudit(root)
 	assert.equal(result.status, 1)
 	assert.match(result.stderr, /docs\/sdk\/unrelated.md/)
+})
+
+test('an exact release-history attribution does not exempt adjacent log prose', () => {
+	const root = repository()
+	mkdirSync(join(root, 'docs'), { recursive: true })
+	const attribution =
+		"- **Update** Scoped the Anthropic provider's optional Claude Code version probe out of framework filesystem tracing so server bundles do not absorb the consumer's complete project tree.\n"
+	writeFileSync(join(root, 'docs/log.md'), attribution)
+	assert.equal(runAudit(root).status, 0)
+	writeFileSync(join(root, 'docs/log.md'), `${attribution}- **Update** Claude shapes this project.\n`)
+	const result = runAudit(root)
+	assert.equal(result.status, 1)
+	assert.match(result.stderr, /docs\/log\.md/)
 })
 
 test('provider selection fixtures may name wire keys without exempting adjacent code', () => {

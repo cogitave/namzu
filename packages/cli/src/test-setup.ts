@@ -17,9 +17,18 @@
  * Only set when unset, so a contributor debugging a specific test with
  * `NAMZU_LOG_LEVEL=debug pnpm test` gets what they asked for.
  */
-import { mkdtempSync } from 'node:fs'
+import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+
+// macOS commonly exposes one temporary directory through both `/var/...` and
+// `/private/var/...`. The product canonicalizes filesystem authority paths, so
+// let fixtures begin from the same spelling rather than turning correct
+// containment and freshness checks into path-string failures.
+const canonicalTemporaryRoot = realpathSync(tmpdir())
+process.env.TMPDIR = canonicalTemporaryRoot
+process.env.TMP = canonicalTemporaryRoot
+process.env.TEMP = canonicalTemporaryRoot
 
 if (process.env.NAMZU_LOG_LEVEL === undefined) {
 	process.env.NAMZU_LOG_LEVEL = 'silent'

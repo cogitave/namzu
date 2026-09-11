@@ -22,7 +22,7 @@ export interface PlanEvent {
 	step?: PlanStep
 }
 
-export type PlanEventListener = (event: PlanEvent) => void
+export type PlanEventListener = (event: PlanEvent) => void | Promise<void>
 
 export type PlanApprovalHandler = (request: PlanApprovalRequest) => Promise<PlanApprovalResponse>
 
@@ -75,12 +75,14 @@ export class PlanManager {
 		}
 	}
 
-	private emit(event: PlanEvent): void {
+	private async emit(event: PlanEvent): Promise<void> {
+		const pending: Promise<void>[] = []
 		for (const listener of this.listeners) {
 			try {
-				listener(event)
+				pending.push(Promise.resolve(listener(event)).catch(() => {}))
 			} catch {}
 		}
+		await Promise.all(pending)
 	}
 
 	get active(): Plan | null {
@@ -120,7 +122,7 @@ export class PlanManager {
 		}
 
 		this.currentPlan = plan
-		this.emit({ type: 'plan.generating', plan })
+		void this.emit({ type: 'plan.generating', plan })
 		return plan
 	}
 
@@ -144,7 +146,7 @@ export class PlanManager {
 		this.currentPlan.status = 'ready'
 		this.currentPlan.summary = summary
 		this.currentPlan.readyAt = Date.now()
-		this.emit({ type: 'plan.ready', plan: this.currentPlan })
+		void this.emit({ type: 'plan.ready', plan: this.currentPlan })
 		return this.currentPlan
 	}
 
@@ -159,7 +161,7 @@ export class PlanManager {
 			this.currentPlan.status = 'rejected'
 			this.currentPlan.rejectedAt = Date.now()
 			this.currentPlan.rejectionReason = 'No approval handler configured'
-			this.emit({ type: 'plan.rejected', plan: this.currentPlan })
+			await this.emit({ type: 'plan.rejected', plan: this.currentPlan })
 			return { approved: false, feedback: 'No approval handler configured' }
 		}
 
@@ -179,12 +181,12 @@ export class PlanManager {
 			}
 			this.currentPlan.status = 'approved'
 			this.currentPlan.approvedAt = Date.now()
-			this.emit({ type: 'plan.approved', plan: this.currentPlan })
+			await this.emit({ type: 'plan.approved', plan: this.currentPlan })
 		} else {
 			this.currentPlan.status = 'rejected'
 			this.currentPlan.rejectedAt = Date.now()
 			this.currentPlan.rejectionReason = response.feedback
-			this.emit({ type: 'plan.rejected', plan: this.currentPlan })
+			await this.emit({ type: 'plan.rejected', plan: this.currentPlan })
 		}
 
 		return response
@@ -200,7 +202,7 @@ export class PlanManager {
 		}
 		this.currentPlan.status = 'approved'
 		this.currentPlan.approvedAt = Date.now()
-		this.emit({ type: 'plan.approved', plan: this.currentPlan })
+		void this.emit({ type: 'plan.approved', plan: this.currentPlan })
 		return this.currentPlan
 	}
 
@@ -209,7 +211,7 @@ export class PlanManager {
 		if (this.currentPlan.status !== 'approved') return null
 
 		this.currentPlan.status = 'executing'
-		this.emit({ type: 'plan.executing', plan: this.currentPlan })
+		void this.emit({ type: 'plan.executing', plan: this.currentPlan })
 		return this.currentPlan
 	}
 
@@ -222,7 +224,7 @@ export class PlanManager {
 		step.status = status
 		if (error) step.error = error
 
-		this.emit({ type: 'plan.step_updated', plan: this.currentPlan, step })
+		void this.emit({ type: 'plan.step_updated', plan: this.currentPlan, step })
 		return step
 	}
 
@@ -269,7 +271,7 @@ export class PlanManager {
 
 		this.currentPlan.status = allDone ? 'completed' : 'failed'
 		this.currentPlan.completedAt = Date.now()
-		this.emit({
+		void this.emit({
 			type: allDone ? 'plan.completed' : 'plan.failed',
 			plan: this.currentPlan,
 		})
@@ -293,7 +295,7 @@ export class PlanManager {
 			}
 		}
 
-		this.emit({ type: 'plan.failed', plan: this.currentPlan })
+		void this.emit({ type: 'plan.failed', plan: this.currentPlan })
 		return this.currentPlan
 	}
 
