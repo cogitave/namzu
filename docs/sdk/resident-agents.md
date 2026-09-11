@@ -138,9 +138,19 @@ stores does not create shared admission.
 
 `ResidentHost(agenda, step)` drives `ResidentPursuitStep(pursuit, signal)`:
 
-- `run({ signal, maxSteps, maxIdleMs })` requires a finite positive step cap;
+- `run({ signal, maxSteps, maxIdleMs, keepAlive })` requires a finite positive step cap;
   idle waits default to at most 60 seconds each. It never starts itself after
   process startup. The host application explicitly authorizes every invocation.
+- `keepAlive` defaults to `false`, preserving the return on indefinite rest,
+  no remaining work or a scheduled wake beyond `maxIdleMs`. Explicit `true`
+  keeps this invocation waiting for new work. It rereads the agenda after each
+  idle timer, bounded by `maxIdleMs`, and wakes sooner on `notify()` or a due
+  pursuit. `maxIdleMs` must be positive in this mode; it bounds each local
+  polling interval, not the total time alive. Empty and terminal agendas spend
+  zero model calls while waiting for an addition. The original `maxSteps` cap
+  spans every wait, addition and wake; it never resets automatically. Pause,
+  unresolved claims, contention, cancellation and the step cap still stop the
+  invocation.
 - Due pursuits with fewer admitted steps run first; wake time and then UUID break
   ties. This is a deterministic fairness baseline, not an intelligent priority
   policy. Future-dated and indefinite waits do not invoke the callback.
@@ -183,9 +193,11 @@ async function runPursuits(root: string, step: ResidentPursuitStep) {
 The application owns providers, tools, context and budgets within `step`. This
 surface adds no default model, tool privilege or TUI control. A persisted pause
 survives reopening, but sending an abort signal to an executor in **another**
-process requires an application-owned transport. This host neither watches
-filesystem changes nor polls other processes. A timer wakes local code; it does
-not poll a model while idle.
+process requires an application-owned transport. This host does not watch
+filesystem changes or interrupt an active callback when another process writes
+pause state. With `keepAlive: true`, bounded idle timers reread durable state;
+they do not poll a model. Cancellation still requires the application to route
+an abort signal when work is active.
 
 **Pause is not quiescence.** After `await host.pause()`, await the original
 `run()` promise before treating this host's callback as stopped. A callback that

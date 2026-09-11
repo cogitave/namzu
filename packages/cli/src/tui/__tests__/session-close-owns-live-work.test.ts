@@ -19,6 +19,7 @@ const operations = vi.hoisted(() => ({
 	order: [] as string[],
 	releases: [] as Array<() => void>,
 	subagentToolName: 'Agent' as string,
+	subagentCloseError: undefined as Error | undefined,
 }))
 
 vi.mock('@namzu/sdk', async (importOriginal) => {
@@ -127,6 +128,7 @@ vi.mock('../../integrations/subagents/runtime.js', () => ({
 		allowedAgentIds: [],
 		close: async () => {
 			operations.order.push('subagent-close')
+			if (operations.subagentCloseError) throw operations.subagentCloseError
 		},
 	}),
 }))
@@ -138,6 +140,7 @@ beforeEach(() => {
 	operations.order.length = 0
 	operations.releases.length = 0
 	operations.subagentToolName = 'Agent'
+	operations.subagentCloseError = undefined
 	cwd = mkdtempSync(join(tmpdir(), 'namzu-session-owner-'))
 })
 
@@ -156,9 +159,10 @@ async function waitForCalls(count: number): Promise<void> {
 }
 
 describe('AgentSession close owns its live work', () => {
-	it('closes a constructed subagent runtime when tool admission fails', async () => {
+	it.each([false, true])('closes a refused subagent runtime (cleanup fails: %s)', async (fails) => {
 		operations.subagentToolName = 'invalid name'
-		const session = await createAgentSession(
+		if (fails) operations.subagentCloseError = new Error('Subagent did not drain')
+		const creation = createAgentSession(
 			{
 				version: 3,
 				providers: [{ id: 'anthropic' }],
@@ -181,6 +185,18 @@ describe('AgentSession close owns its live work', () => {
 			{ cwd },
 		)
 
+		if (fails) {
+			const error = await creation.catch((error: unknown) => error)
+			expect(error).toBeInstanceOf(AggregateError)
+			expect(error).toMatchObject({
+				message: 'Subagent startup cleanup failed.',
+				errors: [expect.any(Error), operations.subagentCloseError],
+			})
+			expect(operations.order).toEqual(['subagent-close', 'mcp-close'])
+			return
+		}
+		const session = await creation
+		expect(session.hasProvider).toBe(true)
 		expect(operations.order.filter((event) => event === 'subagent-close')).toHaveLength(1)
 		await session.close()
 		expect(operations.order.filter((event) => event === 'subagent-close')).toHaveLength(1)

@@ -1,7 +1,19 @@
 import { isPermissionMode } from '../permissions/mode.js'
 import { type RunFlags, parseRunFlags } from './run-flags.js'
 
-const actions = ['add', 'status', 'run', 'pause', 'resume', 'wake', 'reconcile', 'archive'] as const
+const actions = [
+	'add',
+	'status',
+	'run',
+	'start',
+	'stop',
+	'release',
+	'pause',
+	'resume',
+	'wake',
+	'reconcile',
+	'archive',
+] as const
 export type ResidentAction = (typeof actions)[number]
 
 export interface ResidentFlags {
@@ -26,6 +38,7 @@ function integer(value: string, flag: string, zero = false): number {
 export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 	const implicit = raw[0] === undefined || raw[0].startsWith('-')
 	const action = implicit ? 'status' : raw[0]
+	const execution = action === 'run' || action === 'start'
 	if (!(actions as readonly string[]).includes(action))
 		throw new Error(`Unknown resident action ${action}. Use: ${actions.join(', ')}.`)
 	const own = new Map<string, string>()
@@ -87,10 +100,12 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('--outcome must be wait, complete or blocked.')
 	if (run.session || run.resume || run.continueLast || run.waitForProviderMs !== null)
 		throw new Error('Resident work cannot use conversation resume or provider-retry flags.')
-	if (action !== 'run' && (maxSteps !== null || own.has('--max-idle-ms')))
-		throw new Error('--max-steps and --max-idle-ms apply to resident run.')
+	if (!execution && (maxSteps !== null || own.has('--max-idle-ms')))
+		throw new Error('--max-steps and --max-idle-ms apply to resident run or start.')
+	if (action === 'start' && maxIdleMs === 0)
+		throw new Error('resident start requires --max-idle-ms above zero.')
 	if (
-		action !== 'run' &&
+		!execution &&
 		(run.provider ||
 			run.model ||
 			run.effort ||
@@ -103,13 +118,16 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 			run.tokenBudget !== null)
 	)
 		throw new Error(
-			'Provider, tool and budget options apply to resident run; add does not save execution permissions.',
+			'Provider, tool and budget options apply to resident run or start; add does not save execution permissions.',
 		)
-	if (action !== 'reconcile' && (claim || revision !== null || outcome || executorStopped))
+	if (
+		action !== 'reconcile' &&
+		(claim || revision !== null || outcome || (executorStopped && action !== 'release'))
+	)
 		throw new Error('Claim, revision, outcome and executor confirmation apply to reconcile.')
-	if (action === 'run' && maxSteps === null)
-		throw new Error('resident run requires --max-steps <n>.')
-	if (['status', 'run', 'pause', 'resume'].includes(action) && run.rest.length)
+	if (execution && maxSteps === null)
+		throw new Error(`resident ${action} requires --max-steps <n>.`)
+	if (['status', 'run', 'start', 'stop', 'pause', 'resume'].includes(action) && run.rest.length)
 		throw new Error(`resident ${action} does not take a prompt or pursuit ID.`)
 	if (action === 'add' && !run.rest.join(' ').trim())
 		throw new Error('resident add requires an objective.')
@@ -117,6 +135,10 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('resident wake requires a pursuit ID and new evidence.')
 	if (action === 'archive' && run.rest.length !== 1)
 		throw new Error('resident archive requires one pursuit ID.')
+	if (action === 'release' && (run.rest.length !== 1 || !executorStopped))
+		throw new Error(
+			'resident release requires <runner-id> and --executor-stopped. Stop all prior executors and inspect effects first; pause the resident before release.',
+		)
 	if (
 		action === 'reconcile' &&
 		(run.rest.length < 2 || !claim || revision === null || !outcome || !executorStopped)

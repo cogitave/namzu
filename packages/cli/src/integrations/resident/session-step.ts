@@ -33,6 +33,7 @@ import type { CliSessions } from '../sessions/store.js'
 import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { type AttachedSessionExport, attachSessionExport } from '../telemetry/session-export.js'
+import { ResidentCleanupUnconfirmedError } from './lifecycle-errors.js'
 
 const MAX_DECISION_CHARS = 32_000
 const MAX_SUMMARY_CHARS = 8_000
@@ -198,6 +199,8 @@ export function createResidentSessionStep(
 		const startedAt = Date.now()
 		let session: AgentSession | undefined
 		let sessionExport: AttachedSessionExport | undefined
+		let sessionCreationAttempted = false
+		let cleanupUnconfirmed = false
 		let started = false
 		let decision: ModelDecision | undefined
 		let done: Extract<AgentEvent, { kind: 'done' }> | undefined
@@ -256,6 +259,7 @@ export function createResidentSessionStep(
 				...(flags.maxIterations !== null ? { maxIterations: flags.maxIterations } : {}),
 				...(flags.tokenBudget !== null ? { tokenBudget: flags.tokenBudget } : {}),
 			}
+			sessionCreationAttempted = true
 			session = await createAgentSession(prefs, probe.detected, {
 				cwd,
 				scope: {
@@ -286,6 +290,10 @@ export function createResidentSessionStep(
 						}
 					: {}),
 			})
+			// Startup can return an inert refusal after ignoring failed resource
+			// cleanup. Its no-op close cannot establish that those resources drained.
+			// There is no public marker distinguishing that path from an early refusal.
+			if (!session.hasProvider) cleanupUnconfirmed = true
 			start()
 			if (!session.hasProvider) throw new Error(session.errorHint ?? 'Resident agent is not ready.')
 			if (session.mcpFailed.length)
@@ -345,32 +353,45 @@ export function createResidentSessionStep(
 			if (!errors.length) decision = parseDecision(done.text)
 		} catch (error) {
 			errors.push(error)
+			// A rejected constructor provides no session handle with which to close
+			// resources it may already have opened. Do not infer a clean shutdown.
+			if (sessionCreationAttempted && !session) cleanupUnconfirmed = true
 		} finally {
 			try {
 				await session?.close()
 			} catch (error) {
 				errors.push(error)
+				cleanupUnconfirmed = true
 			}
 			try {
 				await sessionExport?.shutdown()
 			} catch (error) {
 				errors.push(error)
+				cleanupUnconfirmed = true
 			}
 		}
 		if (signal.aborted && !errors.includes(signal.reason)) errors.push(signal.reason)
-		if (!started) start()
-		// This receipt describes the drained callback, not durable agenda settlement.
-		// It retains no provider history, reasoning blocks, tool inputs or credentials.
-		publishPrivateJsonIfAbsent(join(artifacts, 'finish.json'), {
-			version: 1,
-			...identity,
-			finishedAt: Date.now(),
-			stopReason: done?.stopReason ?? null,
-			decision: errors.length ? null : (decision ?? null),
-			error: errors.length ? errors.map(errorText).join('\n').slice(0, 8_000) : null,
-			usage: usage ? { totalTokens: usage.totalTokens, cost: usage.cost } : null,
-			...(budget ? { budget } : {}),
-		})
+		try {
+			if (!started) start()
+			// This receipt records the callback outcome and whether cleanup could be
+			// confirmed, not durable agenda settlement. It retains no provider history,
+			// reasoning blocks, tool inputs or credentials.
+			publishPrivateJsonIfAbsent(join(artifacts, 'finish.json'), {
+				version: 1,
+				...identity,
+				finishedAt: Date.now(),
+				stopReason: done?.stopReason ?? null,
+				decision: errors.length ? null : (decision ?? null),
+				error: errors.length ? errors.map(errorText).join('\n').slice(0, 8_000) : null,
+				cleanup: cleanupUnconfirmed ? 'unconfirmed' : 'confirmed',
+				usage: usage ? { totalTokens: usage.totalTokens, cost: usage.cost } : null,
+				...(budget ? { budget } : {}),
+			})
+		} catch (error) {
+			// A receipt failure must not replace the signal to retain runner ownership.
+			errors.push(error)
+		}
+		if (cleanupUnconfirmed) throw new ResidentCleanupUnconfirmedError(errors)
 		if (errors.length === 1) throw errors[0]
 		if (errors.length) throw new AggregateError(errors, errors.map(errorText).join('\n'))
 		if (!decision) throw new Error('Resident step returned no decision.')

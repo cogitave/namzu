@@ -12,8 +12,9 @@ status: draft
 `namzu resident` is the first CLI host for the SDK's
 [resident experiment](../sdk/resident-agents.md). It retains authorized work
 between processes and can take successive steps without another user message.
-It runs in the foreground only while explicitly invoked. It installs no service,
-does not start when ordinary chat opens, and sends no proactive external messages.
+`run` executes in the foreground while explicitly invoked; `start` launches an
+opt-in [managed background runner](resident-runner.md). Neither installs an OS
+service, starts when ordinary chat opens, or sends proactive external messages.
 
 ## Start and inspect work
 
@@ -98,8 +99,10 @@ policy, not independent proof that an objective succeeded. Configure relevant
 gates when the task has executable acceptance criteria.
 
 Each attempted claim gets `attempts/<claimId>/start.json` linking it to the actual
-Session/Run IDs, cwd and provider/model. `finish.json` records the drained callback's
-outcome, decision, reported usage and errors. These receipts omit raw provider
+Session/Run IDs, cwd and provider/model. `finish.json` records the callback's
+outcome, decision, reported usage, errors and `cleanup: confirmed|unconfirmed`.
+Failed session construction or cleanup retains managed runner ownership because
+resource drainage could not be established. These receipts omit raw provider
 history, tool inputs and opaque reasoning blocks. A successful finish receipt
 does not itself establish agenda settlement; consult the authoritative agenda.
 Receipts and immutable revision history are not physically compacted.
@@ -122,8 +125,9 @@ Pause output acknowledges the interruption request, **not** completed tool
 cancellation. Callbacks that ignore their abort signal may still be running.
 
 `resume` reopens admission without starting work and refuses unresolved claims.
-`wake` supplies evidence to a waiting pursuit without starting execution; it
-does not revive terminal work or reopen a paused agenda. `Ctrl+C`/`SIGTERM` ends
+`wake` supplies evidence to a waiting pursuit without launching a process; an
+already-authorized idle background runner can then act on it. It does not revive
+terminal work or reopen a paused agenda. `Ctrl+C`/`SIGTERM` ends
 the foreground invocation, with any admitted unfinished claim retained.
 
 A crash, provider pause, malformed result, budget stop or cancellation leaves
@@ -186,5 +190,5 @@ filtered tool outcomes and receipts are retained in
 
 This surface does not expose model-authored subgoal admission, learning promotion,
 external outbox delivery or a TUI dashboard. Those SDK capabilities remain
-separate integrations. It also does not implement service supervision, full
+separate integrations. It also does not implement OS service supervision, full
 transcript continuation, automatic recovery or physical history compaction.

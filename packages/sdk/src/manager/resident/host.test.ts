@@ -125,54 +125,57 @@ it('interrupts a real idle timer on wake and handles a wake delivered during its
 	}
 })
 
-it('pause signals active work but cannot claim quiescence or replay an uncertain effect', async () => {
-	const f = await fixture()
-	const pursuit = await f.agenda.add(await snapshot(f.agenda), 'An effectful task')
-	const entered = deferred()
-	const release = deferred()
-	let callbackSignal: AbortSignal | undefined
-	const host = new ResidentHost(f.agenda, async (_pursuit, abort) => {
-		callbackSignal = abort
-		entered.resolve()
-		await release.promise // Deliberately non-cooperative executor.
-		return { kind: 'complete', summary: 'Effect may have happened' }
-	})
-	let drained = false
-	const pending = host.run({ signal, maxSteps: 2 }).then((result) => {
-		drained = true
-		return result
-	})
-	await entered.promise
-	expect(() => host.run({ signal, maxSteps: 1 })).toThrow('already active')
-	await host.pause()
-	expect(callbackSignal?.aborted).toBe(true)
-	expect(drained).toBe(false)
-	await expect(host.resume()).rejects.toThrow('drain')
-	const competingStep = vi.fn()
-	const other = new ResidentHost(f.reopen(), competingStep)
-	await other.resume()
-	expect(await other.run({ signal, maxSteps: 1 })).toMatchObject({ status: 'unresolved' })
-	expect(competingStep).not.toHaveBeenCalled()
-	release.resolve()
-	expect(await pending).toMatchObject({ status: 'cancelled', stepsSettled: 0 })
-	const execution = f.reopen().execution(pursuit.id)
-	const uncertain = await execution.read()
-	if (!uncertain) throw new Error('Missing interrupted pursuit')
-	expect(uncertain.phase).toBe('running')
-	// Only after executor drain + host inspection may the saved claim be reconciled.
-	await execution.settle(
-		uncertain,
-		{ kind: 'complete', summary: 'Host verified effect' },
-		Date.now(),
-	)
-	await expect(
-		execution.settle(uncertain, { kind: 'complete', summary: 'Late stale result' }, Date.now()),
-	).rejects.toBeInstanceOf(ResidentConflictError)
-	expect(await other.run({ signal, maxSteps: 1 })).toMatchObject({
-		status: 'idle',
-		stepsSettled: 0,
-	})
-})
+it.each([false, true])(
+	'pause drains active work without replaying uncertain effects, keepAlive=%s',
+	async (keepAlive) => {
+		const f = await fixture()
+		const pursuit = await f.agenda.add(await snapshot(f.agenda), 'An effectful task')
+		const entered = deferred()
+		const release = deferred()
+		let callbackSignal: AbortSignal | undefined
+		const host = new ResidentHost(f.agenda, async (_pursuit, abort) => {
+			callbackSignal = abort
+			entered.resolve()
+			await release.promise // Deliberately non-cooperative executor.
+			return { kind: 'complete', summary: 'Effect may have happened' }
+		})
+		let drained = false
+		const pending = host.run({ signal, maxSteps: 2, keepAlive }).then((result) => {
+			drained = true
+			return result
+		})
+		await entered.promise
+		expect(() => host.run({ signal, maxSteps: 1 })).toThrow('already active')
+		await host.pause()
+		expect(callbackSignal?.aborted).toBe(true)
+		expect(drained).toBe(false)
+		await expect(host.resume()).rejects.toThrow('drain')
+		const competingStep = vi.fn()
+		const other = new ResidentHost(f.reopen(), competingStep)
+		await other.resume()
+		expect(await other.run({ signal, maxSteps: 1 })).toMatchObject({ status: 'unresolved' })
+		expect(competingStep).not.toHaveBeenCalled()
+		release.resolve()
+		expect(await pending).toMatchObject({ status: 'cancelled', stepsSettled: 0 })
+		const execution = f.reopen().execution(pursuit.id)
+		const uncertain = await execution.read()
+		if (!uncertain) throw new Error('Missing interrupted pursuit')
+		expect(uncertain.phase).toBe('running')
+		// Only after executor drain + host inspection may the saved claim be reconciled.
+		await execution.settle(
+			uncertain,
+			{ kind: 'complete', summary: 'Host verified effect' },
+			Date.now(),
+		)
+		await expect(
+			execution.settle(uncertain, { kind: 'complete', summary: 'Late stale result' }, Date.now()),
+		).rejects.toBeInstanceOf(ResidentConflictError)
+		expect(await other.run({ signal, maxSteps: 1 })).toMatchObject({
+			status: 'idle',
+			stepsSettled: 0,
+		})
+	},
+)
 
 it('cancels an idle host without admitting work and preserves the future wake on restart', async () => {
 	const f = await fixture()
@@ -230,6 +233,10 @@ it('never starts callbacks for invalid limits or a pre-aborted invocation', asyn
 	const host = new ResidentHost(f.agenda, step)
 	expect(() => host.run({ signal, maxSteps: Number.POSITIVE_INFINITY })).toThrow('limits')
 	expect(() => host.run({ signal, maxSteps: 1, maxIdleMs: -1 })).toThrow('limits')
+	expect(() => host.run({ signal, maxSteps: 1, maxIdleMs: 0, keepAlive: true })).toThrow('limits')
+	expect(() => host.run({ signal, maxSteps: 1, keepAlive: 'true' as unknown as boolean })).toThrow(
+		'boolean',
+	)
 	expect(await host.run({ signal: AbortSignal.abort(), maxSteps: 1 })).toMatchObject({
 		status: 'cancelled',
 		stepsSettled: 0,

@@ -1,0 +1,470 @@
+{
+	"schemaVersion": 1,
+	"date": "2026-09-11",
+	"baseRevision": "09c59934ef5618c7b7361e85ee18b65a5e4a4343",
+	"workingTreeDirty": true,
+	"scope": "Built CLI commands were invoked in real PTYs; resident worker ran detached. Synthetic fixture only.",
+	"execution": {
+		"provider": "zen",
+		"model": "muse-spark-1.3-contributor-free",
+		"effort": "low",
+		"permissionMode": "plan",
+		"maxSteps": 3,
+		"maxIterationsPerStep": 3,
+		"tokenBudgetPerStep": 30000
+	},
+	"sequence": [
+		"Add one objective prescribing an immediate continuation.",
+		"Start detached runner with three total steps; launcher exits.",
+		"First wait then second completion occur without another user message.",
+		"Inspect idle runner after two settled steps; two attempt receipts remain.",
+		"Reject another start without changing its limit.",
+		"Add a second objective; the same runner wakes for its third step.",
+		"Runner terminates at original three-step limit.",
+		"After final rebuild, start an empty-work runner with one step remaining; observe zero callbacks, reject duplicate start, stop and confirm drainage."
+	],
+	"observations": {
+		"previousSummaryReachedSecondRun": true,
+		"toolCalls": 0,
+		"modelResponses": 3,
+		"totalTokens": 25300,
+		"idleStatus": {
+			"text": "Resident · default\nDirectory: /tmp/namzu-managed-resident-live-jh__8b5w/project\nAdmission: open\nRunner: idle · background\n  5987d324-da2e-44fc-ac6f-5e3f235cc886 · 3 step(s) authorized · PID 910564\n  2 step(s) started in this invocation\n\ncomplete · This is a short lifecycle test. On your first step, retain the tag resident-live-check in your summary and wait for one immediate continuation. On your second step, use your saved summary to report that retained tag and complete this pursuit. Do not use any tools, read files, run commands or change anything.\n  c8b58053-59d7-4bac-a1ec-cc7081c88100 · 2 step(s) admitted\n  resident-live-check retained from previous summary; second step reporting tag as required. Lifecycle test complete.",
+			"agent": "default",
+			"cwd": "/tmp/namzu-managed-resident-live-jh__8b5w/project",
+			"agenda": {
+				"tenantId": "86db283f-d049-4d8a-b6ad-ea0455164eee",
+				"agentKey": "default",
+				"identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+				"revision": 6,
+				"paused": false,
+				"pursuits": [
+					{
+						"id": "c8b58053-59d7-4bac-a1ec-cc7081c88100",
+						"state": {
+							"tenantId": "86db283f-d049-4d8a-b6ad-ea0455164eee",
+							"agentKey": "default",
+							"pursuitId": "c8b58053-59d7-4bac-a1ec-cc7081c88100",
+							"identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+							"objective": "This is a short lifecycle test. On your first step, retain the tag resident-live-check in your summary and wait for one immediate continuation. On your second step, use your saved summary to report that retained tag and complete this pursuit. Do not use any tools, read files, run commands or change anything.",
+							"revision": 5,
+							"stepsAdmitted": 2,
+							"phase": "complete",
+							"wakeAt": null,
+							"reason": "Scheduled continuation",
+							"summary": "resident-live-check retained from previous summary; second step reporting tag as required. Lifecycle test complete.",
+							"claimId": null
+						}
+					}
+				]
+			},
+			"runner": {
+				"owner": {
+					"version": 1,
+					"revision": 2,
+					"instanceId": "5987d324-da2e-44fc-ac6f-5e3f235cc886",
+					"tenantId": "86db283f-d049-4d8a-b6ad-ea0455164eee",
+					"projectId": "b60ebded-1af5-43bd-807f-cbe055ea1812",
+					"agentKey": "default",
+					"cwd": "/tmp/namzu-managed-resident-live-jh__8b5w/project",
+					"mode": "background",
+					"phase": "running",
+					"reservedAt": 1789138832907,
+					"maxSteps": 3,
+					"pauseGeneration": 0,
+					"pid": 910564,
+					"port": 44089,
+					"endedAt": null,
+					"outcome": null
+				},
+				"live": {
+					"kind": "responsive",
+					"instanceId": "5987d324-da2e-44fc-ac6f-5e3f235cc886",
+					"pid": 910564,
+					"phase": "idle",
+					"stepsStarted": 2,
+					"stopRequested": false
+				}
+			}
+		},
+		"finalStatus": {
+			"text": "Resident · default\nDirectory: /tmp/namzu-managed-resident-live-jh__8b5w/project\nAdmission: paused\nRunner: stopped · background\n  50dbee3a-2a70-4dff-9df0-ec17973a17bf · 1 step(s) authorized · PID 948891\n  Last outcome: cancelled\n\ncomplete · This is a short lifecycle test. On your first step, retain the tag resident-live-check in your summary and wait for one immediate continuation. On your second step, use your saved summary to report that retained tag and complete this pursuit. Do not use any tools, read files, run commands or change anything.\n  c8b58053-59d7-4bac-a1ec-cc7081c88100 · 2 step(s) admitted\n  resident-live-check retained from previous summary; second step reporting tag as required. Lifecycle test complete.\ncomplete · Return the short summary resident-live-check ready and complete. Do not use tools, read files, execute commands or change anything.\n  bb34edee-4362-4c6b-8c08-f7068cfd4381 · 1 step(s) admitted\n  resident-live-check ready and complete. No tools used, no files read, no commands executed, no changes made per authorization. Next steps: none; pursuit objective achieved.",
+			"agent": "default",
+			"cwd": "/tmp/namzu-managed-resident-live-jh__8b5w/project",
+			"agenda": {
+				"tenantId": "86db283f-d049-4d8a-b6ad-ea0455164eee",
+				"agentKey": "default",
+				"identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+				"revision": 10,
+				"paused": true,
+				"pauseGeneration": 1,
+				"pursuits": [
+					{
+						"id": "c8b58053-59d7-4bac-a1ec-cc7081c88100",
+						"state": {
+							"tenantId": "86db283f-d049-4d8a-b6ad-ea0455164eee",
+							"agentKey": "default",
+							"pursuitId": "c8b58053-59d7-4bac-a1ec-cc7081c88100",
+							"identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+							"objective": "This is a short lifecycle test. On your first step, retain the tag resident-live-check in your summary and wait for one immediate continuation. On your second step, use your saved summary to report that retained tag and complete this pursuit. Do not use any tools, read files, run commands or change anything.",
+							"revision": 5,
+							"stepsAdmitted": 2,
+							"phase": "complete",
+							"wakeAt": null,
+							"reason": "Scheduled continuation",
+							"summary": "resident-live-check retained from previous summary; second step reporting tag as required. Lifecycle test complete.",
+							"claimId": null
+						}
+					},
+					{
+						"id": "bb34edee-4362-4c6b-8c08-f7068cfd4381",
+						"state": {
+							"tenantId": "86db283f-d049-4d8a-b6ad-ea0455164eee",
+							"agentKey": "default",
+							"pursuitId": "bb34edee-4362-4c6b-8c08-f7068cfd4381",
+							"identity": "Pursue only objectives explicitly added by this project’s operator. Respect project instructions and current tool permissions.",
+							"objective": "Return the short summary resident-live-check ready and complete. Do not use tools, read files, execute commands or change anything.",
+							"revision": 3,
+							"stepsAdmitted": 1,
+							"phase": "complete",
+							"wakeAt": null,
+							"reason": "Scheduled continuation",
+							"summary": "resident-live-check ready and complete. No tools used, no files read, no commands executed, no changes made per authorization. Next steps: none; pursuit objective achieved.",
+							"claimId": null
+						}
+					}
+				]
+			},
+			"runner": {
+				"owner": {
+					"version": 1,
+					"revision": 6,
+					"instanceId": "50dbee3a-2a70-4dff-9df0-ec17973a17bf",
+					"tenantId": "86db283f-d049-4d8a-b6ad-ea0455164eee",
+					"projectId": "b60ebded-1af5-43bd-807f-cbe055ea1812",
+					"agentKey": "default",
+					"cwd": "/tmp/namzu-managed-resident-live-jh__8b5w/project",
+					"mode": "background",
+					"phase": "stopped",
+					"reservedAt": 1789139006844,
+					"maxSteps": 1,
+					"pauseGeneration": 0,
+					"pid": 948891,
+					"port": 33653,
+					"endedAt": 1789139017947,
+					"outcome": "cancelled"
+				},
+				"live": null
+			}
+		},
+		"projectFilesUnchanged": true,
+		"attemptsAfterFinalIdleStop": 3
+	},
+	"runnerLifecycle": [
+		{
+			"version": 1,
+			"revision": 1,
+			"instanceId": "5987d324-da2e-44fc-ac6f-5e3f235cc886",
+			"agentKey": "default",
+			"mode": "background",
+			"phase": "reserved",
+			"reservedAt": 1789138832907,
+			"maxSteps": 3,
+			"pauseGeneration": 0,
+			"pid": null,
+			"endedAt": null,
+			"outcome": null
+		},
+		{
+			"version": 1,
+			"revision": 2,
+			"instanceId": "5987d324-da2e-44fc-ac6f-5e3f235cc886",
+			"agentKey": "default",
+			"mode": "background",
+			"phase": "running",
+			"reservedAt": 1789138832907,
+			"maxSteps": 3,
+			"pauseGeneration": 0,
+			"pid": 910564,
+			"endedAt": null,
+			"outcome": null
+		},
+		{
+			"version": 1,
+			"revision": 3,
+			"instanceId": "5987d324-da2e-44fc-ac6f-5e3f235cc886",
+			"agentKey": "default",
+			"mode": "background",
+			"phase": "stopped",
+			"reservedAt": 1789138832907,
+			"maxSteps": 3,
+			"pauseGeneration": 0,
+			"pid": 910564,
+			"endedAt": 1789138887693,
+			"outcome": "limit"
+		},
+		{
+			"version": 1,
+			"revision": 4,
+			"instanceId": "50dbee3a-2a70-4dff-9df0-ec17973a17bf",
+			"agentKey": "default",
+			"mode": "background",
+			"phase": "reserved",
+			"reservedAt": 1789139006844,
+			"maxSteps": 1,
+			"pauseGeneration": 0,
+			"pid": null,
+			"endedAt": null,
+			"outcome": null
+		},
+		{
+			"version": 1,
+			"revision": 5,
+			"instanceId": "50dbee3a-2a70-4dff-9df0-ec17973a17bf",
+			"agentKey": "default",
+			"mode": "background",
+			"phase": "running",
+			"reservedAt": 1789139006844,
+			"maxSteps": 1,
+			"pauseGeneration": 0,
+			"pid": 948891,
+			"endedAt": null,
+			"outcome": null
+		},
+		{
+			"version": 1,
+			"revision": 6,
+			"instanceId": "50dbee3a-2a70-4dff-9df0-ec17973a17bf",
+			"agentKey": "default",
+			"mode": "background",
+			"phase": "stopped",
+			"reservedAt": 1789139006844,
+			"maxSteps": 1,
+			"pauseGeneration": 0,
+			"pid": 948891,
+			"endedAt": 1789139017947,
+			"outcome": "cancelled"
+		}
+	],
+	"receipts": [
+		{
+			"version": 1,
+			"pursuitId": "c8b58053-59d7-4bac-a1ec-cc7081c88100",
+			"claimId": "337b0ea0-6c84-422a-a0be-a388d409f7fd",
+			"sessionId": "d62fa72c-346c-407e-aa8b-d09e1942f203",
+			"runId": "051135d1-9b13-4ae2-ae4e-61a6d74b166b",
+			"finishedAt": 1789138835302,
+			"stopReason": "end_turn",
+			"decision": {
+				"kind": "wait",
+				"summary": "resident-live-check retained; first step done, awaiting immediate continuation for second step to report tag and complete.",
+				"wakeAfterMs": 0
+			},
+			"error": null,
+			"cleanup": "confirmed",
+			"usage": {
+				"totalTokens": 8431,
+				"cost": {
+					"totalCost": 0,
+					"cacheDiscount": 0,
+					"unpricedTokens": 8431
+				}
+			},
+			"budget": {
+				"limit": 30000,
+				"ownTokens": 8431,
+				"treeTokens": 8431,
+				"reservedTokens": 0,
+				"remainingTokens": 21569,
+				"inFlightRequests": 0,
+				"unsettledChildren": 0,
+				"poisoned": false,
+				"unresolvedRequests": 0
+			},
+			"selectedProvider": "Zen",
+			"selectedModel": "muse-spark-1.3-contributor-free"
+		},
+		{
+			"version": 1,
+			"pursuitId": "c8b58053-59d7-4bac-a1ec-cc7081c88100",
+			"claimId": "1545f7c7-ec8d-4fbd-acd5-995de2b53a7b",
+			"sessionId": "b7d691e7-9ebe-48d7-ae4b-04140f6206e1",
+			"runId": "20ab79b5-6ec9-4bf6-80f9-c030c00b8232",
+			"finishedAt": 1789138838352,
+			"stopReason": "end_turn",
+			"decision": {
+				"kind": "complete",
+				"summary": "resident-live-check retained from previous summary; second step reporting tag as required. Lifecycle test complete."
+			},
+			"error": null,
+			"cleanup": "confirmed",
+			"usage": {
+				"totalTokens": 8438,
+				"cost": {
+					"totalCost": 0,
+					"cacheDiscount": 0,
+					"unpricedTokens": 8438
+				}
+			},
+			"budget": {
+				"limit": 30000,
+				"ownTokens": 8438,
+				"treeTokens": 8438,
+				"reservedTokens": 0,
+				"remainingTokens": 21562,
+				"inFlightRequests": 0,
+				"unsettledChildren": 0,
+				"poisoned": false,
+				"unresolvedRequests": 0
+			},
+			"selectedProvider": "Zen",
+			"selectedModel": "muse-spark-1.3-contributor-free"
+		},
+		{
+			"version": 1,
+			"pursuitId": "bb34edee-4362-4c6b-8c08-f7068cfd4381",
+			"claimId": "41fb2509-793b-4a4b-b50a-95d96ed6c5b4",
+			"sessionId": "76f9cd8e-721c-4140-aba7-cc42c9a61e5e",
+			"runId": "9f1c0e47-dbbb-48c4-be68-e233f52eb9f4",
+			"finishedAt": 1789138887686,
+			"stopReason": "end_turn",
+			"decision": {
+				"kind": "complete",
+				"summary": "resident-live-check ready and complete. No tools used, no files read, no commands executed, no changes made per authorization. Next steps: none; pursuit objective achieved."
+			},
+			"error": null,
+			"cleanup": "confirmed",
+			"usage": {
+				"totalTokens": 8431,
+				"cost": {
+					"totalCost": 0,
+					"cacheDiscount": 0,
+					"unpricedTokens": 8431
+				}
+			},
+			"budget": {
+				"limit": 30000,
+				"ownTokens": 8431,
+				"treeTokens": 8431,
+				"reservedTokens": 0,
+				"remainingTokens": 21569,
+				"inFlightRequests": 0,
+				"unsettledChildren": 0,
+				"poisoned": false,
+				"unresolvedRequests": 0
+			},
+			"selectedProvider": "Zen",
+			"selectedModel": "muse-spark-1.3-contributor-free"
+		}
+	],
+	"runs": [
+		{
+			"runId": "051135d1-9b13-4ae2-ae4e-61a6d74b166b",
+			"status": "completed",
+			"modelResponses": 1,
+			"tokenUsage": {
+				"promptTokens": 8331,
+				"completionTokens": 100,
+				"totalTokens": 8431,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 54
+			},
+			"budget": {
+				"limit": 30000,
+				"ownTokens": 8431,
+				"treeTokens": 8431,
+				"reservedTokens": 0,
+				"remainingTokens": 21569,
+				"inFlightRequests": 0,
+				"unsettledChildren": 0,
+				"poisoned": false,
+				"unresolvedRequests": 0
+			}
+		},
+		{
+			"runId": "20ab79b5-6ec9-4bf6-80f9-c030c00b8232",
+			"status": "completed",
+			"modelResponses": 1,
+			"tokenUsage": {
+				"promptTokens": 8351,
+				"completionTokens": 87,
+				"totalTokens": 8438,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 49
+			},
+			"budget": {
+				"limit": 30000,
+				"ownTokens": 8438,
+				"treeTokens": 8438,
+				"reservedTokens": 0,
+				"remainingTokens": 21562,
+				"inFlightRequests": 0,
+				"unsettledChildren": 0,
+				"poisoned": false,
+				"unresolvedRequests": 0
+			}
+		},
+		{
+			"runId": "9f1c0e47-dbbb-48c4-be68-e233f52eb9f4",
+			"status": "completed",
+			"modelResponses": 1,
+			"tokenUsage": {
+				"promptTokens": 8257,
+				"completionTokens": 174,
+				"totalTokens": 8431,
+				"cachedTokens": 0,
+				"cacheWriteTokens": 0,
+				"reasoningTokens": 121
+			},
+			"budget": {
+				"limit": 30000,
+				"ownTokens": 8431,
+				"treeTokens": 8431,
+				"reservedTokens": 0,
+				"remainingTokens": 21569,
+				"inFlightRequests": 0,
+				"unsettledChildren": 0,
+				"poisoned": false,
+				"unresolvedRequests": 0
+			}
+		}
+	],
+	"buildEvidence": {
+		"executedDuringModelSmoke": {
+			"dist/integrations/resident/runner-launch.js": "a944479d6c0a9fbad7d35afcc30f259e4e0eae6225baf8d0160d96afb0c42c9a",
+			"dist/integrations/resident/runner-worker.js": "873f1545af2d8a88e052bf1c0ea9ed5cf6f31da7955a9e04ec76e9c831adfaa0",
+			"dist/integrations/resident/owned-runner.js": "31d1ac05b4b3fe79d57e517a7e91e1409a1ec3ccf7087bce33e78088c3136a93",
+			"dist/integrations/resident/runner-store.js": "e657b6490fa3ef3fa240bd8b8dbada2fc40c1839f86b0a35cc28d8461b20ee28",
+			"dist/integrations/resident/runner-control.js": "89ed03fa5a01bb6298a74f85a943814273eacf933c4dde0fc959514b4a43971d",
+			"dist/integrations/resident/session-step.js": "9c157cbe63839d039c76d147bb5c54e170dca8f4c2d16a20934dd52a50758442",
+			"dist/integrations/resident/foreground.js": "fd0e5ee436a6781acf2d8908ae046beea79ff4dc85e5142a648d32a7ba31e09e",
+			"dist/commands/resident.js": "e10c10a9f143264b20bb43167c2fb8f96747024aab192625bb56351aa41aac27",
+			"dist/tui/agent.js": "6190315a3d57a4c9422b9545d55fa7c358ee3472a6b1f3be6ea9fc799433a77f"
+		},
+		"finalIdleStartStatusStop": {
+			"dist/integrations/resident/runner-launch.js": "a5c0908308d21e0b2c688c85cbc9f2ef93f14fd7e6fac14d896d93bafead02d4",
+			"dist/integrations/resident/runner-worker.js": "873f1545af2d8a88e052bf1c0ea9ed5cf6f31da7955a9e04ec76e9c831adfaa0",
+			"dist/integrations/resident/owned-runner.js": "31d1ac05b4b3fe79d57e517a7e91e1409a1ec3ccf7087bce33e78088c3136a93",
+			"dist/integrations/resident/runner-store.js": "e657b6490fa3ef3fa240bd8b8dbada2fc40c1839f86b0a35cc28d8461b20ee28",
+			"dist/integrations/resident/runner-control.js": "89ed03fa5a01bb6298a74f85a943814273eacf933c4dde0fc959514b4a43971d",
+			"dist/integrations/resident/session-step.js": "9c157cbe63839d039c76d147bb5c54e170dca8f4c2d16a20934dd52a50758442",
+			"dist/integrations/resident/foreground.js": "fd0e5ee436a6781acf2d8908ae046beea79ff4dc85e5142a648d32a7ba31e09e",
+			"dist/commands/resident.js": "9998147b52e85f867020ae3c371bd870edb54f800903fb4faa0381905548d3f0",
+			"dist/tui/agent.js": "64dc90d0d2118a8bab5369453b6c3199398f842b537d82fc6cbd2f37a8fdd586"
+		},
+		"filesChangedBetweenStages": [
+			"dist/integrations/resident/runner-launch.js",
+			"dist/commands/resident.js",
+			"dist/tui/agent.js"
+		]
+	},
+	"limitations": [
+		"A prescribed two-step objective verifies scheduling and retained summary, not independent initiative.",
+		"The default CLI session still sent roughly 8,300 input tokens per response for this tiny no-tool task; context efficiency remains a separate improvement.",
+		"Cost accounting marked all 25,300 tokens unpriced; a zero monetary total is not measured billing evidence.",
+		"Model smoke preceded the final presentation/startup-cleanup review; exact differing built files are listed. Final build was additionally exercised with zero-call idle start, duplicate-start refusal and stop; error races have process tests.",
+		"No OS service, boot persistence, TUI dashboard, real external messages or automatic claim recovery was exercised or installed."
+	]
+}

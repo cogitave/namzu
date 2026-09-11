@@ -2083,12 +2083,29 @@ export async function createAgentSession(
 		if (sub.cancelAgentTool) registry.register(sub.cancelAgentTool)
 		allowedAgentIds = sub.allowedAgentIds
 	} catch (err) {
-		await subagentRuntime?.close().catch((closeError: unknown) => {
-			cliLogger().warn(
-				'sub-agent runtime cleanup failed after admission refusal',
-				exceptionAttributes(closeError),
+		try {
+			await subagentRuntime?.close()
+		} catch (closeError) {
+			// The refused runtime still owns resources if close failed. A usable
+			// session would conceal that failure and could later report a clean close.
+			// Drain the other startup resources before propagating the uncertainty.
+			const remaining = await Promise.allSettled([
+				mcp.close(),
+				computerUseHost?.dispose(),
+				jobRegistry?.killOwner(jobOwner),
+				checkpoints.close(),
+			])
+			throw new AggregateError(
+				[
+					err,
+					closeError,
+					...remaining
+						.filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+						.map((result) => result.reason),
+				],
+				'Subagent startup cleanup failed.',
 			)
-		})
+		}
 		subagentRuntime = undefined
 		// Sub-agents unavailable this session — non-fatal: `allowedAgentIds`
 		// stays empty and the chat still works. Silent until now, which was

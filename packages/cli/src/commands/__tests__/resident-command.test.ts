@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import { runCli } from '../../cli.js'
 import { EXIT_BAD_CONFIG, EXIT_UNTRUSTED, EXIT_USAGE } from '../../exit-codes.js'
+import { readRunner, reserveRunner } from '../../integrations/resident/runner-store.js'
 import type { ResidentSessionStepOptions } from '../../integrations/resident/session-step.js'
 import { lookupResident } from '../../integrations/resident/storage.js'
 import { residentCommand } from '../resident.js'
@@ -107,6 +108,79 @@ async function cli(args: readonly string[]) {
 }
 
 describe('resident commands reach durable project state', () => {
+	it('requires trust for a background start before reserving ownership', async () => {
+		const { resident } = await add()
+		expect((await command(['start', '--max-steps', '2'])).code).toBe(EXIT_UNTRUSTED)
+		expect(readRunner(resident)).toBeNull()
+		expect(adapter.create).not.toHaveBeenCalled()
+	})
+
+	it('starts a real idle child, reports live state without its secret, prevents another runner and drains it', async () => {
+		const { resident, pursuit } = await add()
+		const store = resident.agenda.execution(pursuit.id)
+		const admitted = await store.claim(pursuit.state, Date.now())
+		await store.settle(admitted, { kind: 'complete', summary: 'No work is due.' }, Date.now())
+		try {
+			const started = await command(['start', '--trust', '--max-steps', '2'])
+			expect(started.errors).toEqual([])
+			expect(started.code).toBe(0)
+			const owner = readRunner(resident)
+			expect(owner?.mode).toBe('background')
+			expect(owner?.phase).toBe('running')
+			expect(owner?.pid).not.toBe(process.pid)
+			const status = await command(['status'])
+			expect(JSON.stringify(status.printed)).toContain('responsive')
+			expect(JSON.stringify(status.printed)).toContain('idle')
+			expect(JSON.stringify(status.printed)).not.toContain(owner?.token)
+			expect(JSON.stringify(started.printed)).not.toContain(owner?.token)
+			expect(adapter.step).not.toHaveBeenCalled()
+			expect((await command(['start', '--trust', '--max-steps', '1'])).code).toBe(1)
+			expect((await command(['run', '--trust', '--max-steps', '1'])).code).toBe(1)
+			writeFileSync(join(stateRoot, 'config.yaml'), 'invalid: [configuration')
+			const stopped = await cli(['stop', '--cwd', workspace])
+			expect(stopped.code).toBe(0)
+			expect(stopped.output).toContain('drained')
+			expect(readRunner(resident)?.phase).toBe('stopped')
+			expect((await resident.agenda.read())?.paused).toBe(true)
+		} finally {
+			await command(['stop'])
+		}
+	})
+
+	it('never clears stale ownership without an exact inspected release or settles its pursuit implicitly', async () => {
+		const { resident, agenda, pursuit } = await add()
+		const owner = reserveRunner(resident, { mode: 'background', maxSteps: 2, pauseGeneration: 0 })
+		const claim = await resident.agenda.execution(pursuit.id).claim(pursuit.state, Date.now())
+		expect((await command(['release', owner.instanceId, '--executor-stopped'])).code).toBe(1)
+		await resident.agenda.setPaused((await resident.agenda.read()) ?? agenda, true)
+		expect((await command(['release', generateRunId(), '--executor-stopped'])).code).toBe(1)
+		expect(readRunner(resident)?.instanceId).toBe(owner.instanceId)
+		expect((await command(['release', owner.instanceId, '--executor-stopped'])).code).toBe(0)
+		expect(readRunner(resident)?.phase).toBe('released')
+		expect((await resident.agenda.execution(pursuit.id).read())?.claimId).toBe(claim.claimId)
+		expect((await command(['resume'])).code).toBe(1)
+		expect(adapter.step).not.toHaveBeenCalled()
+	})
+
+	it('does not start a background worker with unresolved work or closed admission', async () => {
+		const { resident, agenda, pursuit } = await add()
+		await resident.agenda.setPaused(agenda, true)
+		expect((await command(['start', '--trust', '--max-steps', '2'])).code).toBe(1)
+		expect(readRunner(resident)).toBeNull()
+		await command(['resume'])
+		await resident.agenda.execution(pursuit.id).claim(pursuit.state, Date.now())
+		expect((await command(['start', '--trust', '--max-steps', '2'])).code).toBe(1)
+		expect(readRunner(resident)).toBeNull()
+	})
+
+	it('does not create a runner reservation when trusted startup configuration is invalid', async () => {
+		const { resident } = await add()
+		writeFileSync(join(stateRoot, 'config.yaml'), 'invalid: [configuration')
+		const result = await cli(['start', '--trust', '--max-steps', '2', '--cwd', workspace])
+		expect(result.code).toBe(EXIT_BAD_CONFIG)
+		expect(readRunner(resident)).toBeNull()
+	})
+
 	it('shows help and default status without trusting the project, reading malformed config or creating state', async () => {
 		writeFileSync(join(stateRoot, 'config.yaml'), 'invalid: [configuration')
 		writeFileSync(join(workspace, 'namzu.config.json'), '{broken')

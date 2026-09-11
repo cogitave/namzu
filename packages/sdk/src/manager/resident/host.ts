@@ -23,7 +23,10 @@ export interface ResidentHostResult {
 export interface ResidentHostRunOptions {
 	readonly signal: AbortSignal
 	readonly maxSteps: number
+	/** Maximum single idle wait; with keepAlive, also bounds local agenda polling. */
 	readonly maxIdleMs?: number
+	/** Keep waiting for useful work within this invocation's finite step cap. Default false. */
+	readonly keepAlive?: boolean
 }
 
 /** @experimental Immutable context from the agenda snapshot that authorized this admission. */
@@ -70,8 +73,8 @@ export interface ResidentHostOptions {
 
 /**
  * @experimental Local driver for one durable agenda. Shared agenda admission
- * prevents overlapping pursuits across processes. Wake delivery is local;
- * another process must notify this host or start a new explicitly authorized run.
+ * prevents overlapping pursuits across processes. Notifications are local;
+ * opt-in keepAlive also rereads durable state on bounded idle timers.
  */
 export class ResidentHost {
 	private controller: AbortController | undefined
@@ -165,18 +168,22 @@ export class ResidentHost {
 		if (this.controlsPending) throw new Error('Wait for pending resident controls before running.')
 		if (this.active) throw new Error('A resident host invocation is already active.')
 		const maxIdleMs = options.maxIdleMs ?? 60_000
+		const keepAlive = options.keepAlive ?? false
+		if (options.keepAlive !== undefined && typeof options.keepAlive !== 'boolean')
+			throw new TypeError('Resident keepAlive must be explicitly enabled with a boolean.')
 		if (
 			!Number.isSafeInteger(options.maxSteps) ||
 			options.maxSteps < 1 ||
 			!Number.isSafeInteger(maxIdleMs) ||
 			maxIdleMs < 0 ||
-			maxIdleMs > 2_147_483_647
+			maxIdleMs > 2_147_483_647 ||
+			(keepAlive && maxIdleMs === 0)
 		)
 			throw new TypeError('Invalid resident host limits.')
 		const controller = new AbortController()
 		this.controller = controller
 		const signal = AbortSignal.any([controller.signal, options.signal])
-		this.active = this.drive(options.maxSteps, maxIdleMs, signal).finally(() => {
+		this.active = this.drive(options.maxSteps, maxIdleMs, keepAlive, signal).finally(() => {
 			this.active = undefined
 			this.controller = undefined
 			this.idle = undefined
@@ -187,6 +194,7 @@ export class ResidentHost {
 	private async drive(
 		maxSteps: number,
 		maxIdleMs: number,
+		keepAlive: boolean,
 		signal: AbortSignal,
 	): Promise<ResidentHostResult> {
 		let stepsSettled = 0
@@ -320,12 +328,18 @@ export class ResidentHost {
 				const nextWakeAt =
 					scheduled.length === 0 ? null : Math.min(...scheduled.map((p) => p.state.wakeAt ?? now))
 				if (observed !== this.generation) continue
-				if (nextWakeAt === null || nextWakeAt - now > maxIdleMs)
+				if (!keepAlive && (nextWakeAt === null || nextWakeAt - now > maxIdleMs))
 					return { status: 'idle', stepsSettled, nextWakeAt, ...(selection ? { selection } : {}) }
+				const delay =
+					nextWakeAt === null
+						? maxIdleMs
+						: keepAlive
+							? Math.min(maxIdleMs, nextWakeAt - now)
+							: nextWakeAt - now
 				const idle = new AbortController()
 				this.idle = idle
 				try {
-					await sleep(Math.max(1, nextWakeAt - now), undefined, {
+					await sleep(Math.max(1, delay), undefined, {
 						signal: AbortSignal.any([signal, idle.signal]),
 					})
 				} catch (error) {

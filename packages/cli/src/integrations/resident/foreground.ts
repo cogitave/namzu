@@ -13,6 +13,12 @@ export interface ResidentForegroundOptions {
 	readonly signal: AbortSignal
 	readonly maxSteps: number
 	readonly maxIdleMs?: number
+	/** Remain idle until explicitly stopped or the original work limit is consumed. */
+	readonly keepAlive?: boolean
+	/** A launcher binds admission to the pause generation that authorized it. */
+	readonly expectedPauseGeneration?: number
+	/** Optional host ownership check; called at admission and during local monitoring. */
+	readonly checkControl?: () => Promise<void>
 	/** Local storage checks, never provider calls. */
 	readonly pollIntervalMs?: number
 }
@@ -29,7 +35,7 @@ export async function runResidentForeground(
 	options.signal.throwIfAborted()
 	const initial = await agenda.read()
 	if (!initial) throw new Error('No resident agenda exists here.')
-	const generation = initial.pauseGeneration ?? 0
+	const generation = options.expectedPauseGeneration ?? initial.pauseGeneration ?? 0
 	const controller = new AbortController()
 	const signal = AbortSignal.any([options.signal, controller.signal])
 	const fence = (state: ResidentAgendaState | null): ResidentAgendaState => {
@@ -38,7 +44,10 @@ export async function runResidentForeground(
 			controller.abort(new Error('A durable pause request ended this invocation.'))
 		return state
 	}
-	const read = async () => fence(await agenda.read())
+	const read = async () => {
+		await options.checkControl?.()
+		return fence(await agenda.read())
+	}
 	const guarded: ResidentAgendaStore = {
 		read,
 		create: (...args) => agenda.create(...args),
@@ -95,6 +104,7 @@ export async function runResidentForeground(
 		const result = await host.run({
 			signal,
 			maxSteps: options.maxSteps,
+			...(options.keepAlive !== undefined ? { keepAlive: options.keepAlive } : {}),
 			...(options.maxIdleMs !== undefined ? { maxIdleMs: options.maxIdleMs } : {}),
 		})
 		if (monitorFailure) throw monitorFailure

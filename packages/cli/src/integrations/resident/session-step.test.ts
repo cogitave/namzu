@@ -18,6 +18,7 @@ import type { NamzuCliConfig } from '../../config/schema.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import type { AgentEvent, AgentSessionOptions, SendOptions } from '../../tui/agent.js'
 import { openSessions } from '../sessions/store.js'
+import { ResidentCleanupUnconfirmedError } from './lifecycle-errors.js'
 import { createResidentSessionStep } from './session-step.js'
 
 const mocks = vi.hoisted(() => ({
@@ -458,31 +459,43 @@ describe('failed or interrupted work stays unresolved', () => {
 		})
 	})
 
-	it('closes both resources when session cleanup fails after a valid answer', async () => {
-		const f = await fixture({
-			telemetry: { sessionExport: { destination: join(root, 'export.jsonl') } },
-		})
-		mocks.close.mockRejectedValue(new Error('cleanup failed'))
-		await expect(new ResidentHost(f.agenda, f.step()).run({ signal, maxSteps: 1 })).rejects.toThrow(
-			'cleanup failed',
-		)
-		expect(mocks.shutdown).toHaveBeenCalledOnce()
-		expect((await f.agenda.read())!.pursuits[0].state.phase).toBe('running')
-		expect(await receipt(f.options.artifactsRoot, 'finish.json')).toMatchObject({
-			decision: null,
-			error: 'cleanup failed',
-		})
-	})
+	it.each(['session', 'telemetry'])(
+		'reports cleanup unconfirmed when %s cleanup fails after a valid answer',
+		async (resource) => {
+			const f = await fixture({
+				telemetry: { sessionExport: { destination: join(root, 'export.jsonl') } },
+			})
+			const failure = new Error(`${resource} cleanup failed`)
+			;(resource === 'session' ? mocks.close : mocks.shutdown).mockRejectedValue(failure)
+			const error = await new ResidentHost(f.agenda, f.step())
+				.run({ signal, maxSteps: 1 })
+				.catch((error: unknown) => error)
+			expect(error).toBeInstanceOf(ResidentCleanupUnconfirmedError)
+			expect(error).toMatchObject({
+				message: expect.stringContaining('cleanup is unconfirmed'),
+				errors: [failure],
+			})
+			expect(mocks.close).toHaveBeenCalledOnce()
+			expect(mocks.shutdown).toHaveBeenCalledOnce()
+			expect((await f.agenda.read())!.pursuits[0].state.phase).toBe('running')
+			expect(await receipt(f.options.artifactsRoot, 'finish.json')).toMatchObject({
+				decision: null,
+				error: `${resource} cleanup failed`,
+				cleanup: 'unconfirmed',
+			})
+		},
+	)
 
 	it('records boot failure and drains an already attached export', async () => {
 		const f = await fixture({
 			telemetry: { sessionExport: { destination: join(root, 'export.jsonl') } },
 		})
 		mocks.create.mockRejectedValue(new Error('provider boot failed'))
-		await expect(new ResidentHost(f.agenda, f.step()).run({ signal, maxSteps: 1 })).rejects.toThrow(
-			'provider boot failed',
-		)
+		await expect(
+			new ResidentHost(f.agenda, f.step()).run({ signal, maxSteps: 1 }),
+		).rejects.toBeInstanceOf(ResidentCleanupUnconfirmedError)
 		expect(mocks.shutdown).toHaveBeenCalledOnce()
+		expect(mocks.close).not.toHaveBeenCalled()
 		expect(await receipt(f.options.artifactsRoot, 'start.json')).toMatchObject({
 			provider: null,
 			model: null,
@@ -490,7 +503,98 @@ describe('failed or interrupted work stays unresolved', () => {
 		expect(await receipt(f.options.artifactsRoot, 'finish.json')).toMatchObject({
 			decision: null,
 			error: 'provider boot failed',
+			cleanup: 'unconfirmed',
 		})
+	})
+
+	it('does not certify a refused constructor whose partial cleanup is unavailable', async () => {
+		const f = await fixture()
+		const send = vi.fn(() => stream([]))
+		mocks.create.mockResolvedValue(
+			fakeAgentSession({
+				hasProvider: false,
+				errorHint: 'Plugin startup refused',
+				close: mocks.close,
+				send,
+			}),
+		)
+		await expect(
+			new ResidentHost(f.agenda, f.step()).run({ signal, maxSteps: 1 }),
+		).rejects.toBeInstanceOf(ResidentCleanupUnconfirmedError)
+		expect(mocks.close).toHaveBeenCalledOnce()
+		expect(send).not.toHaveBeenCalled()
+		expect(await receipt(f.options.artifactsRoot, 'finish.json')).toMatchObject({
+			decision: null,
+			error: 'Plugin startup refused',
+			cleanup: 'unconfirmed',
+		})
+	})
+
+	it('keeps a failure before session construction distinct from unconfirmed cleanup', async () => {
+		const f = await fixture()
+		const failure = new Error('Preferences could not be read')
+		mocks.probe.mockRejectedValue(failure)
+		await expect(new ResidentHost(f.agenda, f.step()).run({ signal, maxSteps: 1 })).rejects.toBe(
+			failure,
+		)
+		expect(mocks.create).not.toHaveBeenCalled()
+		expect(await receipt(f.options.artifactsRoot, 'finish.json')).toMatchObject({
+			decision: null,
+			error: failure.message,
+			cleanup: 'confirmed',
+		})
+	})
+
+	it('exposes cleanup failure at the callback boundary even when cancellation hides it at the host', async () => {
+		const f = await fixture()
+		const abort = new AbortController()
+		const failure = new Error('Interrupted session cleanup failed')
+		mocks.close.mockRejectedValue(failure)
+		mocks.create.mockResolvedValue(
+			fakeAgentSession({
+				close: mocks.close,
+				send: () =>
+					(async function* () {
+						abort.abort(new Error('Stop requested'))
+						yield { kind: 'done', stopReason: 'end_turn', text: JSON.stringify(complete) } as const
+					})(),
+			}),
+		)
+		const step = f.step()
+		let caught: unknown
+		const result = await new ResidentHost(f.agenda, async (...args) => {
+			try {
+				return await step(...args)
+			} catch (error) {
+				caught = error
+				throw error
+			}
+		}).run({ signal: abort.signal, maxSteps: 1 })
+		expect(result).toMatchObject({ status: 'cancelled', stepsSettled: 0 })
+		expect(caught).toBeInstanceOf(ResidentCleanupUnconfirmedError)
+		expect(caught).toMatchObject({ errors: [abort.signal.reason, failure] })
+		expect(await receipt(f.options.artifactsRoot, 'finish.json')).toMatchObject({
+			decision: null,
+			cleanup: 'unconfirmed',
+		})
+	})
+
+	it('preserves unconfirmed cleanup when the finish receipt cannot be published', async () => {
+		const f = await fixture()
+		const failure = new Error('Session cleanup failed')
+		mocks.close.mockImplementation(async () => {
+			const [claimId] = await readdir(f.options.artifactsRoot)
+			const artifacts = join(f.options.artifactsRoot, claimId)
+			await rm(artifacts, { recursive: true })
+			await writeFile(artifacts, 'Receipt directory became unavailable')
+			throw failure
+		})
+		const error = await new ResidentHost(f.agenda, f.step())
+			.run({ signal, maxSteps: 1 })
+			.catch((error: unknown) => error)
+		expect(error).toBeInstanceOf(ResidentCleanupUnconfirmedError)
+		expect(error).toMatchObject({ errors: [failure, expect.any(Error)] })
+		expect((await f.agenda.read())!.pursuits[0].state.phase).toBe('running')
 	})
 })
 

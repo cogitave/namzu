@@ -2,6 +2,28 @@ import { describe, expect, it } from 'vitest'
 import { parseResidentFlags } from '../resident-flags.js'
 
 describe('resident command argument boundaries', () => {
+	it.each([
+		['start'],
+		['start', '--max-steps', '0'],
+		['start', '--max-steps', '2', '--max-idle-ms', '0'],
+		['start', '--max-steps', '2', 'unexpected objective'],
+		['start', '--max-steps', '2', '--resume', 'id'],
+		['stop', '--max-steps', '2'],
+		['stop', '--model', 'anything'],
+		['release', 'runner'],
+		['release', 'runner', '--executor-stopped', '--claim', 'unrelated'],
+	])('rejects invalid managed-runner authority before any launch: %j', (...args) => {
+		expect(() => parseResidentFlags(args)).toThrow()
+	})
+	it('keeps background limits explicit and leaves the foreground idle default unchanged', () => {
+		expect(parseResidentFlags(['start', '--max-steps', '2', '--effort', 'low'])).toMatchObject({
+			action: 'start',
+			maxSteps: 2,
+			maxIdleMs: 60_000,
+			run: { effort: 'low' },
+		})
+		expect(parseResidentFlags(['run', '--max-steps', '2', '--max-idle-ms', '0']).maxIdleMs).toBe(0)
+	})
 	it('preserves flag-shaped literal objectives after the option boundary', () => {
 		const parsed = parseResidentFlags([
 			'add',
