@@ -1,5 +1,27 @@
 # Changelog
 
+## 38.1.0
+
+### Minor Changes
+
+- 786ca01: Add guest-owned pseudo-terminal and loopback TCP stream capabilities to the
+  Firecracker sandbox, including lifecycle ownership and bidirectional
+  backpressure.
+- 786ca01: Carry optional approved-plan and plan-step identities through delegated task
+  scheduling and `agent.pending` SSE payloads, allowing hosts to correlate live
+  workers with exact plan progress without label or launch-order inference.
+- 64d9b9b: CLI auto search now selects native live search for supported direct Anthropic and Google API-key models instead of Exa. Native requests use provider quotas and execute without local tool approval. Set `web.backend: exa` to keep the previous common-search behavior on these routes. Unsupported model/endpoint combinations retain common search under auto; cached mode is never silently changed to live.
+
+  Add model/mode-aware hosted-search capability checks, preserve them through provider wrappers, and forward hosted search through ReactiveAgent and delegated runs. Anthropic retains encrypted search blocks and citation indices for unchanged matching-route continuation; Google retains grounding source links. Common search previews omit internal provenance framing while preserving raw results for the model and history.
+
+### Patch Changes
+
+- 786ca01: Wait for asynchronous plan approval listeners before resolving the approval,
+  so hosts can finish persisting the decision before disposing run storage.
+- 786ca01: Export deterministic UUID entity fixtures from `@namzu/sdk/testing` so
+  consumer test suites can migrate away from removed prefixed IDs without
+  copying the SDK's identity rules.
+
 ## 38.0.0
 
 ### Major Changes
