@@ -46,7 +46,13 @@ The `static` contribution (`namzu.resident-step.guidance`) carries concise work
 and evidence standards, authority boundaries, optional read-only guidance, and
 the host's output instructions. The `dynamic` contribution
 (`namzu.resident-step.continuation`) carries identity, the whole objective, prior
-summary, admission number, wake reason, approved learning and supplied skills.
+summary, admission number, the complete pending `wakeEvidence`
+batch, approved learning and supplied skills. Wake entries remain in commit
+order; later input does not automatically supersede an earlier failure. The
+guidance asks the step to resolve contradictions and retain still-relevant
+evidence in its next summary before settlement consumes the batch.
+Without a batch it supplies the single `wakeReason`; with a batch the latest
+reason is not repeated separately, avoiding duplicate context.
 Changing that snapshot leaves the static prefix unchanged when the host's
 guidance and output contract remain the same.
 

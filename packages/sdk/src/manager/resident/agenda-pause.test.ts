@@ -108,7 +108,7 @@ it.each([1, 2, 3, 4])(
 		expect(await readFile(f.path(f.initial.revision), 'utf8')).toBe(raw)
 		const paused = await reopened.setPaused(historical, true)
 		const written = JSON.parse(await readFile(f.path(paused.revision), 'utf8'))
-		expect(written).toMatchObject({ schemaVersion: 5, pauseGeneration: 1 })
+		expect(written).toMatchObject({ schemaVersion: 6, pauseGeneration: 1 })
 		expect(() =>
 			migrate(
 				defineSchema({

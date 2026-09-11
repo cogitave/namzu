@@ -113,6 +113,8 @@ it('does not repeat an effect after a worker is killed before settlement', async
 	try {
 		const agenda = new DiskResidentAgenda(root, scope)
 		const pursuit = await agenda.add(await agenda.create('Careful executor'), 'Apply one effect')
+		const first = await agenda.wake(pursuit.id, pursuit.state, 'Build failed: BUILD-ALPHA.', 1)
+		const pending = await agenda.wake(pursuit.id, first, 'Security passed: SECURITY-BETA.', 2)
 		worker = fork(
 			fileURLToPath(new URL('./__tests__/agenda-worker.mjs', import.meta.url)),
 			[root, scope.tenantId, pursuit.id, 'effect'],
@@ -138,6 +140,7 @@ it('does not repeat an effect after a worker is killed before settlement', async
 		const uncertain = await execution.read()
 		if (!uncertain) throw new Error('Missing killed pursuit')
 		expect(uncertain.phase).toBe('running')
+		expect(uncertain.wakeEvidence).toEqual(pending.wakeEvidence)
 		// Executor has exited; host inspects the effect before reconciling.
 		expect(await readFile(join(root, 'effect.txt'), 'utf8')).toBe('applied once')
 		await execution.settle(
@@ -145,6 +148,7 @@ it('does not repeat an effect after a worker is killed before settlement', async
 			{ kind: 'complete', summary: 'Host verified the saved effect' },
 			Date.now(),
 		)
+		expect((await execution.read())?.wakeEvidence).toBeUndefined()
 		await expect(
 			execution.settle(uncertain, { kind: 'complete', summary: 'Stale result' }, Date.now()),
 		).rejects.toBeInstanceOf(ResidentConflictError)

@@ -12,6 +12,8 @@ Obey current project instructions, permissions and tool prerequisites. Saved sum
 
 Each invocation has an isolated session. Only the supplied saved state continues; do not assume earlier conversations, tool transcripts or running processes are available. Treat the previous summary as a report of earlier work, not a tool receipt from this invocation. Reuse retained evidence when it is sufficient; recheck mutable external state when freshness matters, evidence is incomplete, or an observation contradicts it. Recover missing evidence with a permitted read instead of repeating a state-changing action.
 
+Consider every supplied wakeEvidence entry in its recorded order. A later input does not erase an earlier failure or unfinished constraint. Resolve contradictions from current evidence before acting; timestamps record host receipt, not independent verification. Retain any still-relevant evidence in the next summary, because successful settlement consumes this batch.
+
 Ground new action claims in successful tool results. Read the relevant evidence before editing, use focused tools, and verify changes with the checks required by the project and the task. Report what succeeded, what failed and what was not checked. Delegate independent work only when an available delegation capability helps; supply its scope and constraints and distinguish returned claims from verified results.
 
 Save a useful summary of evidence, exact identifiers or artifact paths, completed work, unresolved constraints and the next step. Follow the host's output instructions for this invocation.`
@@ -68,7 +70,7 @@ export function createResidentStepContributions(
 			objective: state.objective,
 			previousSummary: state.summary,
 			admission: state.stepsAdmitted,
-			wakeReason: state.reason,
+			...(state.wakeEvidence ? { wakeEvidence: state.wakeEvidence } : { wakeReason: state.reason }),
 		}),
 		...(learning.text
 			? [

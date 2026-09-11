@@ -11,6 +11,17 @@ import { asTenantId } from '../../utils/id.js'
 
 const text = z.string().trim().min(1).max(8_000)
 const time = z.number().int().nonnegative().safe()
+const MAX_WAKE_EVIDENCE_CHARS = 16_000
+const wakeEvidence = z
+	.array(z.object({ reason: text, receivedAt: time }).readonly())
+	.min(1)
+	.max(16, 'Resident has 16 pending wake inputs; process them before adding more.')
+	.refine(
+		(entries) =>
+			entries.reduce((total, entry) => total + entry.reason.length, 0) <= MAX_WAKE_EVIDENCE_CHARS,
+		'Resident wake evidence exceeds 16000 characters; process pending evidence before adding more.',
+	)
+	.readonly()
 export const residentDecisionSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('wait'), summary: text, wakeAt: time.nullable() }),
 	z.object({ kind: z.literal('complete'), summary: text }),
@@ -32,6 +43,8 @@ export const residentStateSchema = z
 		phase: z.enum(['waiting', 'running', 'complete', 'blocked']),
 		wakeAt: time.nullable(),
 		reason: text,
+		/** Accepted wake inputs, in commit order, retained until this step settles. */
+		wakeEvidence: wakeEvidence.optional(),
 		summary: text.nullable(),
 		claimId: z.string().uuid().nullable(),
 	})
@@ -46,6 +59,12 @@ export const residentStateSchema = z
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
 				message: 'Only waiting state may have a wake time.',
+			})
+		}
+		if (state.wakeEvidence && state.phase !== 'waiting' && state.phase !== 'running') {
+			context.addIssue({
+				code: z.ZodIssueCode.custom,
+				message: 'Only waiting or unresolved running work may retain wake evidence.',
 			})
 		}
 	})
@@ -88,7 +107,7 @@ export class ResidentConflictError extends Error {
  */
 export class DiskResidentStore implements ResidentStore {
 	private readonly records = new DiskRevisionRecordStore<ResidentState>(
-		defineSchema({ kind: 'resident', current: 1, migrations: {} }),
+		defineSchema({ kind: 'resident', current: 2, migrations: { 1: (record) => record } }),
 		'resident store',
 		(record) => record.revision,
 	)
@@ -207,8 +226,11 @@ export function settleResidentState(
 	if (outcome.kind === 'wait' && outcome.wakeAt !== null && outcome.wakeAt <= now)
 		throw new Error('A scheduled continuation must be in the future.')
 	if (state.phase !== 'running') throw new Error('Resident has no admitted step to settle.')
+	// Admission alone is not acknowledgment: an interrupted step retains every
+	// input. Only successful exact-claim settlement consumes the captured batch.
+	const { wakeEvidence: _consumed, ...settled } = state
 	return {
-		...state,
+		...settled,
 		phase: outcome.kind === 'wait' ? 'waiting' : outcome.kind,
 		wakeAt: outcome.kind === 'wait' ? outcome.wakeAt : null,
 		summary: outcome.summary,
@@ -225,5 +247,11 @@ export function wakeResidentState(
 	time.parse(now)
 	const evidence = text.parse(reason)
 	if (state.phase !== 'waiting') throw new Error('Only a waiting resident can be woken.')
-	return { ...state, wakeAt: now, reason: evidence }
+	// Never evict an accepted input to admit another. Backpressure leaves both
+	// the durable state and its revision untouched, so the sender can retry later.
+	const pending = wakeEvidence.parse([
+		...(state.wakeEvidence ?? []),
+		{ reason: evidence, receivedAt: now },
+	])
+	return { ...state, wakeAt: now, reason: evidence, wakeEvidence: pending }
 }

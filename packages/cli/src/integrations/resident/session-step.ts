@@ -145,13 +145,14 @@ function residentContext(
 	})
 	return [
 		'Perform one useful step of this explicitly authorized resident pursuit. Work only within its objective and the current project permissions.',
-		'Each resident step uses an isolated session. Only the saved summary continues between steps; do not assume earlier conversation or tool transcripts are present.',
+		'Each resident step uses an isolated session. Only the supplied saved state continues between steps; do not assume earlier conversation or tool transcripts are present.',
+		'Consider every wakeEvidence entry in order; a later input does not erase an earlier failure. Check conflicting evidence and retain still-relevant inputs in the next summary; settlement consumes the batch.',
 		JSON.stringify({
 			identity: state.identity,
 			objective: state.objective,
 			previousSummary: state.summary,
 			admission: state.stepsAdmitted,
-			wakeReason: state.reason,
+			...(state.wakeEvidence ? { wakeEvidence: state.wakeEvidence } : { wakeReason: state.reason }),
 		}),
 		...(learning.text
 			? [

@@ -112,6 +112,21 @@ function learning(): ResidentLearningState {
 }
 
 describe('resident context separates stable guidance from the admitted snapshot', () => {
+	it('captures all pending wake inputs without erasing earlier contradictory evidence', () => {
+		const evidence = [
+			{ reason: 'Build failed: BUILD-ALPHA.', receivedAt: 10 },
+			{ reason: 'Security passed: SECURITY-BETA.', receivedAt: 20 },
+		]
+		const contributions = registry({ state: state({ wakeEvidence: evidence }) })
+		evidence[0]!.reason = 'Mutated after admission.'
+		const prompt = new PromptBuilder({ tools: new ToolRegistry(), contributions }).buildSegmented()
+		expect(prompt.dynamic).toContain('BUILD-ALPHA')
+		expect(prompt.dynamic).toContain('SECURITY-BETA')
+		expect(prompt.dynamic.match(/SECURITY-BETA/g)).toHaveLength(1)
+		expect(prompt.dynamic).not.toContain('Mutated after admission')
+		expect(prompt.static).not.toContain('BUILD-ALPHA')
+		expect(prompt.static).toContain('later input does not erase an earlier failure')
+	})
 	it('keeps changing evidence outside the static prefix while retaining the whole objective', () => {
 		const first = segments()
 		const next = segments({
@@ -217,7 +232,16 @@ describe('resident context separates stable guidance from the admitted snapshot'
 })
 
 it('preserves resident state and project policy when older conversation is compacted', async () => {
-	const prompt = segments({ learning: learning(), readOnly: true })
+	const prompt = segments({
+		learning: learning(),
+		readOnly: true,
+		state: state({
+			wakeEvidence: [
+				{ reason: 'Build failed: BUILD-ALPHA.', receivedAt: 10 },
+				{ reason: 'Security passed: SECURITY-BETA.', receivedAt: 20 },
+			],
+		}),
+	})
 	const policy = createProjectInstructionMessage('Project policy: preserve the audit ledger.', [
 		'AGENTS.md',
 	])
@@ -261,6 +285,8 @@ it('preserves resident state and project policy when older conversation is compa
 	)
 	expect(messages[0]?.content).toBe(prompt.static)
 	expect(messages[1]?.content).toBe(prompt.dynamic)
+	expect(messages[1]?.content).toContain('BUILD-ALPHA')
+	expect(messages[1]?.content).toContain('SECURITY-BETA')
 	expect(messages).toContainEqual(policy)
 })
 

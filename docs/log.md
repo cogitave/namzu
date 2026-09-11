@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Retained resident wake inputs as a bounded durable batch through admission and interruption, projected all accepted evidence into both CLI context profiles, and exposed pending input counts in resident status.
+
 - **Update** Moved CLI runtime state to indexed SQLite session metadata and direct session artifact directories, preserving workspace memory isolation; documented the new format, Node.js requirement, and optional SDK SQLite driver; corrected `history` to read conversation UUIDs and the latest workspace conversation.
 
 - **Update** Added explicit persistent plugin choices to `/plugins`, keyed by canonical plugin directory and name, with disabled startup contributions, atomic private storage and separate live/startup state reporting.

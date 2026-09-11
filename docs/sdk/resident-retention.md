@@ -63,8 +63,9 @@ writer fences depend on them. Trusted local filesystem and power-loss limits
 remain those of the [resident store](resident-agents.md).
 
 Agenda schema 4 added archival and [learning](resident-learning.md); schema 5
-adds the [durable pause generation](resident-agents.md). Schemas 1–4 read without
-invented history or learned state; new writes use schema 5.
+adds the [durable pause generation](resident-agents.md). Schema 6 retains pending
+wake evidence. Schemas 1–5 read without invented history or learned state;
+new writes use schema 6.
 Earlier writers refuse it to avoid silently stripping these fields. No existing
 host starts archival automatically, and no CLI/session history is removed.
 

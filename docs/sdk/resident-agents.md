@@ -86,7 +86,8 @@ and wake reason, then returns one `ResidentDecision`:
 - `blocked`: a prerequisite is missing; this prototype does not auto-unblock it.
 
 Each decision carries a nonempty summary, limited to 8,000 characters. Only the
-last summary is projected into the next callback. Full episodic memory, tool
+last summary is projected into the next callback, alongside pending wake inputs
+described below. Full episodic memory, tool
 transcripts and arbitrary persistent scratch state are not implemented here.
 Use the agenda below for multiple pursuits. Identity and objective remain immutable for this pursuit.
 
@@ -119,8 +120,8 @@ successful `setPaused(expected, true)` increments this nonnegative safe integer,
 including requests while already paused. Resuming preserves it. A host can
 capture the generation at invocation start and detect a pause even if another
 process resumes before its next state read. Observing this field does not itself
-deliver cancellation or prove executor quiescence. Agenda writes use schema 5;
-schemas 1–4 remain readable, while older writers refuse schema 5.
+deliver cancellation or prove executor quiescence. Agenda writes use schema 6;
+schemas 1–5 remain readable, while older writers refuse schema 6.
 
 `ResidentAgendaStore` is the atomic backend contract. All pursuits for an agent
 share admission: two processes choosing **different** pursuits still cannot
@@ -206,6 +207,45 @@ nothing about a remote executor. An aborted admitted step keeps its claim;
 `resume()` cannot bypass this unresolved work. Only after stopping all relevant
 executors and checking effects may the application explicitly reconcile it.
 
+
+## Retaining wake evidence
+
+Successful `wake` calls append to `ResidentState.wakeEvidence`: immutable
+`{ reason, receivedAt }` entries in commit order. `receivedAt` is the host's
+epoch-millisecond receipt time, not a verified source timestamp; ordering does
+not depend on the clock increasing. `reason` still exposes the most recent
+input for existing callers. The SDK resident prompt and both CLI context
+profiles project the entire batch, so a later successful check cannot erase an
+earlier reported failure. Custom callbacks must consume `wakeEvidence` to obtain
+every pending input rather than reading only `reason`.
+
+At most 16 inputs and 16,000 total reason characters (UTF-16 code units) may be
+pending per pursuit; each reason retains its 8,000-character limit. Overflow
+refuses the new wake without changing the revision, due time or accepted inputs.
+There is no silent truncation or oldest-entry eviction. Process the admitted
+batch before sending more. Concurrent stale writes still conflict; a sender
+must reread and retry a rejected write. Identical text can represent separate
+events and is not deduplicated automatically.
+
+Admission captures but does not consume inputs. Crashes, cancellation and failed
+settlement leave the batch on the unresolved claim. Exact-claim settlement,
+including explicit inspected reconciliation, clears it atomically with the new
+summary and disposition. The next summary must retain evidence still relevant
+to future work. Immutable revisions preserve the prior batch on disk; it is not
+automatically replayed into every later step.
+
+This applies to both `DiskResidentStore` and `DiskResidentAgenda`. Standalone
+records now write schema 2; agendas write schema 6. Previous schemas remain
+readable without invented inputs or receipt times, but older writers refuse the
+new versions. Upgrade all processes sharing a resident store together. The
+queue accepts evidence only while waiting; it does not enable mid-step steering
+or change the running-claim, terminal-work or permission boundaries.
+
+The [CLI regression experiment](../../research/resident/wake-evidence.md) exercises
+separate-process wakes and both context profiles with real low-effort inference.
+Both retained a failed build and a passing security result instead of losing the
+earlier failure. Process tests independently retain the batch after executor
+death and require inspected settlement before consuming it.
 
 ## Crash and recovery
 

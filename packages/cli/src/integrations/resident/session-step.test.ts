@@ -119,6 +119,38 @@ function creationOptions(): AgentSessionOptions {
 }
 
 describe('normal CLI runtime reaches a resident admission', () => {
+	it.each(['resident', 'interactive'] as const)(
+		'includes the full wake batch in the %s profile',
+		async (contextProfile) => {
+			const f = await fixture()
+			const first = await f.agenda.wake(
+				f.pursuit.id,
+				f.pursuit.state,
+				'Build failed: BUILD-ALPHA.',
+				10,
+			)
+			await f.agenda.wake(f.pursuit.id, first, 'Security passed: SECURITY-BETA.', 20)
+			let projected = ''
+			mocks.create.mockResolvedValue(
+				fakeAgentSession({
+					send: (_messages, options) => {
+						projected = renderedResidentContext(options!)
+						return stream([
+							{ kind: 'done', stopReason: 'end_turn', text: JSON.stringify(complete) },
+						])
+					},
+					close: mocks.close,
+				}),
+			)
+			await new ResidentHost(
+				f.agenda,
+				createResidentSessionStep({ ...f.options, contextProfile }),
+			).run({ signal, maxSteps: 1 })
+			expect(projected).toContain('BUILD-ALPHA')
+			expect(projected).toContain('SECURITY-BETA')
+			expect((await f.agenda.read())?.pursuits[0].state.wakeEvidence).toBeUndefined()
+		},
+	)
 	it('can explicitly retain the interactive prompt profile for comparison', async () => {
 		const f = await fixture()
 		const sent: SendOptions[] = []
@@ -134,7 +166,7 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		const step = createResidentSessionStep({ ...f.options, contextProfile: 'interactive' })
 		await new ResidentHost(f.agenda, step).run({ signal, maxSteps: 1 })
 		expect(sent[0].residentContext).toBeUndefined()
-		expect(sent[0].extraSystem).toContain('Only the saved summary continues')
+		expect(sent[0].extraSystem).toContain('Only the supplied saved state continues')
 	})
 	it.each([undefined, 'eager', 'deferred'] as const)(
 		'passes tool loading %s through admission without changing permissions',

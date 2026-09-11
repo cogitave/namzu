@@ -186,12 +186,13 @@ export interface ResidentArchiveListOptions {
 
 const agendaRecordSchema = defineSchema({
 	kind: 'resident-agenda',
-	current: 5,
+	current: 6,
 	migrations: {
 		1: (record) => record,
 		2: (record) => record,
 		3: (record) => record,
 		4: (record) => record,
+		5: (record) => record,
 	},
 })
 

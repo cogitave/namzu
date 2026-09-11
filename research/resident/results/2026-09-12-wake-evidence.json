@@ -1,0 +1,83 @@
+{
+  "scenario": "Two independent wake results across separate CLI processes, then one admitted step and terminal reopen.",
+  "baseline": {
+    "revision": "ea5367de",
+    "method": "SDK continuation projection after two accepted wakes and reopening, without inference.",
+    "firstEvidencePresent": false,
+    "secondEvidencePresent": true
+  },
+  "samples": [
+    {
+      "profile": "resident",
+      "passed": true,
+      "observed": {
+        "pendingAfterSeparateProcesses": 2,
+        "phase": "blocked",
+        "summary": "Release NOT ready - BLOCKED. Build receipt BUILD-ALPHA: FAILED (Build review failed). Security receipt SECURITY-BETA: PASSED (Security review passed). Release requires both a passing build and a passing security review; build failure blocks release until build is repaired. Next: repair build and re-evaluate.",
+        "terminalReopenAdmittedNoStep": true
+      },
+      "provider": "Zen",
+      "model": "muse-spark-1.3-contributor-free",
+      "effort": "low",
+      "usage": {
+        "totalTokens": 4791,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 4791
+        }
+      },
+      "stopReason": "end_turn",
+      "cleanup": "confirmed",
+      "fingerprints": {
+        "packages/sdk/src/manager/resident/store.ts": "c0875f1d35f8c278f4396a3527a9dd028394d1d4fc5f970947a03321a5d4cb2e",
+        "packages/sdk/dist/manager/resident/store.js": "82fa78c293b8291805a25a4c253d38aa3cc89bf272c902fc1662efa3c80213a1",
+        "packages/sdk/src/prompt/resident-step.ts": "04eac3c6dc0f1b86ac7a3f9e1a69d48e00ae93858c397f5410883e3507ef55ba",
+        "packages/cli/src/integrations/resident/session-step.ts": "42f3ddfbca431d563a7d79fbddeb8cd07e03785b7447734323b6badd6fb56282",
+        "packages/cli/dist/integrations/resident/session-step.js": "26e653243b3c1879ea0965b3f33bef895537ee7b55cc9a3ea22a20ff6701b978",
+        "research/resident/wake-evidence-cli.mjs": "d4013c91236124a9474226a1d8793ac2b2d33f3f475309602d933a2ef2bc4eb6"
+      }
+    },
+    {
+      "profile": "interactive",
+      "passed": true,
+      "observed": {
+        "pendingAfterSeparateProcesses": 2,
+        "phase": "blocked",
+        "summary": "Release blocked: build failed (receipt BUILD-ALPHA) while security passed (receipt SECURITY-BETA). Both required to pass. Next: repair build and re-evaluate BUILD-ALPHA before release.",
+        "terminalReopenAdmittedNoStep": true
+      },
+      "provider": "Zen",
+      "model": "muse-spark-1.3-contributor-free",
+      "effort": "low",
+      "usage": {
+        "totalTokens": 5980,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 5980
+        }
+      },
+      "stopReason": "end_turn",
+      "cleanup": "confirmed",
+      "fingerprints": {
+        "packages/sdk/src/manager/resident/store.ts": "c0875f1d35f8c278f4396a3527a9dd028394d1d4fc5f970947a03321a5d4cb2e",
+        "packages/sdk/dist/manager/resident/store.js": "82fa78c293b8291805a25a4c253d38aa3cc89bf272c902fc1662efa3c80213a1",
+        "packages/sdk/src/prompt/resident-step.ts": "04eac3c6dc0f1b86ac7a3f9e1a69d48e00ae93858c397f5410883e3507ef55ba",
+        "packages/cli/src/integrations/resident/session-step.ts": "42f3ddfbca431d563a7d79fbddeb8cd07e03785b7447734323b6badd6fb56282",
+        "packages/cli/dist/integrations/resident/session-step.js": "26e653243b3c1879ea0965b3f33bef895537ee7b55cc9a3ea22a20ff6701b978",
+        "research/resident/wake-evidence-cli.mjs": "d4013c91236124a9474226a1d8793ac2b2d33f3f475309602d933a2ef2bc4eb6"
+      }
+    }
+  ],
+  "limits": {
+    "maxSteps": 1,
+    "maxIterations": 3,
+    "tokenBudget": 30000
+  },
+  "notes": [
+    "Synthetic regression smoke, not a general memory or intelligence benchmark.",
+    "Reported tokens are unpriced; no monetary saving is claimed.",
+    "An earlier live resident-profile step also passed before duplicate latest-reason context was removed. These samples use the final prompt."
+  ]
+}

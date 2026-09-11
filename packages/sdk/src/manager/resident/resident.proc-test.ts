@@ -39,7 +39,9 @@ it('admits one real process and retains its unresolved claim after the process e
 	const store = new DiskResidentStore(root, { tenantId, agentKey: 'process-check' })
 	const workers: ChildProcess[] = []
 	try {
-		await store.create('Process test', 'One admitted effect only.')
+		const initial = await store.create('Process test', 'One admitted effect only.')
+		const first = await store.wake(initial, 'Build failed: BUILD-ALPHA.', 1)
+		const pending = await store.wake(first, 'Security passed: SECURITY-BETA.', 2)
 		const ready = [0, 1].map(() => {
 			const worker = fork(
 				fileURLToPath(new URL('./__tests__/worker.mjs', import.meta.url)),
@@ -62,6 +64,7 @@ it('admits one real process and retains its unresolved claim after the process e
 		await Promise.all(exits)
 		const callback = vi.fn()
 		const reopened = new DiskResidentStore(root, { tenantId, agentKey: 'process-check' })
+		expect((await reopened.read())?.wakeEvidence).toEqual(pending.wakeEvidence)
 		expect(await stepResident(reopened, callback, new AbortController().signal)).toMatchObject({
 			status: 'idle',
 			reason: 'unresolved',

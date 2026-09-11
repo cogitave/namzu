@@ -57,6 +57,9 @@ export function residentStatus(
 			`${p.state.phase} · ${line(p.state.objective)}`,
 			`  ${p.id} · ${p.state.stepsAdmitted} step(s) admitted`,
 			...(p.state.summary ? [`  ${line(p.state.summary)}`] : []),
+			...(p.state.wakeEvidence
+				? [`  Pending evidence: ${p.state.wakeEvidence.length} input(s) retained until settlement.`]
+				: []),
 			...(p.state.phase === 'waiting'
 				? [
 						`  ${p.state.wakeAt === null ? 'Waiting for evidence; use resident wake.' : p.state.wakeAt <= Date.now() ? (responsive ? 'Ready for the active runner.' : 'Ready for the next authorized run.') : `Next step: ${new Date(p.state.wakeAt).toISOString()}`}`,

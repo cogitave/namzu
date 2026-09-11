@@ -140,7 +140,7 @@ Keep the IDs intact when supplying a pursuit or claim to a control command.
 ## Continuation and decisions
 
 Each admitted step uses a fresh isolated CLI session. Its context receives the
-immutable objective, identity, last saved summary, wake reason and an approved
+immutable objective, identity, last saved summary, all pending wake inputs and an approved
 [learning snapshot](../sdk/resident-learning.md) bound to the admission revision.
 Learning projection has a 12,000-character cap and selects currently active
 host-approved skills. Oversized entries are reported as omitted. This is summary
@@ -186,10 +186,20 @@ Pause output acknowledges the interruption request, **not** completed tool
 cancellation. Callbacks that ignore their abort signal may still be running.
 
 `resume` reopens admission without starting work and refuses unresolved claims.
-`wake` supplies evidence to a waiting pursuit without launching a process; an
+`wake` appends evidence to a waiting pursuit without launching a process; an
 already-authorized idle background runner can then act on it. It does not revive
 terminal work or reopen a paused agenda. `Ctrl+C`/`SIGTERM` ends
 the foreground invocation, with any admitted unfinished claim retained.
+
+Several wakes before the next step are retained in order, including after
+restarting Namzu. `status` shows the pending input count; JSON status includes
+each reason and its receipt time. Both context profiles supply the complete
+batch to the step. At most 16 inputs and 16,000 total reason characters can be
+pending; overflow refuses the new input without discarding earlier evidence.
+Successful settlement consumes the batch, so the step must preserve unresolved
+facts in its next summary. Interrupted claims retain their inputs until explicit
+inspected reconciliation. This is a waiting-state queue, not mid-step steering.
+See the SDK's [wake evidence contract](../sdk/resident-agents.md#retaining-wake-evidence).
 
 A crash, provider pause, malformed result, budget stop or cancellation leaves
 the claim unresolved. A later run makes no replacement model call for it.
