@@ -11,14 +11,14 @@ import { asTenantId } from '../../utils/id.js'
 
 const text = z.string().trim().min(1).max(8_000)
 const time = z.number().int().nonnegative().safe()
-const decisionSchema = z.discriminatedUnion('kind', [
+export const residentDecisionSchema = z.discriminatedUnion('kind', [
 	z.object({ kind: z.literal('wait'), summary: text, wakeAt: time.nullable() }),
 	z.object({ kind: z.literal('complete'), summary: text }),
 	z.object({ kind: z.literal('blocked'), summary: text }),
 ])
 
 /** @experimental One bounded step's durable disposition; silence is not completion. */
-export type ResidentDecision = z.infer<typeof decisionSchema>
+export type ResidentDecision = z.infer<typeof residentDecisionSchema>
 
 export const residentStateSchema = z
 	.object({
@@ -203,7 +203,7 @@ export function settleResidentState(
 	now: number,
 ): ResidentState {
 	time.parse(now)
-	const outcome = decisionSchema.parse(decision)
+	const outcome = residentDecisionSchema.parse(decision)
 	if (outcome.kind === 'wait' && outcome.wakeAt !== null && outcome.wakeAt <= now)
 		throw new Error('A scheduled continuation must be in the future.')
 	if (state.phase !== 'running') throw new Error('Resident has no admitted step to settle.')

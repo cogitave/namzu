@@ -1,0 +1,162 @@
+{
+	"revision": "84009377478d1249c586ba6162143e4ac6d0b577",
+	"workingTreeDirty": true,
+	"fingerprints": {
+		"packages/sdk/src/manager/resident/outbox.ts": "a7e4da4c5797631d5c159dbee89a77eb83d4e4074a2b08e433a7ef6f962222a1",
+		"packages/sdk/src/manager/resident/agenda.ts": "3308fdb6ab6b76c416e4a57b2c2308cc67ba710f2ae2c7deec2e1e8430507a67",
+		"packages/sdk/src/manager/resident/host.ts": "822c14f08513ac1cf36b0634d3cdb6f216124d2568a62d5cf296d8b9f81cedb6",
+		"packages/sdk/src/manager/resident/store.ts": "62a4d4d53a63c0f275686ca045f9a069c96ca2ad47d56f07da13fde20f02e496",
+		"packages/sdk/src/manager/resident/delivery-window.ts": "8e26ecc44fcc53aed7f017a7a0fbd0fb5eef89c58e21c58178f0fd60968e72d6",
+		"packages/sdk/dist/manager/resident/outbox.js": "596265acc348cf1f07444ca7f6ed8c33782f8c6cf0a3bad49909c8705184a0e8",
+		"packages/sdk/dist/manager/resident/agenda.js": "162f498a5b9b5a0ed103f825d4b08f193cfcbcd1d2c2b9d2e5256d65eb9dcdb3",
+		"packages/sdk/dist/manager/resident/host.js": "f2db527c0536e3fcfd70bc1454b7238369e3d0267b09d3ec7bf649100e4e915f",
+		"packages/sdk/dist/manager/resident/delivery-window.js": "7139fa758a65e1f78360625a363ef26d3c1ccb03cf291a3c4e2c76942346fc52",
+		"research/resident/outbox.mjs": "c93bd0e918d94ac1b539dc9e9d6af9f7bd60176c49dcdcb7a5fc8c53598a564b"
+	},
+	"root": "/tmp/namzu-resident-outbox-experiment-2EkfHX",
+	"fixture": "HTTP on 127.0.0.1 only",
+	"modelCalls": 0,
+	"transportCalls": 3,
+	"requestsReceived": 2,
+	"acceptedMessages": 2,
+	"disconnected": {
+		"status": "settled",
+		"message": {
+			"id": "fe042c29-c2f5-411e-a3a6-2b321a6a0003",
+			"pursuitId": "fcd891b8-f0f3-45a8-82c2-09645aa24e6f",
+			"destination": "fixture:operator",
+			"body": "One verified finding is ready.",
+			"notBefore": 0,
+			"tenantId": "a3bc5856-6cf4-4cc2-9c1b-45f82a72b8c6",
+			"agentKey": "local-notifier",
+			"sourceClaimId": "b3ff7cd6-0e21-42e5-b635-8acdd1c5099c",
+			"revision": 3,
+			"attempts": 1,
+			"phase": "pending",
+			"claimId": null,
+			"nextAttemptAt": 1789129773455,
+			"receiptId": null,
+			"acknowledgedAt": null,
+			"lastReason": "Loopback destination refused the connection before acceptance."
+		}
+	},
+	"reconnected": {
+		"status": "settled",
+		"message": {
+			"id": "fe042c29-c2f5-411e-a3a6-2b321a6a0003",
+			"pursuitId": "fcd891b8-f0f3-45a8-82c2-09645aa24e6f",
+			"destination": "fixture:operator",
+			"body": "One verified finding is ready.",
+			"notBefore": 0,
+			"tenantId": "a3bc5856-6cf4-4cc2-9c1b-45f82a72b8c6",
+			"agentKey": "local-notifier",
+			"sourceClaimId": "b3ff7cd6-0e21-42e5-b635-8acdd1c5099c",
+			"revision": 5,
+			"attempts": 2,
+			"phase": "acknowledged",
+			"claimId": null,
+			"nextAttemptAt": null,
+			"receiptId": "loopback:fe042c29-c2f5-411e-a3a6-2b321a6a0003",
+			"acknowledgedAt": 1789129773456,
+			"lastReason": "Loopback destination refused the connection before acceptance."
+		}
+	},
+	"lostAcknowledgment": {
+		"error": "Error: socket hang up",
+		"unresolved": {
+			"status": "idle",
+			"reason": "unresolved",
+			"nextCheckAt": null
+		},
+		"automaticallyRetried": false
+	},
+	"quiet": {
+		"status": "idle",
+		"reason": "window",
+		"nextCheckAt": 1789129833456
+	},
+	"quietTransportCalls": 0,
+	"state": {
+		"tenantId": "a3bc5856-6cf4-4cc2-9c1b-45f82a72b8c6",
+		"agentKey": "local-notifier",
+		"identity": "A careful notifier",
+		"revision": 12,
+		"paused": false,
+		"outbox": [
+			{
+				"id": "fe042c29-c2f5-411e-a3a6-2b321a6a0003",
+				"pursuitId": "fcd891b8-f0f3-45a8-82c2-09645aa24e6f",
+				"destination": "fixture:operator",
+				"body": "One verified finding is ready.",
+				"notBefore": 0,
+				"tenantId": "a3bc5856-6cf4-4cc2-9c1b-45f82a72b8c6",
+				"agentKey": "local-notifier",
+				"sourceClaimId": "b3ff7cd6-0e21-42e5-b635-8acdd1c5099c",
+				"revision": 5,
+				"attempts": 2,
+				"phase": "acknowledged",
+				"claimId": null,
+				"nextAttemptAt": null,
+				"receiptId": "loopback:fe042c29-c2f5-411e-a3a6-2b321a6a0003",
+				"acknowledgedAt": 1789129773456,
+				"lastReason": "Loopback destination refused the connection before acceptance."
+			},
+			{
+				"id": "736bfc4e-3961-4d47-8820-0e0dc89f100f",
+				"pursuitId": "fcd891b8-f0f3-45a8-82c2-09645aa24e6f",
+				"destination": "fixture:lost-ack",
+				"body": "A second finding whose acknowledgment will be lost.",
+				"notBefore": 0,
+				"tenantId": "a3bc5856-6cf4-4cc2-9c1b-45f82a72b8c6",
+				"agentKey": "local-notifier",
+				"sourceClaimId": null,
+				"revision": 3,
+				"attempts": 1,
+				"phase": "acknowledged",
+				"claimId": null,
+				"nextAttemptAt": null,
+				"receiptId": "loopback:736bfc4e-3961-4d47-8820-0e0dc89f100f",
+				"acknowledgedAt": 1789129773456,
+				"lastReason": null
+			},
+			{
+				"id": "f2cf2b82-1905-48b3-ba65-676879d42213",
+				"pursuitId": "fcd891b8-f0f3-45a8-82c2-09645aa24e6f",
+				"destination": "fixture:operator",
+				"body": "This finding must wait for the configured delivery window.",
+				"notBefore": 0,
+				"tenantId": "a3bc5856-6cf4-4cc2-9c1b-45f82a72b8c6",
+				"agentKey": "local-notifier",
+				"sourceClaimId": null,
+				"revision": 1,
+				"attempts": 0,
+				"phase": "pending",
+				"claimId": null,
+				"nextAttemptAt": 0,
+				"receiptId": null,
+				"acknowledgedAt": null,
+				"lastReason": null
+			}
+		],
+		"pursuits": [
+			{
+				"id": "fcd891b8-f0f3-45a8-82c2-09645aa24e6f",
+				"state": {
+					"tenantId": "a3bc5856-6cf4-4cc2-9c1b-45f82a72b8c6",
+					"agentKey": "local-notifier",
+					"pursuitId": "fcd891b8-f0f3-45a8-82c2-09645aa24e6f",
+					"identity": "A careful notifier",
+					"objective": "Report one finding.",
+					"revision": 3,
+					"stepsAdmitted": 1,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Finding verified; destination acceptance is still pending.",
+					"claimId": null
+				}
+			}
+		]
+	},
+	"limitations": "Synthetic local HTTP destination and controlled clock. Acknowledgment proves fixture acceptance, not human reading. No real notification channels, provider calls, multi-host service or exactly-once remote delivery claim."
+}

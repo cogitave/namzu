@@ -163,8 +163,9 @@ budgets. Creation starts no executor and cannot reopen a paused host. An
 application can generate and admit a bounded follow-up without another user
 message; there is no unlimited self-spawning loop or notification transport.
 
-Agenda schema 2 records feedback and ancestry. Schema-1 records read without
-invented observations; later writes use schema 2. Older writers refuse these
+Feedback and ancestry were introduced in agenda schema 2; schema 3 also adds
+[communication state](resident-communication.md). Schema-1 records read without
+invented observations; later writes use schema 3. Older writers refuse these
 new records rather than silently removing fields. Nested feedback and ancestry
 are immutable; invalid persisted ancestry and observation ordering fail reads.
 
@@ -217,6 +218,7 @@ The study shows why resource savings are insufficient evidence of improvement:
 a shorter bootstrap misses delayed payoffs, and higher patience spends more
 without necessarily finishing a difficult task. The measured policy remains
 opt-in. Further promotion needs independent tasks, calibrated outcome criteria,
-actual tool-cost accounting and comparison under matching budgets. Adaptive
-preferences, learned policies, always-on hosting and proactive delivery remain
-later stages of the resident-agent roadmap.
+actual tool-cost accounting and comparison under matching budgets. The
+[communication prototype](resident-communication.md) now supplies delivery
+primitives. Adaptive preferences, learned policies, always-on hosting and
+end-user notification integration remain later work.

@@ -49,7 +49,9 @@ Stages 1 and 2 have SDK prototypes. Stage 2 supplies local control primitives;
 CLI foreground integration, an always-on service and cross-process cancellation
 transport remain future integration work. Stage 3 now has an opt-in
 [initiative prototype](resident-initiative.md) for selection and bounded
-subgoal admission, with measured tradeoffs. Stages 4–5 remain proposed. No
+subgoal admission, with measured tradeoffs. Stage 4 has a
+[communication prototype](resident-communication.md) with atomic outgoing intent,
+acknowledged delivery and explicit allowed time windows. Stage 5 remains proposed. No
 outbound messaging or external account access is enabled by this experiment.
 
 ## Stage 1 SDK contract

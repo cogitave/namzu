@@ -478,3 +478,16 @@ export type {
 	ResidentProposalLimits,
 	ResidentProposalOrigin,
 } from './manager/resident/proposal.js'
+
+export type { ResidentMessageFactory } from './manager/resident/host.js'
+export type {
+	ResidentMessageInput,
+	ResidentOutboxMessage,
+	ResidentDeliveryOutcome,
+	ResidentOutboxStore,
+	ResidentDeliveryGate,
+	ResidentMessageTransport,
+	ResidentDeliveryOptions,
+	ResidentDeliveryResult,
+} from './manager/resident/outbox.js'
+export type { ResidentDeliveryWindowConfig } from './manager/resident/delivery-window.js'

@@ -44,3 +44,5 @@ The kernel.
 * [Resident agents experiment](resident-agents.md) - Staged continuity plan, durable pursuit admission and bounded internal continuation.
 
 * [Resident initiative experiment](resident-initiative.md) - Explainable selection, verified observations, bounded subgoal proposals and measured tradeoffs.
+
+* [Resident communication experiment](resident-communication.md) - Atomic outbound intents, acknowledged delivery and explicit time windows.

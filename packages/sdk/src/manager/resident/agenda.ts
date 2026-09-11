@@ -11,6 +11,7 @@ import {
 	type ResidentExecutionStore,
 	type ResidentState,
 	claimResidentState,
+	residentDecisionSchema,
 	residentKeySegment,
 	residentStateSchema,
 	settleResidentState,
@@ -26,6 +27,17 @@ import {
 	residentObservationSchema,
 } from './initiative.js'
 import {
+	type ResidentDeliveryOutcome,
+	type ResidentMessageInput,
+	type ResidentOutboxMessage,
+	appendResidentMessage,
+	claimResidentOutboxMessage,
+	residentDeliveryOutcomeSchema,
+	residentMessageInputSchema,
+	residentOutboxMessageSchema,
+	settleResidentOutboxMessage,
+} from './outbox.js'
+import {
 	type ResidentProposal,
 	type ResidentProposalLimits,
 	type ResidentProposalOrigin,
@@ -40,6 +52,7 @@ const agendaSchema = z
 		identity: z.string().trim().min(1).max(8_000),
 		revision: z.number().int().positive().safe(),
 		paused: z.boolean(),
+		outbox: z.array(residentOutboxMessageSchema).max(128).optional(),
 		pursuits: z
 			.array(
 				z.object({
@@ -53,7 +66,16 @@ const agendaSchema = z
 	})
 	.superRefine((agenda, context) => {
 		const origins = agenda.pursuits.flatMap((p) => (p.origin ? [p.origin] : []))
+		const outbox = agenda.outbox ?? []
 		const invalid =
+			new Set(outbox.map((message) => message.id)).size !== outbox.length ||
+			outbox.filter((message) => message.phase === 'sending').length > 1 ||
+			outbox.some(
+				(message) =>
+					message.tenantId !== agenda.tenantId ||
+					message.agentKey !== agenda.agentKey ||
+					!agenda.pursuits.some((pursuit) => pursuit.id === message.pursuitId),
+			) ||
 			new Set(agenda.pursuits.map((p) => p.id)).size !== agenda.pursuits.length ||
 			new Set(origins.map((origin) => origin.proposalId)).size !== origins.length ||
 			agenda.pursuits.filter((p) => p.state.phase === 'running').length > 1 ||
@@ -85,7 +107,7 @@ const agendaSchema = z
 			context.addIssue({
 				code: z.ZodIssueCode.custom,
 				message:
-					'Invalid agenda identity, pursuit ancestry, observation order or overlapping claims.',
+					'Invalid agenda identity, pursuit ancestry, observation order, outbox or overlapping claims.',
 			})
 	})
 
@@ -105,6 +127,7 @@ export interface ResidentAgendaState {
 	readonly revision: number
 	readonly paused: boolean
 	readonly pursuits: readonly ResidentPursuit[]
+	readonly outbox?: readonly ResidentOutboxMessage[]
 }
 
 /** @experimental Atomic whole-agent admission plus independently addressable pursuits. */
@@ -124,6 +147,29 @@ export interface ResidentAgendaStore {
 		observation: ResidentObservation,
 		now: number,
 	): Promise<ResidentState>
+	/** Optional atomic settlement and outbound intent; no transport runs during persistence. */
+	settleWithMessage?(
+		id: string,
+		expected: ResidentState,
+		decision: ResidentDecision,
+		message: ResidentMessageInput,
+		now: number,
+		observation?: ResidentObservation,
+	): Promise<ResidentState>
+	enqueueMessage?(
+		expected: ResidentAgendaState,
+		input: ResidentMessageInput,
+	): Promise<ResidentOutboxMessage>
+	claimMessage?(
+		expected: ResidentAgendaState,
+		id: string,
+		now: number,
+	): Promise<ResidentOutboxMessage>
+	settleMessage?(
+		expected: ResidentOutboxMessage,
+		outcome: ResidentDeliveryOutcome,
+		now: number,
+	): Promise<ResidentOutboxMessage>
 }
 
 /**
@@ -133,7 +179,11 @@ export interface ResidentAgendaStore {
  */
 export class DiskResidentAgenda implements ResidentAgendaStore {
 	private readonly records = new DiskRevisionRecordStore<ResidentAgendaState>(
-		defineSchema({ kind: 'resident-agenda', current: 2, migrations: { 1: (record) => record } }),
+		defineSchema({
+			kind: 'resident-agenda',
+			current: 3,
+			migrations: { 1: (record) => record, 2: (record) => record },
+		}),
 		'resident agenda',
 		(record) => record.revision,
 	)
@@ -158,6 +208,9 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 			throw new Error('Agenda does not match the bound tenant and agent.')
 		return Object.freeze({
 			...agenda,
+			...(agenda.outbox
+				? { outbox: Object.freeze(agenda.outbox.map((message) => Object.freeze(message))) }
+				: {}),
 			pursuits: Object.freeze(
 				agenda.pursuits.map((p) =>
 					Object.freeze({
@@ -266,6 +319,7 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		admission = false,
 		expectedAgendaRevision?: number,
 		observation?: ResidentObservation,
+		message?: ResidentMessageInput,
 	): Promise<ResidentState> {
 		const validate = (state: ResidentAgendaState): ResidentState => {
 			const pursuit = state.pursuits.find((p) => p.id === id)
@@ -300,6 +354,7 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 					})
 					return {
 						...state,
+						...(message ? { outbox: appendResidentMessage(state, message, current.claimId) } : {}),
 						pursuits: state.pursuits.map((p) =>
 							p.id === id
 								? {
@@ -354,6 +409,112 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 			undefined,
 			checked,
 		)
+	}
+
+	/** Commit the step, observation and message intent together; delivery is separate. */
+	async settleWithMessage(
+		id: string,
+		expected: ResidentState,
+		decision: ResidentDecision,
+		message: ResidentMessageInput,
+		now: number,
+		observation?: ResidentObservation,
+	): Promise<ResidentState> {
+		const input = residentMessageInputSchema.parse(message)
+		const disposition = residentDecisionSchema.parse(decision)
+		if (input.pursuitId !== id) throw new Error('Message must belong to the settling pursuit.')
+		const current = residentStateSchema.parse(expected)
+		const checked =
+			observation === undefined ? undefined : residentObservationSchema.parse(observation)
+		return this.updatePursuit(
+			id,
+			current,
+			(state) => settleResidentState(state, disposition, now),
+			false,
+			undefined,
+			checked,
+			input,
+		)
+	}
+
+	/** Enqueue host-authorized intent without invoking a transport or changing pursuit state. */
+	async enqueueMessage(
+		expected: ResidentAgendaState,
+		input: ResidentMessageInput,
+	): Promise<ResidentOutboxMessage> {
+		const message = residentMessageInputSchema.parse(input)
+		const next = await this.change(expected, (state) => ({
+			...state,
+			outbox: appendResidentMessage(state, message),
+		}))
+		const saved = next.outbox?.find((candidate) => candidate.id === message.id)
+		if (!saved) throw new Error('Committed resident message is missing.')
+		return saved
+	}
+
+	/** Admit one delivery against the same agenda snapshot used by the host's gate. */
+	async claimMessage(
+		expected: ResidentAgendaState,
+		id: string,
+		now: number,
+	): Promise<ResidentOutboxMessage> {
+		z.string().uuid().parse(id)
+		const next = await this.change(expected, (state) => {
+			const outbox = state.outbox ?? []
+			if (state.paused || outbox.some((message) => message.phase === 'sending'))
+				throw new ResidentConflictError()
+			const message = outbox.find((candidate) => candidate.id === id)
+			if (!message) throw new Error('Unknown resident message.')
+			const admitted = claimResidentOutboxMessage(message, now)
+			return {
+				...state,
+				outbox: outbox.map((candidate) => (candidate.id === id ? admitted : candidate)),
+			}
+		})
+		const claim = next.outbox?.find((message) => message.id === id)
+		if (!claim) throw new Error('Claimed resident message is missing.')
+		return claim
+	}
+
+	/** Settle the exact delivery claim; unrelated agenda writes never repeat the transport. */
+	async settleMessage(
+		expected: ResidentOutboxMessage,
+		outcome: ResidentDeliveryOutcome,
+		now: number,
+	): Promise<ResidentOutboxMessage> {
+		const claim = residentOutboxMessageSchema.parse(expected)
+		const checked = residentDeliveryOutcomeSchema.parse(outcome)
+		if (claim.tenantId !== this.tenantId || claim.agentKey !== this.agentKey)
+			throw new ResidentConflictError()
+		const validate = (state: ResidentAgendaState): ResidentOutboxMessage => {
+			const message = state.outbox?.find((candidate) => candidate.id === claim.id)
+			if (!message || message.revision !== claim.revision || message.claimId !== claim.claimId)
+				throw new ResidentConflictError()
+			return message
+		}
+		for (let attempt = 0; attempt < 8; attempt++) {
+			const agenda = await this.read()
+			if (agenda === null) throw new Error('Create the resident agenda first.')
+			validate(agenda)
+			try {
+				const next = await this.change(agenda, (state) => {
+					const current = validate(state)
+					const settled = settleResidentOutboxMessage(current, checked, now)
+					return {
+						...state,
+						outbox: (state.outbox ?? []).map((message) =>
+							message.id === claim.id ? settled : message,
+						),
+					}
+				})
+				const settled = next.outbox?.find((message) => message.id === claim.id)
+				if (!settled) throw new Error('Settled resident message is missing.')
+				return settled
+			} catch (error) {
+				if (!(error instanceof ResidentConflictError) || attempt === 7) throw error
+			}
+		}
+		throw new ResidentConflictError()
 	}
 
 	executionAt(id: string, expected: ResidentAgendaState): ResidentExecutionStore {

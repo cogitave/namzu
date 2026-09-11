@@ -1349,3 +1349,6 @@ export { ResidentHost } from './manager/resident/host.js'
 
 export { createResidentSelector } from './manager/resident/initiative.js'
 export { validateResidentProposal } from './manager/resident/proposal.js'
+
+export { deliverResidentMessage } from './manager/resident/outbox.js'
+export { createResidentDeliveryWindow } from './manager/resident/delivery-window.js'

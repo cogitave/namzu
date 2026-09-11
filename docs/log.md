@@ -2,6 +2,8 @@
 
 ## 2026-09-11
 
+- **Update** Added SDK resident communication with atomic outgoing intent, acknowledged delivery, explicit uncertain-send recovery and timezone-aware windows; tested local disconnect, lost acknowledgment and process death.
+
 - **Update** Added opt-in resident initiative: host-observed progress and cost, explainable selection and abstention, atomic bounded subgoal admission, sensitivity evaluations and a live model-proposed follow-up.
 
 - **Update** Added the experimental resident agenda and local host: shared admission across pursuits, durable pause, local wake delivery, explicit interruption reconciliation and live SDK evidence.

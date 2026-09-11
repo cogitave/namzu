@@ -70,7 +70,7 @@ it('atomically persists host observations and reproduces selection explanations 
 		select(await snapshot(f.reopen()), Date.now() + 120_000),
 	)
 	expect(Object.isFrozen(state.pursuits[0]?.feedback?.observations[0])).toBe(true)
-	// Revision 2 writes are refused by a schema-1 writer instead of dropping feedback.
+	// Schema-3 writes are refused by a schema-1 writer instead of dropping feedback.
 	const path = join(
 		f.root,
 		f.scope.tenantId,
@@ -80,7 +80,7 @@ it('atomically persists host observations and reproduces selection explanations 
 		`${state.revision}.json`,
 	)
 	const raw = JSON.parse(await readFile(path, 'utf8'))
-	expect(raw.schemaVersion).toBe(2)
+	expect(raw.schemaVersion).toBe(3)
 	expect(() =>
 		migrate(defineSchema({ kind: 'resident-agenda', current: 1, migrations: {} }), raw),
 	).toThrow(SchemaVersionError)
@@ -263,7 +263,7 @@ it('reads a schema-1 agenda without inventing feedback or proposal ancestry', as
 			'utf8',
 		),
 	)
-	expect(raw.schemaVersion).toBe(2)
+	expect(raw.schemaVersion).toBe(3)
 })
 
 it('refuses corrupt persisted ancestry instead of treating it as a valid proposal', async () => {

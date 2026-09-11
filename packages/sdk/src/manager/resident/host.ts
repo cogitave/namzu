@@ -1,8 +1,14 @@
 import { setTimeout as sleep } from 'node:timers/promises'
 import type { ResidentAgendaState, ResidentAgendaStore, ResidentPursuit } from './agenda.js'
-import type { ResidentObservation, ResidentSelection, ResidentSelector } from './initiative.js'
+import {
+	type ResidentObservation,
+	type ResidentSelection,
+	type ResidentSelector,
+	residentObservationSchema,
+} from './initiative.js'
 import { type ResidentStep, stepResident } from './loop.js'
-import { ResidentConflictError, type ResidentDecision } from './store.js'
+import { type ResidentMessageInput, residentMessageInputSchema } from './outbox.js'
+import { ResidentConflictError, type ResidentDecision, residentDecisionSchema } from './store.js'
 
 /** @experimental Host result describes execution, not external-effect rollback. */
 export interface ResidentHostResult {
@@ -32,10 +38,18 @@ export type ResidentObserver = (
 	signal: AbortSignal,
 ) => Promise<ResidentObservation>
 
-/** @experimental Opt-in local selection and atomic host-observed settlement. */
+/** @experimental Host validates content and destination; null means no communication. */
+export type ResidentMessageFactory = (
+	pursuit: ResidentPursuit,
+	decision: ResidentDecision,
+	signal: AbortSignal,
+) => Promise<ResidentMessageInput | null>
+
+/** @experimental Opt-in local selection, observed settlement and atomic outbound intent. */
 export interface ResidentHostOptions {
 	readonly select?: ResidentSelector
 	readonly observe?: ResidentObserver
+	readonly prepareMessage?: ResidentMessageFactory
 }
 
 /**
@@ -61,6 +75,8 @@ export class ResidentHost {
 			throw new TypeError('Resident selection requires atomic executionAt support.')
 		if (options.observe && !agenda.settleObserved)
 			throw new TypeError('Resident observation requires atomic settleObserved support.')
+		if (options.prepareMessage && !agenda.settleWithMessage)
+			throw new TypeError('Resident messages require atomic settleWithMessage support.')
 		this.options = Object.freeze({ ...options })
 	}
 
@@ -199,27 +215,64 @@ export class ResidentHost {
 						: this.agenda.execution(selected.id)
 					if (!execution) throw new Error('Resident executionAt support was removed.')
 					const observe = this.options.observe
-					const observedExecution = observe
-						? {
-								read: () => execution.read(),
-								claim: (...args: Parameters<typeof execution.claim>) => execution.claim(...args),
-								settle: async (
-									current: Parameters<typeof execution.settle>[0],
-									decision: ResidentDecision,
-									at: number,
-								) => {
-									const observation = await observe(
-										{ ...selected, state: current },
-										decision,
-										signal,
-									)
-									signal.throwIfAborted()
-									if (!this.agenda.settleObserved)
-										throw new Error('Resident settleObserved support was removed.')
-									return this.agenda.settleObserved(selected.id, current, decision, observation, at)
-								},
-							}
-						: execution
+					const prepareMessage = this.options.prepareMessage
+					const observedExecution =
+						observe || prepareMessage
+							? {
+									read: () => execution.read(),
+									claim: (...args: Parameters<typeof execution.claim>) => execution.claim(...args),
+									settle: async (
+										current: Parameters<typeof execution.settle>[0],
+										decision: ResidentDecision,
+										at: number,
+									) => {
+										const disposition = Object.freeze(residentDecisionSchema.parse(decision))
+										const observed = await observe?.(
+											{ ...selected, state: current },
+											disposition,
+											signal,
+										)
+										signal.throwIfAborted()
+										const observation = observe
+											? Object.freeze(residentObservationSchema.parse(observed))
+											: undefined
+										const prepared = await prepareMessage?.(
+											{ ...selected, state: current },
+											disposition,
+											signal,
+										)
+										signal.throwIfAborted()
+										const message =
+											prepareMessage && prepared !== null
+												? Object.freeze(residentMessageInputSchema.parse(prepared))
+												: null
+										if (message !== null) {
+											if (!this.agenda.settleWithMessage)
+												throw new Error('Resident settleWithMessage support was removed.')
+											return this.agenda.settleWithMessage(
+												selected.id,
+												current,
+												disposition,
+												message,
+												at,
+												observation,
+											)
+										}
+										if (observation) {
+											if (!this.agenda.settleObserved)
+												throw new Error('Resident settleObserved support was removed.')
+											return this.agenda.settleObserved(
+												selected.id,
+												current,
+												disposition,
+												observation,
+												at,
+											)
+										}
+										return execution.settle(current, disposition, at)
+									},
+								}
+							: execution
 					const result = await stepResident(
 						observedExecution,
 						(current, abort) => this.step({ ...selected, state: current }, abort),
