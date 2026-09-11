@@ -2,8 +2,8 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import {
 	ResidentConflictError,
 	type ResidentDecision,
+	type ResidentExecutionStore,
 	type ResidentState,
-	type ResidentStore,
 } from './store.js'
 
 /** @experimental Developer-owned step; bind providers, tools and budgets in the host. */
@@ -20,13 +20,14 @@ export type ResidentStepResult =
 
 /** @experimental A failed/aborted callback leaves its durable claim unresolved. */
 export async function stepResident(
-	store: ResidentStore,
+	store: ResidentExecutionStore,
 	step: ResidentStep,
 	signal: AbortSignal,
 	now: () => number = Date.now,
 ): Promise<ResidentStepResult> {
 	signal.throwIfAborted()
 	const state = await store.read()
+	signal.throwIfAborted()
 	if (!state) throw new Error('Create the resident before running it.')
 	if (state.phase === 'running') return { status: 'idle', reason: 'unresolved', state }
 	if (state.phase !== 'waiting') return { status: 'idle', reason: 'terminal', state }
@@ -54,7 +55,7 @@ export async function stepResident(
 
 /** @experimental Bounded local driver; not a daemon, process recovery service or notification transport. */
 export interface ResidentLoopOptions {
-	readonly store: ResidentStore
+	readonly store: ResidentExecutionStore
 	readonly step: ResidentStep
 	readonly signal: AbortSignal
 	/** Required finite admission cap for this invocation, independent of provider token limits. */

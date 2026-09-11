@@ -1,7 +1,7 @@
 ---
 type: Design
 title: Resident agents experiment
-description: Staged plan and first opt-in SDK experiment for durable pursuits, internal continuation and honest interruption handling.
+description: Staged plan and opt-in SDK experiments for durable agendas, internal continuation and honest interruption handling.
 resource: packages/sdk/src/manager/resident
 tags: [sdk, agents, continuity, research]
 status: draft
@@ -45,14 +45,18 @@ exemption from the package's versioning policy.
 | 4 — communication | Durable outbox, delivery acknowledgments, deduplication and quiet hours | Disconnect/reconnect destination; replay pending delivery without confusing generated text with delivered text |
 | 5 — learning | Versioned identity/preferences and evaluated reusable skills | Contradict stale beliefs with evidence; evaluate a proposed skill before promotion and roll it back when it regresses |
 
-Stage 1 implements only the first row. Stages 2–5 remain proposed work. No
+Stages 1 and 2 have SDK prototypes. Stage 2 supplies local control primitives;
+CLI foreground integration, an always-on service and cross-process cancellation
+transport remain future integration work. Stages 3–5 remain proposed. No
 outbound messaging or external account access is enabled by this experiment.
 
 ## Stage 1 SDK contract
 
 `DiskResidentStore(root, { tenantId, agentKey })` owns one tenant/registry-key
-record. `create(identity, objective)` initializes one pursuit. Keys use an
-injective filesystem encoding; IDs are not inferred from directory names.
+record. `create(identity, objective)` initializes one pursuit. Keys whose encoded segment fits 255 bytes keep their existing filesystem
+encoding. Longer encodings use a SHA-256 address; every read still validates the
+stored tenant and key, so a mismatched record fails instead of aliasing another
+identity. IDs are not inferred from directory names.
 Callers supply a trusted, host-owned root. This is logical scope isolation, not
 an OS sandbox against a process that can mutate that directory or its symlinks.
 
@@ -75,8 +79,8 @@ and wake reason, then returns one `ResidentDecision`:
 
 Each decision carries a nonempty summary, limited to 8,000 characters. Only the
 last summary is projected into the next callback. Full episodic memory, tool
-transcripts, multiple pursuits and arbitrary persistent scratch state are not
-implemented here. Identity and objective remain immutable for this pursuit.
+transcripts and arbitrary persistent scratch state are not implemented here.
+Use the agenda below for multiple pursuits. Identity and objective remain immutable for this pursuit.
 
 `runResident({ store, step, signal, maxSteps, maxIdleMs })` drives internal
 continuation without another user prompt. `maxSteps` is required and finite;
@@ -86,9 +90,92 @@ ledger. The host binds normal SDK provider, tool and token policies in `step`.
 There is no polling model call: a waiting state is checked locally.
 
 The driver does not watch external store changes while sleeping. Operator
-preemption should abort the invocation; a future resident host will own wake
-delivery. An abort interrupts idle sleep, but cannot forcibly stop a callback
+preemption should abort the invocation; `ResidentHost` below also supplies
+local wake delivery. An abort interrupts idle sleep, but cannot forcibly stop a callback
 that ignores its signal or undo its external effects.
+
+## Stage 2 SDK contract
+
+`DiskResidentAgenda(root, { tenantId, agentKey })` persists one agent identity,
+its pause flag and up to 32 pursuits in a single revision. `create(identity)`
+initializes it; `add(expectedAgenda, objective)` adds an independently addressed
+pursuit. Each has an immutable UUID, its own revision, objective, summary,
+admission count and claim. `ResidentState.pursuitId` is populated for agenda
+entries and absent in the standalone store. Terminal entries currently remain in
+the 32-entry bound; archiving and revision compaction are not implemented.
+
+`ResidentAgendaStore` is the atomic backend contract. All pursuits for an agent
+share admission: two processes choosing **different** pursuits still cannot
+admit overlapping work. `execution(id)` returns a `ResidentExecutionStore` for
+`stepResident` or `runResident`. It exposes only `read`, `claim` and `settle`.
+A paused agenda refuses admission even through this lower-level surface.
+Pursuit updates may retry up to eight agenda revision conflicts, provided the
+original pursuit revision and claim still match. These retries only persist
+state; they never repeat the developer callback. Continued contention is surfaced
+to the caller. Stale target claims fail instead of overwriting newer evidence.
+
+Choose either standalone storage or an agenda for one executing agent. Their
+storage locations are separate; sharing a key between those two independent
+stores does not create shared admission.
+
+`ResidentHost(agenda, step)` drives `ResidentPursuitStep(pursuit, signal)`:
+
+- `run({ signal, maxSteps, maxIdleMs })` requires a finite positive step cap;
+  idle waits default to at most 60 seconds each. It never starts itself after
+  process startup. The host application explicitly authorizes every invocation.
+- Due pursuits with fewer admitted steps run first; wake time and then UUID break
+  ties. This is a deterministic fairness baseline, not an intelligent priority
+  policy. Future-dated and indefinite waits do not invoke the callback.
+- `pause()` signals this host's active callback and persists closed admission.
+  `run` cannot slip in while a control operation is pending; overlapping pause
+  writes are serialized. `resume()` requires local work and controls to drain,
+  reopens admission, and does not itself execute any work.
+- `wake(id, reason)` persists new evidence for a waiting pursuit and interrupts
+  this host's idle timer. `notify()` only interrupts local waiting after another
+  actor updates storage; it does not change a pursuit's due time or wake an
+  invocation that has already returned. A wake racing an asynchronous read is
+  retained by the host's local notification generation.
+- `ResidentHostResult` reports `idle`, `paused`, `unresolved`, `cancelled`,
+  `limit` or `contended`, plus `stepsSettled` and a known `nextWakeAt` when idle.
+  `limit` means the invocation consumed its step cap, even if that last step
+  completed the final pursuit. It does not assert failure of the pursuit.
+
+For example, using a developer-supplied SDK callback:
+
+```ts
+import {
+  DiskResidentAgenda, ResidentHost, generateTenantId,
+  type ResidentPursuitStep,
+} from '@namzu/sdk'
+
+async function runPursuits(root: string, step: ResidentPursuitStep) {
+  // Persist and reuse the tenant/key in the host application on future startup.
+  const agenda = new DiskResidentAgenda(root, {
+    tenantId: generateTenantId(), agentKey: 'research-assistant',
+  })
+  let state = await agenda.create('A careful research assistant.')
+  await agenda.add(state, 'Evaluate cancellation reliability.')
+  state = (await agenda.read())!
+  await agenda.add(state, 'Evaluate memory usefulness.')
+  const host = new ResidentHost(agenda, step)
+  return host.run({ signal: AbortSignal.timeout(60_000), maxSteps: 4 })
+}
+```
+
+The application owns providers, tools, context and budgets within `step`. This
+surface adds no default model, tool privilege or TUI control. A persisted pause
+survives reopening, but sending an abort signal to an executor in **another**
+process requires an application-owned transport. This host neither watches
+filesystem changes nor polls other processes. A timer wakes local code; it does
+not poll a model while idle.
+
+**Pause is not quiescence.** After `await host.pause()`, await the original
+`run()` promise before treating this host's callback as stopped. A callback that
+ignores its signal keeps that promise pending. Awaiting a local invocation says
+nothing about a remote executor. An aborted admitted step keeps its claim;
+`resume()` cannot bypass this unresolved work. Only after stopping all relevant
+executors and checking effects may the application explicitly reconcile it.
+
 
 ## Crash and recovery
 
@@ -133,3 +220,30 @@ The retained synthetic evidence is
 `research/resident/results/2026-09-11.json`. No tokens or cost were measured in
 this smoke experiment. Both the initial prompt and callback explicitly request
 a two-stage task, so this does not establish independent goal selection.
+
+### Host experiment (2026-09-11)
+
+```bash
+node research/resident/host.mjs
+node research/resident/host.mjs --live
+```
+
+The second script creates two distinct two-step pursuits. It drives one step,
+pauses, reopens the agenda and host, verifies the durable pause, then explicitly
+resumes the remaining steps. A live Muse Spark low-effort run completed all four
+calls with `end_turn`. Both pursuits preserved their own prior summaries and
+finished with two admissions each. Paused and final idle checks each made zero
+model calls. Evidence: `research/resident/results/2026-09-11-host.json`.
+
+Separate deterministic tests cover wake delivery during idle and during a state
+read, pause/control races, non-cooperative cancellation, unrelated revision
+contention, stale and foreign claims, agenda bounds and finite invocation caps.
+A process test kills a worker after it writes a fixture file and before it
+settles. Reopening does not reapply the effect; explicit reconciliation after
+worker exit and file inspection fences a late result. This uses a synthetic
+file effect, not a live model tool or a remote service. A separate process race
+admits only one of two different pursuits.
+
+The live prompt explicitly prescribes the two-stage tasks. These observations
+establish continuity and control behavior, not spontaneous initiative or a
+comparison of intelligence. Tokens and cost were not measured.

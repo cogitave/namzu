@@ -1344,3 +1344,5 @@ export { snapshotRequestContext, diffRequestContext } from './runtime/query/requ
 
 export { DiskResidentStore, ResidentConflictError } from './manager/resident/store.js'
 export { runResident, stepResident } from './manager/resident/loop.js'
+export { DiskResidentAgenda } from './manager/resident/agenda.js'
+export { ResidentHost } from './manager/resident/host.js'

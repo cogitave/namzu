@@ -1,0 +1,96 @@
+{
+	"live": true,
+	"model": "muse-spark-1.3-contributor-free",
+	"effort": "low",
+	"runs": [
+		{
+			"pursuitId": "0698b0d7-d8c9-4c96-9b28-890ab6f1687a",
+			"admission": 1,
+			"previous": null,
+			"stopReason": "end_turn",
+			"output": "{\"kind\":\"wait\",\"summary\":\"Draft v1 checklist: 1. Specific and retrievable. 2. Linked to future decision/action. 3. Revisable from feedback. Observation: agent stores often vague/static. Claim: specificity, action-link, revisability make memory useful. Awaiting admission 2 to revise.\"}"
+		},
+		{
+			"pursuitId": "b9c7dd6d-af0a-48a9-b65c-fddaf1619a8e",
+			"admission": 1,
+			"previous": null,
+			"stopReason": "end_turn",
+			"output": "{\"kind\":\"wait\",\"summary\":\"Draft v1 checklist: 1) Propagate cancellation token to all subtasks. 2) Check token at safe points and abort promptly. 3) Release resources/log outcome on cancel. Observations: agents often ignore late cancel; orphan tasks persist. Claims: this checklist enables reliable cancellation.\"}"
+		},
+		{
+			"pursuitId": "0698b0d7-d8c9-4c96-9b28-890ab6f1687a",
+			"admission": 2,
+			"previous": "Draft v1 checklist: 1. Specific and retrievable. 2. Linked to future decision/action. 3. Revisable from feedback. Observation: agent stores often vague/static. Claim: specificity, action-link, revisability make memory useful. Awaiting admission 2 to revise.",
+			"stopReason": "end_turn",
+			"output": "{\"kind\":\"complete\",\"summary\":\"Revised v2 checklist: 1. Specific, contextual, retrievable at decision time. 2. Action-linked with when-to-use condition. 3. Versioned and revisable from outcome. Observation: agent stores often vague/static. Claim: specificity+retrievability, conditional action-link, versioned revisability make memory useful.\"}"
+		},
+		{
+			"pursuitId": "b9c7dd6d-af0a-48a9-b65c-fddaf1619a8e",
+			"admission": 2,
+			"previous": "Draft v1 checklist: 1) Propagate cancellation token to all subtasks. 2) Check token at safe points and abort promptly. 3) Release resources/log outcome on cancel. Observations: agents often ignore late cancel; orphan tasks persist. Claims: this checklist enables reliable cancellation.",
+			"stopReason": "end_turn",
+			"output": "{\"kind\":\"complete\",\"summary\":\"Revised checklist: 1) Propagate token+deadline to all subtasks and verify termination. 2) Check at safe points and interruptible waits, abort promptly. 3) Idempotent cleanup: release resources, log cancel, block orphans/retries. Observation: agents ignore late cancel; orphans persist. Claim: improves reliability, not guaranteed.\"}"
+		}
+	],
+	"paused": {
+		"status": "paused",
+		"stepsSettled": 0,
+		"nextWakeAt": null
+	},
+	"result": {
+		"status": "idle",
+		"stepsSettled": 3,
+		"nextWakeAt": null
+	},
+	"idle": {
+		"status": "idle",
+		"stepsSettled": 0,
+		"nextWakeAt": null
+	},
+	"state": {
+		"tenantId": "98682008-fea6-41e8-b7b4-0c200663168d",
+		"agentKey": "research-assistant",
+		"identity": "You are a concise research assistant. Distinguish observations from claims.",
+		"revision": 13,
+		"paused": false,
+		"pursuits": [
+			{
+				"id": "b9c7dd6d-af0a-48a9-b65c-fddaf1619a8e",
+				"state": {
+					"tenantId": "98682008-fea6-41e8-b7b4-0c200663168d",
+					"agentKey": "research-assistant",
+					"pursuitId": "b9c7dd6d-af0a-48a9-b65c-fddaf1619a8e",
+					"identity": "You are a concise research assistant. Distinguish observations from claims.",
+					"objective": "Draft then revise a three-item checklist for reliable agent cancellation.",
+					"revision": 5,
+					"stepsAdmitted": 2,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Revised checklist: 1) Propagate token+deadline to all subtasks and verify termination. 2) Check at safe points and interruptible waits, abort promptly. 3) Idempotent cleanup: release resources, log cancel, block orphans/retries. Observation: agents ignore late cancel; orphans persist. Claim: improves reliability, not guaranteed.",
+					"claimId": null
+				}
+			},
+			{
+				"id": "0698b0d7-d8c9-4c96-9b28-890ab6f1687a",
+				"state": {
+					"tenantId": "98682008-fea6-41e8-b7b4-0c200663168d",
+					"agentKey": "research-assistant",
+					"pursuitId": "0698b0d7-d8c9-4c96-9b28-890ab6f1687a",
+					"identity": "You are a concise research assistant. Distinguish observations from claims.",
+					"objective": "Draft then revise a three-item checklist for useful agent memory.",
+					"revision": 5,
+					"stepsAdmitted": 2,
+					"phase": "complete",
+					"wakeAt": null,
+					"reason": "Scheduled continuation",
+					"summary": "Revised v2 checklist: 1. Specific, contextual, retrievable at decision time. 2. Action-linked with when-to-use condition. 3. Versioned and revisable from outcome. Observation: agent stores often vague/static. Claim: specificity+retrievability, conditional action-link, versioned revisability make memory useful.",
+					"claimId": null
+				}
+			}
+		]
+	},
+	"pausedModelCalls": 0,
+	"idleModelCalls": 0,
+	"limitations": "Two preassigned two-step pursuits. Store reopened in one process; no spontaneous initiative or live process crash. No tool effects, external messages, token or cost measurements."
+}

@@ -452,3 +452,14 @@ export type {
 	ResidentStepResult,
 	ResidentLoopOptions,
 } from './manager/resident/loop.js'
+export type { ResidentExecutionStore } from './manager/resident/store.js'
+export type {
+	ResidentAgendaState,
+	ResidentAgendaStore,
+	ResidentPursuit,
+} from './manager/resident/agenda.js'
+export type {
+	ResidentHostResult,
+	ResidentHostRunOptions,
+	ResidentPursuitStep,
+} from './manager/resident/host.js'

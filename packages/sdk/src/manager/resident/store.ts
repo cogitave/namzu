@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { join } from 'node:path'
 import { z } from 'zod'
 import {
@@ -20,10 +20,11 @@ const decisionSchema = z.discriminatedUnion('kind', [
 /** @experimental One bounded step's durable disposition; silence is not completion. */
 export type ResidentDecision = z.infer<typeof decisionSchema>
 
-const stateSchema = z
+export const residentStateSchema = z
 	.object({
 		tenantId: z.string().uuid(),
 		agentKey: z.string().min(1).max(200),
+		pursuitId: z.string().uuid().optional(),
 		identity: text,
 		objective: text,
 		revision: z.number().int().positive().safe(),
@@ -50,7 +51,18 @@ const stateSchema = z
 	})
 
 /** @experimental Persisted identity and one pursuit, independent of a conversation. */
-export type ResidentState = Readonly<z.infer<typeof stateSchema>>
+export type ResidentState = Readonly<z.infer<typeof residentStateSchema>>
+
+/** Bounded addressing for local resident state. Stored scope is still validated. */
+export function residentKeySegment(key: string): string {
+	const encoded = revisionFileSegment(key)
+	return encoded.length <= 255
+		? encoded
+		: `~sha256-${createHash('sha256').update(encoded).digest('hex')}`
+}
+
+/** @experimental Minimal atomic contract needed to execute an existing pursuit. */
+export type ResidentExecutionStore = Pick<ResidentStore, 'read' | 'claim' | 'settle'>
 
 /** @experimental Backends must atomically compare revisions and publish admission before work. */
 export interface ResidentStore {
@@ -87,7 +99,7 @@ export class DiskResidentStore implements ResidentStore {
 	constructor(root: string, scope: { tenantId: TenantId; agentKey: string }) {
 		this.tenantId = asTenantId(scope.tenantId)
 		this.agentKey = z.string().min(1).max(200).parse(scope.agentKey)
-		const directory = join(root, this.tenantId, revisionFileSegment(this.agentKey))
+		const directory = join(root, this.tenantId, residentKeySegment(this.agentKey))
 		this.location = {
 			legacyPath: join(directory, 'state.json'),
 			revisionsDir: join(directory, 'revisions'),
@@ -96,8 +108,12 @@ export class DiskResidentStore implements ResidentStore {
 	}
 
 	private checked(record: ResidentState): ResidentState {
-		const state = stateSchema.parse(record)
-		if (state.tenantId !== this.tenantId || state.agentKey !== this.agentKey) {
+		const state = residentStateSchema.parse(record)
+		if (
+			state.pursuitId !== undefined ||
+			state.tenantId !== this.tenantId ||
+			state.agentKey !== this.agentKey
+		) {
 			throw new Error('Resident record does not match the bound tenant and agent.')
 		}
 		return Object.freeze(state)
@@ -149,19 +165,7 @@ export class DiskResidentStore implements ResidentStore {
 
 	/** Persist admission before invoking a model, tool or developer callback. */
 	async claim(expected: ResidentState, now: number): Promise<ResidentState> {
-		time.parse(now)
-		return this.change(expected, (state) => {
-			if (state.phase !== 'waiting' || state.wakeAt === null || state.wakeAt > now) {
-				throw new Error('Resident is not due.')
-			}
-			return {
-				...state,
-				phase: 'running',
-				wakeAt: null,
-				claimId: randomUUID(),
-				stepsAdmitted: state.stepsAdmitted + 1,
-			}
-		})
+		return this.change(expected, (state) => claimResidentState(state, now))
 	}
 
 	/** Only the exact admitted revision may settle; late owners cannot overwrite recovery. */
@@ -170,31 +174,56 @@ export class DiskResidentStore implements ResidentStore {
 		decision: ResidentDecision,
 		now: number,
 	): Promise<ResidentState> {
-		time.parse(now)
-		const outcome = decisionSchema.parse(decision)
-		if (outcome.kind === 'wait' && outcome.wakeAt !== null && outcome.wakeAt <= now) {
-			throw new Error('A scheduled continuation must be in the future.')
-		}
-		return this.change(expected, (state) => {
-			if (state.phase !== 'running') throw new Error('Resident has no admitted step to settle.')
-			return {
-				...state,
-				phase: outcome.kind === 'wait' ? 'waiting' : outcome.kind,
-				wakeAt: outcome.kind === 'wait' ? outcome.wakeAt : null,
-				summary: outcome.summary,
-				reason: 'Scheduled continuation',
-				claimId: null,
-			}
-		})
+		return this.change(expected, (state) => settleResidentState(state, decision, now))
 	}
 
 	/** Host-supplied new evidence can wake a waiting pursuit; terminal work stays terminal. */
 	async wake(expected: ResidentState, reason: string, now: number): Promise<ResidentState> {
-		time.parse(now)
-		const evidence = text.parse(reason)
-		return this.change(expected, (state) => {
-			if (state.phase !== 'waiting') throw new Error('Only a waiting resident can be woken.')
-			return { ...state, wakeAt: now, reason: evidence }
-		})
+		return this.change(expected, (state) => wakeResidentState(state, reason, now))
 	}
+}
+
+/** Internal transitions shared by single-pursuit and whole-agent admission. */
+export function claimResidentState(state: ResidentState, now: number): ResidentState {
+	time.parse(now)
+	if (state.phase !== 'waiting' || state.wakeAt === null || state.wakeAt > now)
+		throw new Error('Resident is not due.')
+	return {
+		...state,
+		phase: 'running',
+		wakeAt: null,
+		claimId: randomUUID(),
+		stepsAdmitted: state.stepsAdmitted + 1,
+	}
+}
+
+export function settleResidentState(
+	state: ResidentState,
+	decision: ResidentDecision,
+	now: number,
+): ResidentState {
+	time.parse(now)
+	const outcome = decisionSchema.parse(decision)
+	if (outcome.kind === 'wait' && outcome.wakeAt !== null && outcome.wakeAt <= now)
+		throw new Error('A scheduled continuation must be in the future.')
+	if (state.phase !== 'running') throw new Error('Resident has no admitted step to settle.')
+	return {
+		...state,
+		phase: outcome.kind === 'wait' ? 'waiting' : outcome.kind,
+		wakeAt: outcome.kind === 'wait' ? outcome.wakeAt : null,
+		summary: outcome.summary,
+		reason: 'Scheduled continuation',
+		claimId: null,
+	}
+}
+
+export function wakeResidentState(
+	state: ResidentState,
+	reason: string,
+	now: number,
+): ResidentState {
+	time.parse(now)
+	const evidence = text.parse(reason)
+	if (state.phase !== 'waiting') throw new Error('Only a waiting resident can be woken.')
+	return { ...state, wakeAt: now, reason: evidence }
 }
