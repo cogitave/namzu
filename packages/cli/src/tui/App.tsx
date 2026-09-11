@@ -133,7 +133,7 @@ import {
 } from './AgentExplorer.js'
 import { BrandHeader } from './BrandHeader.js'
 import { ChoicePicker, type ChoicePickerOption } from './ChoicePicker.js'
-import { emptyPluginReport, pluginDetails, pluginOption, pluginSummary } from './plugin-view.js'
+import { emptyPluginReport, pluginDetails, pluginOption, pluginStartupState } from './plugin-view.js'
 import {
 	Composer,
 	type ComposerDraft,
@@ -2041,14 +2041,22 @@ export function App({
 					return
 				}
 				const enabled = value === 'enable'
+				const remembering = value === 'remember'
 				const pending: ChoicePickerState = {
 					...picker,
 					busy: true,
-					notice: enabled ? 'Enabling plugin…' : 'Disabling plugin…',
+					notice: remembering
+						? 'Saving plugin setting…'
+						: enabled
+							? 'Enabling plugin…'
+							: 'Disabling plugin…',
 				}
 				setChoicePicker(pending)
 				const generation = conversationGenRef.current
-				void picker.owner.plugins.setEnabled(plugin.name, enabled).then(
+				const change = remembering
+					? picker.owner.plugins.rememberState(plugin.name)
+					: picker.owner.plugins.setEnabled(plugin.name, enabled)
+				void change.then(
 					() => {
 						if (
 							appLifetime.signal.aborted ||
@@ -7557,8 +7565,8 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 		owner,
 		pluginName: name,
 		title: `${plugin.name} · ${plugin.version}`,
-		notice: pluginSummary(plugin),
-		values: ['details', enabled ? 'disable' : 'enable'],
+		notice: `${plugin.status} · after restart: ${pluginStartupState(plugin)} · ${plugin.tools.length} tool${plugin.tools.length === 1 ? '' : 's'}`,
+		values: ['details', enabled ? 'disable' : 'enable', 'remember'],
 		options: [
 			{
 				label: 'Details',
@@ -7571,6 +7579,16 @@ function pluginActionPicker(owner: AgentSession, name: string): ChoicePickerStat
 					? 'Remove its tools, skills and hooks; disconnect its MCP servers.'
 					: 'Load this trusted plugin’s tools, skills, hooks and MCP servers.',
 				selectedDescription: 'Resets on restart or model switch. An idle session is required.',
+			},
+			{
+				label: `Keep ${enabled ? 'enabled' : 'disabled'} after restart`,
+				description: 'Remember this state for future sessions and model switches.',
+				selectedDescription:
+					plugin.startupError ??
+					'Applies only to this plugin directory. Other running sessions keep their state.',
+				...(plugin.startupEnabled === enabled
+					? { disabledReason: 'Already the startup setting.' }
+					: {}),
 			},
 		],
 	}

@@ -11,6 +11,7 @@ import {
 import type { HooksConfig, PluginConfig, PluginScope } from '../../config/schema.js'
 import { cliLogger } from '../../logging.js'
 import { resolveNamzuHome } from '../state/home.js'
+import { PluginSettingsStore } from './settings.js'
 
 export interface CliPluginRuntime {
 	readonly manager: PluginLifecycleManager
@@ -18,6 +19,7 @@ export interface CliPluginRuntime {
 	readonly pluginCount: number
 	list(): readonly CliPluginInfo[]
 	setEnabled(name: string, enabled: boolean): Promise<void>
+	rememberState(name: string): Promise<void>
 	close(): Promise<void>
 }
 
@@ -29,6 +31,8 @@ export interface CliPluginInfo {
 	readonly scope: PluginScope
 	readonly rootDir: string
 	readonly status: string
+	readonly startupEnabled?: boolean
+	readonly startupError?: string
 	readonly tools: readonly string[]
 	readonly skills: readonly string[]
 	readonly hookModules: readonly string[]
@@ -63,6 +67,7 @@ export async function createCliPluginRuntime(
 
 	const log = cliLogger()
 	const userRoot = resolveNamzuHome()
+	const settings = new PluginSettingsStore(userRoot)
 	const plugins = new PluginRegistry()
 	const skills = new SkillRegistry(log)
 	const manager = new PluginLifecycleManager({
@@ -93,7 +98,8 @@ export async function createCliPluginRuntime(
 			for (const dir of dirs) {
 				const plugin = await manager.install(dir, scope as PluginScope)
 				installed.push(plugin)
-				await manager.enable(plugin.id)
+				const enabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
+				if (enabled) await manager.enable(plugin.id)
 			}
 		}
 		if (skills.size > 0 && !tools.has(SkillTool.name)) {
@@ -140,13 +146,22 @@ export async function createCliPluginRuntime(
 				.getAll()
 				.map((plugin) => {
 					const prefix = `${plugin.manifest.name}__`
+					let startupEnabled: boolean | undefined
+					let startupError: string | undefined
+					try {
+						startupEnabled = settings.read({ rootDir: plugin.rootDir, name: plugin.manifest.name })
+					} catch (error) {
+						startupError = message(error)
+					}
 					return {
 						name: plugin.manifest.name,
 						version: plugin.manifest.version,
 						description: plugin.manifest.description,
 						scope: plugin.scope,
 						rootDir: plugin.rootDir,
-						status: plugin.status,
+						status: plugin.status === 'installed' ? 'disabled' : plugin.status,
+						...(startupEnabled !== undefined ? { startupEnabled } : {}),
+						...(startupError ? { startupError } : {}),
 						tools: tools
 							.listNames()
 							.filter((name) => name.startsWith(prefix))
@@ -166,7 +181,10 @@ export async function createCliPluginRuntime(
 			if (mutation) throw new Error('Another plugin change is in progress.')
 			const plugin = plugins.findByName(name)
 			if (!plugin) throw new Error(`Plugin "${name}" is not loaded in this session.`)
-			if ((enabled && plugin.status === 'enabled') || (!enabled && plugin.status === 'disabled'))
+			if (
+				(enabled && plugin.status === 'enabled') ||
+				(!enabled && (plugin.status === 'disabled' || plugin.status === 'installed'))
+			)
 				return
 			mutation = enabled ? manager.enable(plugin.id) : manager.disable(plugin.id)
 			try {
@@ -175,6 +193,17 @@ export async function createCliPluginRuntime(
 				syncSkillTool()
 				mutation = undefined
 			}
+		},
+		async rememberState(name) {
+			if (closed) throw new Error('Plugin runtime is closed.')
+			if (mutation) throw new Error('Another plugin change is in progress.')
+			const plugin = plugins.findByName(name)
+			if (!plugin) throw new Error(`Plugin "${name}" is not loaded in this session.`)
+			if (!['enabled', 'disabled', 'installed'].includes(plugin.status)) {
+				throw new Error('Resolve the plugin error before remembering its state.')
+			}
+			const enabled = plugin.status === 'enabled'
+			settings.write({ rootDir: plugin.rootDir, name }, enabled)
 		},
 		close() {
 			if (closePromise) return closePromise

@@ -8,6 +8,7 @@ it('projects only declared public metadata and neutralizes terminal controls', (
 		description: 'test\u001b[2J\nnew row',
 		scope: 'user',
 		status: 'disabled',
+		startupEnabled: false,
 		rootDir: '/plugins/ledger',
 		tools: [],
 		skills: [],
@@ -19,6 +20,7 @@ it('projects only declared public metadata and neutralizes terminal controls', (
 	expect(text).not.toContain('\u001b')
 	expect(text).toContain('test\\u{001b}[2J new row')
 	expect(text).toContain('Registered tools: none')
+	expect(text).toContain('After restart or model switch: disabled')
 	expect(text).toContain('Declared MCP servers: ledger-mcp')
 })
 

@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Added explicit persistent plugin choices to `/plugins`, keyed by canonical plugin directory and name, with disabled startup contributions, atomic private storage and separate live/startup state reporting.
+
 - **Update** Corrected plugin discovery to compare physical plugin directories when the CLI supplies its application home, avoiding duplicate loading while retaining user-scope admission.
 
 - **Update** Added `/plugins` inspection and session enable/disable controls backed by the CLI's real SDK plugin runtime, with invocation exclusion, contribution reporting and documented loading boundaries.

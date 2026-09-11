@@ -30,7 +30,7 @@ explain why they cannot run and are checked again when selected.
 | `/fork` | Continue in a copy of this conversation, leaving the original where it is. |
 | `/memory` | Show curated memory; `/memory show` and `/memory list` also inspect it. `/memory add <text>` saves a project fact; put `--user` before `add` to save a user fact. |
 | `/skills` | Choose an available skill; use /skills list for the full roster. |
-| `/plugins` | Inspect loaded plugins and enable/disable them for the idle session. `/plugins list` lists them; `/plugins <name>` shows details. See [Plugins](plugins.md) for loading configuration and scope. |
+| `/plugins` | Inspect plugins, enable/disable them for the idle session, and optionally remember their state after restart. `/plugins list` lists them; `/plugins <name>` shows details. See [Plugins](plugins.md) for loading configuration and scope. |
 | `/resume` | Resume a past conversation in this project. |
 | `/model` | Choose a model for the current provider, then its reasoning effort when supported. Other detected providers are named above the list; press `p` to switch providers. The picker states whether the model selection is saved for future launches. |
 | `/login` | Sign in with a `Claude` or `Codex` subscription. |

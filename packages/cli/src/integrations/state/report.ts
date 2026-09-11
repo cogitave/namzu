@@ -18,6 +18,7 @@ const CONFIG_TOP_LEVEL = new Set([
 	'config.yaml',
 	'credentials.json',
 	'preferences.json',
+	'plugin-settings',
 	'trust.json',
 ])
 const RUNTIME_TOP_LEVEL = new Set([
@@ -33,7 +34,14 @@ const RUNTIME_TOP_LEVEL = new Set([
 	'worktrees',
 ])
 const CONTROL_TOP_LEVEL = new Set(['.migration'])
-const PRIVATE_BOUNDARIES = ['attachments', 'goals', 'memory', 'projects', 'tenants'] as const
+const PRIVATE_BOUNDARIES = [
+	'attachments',
+	'goals',
+	'memory',
+	'plugin-settings',
+	'projects',
+	'tenants',
+] as const
 
 export type StateCategory =
 	| 'authored'

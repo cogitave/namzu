@@ -48,6 +48,9 @@ parent does not establish shared ownership.
 Generated state lives under `~/.namzu`, or `NAMZU_HOME` when configured:
 
 - `identity.json` holds the installation's tenant identity.
+- `plugin-settings/` holds explicitly saved per-plugin startup choices; see
+  [Plugins](plugins.md). The state inventory classifies these private records
+  as configuration.
 - `projects/<projectId>/project.json` records the Project and its root path.
 - `projects/<projectId>/cli/topic.json` holds the Project's CLI Topic.
 - Conversations live in the Project's sessions directory; CLI sidecars such as

@@ -916,11 +916,11 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'plugins',
-		description: 'Inspect loaded plugins and enable or disable them for this session.',
+		description: 'Inspect plugins, change their session state, or remember it after restart.',
 		help: {
 			usage: ['/plugins', '/plugins list', '/plugins <name>'],
 			details: [
-				'Choose a plugin to inspect its contributions or change its session state. Changes require an idle session and reset on restart or model switch. Plugin loading must first be enabled in configuration.',
+				'Choose a plugin to inspect its contributions or change its session state. Changes require an idle session. Use Keep enabled/disabled after restart to remember its state for future sessions and model switches. Plugin loading must first be enabled in configuration.',
 			],
 		},
 		action: (_ctx, args) =>

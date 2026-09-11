@@ -194,6 +194,7 @@ describe('the CLI owns a real plugin runtime', () => {
 				.send([createUserMessage('held before provider invocation')])
 				[Symbol.asyncIterator]()
 			await expect(plugins.setEnabled('ledger', false)).rejects.toThrow(/active session operation/)
+			await expect(plugins.rememberState('ledger')).rejects.toThrow(/active session operation/)
 			expect(plugins.list()[0]?.status).toBe('enabled')
 			await stream.return?.()
 			await plugins.setEnabled('ledger', false)

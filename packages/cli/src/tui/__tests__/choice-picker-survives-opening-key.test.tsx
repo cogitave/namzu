@@ -27,6 +27,7 @@ const feedback = vi.hoisted(() => ({
 const skillLoads = vi.hoisted(() => [] as string[])
 const plugins = vi.hoisted(() => ({
 	enabled: true,
+	startupEnabled: true,
 	changes: [] as boolean[],
 	fail: false,
 }))
@@ -176,6 +177,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 						scope: 'project',
 						rootDir: '/w/.namzu/plugins/ledger',
 						status: plugins.enabled ? 'enabled' : 'disabled',
+						startupEnabled: plugins.startupEnabled,
 						tools: plugins.enabled ? ['ledger__audit'] : [],
 						skills: [],
 						hookModules: [],
@@ -186,6 +188,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 					if (plugins.fail) throw new Error('fixture activation refused')
 					plugins.changes.push(enabled)
 					plugins.enabled = enabled
+				},
+				rememberState: async () => {
+					if (plugins.fail) throw new Error('fixture setting write refused')
+					plugins.startupEnabled = plugins.enabled
 				},
 			},
 			hasProvider: true,
@@ -238,6 +244,7 @@ afterEach(async () => {
 	feedback.configs.length = 0
 	skillLoads.length = 0
 	plugins.enabled = true
+	plugins.startupEnabled = true
 	plugins.changes.length = 0
 	plugins.fail = false
 	reviewPrompts.length = 0
@@ -274,10 +281,19 @@ it.each([60, 120])(
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Enable for this session'))
 		expect(plugins.changes).toEqual([false])
 		expect(screen.viewport().join('\n')).toContain('0 tools')
+		expect(plugins.startupEnabled).toBe(true)
+		screen.press('3')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('after restart: disabled'))
+		expect(plugins.startupEnabled).toBe(false)
+		expect(screen.viewport().join('\n')).toContain('after restart: disabled')
 		screen.press('2')
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Disable for this session'))
 		expect(plugins.changes).toEqual([false, true])
-	expect(screen.viewport().join('\n')).toContain('1 tool')
+		expect(screen.viewport().join('\n')).toContain('1 tool')
+		expect(plugins.startupEnabled).toBe(false)
+		screen.press('3')
+		await waitUntil(screen, () => screen.viewport().join('\n').includes('after restart: enabled'))
+		expect(plugins.startupEnabled).toBe(true)
 		screen.press('1')
 		await waitUntil(screen, () => painted(screen).includes('Registered tools: ledger__audit'))
 		expect(painted(screen)).toContain('/w/.namzu/plugins/ledger')

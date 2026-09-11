@@ -547,8 +547,8 @@ export interface ResumePausedParams {
 }
 
 export interface AgentSession {
-	/** Loaded extensions; changes require an idle session and reset when it is rebuilt. */
-	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled'>
+	/** Loaded extensions; idle-session changes can explicitly be remembered across reconstruction. */
+	readonly plugins?: Pick<CliPluginRuntime, 'list' | 'setEnabled' | 'rememberState'>
 	readonly webSearchSummary?: string
 	readonly hasProvider: boolean
 	/**
@@ -2668,6 +2668,8 @@ export async function createAgentSession(
 			? {
 					plugins: {
 						list: pluginRuntime.list,
+						rememberState: (name: string) =>
+							operations.exclusive(() => pluginRuntime.rememberState(name)),
 						setEnabled: (name: string, enabled: boolean) =>
 							operations.exclusive(async () => {
 								await pluginRuntime.setEnabled(name, enabled)

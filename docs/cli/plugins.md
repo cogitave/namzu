@@ -65,15 +65,15 @@ download a marketplace through this menu.
 
 ## Inspect and control the session
 
-- `/plugins` opens a searchable list of loaded plugins. Select one to view
-  details or enable/disable it for this session.
+- `/plugins` opens a searchable list of discovered plugins. Select one to view
+  details, enable/disable it for this session, or remember its current state.
 - `/plugins list` prints the current roster.
 - `/plugins <name>` prints one plugin's full directory, version, scope and
   contributions. `/help plugins` explains the command without running it.
 
-Opening the menu does not scan directories, import code or call a model.
-It reads the current session's runtime. When loading or discovery is off, or
-there are no loaded plugins, the report explains the state and shows full
+Opening the menu does not discover plugin directories, import code or call a
+model. It reads the current session's runtime and saved startup settings. When
+loading or discovery is off, or there are no loaded plugins, the report explains the state and shows full
 configuration and admitted plugin directory paths.
 
 Tool and skill lists are registered runtime contributions. Hook modules and
@@ -88,7 +88,38 @@ the runtime's resulting state. Changes require an idle session: the host refuses
 them during sends, compaction or durable resume, and refuses new invocations
 while a change is settling. Closing the session waits before releasing resources.
 
-These changes do not edit configuration or delete plugin files. They reset when
-Namzu restarts or a model/provider switch reconstructs the session. Already
-recorded conversation history is retained. To change the installed plugin files
-or loading configuration, make the change and restart Namzu.
+Session enable/disable changes do not edit configuration or delete plugin files.
+They reset when Namzu restarts or a model/provider switch reconstructs the
+session. The details menu shows both the live state and the startup setting.
+Already recorded conversation history is retained.
+
+## Remember a plugin's state
+
+After changing the session state, select **Keep disabled after restart** or
+**Keep enabled after restart** to save it. Saving is a separate, explicit action;
+it does not call a model or repeat plugin activation. A failed save leaves the
+live state unchanged and reports the error. Other already-running sessions keep
+their current state; the setting applies when their plugin runtime next starts.
+Opening plugin details reads the saved setting again, so another session's save
+is visible without changing the current live contributions. A setting damaged
+after startup is shown as blocking the next startup, with its error in Details.
+
+Settings live under `$NAMZU_HOME/plugin-settings/`, in private JSON records
+keyed by a SHA-256 digest of the canonical plugin directory and manifest name.
+Records contain `version: 1`, `rootDir`, `name` and `enabled`. This keeps two
+projects' same-named plugins independent, while a user plugin's setting follows
+that plugin across projects. Replacing its version in the same directory keeps
+the setting; moving it or changing its name gives it a separate identity.
+
+Each record is replaced atomically. Concurrent saves for separate plugins do
+not overwrite one another; for the same plugin the last complete save wins.
+An absent setting uses normal enabled-at-startup behavior. An unreadable or
+invalid setting stops plugin startup rather than silently re-enabling code.
+The error includes the exact record path for repair or removal.
+
+A remembered disabled plugin still has its manifest validated and appears in
+the menu, but its tool and hook modules are not imported, skills are not loaded,
+and MCP processes are not started. Invalid manifests still stop startup.
+Remembering an enabled state does not override project trust, `plugins.enabled`,
+discovery or allowed scopes. To change installed plugin files or loading
+configuration, make the change and restart Namzu.

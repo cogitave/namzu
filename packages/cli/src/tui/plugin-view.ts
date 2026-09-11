@@ -23,14 +23,24 @@ export function pluginDetails(plugin: CliPluginInfo): string {
 		`${plugin.name} · ${plugin.version}`,
 		plugin.description,
 		`Status: ${plugin.status} · ${plugin.scope}`,
+		`After restart or model switch: ${pluginStartupState(plugin)}`,
+		...(plugin.startupError ? [plugin.startupError] : []),
 		`Directory: ${plugin.rootDir}`,
 		`Registered tools: ${plugin.tools.join(', ') || 'none'}`,
 		`Registered skills: ${plugin.skills.join(', ') || 'none'}`,
 		`Declared hook modules: ${plugin.hookModules.join(', ') || 'none'}`,
 		`Declared MCP servers: ${plugin.mcpServers.join(', ') || 'none'}`,
-		'Session changes reset when Namzu restarts or switches models.',
+		'Use /plugins to remember the current state for future sessions.',
 	]
 	return rows.map(choiceDisplayText).join('\n')
+}
+
+export function pluginStartupState(plugin: CliPluginInfo): string {
+	return plugin.startupEnabled === undefined
+		? 'blocked (invalid setting)'
+		: plugin.startupEnabled
+			? 'enabled'
+			: 'disabled'
 }
 
 export function emptyPluginReport(config: PluginConfig | undefined, cwd: string): string {
