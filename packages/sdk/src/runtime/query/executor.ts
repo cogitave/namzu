@@ -401,7 +401,7 @@ export interface ToolExecutorConfig {
 	 * with `read`/`grep`. Absent ⇒ over-budget output is middle-elided and
 	 * the overflow is lost.
 	 */
-	toolOutputDir?: string
+	toolOutputDir?: string | (() => string | undefined)
 	/**
 	 * Last chance to fix a tool call the model got wrong, before the error
 	 * reaches it. See {@link RepairToolCall}.
@@ -491,6 +491,12 @@ export function deniedToolOutput(toolName: string, reason: string): string {
 }
 
 export class ToolExecutor {
+	private outputDirectory(): string | undefined {
+		return typeof this.config.toolOutputDir === 'function'
+			? this.config.toolOutputDir()
+			: this.config.toolOutputDir
+	}
+
 	private config: ToolExecutorConfig
 	private activityStore: ActivityStore
 	private emitEvent: EmitEvent
@@ -1175,7 +1181,7 @@ export class ToolExecutor {
 			toolUseId: nestedId,
 			output: rawOutput,
 			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
-			spillDir: this.config.toolOutputDir,
+			spillDir: this.outputDirectory(),
 			onError: (message) =>
 				this.log.warn('Failed to spill oversized nested tool output', {
 					[NAMZU.RUN_ID]: this.config.runId,
@@ -1206,6 +1212,7 @@ export class ToolExecutor {
 			outputLength: budgeted.originalLength,
 			...(budgeted.truncated ? { outputTruncated: true } : {}),
 			...(budgeted.spillPath ? { outputSpillPath: budgeted.spillPath } : {}),
+			...(budgeted.spillIntegrity ? { outputSpillIntegrity: budgeted.spillIntegrity } : {}),
 			...(via ? { via } : {}),
 		})
 		recordObservation({
@@ -1656,7 +1663,7 @@ export class ToolExecutor {
 			toolUseId: toolCall.id,
 			output,
 			maxChars: maxToolOutputChars,
-			spillDir: this.config.toolOutputDir,
+			spillDir: this.outputDirectory(),
 			onError: (message) =>
 				this.log.warn('Failed to spill oversized tool output', {
 					[NAMZU.RUN_ID]: this.config.runId,
@@ -1736,6 +1743,7 @@ export class ToolExecutor {
 			outputLength: budgeted.originalLength,
 			...(budgeted.truncated ? { outputTruncated: true } : {}),
 			...(budgeted.spillPath ? { outputSpillPath: budgeted.spillPath } : {}),
+			...(budgeted.spillIntegrity ? { outputSpillIntegrity: budgeted.spillIntegrity } : {}),
 		})
 		recordObservation({
 			runId: this.config.runId,
@@ -2686,8 +2694,8 @@ export class ToolExecutor {
 						...(notice ? { notice } : {}),
 						// A tool may return different host and model text. They must
 						// never compete for the same exclusive spill filename.
-						spillDir: this.config.toolOutputDir
-							? join(this.config.toolOutputDir, 'content')
+						spillDir: this.outputDirectory()
+							? join(this.outputDirectory() as string, 'content')
 							: undefined,
 						onError: (message) =>
 							this.log.warn('Failed to spill oversized model tool content', {

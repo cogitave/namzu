@@ -30,6 +30,12 @@ channel receives its own bounded preview. Model-content spills use the
 artifact. Withholding rich blocks preserves bounded text and its recovery path
 when the configured text cap can contain it.
 
+Fresh disk-backed runs resolve spill storage after store initialization. Retained
+host-output spills carry chunk manifests, and `tool_completed.outputSpillIntegrity`
+binds paged reads to those retained bytes. Invocation metadata records its own
+owner scope. The [retained tool evidence source](retained-tool-evidence.md) uses
+these records for bounded recovery across explicitly authorized settled runs.
+
 See [Bounded file discovery](file-discovery.md) for glob semantics, sandbox
 enumeration and adapter requirements.
 

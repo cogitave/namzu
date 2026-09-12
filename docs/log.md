@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Added bounded authenticated tool-output indexing and exact recall across settled resident invocations; fixed fresh runs resolving spill storage before initialization and recorded invocation ownership independently of shared token budgets.
+
 - **Update** Verified resident recall through actual query compaction with both structured and sliding-window strategies, and added a reproducible Luna/low CLI check alongside the Zen runs.
 
 - **Update** Added bounded, pursuit-scoped retrieval of settled resident summaries and consumed wake inputs, mounted read-only recall tools in both CLI context profiles, and tested omitted evidence, later corrections, pagination, scope and compaction.

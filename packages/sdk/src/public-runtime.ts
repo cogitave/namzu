@@ -1357,3 +1357,6 @@ export { createResidentDeliveryWindow } from './manager/resident/delivery-window
 export { hashResidentSkill, projectResidentLearning } from './manager/resident/learning.js'
 
 export { SqliteSessionStore } from './store/session/sqlite.js'
+
+export { createDiskRunEvidenceSource } from './store/evidence/disk.js'
+export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'

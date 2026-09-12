@@ -163,6 +163,27 @@ paged; unavailable history is reported explicitly. The
 [CLI recall experiment](../../research/resident/history-recall.md) records the
 actual search/read calls and their limits.
 
+Both profiles additionally mount `search_resident_tools` and `read_resident_tool`
+through `AgentSessionOptions.residentToolEvidence`. These use the SDK's
+[retained tool evidence index](../sdk/retained-tool-evidence.md) to recover exact
+historical tool text, including authenticated spilled output. The host checks
+agenda settlement, matching start/finish pursuit/claim/Session/run identities,
+confirmed cleanup and invocation metadata ownership. Resident invocations do
+not require a resumable conversation row in SQLite; if one exists, its project
+must agree. Missing or inconsistent bindings remain unavailable. A finished
+receipt alone cannot authorize an unresolved claim.
+
+The derived index lives under the original invocation's
+`sessions/<sessionId>/runs/<runId>/evidence-index/`, so archiving/removing that run
+also moves/removes its index. It introduces no new project directory. Per
+resident request, history reads are bounded to 8 MiB/32 revisions, invocation
+retrieval to another 8 MiB and the two CLI attempt receipts to 64 KiB each.
+Historical errors and previews remain explicit. The tools never reread a
+mutable workspace file, restore a process or re-execute the original action.
+Older runs without explicit scope or matching receipts are not guessed into
+this feature. The [tool-evidence experiment](../../research/resident/tool-evidence.md)
+records real CLI execution separately from its scripted provider seed.
+
 The model proposes a final JSON decision: `complete`, `blocked` or `wait`, with
 a nonempty summary of at most 8,000 characters. A wait names `wakeAfterMs: null`
 for indefinite rest or an integer delay from zero to 86,400,000. A numeric delay

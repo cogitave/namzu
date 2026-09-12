@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { digest, spillManifest } from '../../store/evidence/format.js'
 
 /**
  * Model-visible size cap for a single tool result.
@@ -104,6 +105,8 @@ export interface ToolOutputBudgetResult {
 	readonly truncated: boolean
 	/** Where the full output was written, when it was. */
 	readonly spillPath?: string
+	/** Digest of the bounded chunk manifest, recorded at retention time. */
+	readonly spillIntegrity?: string
 }
 
 /**
@@ -198,10 +201,11 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 		return { output: withNotice(output), originalLength, truncated: false }
 	}
 
-	const spillPath = opts.spillDir
+	const retained = opts.spillDir
 		? spill(opts.spillDir, opts.toolUseId, output, opts.onError)
 		: undefined
 
+	const spillPath = retained?.path
 	const recovery = spillPath
 		? [
 				`${SPILL_MARKER} ${spillPath}`,
@@ -214,6 +218,7 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 		originalLength,
 		truncated: true,
 		...(spillPath ? { spillPath } : {}),
+		...(retained?.integrity ? { spillIntegrity: retained.integrity } : {}),
 	}
 }
 
@@ -222,7 +227,7 @@ function spill(
 	toolUseId: string,
 	content: string,
 	onError?: (message: string) => void,
-): string | undefined {
+): { path: string; integrity?: string } | undefined {
 	try {
 		// `0o700` on the directory and `0o600` on the file: a spilled output is
 		// routinely the largest and most sensitive thing a run produces — whole
@@ -250,8 +255,16 @@ function spill(
 		// so randomising the filename would add nothing this does not already
 		// have. Do not "improve" it back to a random name and a plain `w` —
 		// that trades a guarantee for a guess.
-		writeFileSync(path, content, { encoding: 'utf-8', flag: 'wx', mode: 0o600 })
-		return path
+		const bytes = Buffer.from(content, 'utf8')
+		writeFileSync(path, bytes, { flag: 'wx', mode: 0o600 })
+		try {
+			const manifest = spillManifest(bytes)
+			writeFileSync(`${path}.manifest.json`, manifest, { flag: 'wx', mode: 0o600 })
+			return { path, integrity: digest(manifest) }
+		} catch {
+			onError?.('The full output was retained, but its integrity manifest could not be written.')
+			return { path }
+		}
 	} catch (err) {
 		// A spill failure must never fail the tool call — the model still
 		// gets the preview, just without a path to recover the rest.

@@ -53,3 +53,5 @@ The kernel.
 * [Resident evidence recall](resident-recall.md) - Bounded reads of earlier settled summaries and consumed inputs within one pursuit.
 
 * [SQLite session storage](sqlite-sessions.md) - Indexed session metadata and atomic ownership updates with the optional native SQLite driver.
+
+* [Retained tool evidence](retained-tool-evidence.md) - Durable bounded indexing, authenticated output pages and scoped recall across resident invocations.

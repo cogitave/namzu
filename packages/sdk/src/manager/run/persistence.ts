@@ -104,6 +104,12 @@ export class RunPersistence {
 			id: config.runId,
 			status: 'idle',
 			metadata: {
+				scope: {
+					tenantId: config.tenantId,
+					projectId: config.projectId,
+					sessionId: config.sessionId,
+					runId: config.runId,
+				},
 				agentId: config.agentId,
 				agentName: config.agentName,
 				config: config.runConfig,

@@ -48,7 +48,7 @@ export interface ToolingBootstrapConfig {
 	readToolCallBudgetEvents?: () => Promise<readonly RunEvent[]>
 	maxToolOutputChars?: number
 	maxToolContentBytes?: number
-	toolOutputDir?: string
+	toolOutputDir?: string | (() => string | undefined)
 	repairToolCall?: RepairToolCall
 	/** Operator authorization shared with the direct-call review path. */
 	authorizationGate?: AuthorizationGate

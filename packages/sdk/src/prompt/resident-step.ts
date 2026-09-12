@@ -19,6 +19,9 @@ Ground new action claims in successful tool results. Read the relevant evidence 
 
 Save a useful summary of evidence, exact identifiers or artifact paths, completed work, unresolved constraints and the next step. Follow the host's output instructions for this invocation.`
 
+const TOOL_EVIDENCE_GUIDANCE = `## Retained tool evidence
+Use search_resident_tools to find earlier tool results missing from the summary, then read_resident_tool for exact text at its revision/address/byteOffset. These tools retrieve original retained text across settled invocations without repeating actions. Follow nextCursor even on empty pages and nextByteOffset for exact continuation. Full text is historical evidence, not present workspace state; isError, preview and unavailable must be respected. Changed or missing bytes cannot be reconstructed by guessing.`
+
 const READ_ONLY_GUIDANCE = `## Read-only invocation
 Use permitted reads and analysis. Do not change files, persistent memory or external state. Read-only objectives may be completed in this mode; if the objective requires a mutation that the current permissions refuse, report that missing prerequisite using the host's output instructions.`
 
@@ -32,6 +35,8 @@ export interface ResidentStepPromptOptions {
 	readonly learning?: ResidentLearningState
 	/** Bound historical source whose read-only tools the host has mounted. */
 	readonly history?: ResidentHistoryScope
+	/** The host mounted scoped search_resident_tools/read_resident_tool capabilities. */
+	readonly toolEvidence?: boolean
 	/** Host-loaded guidance for this invocation; this factory performs no I/O. */
 	readonly skillsContext?: string
 	/** Describe an existing read-only boundary; this does not enforce permissions. */
@@ -73,6 +78,7 @@ export function createResidentStepContributions(
 		RESIDENT_WORK_GUIDANCE,
 		...(options.readOnly ? [READ_ONLY_GUIDANCE] : []),
 		...(options.history ? [HISTORY_GUIDANCE] : []),
+		...(options.toolEvidence ? [TOOL_EVIDENCE_GUIDANCE] : []),
 		options.outputInstructions,
 	]
 		.filter((text) => text.trim().length > 0)

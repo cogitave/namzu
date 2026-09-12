@@ -1,0 +1,124 @@
+{
+  "runs": [
+    {
+      "date": "2026-09-12",
+      "live": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "profile": "resident",
+      "passed": true,
+      "seed": {
+        "mode": "scripted provider, real CLI resident callback and read tool",
+        "originalNotInPreview": true,
+        "workspaceReplacedBeforeLiveRun": true
+      },
+      "observed": {
+        "phase": "complete",
+        "summary": "The original retained DELTA receipt records: Tracking code TRACK-d801c5e0-83d8-4919-af58-3b73c64f0676; destination DEPOT-fc84992a-7964-43db-9b95-e74b8419ad63.",
+        "tools": [
+          "search_resident_tools",
+          "read_resident_tool"
+        ],
+        "terminalReopenAdmittedNoStep": true
+      },
+      "usage": {
+        "totalTokens": 17039,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 17039
+        }
+      },
+      "stats": [
+        {
+          "tool": "search_resident_tools",
+          "historyBytes": 4505,
+          "scannedBytes": 286529,
+          "indexedRecords": 27,
+          "cacheHit": false,
+          "matches": 1
+        },
+        {
+          "tool": "read_resident_tool",
+          "scannedBytes": 178388,
+          "returnedCodeUnits": 6000,
+          "retained": "full"
+        }
+      ],
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/disk.ts": "042949fc89dcd0528976ec7a0731f684a007bf42c9f3edd1cb6e540f90ca4a3a",
+        "packages/sdk/src/store/evidence/index-page.ts": "e20032a675ea0a67231aaf72ec7ce869e317c3c183cf792632b7e3218c2a0fc3",
+        "packages/sdk/src/store/evidence/format.ts": "c7bfc968f6280e47c09bb594e85642b1c0dde416b05cef44263c540c7958868e",
+        "packages/sdk/src/manager/resident/tool-evidence.ts": "f8de6e4c471480e1fc395d2b4e5a3719bd2504abe7a77cad83ee8014e855539b",
+        "packages/sdk/src/runtime/query/index.ts": "2bf7bd65670eaee2baa16155f71125a7f3c8192d9ee7ac25ca49d252b2ac40be",
+        "packages/cli/src/integrations/resident/tool-evidence.ts": "ca5e7fd3d6db044fb6e8fe4818d2cce965ee1e189166e908f95ccf1bd12f75ef",
+        "packages/cli/src/integrations/resident/session-step.ts": "213fa55175ae1d52cc8525615cdf145fb6d7b6468257c684d1b806bb2fe1b8e2",
+        "research/resident/tool-evidence-cli.mjs": "5beb7c6cf94bee6beeb5becf058660fe5cc0dde2866508261cf8301e846c6c79"
+      }
+    },
+    {
+      "date": "2026-09-12",
+      "live": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "profile": "resident",
+      "passed": true,
+      "seed": {
+        "mode": "scripted provider, real CLI resident callback and read tool",
+        "originalNotInPreview": true,
+        "workspaceReplacedBeforeLiveRun": true
+      },
+      "observed": {
+        "phase": "complete",
+        "summary": "Recovered from the retained original DELTA receipt: tracking code TRACK-2bda6d3f-0011-43de-b44a-9c65e2d4e0a9; destination DEPOT-83fcd551-d599-4ad3-9cd6-e3102b845004.",
+        "tools": [
+          "search_resident_tools",
+          "read_resident_tool"
+        ],
+        "terminalReopenAdmittedNoStep": true
+      },
+      "usage": {
+        "totalTokens": 17079,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 17079
+        }
+      },
+      "stats": [
+        {
+          "tool": "search_resident_tools",
+          "historyBytes": 4505,
+          "scannedBytes": 286529,
+          "indexedRecords": 27,
+          "cacheHit": false,
+          "matches": 1
+        },
+        {
+          "tool": "read_resident_tool",
+          "scannedBytes": 178388,
+          "returnedCodeUnits": 6000,
+          "retained": "full"
+        }
+      ],
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/disk.ts": "b20a7ac8912d0aa225637748fcae840dd01af2f4cf311298d923f9e01f75edea",
+        "packages/sdk/src/store/evidence/index-page.ts": "3ab68811588e2419f6bca7f42c5c31cce726ec1cf677635ba56d02d8fcfa1d7d",
+        "packages/sdk/src/store/evidence/format.ts": "c7bfc968f6280e47c09bb594e85642b1c0dde416b05cef44263c540c7958868e",
+        "packages/sdk/src/manager/resident/tool-evidence.ts": "f8de6e4c471480e1fc395d2b4e5a3719bd2504abe7a77cad83ee8014e855539b",
+        "packages/sdk/src/runtime/query/index.ts": "2bf7bd65670eaee2baa16155f71125a7f3c8192d9ee7ac25ca49d252b2ac40be",
+        "packages/cli/src/integrations/resident/tool-evidence.ts": "ca5e7fd3d6db044fb6e8fe4818d2cce965ee1e189166e908f95ccf1bd12f75ef",
+        "packages/cli/src/integrations/resident/session-step.ts": "213fa55175ae1d52cc8525615cdf145fb6d7b6468257c684d1b806bb2fe1b8e2",
+        "research/resident/tool-evidence-cli.mjs": "5beb7c6cf94bee6beeb5becf058660fe5cc0dde2866508261cf8301e846c6c79"
+      }
+    }
+  ],
+  "limitations": [
+    "Two synthetic retrieval runs, not a general intelligence benchmark.",
+    "Provider reports unpriced subscription tokens; zero monetary cost in the ledger is not a measured price.",
+    "Compaction is exercised separately with deterministic real query tests, not forced in the live runs.",
+    "The second run confirms the final index-position and file-validation checks; the first predates those additional checks."
+  ]
+}

@@ -10,6 +10,13 @@ import type { StopReason } from './stop-reason.js'
 import type { TokenBudgetBinding } from './token-budget-store.js'
 
 export interface RunStateMetadata {
+	/** This invocation's owner, independent of a shared ancestor token account. */
+	readonly scope?: {
+		readonly tenantId: string
+		readonly projectId: string
+		readonly sessionId: string
+		readonly runId: string
+	}
 	agentId: string
 	agentName: string
 	config: AgentRunConfig

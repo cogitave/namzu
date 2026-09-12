@@ -128,3 +128,5 @@ export {
 } from './connector/tools/index.js'
 
 export { createFileReadTracker } from './tools/file-read-tracker.js'
+
+export { buildResidentToolEvidenceTools } from './tools/resident-tool-evidence.js'

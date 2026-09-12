@@ -166,7 +166,9 @@ keeps unknown requests distinct; the two defects in step 1 are addressed.
 5. Measure long-run evidence recovery and resume behavior before claiming a
    complete memory or cognitive system. Existing bounded conversation search
    now pages through large transcripts with bounded reads and 4 MiB record admission; retained previews cannot restore discarded
-   bytes. Indexed/spilled evidence recovery remains an extension.
+   bytes. Indexed/spilled evidence recovery is now available for explicitly authorized
+   settled invocations through the [retained tool evidence source](retained-tool-evidence.md).
+   This does not add arbitrary cross-conversation search to ordinary chat.
 
 This audit changes documentation only. Passing the existing tests establishes
 the supported contracts and does not close the gaps listed here.

@@ -525,3 +525,23 @@ export type {
 } from './manager/resident/agenda.js'
 
 export type { SqliteSessionStoreConfig } from './store/session/sqlite.js'
+
+export type {
+	RunEvidenceScope,
+	DiskRunEvidenceOptions,
+	RunEvidenceSearchOptions,
+	RunEvidenceMatch,
+	RunEvidenceSearchResult,
+	RunEvidenceReadOptions,
+	RunEvidenceReadResult,
+	RunEvidenceSource,
+} from './store/evidence/types.js'
+export type {
+	ResidentToolEvidenceScope,
+	ResidentSettledInvocation,
+	ResidentToolEvidenceOptions,
+	ResidentToolEvidenceSearchResult,
+	ResidentToolEvidenceReadOptions,
+	ResidentToolEvidenceReadResult,
+	ResidentToolEvidenceSource,
+} from './manager/resident/tool-evidence.js'

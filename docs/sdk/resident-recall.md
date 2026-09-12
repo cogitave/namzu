@@ -20,6 +20,8 @@ This recovers information missing from the latest summary without putting the
 whole archive in each prompt. The available evidence is settled summaries and
 the wake inputs consumed by those steps. Raw tool transcripts, filesystem
 snapshots, opaque provider reasoning and unsettled outputs are not included.
+For original tool text, hosts can additionally mount the separate
+[retained tool evidence source](retained-tool-evidence.md).
 
 ## Addresses and search
 

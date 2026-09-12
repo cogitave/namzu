@@ -63,6 +63,7 @@ import {
 	type ReasoningEffort,
 	type ResidentHistorySource,
 	type ResidentStepPromptOptions,
+	type ResidentToolEvidenceSource,
 	type ResumeHandler,
 	type ResumeOutcome,
 	type ReviewAnswer,
@@ -94,6 +95,7 @@ import {
 	buildAskUserQuestionTool,
 	buildMemoryTools,
 	buildResidentHistoryTools,
+	buildResidentToolEvidenceTools,
 	buildSessionGoalTools,
 	compactNow,
 	createComputerUseTool,
@@ -1131,6 +1133,8 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	'web_fetch',
 	'search_resident_history',
 	'read_resident_history',
+	'search_resident_tools',
+	'read_resident_tool',
 	// query mounts discovery when absent; an existing discovery tool must stay ready.
 	'search_tools',
 ] as const
@@ -1297,6 +1301,7 @@ export interface AgentSessionOptions {
 	readonly conversationSessions?: CliSessions
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
+	readonly residentToolEvidence?: ResidentToolEvidenceSource
 	/**
 	 * Operator-authored tool rules, already compiled to the kernel's vocabulary.
 	 *
@@ -1959,6 +1964,25 @@ export async function createAgentSession(
 				)
 					throw new Error('The requesting run does not own this resident history.')
 				return history
+			}),
+		)
+	}
+	if (options.residentToolEvidence) {
+		const evidence = options.residentToolEvidence
+		const evidenceOwner = { ...scope }
+		registry.register(
+			buildResidentToolEvidenceTools((context) => {
+				const owner = delegationScopes.get(context.runId)
+				if (
+					!owner ||
+					owner.sessionId !== evidenceOwner.sessionId ||
+					owner.projectId !== evidenceOwner.projectId ||
+					owner.tenantId !== evidenceOwner.tenantId ||
+					owner.projectId !== evidence.scope.projectId ||
+					owner.tenantId !== evidence.scope.tenantId
+				)
+					throw new Error('The requesting run does not own this resident tool evidence.')
+				return evidence
 			}),
 		)
 	}

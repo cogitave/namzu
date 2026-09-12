@@ -63,6 +63,11 @@ dynamic snapshot. Changing that revision does not change the static prefix.
 The reference survives compaction; historical text is fetched only when a tool
 is called. Do not pass this option without mounting and authorizing the tools.
 
+After mounting the separately authorized [retained tool evidence tools](retained-tool-evidence.md),
+set `toolEvidence: true` to include stable guidance for recovering exact earlier
+tool text across settled invocations. It does not attach output eagerly or
+change the authority captured by `history`.
+
 The query prompt cache validates the rendered static text, not only contribution
 IDs. Replacing a registry, skill body or host contract under an existing name
 cannot silently reuse old instructions. Full-prompt cache validation renders

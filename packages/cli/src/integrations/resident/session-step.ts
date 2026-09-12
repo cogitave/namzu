@@ -36,6 +36,7 @@ import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { type AttachedSessionExport, attachSessionExport } from '../telemetry/session-export.js'
 import { ResidentCleanupUnconfirmedError } from './lifecycle-errors.js'
+import { residentToolEvidence } from './tool-evidence.js'
 
 const MAX_DECISION_CHARS = 32_000
 const MAX_SUMMARY_CHARS = 8_000
@@ -154,7 +155,7 @@ function residentContext(
 		'Consider every wakeEvidence entry in order; a later input does not erase an earlier failure. Check conflicting evidence and retain still-relevant inputs in the next summary; settlement consumes the batch.',
 		...(history
 			? [
-					'Use search_resident_history and read_resident_history to recover decisions and accepted inputs missing from the last summary. Browse without a query or search an exact phrase; follow pagination. Recorded claims are not current verification: check newer corrections and mutable evidence. Do not replay an action to recover its output.',
+					'Use search_resident_tools and read_resident_tool for original retained tool text across earlier settled invocations. Follow returned cursors and byte offsets, check isError and preview flags. Missing or changed output is unavailable, not permission to replay actions. Use search_resident_history and read_resident_history to recover decisions and accepted inputs missing from the last summary. Browse without a query or search an exact phrase; follow pagination. Recorded claims are not current verification: check newer corrections and mutable evidence. Do not replay an action to recover its output.',
 				]
 			: []),
 		JSON.stringify({
@@ -213,6 +214,7 @@ export function createResidentSessionStep(
 		const runId = generateRunId()
 		const identity = { pursuitId: pursuit.id, claimId, sessionId, runId }
 		const history = options.agenda?.history(pursuit.state, context.agendaRevision)
+		const toolEvidence = history ? residentToolEvidence(history, sessions, root) : undefined
 		const startedAt = Date.now()
 		let session: AgentSession | undefined
 		let sessionExport: AttachedSessionExport | undefined
@@ -288,6 +290,7 @@ export function createResidentSessionStep(
 				},
 				stateRoot: sessions.root,
 				...(history ? { residentHistory: history } : {}),
+				...(toolEvidence ? { residentToolEvidence: toolEvidence } : {}),
 				rules: permissions.rules,
 				permissionMode: mode.mode,
 				reviewAnswer,
@@ -354,6 +357,7 @@ export function createResidentSessionStep(
 									state: pursuit.state,
 									learning: context.learning,
 									history: history?.scope,
+									toolEvidence: !!toolEvidence,
 									readOnly: mode.mode === 'plan',
 									skillsContext: skills,
 									outputInstructions: DECISION_CONTRACT,

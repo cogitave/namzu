@@ -1707,10 +1707,13 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		? new AuthorizationGate(gateConfig, ctx.log)
 		: undefined
 
-	//  is null only when the run has no disk layout (tests,
-	// in-memory hosts); the budget then degrades to middle-elision.
-	const runDirForTools = ctx.runMgr.getRunDir()
-	const toolOutputDir = runDirForTools ? join(runDirForTools, TOOL_OUTPUT_DIR_NAME) : undefined
+	// The store is initialized when the async query starts, after tooling is
+	// composed. Resolve lazily at execution time: capturing getRunDir() here
+	// permanently disabled retention for fresh disk-backed invocations.
+	const toolOutputDir = () => {
+		const runDir = ctx.runMgr.getRunDir()
+		return runDir ? join(runDir, TOOL_OUTPUT_DIR_NAME) : undefined
+	}
 
 	const toolExecutor = ToolingBootstrap.init(
 		{
@@ -1756,7 +1759,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// Overflow lands beside the run's other artifacts, so it is
 			// cleaned up with the run and reachable by the model's own
 			// `read`/`grep` without a new affordance.
-			...(toolOutputDir ? { toolOutputDir } : {}),
+			toolOutputDir,
 			...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
 			...(verificationGate ? { authorizationGate: verificationGate } : {}),
 			recordAudit: (input) => ctx.runMgr.recordAudit(input),

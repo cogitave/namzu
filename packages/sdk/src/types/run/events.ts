@@ -464,6 +464,8 @@ type CoreRunEvent =
 			outputTruncated?: boolean
 			/** Where the full output was written, when it was spilled. */
 			outputSpillPath?: string
+			/** SHA-256 of the chunk manifest captured with the retained text. */
+			outputSpillIntegrity?: string
 	  }
 	/**
 	 * A tool asked the user a question and the run is parked on it.
