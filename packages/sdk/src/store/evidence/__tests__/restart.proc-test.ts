@@ -6,6 +6,51 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
 
+it('reads retained compaction text and restores whole attachments across processes', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-compaction-restart-'))
+	try {
+		const scope = {
+			tenantId: randomUUID(),
+			projectId: randomUUID(),
+			sessionId: randomUUID(),
+			runId: randomUUID(),
+		}
+		const sdkUrl = new URL('../../../../dist/index.js', import.meta.url).href
+		const script = `import {RunDiskStore,createDiskRunTextEvidenceSource,createUserMessage} from ${JSON.stringify(sdkUrl)};
+import {writeFile} from 'node:fs/promises'; import {join} from 'node:path';
+const [root,raw,mode,address]=process.argv.slice(1),scope=JSON.parse(raw),store=new RunDiskStore({baseDir:root});
+const runDir=await store.initRun(scope.runId);
+if(mode==='seed') {
+await writeFile(join(runDir,'run.json'),JSON.stringify({id:scope.runId,status:'completed',metadata:{scope}}));
+await store.appendEvent({type:'run_started',runId:scope.runId,seq:1});
+await store.appendEvent({type:'compaction_shed',runId:scope.runId,seq:2,iteration:1,reason:'threshold',generation:9,
+messages:[createUserMessage('ORCHID exact original A17',[{data:'A'.repeat(5*1024*1024),mediaType:'image/png'}])]});
+}
+const source=createDiskRunTextEvidenceSource({scope,runDir,indexDir:join(runDir,'index')});
+if(mode==='seed') console.log(JSON.stringify(await source.search({query:'ORCHID'})));
+else { const read=await source.read({address}); const events=await store.readEvents();const shed=events.find(e=>e.type==='compaction_shed');
+console.log(JSON.stringify({read,imageBytes:shed.messages[0].attachments[0].data.length,generation:shed.generation})); }`
+		const exec = promisify(execFile)
+		const child = async (mode: string, address = '') => {
+			const { stdout } = await exec(
+				process.execPath,
+				['--input-type=module', '-e', script, root, JSON.stringify(scope), mode, address],
+				{ timeout: 20000, maxBuffer: 100000 },
+			)
+			return JSON.parse(stdout)
+		}
+		const first = await child('seed')
+		expect(first.matches).toHaveLength(1)
+		const next = await child('read', first.matches[0].address)
+		expect(next.read.text).toBe('ORCHID exact original A17')
+		expect(next.read.scannedBytes).toBeLessThan(100000)
+		expect(next.imageBytes).toBe(5 * 1024 * 1024)
+		expect(next.generation).toBe(9)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})
+
 it.each(['query', 'terms', 'tokens'] as const)(
 	'shares an atomically published index and reads a previous process address (%s)',
 	async (mode) => {

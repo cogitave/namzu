@@ -19,14 +19,6 @@ export async function retainManualCompaction(
 	signal?.throwIfAborted()
 	await requireWritableConversation(sessions, sessionId, 'retain compacted history')
 	if (!messages.length) return
-	// Leave room for the event envelope and predecessor links below the SDK's
-	// 4 MiB JSONL-record ceiling. Refuse before creating a partial archive.
-	for (const message of messages) {
-		if (Buffer.byteLength(JSON.stringify(message), 'utf8') > 3 * 1024 * 1024)
-			throw new Error(
-				'Manual compaction cannot retain a message larger than 3 MiB. The original history was kept.',
-			)
-	}
 	const sessionsDir = ensurePrivateStateDirectory(sessions.root, 'sessions')
 	const sessionDir = ensurePrivateStateDirectory(sessionsDir, sessionId)
 	const outputDir = ensurePrivateStateDirectory(sessionDir, 'runs')

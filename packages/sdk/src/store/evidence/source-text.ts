@@ -3,6 +3,7 @@ import type { FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import { evidenceRecordedAt } from '../../utils/evidence-time.js'
+import { compactionArchiveSchema, compactionPartPath } from './compaction-archive.js'
 import { EVIDENCE_CHUNK_BYTES, SEARCH_OVERLAP_BYTES, digest, mayContain } from './format.js'
 import { type IndexEntry, entrySchema, eventTexts } from './index-page.js'
 import {
@@ -70,6 +71,10 @@ export async function sourceText(
 	const part = eventTexts(event)[pointer.part]
 	if (!part) throw new Error('Recorded text part is unavailable.')
 	const tool = event.type === 'tool_completed'
+	const archive =
+		event.type === 'compaction_archive' ? compactionArchiveSchema.parse(event) : undefined
+	const archivedPart = archive?.archive.parts[pointer.part]
+	if (archive && !archivedPart) throw new Error('Missing archived text part.')
 	const entry = entrySchema.parse({
 		...pointer,
 		source: part.source,
@@ -82,6 +87,7 @@ export async function sourceText(
 				}
 			: {}),
 		truncated: tool && event.outputTruncated === true,
+		...(archivedPart ? { spill: archivedPart.manifest } : {}),
 		filter: '',
 	})
 
@@ -99,8 +105,12 @@ export async function sourceText(
 		}
 	}
 	// Never follow a model/provider-controlled spill path from the event.
-	if (!entry.toolUseId) throw new Error('Retained output has no tool identity.')
-	const path = join(runDir, 'tool-output', `${digest(entry.toolUseId)}.txt`)
+	let path: string
+	if (archive) path = compactionPartPath(runDir, archive.archive.id, pointer.part)
+	else {
+		if (!entry.toolUseId) throw new Error('Retained output has no tool identity.')
+		path = join(runDir, 'tool-output', `${digest(entry.toolUseId)}.txt`)
+	}
 	const rawManifest = await readSmall(`${path}.manifest.json`, budget)
 	if (digest(rawManifest) !== entry.spill) throw new Error('Retained output manifest changed.')
 	const manifest = manifestSchema.parse(JSON.parse(decode(rawManifest)))

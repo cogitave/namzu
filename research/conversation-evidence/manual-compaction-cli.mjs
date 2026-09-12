@@ -11,6 +11,8 @@ const sdkURL = new URL('../../packages/sdk/dist/index.js', import.meta.url);
 const storeURL = new URL('../../packages/cli/dist/integrations/sessions/store.js', import.meta.url);
 const agentURL = new URL('../../packages/cli/dist/tui/agent.js', import.meta.url);
 const exec = promisify(execFile);
+const automatic = process.argv.includes('--automatic');
+const large = automatic || process.argv.includes('--large');
 
 if (process.argv[2] === '--seed') {
   const sdk = await import(sdkURL);
@@ -21,8 +23,8 @@ if (process.argv[2] === '--seed') {
   const sessionId = await resolveConversation(sessions, 'manual-compaction');
   const code = `ORCHID-${randomUUID()}`;
   const original = `Background ${'ordinary context '.repeat(150)} ORCHID receipt code: ${code}`;
-  const messages = [sdk.createUserMessage(original), sdk.createAssistantMessage('Acknowledged.')];
-  for (let i = 0; i < 4; i++) messages.push(sdk.createUserMessage(`Later question ${i}`), sdk.createAssistantMessage(`Later answer ${i}`));
+  const messages = [sdk.createUserMessage(original, large ? [{ data: 'A'.repeat(5 * 1024 * 1024), mediaType: 'image/png' }] : undefined), sdk.createAssistantMessage('Acknowledged.')];
+  for (let i = 0; i < (automatic ? 18 : 4); i++) messages.push(sdk.createUserMessage(`Later question ${i}`), sdk.createAssistantMessage(`Later answer ${i} ${automatic ? 'Background explanation. '.repeat(200) : ''}`));
   const provider = new sdk.MockLLMProvider({ turns: [{ text: 'Ready.' }] });
   const probe = await probeAgentSession();
   sdk.ProviderRegistry.create = () => ({ provider });
@@ -31,12 +33,21 @@ if (process.argv[2] === '--seed') {
     scope: { sessionId, topicId: sessions.topicId, projectId: sessions.projectId, tenantId: sessions.tenantId },
     sandbox: { enabled: false }, web: { search: 'off' }, memory: { recall: false },
     limits: { maxIterations: 4, tokenBudget: 20000 },
+    ...(automatic ? { compaction: { strategy: 'structured', contextWindowTokens: 20000 } } : {}),
   });
   let compacted;
+  const sourceRunId = sdk.generateRunId();
+  let projected; let sawAutomatic = false;
   try {
-    for await (const _event of session.send(messages, { permissionMode: 'auto' })) { /* actual Session */ }
     await replaceConversation(sessions, sessionId, messages);
-    compacted = await session.compact(messages); // exact /compact entry point, no manufactured summary
+    for await (const event of session.send(messages, { runId: sourceRunId, permissionMode: 'auto', onConversationMessages: (value) => { projected = value; } })) {
+      if (event.kind === 'context' && event.shed) sawAutomatic = true;
+    }
+    if (automatic) {
+      assert.ok(sawAutomatic && projected);
+      assert.ok(!projected.some(message => message.attachments?.length));
+      compacted = { messages: projected, shed: messages.length - projected.length, usage: { totalTokens: 0 } };
+    } else compacted = await session.compact(messages); // exact /compact entry point, no manufactured summary
     assert.ok(compacted && !JSON.stringify(compacted.messages).includes(code));
     await replaceConversation(sessions, sessionId, compacted.messages);
   } finally { await session.close(); }
@@ -46,16 +57,18 @@ if (process.argv[2] === '--seed') {
     if (!entry.isDirectory()) continue;
     const run = entry.name;
     const meta = JSON.parse(await readFile(join(runs, run, 'run.json'), 'utf8'));
-    if (meta.metadata.agentId !== 'manual-compaction') continue;
-    const events = (await readFile(join(runs, run, 'transcript.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
-    assert.ok(events.some(e => e.type === 'compaction_shed' && e.reason === 'manual' && e.messages.some(m => m.role === 'user' && m.content === original)));
+    if (automatic ? run !== sourceRunId : meta.metadata.agentId !== 'manual-compaction') continue;
+    const events = await sdk.readRunEventsIn(join(runs, run), { integrity: 'strict' });
+    assert.ok(events.some(e => e.type === 'compaction_shed' && e.reason === (automatic ? 'threshold' : 'manual') && e.messages.some(m => m.role === 'user' && m.content === original)));
+    if (large) assert.ok(events.some(e => e.type === 'compaction_shed' && e.messages.some(m => m.content === original && m.attachments?.[0]?.data === 'A'.repeat(5 * 1024 * 1024))));
     assert.equal(meta.tokenUsage.totalTokens, 0);
-    assert.ok(!events.some(e => e.type === 'message_completed' || e.type === 'tool_executing'));
+    assert.ok(!events.some(e => e.type === 'tool_executing' || (!automatic && e.type === 'message_completed')));
+    if (large) assert.ok((await readFile(join(runs, run, 'transcript.jsonl'), 'utf8')).includes('"type":"compaction_archive"'));
     archive = run;
   }
   assert.ok(archive);
   assert.equal(provider.requests.length, 1);
-  console.log(JSON.stringify({ sessionId, code, archive, shed: compacted.shed, verifierTokens: compacted.usage.totalTokens, exactOriginalArchived: true, originalAbsentFromProjection: true }));
+  console.log(JSON.stringify({ sessionId, code, archive, automatic, large, sawAutomatic, shed: compacted.shed, verifierTokens: compacted.usage.totalTokens, exactOriginalArchived: true, originalAbsentFromProjection: true }));
 } else {
   const live = process.argv.includes('--live');
   const root = await mkdtemp(join(tmpdir(), 'namzu-manual-compaction-cli-'));
@@ -65,12 +78,12 @@ if (process.argv[2] === '--seed') {
   await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n');
   const env = { ...process.env, NAMZU_HOME: home };
   const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
-  const report = { root, live, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low' };
-  const fingerprintPaths = ['packages/sdk/dist/compaction/manual.js', 'packages/cli/dist/integrations/sessions/compaction-evidence.js', 'packages/cli/dist/integrations/sessions/conversation-search.js', 'packages/cli/dist/tui/agent.js'];
+  const report = { root, live, automatic, large, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low' };
+  const fingerprintPaths = ['packages/sdk/dist/compaction/manual.js', 'packages/sdk/dist/store/evidence/compaction-archive.js', 'packages/sdk/dist/store/evidence/index-page.js', 'packages/sdk/dist/store/evidence/source-text.js', 'packages/sdk/dist/store/run/disk.js', 'packages/cli/dist/integrations/sessions/compaction-evidence.js', 'packages/cli/dist/integrations/sessions/conversation-search.js', 'packages/cli/dist/tui/agent.js'];
   const fingerprints = async () => Object.fromEntries(await Promise.all(fingerprintPaths.map(async path => [path, createHash('sha256').update(await readFile(new URL('../../' + path, import.meta.url))).digest('hex')])));
   report.before = await fingerprints();
   try {
-    const seed = await exec(process.execPath, [fileURLToPath(import.meta.url), '--seed', cwd], { cwd, env, timeout: 30000, maxBuffer: 1000000 });
+    const seed = await exec(process.execPath, [fileURLToPath(import.meta.url), '--seed', cwd, ...(automatic ? ['--automatic'] : large ? ['--large'] : [])], { cwd, env, timeout: 30000, maxBuffer: 1000000 });
     report.seed = JSON.parse(seed.stdout);
     const preload = join(root, 'scripted-provider.mjs');
     await writeFile(preload, `import {ProviderRegistry,MockLLMProvider} from ${JSON.stringify(sdkURL.href)};

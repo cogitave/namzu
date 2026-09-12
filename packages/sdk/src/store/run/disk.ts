@@ -20,6 +20,7 @@ import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { asCheckpointId, asRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
+import { restoreCompactionRecord, retainCompactionRecord } from '../evidence/compaction-archive.js'
 import { digest } from '../evidence/format.js'
 import { createLinkedRunTextEvidenceSource } from '../evidence/linked.js'
 import {
@@ -111,6 +112,7 @@ export class RunDiskStore implements RunStore {
 
 	async appendEvent(event: RunEvent): Promise<void> {
 		return this.withEventLock(async () => {
+			const storedEvent = await retainCompactionRecord(event, this.requireInit())
 			const path = join(this.requireInit(), 'transcript.jsonl')
 			const before = await stat(path).catch((error: NodeJS.ErrnoException) => {
 				if (error.code === 'ENOENT') return { size: 0 }
@@ -129,7 +131,7 @@ export class RunDiskStore implements RunStore {
 					: undefined
 			const line = Buffer.from(
 				`${JSON.stringify({
-					...event,
+					...storedEvent,
 					timestamp: Date.now(),
 					previousRecord: linked ? previous : null,
 					previousTextRecord,
@@ -545,6 +547,7 @@ export async function readRunEventsIn(
 		}
 		previousSeq = seq
 		if (seq <= sinceSeq) continue
+		parsed = await restoreCompactionRecord(parsed, runDir)
 
 		events.push({
 			...parsed,

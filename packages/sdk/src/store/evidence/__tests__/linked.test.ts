@@ -43,6 +43,81 @@ async function fixture() {
 	return { root, runDir, scope, store, append, source, meta }
 }
 
+it.each(['image', 'text', 'compound'] as const)(
+	'retrieves text from an oversized compacted %s record, live and reopened',
+	async (kind) => {
+		const f = await fixture()
+		const text =
+			kind === 'text' ? `${'ordinary '.repeat(650_000)} ORCHID receipt A17` : 'ORCHID receipt A17'
+		const messages =
+			kind === 'compound'
+				? Array.from({ length: 80 }, (_, i) => ({
+						role: 'user',
+						timestamp: i + 1,
+						content: `${'ordinary '.repeat(9000)} ${i === 79 ? 'ORCHID receipt A17' : ''}`,
+					}))
+				: [
+						{
+							role: 'user',
+							timestamp: 1,
+							content: text,
+							...(kind === 'image'
+								? { attachments: [{ data: 'A'.repeat(5 * 1024 * 1024), mediaType: 'image/png' }] }
+								: {}),
+						},
+					]
+		await f.append({
+			type: 'compaction_shed',
+			iteration: 1,
+			reason: 'threshold',
+			messages,
+			generation: 7,
+			schemaVersion: 3,
+		})
+		await f.append({ type: 'message_completed', content: 'Later response' })
+		for (const mode of ['live', 'closed']) {
+			if (mode === 'closed') await f.meta(f.scope, 'completed')
+			const source =
+				mode === 'live'
+					? await f.source()
+					: createDiskRunTextEvidenceSource({
+							scope: f.scope,
+							runDir: f.runDir,
+							indexDir: join(f.root, 'index'),
+						})
+			expect(source).toBeDefined()
+			let cursor: string | undefined
+			const matches = []
+			for (let page = 0; page < 12; page++) {
+				const result = await source.search({ query: 'ORCHID', cursor })
+				expect(result.incomplete).toBe(false)
+				expect(result.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+				matches.push(...result.matches)
+				cursor = result.nextCursor ?? undefined
+				if (!cursor) break
+			}
+			expect(cursor).toBeUndefined()
+			expect(matches).toHaveLength(1)
+			expect(matches[0]?.source).toBe('compaction_shed:user')
+			const read = await source.read({
+				address: matches[0]!.address,
+				byteOffset: matches[0]!.byteOffset,
+			})
+			expect(read.text).toContain('ORCHID receipt A17')
+		}
+		const reopened = new RunDiskStore({ baseDir: f.root })
+		await reopened.initRun(f.scope.runId)
+		const events = await reopened.readEvents()
+		expect(events.find((event) => event.type === 'compaction_shed')).toMatchObject({
+			messages,
+			generation: 7,
+			schemaVersion: 3,
+		})
+		const lines = (await readFile(join(f.runDir, 'transcript.jsonl'), 'utf8')).trimEnd().split('\n')
+		expect(lines.every((line) => Buffer.byteLength(line, 'utf8') < 4 * 1024 * 1024)).toBe(true)
+	},
+)
+
 it('retains writer clock regression without reordering seq or trusting a supplied timestamp', async () => {
 	const f = await fixture()
 	const first = Date.UTC(2026, 1, 1)

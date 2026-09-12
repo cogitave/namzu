@@ -38,3 +38,8 @@ Its timestamp dates the archive copy, not the original user's submission.
 The [CLI implementation](../cli/context-and-compaction.md) binds the hook to
 the current conversation and reuses the SDK's scoped run evidence index. Other
 hosts choose their own storage; the SDK does not depend on CLI paths or stores.
+
+The disk store's [large-message encoding](retained-tool-evidence.md) also applies
+to manually retained `compaction_shed` events. It keeps original attachments and
+metadata outside the bounded transcript line, without changing the public event
+returned by full SDK readers.

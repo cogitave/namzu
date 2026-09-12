@@ -71,6 +71,24 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 	return { runId, path }
 }
 
+it('refuses retained compaction references on the unscoped legacy scanner', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { path, runId } = await transcript(sessions, sessionId, 'Unrelated earlier text')
+	await writeFile(
+		join(path, 'transcript.jsonl'),
+		`${[
+			{ type: 'run_started', runId, seq: 1 },
+			{ type: 'compaction_archive', runId, seq: 2, archive: { id: 'untrusted' } },
+		]
+			.map((event) => JSON.stringify(event))
+			.join('\n')}\n`,
+	)
+	const result = await searchConversation(sessions, sessionId, { query: 'ORCHID' })
+	expect(result.matches).toEqual([])
+	expect(result.incomplete).toBe(true)
+	expect(result.unavailableRuns).toBe(1)
+})
+
 async function closedTranscript(
 	sessions: CliSessions,
 	sessionId: SessionId,

@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Stored oversized compaction bodies outside bounded JSONL records while retaining whole messages and authenticated text chunks; connected automatic and manual CLI recovery, preserving scope, exact readback and event metadata across restart.
+
 - **Update** Retained original user and other removed messages before CLI `/compact` publishes its summary; added the SDK manual-retention callback and `manual` shed reason, with failure/cancellation preservation and scoped recovery after reopening.
 
 - **Update** Advanced conversation search through exhausted nonmatching indexed runs within the same bounded call, retaining partial-page continuation, ownership checks and shared I/O limits; clarified exact byte-position recovery after a live UTF-8 read refusal.

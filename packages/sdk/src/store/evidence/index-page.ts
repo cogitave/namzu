@@ -3,6 +3,7 @@ import { link, mkdir, rename, unlink, writeFile } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
+import { compactionArchiveSchema } from './compaction-archive.js'
 import { digest, textFilter } from './format.js'
 import {
 	type EvidenceBudget,
@@ -152,6 +153,12 @@ export function toolEntry(
 
 /** Validate all textual parts before publishing any part of a record. */
 export function eventTexts(event: Record<string, unknown>): { source: string; text: string }[] {
+	if (event.type === 'compaction_archive') {
+		return compactionArchiveSchema.parse(event).archive.parts.map((part) => ({
+			source: `compaction_shed:${part.role}`,
+			text: '',
+		}))
+	}
 	if (event.type === 'tool_completed') {
 		if (typeof event.result !== 'string') throw new Error('Invalid tool text.')
 		return [{ source: 'tool_completed', text: event.result }]
@@ -237,6 +244,8 @@ export async function indexPage(
 		)
 			throw new Error('Transcript identity or event sequence is invalid.')
 		const parts = eventTexts(event)
+		const archive =
+			event.type === 'compaction_archive' ? compactionArchiveSchema.parse(event) : undefined
 		if (textIndex > parts.length) throw new Error('Invalid textual part position.')
 		const hash = digest(raw)
 		const tool = toolEntry(event, offset, raw)
@@ -244,6 +253,8 @@ export async function indexPage(
 		while (textIndex < parts.length && entries.length < 64) {
 			const part = parts[textIndex]
 			if (!part) throw new Error('Invalid textual part.')
+			const archivedPart = archive?.archive.parts[textIndex]
+			if (archive && !archivedPart) throw new Error('Missing archived text part.')
 			entries.push(
 				tool ??
 					entrySchema.parse({
@@ -254,6 +265,7 @@ export async function indexPage(
 						source: part.source,
 						part: textIndex,
 						truncated: false,
+						...(archivedPart ? { spill: archivedPart.manifest } : {}),
 						filter: textFilter(part.text),
 					}),
 			)

@@ -26,9 +26,9 @@ entry, and does not reopen a completed model invocation. Verifier usage, if any,
 remains in the compaction result shown by the UI.
 
 If retention fails or is cancelled, the replacement is not published. The TUI
-shows the error and continues to use the original history. A serialized message
-larger than 3 MiB is refused before archiving, leaving room below the index's
-4 MiB JSONL record limit. Private conversation ownership, scope, read limits and
+shows the error and continues to use the original history. Large serialized
+messages use the SDK's retained compaction storage instead of exceeding the
+index's 4 MiB JSONL record limit. Private conversation ownership, scope, read limits and
 text-only search rules apply to these records too. Archive timestamps identify
 the copy, not when the user originally supplied the fact.
 
@@ -37,6 +37,14 @@ cross-store transaction. If replacement subsequently fails, the archive can
 contain an extra copy while the original history remains active. Stateless
 embedded sessions have no conversation archive and retain their existing
 in-process behavior. A no-op creates no archive.
+
+Automatic compaction uses the same disk encoding for large removed histories.
+Search can recover text from a message carrying a large attachment without
+loading the attachment. Full SDK event readers reconstruct the original message;
+see [large compaction records](../sdk/retained-tool-evidence.md) for archive limits
+and the raw JSONL storage shape. Oversized archival failures still preserve the
+history, but 3 MiB is now an offloading threshold rather than the previous manual
+compaction refusal limit.
 
 # The `compaction` key
 

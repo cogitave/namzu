@@ -157,72 +157,32 @@ async function send(session: AgentSession, runId = generateRunId()) {
 	}
 }
 
-it('recovers an original user detail after manual compaction and reopening', async () => {
-	const cwd = await mkdtemp(join(tmpdir(), 'namzu-manual-user-evidence-'))
-	roots.push(cwd)
-	const sessions = await openSessions(cwd)
-	const sessionId = await startConversation(sessions)
-	const code = `ORIGINAL-${randomUUID()}`
-	const original = `Background ${'ordinary context '.repeat(150)} Receipt: ${code}`
-	const messages = [createUserMessage(original), createAssistantMessage('Acknowledged.')]
-	for (let i = 0; i < 4; i++) {
-		messages.push(
-			createUserMessage(`Later question ${i}`),
-			createAssistantMessage(`Later answer ${i}`),
-		)
-	}
-	const provider = new MockLLMProvider({ turns: [{ text: 'Ready.' }] })
-	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
-	const session = await createAgentSession(preferences, detected, {
-		cwd,
-		stateRoot: sessions.root,
-		conversationSessions: sessions,
-		scope: {
-			sessionId,
-			topicId: sessions.topicId,
-			projectId: sessions.projectId,
-			tenantId: sessions.tenantId,
-		},
-		sandbox: { enabled: false },
-		memory: { recall: false },
-		web: { search: 'off' },
-	})
-	opened.push(session)
-	for await (const _event of session.send(messages, { permissionMode: 'auto' })) {
-		/* record a real turn */
-	}
-	const result = await session.compact(messages)
-	expect(result).not.toBeNull()
-	expect(JSON.stringify(result!.messages)).not.toContain(code)
-	await replaceConversation(sessions, sessionId, result!.messages)
-	await session.close()
-	const reopened = await openSessions(cwd)
-	const found = await searchConversation(reopened, sessionId, { query: code })
-	expect(found.matches).toHaveLength(1)
-	expect(found.matches[0]?.source).toBe('compaction_shed:user')
-	const read = await readConversationEvidence(reopened, sessionId, {
-		...found.matches[0]!,
-		byteOffset: 0,
-	})
-	expect(read.text).toBe(original)
-	expect(read.complete).toBe(true)
-	const foreignSession = await startConversation(reopened)
-	await expect(
-		readConversationEvidence(reopened, foreignSession, found.matches[0]!),
-	).rejects.toThrow()
-	expect(provider.requests).toHaveLength(1)
-})
-
-it.each(['write', 'oversized'] as const)(
-	'keeps manual compaction unpublished on archive failure (%s)',
-	async (kind) => {
-		const cwd = await mkdtemp(join(tmpdir(), 'namzu-manual-archive-failure-'))
+it.each([false, true])(
+	'recovers an original user detail after manual compaction and reopening (large attachment: %s)',
+	async (largeAttachment) => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-manual-user-evidence-'))
 		roots.push(cwd)
 		const sessions = await openSessions(cwd)
 		const sessionId = await startConversation(sessions)
-		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({
-			provider: new MockLLMProvider(),
-		} as never)
+		const code = `ORIGINAL-${randomUUID()}`
+		const original = `Background ${'ordinary context '.repeat(150)} Receipt: ${code}`
+		const messages = [
+			createUserMessage(
+				original,
+				largeAttachment
+					? [{ data: 'A'.repeat(5 * 1024 * 1024), mediaType: 'image/png' }]
+					: undefined,
+			),
+			createAssistantMessage('Acknowledged.'),
+		]
+		for (let i = 0; i < 4; i++) {
+			messages.push(
+				createUserMessage(`Later question ${i}`),
+				createAssistantMessage(`Later answer ${i}`),
+			)
+		}
+		const provider = new MockLLMProvider({ turns: [{ text: 'Ready.' }] })
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 		const session = await createAgentSession(preferences, detected, {
 			cwd,
 			stateRoot: sessions.root,
@@ -238,21 +198,62 @@ it.each(['write', 'oversized'] as const)(
 			web: { search: 'off' },
 		})
 		opened.push(session)
-		const messages = Array.from({ length: 10 }, (_, i) =>
-			createUserMessage(`Original message ${i}`),
-		)
-		if (kind === 'oversized') messages[0] = createUserMessage('x'.repeat(4 * 1024 * 1024))
-		const before = structuredClone(messages)
-		const failure = new Error('Archive disk unavailable')
-		if (kind === 'write') {
-			vi.spyOn(RunDiskStore.prototype, 'appendEvent').mockRejectedValueOnce(failure)
-			await expect(session.compact(messages)).rejects.toBe(failure)
-		} else {
-			await expect(session.compact(messages)).rejects.toThrow('larger than 3 MiB')
+		for await (const _event of session.send(messages, { permissionMode: 'auto' })) {
+			/* record a real turn */
 		}
-		expect(messages).toEqual(before)
+		const result = await session.compact(messages)
+		expect(result).not.toBeNull()
+		expect(JSON.stringify(result!.messages)).not.toContain(code)
+		await replaceConversation(sessions, sessionId, result!.messages)
+		await session.close()
+		const reopened = await openSessions(cwd)
+		const found = await searchConversation(reopened, sessionId, { query: code })
+		expect(found.matches).toHaveLength(1)
+		expect(found.matches[0]?.source).toBe('compaction_shed:user')
+		const read = await readConversationEvidence(reopened, sessionId, {
+			...found.matches[0]!,
+			byteOffset: 0,
+		})
+		expect(read.text).toBe(original)
+		expect(read.complete).toBe(true)
+		const foreignSession = await startConversation(reopened)
+		await expect(
+			readConversationEvidence(reopened, foreignSession, found.matches[0]!),
+		).rejects.toThrow()
+		expect(provider.requests).toHaveLength(1)
 	},
 )
+
+it('keeps manual compaction unpublished on archive failure', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-manual-archive-failure-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({
+		provider: new MockLLMProvider(),
+	} as never)
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		scope: {
+			sessionId,
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+		},
+		sandbox: { enabled: false },
+		memory: { recall: false },
+		web: { search: 'off' },
+	})
+	opened.push(session)
+	const messages = Array.from({ length: 10 }, (_, i) => createUserMessage(`Original message ${i}`))
+	const before = structuredClone(messages)
+	const failure = new Error('Archive disk unavailable')
+	vi.spyOn(RunDiskStore.prototype, 'appendEvent').mockRejectedValueOnce(failure)
+	await expect(session.compact(messages)).rejects.toBe(failure)
+	expect(messages).toEqual(before)
+})
 
 it('explains an invalid estimated byte position and accepts the exact archive address', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-evidence-position-'))

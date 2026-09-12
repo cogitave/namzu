@@ -87,7 +87,7 @@ and carries the original user message into the next request.
 Workspace tests passed, including **6,434 SDK** and **2,882 CLI** tests (five CLI
 tests skipped by their existing conditions). All **258 SDK process tests** passed.
 Typecheck, build, lint, docs validation/fences, signature-export and log/name
-checks passed. Lint retains the pre-existing 35 SDK and 14 CLI warnings. The name
+checks passed. Lint retains the pre-existing 37 SDK and 14 CLI warnings. The name
 gate initially identified two existing branded citation labels; their links were
 preserved and labels made descriptive. Release-only gates were not run; this
 increment was not pushed or published.

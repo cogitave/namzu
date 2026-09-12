@@ -435,6 +435,8 @@ function textEvents(
 			if (event.type === 'message_completed' && text === undefined) continue
 			if (typeof text !== 'string') throw new Error('Invalid transcript text.')
 			result.push({ seq, source: event.type, text, recordedAt })
+		} else if (event.type === 'compaction_archive') {
+			throw new Error('Retained compaction requires scoped indexed evidence.')
 		} else if (event.type === 'compaction_shed') {
 			if (!Array.isArray(event.messages)) throw new Error('Invalid shed messages.')
 			for (const message of event.messages) {
