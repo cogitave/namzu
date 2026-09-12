@@ -23,6 +23,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import {
+	CONVERSATION_EVIDENCE_GUIDANCE,
 	readConversationEvidence,
 	searchConversation,
 } from '../../integrations/sessions/conversation-search.js'
@@ -441,6 +442,12 @@ it('does not offer conversation search without host-owned conversation storage',
 	expect(
 		provider.requests[0]?.tools?.some((tool) => tool.function.name === 'search_conversation'),
 	).toBe(false)
+	expect(
+		provider.requests[0]?.messages
+			.filter((m) => m.role === 'system')
+			.map((m) => m.content)
+			.join('\n'),
+	).not.toContain(CONVERSATION_EVIDENCE_GUIDANCE)
 })
 
 it.each([undefined, 0, 2_000])(
@@ -775,6 +782,12 @@ it('keeps changing inventory after history on both native provider wires', async
 	const second = script.requests[1]!
 	const third = script.requests[2]!
 	for (const request of [second, third]) {
+		expect(
+			request.messages
+				.filter((m) => m.role === 'system')
+				.map((m) => m.content)
+				.join('\n'),
+		).toContain(CONVERSATION_EVIDENCE_GUIDANCE)
 		const tail = request.messages.at(-1)!
 		expect(tail).toMatchObject({
 			role: 'user',

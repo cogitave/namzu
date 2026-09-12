@@ -191,6 +191,7 @@ import {
 import { modelReasoningView } from '../integrations/providers/model-reasoning.js'
 import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
 import {
+	CONVERSATION_EVIDENCE_GUIDANCE,
 	buildConversationReadTool,
 	buildConversationSearchTool,
 } from '../integrations/sessions/conversation-search.js'
@@ -2486,6 +2487,7 @@ export async function createAgentSession(
 					NAMZU_IDENTITY,
 					NAMZU_WORKING_DOCTRINE,
 					NAMZU_DELEGATION_DOCTRINE,
+					options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 					environmentPrompt,
 					memoryPrompt,
 				]
@@ -2890,6 +2892,7 @@ export async function createAgentSession(
 								NAMZU_IDENTITY,
 								residentContext ? undefined : NAMZU_WORKING_DOCTRINE,
 								residentContext ? undefined : NAMZU_DELEGATION_DOCTRINE,
+								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
 								// Present only while the turn runs under `plan`. A mode change
 								// is rare, so the cached prefix it re-keys is a price paid once

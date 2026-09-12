@@ -19,6 +19,8 @@ import {
 	PROVIDER_REGISTRY,
 	type Preferences,
 } from '../../integrations/providers/index.js'
+import { CONVERSATION_EVIDENCE_GUIDANCE } from '../../integrations/sessions/conversation-search.js'
+import { openSessions, startConversation } from '../../integrations/sessions/store.js'
 import { type AgentEvent, type AgentSessionOptions, createAgentSession } from '../agent.js'
 
 interface Request {
@@ -139,7 +141,20 @@ describe('resident context reaches real CLI sessions', () => {
 		const admitted: ResidentState[] = []
 		const step: ResidentPursuitStep = async ({ state }, signal) => {
 			admitted.push(state)
-			const session = await open({ toolLoading: 'deferred', permissionMode: 'plan' })
+			const sessions = await openSessions(cwd)
+			const sessionId = await startConversation(sessions)
+			const session = await open({
+				toolLoading: 'deferred',
+				permissionMode: 'plan',
+				stateRoot: sessions.root,
+				conversationSessions: sessions,
+				scope: {
+					sessionId,
+					topicId: sessions.topicId,
+					tenantId: sessions.tenantId,
+					projectId: sessions.projectId,
+				},
+			})
 			try {
 				const events: AgentEvent[] = []
 				for await (const event of session.send(
@@ -206,6 +221,7 @@ describe('resident context reaches real CLI sessions', () => {
 		expect(admitted).toHaveLength(2)
 		expect(requests).toHaveLength(4)
 		const prefix = system(requests[0])[0]
+		expect(prefix).toContain(CONVERSATION_EVIDENCE_GUIDANCE)
 		expect(prefix).toContain(OUTPUT)
 		expect(prefix).not.toContain(OBJECTIVE)
 		expect(prefix).not.toContain('CURATED_VERSION_')

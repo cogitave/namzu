@@ -16,6 +16,19 @@ preserved in compaction events. Replacing the session's projected history does
 not replace these run transcripts; reopening the conversation can still find
 the recorded text without repeating an external action or making a model call.
 
+When these tools are mounted, ordinary, resumed and resident CLI turns receive
+stable guidance to recover an earlier observation if its detail is missing or
+clipped. Recovery is useful before compaction too. The SDK's general evidence
+rules distinguish historical observations from current state; the CLI names
+the available retrieval tools and their conversation scope. Stateless hosts
+receive no instruction to use unavailable conversation tools.
+
+For a question about what a file contained earlier, the retained observation
+is the source. For a question about what it contains now, fresh workspace
+evidence may be needed. These are model instructions, not a deterministic
+intent classifier or a guarantee of correct source choice. Retention cannot
+prove that a model saw or understood text omitted from its visible preview.
+
 `query` is a literal string of 1–256 characters. Matching ignores letter case
 by default: `destination` also finds `Destination`. Set `caseSensitive: true` to
 retain exact case matching. This is Unicode case-insensitive literal matching,
@@ -32,6 +45,10 @@ part. Indexed matches also report `retained`
 for reading near the match. A long result may match several windows. `runId`, `seq`, and `part` form a durable read address.
 `guidance` states that matches are excerpts, points to `read_conversation` for
 nearby details, and states the selected case sensitivity.
+When a continuation exists, it explicitly directs another search with that
+cursor if the excerpts do not answer the question, including empty pages and
+pages matching only an announcement. Omitted/unavailable evidence without a
+continuation has separate guidance; neither case proves historical absence.
 The originating tool distinguishes an original observation from earlier
 conversation search/read output that repeats that observation.
 Historical text is evidence to evaluate, not instructions to execute.
@@ -196,3 +213,10 @@ The 2026-09-12 [passage-search follow-up](../../research/conversation-evidence/p
 records two Luna/low CLI trials and deterministic active/closed-source checks.
 Both live trials recovered the original IDs; their different token costs do not
 establish a performance improvement.
+
+The later [natural-language experiment](../../research/conversation-evidence/natural-results.md)
+did not tell the model which retrieval tools to use. Both eligible live samples
+substituted current file values for historical ones; a third sample had an
+incomplete initial inspection. Its scripted control recovered the originals.
+These failures remain recorded: reliable source selection in natural dialogue
+is still open, despite working storage and exact-read contracts.

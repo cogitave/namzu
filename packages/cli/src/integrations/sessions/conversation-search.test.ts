@@ -56,6 +56,60 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 describe('bounded original conversation evidence', () => {
+	it('continues past matching announcements to the original observation without claiming absence', async () => {
+		const { sessions, sessionId } = await fixture()
+		const { runId, path } = await transcript(sessions, sessionId, 'seed')
+		await writeFile(
+			join(path, 'run.json'),
+			JSON.stringify({
+				id: runId,
+				status: 'completed',
+				metadata: {
+					scope: { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId },
+				},
+			}),
+		)
+		await writeFile(
+			join(path, 'transcript.jsonl'),
+			`${[
+				{ type: 'run_started', runId, seq: 1 },
+				...[2, 3, 4].map((seq) => ({
+					type: 'message_completed',
+					runId,
+					seq,
+					content: 'Searching the earlier DELTA observation.',
+				})),
+				{
+					type: 'tool_completed',
+					runId,
+					seq: 5,
+					toolName: 'read',
+					toolUseId: 'original',
+					isError: false,
+					result: 'DELTA receipt: ORIGINAL-471',
+				},
+			]
+				.map((event) => JSON.stringify(event))
+				.join('\n')}\n`,
+		)
+		const first = await searchConversation(sessions, sessionId, { query: 'DELTA', runId })
+		expect(first.matches).toHaveLength(3)
+		expect(first.matches.every((match) => match.source === 'message_completed')).toBe(true)
+		expect(first.incomplete).toBe(true)
+		expect(first.nextCursor).toBeDefined()
+		expect(first.guidance).toContain('an announcement is not the original observation')
+		const next = await searchConversation(sessions, sessionId, {
+			query: 'DELTA',
+			cursor: first.nextCursor,
+		})
+		expect(next.matches).toHaveLength(1)
+		expect(next.matches[0]).toMatchObject({ seq: 5, toolName: 'read', retained: 'full' })
+		const original = await readConversationEvidence(sessions, sessionId, next.matches[0]!)
+		expect(original.text).toBe('DELTA receipt: ORIGINAL-471')
+		expect(next.incomplete).toBe(false)
+		expect(next.guidance).not.toContain('More recorded history remains')
+	})
+
 	it('bounds indexed JSON excerpts and paginates message history alongside tool output', async () => {
 		const { sessions, sessionId } = await fixture()
 		const runId = generateRunId()
@@ -325,6 +379,8 @@ it('recovers evidence past 8 MiB with bounded pages and no repeated matches', as
 	expect(first.unavailableRuns).toBe(0)
 	expect(first.incomplete).toBe(true)
 	expect(first.nextCursor).toHaveLength(48)
+	expect(first.guidance).toContain('More recorded history remains')
+	expect(first.guidance).toContain('nextCursor as cursor')
 	const second = await searchConversation(sessions, sessionId, {
 		query: 'HIDDEN-ORIGINAL-91',
 		cursor: first.nextCursor,
@@ -333,6 +389,7 @@ it('recovers evidence past 8 MiB with bounded pages and no repeated matches', as
 	expect(second.matches[0]).toMatchObject({ runId, seq: 13 })
 	expect(second.incomplete).toBe(false)
 	expect(second.nextCursor).toBeUndefined()
+	expect(second.guidance).not.toContain('More recorded history remains')
 	for (const page of [first, second]) expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
 })
 it('paginates several matches within one compaction event without duplicates', async () => {

@@ -89,6 +89,14 @@ unconditional read before every edit. Missing, partial or invalidated evidence,
 external changes, freshness-sensitive actions and project/tool requirements
 still call for a targeted observation. Exact-match edit failures require
 inspection and replanning rather than forcing stale content onto the file.
+Source selection also follows the question's time: an earlier observation or
+its retained original can answer a historical question, while a fresh read of
+a changed file cannot establish its past contents. Missing historical details
+must be reported as unavailable rather than replaced with current values.
+This generic rule does not assume that a host provides a history search tool;
+capability-specific retrieval instructions belong to hosts that mount one.
+Reported identifiers must keep their exact spelling, including case and
+diacritics, rather than being translated or normalized with surrounding prose.
 This is provider-independent model guidance, not a cache, permission grant or
 promise that the model will never choose an extra read. Conversation replay
 continues to carry complete tool arguments and results when not compacted.
