@@ -47,6 +47,7 @@ export interface ToolingBootstrapConfig {
 	maxToolCalls?: number
 	readToolCallBudgetEvents?: () => Promise<readonly RunEvent[]>
 	maxToolOutputChars?: number
+	retainedToolPreviewChars?: number
 	maxToolContentBytes?: number
 	captureRunEvidence?: import('../../types/tool/index.js').ToolContext['captureRunEvidence']
 	toolOutputDir?: string | (() => string | undefined)
@@ -99,6 +100,9 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.maxToolOutputChars !== undefined
 					? { maxToolOutputChars: config.maxToolOutputChars }
+					: {}),
+				...(config.retainedToolPreviewChars !== undefined
+					? { retainedToolPreviewChars: config.retainedToolPreviewChars }
 					: {}),
 				...(config.maxToolContentBytes !== undefined
 					? { maxToolContentBytes: config.maxToolContentBytes }

@@ -2,6 +2,7 @@ import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { z } from 'zod'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../provider/mock.js'
@@ -87,6 +88,45 @@ describe('agent front doors preserve the request rich-content budget', () => {
 		await agent.run({ messages: [prompt()], workingDirectory }, config)
 
 		expectProjected(provider)
+	})
+
+	it('ReactiveAgent retains oversized text before sending the smaller configured preview', async () => {
+		const output = 'original evidence '.repeat(5000)
+		const tools = new ToolRegistry()
+		tools.register({
+			name: 'observe',
+			description: 'Return test evidence',
+			inputSchema: z.object({}),
+			isReadOnly: () => true,
+			execute: async () => ({ success: true, output }),
+		})
+		const provider = new MockLLMProvider({
+			turns: [{ toolCalls: [{ id: 'evidence', name: 'observe', args: {} }] }, { text: 'done' }],
+		})
+		const agent = new ReactiveAgent({
+			id: 'retained-preview',
+			name: 'Retained Preview',
+			version: '1',
+			category: 'test',
+			description: 'Preview reachability',
+		})
+		await agent.run(
+			{ messages: [createUserMessage('Inspect once')], workingDirectory: await directory() },
+			{
+				provider,
+				tools,
+				model: 'mock-model',
+				tokenBudget: 100_000,
+				timeoutMs: 5_000,
+				maxIterations: 3,
+				retainedToolPreviewChars: 4_000,
+				...scope,
+			},
+		)
+		const message = provider.requests[1]?.messages.find((m) => m.role === 'tool')
+		expect(typeof message?.content).toBe('string')
+		expect(message!.content!.length).toBeLessThanOrEqual(4_000)
+		expect(message!.content).toContain('The full output was written to:')
 	})
 
 	it('SupervisorAgent forwards it into the query run config', async () => {

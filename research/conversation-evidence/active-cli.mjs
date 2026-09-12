@@ -18,6 +18,9 @@ if (process.argv[2] === '--prepare') {
   console.log(sessionId);
 } else {
   const live = process.argv.includes('--live');
+  const previewArg = process.argv.find(arg=>arg.startsWith('--preview-chars='));
+  const previewChars = previewArg ? Number(previewArg.slice('--preview-chars='.length)) : undefined;
+  if(previewChars !== undefined) assert.ok(Number.isSafeInteger(previewChars) && previewChars >= 0);
   const root = await mkdtemp(join(tmpdir(), 'namzu-active-evidence-cli-'));
   const home = join(root, 'home'); const cwd = join(root, 'workspace');
   await mkdir(home); await mkdir(cwd);
@@ -27,10 +30,10 @@ if (process.argv[2] === '--prepare') {
     : i === 213 ? `Destination of DELTA: ${destination}.`
     : `Inspection row ${i}: ${'α🦉 packaging unchanged; '.repeat(30)}`).join('\n'));
   await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'codex', model: 'gpt-5.6-luna' }], subagents: { active: [] } }));
-  await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n');
+  await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + (previewChars === undefined ? '' : `compaction:\n  retainedToolPreviewChars: ${previewChars}\n`));
   const env = { ...process.env, NAMZU_HOME: home };
   const exec = promisify(execFile);
-  const report = { root, live, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', tracking, destination };
+  const report = { root, live, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', tracking, destination, ...(previewChars === undefined ? {} : {previewChars}) };
   try {
     const prepared = await exec(process.execPath, [fileURLToPath(import.meta.url), '--prepare', cwd], { cwd, env, timeout: 30_000, maxBuffer: 1_000_000 });
     const sessionId = prepared.stdout.trim(); report.sessionId = sessionId;
@@ -85,7 +88,7 @@ ProviderRegistry.create = (...args) => {
     const first = completed.find(e=>e.toolName==='read');
     assert.ok(first.outputTruncated && first.outputSpillIntegrity);
     assert.ok(!first.result.includes(tracking) && !first.result.includes(destination));
-    report.outputs = completed.map(e=>({name:e.toolName,isError:e.isError,...(e.toolName==='read'?{truncated:e.outputTruncated}:{result:e.result})}));
+    report.outputs = completed.map(e=>({name:e.toolName,isError:e.isError,...(e.toolName==='read'?{truncated:e.outputTruncated,previewChars:e.result.length,originalChars:e.outputLength}:{result:e.result})}));
     // User outcome and requested workflow are separate observations. The original
     // assertions below still require an exact read, even if both IDs appear in search excerpts.
     report.observations = {
@@ -108,7 +111,7 @@ ProviderRegistry.create = (...args) => {
   } catch(error) { report.passed=false;report.error=error instanceof Error?error.message:String(error);process.exitCode=1; }
   finally {
     report.fingerprints = {};
-    for(const path of ['packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/types/run/prepare-step.ts','packages/sdk/src/types/message/index.ts','packages/cli/src/integrations/sessions/context-inventory.ts','packages/sdk/src/store/evidence/passages.ts','packages/sdk/src/store/evidence/disk.ts','packages/sdk/src/store/evidence/types.ts','packages/sdk/src/store/evidence/linked.ts','packages/sdk/src/store/evidence/source-text.ts','packages/sdk/src/store/evidence/record-chain.ts','packages/sdk/src/store/run/disk.ts','packages/sdk/src/runtime/query/events.ts','packages/sdk/src/runtime/query/index.ts','packages/cli/src/integrations/sessions/conversation-search.ts','research/conversation-evidence/active-cli.mjs'])
+    for(const path of ['packages/sdk/src/runtime/query/tool-output-budget.ts','packages/sdk/src/runtime/query/executor.ts','packages/cli/src/tui/agent.ts','packages/cli/src/config/load.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/types/run/prepare-step.ts','packages/sdk/src/types/message/index.ts','packages/cli/src/integrations/sessions/context-inventory.ts','packages/sdk/src/store/evidence/passages.ts','packages/sdk/src/store/evidence/disk.ts','packages/sdk/src/store/evidence/types.ts','packages/sdk/src/store/evidence/linked.ts','packages/sdk/src/store/evidence/source-text.ts','packages/sdk/src/store/evidence/record-chain.ts','packages/sdk/src/store/run/disk.ts','packages/sdk/src/runtime/query/events.ts','packages/sdk/src/runtime/query/index.ts','packages/cli/src/integrations/sessions/conversation-search.ts','research/conversation-evidence/active-cli.mjs'])
       report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
     await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify({root,live,passed:report.passed,calls:report.calls,usage:report.result?.usage,error:report.error}));

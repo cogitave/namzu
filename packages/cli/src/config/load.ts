@@ -548,6 +548,7 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as {
 			strategy?: unknown
+			retainedToolPreviewChars?: unknown
 			deduplicateObservations?: unknown
 			contextWindowTokens?: unknown
 			consolidate?: unknown
@@ -557,6 +558,7 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'strategy' &&
 				key !== 'contextWindowTokens' &&
 				key !== 'consolidate' &&
+				key !== 'retainedToolPreviewChars' &&
 				key !== 'deduplicateObservations'
 			) {
 				return invalidConfigValue(context, [key], 'is not a compaction key')
@@ -570,6 +572,18 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
 			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
+		}
+		if (
+			raw.retainedToolPreviewChars !== undefined &&
+			(typeof raw.retainedToolPreviewChars !== 'number' ||
+				!Number.isSafeInteger(raw.retainedToolPreviewChars) ||
+				raw.retainedToolPreviewChars < 0)
+		) {
+			return invalidConfigValue(
+				context,
+				['retainedToolPreviewChars'],
+				'must be a nonnegative safe integer',
+			)
 		}
 		if (
 			raw.strategy !== undefined &&
@@ -592,6 +606,9 @@ const CONFIG_READERS: ConfigReaders = {
 				? { contextWindowTokens: raw.contextWindowTokens }
 				: {}),
 			...(raw.consolidate !== undefined ? { consolidate: raw.consolidate } : {}),
+			...(raw.retainedToolPreviewChars !== undefined
+				? { retainedToolPreviewChars: raw.retainedToolPreviewChars }
+				: {}),
 			...(raw.deduplicateObservations !== undefined
 				? { deduplicateObservations: raw.deduplicateObservations }
 				: {}),

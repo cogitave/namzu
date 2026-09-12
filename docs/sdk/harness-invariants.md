@@ -36,6 +36,34 @@ binds paged reads to those retained bytes. Invocation metadata records its own
 owner scope. The [retained tool evidence source](retained-tool-evidence.md) uses
 these records for bounded recovery across explicitly authorized settled runs.
 
+`QueryParams.retainedToolPreviewChars` optionally separates the spill threshold
+from the size of its retained preview. It is also accepted by `resumeRun` and
+`ReactiveAgentConfig`. The ordinary `maxToolOutputChars` cap (default 40,000)
+still decides whether text overflows; results below it pass through unchanged.
+After the full host output and its integrity manifest are saved, a positive
+preview setting can reduce the head/tail text carried on subsequent requests.
+The preview includes omission and recovery lines, counts UTF-16 code units,
+and does not split surrogate pairs. Zero or an omitted setting keeps the
+ordinary preview size. Disabling the ordinary cap with zero disables spilling
+and this preview reduction as well.
+
+Hosts enabling this option must expose an authorized way to read retained
+text; saving a spill does not itself register a retrieval tool.
+
+A missing store, failed spill or failed manifest preserves the ordinary
+preview budget. A requested preview too small to contain its spill pointer
+also falls back to that budget. This is retention-time policy, not later
+eviction: it does not rewrite previously recorded output or infer what the
+model has understood. Re-supply it when resuming a run. It applies to direct
+and nested tool host output after the existing output-selection rules.
+
+When model text equals host text, it reuses the bounded host preview; adjacent
+rich blocks remain intact subject to their independent cap. Separately
+provided model text, including a new rich-omission notice, keeps the ordinary
+text budget and its separate spill. Its bytes are not substituted with host
+text. The shorter authenticated preview does not guarantee that a model will
+choose the right recovery query or use fewer total tokens.
+
 See [Bounded file discovery](file-discovery.md) for glob semantics, sandbox
 enumeration and adapter requirements.
 

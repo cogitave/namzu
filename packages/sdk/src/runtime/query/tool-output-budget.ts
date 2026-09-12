@@ -158,6 +158,8 @@ export interface ApplyToolOutputBudgetOptions {
 	readonly toolUseId: string
 	readonly output: string
 	readonly maxChars: number
+	/** Smaller preview only after the full output and its integrity manifest are saved. */
+	readonly retainedPreviewChars?: number
 	/** An omission notice that shares the text budget, never extends it. */
 	readonly notice?: string
 	/**
@@ -212,9 +214,24 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 				'Read a specific window with `read` (offset/limit) or search it with `grep`. Do NOT read it whole — that is what exceeded the budget.',
 			].join('\n')
 		: 'The full output was not retained. Use a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.'
+	const requestedPreview = opts.retainedPreviewChars
+	// Separate the spill threshold from the cost of carrying its preview on every
+	// later request. Failed retention must not silently discard additional text.
+	// A small configured preview still needs room for the durable recovery path.
+	const previewLimit =
+		retained?.integrity &&
+		requestedPreview !== undefined &&
+		Number.isFinite(requestedPreview) &&
+		requestedPreview > 0
+			? Math.min(limit as number, Math.floor(requestedPreview))
+			: (limit as number)
+	const previewTextBudget = Math.max(0, previewLimit - notice.length - (notice && output ? 2 : 0))
+	const minimumRecoveryChars = `\n[... omitted ...]\n${SPILL_MARKER} ${spillPath}\n`.length
+	const effectiveTextBudget =
+		previewTextBudget > minimumRecoveryChars ? previewTextBudget : textBudget
 
 	return {
-		output: withNotice(boundedPreview(output, textBudget, opts.toolName, recovery)),
+		output: withNotice(boundedPreview(output, effectiveTextBudget, opts.toolName, recovery)),
 		originalLength,
 		truncated: true,
 		...(spillPath ? { spillPath } : {}),

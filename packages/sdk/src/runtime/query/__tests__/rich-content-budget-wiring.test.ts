@@ -50,6 +50,7 @@ function bootstrapReturning(
 	maxToolContentBytes?: number,
 	maxToolOutputChars?: number,
 	toolOutputDir?: string,
+	retainedToolPreviewChars?: number,
 ) {
 	const tools = {
 		get: vi.fn(() => ({
@@ -70,6 +71,7 @@ function bootstrapReturning(
 		{
 			tools,
 			...(maxToolOutputChars !== undefined ? { maxToolOutputChars } : {}),
+			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
 			runId: RUN_ID,
 			workingDirectory: '/tmp',
 			permissionMode: 'auto',
@@ -98,6 +100,40 @@ function oversizedImage(): ToolResult {
 
 describe('the rich-content budget is reachable from the bootstrap config', () => {
 	const tempDirs: string[] = []
+	it.each([false, true])(
+		'preserves rich and distinct model evidence with a compact host preview (distinct=%s)',
+		async (distinct) => {
+			const dir = mkdtempSync(join(tmpdir(), 'namzu-preview-wire-'))
+			tempDirs.push(dir)
+			const output = 'HOST-EVIDENCE '.repeat(5000)
+			const text = distinct ? 'MODEL-EVIDENCE '.repeat(5000) : output
+			const image = { type: 'image' as const, mediaType: 'image/png', data: 'AAAA' }
+			const exec = bootstrapReturning(
+				{ success: true, output, content: [{ type: 'text', text }, image] },
+				undefined,
+				40_000,
+				dir,
+				4_000,
+			)
+			const batch = await exec.executeBatch(response())
+			expect(batch.results[0]!.output.length).toBeLessThanOrEqual(4_000)
+			const content = batch.messages[0]!.content
+			if (!Array.isArray(content)) throw new Error('Expected rich content')
+			expect(content).toContainEqual(image)
+			const modelText = content
+				.filter((b) => b.type === 'text')
+				.map((b) => b.text)
+				.join('')
+			expect(modelText.length).toBeLessThanOrEqual(distinct ? 40_000 : 4_000)
+			if (distinct) {
+				expect(modelText.length).toBeGreaterThan(4_000)
+				expect(modelText).toContain('MODEL-EVIDENCE')
+				expect(modelText).not.toContain('HOST-EVIDENCE')
+			}
+			const hostPath = readdirSync(dir).find((p) => p.endsWith('.txt'))!
+			expect(readFileSync(join(dir, hostPath), 'utf8')).toBe(output)
+		},
+	)
 	afterEach(() => {
 		for (const dir of tempDirs.splice(0)) removeTempDir(dir)
 	})

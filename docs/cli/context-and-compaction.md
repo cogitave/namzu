@@ -23,6 +23,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `strategy` | `salience` (the default), the scored working set described in [The salience-scored working set](../sdk/salience-working-set.md), or `structured`, the previous behaviour: positional retention and a pass only at the trigger. |
 | `contextWindowTokens` | The window the kernel measures fullness against, when the model's table entry is wrong or a project wants compaction earlier. Absent, the kernel resolves it from the model. |
 | `deduplicateObservations` | Enabled by default. Repeated identical read-only text observations share one full result in each model request. Set `false` to preserve the previous representation. Tool execution and canonical history are unchanged; see the [SDK policy and limits](../sdk/salience-working-set.md#exact-repeated-observations-in-the-active-request). |
+| `retainedToolPreviewChars` | Nonnegative safe integer; default 4,000 in recorded conversations. Limits the preview of overflow text only after full text and its integrity manifest are saved. Set `0` to keep the previous 40,000-character preview budget. The spill threshold, smaller results and independently supplied model text are unchanged. |
 | `consolidate` | `true` selects one consolidated `learning` entry per run instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 
 The CLI uses one of these writers per run, including resumed runs. Retrieval is
@@ -31,6 +32,15 @@ separate: [structured memory](../sdk/memory.md) describes the records and tools;
 explicit memory tools and the selected writer.
 
 A strategy is a property of a project's runs, which is why the key is file-only, like `hooks`.
+
+The retained-preview policy applies to new output in ordinary recorded turns
+and resumed runs, including nested tool receipts. It does not rewrite older
+history. Stateless sessions and delegated workers keep their previous defaults.
+Failed retention or an undersized recovery-pointer allowance preserves the
+ordinary budget. Exact originals remain available through
+[conversation evidence search](conversation-evidence.md); see the
+[SDK retention contract](../sdk/harness-invariants.md) for text/rich-channel
+boundaries. A short preview is an excerpt, not the complete output.
 
 # `/context`
 

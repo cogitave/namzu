@@ -615,13 +615,14 @@ describe('compaction', () => {
 		mkdirSync(join(home, '.namzu'), { recursive: true })
 		writeFileSync(
 			join(home, '.namzu', 'config.yaml'),
-			'compaction:\n  strategy: salience\n  contextWindowTokens: 20000\n  consolidate: true\n  deduplicateObservations: false\n',
+			'compaction:\n  strategy: salience\n  contextWindowTokens: 20000\n  consolidate: true\n  deduplicateObservations: false\n  retainedToolPreviewChars: 0\n',
 		)
 		expect(loadConfig({ home, cwd: tmpdir(), env: {} }).compaction).toEqual({
 			strategy: 'salience',
 			contextWindowTokens: 20000,
 			consolidate: true,
 			deduplicateObservations: false,
+			retainedToolPreviewChars: 0,
 		})
 
 		for (const [bad, path] of [
@@ -630,6 +631,9 @@ describe('compaction', () => {
 			['compaction:\n  softTarget: 0.5\n', 'compaction.softTarget'],
 			['compaction:\n  consolidate: yes please\n', 'compaction.consolidate'],
 			['compaction:\n  deduplicateObservations: maybe\n', 'compaction.deduplicateObservations'],
+			['compaction:\n  retainedToolPreviewChars: -1\n', 'compaction.retainedToolPreviewChars'],
+			['compaction:\n  retainedToolPreviewChars: 1.5\n', 'compaction.retainedToolPreviewChars'],
+			['compaction:\n  retainedToolPreviewChars: nope\n', 'compaction.retainedToolPreviewChars'],
 		]) {
 			writeFileSync(join(home, '.namzu', 'config.yaml'), bad)
 			expect(() => loadConfig({ home, cwd: tmpdir(), env: {} }), bad).toThrow(path)

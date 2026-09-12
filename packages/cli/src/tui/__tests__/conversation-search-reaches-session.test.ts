@@ -443,6 +443,57 @@ it('does not offer conversation search without host-owned conversation storage',
 	).toBe(false)
 })
 
+it.each([undefined, 0, 2_000])(
+	'applies retained preview %s through the real CLI and can recover omitted text',
+	async (configured) => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-retained-preview-'))
+		roots.push(cwd)
+		const code = `ORIGINAL-${randomUUID()}`
+		const text = `${'packing '.repeat(8000)}${code}\n${'padding '.repeat(8000)}`
+		await writeFile(join(cwd, 'manifest.txt'), text)
+		const sessions = await openSessions(cwd)
+		const sessionId = await startConversation(sessions)
+		const provider = new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ id: 'read-once', name: 'read', args: { path: 'manifest.txt' } }] },
+				{ text: 'Read complete.' },
+			],
+		})
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			stateRoot: sessions.root,
+			conversationSessions: sessions,
+			scope: {
+				sessionId,
+				topicId: sessions.topicId,
+				tenantId: sessions.tenantId,
+				projectId: sessions.projectId,
+			},
+			sandbox: { enabled: false },
+			memory: { recall: false },
+			...(configured !== undefined ? { compaction: { retainedToolPreviewChars: configured } } : {}),
+		})
+		opened.push(session)
+		const runId = generateRunId()
+		await send(session, runId)
+		const output = provider.requests[1]!.messages.find(
+			(m) => m.role === 'tool' && m.toolCallId === 'read-once',
+		)!
+		expect(typeof output.content).toBe('string')
+		expect(output.content!.length).toBeLessThanOrEqual((configured ?? 4_000) || 40_000)
+		expect(output.content!.length).toBeGreaterThan(((configured ?? 4_000) || 40_000) - 1000)
+		expect(output.content).not.toContain(code)
+		await writeFile(join(cwd, 'manifest.txt'), 'Externally replaced')
+		const search = await searchConversation(sessions, sessionId, { query: code, runId })
+		const match = search.matches[0]!
+		expect(match.retained).toBe('full')
+		const recovered = await readConversationEvidence(sessions, sessionId, match)
+		expect(recovered.text).toContain(code)
+		expect(await readFile(join(cwd, 'manifest.txt'), 'utf8')).toBe('Externally replaced')
+	},
+)
+
 it('projects the task created by the actual run tools into the next provider request only', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-task-context-session-'))
 	roots.push(cwd)

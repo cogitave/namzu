@@ -31,6 +31,79 @@ describe('applyToolOutputBudget', () => {
 
 	const base = { toolName: 'read', toolUseId: 'call_1' }
 
+	it('separates authenticated preview size from the spill threshold', () => {
+		const output = `HEAD-${'🦉 evidence '.repeat(5000)}-TAIL`
+		const out = applyToolOutputBudget({
+			...base,
+			output,
+			maxChars: 40_000,
+			retainedPreviewChars: 4_000,
+			spillDir: dir,
+		})
+		expect(out.output.length).toBeLessThanOrEqual(4_000)
+		expect(out.output).toContain('HEAD-')
+		expect(out.output).toContain('-TAIL')
+		expect(out.output).not.toContain('\uFFFD')
+		expect(out.spillIntegrity).toBeDefined()
+		expect(readFileSync(out.spillPath!, 'utf8')).toBe(output)
+		expect(out.output).toContain(out.spillPath!)
+		const ordinary = applyToolOutputBudget({
+			...base,
+			output: output.slice(0, 10_000),
+			maxChars: 40_000,
+			retainedPreviewChars: 4_000,
+		})
+		expect(ordinary.output).toBe(output.slice(0, 10_000))
+		expect(ordinary.truncated).toBe(false)
+	})
+
+	it.each(['missing-store', 'failed-manifest'] as const)(
+		'keeps the ordinary preview when retention is %s',
+		(failure) => {
+			if (failure === 'failed-manifest') {
+				const name = createHash('sha256').update(base.toolUseId).digest('hex')
+				mkdirSync(join(dir, `${name}.txt.manifest.json`))
+			}
+			const out = applyToolOutputBudget({
+				...base,
+				output: 'x'.repeat(60_000),
+				maxChars: 40_000,
+				retainedPreviewChars: 4_000,
+				...(failure === 'failed-manifest' ? { spillDir: dir } : {}),
+			})
+			expect(out.spillIntegrity).toBeUndefined()
+			expect(out.output.length).toBe(40_000)
+		},
+	)
+
+	it.each([undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY, 20, 80_000])(
+		'does not narrow for an unusable or nonrestrictive preview %s',
+		(retainedPreviewChars) => {
+			const out = applyToolOutputBudget({
+				...base,
+				output: 'x'.repeat(60_000),
+				maxChars: 40_000,
+				retainedPreviewChars,
+				spillDir: dir,
+			})
+			expect(out.output.length).toBe(40_000)
+			expect(out.output).toContain(out.spillPath!)
+		},
+	)
+
+	it('keeps the overall budget disabled when maxChars is zero', () => {
+		const output = 'x'.repeat(60_000)
+		const out = applyToolOutputBudget({
+			...base,
+			output,
+			maxChars: 0,
+			retainedPreviewChars: 4_000,
+			spillDir: dir,
+		})
+		expect(out.output).toBe(output)
+		expect(out.spillPath).toBeUndefined()
+	})
+
 	it('passes an under-budget result through untouched', () => {
 		const out = applyToolOutputBudget({ ...base, output: 'small', maxChars: 100 })
 		expect(out.output).toBe('small')

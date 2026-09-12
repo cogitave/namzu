@@ -96,6 +96,14 @@ Without a retained authenticated original, a recorded tool preview stays a
 preview. Its truncation marker makes search incomplete even for a negative
 query. Neither source establishes that a historical claim is still true today.
 
+New oversized host output in recorded CLI turns uses a 4,000-character preview
+after its full text and integrity manifest are saved. The original spill
+threshold remains 40,000 characters; smaller results are unchanged. This limits
+repeated preview cost without removing the exact source searched here. Set
+[`compaction.retainedToolPreviewChars: 0`](context-and-compaction.md) to keep
+the earlier preview size. Existing transcripts are not rewritten, and failed
+retention falls back to the ordinary output budget.
+
 ## Exact retained text
 
 `read_conversation({ runId, seq, part?, byteOffset? })` returns exact retained text rather

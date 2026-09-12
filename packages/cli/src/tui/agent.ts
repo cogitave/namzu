@@ -2533,6 +2533,9 @@ export async function createAgentSession(
 						: {}),
 					authorizationGate: gateFor(options.rules),
 					compactionConfig: compactionConfigFor(options.compaction),
+					retainedToolPreviewChars: options.conversationSessions
+						? (options.compaction?.retainedToolPreviewChars ?? 4_000)
+						: undefined,
 					prepareStep: [
 						createTaskContextStep(runTaskStore, entry.tenantId),
 						createDelegationHistoryStep(projectStateRoot, entry.sessionId),
@@ -2936,6 +2939,9 @@ export async function createAgentSession(
 								provider: providerForSession(turnScope.sessionId),
 								fileReadTracker: observationsFor(turnScope.sessionId),
 								compactionConfig: compactionConfigFor(options.compaction),
+								retainedToolPreviewChars: options.conversationSessions
+									? (options.compaction?.retainedToolPreviewChars ?? 4_000)
+									: undefined,
 								...(options.compaction?.consolidate ? { consolidateInto: memoryStore } : {}),
 								...(jobRegistry
 									? {
@@ -3567,6 +3573,7 @@ function compactionConfigFor(compaction: CompactionCliConfig | undefined): Compa
  * to each other with nothing but call order to keep them apart.
  */
 interface RunTurnParams {
+	readonly retainedToolPreviewChars?: number
 	readonly provider: LLMProvider
 	/** The kernel's compaction configuration for this session, strategy included. */
 	readonly compactionConfig: CompactionConfig
@@ -3639,6 +3646,7 @@ interface RunTurnParams {
 }
 
 async function* runTurn({
+	retainedToolPreviewChars,
 	fileReadTracker,
 	provider,
 	compactionConfig,
@@ -3687,6 +3695,7 @@ async function* runTurn({
 	const presenter = createToolPresenter(tools)
 	try {
 		const events = query({
+			...(retainedToolPreviewChars !== undefined ? { retainedToolPreviewChars } : {}),
 			...(fileReadTracker ? { fileReadTracker } : {}),
 			...(structuredOutput ? { structuredOutput } : {}),
 			provider,

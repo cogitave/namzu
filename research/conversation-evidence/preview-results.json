@@ -1,0 +1,652 @@
+{
+  "date": "2026-09-12",
+  "baseCommit": "e63ca83b",
+  "environment": "Linux/WSL, Node 24.19.0",
+  "protocol": "active-cli.mjs unchanged outcome assertions; default preview and --preview-chars=0; one declared live sample per condition with gpt-5.6-luna/low, 8 model-call and 65000-token admission bounds",
+  "reference": {
+    "repo": "https://github.com/pydantic/pydantic-ai-harness",
+    "revision": "c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504",
+    "files": [
+      "pydantic_ai_harness/tool_output_limits/_bands.py",
+      "pydantic_ai_harness/tool_output_limits/_capability.py"
+    ],
+    "observation": "Spill threshold is separate from bounded preview; failed actions have explicit fallbacks. Namzu selects a 4000-character retained preview, not the reference 1000-character default."
+  },
+  "samples": [
+    {
+      "label": "offline-default",
+      "root": "/tmp/namzu-active-evidence-cli-4idXZG",
+      "live": false,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "f13c3c9c-0d12-484c-bfb3-261d4f9d3bb1",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "requestShapes": [
+        {
+          "request": 1,
+          "systemChars": 10651,
+          "systemDigest": "b6cf2e41242db501bcda0cec59c7fbd7c0d61bf935df22f67001576b61a5ab5f",
+          "portableInputChars": 489,
+          "commonPortablePrefixChars": 0,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 2,
+          "systemChars": 10651,
+          "systemDigest": "b6cf2e41242db501bcda0cec59c7fbd7c0d61bf935df22f67001576b61a5ab5f",
+          "portableInputChars": 4671,
+          "commonPortablePrefixChars": 489,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 3,
+          "systemChars": 10651,
+          "systemDigest": "b6cf2e41242db501bcda0cec59c7fbd7c0d61bf935df22f67001576b61a5ab5f",
+          "portableInputChars": 6655,
+          "commonPortablePrefixChars": 4671,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 4,
+          "systemChars": 10651,
+          "systemDigest": "b6cf2e41242db501bcda0cec59c7fbd7c0d61bf935df22f67001576b61a5ab5f",
+          "portableInputChars": 13229,
+          "commonPortablePrefixChars": 6655,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        }
+      ],
+      "requestUsage": [
+        {
+          "iteration": 1,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 2,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 3,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 4,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "observations": {
+        "bothIdentifiersRecovered": true,
+        "originalReadCalls": 1,
+        "searches": 1,
+        "exactReads": 1,
+        "failedTools": 0,
+        "workspaceStillReplaced": true
+      },
+      "fingerprints": {
+        "packages/sdk/src/runtime/query/tool-output-budget.ts": "eb60a59edceff27fdc16365c2b7ec1734c105a58f97cf5eba7dd12d3b325544c",
+        "packages/sdk/src/runtime/query/executor.ts": "8313785427a53b7cbd0805f0f6e364068b0ba65cd9408b392f69713eb7d5283f",
+        "packages/cli/src/tui/agent.ts": "f18489bd0c6ee15caee8f11c09f71e4c3f4fb14d88d86026e87ee88225513506",
+        "packages/cli/src/config/load.ts": "1492de2177be94c383700100f79d15457915707ec35958c0541530214f1680a2",
+        "packages/sdk/src/runtime/query/iteration/index.ts": "d04e850e62f153485f951ebe0e07bb5d352c73b78e29ed77dfd0b2b990e58c82",
+        "packages/sdk/src/types/run/prepare-step.ts": "1d34c5932e6c9a6a022bf33e99eeb42a97183f49393c8e35ebed6465285c36f2",
+        "packages/sdk/src/types/message/index.ts": "8498f1b925e68f8b161c62bb8f2bb7e58162f5f34ffbb9ddfabbc72ae8fb3062",
+        "packages/cli/src/integrations/sessions/context-inventory.ts": "9cf80e2f16ae333cf1ea881b09252118c6445de2d20e3cf3ab6e3fc5778a7dee",
+        "packages/sdk/src/store/evidence/passages.ts": "2743f3edd0ccc28b389bc347ceb160c1a51c7a2e09fa616ef0a07216d7b1c0b5",
+        "packages/sdk/src/store/evidence/disk.ts": "96444d9901ef942821c6e67af15400ef57b26d0524e87cededb2cf5950643932",
+        "packages/sdk/src/store/evidence/types.ts": "bbf06ed0fc62ff8e0c53a7360c58cf7d4ec348571170ca1df8b53cee653cef4b",
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "000cc74a3adcf55325c0a913b9cb84bf478b572592a55d54638fe306f1afe5fa",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "8fcfe1baf434a5d0e00b044eebf660504b55e4809ba1220481f52e48674a550f"
+      },
+      "previewCharsSetting": "CLI default (4000)",
+      "sourceOutput": {
+        "name": "read",
+        "isError": false,
+        "truncated": true,
+        "previewChars": 4000,
+        "originalChars": 308383
+      },
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "totals": {
+        "portableInputChars": 25044,
+        "promptTokens": 0,
+        "cachedTokens": 0
+      }
+    },
+    {
+      "label": "offline-previous-preview",
+      "root": "/tmp/namzu-active-evidence-cli-lRrpiU",
+      "live": false,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "5e38329e-0a92-45fc-a3a5-efd7055cb082",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "requestShapes": [
+        {
+          "request": 1,
+          "systemChars": 10651,
+          "systemDigest": "ba6994314cb024cbd3e34eb8c59c1096bc41fcdd6ddcb24ec2592c5586676b45",
+          "portableInputChars": 489,
+          "commonPortablePrefixChars": 0,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 2,
+          "systemChars": 10651,
+          "systemDigest": "ba6994314cb024cbd3e34eb8c59c1096bc41fcdd6ddcb24ec2592c5586676b45",
+          "portableInputChars": 41417,
+          "commonPortablePrefixChars": 489,
+          "stepContextCount": 1,
+          "stepContextChars": 612
+        },
+        {
+          "request": 3,
+          "systemChars": 10651,
+          "systemDigest": "ba6994314cb024cbd3e34eb8c59c1096bc41fcdd6ddcb24ec2592c5586676b45",
+          "portableInputChars": 43463,
+          "commonPortablePrefixChars": 40766,
+          "stepContextCount": 1,
+          "stepContextChars": 666
+        },
+        {
+          "request": 4,
+          "systemChars": 10651,
+          "systemDigest": "ba6994314cb024cbd3e34eb8c59c1096bc41fcdd6ddcb24ec2592c5586676b45",
+          "portableInputChars": 50100,
+          "commonPortablePrefixChars": 42750,
+          "stepContextCount": 1,
+          "stepContextChars": 721
+        }
+      ],
+      "requestUsage": [
+        {
+          "iteration": 1,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 2,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 3,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 4,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "observations": {
+        "bothIdentifiersRecovered": true,
+        "originalReadCalls": 1,
+        "searches": 1,
+        "exactReads": 1,
+        "failedTools": 0,
+        "workspaceStillReplaced": true
+      },
+      "fingerprints": {
+        "packages/sdk/src/runtime/query/tool-output-budget.ts": "eb60a59edceff27fdc16365c2b7ec1734c105a58f97cf5eba7dd12d3b325544c",
+        "packages/sdk/src/runtime/query/executor.ts": "8313785427a53b7cbd0805f0f6e364068b0ba65cd9408b392f69713eb7d5283f",
+        "packages/cli/src/tui/agent.ts": "f18489bd0c6ee15caee8f11c09f71e4c3f4fb14d88d86026e87ee88225513506",
+        "packages/cli/src/config/load.ts": "1492de2177be94c383700100f79d15457915707ec35958c0541530214f1680a2",
+        "packages/sdk/src/runtime/query/iteration/index.ts": "d04e850e62f153485f951ebe0e07bb5d352c73b78e29ed77dfd0b2b990e58c82",
+        "packages/sdk/src/types/run/prepare-step.ts": "1d34c5932e6c9a6a022bf33e99eeb42a97183f49393c8e35ebed6465285c36f2",
+        "packages/sdk/src/types/message/index.ts": "8498f1b925e68f8b161c62bb8f2bb7e58162f5f34ffbb9ddfabbc72ae8fb3062",
+        "packages/cli/src/integrations/sessions/context-inventory.ts": "9cf80e2f16ae333cf1ea881b09252118c6445de2d20e3cf3ab6e3fc5778a7dee",
+        "packages/sdk/src/store/evidence/passages.ts": "2743f3edd0ccc28b389bc347ceb160c1a51c7a2e09fa616ef0a07216d7b1c0b5",
+        "packages/sdk/src/store/evidence/disk.ts": "96444d9901ef942821c6e67af15400ef57b26d0524e87cededb2cf5950643932",
+        "packages/sdk/src/store/evidence/types.ts": "bbf06ed0fc62ff8e0c53a7360c58cf7d4ec348571170ca1df8b53cee653cef4b",
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "000cc74a3adcf55325c0a913b9cb84bf478b572592a55d54638fe306f1afe5fa",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "8fcfe1baf434a5d0e00b044eebf660504b55e4809ba1220481f52e48674a550f"
+      },
+      "previewCharsSetting": 0,
+      "sourceOutput": {
+        "name": "read",
+        "isError": false,
+        "truncated": true,
+        "previewChars": 40000,
+        "originalChars": 308383
+      },
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "totals": {
+        "portableInputChars": 135469,
+        "promptTokens": 0,
+        "cachedTokens": 0
+      }
+    },
+    {
+      "label": "live-previous-preview",
+      "root": "/tmp/namzu-active-evidence-cli-rywCzH",
+      "live": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA receipt",
+            "caseSensitive": false,
+            "limit": 20
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "caseSensitive": true,
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "6ed5594f-1eb1-4e46-b79b-4f0ed61cb897",
+            "seq": 23,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "requestShapes": [
+        {
+          "request": 1,
+          "systemChars": 10651,
+          "systemDigest": "b2ca261bab6e3bb7a364c0bea1eb9713982681fe7940e872c9f3b445b1e35c29",
+          "portableInputChars": 489,
+          "commonPortablePrefixChars": 0,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 2,
+          "systemChars": 10651,
+          "systemDigest": "b2ca261bab6e3bb7a364c0bea1eb9713982681fe7940e872c9f3b445b1e35c29",
+          "portableInputChars": 42578,
+          "commonPortablePrefixChars": 489,
+          "stepContextCount": 1,
+          "stepContextChars": 665
+        },
+        {
+          "request": 3,
+          "systemChars": 10651,
+          "systemDigest": "b2ca261bab6e3bb7a364c0bea1eb9713982681fe7940e872c9f3b445b1e35c29",
+          "portableInputChars": 45075,
+          "commonPortablePrefixChars": 41866,
+          "stepContextCount": 1,
+          "stepContextChars": 719
+        },
+        {
+          "request": 4,
+          "systemChars": 10651,
+          "systemDigest": "b2ca261bab6e3bb7a364c0bea1eb9713982681fe7940e872c9f3b445b1e35c29",
+          "portableInputChars": 51757,
+          "commonPortablePrefixChars": 44301,
+          "stepContextCount": 1,
+          "stepContextChars": 775
+        }
+      ],
+      "requestUsage": [
+        {
+          "iteration": 1,
+          "promptTokens": 6396,
+          "completionTokens": 167,
+          "totalTokens": 6563,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 2,
+          "promptTokens": 18158,
+          "completionTokens": 98,
+          "totalTokens": 18256,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 3,
+          "promptTokens": 18809,
+          "completionTokens": 71,
+          "totalTokens": 18880,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 4,
+          "promptTokens": 20724,
+          "completionTokens": 63,
+          "totalTokens": 20787,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "observations": {
+        "bothIdentifiersRecovered": true,
+        "originalReadCalls": 1,
+        "searches": 2,
+        "exactReads": 1,
+        "failedTools": 0,
+        "workspaceStillReplaced": true
+      },
+      "fingerprints": {
+        "packages/sdk/src/runtime/query/tool-output-budget.ts": "eb60a59edceff27fdc16365c2b7ec1734c105a58f97cf5eba7dd12d3b325544c",
+        "packages/sdk/src/runtime/query/executor.ts": "8313785427a53b7cbd0805f0f6e364068b0ba65cd9408b392f69713eb7d5283f",
+        "packages/cli/src/tui/agent.ts": "f18489bd0c6ee15caee8f11c09f71e4c3f4fb14d88d86026e87ee88225513506",
+        "packages/cli/src/config/load.ts": "1492de2177be94c383700100f79d15457915707ec35958c0541530214f1680a2",
+        "packages/sdk/src/runtime/query/iteration/index.ts": "d04e850e62f153485f951ebe0e07bb5d352c73b78e29ed77dfd0b2b990e58c82",
+        "packages/sdk/src/types/run/prepare-step.ts": "1d34c5932e6c9a6a022bf33e99eeb42a97183f49393c8e35ebed6465285c36f2",
+        "packages/sdk/src/types/message/index.ts": "8498f1b925e68f8b161c62bb8f2bb7e58162f5f34ffbb9ddfabbc72ae8fb3062",
+        "packages/cli/src/integrations/sessions/context-inventory.ts": "9cf80e2f16ae333cf1ea881b09252118c6445de2d20e3cf3ab6e3fc5778a7dee",
+        "packages/sdk/src/store/evidence/passages.ts": "2743f3edd0ccc28b389bc347ceb160c1a51c7a2e09fa616ef0a07216d7b1c0b5",
+        "packages/sdk/src/store/evidence/disk.ts": "96444d9901ef942821c6e67af15400ef57b26d0524e87cededb2cf5950643932",
+        "packages/sdk/src/store/evidence/types.ts": "bbf06ed0fc62ff8e0c53a7360c58cf7d4ec348571170ca1df8b53cee653cef4b",
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "000cc74a3adcf55325c0a913b9cb84bf478b572592a55d54638fe306f1afe5fa",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "8fcfe1baf434a5d0e00b044eebf660504b55e4809ba1220481f52e48674a550f"
+      },
+      "previewCharsSetting": 0,
+      "sourceOutput": {
+        "name": "read",
+        "isError": false,
+        "truncated": true,
+        "previewChars": 40000,
+        "originalChars": 308383
+      },
+      "usage": {
+        "totalTokens": 64486,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 64486
+        }
+      },
+      "totals": {
+        "portableInputChars": 139899,
+        "promptTokens": 64087,
+        "cachedTokens": 16896
+      }
+    },
+    {
+      "label": "live-default",
+      "root": "/tmp/namzu-active-evidence-cli-ktiBUm",
+      "live": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "64cdd5f5-d553-45a4-bbe6-910dd56d36a4",
+            "seq": 18,
+            "part": 0,
+            "byteOffset": 181000
+          }
+        }
+      ],
+      "requestShapes": [
+        {
+          "request": 1,
+          "systemChars": 10651,
+          "systemDigest": "2c5dcabc0e37dfed3cec743b41e54a118b52e329939c06cead8d9dfe3fff0c49",
+          "portableInputChars": 489,
+          "commonPortablePrefixChars": 0,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 2,
+          "systemChars": 10651,
+          "systemDigest": "2c5dcabc0e37dfed3cec743b41e54a118b52e329939c06cead8d9dfe3fff0c49",
+          "portableInputChars": 4837,
+          "commonPortablePrefixChars": 489,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 3,
+          "systemChars": 10651,
+          "systemDigest": "2c5dcabc0e37dfed3cec743b41e54a118b52e329939c06cead8d9dfe3fff0c49",
+          "portableInputChars": 7242,
+          "commonPortablePrefixChars": 4837,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 4,
+          "systemChars": 10651,
+          "systemDigest": "2c5dcabc0e37dfed3cec743b41e54a118b52e329939c06cead8d9dfe3fff0c49",
+          "portableInputChars": 13860,
+          "commonPortablePrefixChars": 7242,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        }
+      ],
+      "requestUsage": [
+        {
+          "iteration": 1,
+          "promptTokens": 6395,
+          "completionTokens": 83,
+          "totalTokens": 6478,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 2,
+          "promptTokens": 7628,
+          "completionTokens": 39,
+          "totalTokens": 7667,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 3,
+          "promptTokens": 8301,
+          "completionTokens": 69,
+          "totalTokens": 8370,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 4,
+          "promptTokens": 10202,
+          "completionTokens": 62,
+          "totalTokens": 10264,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "observations": {
+        "bothIdentifiersRecovered": true,
+        "originalReadCalls": 1,
+        "searches": 1,
+        "exactReads": 1,
+        "failedTools": 0,
+        "workspaceStillReplaced": true
+      },
+      "fingerprints": {
+        "packages/sdk/src/runtime/query/tool-output-budget.ts": "eb60a59edceff27fdc16365c2b7ec1734c105a58f97cf5eba7dd12d3b325544c",
+        "packages/sdk/src/runtime/query/executor.ts": "8313785427a53b7cbd0805f0f6e364068b0ba65cd9408b392f69713eb7d5283f",
+        "packages/cli/src/tui/agent.ts": "f18489bd0c6ee15caee8f11c09f71e4c3f4fb14d88d86026e87ee88225513506",
+        "packages/cli/src/config/load.ts": "1492de2177be94c383700100f79d15457915707ec35958c0541530214f1680a2",
+        "packages/sdk/src/runtime/query/iteration/index.ts": "d04e850e62f153485f951ebe0e07bb5d352c73b78e29ed77dfd0b2b990e58c82",
+        "packages/sdk/src/types/run/prepare-step.ts": "1d34c5932e6c9a6a022bf33e99eeb42a97183f49393c8e35ebed6465285c36f2",
+        "packages/sdk/src/types/message/index.ts": "8498f1b925e68f8b161c62bb8f2bb7e58162f5f34ffbb9ddfabbc72ae8fb3062",
+        "packages/cli/src/integrations/sessions/context-inventory.ts": "9cf80e2f16ae333cf1ea881b09252118c6445de2d20e3cf3ab6e3fc5778a7dee",
+        "packages/sdk/src/store/evidence/passages.ts": "2743f3edd0ccc28b389bc347ceb160c1a51c7a2e09fa616ef0a07216d7b1c0b5",
+        "packages/sdk/src/store/evidence/disk.ts": "96444d9901ef942821c6e67af15400ef57b26d0524e87cededb2cf5950643932",
+        "packages/sdk/src/store/evidence/types.ts": "bbf06ed0fc62ff8e0c53a7360c58cf7d4ec348571170ca1df8b53cee653cef4b",
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "000cc74a3adcf55325c0a913b9cb84bf478b572592a55d54638fe306f1afe5fa",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "8fcfe1baf434a5d0e00b044eebf660504b55e4809ba1220481f52e48674a550f"
+      },
+      "previewCharsSetting": "CLI default (4000)",
+      "sourceOutput": {
+        "name": "read",
+        "isError": false,
+        "truncated": true,
+        "previewChars": 4000,
+        "originalChars": 308383
+      },
+      "usage": {
+        "totalTokens": 32779,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 32779
+        }
+      },
+      "totals": {
+        "portableInputChars": 26428,
+        "promptTokens": 32526,
+        "cachedTokens": 5632
+      }
+    }
+  ],
+  "limits": [
+    "Independent synthetic workspaces and random identifiers; live model tool choices differ, so this is not a controlled benchmark or success-rate estimate.",
+    "Reported total tokens include cached and unpriced subscription usage; zero recorded monetary cost is not evidence of free service.",
+    "Portable input lengths exclude system and schemas; they are diagnostic UTF-16 string lengths, not billed token lengths.",
+    "No already-recorded result was evicted or rewritten; the policy changes newly retained overflow previews only.",
+    "Only Linux/WSL execution was tested. Native Windows and live non-Codex providers were not exercised for this change.",
+    "Smaller previews can require extra retrieval calls on tasks depending on omitted text. No general optimum for the 4000-character setting is established."
+  ]
+}

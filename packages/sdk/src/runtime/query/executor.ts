@@ -376,6 +376,8 @@ export interface ToolExecutorConfig {
 	 * {@link DEFAULT_MAX_TOOL_OUTPUT_CHARS}; set `0` to disable.
 	 */
 	maxToolOutputChars?: number
+	/** See QueryParams.retainedToolPreviewChars; applies to the recorded host output. */
+	retainedToolPreviewChars?: number
 
 	/**
 	 * Cap on the RICH channel of a single tool result, in base64
@@ -1182,6 +1184,7 @@ export class ToolExecutor {
 			toolUseId: nestedId,
 			output: rawOutput,
 			maxChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+			retainedPreviewChars: this.config.retainedToolPreviewChars,
 			spillDir: this.outputDirectory(),
 			onError: (message) =>
 				this.log.warn('Failed to spill oversized nested tool output', {
@@ -1665,6 +1668,7 @@ export class ToolExecutor {
 			toolUseId: toolCall.id,
 			output,
 			maxChars: maxToolOutputChars,
+			retainedPreviewChars: this.config.retainedToolPreviewChars,
 			spillDir: this.outputDirectory(),
 			onError: (message) =>
 				this.log.warn('Failed to spill oversized tool output', {

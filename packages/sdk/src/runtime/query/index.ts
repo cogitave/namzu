@@ -362,6 +362,14 @@ export interface QueryParams {
 	 * agent decides the rest is worth re-reading. Set `0` to disable.
 	 */
 	maxToolOutputChars?: number
+	/**
+	 * Smaller preview for text that exceeded maxToolOutputChars, after its full
+	 * host output and integrity manifest have been saved. Unset/0 keeps the old
+	 * preview size. Does not change the spill threshold, rich blocks or ordinary
+	 * results. A failed spill/manifest or a cap too small for its recovery path
+	 * retains the ordinary output budget. Re-supply on resume.
+	 */
+	retainedToolPreviewChars?: number
 
 	/**
 	 * Cap on the RICH channel of a single tool result, in base64 characters.
@@ -1752,6 +1760,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				: {}),
 			...(params.maxToolOutputChars !== undefined
 				? { maxToolOutputChars: params.maxToolOutputChars }
+				: {}),
+			...(params.retainedToolPreviewChars !== undefined
+				? { retainedToolPreviewChars: params.retainedToolPreviewChars }
 				: {}),
 			...(params.maxToolContentBytes !== undefined
 				? { maxToolContentBytes: params.maxToolContentBytes }

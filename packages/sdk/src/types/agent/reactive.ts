@@ -106,6 +106,7 @@ export interface ReactiveAgentConfig extends BaseAgentConfig {
 	toolRetryBackoff?: QueryParams['toolRetryBackoff']
 	maxToolConcurrency?: number
 	maxToolOutputChars?: number
+	retainedToolPreviewChars?: QueryParams['retainedToolPreviewChars']
 	/**
 	 * Cap on the RICH channel of a single tool result, in base64 characters.
 	 * `0` or absent disables it. Separate from {@link maxToolOutputChars}:

@@ -1,5 +1,9 @@
+import { mkdtempSync, readFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
+import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { ActivityStore } from '../../../store/activity/memory.js'
@@ -46,6 +50,8 @@ interface ProgramHarnessOptions {
 		context: ToolContext,
 	) => Promise<ToolResult>
 	readonly maxToolOutputChars?: number
+	readonly retainedToolPreviewChars?: number
+	readonly toolOutputDir?: string
 	readonly childTimeoutMs?: number
 	readonly runCodeTimeoutMs?: number
 	readonly toolTimeoutMs?: number
@@ -115,6 +121,8 @@ async function runProgram(
 			...(options.maxToolOutputChars !== undefined
 				? { maxToolOutputChars: options.maxToolOutputChars }
 				: {}),
+			retainedToolPreviewChars: options.retainedToolPreviewChars,
+			toolOutputDir: options.toolOutputDir,
 			...(options.toolTimeoutMs !== undefined ? { toolTimeoutMs: options.toolTimeoutMs } : {}),
 			...(options.toolPause ? { toolPause: options.toolPause } : {}),
 		},
@@ -356,6 +364,28 @@ describe('a nested call is distinguishable from a model-issued one', () => {
 		expect(done.outputTruncated).toBe(true)
 		expect(done.result).not.toContain(hugeError)
 		expect(done.result).toContain('omitted')
+	})
+
+	it('retains full nested output while returning its compact preview to the program', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-nested-preview-'))
+		const output = 'Nested original evidence '.repeat(5000)
+		try {
+			const events = await runProgram('return await call("read", {})', ['read'], {
+				toolOutputDir: dir,
+				retainedToolPreviewChars: 4_000,
+				childExecute: async () => ({ success: true, output }),
+			})
+			const done = nested(events, 'tool_completed')[0] as Extract<
+				RunEvent,
+				{ type: 'tool_completed' }
+			>
+			expect(done.result.length).toBeLessThanOrEqual(4_000)
+			expect(done.outputLength).toBe(output.length)
+			expect(done.outputSpillIntegrity).toBeDefined()
+			expect(readFileSync(done.outputSpillPath!, 'utf8')).toBe(output)
+		} finally {
+			removeTempDir(dir)
+		}
 	})
 
 	it('honours a child tool deadline independently of the program deadline', async () => {

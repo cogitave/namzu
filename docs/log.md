@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Separated the SDK retained-output preview size from its overflow threshold, with ordinary-budget fallback on failed retention; recorded CLI turns now use shorter authenticated previews with a configuration opt-out and unchanged exact conversation recovery.
+
 - **Update** Added SDK request-only step context with runtime provenance and per-stage token estimates; CLI context inventories now remain after history on OpenAI and Anthropic wires while preserving system policy and operator intent. Anthropic message cache breakpoints stop before this changing context.
 
 - **Update** Added case-insensitive retained-text search and pagination across distinct passages within a chunk. CLI conversation search now ignores case by default; SDK run-source search retains its case-sensitive default and exact text/offset and integrity contracts.
