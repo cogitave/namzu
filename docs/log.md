@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Connected bounded automatic evidence recall to explicit search continuations, including same-writer live history; preserved incomplete empty-scan metadata and added cursor-only CLI continuation with original scope/query validation.
+
 - **Update** Grouped exact repeated observations before SDK evidence-recall ranking, preserving bounded provenance and preview/error distinctions so copies cannot crowd a distinct correction out of the passage allowance; verified recorded CLI Session and Luna/low execution.
 
 - **Update** Made CLI conversation run discovery resumable beyond its first 100 directory entries, with bounded process-local resources, consistent concurrent pages, directory-change refusal and Session shutdown cleanup.

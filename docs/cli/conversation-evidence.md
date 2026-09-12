@@ -29,7 +29,13 @@ evidence may be needed. These are model instructions, not a deterministic
 intent classifier or a guarantee of correct source choice. Retention cannot
 prove that a model saw or understood text omitted from its visible preview.
 
-`query` is a literal string of 1–256 characters. Matching ignores letter case
+Start a new search with `query`, a literal string of 1–256 characters. Continue
+with `cursor` alone to restore the original query, case setting and excluded
+invocation from host-owned state. This also accepts cursors supplied by automatic
+evidence recall, whose multi-term query does not need to be reconstructed by the
+model. An empty request with neither query nor cursor is invalid.
+
+Matching ignores letter case
 by default: `destination` also finds `Destination`. Set `caseSensitive: true` to
 retain exact case matching. This is Unicode case-insensitive literal matching,
 without locale-specific casing, accent normalization, regex operators or fuzzy
@@ -67,8 +73,10 @@ Each call discovers at most 100 directory entries and reads at most 8 MiB, in
 64 KiB chunks. Individual JSONL records are capped at 4 MiB; total transcript
 size is no longer capped at 2 MiB. Match payloads total at most 12,000 bytes.
 `nextCursor`, when present, continues at an unconsumed record or message inside
-a compaction record. Pass it as `cursor` with the same `query` and `caseSensitive` setting; omit `runId` or
-repeat the original single-run ID. Closed, explicitly scoped runs use the SDK
+a compaction record. Pass it as `cursor`; optionally repeated `query` and
+`caseSensitive` settings must match the original search. Omit `runId` or repeat
+the original single-run ID. A recall cursor may represent a multi-term host
+query, so use cursor alone for those continuations. Closed, explicitly scoped runs use the SDK
 text index: one bounded index page, at most three matches per call, may require
 continuation even when `limit` is larger. The index also pages within large
 compaction records. Case-insensitive search bypasses case-sensitive index

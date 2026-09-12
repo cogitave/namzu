@@ -65,8 +65,17 @@ Live search follows authenticated completed records, including originals shed
 by compaction. The current run is excluded from disk enumeration, so a missing
 live owner cannot silently fall back to reading an active transcript as closed
 history. Unsupported capture and incomplete traversal remain incomplete.
-Explicit `search_conversation`/`read_conversation` still provide further pages
-and exact text after compaction. These tools retain their literal-query schema. Automatic passages are historical context, not a new user message or
+When another page remains, recalled context supplies a `search_conversation`
+call with an opaque `cursor` for the unfinished live scan and/or closed-history
+scan. The model can continue directly from that position. Source bytes are
+revalidated and the tool's normal page/read limits still apply. Live cursors
+require the same requesting writer; they cannot fall back to closed history
+after it ends. An incomplete empty scan is explicitly reported even without a
+selected passage. Automatic passes themselves still start at the current source.
+
+Explicit `search_conversation`/`read_conversation` provide further pages and
+exact text after compaction. New searches still use a literal query; cursor-only
+continuation restores its host-owned query. Automatic passages are historical context, not a new user message or
 proof of current workspace state. The feature neither reads the current
 workspace to infer its past nor replays a state-changing action.
 

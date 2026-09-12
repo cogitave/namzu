@@ -388,6 +388,7 @@ export type {
 	EvidenceRecallRequest,
 	EvidenceRecallBatch,
 	EvidenceRecallCandidate,
+	EvidenceRecallContinuation,
 } from './run/evidence-recall.js'
 
 // ─── personas, skills, advisory ──────────────────────────────────────────

@@ -26,6 +26,14 @@ it cannot enforce the callback's internal I/O or authenticate invented bytes.
 Use [retained evidence sources](retained-tool-evidence.md) for authenticated local
 observations. A custom host is responsible for equivalent guarantees.
 
+An incomplete batch may include up to four `EvidenceRecallContinuation` hints:
+`toolName` and a flat `input` object with string, finite number, boolean or null
+values. Names are bounded to 128 characters, input keys to 64, entries to 16 per
+call, and the combined JSON to 2,048 characters before escaping. Invalid hints
+reject the pass. The host must mount read-only tools which validate ownership,
+cursor lifetime and source integrity again on execution. A hint grants no new
+authority, performs no tool call and keeps no source bytes alive.
+
 When the kernel exposes a live writer, `EvidenceRecallRequest.captureRunEvidence`
 captures completed events from that invoking run. The wrapper binds capture to
 the recall deadline and parent cancellation, and rejects new captures after the
@@ -77,6 +85,15 @@ addresses. Repetition does not establish independent corroboration. Event `seq`
 orders observations within one run only; presentation order is relevance, and
 run UUIDs do not establish chronology between runs.
 
+The metadata retains `incomplete` even when no passage was selected, including
+when all matches are already visible. An empty or bounded scan is not proof of
+absence. Available continuation calls appear as `continuations`, with
+`omittedContinuations` counting hints that did not fit the character allowance.
+Distinct text takes priority over hints, and hints take priority over extra
+duplicate addresses. Both omissions are explicit. A complete scan with no new
+selected text still adds no context; a context budget too small for the framing
+skips recall altogether.
+
 Defaults are four distinct passages and 6,000 added characters, including framing and
 escaped JSON; callers may set `maxPassages` up to eight and `maxChars` up to
 12,000. The context budget can lower that allowance. Whole passages which do
@@ -111,3 +128,9 @@ The CLI's directory discovery continues across batches of 100 entries, so that
 limit no longer permanently excludes later runs. The automatic four-page pass
 can still stop before discovery or text traversal is exhausted; explicit search
 continuations remain necessary beyond that allowance.
+
+When traversal has another page, the CLI supplies a continuation for the live
+writer and/or earlier invocations. The model can pass its opaque `cursor` to
+`search_conversation` without reconstructing the automatic multi-term query.
+Automatic passes still revalidate from the beginning; the explicit read-only
+continuation provides access beyond that bounded pass without an action replay.

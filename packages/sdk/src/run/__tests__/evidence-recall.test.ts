@@ -66,6 +66,71 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('surfaces incomplete empty scans and host continuation calls without inventing a passage', async () => {
+		const continuation = { toolName: 'search_archive', input: { cursor: 'opaque', limit: 2 } }
+		const { recall } = fixture([], {
+			retrieve: async () => ({ ...batch(), incomplete: true, continuations: [continuation] }),
+		})
+		const result = await recall(context())
+		expect(result?.context).toContain('incomplete scan cannot establish absence')
+		expect(result?.context).toContain(JSON.stringify(continuation))
+		expect(result?.context).toContain('"omittedContinuations":0')
+		expect(rendered(result?.context)).toHaveLength(0)
+		expect(await fixture([]).recall(context())).toBeUndefined()
+	})
+
+	it('keeps incompleteness visible when all passages are already in history', async () => {
+		const { recall } = fixture([], {
+			retrieve: async () => ({ ...batch(candidate()), incomplete: true }),
+		})
+		const result = await recall({
+			...context(),
+			messages: [createUserMessage(candidate().excerpt)],
+		})
+		expect(result?.context).toContain('"incomplete":true')
+		expect(rendered(result?.context)).toHaveLength(0)
+	})
+
+	it('budgets escaped hints after distinct text and accounts omitted continuations', async () => {
+		const hints = Array.from({ length: 4 }, (_, i) => ({
+			toolName: 'search_archive',
+			input: { cursor: '<'.repeat(100), page: i },
+		}))
+		const { recall } = fixture([], {
+			maxChars: 1400,
+			retrieve: async () => ({ ...batch(candidate()), incomplete: true, continuations: hints }),
+		})
+		const result = await recall(context())
+		expect(result!.context!.length).toBeLessThanOrEqual(1400)
+		expect(rendered(result?.context)).toHaveLength(1)
+		const meta = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(meta.omittedContinuations).toBeGreaterThan(0)
+		expect(meta.continuations.length + meta.omittedContinuations).toBe(4)
+		expect(result?.context).not.toContain('<')
+	})
+
+	it.each([
+		null,
+		[{ toolName: 'search archive', input: {} }],
+		[{ toolName: 'search', input: { cursor: 'x'.repeat(2049) } }],
+		[{ toolName: 'search', input: { value: Number.NaN } }],
+		[{ toolName: 'search', input: { nested: {} } }],
+		Array.from({ length: 5 }, () => ({ toolName: 'search', input: {} })),
+	])('refuses malformed or oversized continuation metadata', async (continuations) => {
+		const { recall } = fixture([], {
+			retrieve: async () =>
+				({ ...batch(), incomplete: true, continuations }) as EvidenceRecallBatch,
+		})
+		await expect(recall(context())).rejects.toThrow(/continuation/i)
+	})
+
+	it('rejects continuation metadata on a purportedly complete scan', async () => {
+		const { recall } = fixture([], {
+			retrieve: async () => ({ ...batch(), continuations: [{ toolName: 'search', input: {} }] }),
+		})
+		await expect(recall(context())).rejects.toThrow('invalid continuations')
+	})
+
 	it('passes the current writer with a bounded lifetime, then revokes new captures', async () => {
 		let held: EvidenceRecallRequest['captureRunEvidence']
 		const capture = vi.fn(async () => undefined)

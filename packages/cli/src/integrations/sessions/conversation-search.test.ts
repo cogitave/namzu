@@ -19,6 +19,7 @@ import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	readConversationEvidence,
 	releaseConversationEvidence,
+	retainLiveConversationSearch,
 	searchConversation,
 	searchConversationTerms,
 } from './conversation-search.js'
@@ -68,6 +69,112 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 describe('bounded original conversation evidence', () => {
+	it('refuses oversized live handles before retaining a bridge cursor', async () => {
+		const { sessions, sessionId } = await fixture()
+		for (const cursor of ['', 'x'.repeat(4097)])
+			expect(() =>
+				retainLiveConversationSearch(sessions, sessionId, generateRunId(), ['DELTA'], cursor),
+			).toThrow('Invalid live evidence continuation')
+	})
+
+	it('continues host multi-term recall by cursor alone with its original exclusion and scope', async () => {
+		const { sessions, sessionId } = await fixture()
+		const { runId, path } = await transcript(sessions, sessionId, 'seed')
+		const events = Array.from({ length: 10 }, (_, i) => ({
+			type: 'tool_completed',
+			runId,
+			seq: i + 2,
+			result: `DELTA-${i}`,
+		}))
+		await writeFile(
+			join(path, 'transcript.jsonl'),
+			`${[{ type: 'run_started', runId, seq: 1 }, ...events].map((e) => JSON.stringify(e)).join('\n')}\n`,
+		)
+		const first = await searchConversationTerms(sessions, sessionId, {
+			terms: ['DELTA', 'code'],
+			excludeRunId: generateRunId(),
+			maxReadBytes: 8 * 1024 * 1024,
+		})
+		expect(first.matches).toHaveLength(5)
+		const options = { cursor: first.nextCursor! }
+		const [second, repeated] = await Promise.all([
+			searchConversation(sessions, sessionId, options),
+			searchConversation(sessions, sessionId, options),
+		])
+		expect(second.matches).toEqual(repeated.matches)
+		expect(second.matches.map((m) => m.text)).toEqual(
+			Array.from({ length: 5 }, (_, i) => `DELTA-${i + 5}`),
+		)
+		await expect(
+			searchConversation(sessions, await startConversation(sessions), options),
+		).rejects.toThrow('scope')
+		await expect(
+			searchConversation(sessions, sessionId, { ...options, query: 'DELTA' }),
+		).rejects.toThrow('query')
+		await expect(
+			searchConversation(sessions, sessionId, { ...options, caseSensitive: true }),
+		).rejects.toThrow('case sensitivity')
+		await expect(searchConversation(sessions, sessionId, {})).rejects.toThrow('literal query')
+		await releaseConversationEvidence(sessions, sessionId)
+		await expect(searchConversation(sessions, sessionId, options)).rejects.toThrow('expired')
+	})
+
+	it('passes a live recall continuation into the same writer after new appends without action replay', async () => {
+		const { cwd, sessions, sessionId } = await fixture()
+		const runId = generateRunId()
+		const owner = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+		const store = new RunDiskStore({ baseDir: join(cwd, 'writer') })
+		const runDir = await store.initRun(runId)
+		await writeFile(
+			join(runDir, 'run.json'),
+			JSON.stringify({ id: runId, metadata: { scope: owner } }),
+		)
+		await store.appendEvent({ type: 'run_started', runId, seq: 1 } as RunEvent)
+		for (let i = 0; i < 10; i++)
+			await store.appendEvent({
+				type: 'tool_completed',
+				runId,
+				seq: i + 2,
+				toolName: 'read',
+				toolUseId: `read-${i}`,
+				result: `DELTA code ${i}`,
+				isError: false,
+			} as RunEvent)
+		const captureRunEvidence = (maxReadBytes?: number) =>
+			store.captureTextEvidence(owner, maxReadBytes)
+		const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+		const result = await recall({
+			runId,
+			messages: [createUserMessage('DELTA code')],
+			steps: [],
+			prepared: {},
+			stepNumber: 1,
+			captureRunEvidence,
+		})
+		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+		const hint = metadata.continuations[0]
+		expect(hint.toolName).toBe('search_conversation')
+		await store.appendEvent({
+			type: 'tool_completed',
+			runId,
+			seq: 12,
+			toolName: 'read',
+			toolUseId: 'later',
+			result: 'DELTA later',
+			isError: false,
+		} as RunEvent)
+		const page = await searchConversation(sessions, sessionId, hint.input, undefined, {
+			runId,
+			captureRunEvidence,
+		})
+		expect(page.matches.map((m) => m.text)).toEqual(['DELTA code 1', 'DELTA code 0'])
+		expect(page.matches.some((m) => m.text.includes('later'))).toBe(false)
+		const rejected = await searchConversation(sessions, sessionId, hint.input)
+		expect(rejected.matches).toHaveLength(0)
+		expect(rejected.unavailableRuns).toBe(1)
+		expect((await store.readEvents()).filter((e) => e.type === 'tool_completed')).toHaveLength(11)
+	})
+
 	it('reaches runs beyond the initial 100-entry page without duplicates or false completeness', async () => {
 		const { sessions, sessionId } = await fixture()
 		for (let i = 0; i < 120; i++) await transcript(sessions, sessionId, 'unrelated observation')
@@ -291,7 +398,9 @@ describe('bounded original conversation evidence', () => {
 		}
 		expect((await recall(ctx))?.context).toContain('ORIGINAL-17')
 		await writeFile(join(path, 'transcript.jsonl'), 'not a valid transcript\n')
-		expect(await recall(ctx)).toBeUndefined()
+		const unavailable = await recall(ctx)
+		expect(unavailable?.context).toContain('"incomplete":true')
+		expect(unavailable?.context).not.toContain('ORIGINAL-17')
 	})
 
 	it('continues past matching announcements to the original observation without claiming absence', async () => {

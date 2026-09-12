@@ -1,10 +1,11 @@
 import {
 	type EvidenceRecallCandidate,
+	type EvidenceRecallContinuation,
 	type PrepareStep,
 	type SessionId,
 	createEvidenceRecallStep,
 } from '@namzu/sdk'
-import { searchConversationTerms } from './conversation-search.js'
+import { retainLiveConversationSearch, searchConversationTerms } from './conversation-search.js'
 import type { CliSessions } from './store.js'
 
 /** A stable hook per conversation keeps timed-out reads from piling up across turns. */
@@ -130,7 +131,22 @@ export function createConversationEvidenceRecall(
 				if (!cursor || candidates.length >= maxCandidates) break
 			}
 			assertOwner(runId)
-			return { candidates, scannedBytes, incomplete: incomplete || cursor !== undefined }
+			signal.throwIfAborted()
+			const continuations: EvidenceRecallContinuation[] = []
+			if (liveCursor)
+				continuations.push({
+					toolName: 'search_conversation',
+					input: {
+						cursor: retainLiveConversationSearch(sessions, sessionId, runId, terms, liveCursor),
+					},
+				})
+			if (cursor) continuations.push({ toolName: 'search_conversation', input: { cursor } })
+			return {
+				candidates,
+				scannedBytes,
+				incomplete: incomplete || cursor !== undefined,
+				continuations,
+			}
 		},
 	})
 }
