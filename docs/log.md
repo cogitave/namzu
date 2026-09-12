@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Retained original user and other removed messages before CLI `/compact` publishes its summary; added the SDK manual-retention callback and `manual` shed reason, with failure/cancellation preservation and scoped recovery after reopening.
+
 - **Update** Advanced conversation search through exhausted nonmatching indexed runs within the same bounded call, retaining partial-page continuation, ownership checks and shared I/O limits; clarified exact byte-position recovery after a live UTF-8 read refusal.
 
 - **Update** Made prose-answer reviewer exceptions and malformed verdicts fail settlement, propagated cancellation without waiting for uncooperative callbacks, and preserved bounded rejection counts with feedback across checkpoints and compaction.

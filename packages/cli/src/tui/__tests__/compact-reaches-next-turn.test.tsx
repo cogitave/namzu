@@ -38,6 +38,7 @@ let recentConversations: Array<{
 }> = []
 let compactCalls = 0
 let compactReturnsNull = false
+let archiveShouldFail = false
 let appendCalls = 0
 let replaceShouldFail = false
 let holdReplacement = false
@@ -148,6 +149,7 @@ vi.mock('../agent.js', async (importOriginal) => {
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
 			compact: async (messages) => {
+				if (archiveShouldFail) throw new Error('ORIGINALS_COULD_NOT_BE_RETAINED')
 				compactCalls += 1
 				if (compactReturnsNull) return null
 				// The SDK pins host-triggered summaries because no run-scoped
@@ -235,6 +237,7 @@ beforeEach(() => {
 	recentConversations = []
 	compactCalls = 0
 	compactReturnsNull = false
+	archiveShouldFail = false
 	appendCalls = 0
 	replaceShouldFail = false
 	holdReplacement = false
@@ -471,6 +474,22 @@ it('shows automatic compaction before the next provider settles without footer t
 	releaseAutomaticFailure()
 	await waitForScreen(screen, () => fullScreen(screen).includes('NEXT_PROVIDER_FAILED'))
 	expect(visibleScreen(screen)).not.toContain('~20%')
+})
+
+it('keeps the original conversation on screen and in the next turn when retention fails', async () => {
+	archiveShouldFail = true
+	const harness = render(<App ctx={ctx} />)
+	mounted.push(harness)
+	await frameShows(harness, 'a-model default')
+	await submit(harness, 'ORIGINAL_USER_FACT')
+	await frameShows(harness, 'answer-1')
+	await submit(harness, '/compact')
+	await frameShows(harness, 'Compaction failed: ORIGINALS_COULD_NOT_BE_RETAINED')
+	expect(replacements).toHaveLength(0)
+	await submit(harness, 'Continue')
+	await frameShows(harness, 'answer-2')
+	expect(sent[1]?.some((message) => message.content === 'ORIGINAL_USER_FACT')).toBe(true)
+	expect(sent[1]?.some((message) => message.content === SUMMARY_TEXT)).toBe(false)
 })
 
 it('keeps the live history unchanged when its durable replacement fails', async () => {

@@ -103,7 +103,7 @@ test suite that rejects a completion is evidence of a missing behavior, not proo
 that memory loss caused it.
 
 The separation of corrective feedback from a failing validator follows
-[Pydantic AI's output validation](https://pydantic.dev/docs/ai/core-concepts/output/)
+[output validation](https://pydantic.dev/docs/ai/core-concepts/output/)
 and its distinction between `ModelRetry` and ordinary output-validator
 exceptions in [advanced tool behavior](https://pydantic.dev/docs/ai/tools-toolsets/tools-advanced/).
 This does not supply an automatic factual judge. Quote containment, correct

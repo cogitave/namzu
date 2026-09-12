@@ -62,6 +62,80 @@ function callPair(id: string): Message[] {
 }
 
 describe('a host can ask for compaction', () => {
+	it.each(['whole', 'region'] as const)(
+		'awaits original-message retention before publishing %s compaction',
+		async (mode) => {
+			const messages = history(8)
+			messages[3] = { ...messages[3]!, retain: true }
+			const before = structuredClone(messages)
+			let release!: () => void
+			const held = new Promise<void>((resolve) => {
+				release = resolve
+			})
+			let entered!: () => void
+			const started = new Promise<void>((resolve) => {
+				entered = resolve
+			})
+			let removed: readonly Message[] = []
+			const input = {
+				messages,
+				config: config(),
+				provider: provider(),
+				onShed: async (shed: readonly Message[]) => {
+					removed = shed
+					entered()
+					await held
+				},
+			}
+			let published = false
+			const work = (
+				mode === 'whole' ? compactNow(input) : compactRegion({ ...input, start: 1, end: 11 })
+			).then((result) => {
+				published = true
+				return result
+			})
+			await started
+			expect(published).toBe(false)
+			expect(messages).toEqual(before)
+			release()
+			const result = await work
+			expect(result).not.toBeNull()
+			expect(removed).toEqual(messages.filter((message) => !result!.messages.includes(message)))
+			expect(removed).not.toContain(messages[3])
+		},
+	)
+	it.each(['whole', 'region'] as const)(
+		'refuses %s publication on archive failure or cancellation',
+		async (mode) => {
+			for (const cancel of [false, true]) {
+				const messages = history(8)
+				const before = structuredClone(messages)
+				const controller = new AbortController()
+				const failure = new Error(cancel ? 'cancelled during archive' : 'archive unavailable')
+				const input = {
+					messages,
+					config: config(),
+					provider: provider(),
+					signal: controller.signal,
+					onShed: async () => {
+						if (cancel) controller.abort(failure)
+						else throw failure
+					},
+				}
+				await expect(
+					mode === 'whole' ? compactNow(input) : compactRegion({ ...input, start: 1, end: 11 }),
+				).rejects.toBe(failure)
+				expect(messages).toEqual(before)
+			}
+		},
+	)
+	it('does not archive a no-op', async () => {
+		const onShed = vi.fn()
+		const input = { messages: history(1), config: config(), provider: provider(), onShed }
+		expect(await compactNow(input)).toBeNull()
+		expect(await compactRegion({ ...input, start: 1, end: 1 })).toBeNull()
+		expect(onShed).not.toHaveBeenCalled()
+	})
 	it('compacts the user/assistant-only history a host actually persists', async () => {
 		const messages = history(5).filter((message) => message.role !== 'system')
 

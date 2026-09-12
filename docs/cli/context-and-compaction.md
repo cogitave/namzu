@@ -10,6 +10,34 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # Context and compaction in the CLI
 
+# `/compact` and original history
+
+In a recorded conversation, `/compact` retains removed original messages before
+installing or saving the summary. This includes user-provided details omitted
+from the summary. They remain searchable through `search_conversation` and
+readable through `read_conversation`, including after restart.
+
+The host writes a separate zero-model maintenance record in the conversation's
+`runs/` directory, using the SDK run store and authenticated text index. It has
+`agentId: manual-compaction`, `provider: host`, `model: none`, zero iterations
+and zero model tokens; each removed message has a `compaction_shed` event with
+`reason: manual`. It adds no assistant answer, checkpoint or global run-index
+entry, and does not reopen a completed model invocation. Verifier usage, if any,
+remains in the compaction result shown by the UI.
+
+If retention fails or is cancelled, the replacement is not published. The TUI
+shows the error and continues to use the original history. A serialized message
+larger than 3 MiB is refused before archiving, leaving room below the index's
+4 MiB JSONL record limit. Private conversation ownership, scope, read limits and
+text-only search rules apply to these records too. Archive timestamps identify
+the copy, not when the user originally supplied the fact.
+
+Archiving and replacing the conversation are ordered operations, not one
+cross-store transaction. If replacement subsequently fails, the archive can
+contain an extra copy while the original history remains active. Stateless
+embedded sessions have no conversation archive and retain their existing
+in-process behavior. A no-op creates no archive.
+
 # The `compaction` key
 
 In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from the environment:

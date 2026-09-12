@@ -57,6 +57,24 @@ export interface CompactNowInput extends CompactionVerificationOptions {
 	readonly provider: LLMProvider
 	readonly model?: string
 	readonly contextWindowTokens?: number
+	/**
+	 * Archive removed originals before the caller can install the replacement.
+	 * Awaited on both manual paths; rejection prevents publication. No call for
+	 * a no-op. The callback owns persistence and must not mutate the messages.
+	 */
+	readonly onShed?: (messages: readonly Message[]) => void | Promise<void>
+}
+
+async function publishManualCompaction(
+	input: CompactNowInput,
+	result: CompactionResult,
+): Promise<CompactionResult> {
+	input.signal?.throwIfAborted()
+	const kept = new Set(result.messages)
+	const removed = input.messages.filter((message) => !kept.has(message))
+	if (removed.length > 0) await input.onShed?.(removed)
+	input.signal?.throwIfAborted()
+	return result
 }
 
 function admitManualCompaction(input: CompactionVerificationOptions): void {
@@ -184,7 +202,12 @@ export async function compactNow(input: CompactNowInput): Promise<CompactionResu
 	)
 
 	const { messages, summary } = splice(preservedSystem, body, retainedOlder, plan.recentMessages)
-	return { messages, shed: input.messages.length - messages.length, summary, usage }
+	return publishManualCompaction(input, {
+		messages,
+		shed: input.messages.length - messages.length,
+		summary,
+		usage,
+	})
 }
 
 export interface CompactRegionInput extends CompactNowInput {
@@ -280,5 +303,10 @@ export async function compactRegion(input: CompactRegionInput): Promise<Compacti
 		})
 	}
 
-	return { messages: out, shed: messages.length - out.length, summary, usage }
+	return publishManualCompaction(input, {
+		messages: out,
+		shed: messages.length - out.length,
+		summary,
+		usage,
+	})
 }

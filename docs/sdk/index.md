@@ -2,6 +2,8 @@
 
 The kernel.
 
+* [Manual compaction](manual-compaction.md) - Retain removed originals before publishing a host-requested history replacement.
+
 * [Automatic conversation evidence recall](evidence-recall.md) - Scoped historical passages ranked within a bounded candidate pool and added only to the current request.
 * [Request-only step context](step-context.md) - Changing observations after history, separate from system policy and operator intent.
 

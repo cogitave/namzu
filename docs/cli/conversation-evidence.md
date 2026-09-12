@@ -16,6 +16,11 @@ preserved in compaction events. Replacing the session's projected history does
 not replace these run transcripts; reopening the conversation can still find
 the recorded text without repeating an external action or making a model call.
 
+This includes originals removed by [`/compact`](context-and-compaction.md),
+archived before replacement in a separate zero-model maintenance record. User
+text is not inferred from an assistant's summary. Manual archives use the same
+scoped search/read paths, with `compaction_shed:user` identifying user messages.
+
 When these tools are mounted, ordinary, resumed and resident CLI turns receive
 stable guidance to recover an earlier observation if its detail is missing or
 clipped. Recovery is useful before compaction too. The SDK's general evidence

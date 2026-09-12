@@ -113,8 +113,8 @@ Copies therefore cannot change term frequencies across documents or consume
 every passage slot while a distinct correction remains in the candidate pool.
 Zero-score passages are omitted; ties retain first-discovery order.
 The score measures lexical relevance, not confidence, truth or freshness.
-The mathematical starting point was inspected in the pinned Pydantic AI
-Harness [conversation search implementation](https://github.com/pydantic/pydantic-ai-harness/blob/c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504/pydantic_ai_harness/conversation_search/_toolset.py).
+The mathematical starting point was inspected in this pinned
+[conversation search implementation](https://github.com/pydantic/pydantic-ai-harness/blob/c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504/pydantic_ai_harness/conversation_search/_toolset.py).
 These constants are not claimed to be optimal.
 
 Candidate discovery can limit ranking quality before scoring starts. The CLI

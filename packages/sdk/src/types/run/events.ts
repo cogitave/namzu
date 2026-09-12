@@ -209,8 +209,8 @@ type CoreRunEvent =
 			iteration: number
 			/** Exactly the messages the pass removed, in their original order. */
 			messages: Message[]
-			/** Whether the pass ran on the threshold or on a provider rejection. */
-			reason: 'threshold' | 'overflow'
+			/** Automatic threshold, provider rejection, or a host-requested pass. */
+			reason: 'threshold' | 'overflow' | 'manual'
 	  }
 	| {
 			type: 'compaction_completed'

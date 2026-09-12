@@ -62,7 +62,7 @@ export class RunTranscriptUnavailableError extends Error {
 /** What one compaction pass removed. */
 export interface ShedPass {
 	readonly iteration: number
-	readonly reason: 'threshold' | 'overflow'
+	readonly reason: Extract<PersistedRunEvent, { type: 'compaction_shed' }>['reason']
 	readonly messages: readonly Message[]
 	/** Where in the log the pass sits, for a caller correlating with events. */
 	readonly seq: number

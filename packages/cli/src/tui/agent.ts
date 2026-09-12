@@ -190,6 +190,7 @@ import {
 	unsupportedProviderMessage,
 } from '../integrations/providers/index.js'
 import { modelReasoningView } from '../integrations/providers/model-reasoning.js'
+import { retainManualCompaction } from '../integrations/sessions/compaction-evidence.js'
 import { createContextInventoryStep } from '../integrations/sessions/context-inventory.js'
 import {
 	CONVERSATION_EVIDENCE_GUIDANCE,
@@ -2738,6 +2739,7 @@ export async function createAgentSession(
 		compact: (messages) =>
 			operations.promise(undefined, async (signal) => {
 				const sessionId = scope.sessionId
+				const sessions = options.conversationSessions
 				await prepareProviderCredential(signal)
 				return compactNow({
 					messages,
@@ -2745,6 +2747,18 @@ export async function createAgentSession(
 					provider: providerForSession(sessionId),
 					model,
 					signal,
+					...(sessions
+						? {
+								onShed: async (removed: readonly Message[]) => {
+									if (
+										sessions.projectId !== scope.projectId ||
+										sessions.tenantId !== scope.tenantId
+									)
+										throw new Error('Manual compaction is outside the current conversation scope.')
+									await retainManualCompaction(sessions, sessionId, removed, signal)
+								},
+							}
+						: {}),
 				})
 			}),
 		// Reads the same registry object the deferred registration mutates, at
