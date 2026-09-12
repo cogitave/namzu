@@ -11,6 +11,8 @@ export interface DiskRunEvidenceOptions {
 	readonly scope: RunEvidenceScope
 	readonly runDir: string
 	readonly indexDir: string
+	/** Optional smaller I/O ceiling per operation, in bytes (1–8 MiB). */
+	readonly maxReadBytes?: number
 }
 
 /** @experimental Case-sensitive literal search; empty query browses tool records. */
@@ -67,4 +69,47 @@ export interface RunEvidenceSource {
 	readonly scope: RunEvidenceScope
 	search(options?: RunEvidenceSearchOptions, signal?: AbortSignal): Promise<RunEvidenceSearchResult>
 	read(options: RunEvidenceReadOptions, signal?: AbortSignal): Promise<RunEvidenceReadResult>
+}
+
+/** @experimental Textual event parts, including assistant output and shed conversation messages. */
+export interface RunTextEvidenceSearchOptions extends RunEvidenceSearchOptions {
+	readonly seq?: number
+	readonly part?: number
+	readonly limit?: number
+}
+
+/** @experimental Event identity is durable; byteOffset starts a bounded excerpt in the retained text. */
+export interface RunTextEvidenceMatch extends Omit<RunEvidenceMatch, 'toolName' | 'isError'> {
+	readonly source: string
+	readonly part: number
+	readonly toolName?: string
+	readonly isError?: boolean
+	/** UTF-16 position, when the authenticated source includes a character index. */
+	readonly characterOffset?: number
+}
+
+/** @experimental Search includes messages and tool text, never binary or private reasoning blocks. */
+export interface RunTextEvidenceSearchResult extends Omit<RunEvidenceSearchResult, 'matches'> {
+	readonly matches: readonly RunTextEvidenceMatch[]
+}
+
+/** @experimental Character counts are UTF-16 units; absent counts must not be inferred from bytes. */
+export interface RunTextEvidenceReadResult
+	extends Omit<RunEvidenceReadResult, 'toolName' | 'isError'> {
+	readonly source: string
+	readonly part: number
+	readonly toolName?: string
+	readonly isError?: boolean
+	readonly characterOffset?: number
+	readonly totalChars?: number
+}
+
+/** @experimental Scope-bound, bounded text retrieval across an invocation's event stream. */
+export interface RunTextEvidenceSource {
+	readonly scope: RunEvidenceScope
+	search(
+		options?: RunTextEvidenceSearchOptions,
+		signal?: AbortSignal,
+	): Promise<RunTextEvidenceSearchResult>
+	read(options: RunEvidenceReadOptions, signal?: AbortSignal): Promise<RunTextEvidenceReadResult>
 }

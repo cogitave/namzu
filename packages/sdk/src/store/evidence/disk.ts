@@ -7,6 +7,7 @@ import {
 	type EvidenceSeal,
 	type IndexEntry,
 	entrySchema,
+	eventTexts,
 	evidenceSeal,
 	indexPage,
 	positionSchema,
@@ -14,6 +15,7 @@ import {
 import {
 	type EvidenceBudget,
 	EvidencePageLimit,
+	PAGE_BYTES,
 	decode,
 	openEvidence,
 	readBytes,
@@ -23,10 +25,13 @@ import {
 } from './io.js'
 import type {
 	DiskRunEvidenceOptions,
-	RunEvidenceMatch,
 	RunEvidenceReadOptions,
 	RunEvidenceReadResult,
 	RunEvidenceSource,
+	RunTextEvidenceMatch,
+	RunTextEvidenceReadResult,
+	RunTextEvidenceSearchOptions,
+	RunTextEvidenceSource,
 } from './types.js'
 
 const integer = z.number().int().nonnegative().safe()
@@ -41,28 +46,45 @@ const scopeSchema = z
 const cursorSchema = z.object({
 	kind: z.literal('search'),
 	query: z.string().max(256),
+	seq: integer.optional(),
+	part: integer.optional(),
+	mode: z.enum(['tools', 'text']).default('tools'),
 	position: positionSchema,
 	entry: integer.max(64),
 	chunk: integer,
 })
-const pointerSchema = entrySchema.pick({ offset: true, length: true, sha256: true, seq: true })
+const pointerSchema = entrySchema.pick({
+	offset: true,
+	length: true,
+	sha256: true,
+	seq: true,
+	part: true,
+})
 const addressSchema = z.object({ kind: z.literal('text'), entry: pointerSchema })
 const manifestSchema = z.object({
 	version: z.literal(1),
 	bytes: integer,
+	chars: integer.optional(),
 	chunkBytes: z.literal(EVIDENCE_CHUNK_BYTES),
 	chunks: z
-		.array(z.object({ sha256: z.string().regex(/^[a-f0-9]{64}$/), filter: z.string().max(1400) }))
+		.array(
+			z.object({
+				sha256: z.string().regex(/^[a-f0-9]{64}$/),
+				filter: z.string().max(1400),
+				characterOffset: integer.optional(),
+			}),
+		)
 		.max(4096),
 })
 
 interface TextSource {
 	entry: IndexEntry
 	bytes: number
+	chars?: number
 	retained: 'full' | 'preview'
 	chunks: number
 	mayMatch(chunk: number, query: string): boolean
-	window(chunk: number): Promise<{ bytes: Buffer; offset: number }>
+	window(chunk: number): Promise<{ bytes: Buffer; offset: number; characterOffset?: number }>
 }
 
 async function sourceText(
@@ -75,35 +97,40 @@ async function sourceText(
 	const raw = await readBytes(handle, pointer.offset, pointer.length, budget)
 	if (digest(raw) !== pointer.sha256) throw new Error('Recorded tool evidence changed.')
 	const event = JSON.parse(decode(raw))
-	if (
-		event.type !== 'tool_completed' ||
-		event.runId !== runId ||
-		event.seq !== pointer.seq ||
-		typeof event.result !== 'string'
-	)
-		throw new Error('Recorded tool identity changed.')
+	if (event.runId !== runId || event.seq !== pointer.seq)
+		throw new Error('Recorded text identity changed.')
+	const part = eventTexts(event)[pointer.part]
+	if (!part) throw new Error('Recorded text part is unavailable.')
+	const tool = event.type === 'tool_completed'
 	const entry = entrySchema.parse({
 		...pointer,
-		toolName: event.toolName,
-		toolUseId: event.toolUseId,
-		isError: event.isError,
-		truncated: event.outputTruncated === true,
-		spill: event.outputSpillIntegrity,
+		source: part.source,
+		...(tool
+			? {
+					toolName: z.string().parse(event.toolName),
+					toolUseId: z.string().parse(event.toolUseId),
+					isError: z.boolean().parse(event.isError),
+					spill: event.outputSpillIntegrity,
+				}
+			: {}),
+		truncated: tool && event.outputTruncated === true,
 		filter: '',
 	})
 
 	if (!entry.spill) {
-		const bytes = Buffer.from(event.result, 'utf8')
+		const bytes = Buffer.from(part.text, 'utf8')
 		return {
 			entry,
 			bytes: bytes.length,
+			chars: part.text.length,
 			retained: entry.truncated ? 'preview' : 'full',
 			chunks: 1,
 			mayMatch: () => true,
-			window: async () => ({ bytes, offset: 0 }),
+			window: async () => ({ bytes, offset: 0, characterOffset: 0 }),
 		}
 	}
 	// Never follow a model/provider-controlled spill path from the event.
+	if (!entry.toolUseId) throw new Error('Retained output has no tool identity.')
 	const path = join(runDir, 'tool-output', `${digest(entry.toolUseId)}.txt`)
 	const rawManifest = await readSmall(`${path}.manifest.json`, budget)
 	if (digest(rawManifest) !== entry.spill) throw new Error('Retained output manifest changed.')
@@ -113,6 +140,7 @@ async function sourceText(
 	return {
 		entry,
 		bytes: manifest.bytes,
+		chars: manifest.chars,
 		retained: 'full',
 		chunks: Math.max(1, manifest.chunks.length),
 		mayMatch: (chunk, query) =>
@@ -145,6 +173,7 @@ async function sourceText(
 				return {
 					bytes: utf8Page(all.subarray(start), EVIDENCE_CHUNK_BYTES + SEARCH_OVERLAP_BYTES - start),
 					offset: chunk * EVIDENCE_CHUNK_BYTES + start,
+					characterOffset: manifest.chunks[chunk]?.characterOffset ?? (chunk === 0 ? 0 : undefined),
 				}
 			} finally {
 				await file.close()
@@ -158,7 +187,45 @@ async function sourceText(
  * The host owns authorization and the private directories. Stat changes invalidate addresses;
  * individual record/chunk digests detect changed bytes. This is not a hostile filesystem sandbox.
  */
+export function createDiskRunTextEvidenceSource(
+	options: DiskRunEvidenceOptions,
+): RunTextEvidenceSource {
+	return createSource(options, 'text')
+}
+
+/** @experimental Tool-only view of the shared invocation text index. */
 export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): RunEvidenceSource {
+	const source = createSource(options, 'tools')
+	const tool = <T extends { toolName?: string; isError?: boolean }>(value: T) => {
+		if (value.toolName === undefined || value.isError === undefined)
+			throw new Error('Expected tool evidence.')
+		return { ...value, toolName: value.toolName, isError: value.isError }
+	}
+	return Object.freeze({
+		scope: source.scope,
+		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
+			const result = await source.search(options, signal)
+			return { ...result, matches: result.matches.map(tool) }
+		},
+		async read(
+			options: RunEvidenceReadOptions,
+			signal?: AbortSignal,
+		): Promise<RunEvidenceReadResult> {
+			return tool(await source.read(options, signal))
+		},
+	})
+}
+
+function createSource(
+	options: DiskRunEvidenceOptions,
+	mode: 'tools' | 'text',
+): RunTextEvidenceSource {
+	const maxReadBytes = z
+		.number()
+		.int()
+		.min(1024 * 1024)
+		.max(PAGE_BYTES)
+		.parse(options.maxReadBytes ?? PAGE_BYTES)
 	const scope = Object.freeze(scopeSchema.parse(options.scope))
 	const runDir = resolve(options.runDir)
 	const indexDir = resolve(options.indexDir)
@@ -173,7 +240,7 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 			budget: EvidenceBudget,
 		) => Promise<T>,
 	): Promise<T> {
-		const budget: EvidenceBudget = { bytes: 0, signal }
+		const budget: EvidenceBudget = { bytes: 0, limit: maxReadBytes, signal }
 		signal?.throwIfAborted()
 		const metaPath = join(runDir, 'run.json')
 		const metaStamp = stamp(await lstat(metaPath))
@@ -192,7 +259,9 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 		try {
 			const before = await handle.stat()
 			if (before.size === 0) throw new Error('Transcript is empty; evidence is incomplete.')
-			const sourceKey = digest(`${scopeKey}:${stamp(before)}:${digest(metaBytes)}`)
+			const sourceKey = digest(
+				`${mode === 'text' ? 'text-v2:' : ''}${scopeKey}:${stamp(before)}:${digest(metaBytes)}`,
+			)
 			const seal = await evidenceSeal(indexDir, scopeKey, sourceKey, budget)
 			const value = await action(handle, before.size, seal, sourceKey, budget)
 			signal?.throwIfAborted()
@@ -209,17 +278,40 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 	}
 	return Object.freeze({
 		scope,
-		async search(options = {}, signal?: AbortSignal) {
+		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			const input = z
-				.object({ query: z.string().max(256).optional(), cursor: z.string().max(4096).optional() })
+				.object({
+					query: z.string().max(256).optional(),
+					cursor: z.string().max(4096).optional(),
+					seq: integer.positive().optional(),
+					part: integer.optional(),
+					limit: integer.min(1).max(4).default(4),
+				})
 				.strict()
 				.parse(options)
+			if (input.part !== undefined && input.seq === undefined)
+				throw new Error('Part requires an event sequence.')
 			const query = input.query ?? ''
 			return access(signal, async (handle, size, seal, sourceKey, budget) => {
 				const cursor = input.cursor
 					? cursorSchema.parse(seal.unpack(input.cursor))
-					: { kind: 'search' as const, query, position: { offset: 0, seq: 0 }, entry: 0, chunk: 0 }
-				if (cursor.query !== query) throw new Error('Search cursor query changed.')
+					: {
+							kind: 'search' as const,
+							query,
+							seq: input.seq,
+							part: input.part,
+							mode,
+							position: { offset: 0, seq: 0, textIndex: 0 },
+							entry: 0,
+							chunk: 0,
+						}
+				if (
+					cursor.query !== query ||
+					cursor.seq !== input.seq ||
+					cursor.part !== input.part ||
+					cursor.mode !== mode
+				)
+					throw new Error('Search cursor query changed.')
 				const { page, cacheHit } = await indexPage(
 					handle,
 					size,
@@ -229,14 +321,23 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 					sourceKey,
 					budget,
 				)
-				const matches: RunEvidenceMatch[] = []
+				const matches: RunTextEvidenceMatch[] = []
 				const unavailable: string[] = []
 				let partial = false
 				let entryIndex = cursor.entry
 				let chunk = cursor.chunk
-				while (entryIndex < page.entries.length && matches.length < 4) {
+				while (entryIndex < page.entries.length && matches.length < input.limit) {
 					const entry = page.entries[entryIndex]
 					if (!entry) throw new Error('Invalid index entry.')
+					if (
+						(mode === 'tools' && entry.source !== 'tool_completed') ||
+						(input.seq !== undefined && entry.seq !== input.seq) ||
+						(input.part !== undefined && entry.part !== input.part)
+					) {
+						entryIndex++
+						chunk = 0
+						continue
+					}
 					try {
 						if (entry.truncated && !entry.spill) partial = true
 						if (!entry.spill && !mayContain(entry.filter, query)) {
@@ -245,7 +346,7 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 							continue
 						}
 						const source = await sourceText(handle, entry, runDir, scope.runId, budget)
-						while (chunk < source.chunks && matches.length < 4) {
+						while (chunk < source.chunks && matches.length < input.limit) {
 							signal?.throwIfAborted()
 							if (source.mayMatch(chunk, query)) {
 								const window = await source.window(chunk)
@@ -259,6 +360,12 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 									matches.push({
 										address: seal.pack({ kind: 'text', entry: pointerSchema.parse(entry) }),
 										seq: entry.seq,
+										source: entry.source,
+										part: entry.part,
+										characterOffset:
+											window.characterOffset === undefined
+												? undefined
+												: window.characterOffset + start,
 										toolName: entry.toolName,
 										isError: entry.isError,
 										retained: source.retained,
@@ -277,7 +384,7 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 					} catch (error) {
 						signal?.throwIfAborted()
 						if (error instanceof EvidencePageLimit) break
-						unavailable.push(`Tool record ${entry.seq} is unavailable or changed.`)
+						unavailable.push(`Text record ${entry.seq}/${entry.part} is unavailable or changed.`)
 					}
 					entryIndex++
 					chunk = 0
@@ -285,7 +392,7 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 				const nextCursor =
 					entryIndex < page.entries.length
 						? seal.pack({ ...cursor, entry: entryIndex, chunk })
-						: page.next
+						: page.next && (input.seq === undefined || page.next.seq < input.seq)
 							? seal.pack({ ...cursor, position: page.next, entry: 0, chunk: 0 })
 							: null
 				return {
@@ -303,7 +410,7 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 		async read(
 			options: RunEvidenceReadOptions,
 			signal?: AbortSignal,
-		): Promise<RunEvidenceReadResult> {
+		): Promise<RunTextEvidenceReadResult> {
 			const input = z
 				.object({ address: z.string().max(8192), byteOffset: integer.optional() })
 				.strict()
@@ -312,6 +419,8 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 				const pointer = addressSchema.parse(seal.unpack(input.address)).entry
 				const source = await sourceText(handle, pointer, runDir, scope.runId, budget)
 				const entry = source.entry
+				if (mode === 'tools' && entry.source !== 'tool_completed')
+					throw new Error('Not tool evidence.')
 				const offset = input.byteOffset ?? 0
 				if (offset > source.bytes) throw new Error('Offset exceeds retained text.')
 				const chunk = entry.spill
@@ -331,6 +440,14 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 				return {
 					scope,
 					seq: entry.seq,
+					source: entry.source,
+					part: entry.part,
+					characterOffset:
+						window.characterOffset === undefined
+							? undefined
+							: window.characterOffset +
+								decode(window.bytes.subarray(0, offset - window.offset)).length,
+					totalChars: source.chars,
 					toolName: entry.toolName,
 					isError: entry.isError,
 					retained: source.retained,

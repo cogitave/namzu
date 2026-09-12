@@ -56,6 +56,50 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 describe('bounded original conversation evidence', () => {
+	it('bounds indexed JSON excerpts and paginates message history alongside tool output', async () => {
+		const { sessions, sessionId } = await fixture()
+		const runId = generateRunId()
+		const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+		await mkdir(path, { recursive: true })
+		await writeFile(
+			join(path, 'run.json'),
+			JSON.stringify({
+				id: runId,
+				status: 'completed',
+				metadata: {
+					scope: { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId },
+				},
+			}),
+		)
+		const events = [
+			{ type: 'run_started', runId, seq: 1 },
+			...Array.from({ length: 8 }, (_, index) => ({
+				type: 'message_completed',
+				runId,
+				seq: index + 2,
+				content: '\u0001'.repeat(5000),
+			})),
+		]
+		await writeFile(
+			join(path, 'transcript.jsonl'),
+			`${events.map((e) => JSON.stringify(e)).join('\n')}\n`,
+		)
+		let cursor: string | undefined
+		const sequences = []
+		do {
+			const page = await searchConversation(sessions, sessionId, {
+				query: '\u0001',
+				limit: 20,
+				cursor,
+			})
+			expect(Buffer.byteLength(JSON.stringify(page.matches))).toBeLessThanOrEqual(12_000)
+			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			sequences.push(...page.matches.map((match) => match.seq))
+			cursor = page.nextCursor
+		} while (cursor)
+		expect(sequences).toEqual([2, 3, 4, 5, 6, 7, 8, 9])
+	})
+
 	it('recovers tool evidence from a real SDK transcript containing a tool-only assistant turn', async () => {
 		const { cwd, sessions, sessionId } = await fixture()
 		const tools = new ToolRegistry()

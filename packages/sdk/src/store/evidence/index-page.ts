@@ -20,9 +20,18 @@ export const entrySchema = z.object({
 	length: integer.max(RECORD_BYTES),
 	sha256: z.string().regex(/^[a-f0-9]{64}$/),
 	seq: integer,
-	toolName: z.string().max(1024),
-	toolUseId: z.string().max(1024),
-	isError: z.boolean(),
+	source: z.enum([
+		'tool_completed',
+		'message_completed',
+		'compaction_shed:system',
+		'compaction_shed:user',
+		'compaction_shed:assistant',
+		'compaction_shed:tool',
+	]),
+	part: integer.default(0),
+	toolName: z.string().max(1024).optional(),
+	toolUseId: z.string().max(1024).optional(),
+	isError: z.boolean().optional(),
 	truncated: z.boolean(),
 	spill: z
 		.string()
@@ -31,7 +40,11 @@ export const entrySchema = z.object({
 	filter: z.string().max(1400),
 })
 export type IndexEntry = z.infer<typeof entrySchema>
-export const positionSchema = z.object({ offset: integer, seq: integer })
+export const positionSchema = z.object({
+	offset: integer,
+	seq: integer,
+	textIndex: integer.default(0),
+})
 export type IndexPosition = z.infer<typeof positionSchema>
 const pageSchema = z.object({
 	start: positionSchema,
@@ -124,6 +137,8 @@ export function toolEntry(
 		length: bytes.length,
 		sha256: digest(bytes),
 		seq: event.seq,
+		source: 'tool_completed',
+		part: 0,
 		toolName: event.toolName,
 		toolUseId: event.toolUseId,
 		isError: event.isError,
@@ -135,7 +150,35 @@ export function toolEntry(
 	})
 }
 
-/** Each cache page indexes at most 64 records and 4 MiB of transcript input. */
+/** Validate all textual parts before publishing any part of a record. */
+export function eventTexts(event: Record<string, unknown>): { source: string; text: string }[] {
+	if (event.type === 'tool_completed') {
+		if (typeof event.result !== 'string') throw new Error('Invalid tool text.')
+		return [{ source: 'tool_completed', text: event.result }]
+	}
+	if (event.type === 'message_completed') {
+		if (event.content === undefined) return []
+		if (typeof event.content !== 'string') throw new Error('Invalid message text.')
+		return [{ source: 'message_completed', text: event.content }]
+	}
+	if (event.type !== 'compaction_shed') return []
+	if (!Array.isArray(event.messages)) throw new Error('Invalid shed messages.')
+	const parts: { source: string; text: string }[] = []
+	for (const message of event.messages) {
+		if (
+			!message ||
+			typeof message !== 'object' ||
+			typeof message.role !== 'string' ||
+			!['system', 'user', 'assistant', 'tool'].includes(message.role)
+		)
+			throw new Error('Invalid shed message.')
+		if (typeof message.content === 'string')
+			parts.push({ source: `compaction_shed:${message.role}`, text: message.content })
+	}
+	return parts
+}
+
+/** Each cache page indexes at most 64 records, 64 textual parts and 4 MiB of input. */
 export async function indexPage(
 	handle: FileHandle,
 	size: number,
@@ -145,11 +188,18 @@ export async function indexPage(
 	sourceKey: string,
 	budget: EvidenceBudget,
 ): Promise<{ page: IndexPage; cacheHit: boolean }> {
-	const path = join(seal.dir, `${digest(`${sourceKey}:${start.offset}:${start.seq}`)}.page`)
+	const path = join(
+		seal.dir,
+		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}`)}.page`,
+	)
 	try {
 		const cached = await readSmall(path, budget, 512 * 1024)
 		const page = pageSchema.parse(seal.unpack(decode(cached)))
-		if (page.start.offset !== start.offset || page.start.seq !== start.seq)
+		if (
+			page.start.offset !== start.offset ||
+			page.start.seq !== start.seq ||
+			page.start.textIndex !== start.textIndex
+		)
 			throw new Error('Index page position mismatch.')
 		return { page, cacheHit: true }
 	} catch (error) {
@@ -159,17 +209,17 @@ export async function indexPage(
 	}
 	let offset = start.offset
 	let seq = start.seq
+	let textIndex = start.textIndex
 	let records = 0
 	let buffered = Buffer.alloc(0)
 	let readOffset = offset
 	const entries: IndexEntry[] = []
-	while (offset < size && records < 64) {
+	while (offset < size && records < 64 && entries.length < 64) {
 		budget.signal?.throwIfAborted()
 		let newline = buffered.indexOf(10)
 		while (newline < 0) {
 			if (buffered.length >= RECORD_BYTES || readOffset >= size)
 				throw new Error('Oversized or torn transcript record; history is incomplete.')
-			// Leave half of the page I/O budget for reading matching text.
 			const count = Math.min(65_536, size - readOffset, RECORD_BYTES - buffered.length)
 			if (readOffset - start.offset + count > RECORD_BYTES && records > 0) break
 			buffered = Buffer.concat([buffered, await readBytes(handle, readOffset, count, budget)])
@@ -182,17 +232,45 @@ export async function indexPage(
 		if (
 			event.runId !== runId ||
 			event.seq !== seq + 1 ||
+			typeof event.type !== 'string' ||
 			(offset === 0 && event.type !== 'run_started')
 		)
 			throw new Error('Transcript identity or event sequence is invalid.')
-		const entry = toolEntry(event, offset, raw)
-		if (entry) entries.push(entry)
+		const parts = eventTexts(event)
+		if (textIndex > parts.length) throw new Error('Invalid textual part position.')
+		const hash = digest(raw)
+		const tool = toolEntry(event, offset, raw)
+		records++
+		while (textIndex < parts.length && entries.length < 64) {
+			const part = parts[textIndex]
+			if (!part) throw new Error('Invalid textual part.')
+			entries.push(
+				tool ??
+					entrySchema.parse({
+						offset,
+						length: raw.length,
+						sha256: hash,
+						seq: event.seq,
+						source: part.source,
+						part: textIndex,
+						truncated: false,
+						filter: textFilter(part.text),
+					}),
+			)
+			textIndex++
+		}
+		if (textIndex < parts.length) break
+		textIndex = 0
 		offset += raw.length
 		seq++
-		records++
 		buffered = buffered.subarray(raw.length)
 	}
-	const page: IndexPage = { start, entries, records, next: offset < size ? { offset, seq } : null }
+	const page: IndexPage = {
+		start,
+		entries,
+		records,
+		next: offset < size ? { offset, seq, textIndex } : null,
+	}
 	const temp = `${path}.${randomBytes(8).toString('hex')}.tmp`
 	budget.signal?.throwIfAborted()
 	await writeFile(temp, seal.pack(page), { flag: 'wx', mode: 0o600 })

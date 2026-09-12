@@ -4,7 +4,7 @@ import { join, resolve } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 
-import { openSessions } from '../../integrations/sessions/store.js'
+import { openSessions, resolveConversation } from '../../integrations/sessions/store.js'
 import { fakeAgentSession } from '../../tui/__fixtures__/agent-session.js'
 import { createAgentSession } from '../../tui/agent.js'
 import { parseRunFlags } from '../run-flags.js'
@@ -150,6 +150,15 @@ describe('run-stream does not turn options into prompt text', () => {
 })
 
 describe('run-stream works in the directory it was pointed at', () => {
+	it('binds evidence only to a resolved persistent conversation', async () => {
+		const { generateSessionId } = await import('@namzu/sdk')
+		vi.mocked(resolveConversation).mockResolvedValueOnce(generateSessionId())
+		await run(['--session', 'receipt-check', 'recover earlier output'])
+		expect(vi.mocked(createAgentSession).mock.calls.at(-1)?.[2]?.conversationSessions).toBe(
+			await vi.mocked(openSessions).mock.results.at(-1)?.value,
+		)
+	})
+
 	it('hands --cwd to the agent session, not only to the session store', async () => {
 		// `--session` keeps the turn off stdin: without a session key the command
 		// reads prior history from a pipe, and in a test runner that pipe never

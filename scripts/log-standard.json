@@ -86,7 +86,7 @@
 		{
 			"file": "packages/cli/src/commands/run-stream.ts",
 			"symbol": "process.stdout.write",
-			"count": 11,
+			"count": 10,
 			"reason": "the NDJSON stdout protocol documented at the top of this file — one JSON object per line for a host process to line-scan. The logger is silenced for the command's lifetime for exactly this reason: no stray log line may land on this channel."
 		},
 		{

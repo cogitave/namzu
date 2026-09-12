@@ -347,6 +347,7 @@ export const runStreamCommand: CommandDef = {
 				tenantId: cli.tenantId,
 			},
 			stateRoot: cli.root,
+			...(conversationId ? { conversationSessions: cli } : {}),
 			rules: permissions.rules,
 			// The operator's --gate commands, as a standing condition on the
 			// answer. Spread rather than passed as undefined so a run without

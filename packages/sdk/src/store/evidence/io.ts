@@ -8,6 +8,7 @@ export const RECORD_BYTES = 4 * 1024 * 1024
 export class EvidencePageLimit extends Error {}
 export interface EvidenceBudget {
 	bytes: number
+	limit?: number
 	signal?: AbortSignal
 }
 
@@ -47,7 +48,7 @@ export async function readBytes(
 	budget: EvidenceBudget,
 ): Promise<Buffer> {
 	budget.signal?.throwIfAborted()
-	if (budget.bytes + length > PAGE_BYTES) throw new EvidencePageLimit()
+	if (budget.bytes + length > (budget.limit ?? PAGE_BYTES)) throw new EvidencePageLimit()
 	const bytes = Buffer.alloc(length)
 	let received = 0
 	while (received < length) {

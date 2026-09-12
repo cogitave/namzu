@@ -535,6 +535,11 @@ export type {
 	RunEvidenceReadOptions,
 	RunEvidenceReadResult,
 	RunEvidenceSource,
+	RunTextEvidenceSearchOptions,
+	RunTextEvidenceMatch,
+	RunTextEvidenceSearchResult,
+	RunTextEvidenceReadResult,
+	RunTextEvidenceSource,
 } from './store/evidence/types.js'
 export type {
 	ResidentToolEvidenceScope,

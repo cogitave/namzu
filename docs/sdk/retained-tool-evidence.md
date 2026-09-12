@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Retained tool evidence
-description: Bounded indexed retrieval of original tool text across explicitly authorized resident invocations.
+description: Bounded indexed retrieval of original tool and conversation text across authorized invocations.
 resource: packages/sdk/src/store/evidence/disk.ts
 tags: [sdk, context, continuity, storage, tools]
 status: draft
@@ -41,6 +41,29 @@ that the missing part contained no match. `full` describes retained text, not
 binary images, documents, provider reasoning, current external state or success
 of the historical action. Check `isError` separately.
 
+## Conversation text view
+
+`createDiskRunTextEvidenceSource(options)` uses the same scope, integrity checks
+and bounded index for tool results, assistant `message_completed` text and
+textual parts of `compaction_shed`. It returns a `RunTextEvidenceSource`;
+`RunEvidenceSource` remains a tool-only interface. Hosts can therefore preserve
+message-history search while retrieving full retained tool output.
+
+Text search accepts `query`, `cursor`, optional exact `seq` and `part`, and
+`limit` (1–4, default 4). `part` requires `seq`; it numbers only textual parts
+inside that event. Cursor scope includes these filters. Matches and reads add
+`source` and `part`; `toolName` and `isError` exist only for tool events.
+An empty query with `seq`/`part` locates a durable event address in bounded
+pages, without requiring a remembered literal from its content.
+
+Text reads expose optional `characterOffset` and `totalChars` in UTF-16 units,
+independently of UTF-8 byte positions. Inline text and new spill manifests
+provide these counts. Older manifests may lack a character index; absence is
+unknown, never a byte count passed off as a character count. A host reading
+sequentially from zero can count returned text itself. New chunk character
+positions point to the first complete UTF-8 character in each window, allowing
+a search hit deep in a large file to be read without replaying earlier pages.
+
 ## Retention and integrity
 
 The model-visible output cap remains 40,000 characters by default. Oversized
@@ -52,7 +75,8 @@ captures a permanently empty directory during query construction.
 Alongside `tool-output/<sha256(toolUseId)>.txt`, retention writes a private,
 exclusive `.txt.manifest.json` sidecar. Its SHA-256 is recorded in the additive
 `tool_completed.outputSpillIntegrity` field. The version-one manifest contains
-the UTF-8 byte length, 64 KiB chunk hashes and literal-search filters. Reading a
+the UTF-8 byte length, 64 KiB chunk hashes and literal-search filters. New
+manifests also retain the total UTF-16 length and per-chunk character positions. Reading a
 selected window verifies the manifest and each selected chunk, without hashing
 the entire large output again. Search filters include a 1 KiB overlap for
 queries spanning chunk boundaries. Filters can have false positives; matching
@@ -71,12 +95,16 @@ fail the tool: it still returns its bounded preview, with degraded recovery.
 Index pages retain event offsets, lengths, sequence numbers, record hashes and
 literal-search filters. They validate consecutive transcript sequence numbers,
 run identity and the initial `run_started` event. Each page indexes at most 64
-records and 4 MiB of transcript input. The first search builds needed pages;
+records, 64 textual parts and 4 MiB of transcript input. A compaction record
+with more parts resumes within that same record without renumbering its parts. The first search builds needed pages;
 later searches and process restarts reuse them. Negative filters avoid reading
 irrelevant bodies. Short or common queries can still require linear traversal;
 the number of bounded pages can grow with the archive.
 
 One run-source call reads at most 8 MiB, including metadata and index files.
+`DiskRunEvidenceOptions.maxReadBytes` can lower that ceiling (1–8 MiB) so a host
+can reserve I/O for its own authorization checks. A ceiling too small for a
+record can prevent progress; it never permits exceeding the bound.
 `run.json` is limited to 512 KiB; one transcript record and one spill manifest
 are each limited to 4 MiB. Manifests accept at most 4,096 chunks; the encoded
 manifest limit can be reached earlier. Oversized/torn records are refused.
@@ -86,7 +114,8 @@ JavaScript memory, so these are I/O/allocation bounds, not exact heap limits.
 Private index pages, cursors and addresses are authenticated with a persistent
 per-scope key and bound to the source file stamp and metadata digest. Changed
 sources invalidate old cursors. Damaged cache pages are rebuilt from the
-source; deleting the index also invalidates its addresses and requires a new
+source; cache schema changes rebuild derived pages while the existing tool
+address format remains readable. Deleting the index also invalidates its addresses and requires a new
 search. Concurrent first readers publish one complete key atomically. The host
 may discard the derived index; it is not the primary evidence store. There is
 no automatic index-generation garbage collector.
@@ -150,3 +179,6 @@ used by these factories. Alternative stores implement `RunEvidenceSource`;
 the core does not import the CLI. The [CLI binding](../cli/resident-work.md)
 adds its own attempt/Session checks. [Verification notes](../../research/resident/tool-evidence.md)
 separate deterministic execution tests from the live small-model experiment.
+
+Ordinary CLI conversations use the [conversation text view](../cli/conversation-evidence.md)
+with their own Session authorization; they do not acquire resident pursuit access.

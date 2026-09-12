@@ -335,6 +335,7 @@ export const runCommand: CommandDef = {
 				tenantId: sessions.tenantId,
 			},
 			stateRoot: sessions.root,
+			...(resume.kind === 'resumed' ? { conversationSessions: sessions } : {}),
 			rules: permissions.rules,
 			...(sessionExport ? { onRunEvent: sessionExport.listener } : {}),
 			// The operator's --gate commands, as a standing condition on the

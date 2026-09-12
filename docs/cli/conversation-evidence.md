@@ -8,7 +8,8 @@ tags: [cli, compaction, tools, sessions]
 
 # Conversation evidence search
 
-The interactive host provides `search_conversation` for recovering exact
+The interactive host, `run --resume` / `run --continue`, and persistent
+`run-stream --session` provide `search_conversation` for recovering exact
 identifiers or phrases from durable output of the current conversation. It
 searches recorded assistant completions, tool results, and textual messages
 preserved in compaction events. Replacing the session's projected history does
@@ -19,7 +20,9 @@ the recorded text without repeating an external action or making a model call.
 narrows the search to one run in the current conversation; optional `limit`
 selects 1–20 matches (default 5). Each match includes the run ID, event sequence,
 source event type, zero-based textual `part`, and an excerpt around the first
-occurrence in that part. `runId`, `seq`, and `part` form a durable read address.
+occurrence in a bounded text window. Indexed matches also report `retained`
+(`full` or `preview`) and, when character positions are known, a `byteOffset`
+for reading near the match. A long result may match several windows. `runId`, `seq`, and `part` form a durable read address.
 Historical text is evidence to evaluate, not instructions to execute.
 
 The host binds the tenant, project and session; the model cannot choose another
@@ -37,15 +40,23 @@ Each call examines at most 100 directory entries and reads at most 8 MiB, in
 size is no longer capped at 2 MiB. Match payloads total at most 12,000 bytes.
 `nextCursor`, when present, continues at an unconsumed record or message inside
 a compaction record. Pass it as `cursor` with the same `query`; omit `runId` or
-repeat the original single-run ID.
+repeat the original single-run ID. Closed, explicitly scoped runs use the SDK
+text index: one bounded index page, at most three matches per call, may require
+continuation even when `limit` is larger. The index also pages within large
+compaction records.
 The 48-character handle binds the host scope, query and file snapshot. It expires
 after ten minutes, process restart or eviction from a 128-entry cache. Restart
 the search if the cursor expires. Changed files are reported as unavailable;
-restart to search the new snapshot. No cursor state is stored on disk.
+restart to search the new snapshot. The short CLI cursor is process-local. The SDK keeps a derived authenticated
+index beside each closed run (`evidence-index/`), reused after restart. This
+index is disposable; the run transcript and retained outputs remain primary.
 
 Results include `scannedRuns`, `scannedBytes`, `unavailableRuns` and `incomplete`.
-Counts describe the current call. `incomplete` remains true while another page
-exists or if any run or truncated evidence was omitted. Follow continuation even
+Counts describe the current call. If an SDK operation fails before returning
+its byte count, `scannedBytes` conservatively charges the remaining 8 MiB
+ceiling and yields instead of attempting another run in that call. `incomplete` remains true while another page
+exists or if any run or partial evidence was omitted. An authenticated full spill
+does not become incomplete merely because its model-visible preview was truncated. Follow continuation even
 when the current page has zero matches. Incomplete absence is not proof that
 missing evidence does not exist. Enumeration is bounded before sorting; cursors
 cover only the initially enumerated runs, not a complete index beyond 100 entries.
@@ -53,34 +64,47 @@ An exact `runId` can search a run excluded by enumeration.
 
 This surface searches only runs physically owned by the selected conversation.
 It does not traverse fork ancestry, delegated sessions, arbitrary artifact
-paths, binary attachments or memory records. Recorded tool results can already
-be previews when the original result exceeded its tool-output budget; this tool
-cannot restore bytes never recorded in the transcript. A recorded truncation
-marker makes the search incomplete even when no match is found. It does not verify that
-a historical claim remains true today.
+paths, binary attachments or memory records. The SDK validates a closed run's
+explicit tenant/project/Session/run ownership and authenticates original tool
+text retained outside the JSONL preview. Changed or missing authenticated
+artifacts are unavailable; search never silently substitutes their previews.
+Older or still-active runs retain the bounded transcript scan. A contradictory
+ownership record is refused, never downgraded to that scanner. An indexed
+cursor also refuses a source that is no longer eligible.
+
+Without a retained authenticated original, a recorded tool preview stays a
+preview. Its truncation marker makes search incomplete even for a negative
+query. Neither source establishes that a historical claim is still true today.
 
 ## Exact retained text
 
-`read_conversation({ runId, seq, part? })` returns exact retained text rather
+`read_conversation({ runId, seq, part?, byteOffset? })` returns exact retained text rather
 than a summary or search excerpt. `part` defaults to zero; compaction events
 can contain several textual messages with different part indices. The tool
 shares search's host-bound ownership and filesystem checks. It never reads
 caller-selected paths or follows an `outputSpillPath` from a transcript.
+Supply the optional `byteOffset` from search to start near a match, or omit it
+to read from the beginning. Repeat that initial offset unchanged with subsequent
+cursor calls. The tool returns `offset` in UTF-16 units, not bytes. A legacy
+record without a character index must be read sequentially from zero.
 
 Each call scans at most 8 MiB and returns at most 6,000 UTF-16 code units,
 without splitting surrogate pairs. `text` may be empty while scanning toward
 the target. Continue with `nextCursor` and the same address until `complete`
 is true. `offset` and `totalChars` use UTF-16 code units; `complete` means the
 selected retained part has been delivered, not that the entire original tool
-output or conversation was retained. `retainedPreview` flags a truncation
-marker encountered during the scan, conservatively including earlier events.
+output or conversation was retained. Indexed reads set `retainedPreview` from
+the selected source. Legacy scans conservatively flag any truncation marker
+encountered, including earlier events. `totalChars` is omitted when unavailable.
 
 The 4 MiB record cap still applies. Cursors share the bounded ten-minute cache
 and file-snapshot checks used by search. A read cursor is separate from a search
 cursor. After restart or expiry, begin again from the durable address without
 a cursor. Text pages revalidate their source record, so reading many pages of
 one large JSONL record trades repeated bounded I/O for avoiding an in-memory
-payload cache. Unrecorded bytes and binary attachments are not reconstructed.
+payload cache. Indexed spill reads verify just the selected chunks and manifest.
+Both tools remain ready when deferred tool loading is selected. Stateless
+headless runs without a host-owned conversation do not acquire these tools. Unrecorded bytes and binary attachments are not reconstructed.
 
 ## Visible context inventory
 
@@ -124,3 +148,14 @@ archive independence from the projected history; it does not claim that an
 automatic model compactor chose that summary. Unit tests additionally cover
 Unicode page boundaries, scoped cursors, multipart compaction records,
 scan-budget continuation and retained-preview reporting.
+
+On 2026-09-12, a separate-process `run --resume` with Luna/low recovered two
+random UUID identifiers absent from a 40,000-character tool preview and the
+replacement conversation summary. The original workspace file had been
+manually replaced. It used one search and one exact read, no workspace replay,
+and 21,922 unpriced subscription tokens (50,000-token/10-iteration ceiling).
+A second run against the final source repeated that result with 21,761 tokens.
+The initial read used a scripted provider through the real CLI Session;
+recovery used the live provider. This is one integration experiment, not a
+benchmark gain. [Reproduction and measurements](../../research/conversation-evidence/results.md)
+distinguish that run from deterministic command and compaction checks.

@@ -1,12 +1,13 @@
-import { randomUUID } from 'node:crypto'
-import { mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
+import { createHmac, randomUUID } from 'node:crypto'
+import { lstat, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { applyToolOutputBudget } from '../../../runtime/query/tool-output-budget.js'
-import { createDiskRunEvidenceSource } from '../disk.js'
+import { createDiskRunEvidenceSource, createDiskRunTextEvidenceSource } from '../disk.js'
 import { EVIDENCE_CHUNK_BYTES, digest } from '../format.js'
-import type { RunEvidenceSearchResult } from '../types.js'
+import { stamp } from '../io.js'
+import type { RunEvidenceSearchResult, RunTextEvidenceSearchResult } from '../types.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -70,6 +71,112 @@ async function fixture(
 }
 
 describe('bounded retained tool evidence', () => {
+	it('keeps previously issued tool-only addresses readable when rebuilding the text index', async () => {
+		const f = await fixture([{ text: 'original tool address' }])
+		const match = (await f.source.search()).matches[0]!
+		const body = JSON.parse(Buffer.from(match.address.split('.')[0]!, 'base64url').toString('utf8'))
+		delete body.entry.part // The previous pointer format predates textual part indices.
+		const encoded = Buffer.from(JSON.stringify(body)).toString('base64url')
+		const scopeKey = digest(JSON.stringify(f.scope))
+		const meta = await readFile(join(f.runDir, 'run.json'))
+		const sourceKey = digest(
+			`${scopeKey}:${stamp(await lstat(join(f.runDir, 'transcript.jsonl')))}:${digest(meta)}`,
+		)
+		const key = await readFile(join(f.indexDir, scopeKey, 'key'))
+		const signature = createHmac('sha256', key)
+			.update(`${sourceKey}\n${encoded}`)
+			.digest('base64url')
+		expect((await f.reopen().read({ address: `${encoded}.${signature}` })).text).toBe(
+			'original tool address',
+		)
+	})
+
+	it('indexes assistant output and more than one page of shed parts without losing identity', async () => {
+		const f = await fixture([{ text: 'shared tool result' }])
+		const path = join(f.runDir, 'transcript.jsonl')
+		const events = [
+			{ type: 'message_completed', runId: f.scope.runId, seq: 3, content: 'shared assistant 🦉' },
+			{
+				type: 'compaction_shed',
+				runId: f.scope.runId,
+				seq: 4,
+				messages: [
+					{ role: 'assistant', content: [{ type: 'image' }] },
+					...Array.from({ length: 130 }, (_, part) => ({
+						role: 'user',
+						content: `shared shed ${part}`,
+					})),
+				],
+			},
+		]
+		await writeFile(
+			path,
+			(await readFile(path, 'utf8')) + events.map((e) => JSON.stringify(e)).join('\n') + '\n',
+		)
+		let cursor: string | null = null
+		const matches = []
+		let calls = 0
+		do {
+			const page: RunTextEvidenceSearchResult = await createDiskRunTextEvidenceSource(f).search({
+				query: 'shared',
+				cursor: cursor ?? undefined,
+			})
+			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			matches.push(...page.matches)
+			cursor = page.nextCursor
+			expect(++calls).toBeLessThan(50)
+		} while (cursor)
+		expect(matches.map((m) => [m.seq, m.part])).toEqual([
+			[2, 0],
+			[3, 0],
+			...Array.from({ length: 130 }, (_, part) => [4, part]),
+		])
+		const source = createDiskRunTextEvidenceSource(f)
+		const read = await source.read({ address: matches[1]!.address })
+		expect(read).toMatchObject({
+			text: 'shared assistant 🦉',
+			source: 'message_completed',
+			part: 0,
+			characterOffset: 0,
+			totalChars: 19,
+		})
+		const tools = await f.source.search({ query: 'shared' })
+		expect(tools.matches.map((m) => m.seq)).toEqual([2])
+		await expect(f.source.read({ address: matches[1]!.address })).rejects.toThrow()
+		let located = await source.search({ seq: 4, part: 129 })
+		while (located.nextCursor && !located.matches.length)
+			located = await source.search({ seq: 4, part: 129, cursor: located.nextCursor })
+		expect(located.matches[0]?.excerpt).toBe('shared shed 129')
+		await expect(source.search({ seq: 4, part: 128, cursor: tools.nextCursor! })).rejects.toThrow()
+	})
+
+	it('maps byte offsets back to exact UTF-16 positions across Unicode chunk boundaries', async () => {
+		const prefix = '\ufeff' + 'α🦉\r\n'.repeat(30_000)
+		const full = prefix + 'UNIQUE-RECEIPT' + 'β'.repeat(40_000)
+		const f = await fixture([{ text: full, spill: true }])
+		const source = createDiskRunTextEvidenceSource(f)
+		const result = await source.search({ query: 'UNIQUE-RECEIPT' })
+		const match = result.matches[0]!
+		const near = await source.read({ address: match.address, byteOffset: match.byteOffset })
+		expect(near.text).toContain('UNIQUE-RECEIPT')
+		expect(near.characterOffset).toBe(
+			Buffer.from(full).subarray(0, near.byteOffset).toString('utf8').length,
+		)
+		expect(near.totalChars).toBe(full.length)
+		expect(full.slice(near.characterOffset, near.characterOffset! + near.text.length)).toBe(
+			near.text,
+		)
+		let offset: number | null = 0
+		let chars = 0
+		while (offset !== null) {
+			const page = await source.read({ address: match.address, byteOffset: offset })
+			expect(page.characterOffset).toBe(chars)
+			chars += page.text.length
+			offset = page.nextByteOffset
+		}
+		expect(chars).toBe(full.length)
+	})
+
 	it('rebuilds a damaged cache or a valid page copied into the wrong index position', async () => {
 		const f = await fixture(
 			Array.from({ length: 75 }, (_, i) => ({

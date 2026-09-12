@@ -1,14 +1,17 @@
-import { mkdtemp } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	DiskMemoryStore,
 	type LLMProvider,
+	type Message,
 	MockLLMProvider,
 	ProviderRegistry,
 	type SessionId,
 	ToolRegistry,
 	type ToolRegistryContract,
+	createAssistantMessage,
 	createUserMessage,
 	defineTool,
 	generateRunId,
@@ -16,6 +19,10 @@ import {
 	query,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
+import {
+	readConversationEvidence,
+	searchConversation,
+} from '../../integrations/sessions/conversation-search.js'
 import { CliPathBuilder } from '../../integrations/sessions/paths.js'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -239,6 +246,163 @@ it('keeps evidence attached to its invoking run when the host changes conversati
 		for (const release of releases) release.resolve()
 		await pending.catch(() => {})
 	}
+})
+
+it('recovers oversized read output through a new CLI Session, then refuses altered artifacts and foreign ownership', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-cli-retained-text-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	const receipt = `DELTA ${randomUUID()}`
+	const document = Array.from({ length: 400 }, (_, i) =>
+		i === 210 ? receipt : `row ${i}: ${'α🦉 unchanged; '.repeat(30)}`,
+	).join('\n')
+	await writeFile(join(cwd, 'manifest.txt'), document)
+	const seed = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ id: 'observe-once', name: 'read', args: { path: 'manifest.txt' } }] },
+			{ text: 'The original observation is retained.' },
+		],
+	})
+	const factory = vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider: seed } as never)
+	const scope = {
+		sessionId,
+		topicId: sessions.topicId,
+		tenantId: sessions.tenantId,
+		projectId: sessions.projectId,
+	}
+	const first = await createAgentSession(preferences, detected, {
+		cwd,
+		scope,
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		sandbox: { enabled: false },
+	})
+	const runId = generateRunId()
+	try {
+		await send(first, runId)
+	} finally {
+		await first.close()
+	}
+	const runDir = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+	const events = (await readFile(join(runDir, 'transcript.jsonl'), 'utf8'))
+		.trim()
+		.split('\n')
+		.map((line) => JSON.parse(line))
+	const original = events.find(
+		(event) => event.type === 'tool_completed' && event.toolName === 'read',
+	)
+	expect(original.outputTruncated).toBe(true)
+	expect(original.result).not.toContain(receipt)
+	expect(original.outputSpillIntegrity).toMatch(/^[a-f0-9]{64}$/)
+	await writeFile(join(cwd, 'manifest.txt'), 'Manually replaced; the old receipt is gone.')
+	await replaceConversation(sessions, sessionId, [
+		createUserMessage('Compacted summary: an observation was recorded.'),
+	])
+	const reopened = await openSessions(cwd)
+	const search = await searchConversation(reopened, sessionId, { query: 'DELTA', runId })
+	const match = search.matches[0]!
+	expect(match.text).toContain(receipt)
+	expect(match.retained).toBe('full')
+	expect(match.byteOffset).toBeGreaterThan(40_000)
+	const address = { runId, seq: match.seq, part: match.part, byteOffset: match.byteOffset }
+	const reader = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [
+					{ id: 'search-old', name: 'search_conversation', args: { query: 'DELTA', runId } },
+				],
+			},
+			{ toolCalls: [{ id: 'read-old', name: 'read_conversation', args: address }] },
+			{ text: 'Recovered the original recorded observation.' },
+		],
+	})
+	factory.mockReturnValue({ provider: reader } as never)
+	let compactions = 0
+	const second = await createAgentSession(preferences, detected, {
+		cwd,
+		scope,
+		stateRoot: reopened.root,
+		conversationSessions: reopened,
+		sandbox: { enabled: false },
+		toolLoading: 'deferred',
+		compaction: { strategy: 'structured', contextWindowTokens: 32_000 },
+		onRunEvent(event) {
+			if (event.type === 'compaction_completed') compactions++
+		},
+	})
+	opened.push(second)
+	const history: Message[] = [createUserMessage(`${'old context '.repeat(1000)} ${receipt}`)]
+	for (let i = 0; i < 20; i++)
+		history.push(
+			createUserMessage('irrelevant past investigation '.repeat(1000)),
+			createAssistantMessage('old reasoning '.repeat(700)),
+		)
+	history.push(createUserMessage('Recover the original DELTA receipt.'))
+	for await (const _event of second.send(history, { permissionMode: 'auto' })) {
+		/* real CLI compaction and retrieval */
+	}
+	expect(compactions).toBeGreaterThan(0)
+	expect(JSON.stringify(reader.requests[0]?.messages)).not.toContain(receipt)
+	expect(
+		JSON.stringify(
+			reader.requests[2]?.messages.filter((m) => m.role === 'tool' && m.toolCallId === 'read-old'),
+		),
+	).toContain(receipt)
+	expect(await readFile(join(cwd, 'manifest.txt'), 'utf8')).toContain('Manually replaced')
+	expect(
+		reader.requests
+			.flatMap((r) =>
+				r.messages.filter((m) => m.role === 'assistant').flatMap((m) => m.toolCalls ?? []),
+			)
+			.some((call) => call.function.name === 'read'),
+	).toBe(false)
+	const read = await readConversationEvidence(reopened, sessionId, address)
+	expect(read.retainedPreview).toBe(false)
+	const spill = original.outputSpillPath
+	expect(typeof spill).toBe('string')
+	const retained = await readFile(spill, 'utf8')
+	expect(retained.slice(read.offset, read.offset + read.text.length)).toBe(read.text)
+	expect(read.totalChars).toBe(retained.length)
+	let cursor: string | undefined
+	let all = ''
+	let pages = 0
+	do {
+		const page = await readConversationEvidence(reopened, sessionId, {
+			runId,
+			seq: match.seq,
+			part: match.part,
+			cursor,
+		})
+		expect(page.offset).toBe(all.length)
+		expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+		all += page.text
+		cursor = page.nextCursor
+		expect(++pages).toBeLessThan(100)
+	} while (cursor)
+	expect(all).toBe(retained)
+
+	await expect(
+		readConversationEvidence(reopened, sessionId, {
+			...address,
+			byteOffset: address.byteOffset! + 1,
+			cursor: read.nextCursor,
+		}),
+	).rejects.toThrow('scope or query')
+	const bytes = await readFile(spill)
+	bytes[address.byteOffset!] = 65
+	await writeFile(spill, bytes)
+	await expect(readConversationEvidence(reopened, sessionId, address)).rejects.toThrow('changed')
+	const unavailable = await searchConversation(reopened, sessionId, { query: 'DELTA', runId })
+	expect(unavailable).toMatchObject({ matches: [], incomplete: true, unavailableRuns: 1 })
+	// An attacker cannot relabel a run under another conversation's otherwise valid directory.
+	const metadata = JSON.parse(await readFile(join(runDir, 'run.json'), 'utf8'))
+	metadata.metadata.scope.sessionId = randomUUID()
+	await writeFile(join(runDir, 'run.json'), JSON.stringify(metadata))
+	await expect(readConversationEvidence(reopened, sessionId, address)).rejects.toThrow('ownership')
+	expect(
+		(await searchConversation(reopened, sessionId, { query: 'DELTA', runId })).matches,
+	).toEqual([])
 })
 
 it('does not offer conversation search without host-owned conversation storage', async () => {

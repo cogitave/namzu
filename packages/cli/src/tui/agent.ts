@@ -1131,6 +1131,8 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	'job',
 	'web_search',
 	'web_fetch',
+	'search_conversation',
+	'read_conversation',
 	'search_resident_history',
 	'read_resident_history',
 	'search_resident_tools',

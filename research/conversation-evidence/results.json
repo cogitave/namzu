@@ -1,0 +1,96 @@
+{
+  "date": "2026-09-12",
+  "scenario": "Separate-process ordinary CLI resume; seeded through real CLI Session with a scripted provider; projection deliberately replaced with a summary and workspace source changed.",
+  "runs": [
+    {
+      "live": false,
+      "passed": true,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "maxIterations": 10,
+      "tokenBudget": 50000,
+      "totalTokens": 0,
+      "unpricedTokens": 0,
+      "calls": [
+        "search_conversation",
+        "read_conversation"
+      ],
+      "originalNotInPreview": true,
+      "originalNotInProjection": true,
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/disk.ts": "40b1e5041bac6e438e2e9c0fd5cce7264387ff0bc630e4007907c9cdd228b46a",
+        "packages/sdk/src/store/evidence/index-page.ts": "7f8358bdcaf3625873fda243b5e32daa5ef0b66560bbcf74711c607e75059842",
+        "packages/sdk/src/store/evidence/format.ts": "79d04375c9486c1c0700ac00a060430d9b86c7e27db06493ef770ddc2bddbe9d",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "602a8e65344080e8d913347d712942ba7bf08d64f8a6be729deb522395abdf5e",
+        "packages/cli/src/tui/agent.ts": "296c50c51e94f67ad40ba6daa0241b0326214688a78f6d57ceeb5b9877310686",
+        "packages/cli/src/commands/run.ts": "aa7c5ca9a5d62767ca0178cc4b4446bd95776b4952c297be61fa9bd52388483f",
+        "research/conversation-evidence/cli.mjs": "dee1db8842e3d4ff0d246127a4b064423d3d69bc27cdc9f728146daf40714c07"
+      }
+    },
+    {
+      "live": true,
+      "passed": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "maxIterations": 10,
+      "tokenBudget": 50000,
+      "totalTokens": 21922,
+      "unpricedTokens": 21922,
+      "calls": [
+        "search_conversation",
+        "read_conversation"
+      ],
+      "originalNotInPreview": true,
+      "originalNotInProjection": true,
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/disk.ts": "40b1e5041bac6e438e2e9c0fd5cce7264387ff0bc630e4007907c9cdd228b46a",
+        "packages/sdk/src/store/evidence/index-page.ts": "7f8358bdcaf3625873fda243b5e32daa5ef0b66560bbcf74711c607e75059842",
+        "packages/sdk/src/store/evidence/format.ts": "79d04375c9486c1c0700ac00a060430d9b86c7e27db06493ef770ddc2bddbe9d",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "602a8e65344080e8d913347d712942ba7bf08d64f8a6be729deb522395abdf5e",
+        "packages/cli/src/tui/agent.ts": "296c50c51e94f67ad40ba6daa0241b0326214688a78f6d57ceeb5b9877310686",
+        "packages/cli/src/commands/run.ts": "aa7c5ca9a5d62767ca0178cc4b4446bd95776b4952c297be61fa9bd52388483f",
+        "research/conversation-evidence/cli.mjs": "dee1db8842e3d4ff0d246127a4b064423d3d69bc27cdc9f728146daf40714c07"
+      }
+    },
+    {
+      "live": true,
+      "passed": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "maxIterations": 10,
+      "tokenBudget": 50000,
+      "totalTokens": 21761,
+      "unpricedTokens": 21761,
+      "calls": [
+        "search_conversation",
+        "read_conversation"
+      ],
+      "originalNotInPreview": true,
+      "originalNotInProjection": true,
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/disk.ts": "bfc18b61ffd696758a1cf6b31663fd98a5b04a6ec1d392158f1ae4a56c927e58",
+        "packages/sdk/src/store/evidence/index-page.ts": "c032fb444108014ac4ea0dde72388e14d52bf9e73495f1c99968f85d762b9606",
+        "packages/sdk/src/store/evidence/format.ts": "79d04375c9486c1c0700ac00a060430d9b86c7e27db06493ef770ddc2bddbe9d",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "602a8e65344080e8d913347d712942ba7bf08d64f8a6be729deb522395abdf5e",
+        "packages/cli/src/tui/agent.ts": "296c50c51e94f67ad40ba6daa0241b0326214688a78f6d57ceeb5b9877310686",
+        "packages/cli/src/commands/run.ts": "aa7c5ca9a5d62767ca0178cc4b4446bd95776b4952c297be61fa9bd52388483f",
+        "research/conversation-evidence/cli.mjs": "dee1db8842e3d4ff0d246127a4b064423d3d69bc27cdc9f728146daf40714c07"
+      }
+    }
+  ],
+  "finalSourceFingerprintsMatch": true,
+  "validation": {
+    "sdkUnit": 6265,
+    "cliUnit": 2824,
+    "sdkProcess": 253,
+    "workspaceTypecheck": true,
+    "workspaceBuild": true,
+    "workspaceLint": true,
+    "docsConformance": true,
+    "docsFences": true,
+    "publicSignatureTypes": true
+  }
+}

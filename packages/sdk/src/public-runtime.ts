@@ -1358,5 +1358,8 @@ export { hashResidentSkill, projectResidentLearning } from './manager/resident/l
 
 export { SqliteSessionStore } from './store/session/sqlite.js'
 
-export { createDiskRunEvidenceSource } from './store/evidence/disk.js'
+export {
+	createDiskRunEvidenceSource,
+	createDiskRunTextEvidenceSource,
+} from './store/evidence/disk.js'
 export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'

@@ -50,14 +50,22 @@ export function mayContain(filter: string, query: string): boolean {
 export interface SpillManifest {
 	version: 1
 	bytes: number
+	chars?: number
 	chunkBytes: number
-	chunks: { sha256: string; filter: string }[]
+	chunks: { sha256: string; filter: string; characterOffset?: number }[]
 }
 
 export function spillManifest(bytes: Buffer): string {
 	const chunks: SpillManifest['chunks'] = []
+	let chars = 0
+	const boundary = (position: number) => {
+		let offset = position
+		while (offset < bytes.length && ((bytes[offset] ?? 0) & 0xc0) === 0x80) offset++
+		return Math.min(offset, bytes.length)
+	}
 	for (let offset = 0; offset < bytes.length; offset += EVIDENCE_CHUNK_BYTES) {
 		chunks.push({
+			characterOffset: chars,
 			sha256: digest(bytes.subarray(offset, offset + EVIDENCE_CHUNK_BYTES)),
 			filter: textFilter(
 				bytes
@@ -65,10 +73,14 @@ export function spillManifest(bytes: Buffer): string {
 					.toString('utf8'),
 			),
 		})
+		chars += bytes
+			.subarray(boundary(offset), boundary(offset + EVIDENCE_CHUNK_BYTES))
+			.toString('utf8').length
 	}
 	return JSON.stringify({
 		version: 1,
 		bytes: bytes.length,
+		chars,
 		chunkBytes: EVIDENCE_CHUNK_BYTES,
 		chunks,
 	})
