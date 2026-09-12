@@ -46,6 +46,11 @@ validating its scope, schema, and filename/body revision. A missing revision
 returns null. It does not reconstruct a nonexistent record from a legacy
 projection, nor permit a rollback to overwrite history.
 
+For model-facing retrieval of earlier settled summaries and consumed wake
+inputs, use the bounded [resident evidence source](resident-recall.md).
+`history(state, throughRevision)` pins one pursuit and an upper revision;
+it does not expose whole agenda snapshots to the model.
+
 Proposal admission checks archived proposal IDs before its final revision CAS.
 Message enqueue/settlement similarly checks archived message IDs. A matching
 standalone enqueue can return its archived terminal message even when its

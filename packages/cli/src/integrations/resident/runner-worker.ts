@@ -60,6 +60,7 @@ async function main(): Promise<number> {
 			formatter: { name: 'json', print() {}, info() {}, error() {} },
 		}
 		const step = createResidentSessionStep({
+			agenda: resident.agenda,
 			ctx,
 			cwd: resident.cwd,
 			sessions,

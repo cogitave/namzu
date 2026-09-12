@@ -4,9 +4,11 @@ import { isDeepStrictEqual } from 'node:util'
 
 import {
 	BOOT_EVENT_NAMES,
+	type DiskResidentAgenda,
 	EVENT_NAME_ATTRIBUTE,
 	type ResidentContextualStep,
 	type ResidentDecision,
+	type ResidentHistoryScope,
 	type ResidentPursuit,
 	type ResidentStepContext,
 	type ReviewAnswer,
@@ -57,6 +59,8 @@ export interface ResidentSessionStepOptions {
 	readonly ctx: CommandContext
 	readonly cwd: string
 	readonly sessions: CliSessions
+	/** History authority remains bound to this resident's agenda and admitted revision. */
+	readonly agenda?: DiskResidentAgenda
 	readonly flags: RunFlags
 	/** Defer optional tool schemas per step; authority and instructions remain unchanged. */
 	readonly toolLoading?: 'eager' | 'deferred'
@@ -137,6 +141,7 @@ function residentContext(
 	pursuit: ResidentPursuit,
 	context: ResidentStepContext,
 	skills: string | undefined,
+	history?: ResidentHistoryScope,
 ): string {
 	const { state } = pursuit
 	const learning = projectResidentLearning(context.learning, {
@@ -147,11 +152,17 @@ function residentContext(
 		'Perform one useful step of this explicitly authorized resident pursuit. Work only within its objective and the current project permissions.',
 		'Each resident step uses an isolated session. Only the supplied saved state continues between steps; do not assume earlier conversation or tool transcripts are present.',
 		'Consider every wakeEvidence entry in order; a later input does not erase an earlier failure. Check conflicting evidence and retain still-relevant inputs in the next summary; settlement consumes the batch.',
+		...(history
+			? [
+					'Use search_resident_history and read_resident_history to recover decisions and accepted inputs missing from the last summary. Browse without a query or search an exact phrase; follow pagination. Recorded claims are not current verification: check newer corrections and mutable evidence. Do not replay an action to recover its output.',
+				]
+			: []),
 		JSON.stringify({
 			identity: state.identity,
 			objective: state.objective,
 			previousSummary: state.summary,
 			admission: state.stepsAdmitted,
+			...(history ? { history } : {}),
 			...(state.wakeEvidence ? { wakeEvidence: state.wakeEvidence } : { wakeReason: state.reason }),
 		}),
 		...(learning.text
@@ -201,6 +212,7 @@ export function createResidentSessionStep(
 		const sessionId = generateSessionId()
 		const runId = generateRunId()
 		const identity = { pursuitId: pursuit.id, claimId, sessionId, runId }
+		const history = options.agenda?.history(pursuit.state, context.agendaRevision)
 		const startedAt = Date.now()
 		let session: AgentSession | undefined
 		let sessionExport: AttachedSessionExport | undefined
@@ -275,6 +287,7 @@ export function createResidentSessionStep(
 					tenantId: sessions.tenantId,
 				},
 				stateRoot: sessions.root,
+				...(history ? { residentHistory: history } : {}),
 				rules: permissions.rules,
 				permissionMode: mode.mode,
 				reviewAnswer,
@@ -335,11 +348,12 @@ export function createResidentSessionStep(
 					runId,
 					permissionMode: mode.mode,
 					...(options.contextProfile === 'interactive'
-						? { extraSystem: residentContext(pursuit, context, skills) }
+						? { extraSystem: residentContext(pursuit, context, skills, history?.scope) }
 						: {
 								residentContext: {
 									state: pursuit.state,
 									learning: context.learning,
+									history: history?.scope,
 									readOnly: mode.mode === 'plan',
 									skillsContext: skills,
 									outputInstructions: DECISION_CONTRACT,

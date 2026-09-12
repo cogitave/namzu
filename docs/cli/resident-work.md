@@ -146,6 +146,23 @@ Learning projection has a 12,000-character cap and selects currently active
 host-approved skills. Oversized entries are reported as omitted. This is summary
 continuation, not a resumed chat transcript or restored in-flight tool process.
 
+Both context profiles also mount `search_resident_history` and
+`read_resident_history` over the SDK's [resident evidence source](../sdk/resident-recall.md).
+They retrieve this pursuit's earlier settled summaries and consumed wake inputs,
+up to the agenda revision captured for the admission. The tools are ready even
+with deferred schema loading and work under the default read-only permission
+mode. They are scoped to the owning Session/Run; ordinary chat and delegated
+children do not gain access to the resident's archive. The internal composition
+option is `AgentSessionOptions.residentHistory`; both foreground and managed
+resident execution supply it automatically.
+
+The model can recover a forgotten identifier and compare a later correction
+without replaying actions. This does not restore complete historical tool
+transcripts or verify that an old report remains true. Search is bounded and
+paged; unavailable history is reported explicitly. The
+[CLI recall experiment](../../research/resident/history-recall.md) records the
+actual search/read calls and their limits.
+
 The model proposes a final JSON decision: `complete`, `blocked` or `wait`, with
 a nonempty summary of at most 8,000 characters. A wait names `wakeAfterMs: null`
 for indefinite rest or an integer delay from zero to 86,400,000. A numeric delay
@@ -199,6 +216,8 @@ pending; overflow refuses the new input without discarding earlier evidence.
 Successful settlement consumes the batch, so the step must preserve unresolved
 facts in its next summary. Interrupted claims retain their inputs until explicit
 inspected reconciliation. This is a waiting-state queue, not mid-step steering.
+Consumed inputs remain accessible through resident recall in immutable history;
+they are no longer automatically projected into the next step's prompt.
 See the SDK's [wake evidence contract](../sdk/resident-agents.md#retaining-wake-evidence).
 
 A crash, provider pause, malformed result, budget stop or cancellation leaves

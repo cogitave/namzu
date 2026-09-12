@@ -49,6 +49,7 @@ function state(overrides: Partial<ResidentState> = {}): ResidentState {
 	return {
 		tenantId: 'bc1544a4-3cab-4e24-86c2-01874d5f0c39',
 		agentKey: 'reviewer',
+		pursuitId: 'c4484567-e3b7-4928-82a2-5584a3d6980d',
 		identity: 'A repository reviewer.',
 		objective: 'Check both remaining acceptance criteria in the authorized fixture.',
 		revision: 4,
@@ -112,6 +113,23 @@ function learning(): ResidentLearningState {
 }
 
 describe('resident context separates stable guidance from the admitted snapshot', () => {
+	it('binds history to the admitted pursuit and changes its boundary outside the static prefix', () => {
+		const history = {
+			tenantId: state().tenantId,
+			agentKey: state().agentKey,
+			pursuitId: state().pursuitId!,
+			throughRevision: 3,
+		}
+		const first = segments({ history })
+		const next = segments({ history: { ...history, throughRevision: 9 } })
+		expect(first.static).toContain('search_resident_history')
+		expect(next.static).toBe(first.static)
+		expect(first.dynamic).toContain('"throughRevision":3')
+		expect(next.dynamic).toContain('"throughRevision":9')
+		expect(() =>
+			segments({ history: { ...history, pursuitId: 'bb810d6f-e5f8-4fc2-9c7f-4f76d9d2bd8e' } }),
+		).toThrow('different pursuit')
+	})
 	it('captures all pending wake inputs without erasing earlier contradictory evidence', () => {
 		const evidence = [
 			{ reason: 'Build failed: BUILD-ALPHA.', receivedAt: 10 },
@@ -235,6 +253,12 @@ it('preserves resident state and project policy when older conversation is compa
 	const prompt = segments({
 		learning: learning(),
 		readOnly: true,
+		history: {
+			tenantId: state().tenantId,
+			agentKey: state().agentKey,
+			pursuitId: state().pursuitId!,
+			throughRevision: 3,
+		},
 		state: state({
 			wakeEvidence: [
 				{ reason: 'Build failed: BUILD-ALPHA.', receivedAt: 10 },
@@ -287,6 +311,8 @@ it('preserves resident state and project policy when older conversation is compa
 	expect(messages[1]?.content).toBe(prompt.dynamic)
 	expect(messages[1]?.content).toContain('BUILD-ALPHA')
 	expect(messages[1]?.content).toContain('SECURITY-BETA')
+	expect(messages[1]?.content).toContain('"throughRevision":3')
+	expect(messages[0]?.content).toContain('search_resident_history')
 	expect(messages).toContainEqual(policy)
 })
 

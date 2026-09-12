@@ -120,6 +120,34 @@ function creationOptions(): AgentSessionOptions {
 
 describe('normal CLI runtime reaches a resident admission', () => {
 	it.each(['resident', 'interactive'] as const)(
+		'binds %s history to the pre-admission revision',
+		async (contextProfile) => {
+			const f = await fixture()
+			const before = (await f.agenda.read())!
+			let projected = ''
+			mocks.create.mockResolvedValue(
+				fakeAgentSession({
+					send: (_messages, options) => {
+						projected = renderedResidentContext(options!)
+						return stream([
+							{ kind: 'done', stopReason: 'end_turn', text: JSON.stringify(complete) },
+						])
+					},
+					close: mocks.close,
+				}),
+			)
+			const step = createResidentSessionStep({ ...f.options, agenda: f.agenda, contextProfile })
+			await new ResidentHost(f.agenda, step, { learning: true }).run({ signal, maxSteps: 1 })
+			expect(creationOptions().residentHistory?.scope).toMatchObject({
+				pursuitId: f.pursuit.id,
+				throughRevision: before.revision,
+				tenantId: f.options.sessions.tenantId,
+			})
+			expect(projected).toContain('search_resident_history')
+			expect(projected).toContain(`"throughRevision":${before.revision}`)
+		},
+	)
+	it.each(['resident', 'interactive'] as const)(
 		'includes the full wake batch in the %s profile',
 		async (contextProfile) => {
 			const f = await fixture()

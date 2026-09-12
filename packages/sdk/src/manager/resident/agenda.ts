@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import { z } from 'zod'
 import { DiskRecordStore } from '../../store/kv/record-store.js'
 import { DiskRevisionRecordStore } from '../../store/kv/revision-record-store.js'
-import { defineSchema } from '../../store/schema.js'
+import { defineSchema, migrate } from '../../store/schema.js'
 import type { TenantId } from '../../types/ids/index.js'
 import { asTenantId } from '../../utils/id.js'
 import {
@@ -20,6 +20,8 @@ import {
 	wakeResidentState,
 } from './store.js'
 
+import { readResidentHistoryRecord } from './history-disk.js'
+import { type ResidentHistorySource, createResidentHistorySource } from './history.js'
 import {
 	type ResidentFeedback,
 	type ResidentObservation,
@@ -255,10 +257,12 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 		'resident agenda',
 		(record) => record.revision,
 	)
-	private readonly history = new DiskRecordStore<ResidentAgendaState>(agendaRecordSchema)
+	private readonly historyRecords = new DiskRecordStore<ResidentAgendaState>(agendaRecordSchema)
 	private readonly location
 	private readonly tenantId: TenantId
 	private readonly agentKey: string
+	private readonly historyRoot: string
+	private readonly historyRevisions: string
 
 	constructor(root: string, scope: { tenantId: TenantId; agentKey: string }) {
 		this.tenantId = asTenantId(scope.tenantId)
@@ -269,6 +273,8 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 			revisionsDir: join(directory, 'revisions'),
 			publishLegacyProjection: false,
 		}
+		this.historyRoot = resolve(root)
+		this.historyRevisions = resolve(this.location.revisionsDir)
 	}
 
 	private checked(record: ResidentAgendaState): ResidentAgendaState {
@@ -302,11 +308,42 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 	/** Read one authoritative immutable commit, never the compatibility projection. */
 	async readRevision(revision: number): Promise<ResidentAgendaState | null> {
 		z.number().int().positive().safe().parse(revision)
-		const record = await this.history.read(join(this.location.revisionsDir, `${revision}.json`))
+		const record = await this.historyRecords.read(
+			join(this.location.revisionsDir, `${revision}.json`),
+		)
 		if (record === null) return null
 		const state = this.checked(record)
 		if (state.revision !== revision) throw new Error('Agenda revision filename and body disagree.')
 		return state
+	}
+
+	/**
+	 * Bind bounded historical reads to this pursuit and a host-selected upper
+	 * agenda revision (normally ResidentStepContext.agendaRevision). No I/O or
+	 * inference occurs until search/read; the boundary never advances itself.
+	 */
+	history(pursuit: ResidentState, throughRevision: number): ResidentHistorySource {
+		const state = residentStateSchema.parse(pursuit)
+		if (state.tenantId !== this.tenantId || state.agentKey !== this.agentKey || !state.pursuitId)
+			throw new Error('History requires a pursuit belonging to this resident agenda.')
+		z.number().int().positive().safe().parse(throughRevision)
+		return createResidentHistorySource(
+			{
+				tenantId: this.tenantId,
+				agentKey: this.agentKey,
+				pursuitId: state.pursuitId,
+				throughRevision,
+			},
+			state,
+			async (revision, budget) => {
+				const raw = await readResidentHistoryRecord(
+					this.historyRoot,
+					join(this.historyRevisions, `${revision}.json`),
+					budget,
+				)
+				return this.checked(migrate<ResidentAgendaState>(agendaRecordSchema, raw))
+			},
+		)
 	}
 
 	private retire(state: ResidentAgendaState, input: ResidentArchiveRequest): ResidentAgendaState {

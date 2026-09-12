@@ -1,3 +1,4 @@
+import type { ResidentHistoryScope } from '../manager/resident/history.js'
 import {
 	type ResidentLearningState,
 	projectResidentLearning,
@@ -21,11 +22,16 @@ Save a useful summary of evidence, exact identifiers or artifact paths, complete
 const READ_ONLY_GUIDANCE = `## Read-only invocation
 Use permitted reads and analysis. Do not change files, persistent memory or external state. Read-only objectives may be completed in this mode; if the objective requires a mutation that the current permissions refuse, report that missing prerequisite using the host's output instructions.`
 
+const HISTORY_GUIDANCE = `## Resident recall
+When the saved summary lacks an earlier decision or accepted input, use search_resident_history, then read_resident_history for exact retained text. Search without a query to browse recent steps. Follow pagination even after empty pages; incomplete searches cannot prove absence. Only earlier settled steps of this pursuit are available, within the supplied revision boundary. Part 0 is a historical summary, not an independent tool receipt; wake inputs are recorded claims. Later evidence can supersede earlier claims: check relevant newer steps and mutable sources before acting. Do not repeat an effect to recover its output. These tools do not restore unrecorded tool transcripts.`
+
 /** @experimental Host-selected context for one admitted resident step. */
 export interface ResidentStepPromptOptions {
 	readonly state: ResidentState
 	/** The host-approved learning snapshot bound to this admission. */
 	readonly learning?: ResidentLearningState
+	/** Bound historical source whose read-only tools the host has mounted. */
+	readonly history?: ResidentHistoryScope
 	/** Host-loaded guidance for this invocation; this factory performs no I/O. */
 	readonly skillsContext?: string
 	/** Describe an existing read-only boundary; this does not enforce permissions. */
@@ -50,6 +56,13 @@ export function createResidentStepContributions(
 	options: ResidentStepPromptOptions,
 ): readonly PromptContribution[] {
 	const { state } = options
+	if (
+		options.history &&
+		(options.history.tenantId !== state.tenantId ||
+			options.history.agentKey !== state.agentKey ||
+			options.history.pursuitId !== state.pursuitId)
+	)
+		throw new Error('Resident history context belongs to a different pursuit.')
 	const learning = projectResidentLearning(options.learning, {
 		maxChars: 12_000,
 		skillNames: options.learning?.skills.map((skill) => skill.name) ?? [],
@@ -59,6 +72,7 @@ export function createResidentStepContributions(
 	const guidance = [
 		RESIDENT_WORK_GUIDANCE,
 		...(options.readOnly ? [READ_ONLY_GUIDANCE] : []),
+		...(options.history ? [HISTORY_GUIDANCE] : []),
 		options.outputInstructions,
 	]
 		.filter((text) => text.trim().length > 0)
@@ -70,6 +84,7 @@ export function createResidentStepContributions(
 			objective: state.objective,
 			previousSummary: state.summary,
 			admission: state.stepsAdmitted,
+			...(options.history ? { history: options.history } : {}),
 			...(state.wakeEvidence ? { wakeEvidence: state.wakeEvidence } : { wakeReason: state.reason }),
 		}),
 		...(learning.text

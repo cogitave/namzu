@@ -141,14 +141,28 @@ it('does not repeat an effect after a worker is killed before settlement', async
 		if (!uncertain) throw new Error('Missing killed pursuit')
 		expect(uncertain.phase).toBe('running')
 		expect(uncertain.wakeEvidence).toEqual(pending.wakeEvidence)
+		const interruptedAgenda = await reopened.read()
+		if (!interruptedAgenda) throw new Error('Missing interrupted agenda')
+		const interruptedHistory = reopened.history(uncertain, interruptedAgenda.revision)
+		expect((await interruptedHistory.search()).matches).toEqual([])
 		// Executor has exited; host inspects the effect before reconciling.
 		expect(await readFile(join(root, 'effect.txt'), 'utf8')).toBe('applied once')
-		await execution.settle(
+		const settled = await execution.settle(
 			uncertain,
 			{ kind: 'complete', summary: 'Host verified the saved effect' },
 			Date.now(),
 		)
 		expect((await execution.read())?.wakeEvidence).toBeUndefined()
+		const settledAgenda = await reopened.read()
+		if (!settledAgenda) throw new Error('Missing settled agenda')
+		const history = new DiskResidentAgenda(root, scope).history(settled, settledAgenda.revision)
+		const recovered = await history.search({ query: 'BUILD-ALPHA' })
+		expect(recovered.matches).toHaveLength(1)
+		expect((await history.read({ revision: settledAgenda.revision, part: 1 })).entry?.text).toBe(
+			'Build failed: BUILD-ALPHA.',
+		)
+		// The older admitted boundary cannot see a later inspected settlement.
+		expect((await interruptedHistory.search()).matches).toEqual([])
 		await expect(
 			execution.settle(uncertain, { kind: 'complete', summary: 'Stale result' }, Date.now()),
 		).rejects.toBeInstanceOf(ResidentConflictError)

@@ -17,7 +17,7 @@ registry.
 
 `ResidentStepPromptOptions` requires `state: ResidentState` and
 `outputInstructions: string`. Optional fields are the admission's approved
-`learning: ResidentLearningState`, host-loaded `skillsContext: string`, and
+`learning: ResidentLearningState`, `history: ResidentHistoryScope`, host-loaded `skillsContext: string`, and
 `readOnly: boolean` (default false).
 
 ```ts
@@ -55,6 +55,13 @@ Without a batch it supplies the single `wakeReason`; with a batch the latest
 reason is not repeated separately, avoiding duplicate context.
 Changing that snapshot leaves the static prefix unchanged when the host's
 guidance and output contract remain the same.
+
+When the host mounts [resident recall tools](resident-recall.md), pass their
+source's scope as `history`. The factory rejects a different tenant, resident or
+pursuit, adds static retrieval guidance and captures the upper revision in the
+dynamic snapshot. Changing that revision does not change the static prefix.
+The reference survives compaction; historical text is fetched only when a tool
+is called. Do not pass this option without mounting and authorizing the tools.
 
 The query prompt cache validates the rendered static text, not only contribution
 IDs. Replacing a registry, skill body or host contract under an existing name

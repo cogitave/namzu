@@ -450,6 +450,17 @@ export type {
 
 export type { ResidentDecision, ResidentState, ResidentStore } from './manager/resident/store.js'
 export type {
+	ResidentHistoryScope,
+	ResidentHistoryAddress,
+	ResidentHistoryMatch,
+	ResidentHistorySearchOptions,
+	ResidentHistorySearchResult,
+	ResidentHistoryReadOptions,
+	ResidentHistoryText,
+	ResidentHistoryReadResult,
+	ResidentHistorySource,
+} from './manager/resident/history.js'
+export type {
 	ResidentStep,
 	ResidentStepResult,
 	ResidentLoopOptions,

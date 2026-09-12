@@ -61,6 +61,7 @@ import {
 	type ProviderChainMember,
 	ProviderRegistry,
 	type ReasoningEffort,
+	type ResidentHistorySource,
 	type ResidentStepPromptOptions,
 	type ResumeHandler,
 	type ResumeOutcome,
@@ -92,6 +93,7 @@ import {
 	batchNeedsReview,
 	buildAskUserQuestionTool,
 	buildMemoryTools,
+	buildResidentHistoryTools,
 	buildSessionGoalTools,
 	compactNow,
 	createComputerUseTool,
@@ -1127,6 +1129,8 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	'job',
 	'web_search',
 	'web_fetch',
+	'search_resident_history',
+	'read_resident_history',
 	// query mounts discovery when absent; an existing discovery tool must stay ready.
 	'search_tools',
 ] as const
@@ -1291,6 +1295,8 @@ export interface AgentSessionOptions {
 	readonly stateRoot?: string
 	/** Host-owned durable conversations, for run-scoped original evidence retrieval. */
 	readonly conversationSessions?: CliSessions
+	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
+	readonly residentHistory?: ResidentHistorySource
 	/**
 	 * Operator-authored tool rules, already compiled to the kernel's vocabulary.
 	 *
@@ -1938,6 +1944,24 @@ export async function createAgentSession(
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<RunId, RunScope>()
 	const delegatedInputWaiters = new Map<RunId, NonNullable<SendOptions['waitForInbound']>>()
+	if (options.residentHistory) {
+		const history = options.residentHistory
+		const historyOwner = { ...scope }
+		registry.register(
+			buildResidentHistoryTools((context) => {
+				const owner = delegationScopes.get(context.runId)
+				if (
+					!owner ||
+					owner.sessionId !== historyOwner.sessionId ||
+					owner.projectId !== historyOwner.projectId ||
+					owner.tenantId !== historyOwner.tenantId ||
+					owner.tenantId !== history.scope.tenantId
+				)
+					throw new Error('The requesting run does not own this resident history.')
+				return history
+			}),
+		)
+	}
 	if (options.conversationSessions) {
 		const sessions = options.conversationSessions
 		for (const build of [buildConversationSearchTool, buildConversationReadTool])

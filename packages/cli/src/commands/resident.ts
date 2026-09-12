@@ -318,6 +318,7 @@ export const residentCommand: CommandDef = {
 						'../integrations/resident/session-step.js'
 					)
 					const step = createResidentSessionStep({
+						agenda: resident.agenda,
 						ctx,
 						cwd: resident.cwd,
 						sessions,

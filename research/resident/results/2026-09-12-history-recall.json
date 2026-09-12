@@ -1,0 +1,253 @@
+{
+  "date": "2026-09-12",
+  "baseCommit": "f1e33a1f",
+  "provider": "zen",
+  "model": "muse-spark-1.3-contributor-free",
+  "effort": "low",
+  "permissionMode": "plan",
+  "toolLoading": "deferred",
+  "modelAdmissions": 2,
+  "scriptedSettlementsPerRun": 2,
+  "limits": {
+    "steps": 1,
+    "iterations": 6,
+    "tokens": 40000
+  },
+  "offlineFixture": "/tmp/namzu-history-recall-cli-PTHuqK",
+  "researchSource": {
+    "repository": "https://github.com/pydantic/pydantic-ai-harness",
+    "revision": "c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504"
+  },
+  "runs": [
+    {
+      "profile": "resident",
+      "fixture": "/tmp/namzu-history-recall-cli-MxqK4x",
+      "passed": true,
+      "seed": {
+        "tracking": "TRACK-bf039501-e5f0-4997-9977-1c68b7de468d",
+        "destination": "DEPOT-5f7f997a-d2ab-44a3-b1cc-771cd0324a5a",
+        "original": 5,
+        "corrected": 8,
+        "latestSummary": "Correction recorded; await recipient confirmation."
+      },
+      "observed": {
+        "exactEvidenceAbsentFromLatestState": true,
+        "phase": "complete",
+        "summary": "DELTA delivery confirmed. Tracking code TRACK-bf039501-e5f0-4997-9977-1c68b7de468d (unchanged from original rev5). Corrected destination DEPOT-5f7f997a-d2ab-44a3-b1cc-771cd0324a5a per correction rev8 replacing OLD-DEPOT. No shipment or message sent.",
+        "tools": [
+          "search_resident_history",
+          "read_resident_history",
+          "read_resident_history"
+        ],
+        "terminalReopenAdmittedNoStep": true
+      },
+      "calls": [
+        {
+          "tool": "search_resident_history",
+          "input": {
+            "query": "DELTA",
+            "limit": 8
+          }
+        },
+        {
+          "tool": "read_resident_history",
+          "input": {
+            "revision": 5,
+            "part": 1,
+            "offset": 0
+          }
+        },
+        {
+          "tool": "read_resident_history",
+          "input": {
+            "revision": 8,
+            "part": 1,
+            "offset": 0
+          }
+        }
+      ],
+      "results": [
+        {
+          "tool": "search_resident_history",
+          "isError": false
+        },
+        {
+          "tool": "read_resident_history",
+          "isError": false
+        },
+        {
+          "tool": "read_resident_history",
+          "isError": false
+        }
+      ],
+      "receipt": {
+        "stopReason": "end_turn",
+        "cleanup": "confirmed",
+        "usage": {
+          "totalTokens": 24847,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 24847
+          }
+        },
+        "budget": {
+          "limit": 40000,
+          "ownTokens": 24847,
+          "treeTokens": 24847,
+          "reservedTokens": 0,
+          "remainingTokens": 15153,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "fingerprints": {
+        "packages/sdk/src/manager/resident/history.ts": "b81a32ff43f037b2fa6a24e15ca0266bbb95747224e5f5c1e44808a74d8ac9e8",
+        "packages/sdk/src/manager/resident/history-disk.ts": "85f00532409e636bb6af75be01008c28dc519e95cae823e2407e615fc3057db3",
+        "packages/sdk/dist/manager/resident/history.js": "6c2064453947f8e7a0d1b7def1372be0244a6f36a15547f9005185c638d544ff",
+        "packages/cli/src/integrations/resident/session-step.ts": "cc7dbb0ae7ff9175422f414cd6a02cf87901f2559a61096ddabc1ab770fc5bdb",
+        "packages/cli/dist/integrations/resident/session-step.js": "a074b208f0685c69905a9ab2b27d1526f087698f4362cc0f43a37c95b1f7b23a",
+        "research/resident/history-recall-cli.mjs": "ba52cd231a414355c7909f024cab5683d91403e4b88db078086ddc82f0a98a55"
+      }
+    },
+    {
+      "profile": "interactive",
+      "fixture": "/tmp/namzu-history-recall-cli-105nPV",
+      "passed": true,
+      "seed": {
+        "tracking": "TRACK-d97dc25a-d321-422c-a8f7-4108463be475",
+        "destination": "DEPOT-42a39613-d501-4305-b170-de1957da4a10",
+        "original": 5,
+        "corrected": 8,
+        "latestSummary": "Correction recorded; await recipient confirmation."
+      },
+      "observed": {
+        "exactEvidenceAbsentFromLatestState": true,
+        "phase": "complete",
+        "summary": "DELTA delivery resolved upon recipient confirmation. Tracking code: TRACK-d97dc25a-d321-422c-a8f7-4108463be475 (unchanged per correction). Corrected destination: DEPOT-42a39613-d501-4305-b170-de1957da4a10 (replacing OLD-DEPOT). Original and correction read in full.",
+        "tools": [
+          "search_resident_history",
+          "read_resident_history",
+          "read_resident_history",
+          "read_resident_history",
+          "search_resident_history",
+          "read_resident_history"
+        ],
+        "terminalReopenAdmittedNoStep": true
+      },
+      "calls": [
+        {
+          "tool": "search_resident_history",
+          "input": {
+            "limit": 8
+          }
+        },
+        {
+          "tool": "read_resident_history",
+          "input": {
+            "revision": 8,
+            "part": 0,
+            "offset": 0
+          }
+        },
+        {
+          "tool": "read_resident_history",
+          "input": {
+            "revision": 8,
+            "part": 1,
+            "offset": 0
+          }
+        },
+        {
+          "tool": "read_resident_history",
+          "input": {
+            "revision": 5,
+            "part": 0,
+            "offset": 0
+          }
+        },
+        {
+          "tool": "search_resident_history",
+          "input": {
+            "query": "DELTA",
+            "limit": 8
+          }
+        },
+        {
+          "tool": "read_resident_history",
+          "input": {
+            "revision": 5,
+            "part": 1,
+            "offset": 0
+          }
+        }
+      ],
+      "results": [
+        {
+          "tool": "search_resident_history",
+          "isError": false
+        },
+        {
+          "tool": "read_resident_history",
+          "isError": false
+        },
+        {
+          "tool": "read_resident_history",
+          "isError": false
+        },
+        {
+          "tool": "read_resident_history",
+          "isError": false
+        },
+        {
+          "tool": "search_resident_history",
+          "isError": false
+        },
+        {
+          "tool": "read_resident_history",
+          "isError": false
+        }
+      ],
+      "receipt": {
+        "stopReason": "end_turn",
+        "cleanup": "confirmed",
+        "usage": {
+          "totalTokens": 37755,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 37755
+          }
+        },
+        "budget": {
+          "limit": 40000,
+          "ownTokens": 37755,
+          "treeTokens": 37755,
+          "reservedTokens": 0,
+          "remainingTokens": 2245,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "fingerprints": {
+        "packages/sdk/src/manager/resident/history.ts": "b81a32ff43f037b2fa6a24e15ca0266bbb95747224e5f5c1e44808a74d8ac9e8",
+        "packages/sdk/src/manager/resident/history-disk.ts": "85f00532409e636bb6af75be01008c28dc519e95cae823e2407e615fc3057db3",
+        "packages/sdk/dist/manager/resident/history.js": "6c2064453947f8e7a0d1b7def1372be0244a6f36a15547f9005185c638d544ff",
+        "packages/cli/src/integrations/resident/session-step.ts": "cc7dbb0ae7ff9175422f414cd6a02cf87901f2559a61096ddabc1ab770fc5bdb",
+        "packages/cli/dist/integrations/resident/session-step.js": "a074b208f0685c69905a9ab2b27d1526f087698f4362cc0f43a37c95b1f7b23a",
+        "research/resident/history-recall-cli.mjs": "ba52cd231a414355c7909f024cab5683d91403e4b88db078086ddc82f0a98a55"
+      }
+    }
+  ],
+  "limitsOfEvidence": [
+    "Two synthetic examples, not a general memory or model-quality benchmark.",
+    "The earlier settlements are host fixtures, not live model learning or a model-induced compaction.",
+    "The isolated workspace disables sandbox and web search; read-only plan permissions remain active.",
+    "Cost fields are unpriced; zero reported cost does not establish monetary cost.",
+    "No TUI, Windows or managed-worker live run was performed for this recall experiment."
+  ]
+}
