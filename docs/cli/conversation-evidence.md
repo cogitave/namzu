@@ -222,7 +222,17 @@ requested text; a changed closed source is refused, not silently substituted.
 Only locations are retained, not text or authorization. The process holds at most
 128 locations for ten minutes, and releases them when the conversation host closes.
 After expiry, eviction or process restart, the durable run/sequence/part address
-still works through bounded lookup pages. If a former live owner is gone, a fresh
+still works through bounded lookup pages. A read advances through up to eight
+SDK lookup pages within the same shared 8 MiB allowance, instead of yielding
+solely because an intermediate index page is empty. Each operation reopens the
+source and checks ownership with the remaining byte budget. Lookup yields when
+fewer than 6 MiB remain for the next SDK operation, eight pages have been visited
+without locating the part, or an unfinished continuation has made no progress.
+Its saved position resumes on the next
+call, including when the text has been located but reading it needs a fresh
+budget. The ceiling bounds both I/O and work on very small pages; it does not
+guarantee that every address returns text in one call.
+If a former live owner is gone, a fresh
 read can locate the now-closed run normally; an already-issued live read cursor
 retains its existing owner requirement.
 

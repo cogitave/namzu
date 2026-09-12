@@ -85,6 +85,17 @@ async function fixture(mode: 'live' | 'closed' = 'closed', texts?: string[]) {
 }
 
 it.each(['live', 'closed'] as const)(
+	'recovers a late multipart address without a search cache (%s)',
+	async (mode) => {
+		const f = await fixture(mode)
+		const page = await f.read({ runId: f.runId, seq: 2, part: 69 })
+		expect(page.text).toBe('α🦉 ORCHID original receipt')
+		expect(page.complete).toBe(true)
+		expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+	},
+)
+
+it.each(['live', 'closed'] as const)(
 	'reads a late search match directly with fresh source checks (%s)',
 	async (mode) => {
 		const f = await fixture(mode)
@@ -146,7 +157,7 @@ it('continues a long exact read and releases both locations and read cursors', a
 		'expired or is unavailable',
 	)
 	const uncached = await f.read(match)
-	expect(uncached.text).toBe('')
+	expect(uncached.text).toBe(first.text)
 	expect(uncached.nextCursor).toBeDefined()
 })
 
@@ -155,10 +166,8 @@ it('locates an expired search address again using bounded index pages', async ()
 	const match = await f.find()
 	vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 10 * 60_000 + 1)
 	const first = await f.read(match)
-	expect(first.text).toBe('')
-	expect(first.nextCursor).toBeDefined()
-	const second = await f.read({ ...match, cursor: first.nextCursor })
-	expect(second.text).toBe('α🦉 ORCHID original receipt')
+	expect(first.text).toBe('α🦉 ORCHID original receipt')
+	expect(first.complete).toBe(true)
 })
 
 it('can locate a closed run after its former live owner is gone', async () => {
@@ -166,13 +175,8 @@ it('can locate a closed run after its former live owner is gone', async () => {
 	const match = await f.find()
 	await f.metadata('completed')
 	const first = await readConversationEvidence(f.sessions, f.sessionId, match)
-	expect(first.text).toBe('')
-	expect(first.nextCursor).toBeDefined()
-	const second = await readConversationEvidence(f.sessions, f.sessionId, {
-		...match,
-		cursor: first.nextCursor,
-	})
-	expect(second.text).toBe('α🦉 ORCHID original receipt')
+	expect(first.text).toBe('α🦉 ORCHID original receipt')
+	expect(first.complete).toBe(true)
 })
 
 it('evicts old locations without losing their durable addresses', async () => {
@@ -191,8 +195,8 @@ it('evicts old locations without losing their durable addresses', async () => {
 	expect(cursor).toBeUndefined()
 	expect(matches).toHaveLength(130)
 	const oldest = await f.read(matches[0]!)
-	expect(oldest.text).toBe('')
-	expect(oldest.nextCursor).toBeDefined()
+	expect(oldest.text).toBe('ORCHID original 64')
+	expect(oldest.complete).toBe(true)
 	const newest = await f.read(matches.at(-1)!)
 	expect(newest.text).toBe('ORCHID original 193')
 	expect(newest.complete).toBe(true)
@@ -211,4 +215,116 @@ it('keeps a live location bound to its captured writer after later appends', asy
 		content: `Later response ${randomUUID()}`,
 	})
 	expect((await f.read(match)).text).toBe('α🦉 ORCHID original receipt')
+})
+
+it('yields after bounded lookup work and resumes beyond hundreds of small parts', async () => {
+	const f = await fixture(
+		'closed',
+		Array.from({ length: 600 }, (_, i) => (i === 599 ? 'late original' : 'ordinary')),
+	)
+	const address = { runId: f.runId, seq: 2, part: 599 }
+	const first = await f.read(address)
+	expect(first.text).toBe('')
+	expect(first.complete).toBe(false)
+	expect(first.nextCursor).toBeDefined()
+	expect(first.scannedBytes).toBeLessThan(2 * 1024 * 1024)
+	const second = await f.read({ ...address, cursor: first.nextCursor })
+	expect(second.text).toBe('late original')
+	expect(second.complete).toBe(true)
+	expect(second.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+})
+
+it('shares the byte ceiling across lookup pages and resumes an already located original', async () => {
+	const f = await fixture('closed', [
+		...Array.from({ length: 69 }, () => 'ordinary '.repeat(1800)),
+		'α🦉 ORCHID original receipt',
+	])
+	const address = { runId: f.runId, seq: 2, part: 69 }
+	const first = await f.read(address)
+	expect(first.text).toBe('')
+	expect(first.complete).toBe(false)
+	expect(first.nextCursor).toBeDefined()
+	expect(first.scannedBytes).toBeGreaterThan(2 * 1024 * 1024)
+	expect(first.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+	const second = await f.read({ ...address, cursor: first.nextCursor })
+	expect(second.text).toBe('α🦉 ORCHID original receipt')
+	expect(second.complete).toBe(true)
+	expect(second.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+})
+
+it('reports a missing part after traversing empty lookup pages', async () => {
+	const f = await fixture()
+	await expect(f.read({ runId: f.runId, seq: 2, part: 70 })).rejects.toThrow(
+		'no retained textual part',
+	)
+})
+
+it('rechecks live scope, cancellation and remaining bytes between lookup operations', async () => {
+	const f = await fixture('live')
+	for (let seq = 3; seq < 132; seq++)
+		await f.store.appendEvent({
+			type: 'message_completed',
+			runId: f.runId,
+			seq,
+			iteration: 1,
+			messageId: generateMessageId(),
+			stopReason: 'end_turn',
+			content: 'Later response',
+		})
+	const address = { runId: f.runId, seq: 2, part: 69 }
+	const budgets: number[] = []
+	const capture = async (bytes?: number) => {
+		const source = await f.active!.captureRunEvidence(bytes)
+		if (!source) throw new Error('The fixture must have retained live evidence.')
+		return source
+	}
+	const active = {
+		runId: f.runId,
+		captureRunEvidence: async (bytes?: number) => {
+			budgets.push(bytes!)
+			return capture(bytes)
+		},
+	}
+	const page = await readConversationEvidence(f.sessions, f.sessionId, address, undefined, active)
+	expect(page.text).toBe('α🦉 ORCHID original receipt')
+	expect(budgets.length).toBeGreaterThan(2)
+	for (let i = 1; i < budgets.length; i++) expect(budgets[i]).toBeLessThan(budgets[i - 1]!)
+	expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+
+	const foreign = await startConversation(f.sessions)
+	let captures = 0
+	await expect(
+		readConversationEvidence(f.sessions, f.sessionId, address, undefined, {
+			runId: f.runId,
+			captureRunEvidence: async (bytes) => {
+				const source = await capture(bytes)
+				captures++
+				return captures === 1
+					? source
+					: { ...source, scope: { ...source.scope, sessionId: foreign } }
+			},
+		}),
+	).rejects.toThrow('different conversation')
+	expect(captures).toBe(2)
+
+	const controller = new AbortController()
+	captures = 0
+	await expect(
+		readConversationEvidence(f.sessions, f.sessionId, address, controller.signal, {
+			runId: f.runId,
+			captureRunEvidence: async (bytes) => {
+				const source = await capture(bytes)
+				captures++
+				return {
+					...source,
+					search: async (...args) => {
+						const result = await source.search(...args)
+						controller.abort(new Error('cancelled between pages'))
+						return result
+					},
+				}
+			},
+		}),
+	).rejects.toThrow('cancelled between pages')
+	expect(captures).toBe(1)
 })

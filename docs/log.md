@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Continue cold [conversation reads](cli/conversation-evidence.md) through bounded internal index pages, preserving restart recovery, per-operation scope checks, cancellation, shared I/O accounting and explicit continuation at the limits.
+
 - **Update** Carry authenticated search locations into [exact conversation reads](cli/conversation-evidence.md), removing repeated index lookup while retaining scope, source-integrity, expiry and cancellation checks; release both read and search cursors when the host closes.
 
 ## 2026-09-12

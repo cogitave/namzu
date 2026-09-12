@@ -26,6 +26,8 @@ For what a file contained earlier, recover its earlier observation; reading or s
 const RECORD_BYTES = 4 * 1024 * 1024
 const SCAN_BYTES = 8 * 1024 * 1024
 const OUTPUT_BYTES = 12_000
+// Bound cold address lookup work as well as bytes, including tiny index pages.
+const READ_LOOKUP_PAGES = 8
 
 interface EvidenceMatch {
 	/** Stored event wall-clock Unix milliseconds; not original fact time. */
@@ -962,11 +964,17 @@ export async function readConversationEvidence(
 	}
 	let source = await indexedSource(sessions, sessionId, runId, cursor, result, signal, active)
 	if (source) {
-		if (!cursor.address) {
+		let lookupPages = 0
+		while (!cursor.address) {
+			signal?.throwIfAborted()
+			if (!source) throw new Error('Evidence source is no longer available.')
+			const previousCursor = cursor.indexCursor
 			const search = await source.search(
 				{ seq: input.seq, part, limit: 1, cursor: cursor.indexCursor },
 				signal,
 			)
+			signal?.throwIfAborted()
+			lookupPages++
 			result.scannedBytes += search.scannedBytes
 			if (search.unavailable.length)
 				throw new Error('The requested retained text is unavailable or changed.')
@@ -976,11 +984,16 @@ export async function readConversationEvidence(
 			if (!match && !search.nextCursor)
 				throw new Error('The requested event has no retained textual part.')
 			if (match) cursor.byteOffset = input.byteOffset ?? 0
-			if (!match || SCAN_BYTES - result.scannedBytes < 6 * 1024 * 1024) {
+			if (
+				SCAN_BYTES - result.scannedBytes < 6 * 1024 * 1024 ||
+				(!match && (lookupPages >= READ_LOOKUP_PAGES || cursor.indexCursor === previousCursor))
+			) {
 				result.nextCursor = encodeCursor(cursor)
 				return result
 			}
-			// Re-resolve with the remaining budget; never spend two full SDK budgets.
+			// Empty index pages are internal lookup progress, not a reason on their
+			// own to spend another model turn. Re-resolve scope and the remaining
+			// budget before each operation; never spend two full SDK budgets.
 			source = await indexedSource(sessions, sessionId, runId, cursor, result, signal, active)
 		}
 		if (!source || !cursor.address) throw new Error('Evidence source is no longer available.')

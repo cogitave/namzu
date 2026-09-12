@@ -1,0 +1,625 @@
+{
+  "date": "2026-09-13",
+  "baselineCommit": "c795e3fc",
+  "reproducer": "research/conversation-evidence/manual-compaction-cli.mjs",
+  "runs": {
+    "beforeSmall": {
+      "root": "/tmp/namzu-manual-compaction-cli-FU2Swu",
+      "passed": true,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "prefixRepeats": 100,
+      "seed": {
+        "sessionId": "f3b9b3b4-b297-4266-8513-5170bec59f61",
+        "code": "ORCHID-4e5b8252-9bd7-4314-8079-78240ac20210",
+        "archive": "540d28f7-cd51-417e-a637-87d02188d8eb",
+        "address": {
+          "runId": "540d28f7-cd51-417e-a637-87d02188d8eb",
+          "seq": 2,
+          "part": 127
+        },
+        "automatic": false,
+        "large": false,
+        "sawAutomatic": false,
+        "shed": 130,
+        "verifierTokens": 0,
+        "exactOriginalArchived": true,
+        "originalAbsentFromProjection": true
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-manual-compaction-cli-FU2Swu/workspace",
+        "--resume",
+        "f3b9b3b4-b297-4266-8513-5170bec59f61",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "45000",
+        "What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network. The original passage has this durable read address: {\"runId\":\"540d28f7-cd51-417e-a637-87d02188d8eb\",\"seq\":2,\"part\":127}. Read it directly; this is a new process with no prior search."
+      ],
+      "coldRead": {
+        "calls": 2,
+        "firstTextChars": 0,
+        "scannedBytes": 504288
+      },
+      "exactReadObserved": true,
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "540d28f7-cd51-417e-a637-87d02188d8eb",
+            "seq": 2,
+            "part": 127
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "540d28f7-cd51-417e-a637-87d02188d8eb",
+            "seq": 2,
+            "part": 127,
+            "cursor": "62fc6d7735bace09e41c27b5f75bebf94f84ff24f70a1e1a"
+          }
+        }
+      ],
+      "pages": [
+        {
+          "runId": "540d28f7-cd51-417e-a637-87d02188d8eb",
+          "seq": 2,
+          "part": 127,
+          "characters": 0,
+          "scannedBytes": 126794,
+          "offset": 0,
+          "complete": false,
+          "retainedPreview": false,
+          "hasContinuation": true,
+          "containsOriginalCode": false
+        },
+        {
+          "runId": "540d28f7-cd51-417e-a637-87d02188d8eb",
+          "seq": 2,
+          "part": 127,
+          "source": "compaction_shed:user",
+          "characters": 2626,
+          "scannedBytes": 377494,
+          "offset": 0,
+          "totalChars": 2626,
+          "complete": true,
+          "retainedPreview": false,
+          "hasContinuation": false,
+          "containsOriginalCode": true
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f994cea31db92826f5e8baa95b1464bd90c4f0720736e0a8542a17b9bfa45629",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "after": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f994cea31db92826f5e8baa95b1464bd90c4f0720736e0a8542a17b9bfa45629",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      }
+    },
+    "beforeLarge": {
+      "root": "/tmp/namzu-manual-compaction-cli-iTOugY",
+      "passed": true,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "prefixRepeats": 900,
+      "seed": {
+        "sessionId": "3bf01300-85fc-4558-8f38-fe59ebd2d046",
+        "code": "ORCHID-0157c9e7-5efa-4ba7-a15e-12bdfefd582b",
+        "archive": "46fe3e25-9f2d-43f2-858c-8fbf542f513b",
+        "address": {
+          "runId": "46fe3e25-9f2d-43f2-858c-8fbf542f513b",
+          "seq": 2,
+          "part": 127
+        },
+        "automatic": false,
+        "large": false,
+        "sawAutomatic": false,
+        "shed": 130,
+        "verifierTokens": 0,
+        "exactOriginalArchived": true,
+        "originalAbsentFromProjection": true
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-manual-compaction-cli-iTOugY/workspace",
+        "--resume",
+        "3bf01300-85fc-4558-8f38-fe59ebd2d046",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "45000",
+        "What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network. The original passage has this durable read address: {\"runId\":\"46fe3e25-9f2d-43f2-858c-8fbf542f513b\",\"seq\":2,\"part\":127}. Read it directly; this is a new process with no prior search."
+      ],
+      "coldRead": {
+        "calls": 2,
+        "firstTextChars": 0,
+        "scannedBytes": 4161892
+      },
+      "exactReadObserved": true,
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "46fe3e25-9f2d-43f2-858c-8fbf542f513b",
+            "seq": 2,
+            "part": 127
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "46fe3e25-9f2d-43f2-858c-8fbf542f513b",
+            "seq": 2,
+            "part": 127,
+            "cursor": "0d4b2b709bb3f912d6c92450fdd8c1876261e3b6840c9377"
+          }
+        }
+      ],
+      "pages": [
+        {
+          "runId": "46fe3e25-9f2d-43f2-858c-8fbf542f513b",
+          "seq": 2,
+          "part": 127,
+          "characters": 0,
+          "scannedBytes": 1041196,
+          "offset": 0,
+          "complete": false,
+          "retainedPreview": false,
+          "hasContinuation": true,
+          "containsOriginalCode": false
+        },
+        {
+          "runId": "46fe3e25-9f2d-43f2-858c-8fbf542f513b",
+          "seq": 2,
+          "part": 127,
+          "source": "compaction_shed:user",
+          "characters": 2626,
+          "scannedBytes": 3120696,
+          "offset": 0,
+          "totalChars": 2626,
+          "complete": true,
+          "retainedPreview": false,
+          "hasContinuation": false,
+          "containsOriginalCode": true
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f994cea31db92826f5e8baa95b1464bd90c4f0720736e0a8542a17b9bfa45629",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "after": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f994cea31db92826f5e8baa95b1464bd90c4f0720736e0a8542a17b9bfa45629",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      }
+    },
+    "afterSmall": {
+      "root": "/tmp/namzu-manual-compaction-cli-0gYW0V",
+      "passed": true,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "prefixRepeats": 100,
+      "seed": {
+        "sessionId": "6d4b6ef6-63e5-4482-a64b-c724239532ad",
+        "code": "ORCHID-a9ff575a-2965-492d-bc96-bc9b8d6a03ba",
+        "archive": "14530879-1ebe-482e-9998-9f9afc830928",
+        "address": {
+          "runId": "14530879-1ebe-482e-9998-9f9afc830928",
+          "seq": 2,
+          "part": 127
+        },
+        "automatic": false,
+        "large": false,
+        "sawAutomatic": false,
+        "shed": 130,
+        "verifierTokens": 0,
+        "exactOriginalArchived": true,
+        "originalAbsentFromProjection": true
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-manual-compaction-cli-0gYW0V/workspace",
+        "--resume",
+        "6d4b6ef6-63e5-4482-a64b-c724239532ad",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "45000",
+        "What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network. The original passage has this durable read address: {\"runId\":\"14530879-1ebe-482e-9998-9f9afc830928\",\"seq\":2,\"part\":127}. Read it directly; this is a new process with no prior search."
+      ],
+      "coldRead": {
+        "calls": 1,
+        "firstTextChars": 2626,
+        "scannedBytes": 504288
+      },
+      "exactReadObserved": true,
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "14530879-1ebe-482e-9998-9f9afc830928",
+            "seq": 2,
+            "part": 127
+          }
+        }
+      ],
+      "pages": [
+        {
+          "runId": "14530879-1ebe-482e-9998-9f9afc830928",
+          "seq": 2,
+          "part": 127,
+          "source": "compaction_shed:user",
+          "characters": 2626,
+          "scannedBytes": 504288,
+          "offset": 0,
+          "totalChars": 2626,
+          "complete": true,
+          "retainedPreview": false,
+          "hasContinuation": false,
+          "containsOriginalCode": true
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "4915aeb07f7e594befb5734cf10b6b14c9f1042b752b642cd3d896950878c59a",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "after": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "4915aeb07f7e594befb5734cf10b6b14c9f1042b752b642cd3d896950878c59a",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      }
+    },
+    "afterLarge": {
+      "root": "/tmp/namzu-manual-compaction-cli-NCKbGX",
+      "passed": true,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "prefixRepeats": 900,
+      "seed": {
+        "sessionId": "8864c211-5347-4903-ba50-9186d8d7d0a2",
+        "code": "ORCHID-487ff88e-82de-442c-a6a0-534694cd4a30",
+        "archive": "f319d82a-e51c-43e0-8fb0-0981fdb910eb",
+        "address": {
+          "runId": "f319d82a-e51c-43e0-8fb0-0981fdb910eb",
+          "seq": 2,
+          "part": 127
+        },
+        "automatic": false,
+        "large": false,
+        "sawAutomatic": false,
+        "shed": 130,
+        "verifierTokens": 0,
+        "exactOriginalArchived": true,
+        "originalAbsentFromProjection": true
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-manual-compaction-cli-NCKbGX/workspace",
+        "--resume",
+        "8864c211-5347-4903-ba50-9186d8d7d0a2",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "45000",
+        "What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network. The original passage has this durable read address: {\"runId\":\"f319d82a-e51c-43e0-8fb0-0981fdb910eb\",\"seq\":2,\"part\":127}. Read it directly; this is a new process with no prior search."
+      ],
+      "coldRead": {
+        "calls": 2,
+        "firstTextChars": 0,
+        "scannedBytes": 4161892
+      },
+      "exactReadObserved": true,
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "f319d82a-e51c-43e0-8fb0-0981fdb910eb",
+            "seq": 2,
+            "part": 127
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "f319d82a-e51c-43e0-8fb0-0981fdb910eb",
+            "seq": 2,
+            "part": 127,
+            "cursor": "7b6cb4f3b2e8d16a11c50081377893deb9095b8dfbd4e051"
+          }
+        }
+      ],
+      "pages": [
+        {
+          "runId": "f319d82a-e51c-43e0-8fb0-0981fdb910eb",
+          "seq": 2,
+          "part": 127,
+          "characters": 0,
+          "scannedBytes": 3121236,
+          "offset": 0,
+          "complete": false,
+          "retainedPreview": false,
+          "hasContinuation": true,
+          "containsOriginalCode": false
+        },
+        {
+          "runId": "f319d82a-e51c-43e0-8fb0-0981fdb910eb",
+          "seq": 2,
+          "part": 127,
+          "source": "compaction_shed:user",
+          "characters": 2626,
+          "scannedBytes": 1040656,
+          "offset": 0,
+          "totalChars": 2626,
+          "complete": true,
+          "retainedPreview": false,
+          "hasContinuation": false,
+          "containsOriginalCode": true
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "4915aeb07f7e594befb5734cf10b6b14c9f1042b752b642cd3d896950878c59a",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "after": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "4915aeb07f7e594befb5734cf10b6b14c9f1042b752b642cd3d896950878c59a",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      }
+    },
+    "liveSmall": {
+      "root": "/tmp/namzu-manual-compaction-cli-L7cXqR",
+      "passed": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "prefixRepeats": 100,
+      "seed": {
+        "sessionId": "d3fde0fe-fc59-4ebc-9c77-c1dfe1e8fb99",
+        "code": "ORCHID-03e1580d-d292-4754-a49a-458c200657e5",
+        "archive": "4b3512f0-579f-43d9-a99a-234046ac5b1e",
+        "address": {
+          "runId": "4b3512f0-579f-43d9-a99a-234046ac5b1e",
+          "seq": 2,
+          "part": 127
+        },
+        "automatic": false,
+        "large": false,
+        "sawAutomatic": false,
+        "shed": 130,
+        "verifierTokens": 0,
+        "exactOriginalArchived": true,
+        "originalAbsentFromProjection": true
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-manual-compaction-cli-L7cXqR/workspace",
+        "--resume",
+        "d3fde0fe-fc59-4ebc-9c77-c1dfe1e8fb99",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "45000",
+        "What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network. The original passage has this durable read address: {\"runId\":\"4b3512f0-579f-43d9-a99a-234046ac5b1e\",\"seq\":2,\"part\":127}. Read it directly; this is a new process with no prior search."
+      ],
+      "coldRead": {
+        "calls": 1,
+        "firstTextChars": 2626,
+        "scannedBytes": 504288
+      },
+      "exactReadObserved": true,
+      "usage": {
+        "totalTokens": 16317,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 16317
+        }
+      },
+      "calls": [
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "4b3512f0-579f-43d9-a99a-234046ac5b1e",
+            "seq": 2,
+            "part": 127
+          }
+        }
+      ],
+      "pages": [
+        {
+          "runId": "4b3512f0-579f-43d9-a99a-234046ac5b1e",
+          "seq": 2,
+          "part": 127,
+          "source": "compaction_shed:user",
+          "characters": 2626,
+          "scannedBytes": 504288,
+          "offset": 0,
+          "totalChars": 2626,
+          "complete": true,
+          "retainedPreview": false,
+          "hasContinuation": false,
+          "containsOriginalCode": true
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "4915aeb07f7e594befb5734cf10b6b14c9f1042b752b642cd3d896950878c59a",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "after": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "4915aeb07f7e594befb5734cf10b6b14c9f1042b752b642cd3d896950878c59a",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      }
+    }
+  }
+}
