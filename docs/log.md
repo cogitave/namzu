@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Bind [tool evidence capture](sdk/retained-tool-evidence.md) to tool deadlines and nested cancellation, forward [CLI conversation retrieval](cli/conversation-evidence.md) cancellation into stores, and stop caller waits while preserving pending writer serialization.
+
 - **Update** Restore scoped [conversation evidence](cli/conversation-evidence.md) and configured retrieval options in [CLI durable recovery](cli/project-state.md), direct backing-file recovery through authenticated tools, and report failed resumed runs with a nonzero exit status.
 
 - **Update** Distinguish started, completed and unstarted calls during [SDK execution recovery](sdk/tool-execution.md); interrupted effects and unavailable logs no longer authorize automatic replay, while bound question answers and proven unstarted siblings remain resumable. Preserve conversation order and carry configured limits through [CLI durable recovery](cli/project-state.md).

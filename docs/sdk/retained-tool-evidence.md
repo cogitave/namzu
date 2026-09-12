@@ -213,17 +213,20 @@ a search hit deep in a large file to be read without replaying earlier pages.
 
 ## Reading a running invocation
 
-`ToolContext.captureRunEvidence(maxReadBytes?)` optionally captures the calling
+`ToolContext.captureRunEvidence(maxReadBytes?, signal?)` optionally captures the calling
 invocation's completed event boundary. The kernel serializes capture with durable
-appends and rejects capture after the invocation leaves its running state or is
-cancelled. Unsupported stores return `undefined`. Hosts still authorize the
+appends and rejects capture after the tool call settles, times out or is
+cancelled, even when the parent run continues. An optional local signal can
+cancel one capture without cancelling its owning tool, parent or sibling calls.
+Nested tools inherit their own dispatch cancellation. Unsupported stores return
+`undefined`. Hosts still authorize the
 conversation; this capability has no model-selected path, scope or run argument.
 `PrepareStepContext.captureRunEvidence(maxReadBytes?, signal?)` exposes the same
 boundary to host preparation/admission callbacks, with an optional local
 cancellation signal. The [evidence recall step](evidence-recall.md) can therefore
 reattach missing text during a running invocation as well as after restart.
 
-The optional `RunStore.captureTextEvidence(scope, maxReadBytes?)` seam lets a
+The optional `RunStore.captureTextEvidence(scope, maxReadBytes?, signal?)` seam lets a
 store provide that capability. `RunDiskStore` implements it using hash-linked
 JSONL records. A new persisted record adds `previousRecord`, containing the
 preceding record's byte offset, length, sequence and SHA-256, or `null` at an
@@ -232,6 +235,15 @@ capture takes that pointer under the same lock. It does not copy the transcript
 or load the whole history. On reopening, a bounded last-record read bootstraps
 the pointer. A torn/unlinked boundary produces incomplete evidence; it is never
 silently skipped as proof of a complete history.
+
+Cancellation reaches the store and promptly rejects the caller's wait. A capture
+cancelled while waiting for the transcript lock does not enter the store. Writer serialization is retained
+until the actual pending operation settles; aborting a caller does not let a
+later append race an unfinished capture. A custom store that ignores the signal
+can therefore still delay later writes until it settles. The kernel observes
+its late rejection, but cannot forcibly terminate arbitrary backend I/O.
+This signal governs capture; pass the operation's signal to the returned source's
+`search` and `read` methods as well when reading the retained bytes.
 
 The writer also adds optional `previousTextRecord` links to the preceding
 text-bearing record or integrity boundary. These links have the same offset,

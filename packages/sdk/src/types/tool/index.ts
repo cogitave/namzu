@@ -223,9 +223,14 @@ export interface ToolDispatchOptions {
 }
 
 export interface ToolContext {
-	/** Host-owned read snapshot of this invocation. Never replays effects. Unsupported stores return undefined. */
+	/**
+	 * Host-owned read snapshot. Bound to this tool call's lifetime, including its
+	 * deadline; an optional signal can cancel capture earlier. Never replays
+	 * effects. Unsupported stores return undefined.
+	 */
 	captureRunEvidence?: (
 		maxReadBytes?: number,
+		signal?: AbortSignal,
 	) => Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined>
 
 	runId: RunId

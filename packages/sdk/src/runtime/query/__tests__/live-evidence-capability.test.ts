@@ -15,6 +15,91 @@ import {
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
+it('revokes a timed-out tool capture while the next tool can still read evidence', async () => {
+	let release!: () => void
+	const gate = new Promise<void>((resolve) => {
+		release = resolve
+	})
+	const captureTextEvidence = vi.fn(async () => {
+		await gate
+		return undefined
+	})
+	let held: ToolContext['captureRunEvidence']
+	let lateReturn = false
+	let refused: unknown
+	let nextRead = false
+	let settledRead = false
+	const tools = new ToolRegistry()
+	tools.register({
+		name: 'slow_capture',
+		description: 'Capture with a controlled delay.',
+		inputSchema: z.object({}),
+		timeoutMs: 50,
+		maxRetries: 0,
+		execute: async (_input, context) => {
+			held = context.captureRunEvidence
+			context.abortSignal.addEventListener('abort', release, { once: true })
+			try {
+				await held!()
+				lateReturn = true
+			} catch (error) {
+				refused = error
+			}
+			return { success: true, output: 'Finished observing cancellation.' }
+		},
+	})
+	tools.register({
+		name: 'next_capture',
+		description: 'Read after another tool timed out.',
+		inputSchema: z.object({}),
+		execute: async (_input, context) => {
+			try {
+				await held!()
+				settledRead = true
+			} catch {
+				/* the old tool no longer owns capture */
+			}
+			await context.captureRunEvidence!()
+			nextRead = true
+			return { success: true, output: 'The next tool still owns its read.' }
+		},
+	})
+	const run = await drainQuery({
+		runId: generateRunId(),
+		provider: new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ id: 'slow', name: 'slow_capture', args: {} }] },
+				{ toolCalls: [{ id: 'next', name: 'next_capture', args: {} }] },
+				{ text: 'Done.' },
+			],
+		}),
+		tools,
+		runStore: Object.assign(new InMemoryRunStore(), { captureTextEvidence }),
+		checkpointStore: new InMemoryCheckpointStore(),
+		projectId: generateProjectId(),
+		sessionId: generateSessionId(),
+		topicId: generateTopicId(),
+		tenantId: generateTenantId(),
+		workingDirectory: process.cwd(),
+		agentId: 'capture-check',
+		agentName: 'Capture check',
+		messages: [{ role: 'user', content: 'Inspect evidence, then continue after the deadline.' }],
+		runConfig: {
+			model: 'mock',
+			maxIterations: 4,
+			tokenBudget: 100_000,
+			timeoutMs: 10_000,
+			permissionMode: 'auto',
+		},
+	})
+	expect(run.status).toBe('completed')
+	expect(nextRead).toBe(true)
+	expect(lateReturn).toBe(false)
+	expect(refused).toBeInstanceOf(Error)
+	expect(settledRead).toBe(false)
+	expect(captureTextEvidence).toHaveBeenCalledTimes(2)
+})
+
 it('local preparation cancellation refuses late capture without cancelling the run', async () => {
 	const local = new AbortController()
 	const captureTextEvidence = vi.fn(async () => {
@@ -138,7 +223,96 @@ it.each(
 		expect(returned).toBe(!cancelDuringCapture)
 		expect(refused).toBe(cancelDuringCapture)
 		await expect(capture!()).rejects.toThrow(
-			cancelDuringCapture ? 'cancelled' : 'active invocation',
+			cancelDuringCapture
+				? 'cancelled'
+				: entry === 'tool'
+					? 'invocation has settled'
+					: 'active invocation',
 		)
+	},
+)
+
+it.each(['nested', 'local'] as const)(
+	'limits %s capture cancellation to its owner',
+	async (mode) => {
+		const local = new AbortController()
+		let receivedSignal: AbortSignal | undefined
+		const captureTextEvidence = vi.fn(async (_scope, _maxReadBytes, signal?: AbortSignal) => {
+			receivedSignal = signal
+			if (captureTextEvidence.mock.calls.length === 1) local.abort(new Error('only this read'))
+			return undefined
+		})
+		let childCapture: ToolContext['captureRunEvidence']
+		let childRefused = false
+		let parentRead = false
+		const tools = new ToolRegistry()
+		tools.register({
+			name: 'child',
+			description: 'Read inside a nested dispatch.',
+			inputSchema: z.object({}),
+			maxRetries: 0,
+			execute: async (_input, context) => {
+				childCapture = context.captureRunEvidence
+				try {
+					await childCapture!()
+				} catch {
+					childRefused = true
+				}
+				return { success: true, output: 'Child observed cancellation.' }
+			},
+		})
+		tools.register({
+			name: 'parent',
+			description: 'Keep working after one read is cancelled.',
+			inputSchema: z.object({}),
+			maxRetries: 0,
+			execute: async (_input, context) => {
+				if (mode === 'nested') {
+					await context.dispatchTool!('child', {}, { signal: local.signal })
+					await expect(childCapture!()).rejects.toThrow('only this read')
+				} else {
+					await expect(context.captureRunEvidence!(1024, local.signal)).rejects.toThrow(
+						'only this read',
+					)
+					await expect(context.captureRunEvidence!(1024, local.signal)).rejects.toThrow(
+						'only this read',
+					)
+				}
+				expect(receivedSignal?.aborted).toBe(true)
+				expect(captureTextEvidence).toHaveBeenCalledTimes(1)
+				expect(context.abortSignal.aborted).toBe(false)
+				await context.captureRunEvidence!()
+				parentRead = true
+				return { success: true, output: 'Parent still owns its evidence read.' }
+			},
+		})
+		const run = await drainQuery({
+			runId: generateRunId(),
+			provider: new MockLLMProvider({
+				turns: [{ toolCalls: [{ id: 'parent', name: 'parent', args: {} }] }, { text: 'Done.' }],
+			}),
+			tools,
+			runStore: Object.assign(new InMemoryRunStore(), { captureTextEvidence }),
+			checkpointStore: new InMemoryCheckpointStore(),
+			projectId: generateProjectId(),
+			sessionId: generateSessionId(),
+			topicId: generateTopicId(),
+			tenantId: generateTenantId(),
+			workingDirectory: process.cwd(),
+			agentId: 'capture-check',
+			agentName: 'Capture check',
+			messages: [{ role: 'user', content: 'Cancel one read, then continue.' }],
+			runConfig: {
+				model: 'mock',
+				maxIterations: 3,
+				tokenBudget: 100_000,
+				timeoutMs: 10_000,
+				permissionMode: 'auto',
+			},
+		})
+		expect(run.status).toBe('completed')
+		expect(parentRead).toBe(true)
+		if (mode === 'nested') expect(childRefused).toBe(true)
+		expect(captureTextEvidence).toHaveBeenCalledTimes(2)
 	},
 )

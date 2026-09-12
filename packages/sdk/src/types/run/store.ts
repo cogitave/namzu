@@ -119,10 +119,15 @@ export interface RunStore {
 		toolUseIds: readonly string[],
 		signal?: AbortSignal,
 	): Promise<ToolExecutionSnapshot>
-	/** Optional bounded read capability anchored to this writer's completed event boundary. */
+	/**
+	 * Optional bounded read capability anchored to this writer's completed event
+	 * boundary. Observe signal while waiting/reading; cancellation must not release
+	 * a writer lock before its pending operation settles.
+	 */
 	captureTextEvidence?(
 		scope: RunEvidenceScope,
 		maxReadBytes?: number,
+		signal?: AbortSignal,
 	): Promise<RunTextEvidenceSource | undefined>
 
 	/**

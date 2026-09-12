@@ -1416,6 +1416,27 @@ it('propagates cancellation instead of returning an empty search result', async 
 	).rejects.toThrow('stop evidence scan')
 })
 
+it('forwards a search caller cancellation into live capture before scanning text', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { runId } = await transcript(sessions, sessionId, 'ORCHID')
+	const controller = new AbortController()
+	let received: AbortSignal | undefined
+	const captureRunEvidence = vi.fn(async (_maxReadBytes?: number, signal?: AbortSignal) => {
+		received = signal
+		controller.abort(new Error('cancel this search'))
+		signal?.throwIfAborted()
+		return undefined
+	})
+	await expect(
+		searchConversation(sessions, sessionId, { query: 'ORCHID', runId }, controller.signal, {
+			runId,
+			captureRunEvidence,
+		}),
+	).rejects.toThrow('cancel this search')
+	expect(captureRunEvidence).toHaveBeenCalledTimes(1)
+	expect(received).toBe(controller.signal)
+})
+
 it('refuses an oversized single record rather than allocating without bound', async () => {
 	const { sessions, sessionId } = await fixture()
 	const { runId } = await transcript(sessions, sessionId, 'TARGET' + 'x'.repeat(4 * 1024 * 1024))

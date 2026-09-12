@@ -43,6 +43,7 @@ import type {
 	ToolCallRepairReason,
 } from '../../types/tool/repair.js'
 import { abortReasonText } from '../../utils/abort.js'
+import { awaitWithAbort } from '../../utils/await-with-abort.js'
 import { type BackoffPolicy, backoffWithJitter, sleep } from '../../utils/backoff.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateToolCallId } from '../../utils/id.js'
@@ -1883,9 +1884,20 @@ export class ToolExecutor {
 				}
 			}
 
+			const inheritedCapture = toolContext.captureRunEvidence
+			const scopedCapture: ToolContext['captureRunEvidence'] = inheritedCapture
+				? async (maxReadBytes, signal) => {
+						const combined = signal
+							? AbortSignal.any([controller.signal, signal])
+							: controller.signal
+						combined.throwIfAborted()
+						return awaitWithAbort(inheritedCapture(maxReadBytes, combined), combined)
+					}
+				: undefined
 			const context = {
 				...toolContext,
 				abortSignal: controller.signal,
+				...(scopedCapture ? { captureRunEvidence: scopedCapture } : {}),
 				...(scopedDispatch ? { dispatchTool: scopedDispatch } : {}),
 			}
 			const execution = prepared

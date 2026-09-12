@@ -1,0 +1,143 @@
+{
+  "entrypoint": "CLI run-stream --session",
+  "provider": "scripted; no external model requests",
+  "cases": [
+    {
+      "mode": "cooperative",
+      "root": "/tmp/namzu-capture-cancel-cli-kO5ExW",
+      "passed": true,
+      "observations": {
+        "events": [
+          {
+            "event": "search_started",
+            "at": 648.389512,
+            "n": 1
+          },
+          {
+            "event": "store_started",
+            "at": 651.682712,
+            "hasSignal": true
+          },
+          {
+            "event": "store_aborted",
+            "at": 749.092313
+          },
+          {
+            "event": "store_settled",
+            "at": 749.122913
+          },
+          {
+            "event": "search_settled",
+            "at": 749.602014,
+            "n": 1
+          },
+          {
+            "event": "search_started",
+            "at": 760.334714,
+            "n": 2
+          },
+          {
+            "event": "search_settled",
+            "at": 772.808214,
+            "n": 2
+          }
+        ],
+        "readCount": 1,
+        "captureCount": 2,
+        "toolCount": 2
+      },
+      "verification": {
+        "runId": "ab41acf8-821d-407d-b7c1-5c8b769f0790",
+        "recoveredSeq": 16,
+        "firstSearchFailed": true,
+        "followingSearchSucceeded": true,
+        "originalReads": 1,
+        "stopReason": "end_turn"
+      }
+    },
+    {
+      "mode": "uncooperative",
+      "root": "/tmp/namzu-capture-cancel-cli-QUNaDR",
+      "passed": true,
+      "observations": {
+        "events": [
+          {
+            "event": "search_started",
+            "at": 648.076811,
+            "n": 1
+          },
+          {
+            "event": "store_started",
+            "at": 651.041011,
+            "hasSignal": true
+          },
+          {
+            "event": "search_settled",
+            "at": 748.772713,
+            "n": 1
+          },
+          {
+            "event": "store_settled",
+            "at": 1001.541618
+          },
+          {
+            "event": "search_started",
+            "at": 1011.111718,
+            "n": 2
+          },
+          {
+            "event": "search_settled",
+            "at": 1023.426818,
+            "n": 2
+          }
+        ],
+        "readCount": 1,
+        "captureCount": 2,
+        "toolCount": 2
+      },
+      "verification": {
+        "runId": "d95d8caf-4ed6-46a3-baa8-69764af7d262",
+        "recoveredSeq": 16,
+        "firstSearchFailed": true,
+        "followingSearchSucceeded": true,
+        "originalReads": 1,
+        "stopReason": "end_turn"
+      }
+    }
+  ],
+  "before": {
+    "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+    "packages/sdk/dist/runtime/query/executor.js": "45d7e509783aad7d0c59f22e26a5bc5caf53142c378e630f4f5227a3cc6cc143",
+    "packages/sdk/dist/runtime/query/events.js": "681f677fe0e000c4fc5f6923aa265c5b34552de2d431a80bc27a2fa3ed162959",
+    "packages/sdk/dist/store/run/disk.js": "e80d5fb45b0c4b0b9f2cb40d1b1072683081ef97def35982fd8f7e5b475e2f58",
+    "packages/sdk/dist/utils/await-with-abort.js": "3ab9602a851ecacbb3f9d024e33b18ff6972f7f46534db9627c14f590daf585d",
+    "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+    "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+    "packages/cli/dist/integrations/sessions/conversation-search.js": "64c3069b7b983e09e96c9a134b987a57efc76646657bbaad2445408e7e7f7f32"
+  },
+  "after": {
+    "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+    "packages/sdk/dist/runtime/query/executor.js": "45d7e509783aad7d0c59f22e26a5bc5caf53142c378e630f4f5227a3cc6cc143",
+    "packages/sdk/dist/runtime/query/events.js": "681f677fe0e000c4fc5f6923aa265c5b34552de2d431a80bc27a2fa3ed162959",
+    "packages/sdk/dist/store/run/disk.js": "e80d5fb45b0c4b0b9f2cb40d1b1072683081ef97def35982fd8f7e5b475e2f58",
+    "packages/sdk/dist/utils/await-with-abort.js": "3ab9602a851ecacbb3f9d024e33b18ff6972f7f46534db9627c14f590daf585d",
+    "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+    "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+    "packages/cli/dist/integrations/sessions/conversation-search.js": "64c3069b7b983e09e96c9a134b987a57efc76646657bbaad2445408e7e7f7f32"
+  },
+  "baseline": {
+    "kind": "SDK query regression on parent revision 32080b1c",
+    "test": "revokes a timed-out tool capture while the next tool can still read evidence",
+    "expectedLateReturn": false,
+    "actualLateReturn": true,
+    "log": "/tmp/namzu-capture-cancel-baseline.log"
+  },
+  "validation": {
+    "sdkUnit": 6499,
+    "cliUnit": 2909,
+    "cliSkipped": 5,
+    "sdkProcess": 264,
+    "docFences": 47,
+    "published": false
+  }
+}

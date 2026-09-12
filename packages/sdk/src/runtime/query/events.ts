@@ -11,6 +11,7 @@ import { type PersistedRunEvent, isEphemeralEvent } from '../../types/run/events
 import type { RunEvent } from '../../types/run/index.js'
 import type { ReadRunEventsOptions } from '../../types/run/store.js'
 import type { TaskEvent, TaskStore } from '../../types/task/index.js'
+import { awaitWithAbort } from '../../utils/await-with-abort.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 
@@ -82,7 +83,7 @@ export class EventTranslator {
 		maxReadBytes?: number,
 		signal?: AbortSignal,
 	): Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined> {
-		return this.withTranscriptLock(async () => {
+		const capture = this.withTranscriptLock(async () => {
 			signal?.throwIfAborted()
 			const run = this.runMgr.getRun()
 			if (run.status !== 'running')
@@ -90,12 +91,13 @@ export class EventTranslator {
 			const { tenantId, projectId, sessionId, runId } = this.runMgr.getRunScope()
 			const source = await this.runMgr
 				.getRunStore()
-				.captureTextEvidence?.({ tenantId, projectId, sessionId, runId }, maxReadBytes)
+				.captureTextEvidence?.({ tenantId, projectId, sessionId, runId }, maxReadBytes, signal)
 			signal?.throwIfAborted()
 			if (this.runMgr.getRun().status !== 'running')
 				throw new Error('Evidence capture requires the active invocation.')
 			return source
 		})
+		return awaitWithAbort(capture, signal)
 	}
 
 	setGeneration(fence: FencingToken | undefined): void {

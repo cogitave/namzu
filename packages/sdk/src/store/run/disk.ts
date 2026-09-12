@@ -17,6 +17,7 @@ import type {
 	RunStore,
 } from '../../types/run/store.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
+import { awaitWithAbort } from '../../utils/await-with-abort.js'
 import { asCheckpointId, asRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
@@ -169,13 +170,17 @@ export class RunDiskStore implements RunStore {
 	async captureTextEvidence(
 		scope: RunEvidenceScope,
 		maxReadBytes?: number,
+		signal?: AbortSignal,
 	): Promise<RunTextEvidenceSource | undefined> {
-		return this.withEventLock(async () => {
+		signal?.throwIfAborted()
+		const capture = this.withEventLock(async () => {
+			signal?.throwIfAborted()
 			if (scope.runId !== this.boundRunId)
 				throw new Error('Evidence capture does not own this run.')
 			if (!this.evidenceTip) return undefined
 			const runDir = this.requireInit()
 			const before = await stat(join(runDir, 'transcript.jsonl'))
+			signal?.throwIfAborted()
 			const tip = { ...this.evidenceTip }
 			if (before.size < tip.offset + tip.length)
 				throw new Error('Evidence transcript was shortened.')
@@ -184,6 +189,7 @@ export class RunDiskStore implements RunStore {
 				{ tip, identity: `${before.dev}:${before.ino}`, epoch: this.evidenceEpoch },
 			)
 		})
+		return awaitWithAbort(capture, signal)
 	}
 
 	async readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]> {

@@ -43,6 +43,24 @@ async function fixture() {
 	return { root, runDir, scope, store, append, source, meta }
 }
 
+it('refuses a cancelled disk capture and leaves the writer available to other reads', async () => {
+	const f = await fixture()
+	const controller = new AbortController()
+	controller.abort(new Error('stop this capture'))
+	await expect(f.store.captureTextEvidence(f.scope, undefined, controller.signal)).rejects.toThrow(
+		'stop this capture',
+	)
+	await f.append({
+		type: 'tool_completed',
+		toolUseId: 'fresh',
+		toolName: 'read',
+		result: 'ORCHID',
+		isError: false,
+	})
+	const source = await f.source()
+	expect((await source.search({ query: 'ORCHID' })).matches).toHaveLength(1)
+})
+
 it.each(['image', 'text', 'compound'] as const)(
 	'retrieves text from an oversized compacted %s record, live and reopened',
 	async (kind) => {

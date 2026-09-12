@@ -235,7 +235,7 @@ async function indexedSource(
 		runId === active?.runId &&
 		active.captureRunEvidence
 	) {
-		const source = await active.captureRunEvidence(maxReadBytes - budget.scannedBytes)
+		const source = await active.captureRunEvidence(maxReadBytes - budget.scannedBytes, signal)
 		if (source) {
 			if (
 				source.scope.runId !== runId ||

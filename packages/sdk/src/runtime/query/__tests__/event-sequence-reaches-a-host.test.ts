@@ -257,6 +257,78 @@ describe('emits that overlap still get distinct numbers', () => {
 })
 
 describe('a live transcript snapshot stays between whole appends', () => {
+	it('cancels a queued capture before a blocked append finishes without entering the store', async () => {
+		const captureTextEvidence = vi.fn(async () => undefined)
+		const store = Object.assign(new InMemoryRunStore(), { captureTextEvidence })
+		const runId = fixtureId.run('cancel-queued-capture')
+		const mgr = persistence(store, runId)
+		await mgr.init()
+		mgr.markRunning()
+		const emitter = new EventTranslator(mgr)
+		const entered = latch()
+		const release = latch()
+		const append = store.appendEvent.bind(store)
+		vi.spyOn(store, 'appendEvent').mockImplementationOnce(async (event) => {
+			entered.resolve()
+			await release.promise
+			await append(event)
+		})
+		const writing = emitter.emitEvent({
+			type: 'iteration_started',
+			runId,
+			iteration: 1,
+		} as RunEvent)
+		await entered.promise
+		const local = new AbortController()
+		const capture = emitter.captureRunEvidence(undefined, local.signal)
+		local.abort(new Error('cancel queued read'))
+		try {
+			await expect(capture).rejects.toThrow('cancel queued read')
+			expect(captureTextEvidence).not.toHaveBeenCalled()
+		} finally {
+			release.resolve()
+		}
+		await writing
+		await emitter.captureRunEvidence()
+		expect(captureTextEvidence).toHaveBeenCalledTimes(1)
+		expect((await store.readEvents()).map((e) => e.seq)).toEqual([1])
+	})
+
+	it('rejects cancelled capture promptly but keeps its lock until an uncooperative store settles', async () => {
+		const entered = latch()
+		const release = latch()
+		const captureTextEvidence = vi.fn(async () => {
+			entered.resolve()
+			await release.promise
+			throw new Error('late backend failure')
+		})
+		const store = Object.assign(new InMemoryRunStore(), { captureTextEvidence })
+		const runId = fixtureId.run('cancel-active-capture')
+		const mgr = persistence(store, runId)
+		await mgr.init()
+		mgr.markRunning()
+		const emitter = new EventTranslator(mgr)
+		const local = new AbortController()
+		const capture = emitter.captureRunEvidence(undefined, local.signal)
+		await entered.promise
+		const append = vi.spyOn(store, 'appendEvent')
+		const writing = emitter.emitEvent({
+			type: 'iteration_started',
+			runId,
+			iteration: 1,
+		} as RunEvent)
+		local.abort(new Error('cancel active read'))
+		try {
+			await expect(capture).rejects.toThrow('cancel active read')
+			expect(append).not.toHaveBeenCalled()
+		} finally {
+			release.resolve()
+		}
+		await writing
+		expect(append).toHaveBeenCalledTimes(1)
+		expect((await store.readEvents()).map((e) => e.seq)).toEqual([1])
+	})
+
 	it('waits for a partial append and holds subsequent appends until the read finishes', async () => {
 		const store = new RunDiskStore({ baseDir: await workdir() })
 		const runId = fixtureId.run('snapshot')
