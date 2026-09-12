@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	MockLLMProvider,
+	RunDiskStore,
 	type RunEvent,
 	type RunTextEvidenceSource,
 	type SessionId,
@@ -62,6 +63,43 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 describe('bounded original conversation evidence', () => {
+	it('recalls an active observation past 512 nontext events within the live page allowance', async () => {
+		const { cwd, sessions, sessionId } = await fixture()
+		const runId = generateRunId()
+		const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+		const store = new RunDiskStore({ baseDir: join(cwd, 'evidence') })
+		const runDir = await store.initRun(runId)
+		await writeFile(join(runDir, 'run.json'), JSON.stringify({ id: runId, metadata: { scope } }))
+		let seq = 0
+		const append = async (event: Record<string, unknown>) =>
+			store.appendEvent({ ...event, runId, seq: ++seq } as RunEvent)
+		await append({ type: 'run_started' })
+		await append({
+			type: 'tool_completed',
+			toolName: 'read',
+			toolUseId: 'observe-once',
+			result: 'DELTA original receipt: ORIGINAL-471',
+			isError: false,
+		})
+		for (let i = 0; i < 512; i++) await append({ type: 'iteration_started', iteration: i })
+		const captureRunEvidence = vi.fn((maxReadBytes?: number) =>
+			store.captureTextEvidence(scope, maxReadBytes),
+		)
+		const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+		const context = await recall({
+			runId,
+			messages: [createUserMessage('What was the original DELTA receipt?')],
+			stepNumber: 100,
+			prepared: {},
+			steps: [],
+			captureRunEvidence,
+		})
+		expect(context?.context).toContain('ORIGINAL-471')
+		expect(context?.context).toContain('"retained":"full"')
+		expect(captureRunEvidence).toHaveBeenCalledTimes(1)
+		expect((await store.readEvents()).filter((e) => e.type === 'tool_completed')).toHaveLength(1)
+	})
+
 	it.each(['source', 'page', 'budget'])(
 		'rejects an invalid live %s without falling back to disk history',
 		async (invalid) => {

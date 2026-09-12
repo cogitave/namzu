@@ -14,7 +14,7 @@ import {
 	readSmall,
 } from './io.js'
 import { passageMatcher, passagesInWindow } from './passages.js'
-import { type RecordPointer, recordPointerSchema } from './record-chain.js'
+import { type RecordPointer, recordPointerSchema, recordPredecessors } from './record-chain.js'
 import { evidenceSearchInput, evidenceTermsSchema } from './search-input.js'
 import { readTextPage, sourceText, textPointerSchema } from './source-text.js'
 import type {
@@ -189,20 +189,8 @@ export function createLinkedRunTextEvidenceSource(
 					if (event.runId !== scope.runId || event.seq !== pointer.seq)
 						throw new Error('Recorded text identity changed.')
 					records++
-					let previous: RecordPointer | null = null
-					if (event.previousRecord != null) {
-						previous = recordPointerSchema.parse(event.previousRecord)
-						if (
-							previous.offset + previous.length !== pointer.offset ||
-							previous.seq + 1 !== pointer.seq
-						)
-							throw new Error('Invalid text integrity chain.')
-					} else if (pointer.seq === 1) {
-						if (pointer.offset !== 0 || event.type !== 'run_started')
-							throw new Error('Invalid transcript start.')
-					} else {
-						incomplete = true
-					}
+					const links = recordPredecessors(event, pointer)
+					incomplete ||= links.incomplete
 					const texts =
 						input.seq === undefined || input.seq === pointer.seq ? eventTexts(event) : []
 					while (
@@ -281,7 +269,7 @@ export function createLinkedRunTextEvidenceSource(
 						cursor.within = 0
 					}
 					if (cursor.textIndex < texts.length) break
-					cursor.next = previous
+					cursor.next = links.next
 					cursor.textIndex = 0
 					cursor.chunk = 0
 					cursor.within = 0

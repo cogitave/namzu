@@ -1041,6 +1041,17 @@ export type PersistedRunEvent = RunEvent & {
 		readonly sha256: string
 		readonly seq: number
 	} | null
+	/**
+	 * Optional writer-owned link to the preceding text record or integrity boundary.
+	 * Text retrieval may skip nontext records; operational replay still uses every event.
+	 * Absence requires adjacent traversal. Null is only valid at a chain boundary.
+	 */
+	readonly previousTextRecord?: {
+		readonly offset: number
+		readonly length: number
+		readonly sha256: string
+		readonly seq: number
+	} | null
 }
 
 /**

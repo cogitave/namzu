@@ -24,6 +24,7 @@ import { digest } from '../evidence/format.js'
 import { createLinkedRunTextEvidenceSource } from '../evidence/linked.js'
 import {
 	type RecordPointer,
+	hasEvidenceText,
 	recordPointerSchema,
 	transcriptTail,
 } from '../evidence/record-chain.js'
@@ -62,6 +63,7 @@ export class RunDiskStore implements RunStore {
 	private log: Logger
 	private eventLock: Promise<void> = Promise.resolve()
 	private evidenceTip: RecordPointer | undefined
+	private evidenceTextTip: RecordPointer | null | undefined
 	private evidenceEpoch = randomUUID()
 	private boundRunId: string | undefined
 	private indexLock: Promise<void> = Promise.resolve()
@@ -91,7 +93,9 @@ export class RunDiskStore implements RunStore {
 		await healTornAuditTrail(this.runDir)
 		this.boundRunId = runId
 		this.evidenceEpoch = randomUUID()
-		this.evidenceTip = await transcriptTail(join(this.runDir, 'transcript.jsonl'), runId)
+		const tail = await transcriptTail(join(this.runDir, 'transcript.jsonl'), runId)
+		this.evidenceTip = tail?.tip
+		this.evidenceTextTip = tail?.textTip
 		this.log.info('Run directory created', { 'namzu.run.dir': this.runDir })
 		return this.runDir
 	}
@@ -114,11 +118,22 @@ export class RunDiskStore implements RunStore {
 			})
 			const previous = this.evidenceTip
 			const linked =
+				event.runId === this.boundRunId &&
 				previous &&
 				previous.offset + previous.length === before.size &&
 				previous.seq + 1 === event.seq
+			const previousTextRecord = linked
+				? this.evidenceTextTip
+				: before.size === 0 && event.seq === 1 && event.type === 'run_started'
+					? null
+					: undefined
 			const line = Buffer.from(
-				`${JSON.stringify({ ...event, timestamp: Date.now(), previousRecord: linked ? previous : null })}\n`,
+				`${JSON.stringify({
+					...event,
+					timestamp: Date.now(),
+					previousRecord: linked ? previous : null,
+					previousTextRecord,
+				})}\n`,
 			)
 			await appendFile(path, line)
 			const pointer = recordPointerSchema.safeParse({
@@ -129,6 +144,13 @@ export class RunDiskStore implements RunStore {
 			})
 			this.evidenceTip =
 				event.runId === this.boundRunId && pointer.success ? pointer.data : undefined
+			// Include chain boundaries as well as text. This prevents a later skip
+			// from hiding an incomplete history or a malformed content record.
+			this.evidenceTextTip = this.evidenceTip
+				? !linked || hasEvidenceText(JSON.parse(line.toString('utf8')))
+					? this.evidenceTip
+					: previousTextRecord
+				: undefined
 		})
 	}
 

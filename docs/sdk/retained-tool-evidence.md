@@ -125,8 +125,22 @@ or load the whole history. On reopening, a bounded last-record read bootstraps
 the pointer. A torn/unlinked boundary produces incomplete evidence; it is never
 silently skipped as proof of a complete history.
 
+The writer also adds optional `previousTextRecord` links to the preceding
+text-bearing record or integrity boundary. These links have the same offset,
+length, sequence and SHA-256 fields and are included in the current record's
+hash. Search follows them to avoid spending its record allowance on nontext
+iteration/lifecycle events. Missing text links use adjacent traversal; a reopened
+writer bootstraps a known text link from its last complete record and does not
+infer that an older unindexed stretch contains no text. Malformed content and
+chain boundaries remain visible to retrieval. Caller-supplied links are ignored.
+
+Text retrieval verifies the visited records and links; it does **not** reread
+the skipped operational records or perform a full log integrity audit. All
+operational events and their adjacent links remain in the JSONL transcript;
+event replay and ordinary event readers still process that complete log.
+
 The captured `RunTextEvidenceSource` searches newest records first, with at most
-64 records, 64 textual parts and 64 chunk candidates per call. A continuation
+64 visited records, 64 textual parts and 64 chunk candidates per call. A continuation
 keeps its original boundary when later tool calls append new events. The host
 may resolve it through a newer capture of the same writer. Reads and searches
 verify selected record hashes and the same retained-output manifests as closed

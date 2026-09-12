@@ -77,7 +77,7 @@ ProviderRegistry.create = (...args) => {
     const args = ['--quiet', '--format', 'json', 'run', '--trust', '--cwd', cwd, '--resume', sessionId, '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', automatic ? '6' : '8', '--token-budget', automatic ? '35000' : '65000', prompt];
     report.command = args;
     const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
-    const builtFiles = ['packages/sdk/dist/runtime/query/events.js','packages/sdk/dist/runtime/query/index.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/cli/dist/integrations/sessions/evidence-recall.js'];
+    const builtFiles = ['packages/sdk/dist/runtime/query/events.js','packages/sdk/dist/runtime/query/index.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/sdk/dist/store/evidence/record-chain.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/run/disk.js'];
     report.buildBefore = {};
     for (const path of builtFiles) report.buildBefore[path] = createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
     const { stdout } = await exec(process.execPath, ['--import', preload, cli, ...args], { cwd, env, timeout: 180_000, maxBuffer: 2_000_000 });

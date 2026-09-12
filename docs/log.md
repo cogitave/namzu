@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Added writer-owned text predecessor links to SDK JSONL events so bounded live evidence recall skips nontext bookkeeping, while preserving operational records, integrity boundaries, exact reads and restart behavior.
+
 - **Update** Exposed writer-bound evidence capture to SDK step preparation and connected automatic CLI recall within a running invocation, preserving shared read limits and cancellation; verified actual compaction and bounded live CLI behavior.
 
 - **Update** Added opt-in SDK evidence recall into trailing request context with bounded candidate BM25 ranking, scoped cancellation and exact provenance; connected recorded CLI turns and resume, with natural historical/current CLI validation.
