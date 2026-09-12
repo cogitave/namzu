@@ -41,6 +41,10 @@ export interface RunEvidenceSearchOptions {
 export interface RunEvidenceMatch {
 	readonly address: string
 	readonly seq: number
+	/** Stored event wall-clock Unix milliseconds; absent/invalid/zero stamps remain unknown.
+	 * This dates archive recording, not the facts in its text. Clocks can differ or move backwards.
+	 */
+	readonly recordedAt?: number
 	readonly toolName: string
 	readonly isError: boolean
 	readonly retained: 'full' | 'preview'
@@ -70,6 +74,8 @@ export interface RunEvidenceReadOptions {
 export interface RunEvidenceReadResult {
 	readonly scope: RunEvidenceScope
 	readonly seq: number
+	/** Same stored-event wall-clock semantics as RunEvidenceMatch.recordedAt. */
+	readonly recordedAt?: number
 	readonly toolName: string
 	readonly isError: boolean
 	readonly retained: 'full' | 'preview'

@@ -71,6 +71,69 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 
 describe('bounded original conversation evidence', () => {
 	it.each(['live', 'closed', 'legacy'] as const)(
+		'preserves event time in search, exact read and automatic context (%s)',
+		async (backend) => {
+			const { sessions, sessionId } = await fixture()
+			const runId = generateRunId()
+			const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+			const owner = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+			const store = new RunDiskStore({ baseDir: dirname(path) })
+			await store.initRun(runId)
+			if (backend !== 'legacy')
+				await writeFile(
+					join(path, 'run.json'),
+					JSON.stringify({
+						id: runId,
+						status: backend === 'live' ? 'running' : 'completed',
+						metadata: { scope: owner },
+						startedAt: 1,
+					}),
+				)
+			const recordedAt = Date.UTC(2025, 3, 7)
+			const clock = vi.spyOn(Date, 'now').mockReturnValue(recordedAt)
+			try {
+				await store.appendEvent({ type: 'run_started', runId, seq: 1 } as RunEvent)
+				await store.appendEvent({
+					type: 'tool_completed',
+					runId,
+					seq: 2,
+					toolUseId: 'read',
+					toolName: 'read',
+					isError: false,
+					result: 'DELTA receipt CODE-17',
+				} as RunEvent)
+			} finally {
+				clock.mockRestore()
+			}
+			const captureRunEvidence = (bytes?: number) => store.captureTextEvidence(owner, bytes)
+			const active = backend === 'live' ? { runId, captureRunEvidence } : undefined
+			const match = (
+				await searchConversation(sessions, sessionId, { query: 'DELTA', runId }, undefined, active)
+			).matches[0]!
+			expect(match.recordedAt).toBe(recordedAt)
+			const read = await readConversationEvidence(
+				sessions,
+				sessionId,
+				{ runId, seq: 2 },
+				undefined,
+				active,
+			)
+			expect(read.recordedAt).toBe(recordedAt)
+			expect(read.text).toBe('DELTA receipt CODE-17')
+			const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+			const result = await recall({
+				runId: active?.runId ?? generateRunId(),
+				messages: [createUserMessage('DELTA')],
+				steps: [],
+				prepared: {},
+				stepNumber: 1,
+				...(active ? { captureRunEvidence } : {}),
+			})
+			expect(result?.context).toContain(`"recordedAt":${recordedAt}`)
+		},
+	)
+
+	it.each(['live', 'closed', 'legacy'] as const)(
 		'keeps substring noise out of automatic recall (%s)',
 		async (backend) => {
 			const { sessions, sessionId } = await fixture()

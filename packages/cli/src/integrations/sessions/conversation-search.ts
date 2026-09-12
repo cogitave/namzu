@@ -20,6 +20,7 @@ import type { CliSessions } from './store.js'
 /** Stable capability guidance; include only when this host mounts both tools. */
 export const CONVERSATION_EVIDENCE_GUIDANCE = `## Conversation evidence
 When a question asks about an earlier observation, use the evidence already in context. If the detail is missing or clipped, use search_conversation to locate the original recorded output, then read_conversation for exact text beyond an excerpt. Pass a supplied recall continuation's cursor to search_conversation to continue from the scan's existing position. This works before compaction as well as after compaction or restart, within this conversation only.
+recordedAt is the event recorder’s wall-clock time in Unix milliseconds, not the time its text became true. For compaction_shed it dates the copy, not the original observation. Missing stamps stay unknown; clocks can move backwards or differ. Event seq orders one run only; UUIDs, file order and mtime do not establish cross-run chronology.
 For what a file contained earlier, recover its earlier observation; reading or searching the current file cannot establish its past contents. For what is true now, inspect the current source when freshness matters. Do not substitute one time for the other. Report unavailable historical evidence honestly and never repeat a state-changing action to recover its output.`
 
 const RECORD_BYTES = 4 * 1024 * 1024
@@ -27,6 +28,8 @@ const SCAN_BYTES = 8 * 1024 * 1024
 const OUTPUT_BYTES = 12_000
 
 interface EvidenceMatch {
+	/** Stored event wall-clock Unix milliseconds; not original fact time. */
+	recordedAt?: number
 	runId: string
 	seq: number
 	source: string
@@ -289,7 +292,13 @@ async function scanTranscript(
 	cursor: SearchCursor,
 	budget: number,
 	consume: (bytes: number) => void,
-	accept: (event: { seq: number; source: string; text: string; part: number }) => boolean,
+	accept: (event: {
+		seq: number
+		source: string
+		text: string
+		part: number
+		recordedAt?: number
+	}) => boolean,
 	signal?: AbortSignal,
 ): Promise<{ done: boolean; incomplete: boolean }> {
 	await checkedPath(root, path)
@@ -351,7 +360,12 @@ async function scanTranscript(
 					// Validate the whole record before exposing any text. A saved text index
 					// lets several shed messages resume without repeating earlier matches.
 					for (let index = cursor.textIndex ?? 0; index < parsed.events.length; index++) {
-						const event = parsed.events[index] as { seq: number; source: string; text: string }
+						const event = parsed.events[index] as {
+							seq: number
+							source: string
+							text: string
+							recordedAt?: number
+						}
 						if (!accept({ ...event, part: index })) {
 							cursor.textIndex = index
 							stopped = true
@@ -385,9 +399,12 @@ function textEvents(
 	raw: string,
 	runId: string,
 	initialSeq = 0,
-): { events: Array<{ seq: number; source: string; text: string }>; incomplete: boolean } {
+): {
+	events: Array<{ seq: number; source: string; text: string; recordedAt?: number }>
+	incomplete: boolean
+} {
 	if (!raw.endsWith('\n')) throw new Error('Incomplete transcript record.')
-	const result: Array<{ seq: number; source: string; text: string }> = []
+	const result: Array<{ seq: number; source: string; text: string; recordedAt?: number }> = []
 	let seq = initialSeq
 	let incomplete = false
 	for (const line of raw.split('\n')) {
@@ -402,13 +419,22 @@ function textEvents(
 			(seq === 1 && event.type !== 'run_started')
 		)
 			throw new Error('Invalid transcript identity or sequence.')
+		// Match the SDK's stored-event time contract. Never substitute file mtime,
+		// run-start time or a legacy read-back sentinel for an absent event stamp.
+		const recordedAt =
+			typeof event.timestamp === 'number' &&
+			Number.isSafeInteger(event.timestamp) &&
+			event.timestamp > 0 &&
+			event.timestamp <= 8_640_000_000_000_000
+				? event.timestamp
+				: undefined
 		if (event.type === 'tool_completed' && event.outputTruncated === true) incomplete = true
 		if (event.type === 'tool_completed' || event.type === 'message_completed') {
 			const text = event.type === 'tool_completed' ? event.result : event.content
 			// Tool-only and cancelled assistant turns legitimately have no text.
 			if (event.type === 'message_completed' && text === undefined) continue
 			if (typeof text !== 'string') throw new Error('Invalid transcript text.')
-			result.push({ seq, source: event.type, text })
+			result.push({ seq, source: event.type, text, recordedAt })
 		} else if (event.type === 'compaction_shed') {
 			if (!Array.isArray(event.messages)) throw new Error('Invalid shed messages.')
 			for (const message of event.messages) {
@@ -418,6 +444,7 @@ function textEvents(
 					result.push({
 						seq,
 						source: `compaction_shed:${message.role}`,
+						recordedAt,
 						text: message.content,
 					})
 			}
@@ -639,6 +666,7 @@ async function searchConversationCore(
 					...page.matches.map((match) => ({
 						runId,
 						seq: match.seq,
+						recordedAt: match.recordedAt,
 						part: match.part,
 						source: match.source,
 						text: match.excerpt,
@@ -677,7 +705,14 @@ async function searchConversationCore(
 							? Math.max(0, offset - 160) + 512
 							: offset + (input.query?.length ?? 0) + 320,
 					)
-					const match = { runId, seq: event.seq, source: event.source, part: event.part, text }
+					const match = {
+						runId,
+						seq: event.seq,
+						source: event.source,
+						part: event.part,
+						text,
+						recordedAt: event.recordedAt,
+					}
 					const bytes = Buffer.byteLength(JSON.stringify(match))
 					if (
 						result.matches.length + pageMatches.length >= limit ||
@@ -791,6 +826,8 @@ export function buildConversationSearchTool(
 }
 
 export interface ConversationEvidencePage {
+	/** Stored event wall-clock Unix milliseconds; unknown when absent. */
+	recordedAt?: number
 	runId: string
 	seq: number
 	part: number
@@ -895,6 +932,7 @@ export async function readConversationEvidence(
 		result.scannedBytes += page.scannedBytes
 		result.text = page.text
 		result.source = page.source
+		result.recordedAt = page.recordedAt
 		result.offset = page.characterOffset ?? cursor.readOffset ?? 0
 		result.totalChars = page.totalChars
 		result.retainedPreview = page.retained === 'preview'
@@ -906,7 +944,7 @@ export async function readConversationEvidence(
 	}
 	if (input.byteOffset)
 		throw new Error('Byte offsets require an indexed record; omit byteOffset for this transcript.')
-	let found: { text: string; source: string } | undefined
+	let found: { text: string; source: string; recordedAt?: number } | undefined
 	let passed = false
 	const page = await scanTranscript(
 		sessions.root,
@@ -939,6 +977,7 @@ export async function readConversationEvidence(
 		result.text = found.text.slice(result.offset, end)
 		result.totalChars = found.text.length
 		result.source = found.source
+		result.recordedAt = found.recordedAt
 		result.complete = end === found.text.length
 		cursor.readOffset = end
 	} else if (page.done || passed) {

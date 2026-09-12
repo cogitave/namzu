@@ -37,6 +37,7 @@ it.each(['query', 'terms', 'tokens'] as const)(
 				...Array.from({ length: 80 }, (_, i) => ({
 					type: 'tool_completed',
 					seq: i + 2,
+					timestamp: 1_735_689_600_000 + i,
 					runId: scope.runId,
 					toolUseId: `call-${i}`,
 					toolName: 'observe',
@@ -77,8 +78,10 @@ it.each(['query', 'terms', 'tokens'] as const)(
 				cursor: first[0].nextCursor,
 			})
 			expect(found.matches).toHaveLength(1)
+			expect(found.matches[0].recordedAt).toBe(1_735_689_600_079)
 			const read = await child('read', { address: found.matches[0].address })
 			expect(read.text).toBe('ORIGINAL RECEIPT 🦉')
+			expect(read.recordedAt).toBe(1_735_689_600_079)
 			expect(await readFile(join(runDir, 'transcript.jsonl'), 'utf8')).toBe(original)
 		} finally {
 			await rm(root, { recursive: true, force: true })

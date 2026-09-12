@@ -35,6 +35,21 @@ matches without emitting the same starting position twice. This is a passage
 search, not an exhaustive list of occurrences. Cursors bind query and case
 sensitivity; changing either requires a new search.
 
+Search matches and exact read pages optionally include `recordedAt`: the stored
+event recorder's wall-clock time in Unix milliseconds. It is extracted from the
+original validated JSONL record on each read, including retained spills, live
+captures and reopened indexes. It is not inferred from run-start metadata,
+filesystem times or UUID order, and adds no index migration or timestamp cache.
+Missing, zero, noninteger, negative or out-of-Date-range stamps remain unknown.
+The writer supplies the stamp; caller-provided event timestamps cannot override it.
+
+This dates recording, not when the text became true. For `compaction_shed` parts
+it dates the copy event, not the original message or fact. Event `seq` orders
+one run even if its clock moves backwards. Clocks from different runs may differ;
+`recordedAt` alone does not establish causality or a globally latest truth. Search
+order is unchanged. Timestamp-only edits invalidate already captured live evidence
+and previously issued closed-source addresses just like other record changes.
+
 Alternatively, `search({ terms, caseSensitive?, cursor? })` discovers passages
 matching **any** of 1–16 nonblank literal terms, each at most 256 UTF-16 code
 units. `query` and `terms` are mutually exclusive, including an explicitly empty

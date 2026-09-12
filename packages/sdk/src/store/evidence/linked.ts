@@ -247,6 +247,7 @@ export function createLinkedRunTextEvidenceSource(
 										matches.push({
 											address: seal.pack({ kind: 'linked-text', entry: { ...pointer, part } }),
 											seq: pointer.seq,
+											recordedAt: source.recordedAt,
 											source: source.entry.source,
 											part,
 											toolName: source.entry.toolName,

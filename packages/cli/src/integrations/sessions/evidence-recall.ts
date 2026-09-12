@@ -110,6 +110,7 @@ export function createConversationEvidenceRecall(
 						candidates.push({
 							scope: owner,
 							seq: match.seq,
+							recordedAt: match.recordedAt,
 							part: match.part,
 							source: match.source,
 							toolName: match.toolName,
@@ -163,6 +164,7 @@ export function createConversationEvidenceRecall(
 					candidates.push({
 						scope: { ...scope, runId: match.runId },
 						seq: match.seq,
+						recordedAt: match.recordedAt,
 						part: match.part,
 						source: match.source,
 						toolName: match.toolName,

@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Preserved stored event recording times through SDK evidence search/read and CLI recall, including exact-copy provenance, compaction-copy semantics and unknown timestamps; kept sequence, source integrity and character limits independent of wall-clock ordering.
+
 - **Update** Disclosed eligible passages withheld from automatic evidence context, retained bounded read addresses and omission-only metadata, and verified exact recovery through the CLI Session without confusing completed traversal with complete presentation.
 
 - **Update** Added bounded lexical query refinement to SDK evidence recall and used existing CLI pages for uncovered terms while preserving independent broad/focused continuations, shared read limits and incomplete-scan semantics.

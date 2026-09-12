@@ -41,7 +41,7 @@ recall pass ends. Stores without the capability return `undefined`. This does
 not authorize discovery of another run or extend an expired invocation.
 
 Each `EvidenceRecallCandidate` carries `scope`, event `seq`, textual `part`,
-`source`, `retained`, `excerpt`, optional `toolName`, `isError` and UTF-8
+`source`, `retained`, `excerpt`, optional `toolName`, `isError`, stored-event `recordedAt` and UTF-8
 `byteOffset`. Excerpts are at most 512 UTF-16 units and are emitted without
 rewriting identifiers or silently clipping their text. `full` describes what
 the archive retained, not the completeness of the excerpt or success of the
@@ -65,6 +65,23 @@ visible in history are omitted. Remaining candidates with exactly equal text,
 `source`, `toolName`, `isError` and `retained` share one passage. Missing status
 is distinct from explicit success. Letter case, whitespace and changed identifiers
 are preserved; this is not semantic similarity or automatic conflict resolution.
+
+`recordedAt` is optional recorder wall-clock Unix milliseconds, not fact time.
+Explicit callback values must be positive integer milliseconds within the JavaScript
+Date range; omit unknown times rather than returning a zero sentinel. Invalid
+values reject the batch. Built-in archive sources derive it from the validated
+event, including on exact reads. Compaction copies carry the copy event's time;
+no original observation date is invented. Clocks can differ or move backwards.
+
+The representative passage and each included `otherOccurrences` entry preserve
+their own recording times. Equal text still shares one passage and receives no
+extra ranking votes. Time metadata shares the existing character allowance.
+`additionalEvidence` remains a plain read address; reading it returns the time.
+Already visible exact text is still suppressed even if its recording metadata
+is absent from visible history. Use explicit archive search/read to recover that
+metadata; automatic recall does not guarantee temporal coverage of visible text.
+The [recorded CLI comparison](../../research/conversation-evidence/recorded-time-results.md)
+checks both date orders with a small model at low effort.
 
 Distinct passages are ranked using BM25 with `k1=1.5` and `b=0.75`, using statistics
 **only from those groups in the bounded returned pool**, not the whole archive.

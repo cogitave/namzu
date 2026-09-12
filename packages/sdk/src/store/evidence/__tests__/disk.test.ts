@@ -14,7 +14,13 @@ afterEach(async () => {
 	for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 async function fixture(
-	outputs: { text: string; truncated?: boolean; isError?: boolean; spill?: boolean }[],
+	outputs: {
+		text: string
+		truncated?: boolean
+		isError?: boolean
+		spill?: boolean
+		timestamp?: unknown
+	}[],
 ) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-tool-evidence-'))
 	roots.push(root)
@@ -48,6 +54,7 @@ async function fixture(
 			type: 'tool_completed',
 			runId: scope.runId,
 			seq: index + 2,
+			timestamp: output.timestamp,
 			toolUseId,
 			toolName: 'observe',
 			isError: output.isError ?? false,
@@ -71,6 +78,58 @@ async function fixture(
 }
 
 describe('bounded retained tool evidence', () => {
+	it.each([false, true])(
+		'recovers stored event time through cache and exact reads (spill=%s)',
+		async (spill) => {
+			const recordedAt = Date.UTC(2025, 0, 2, 3, 4, 5)
+			const f = await fixture([
+				{
+					text: `${spill ? 'padding '.repeat(1000) : ''}DELTA receipt`,
+					timestamp: recordedAt,
+					spill,
+				},
+			])
+			for (const source of [f.source, f.reopen()]) {
+				const page = await source.search({ query: 'DELTA' })
+				expect(page.matches[0]?.recordedAt).toBe(recordedAt)
+				expect((await source.read({ address: page.matches[0]!.address })).recordedAt).toBe(
+					recordedAt,
+				)
+			}
+		},
+	)
+
+	it.each([undefined, 0, -1, 1.5, '2025-01-02', null, 8_640_000_000_000_001])(
+		'leaves missing or invalid time unknown (%j)',
+		async (timestamp) => {
+			const f = await fixture([{ text: 'DELTA receipt', timestamp }])
+			const match = (await f.source.search()).matches[0]!
+			expect(match.recordedAt).toBeUndefined()
+			expect((await f.source.read({ address: match.address })).recordedAt).toBeUndefined()
+		},
+	)
+
+	it('dates a compaction copy by its own event without inventing an original message date', async () => {
+		const f = await fixture([])
+		const path = join(f.runDir, 'transcript.jsonl')
+		const recordedAt = Date.UTC(2026, 0, 1)
+		await writeFile(
+			path,
+			`${await readFile(path, 'utf8')}${JSON.stringify({
+				type: 'compaction_shed',
+				runId: f.scope.runId,
+				seq: 2,
+				timestamp: recordedAt,
+				messages: [{ role: 'tool', content: 'DELTA receipt from 2020', timestamp: 1 }],
+			})}\n`,
+		)
+		const source = createDiskRunTextEvidenceSource(f)
+		const match = (await source.search({ query: 'DELTA' })).matches[0]!
+		expect(match.source).toBe('compaction_shed:tool')
+		expect(match.recordedAt).toBe(recordedAt)
+		expect((await source.read({ address: match.address })).recordedAt).toBe(recordedAt)
+	})
+
 	it('keeps previously issued tool-only addresses readable when rebuilding the text index', async () => {
 		const f = await fixture([{ text: 'original tool address' }])
 		const match = (await f.source.search()).matches[0]!

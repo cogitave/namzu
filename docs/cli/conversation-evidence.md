@@ -29,6 +29,17 @@ evidence may be needed. These are model instructions, not a deterministic
 intent classifier or a guarantee of correct source choice. Retention cannot
 prove that a model saw or understood text omitted from its visible preview.
 
+Search matches and `read_conversation` pages include optional `recordedAt`, the
+stored event's recorder wall-clock Unix milliseconds. Automatic recall carries
+that same value into selected passages and included duplicate occurrences. It
+survives exact retained-output reads and process restart, and is available for
+both indexed and older unindexed transcripts when the event has a valid stamp.
+Missing or invalid stamps stay unknown; file mtime, run-start time and UUID order
+are not substitutes. For `compaction_shed` it dates the copy, not the original
+observation. Within a run, sequence remains authoritative even if a clock regresses.
+Across runs, clocks may differ, so these stamps alone do not prove causal order
+or when a fact became true. Retrieval continues to rank by lexical relevance.
+
 Start a new search with `query`, a literal string of 1–256 characters. Continue
 with `cursor` alone to restore the original query, case setting and excluded
 invocation from host-owned state. This also accepts cursors supplied by automatic

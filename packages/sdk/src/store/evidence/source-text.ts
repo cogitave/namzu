@@ -2,6 +2,7 @@ import { lstat } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
+import { evidenceRecordedAt } from '../../utils/evidence-time.js'
 import { EVIDENCE_CHUNK_BYTES, SEARCH_OVERLAP_BYTES, digest, mayContain } from './format.js'
 import { type IndexEntry, entrySchema, eventTexts } from './index-page.js'
 import {
@@ -41,6 +42,7 @@ const manifestSchema = z.object({
 
 export interface TextSource {
 	entry: IndexEntry
+	recordedAt?: number
 	bytes: number
 	chars?: number
 	retained: 'full' | 'preview'
@@ -87,6 +89,7 @@ export async function sourceText(
 		const bytes = Buffer.from(part.text, 'utf8')
 		return {
 			entry,
+			recordedAt: evidenceRecordedAt(event.timestamp),
 			bytes: bytes.length,
 			chars: part.text.length,
 			retained: entry.truncated ? 'preview' : 'full',
@@ -105,6 +108,7 @@ export async function sourceText(
 		throw new Error('Incomplete retained output manifest.')
 	return {
 		entry,
+		recordedAt: evidenceRecordedAt(event.timestamp),
 		bytes: manifest.bytes,
 		chars: manifest.chars,
 		retained: 'full',
@@ -190,6 +194,7 @@ export async function readTextPage(
 	if (next === offset && offset < source.bytes) throw new Error('Text page did not advance.')
 	return {
 		scope,
+		recordedAt: source.recordedAt,
 		seq: entry.seq,
 		source: entry.source,
 		part: entry.part,

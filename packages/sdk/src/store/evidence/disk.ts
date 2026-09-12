@@ -276,6 +276,7 @@ function createSource(
 									matches.push({
 										address: seal.pack({ kind: 'text', entry: pointerSchema.parse(entry) }),
 										seq: entry.seq,
+										recordedAt: source.recordedAt,
 										source: entry.source,
 										part: entry.part,
 										characterOffset:

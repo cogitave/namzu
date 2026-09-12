@@ -66,6 +66,29 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('preserves recording times of equal observations without treating them as separate votes', async () => {
+		const first = Date.UTC(2025, 1, 1)
+		const second = Date.UTC(2026, 1, 1)
+		const { recall } = fixture([
+			candidate(undefined, { recordedAt: first }),
+			candidate(undefined, { seq: 3, recordedAt: second }),
+		])
+		const result = await recall(context())
+		const entries = rendered(result?.context)
+		expect(entries).toHaveLength(1)
+		expect(entries[0].recordedAt).toBe(first)
+		expect(entries[0].otherOccurrences[0].recordedAt).toBe(second)
+		expect(result?.context).toContain('not fact time')
+	})
+
+	it.each([0, -1, 1.5, Number.NaN, Number.POSITIVE_INFINITY, 8_640_000_000_000_001])(
+		'rejects invalid callback recording time (%s)',
+		async (recordedAt) => {
+			const { recall } = fixture([candidate(undefined, { recordedAt })])
+			await expect(recall(context())).rejects.toThrow('invalid passage')
+		},
+	)
+
 	it('discloses withheld distinct passages even when candidate traversal completed', async () => {
 		const entries = Array.from({ length: 5 }, (_, i) =>
 			candidate(`DELTA receipt code V${i}`, { seq: i + 2 }),

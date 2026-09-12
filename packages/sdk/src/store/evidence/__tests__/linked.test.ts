@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { applyToolOutputBudget } from '../../../runtime/query/tool-output-budget.js'
 import type { RunEvent } from '../../../types/run/events.js'
 import { asRunId } from '../../../utils/id.js'
@@ -13,6 +13,7 @@ import type { RunTextEvidenceSearchResult } from '../types.js'
 
 const roots: string[] = []
 afterEach(async () => {
+	vi.restoreAllMocks()
 	for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 async function fixture() {
@@ -41,6 +42,61 @@ async function fixture() {
 	const source = async () => (await store.captureTextEvidence(scope))!
 	return { root, runDir, scope, store, append, source, meta }
 }
+
+it('retains writer clock regression without reordering seq or trusting a supplied timestamp', async () => {
+	const f = await fixture()
+	const first = Date.UTC(2026, 1, 1)
+	const second = first - 1000
+	const clock = vi.spyOn(Date, 'now').mockReturnValue(first)
+	await f.append({
+		type: 'tool_completed',
+		toolUseId: 'one',
+		toolName: 'read',
+		isError: false,
+		result: 'DELTA one',
+		timestamp: 1,
+	})
+	clock.mockReturnValue(second)
+	await f.append({
+		type: 'tool_completed',
+		toolUseId: 'two',
+		toolName: 'read',
+		isError: false,
+		result: 'DELTA two',
+		timestamp: 1,
+	})
+	clock.mockRestore()
+	const source = await f.source()
+	const matches = (await source.search({ query: 'DELTA' })).matches
+	// Writer sequence remains authoritative within the run even if the clock regresses.
+	expect(matches.map((m) => [m.seq, m.recordedAt])).toEqual([
+		[3, second],
+		[2, first],
+	])
+	for (const match of matches)
+		expect((await source.read({ address: match.address })).recordedAt).toBe(match.recordedAt)
+})
+
+it('refuses an observation when only its recorded time changes after capture', async () => {
+	const f = await fixture()
+	await f.append({
+		type: 'tool_completed',
+		toolUseId: 'dated',
+		toolName: 'read',
+		isError: false,
+		result: 'DELTA receipt',
+	})
+	const source = await f.source()
+	const match = (await source.search({ query: 'DELTA' })).matches[0]!
+	const path = join(f.runDir, 'transcript.jsonl')
+	const lines = (await readFile(path, 'utf8')).trimEnd().split('\n')
+	const event = JSON.parse(lines[1]!)
+	event.timestamp += 1
+	lines[1] = JSON.stringify(event)
+	await writeFile(path, `${lines.join('\n')}\n`)
+	await expect(source.read({ address: match.address })).rejects.toThrow('changed')
+	await expect(source.search({ query: 'DELTA' })).rejects.toThrow('changed')
+})
 
 it.each(['live', 'closed'] as const)(
 	'authenticates token boundaries across UTF-8 chunks and binds pagination mode (%s)',

@@ -1,0 +1,467 @@
+{
+  "date": "2026-09-12",
+  "baselineSource": "e954d022",
+  "script": "recorded-time-cli.mjs",
+  "prompt": "What was the last recorded DELTA receipt code?",
+  "limits": {
+    "maxIterations": 3,
+    "tokenAdmissionBudget": 20000,
+    "processTimeoutMs": 90000,
+    "recallReadBytes": 8388608
+  },
+  "sources": [
+    "https://arxiv.org/html/2410.10813v2",
+    "https://lamport.azurewebsites.net/pubs/time-clocks.pdf",
+    "https://github.com/pydantic/pydantic-ai-harness/blob/c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504/pydantic_ai_harness/conversation_search/_toolset.py"
+  ],
+  "trials": [
+    {
+      "name": "baseline",
+      "root": "/tmp/namzu-recorded-time-cli-eu91N9",
+      "live": false,
+      "expectMissing": true,
+      "reverse": false,
+      "passed": true,
+      "records": [
+        {
+          "runId": "11111111-1111-4111-a111-111111111111",
+          "seq": 2,
+          "timestamp": 1738555200000,
+          "code": "RECEIPT-228367e7-5993-458c-98c2-7f570d933ecc"
+        },
+        {
+          "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+          "seq": 2,
+          "timestamp": 1778050800000,
+          "code": "RECEIPT-0f38e68e-0bd5-4180-8ec2-6da530e60c92"
+        }
+      ],
+      "expected": {
+        "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+        "seq": 2,
+        "timestamp": 1778050800000,
+        "code": "RECEIPT-0f38e68e-0bd5-4180-8ec2-6da530e60c92"
+      },
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "requests": 1,
+      "toolCalls": [],
+      "stopReason": "end_turn",
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "answer": "UNORDERED: archive recording times are unavailable.",
+      "firstPass": {
+        "chars": 1367,
+        "scannedBytes": 17152,
+        "incomplete": false,
+        "ordinaryHasCodes": false,
+        "passages": [
+          {
+            "runId": "11111111-1111-4111-a111-111111111111",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-228367e7-5993-458c-98c2-7f570d933ecc."
+          },
+          {
+            "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-0f38e68e-0bd5-4180-8ec2-6da530e60c92."
+          }
+        ]
+      },
+      "buildStable": true,
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "558b8603b89bcf00db0cbe0b718f30d8653ce0b29bf7d35414dddd13f2e5ac13",
+        "packages/sdk/dist/store/evidence/source-text.js": "f1bad97505868dcdec3907614ed18a82a557ce498240289139afaf4ec9216247",
+        "packages/sdk/dist/store/evidence/disk.js": "5a104f7f34d4f7ede39d80581708650f0dc534f3b75aabd4843a86946906eced",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "02788f60f44741b2643cdf9a4ea9f4811919c86bc08f85e143e966ccb3052584",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "4650f617c460fd63177dc3392685239a00c88ee98b5ace16e82a1b6b229d70dc"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "558b8603b89bcf00db0cbe0b718f30d8653ce0b29bf7d35414dddd13f2e5ac13",
+        "packages/sdk/dist/store/evidence/source-text.js": "f1bad97505868dcdec3907614ed18a82a557ce498240289139afaf4ec9216247",
+        "packages/sdk/dist/store/evidence/disk.js": "5a104f7f34d4f7ede39d80581708650f0dc534f3b75aabd4843a86946906eced",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "02788f60f44741b2643cdf9a4ea9f4811919c86bc08f85e143e966ccb3052584",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "4650f617c460fd63177dc3392685239a00c88ee98b5ace16e82a1b6b229d70dc"
+      }
+    },
+    {
+      "name": "control",
+      "root": "/tmp/namzu-recorded-time-cli-XqlcCT",
+      "live": false,
+      "expectMissing": false,
+      "reverse": false,
+      "passed": true,
+      "records": [
+        {
+          "runId": "11111111-1111-4111-a111-111111111111",
+          "seq": 2,
+          "timestamp": 1738555200000,
+          "code": "RECEIPT-ef9d1d62-8d89-43d2-a03f-9ed77daed17d"
+        },
+        {
+          "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+          "seq": 2,
+          "timestamp": 1778050800000,
+          "code": "RECEIPT-a599020c-1066-46e0-93d7-a99e526ff6a2"
+        }
+      ],
+      "expected": {
+        "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+        "seq": 2,
+        "timestamp": 1778050800000,
+        "code": "RECEIPT-a599020c-1066-46e0-93d7-a99e526ff6a2"
+      },
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "requests": 1,
+      "toolCalls": [],
+      "stopReason": "end_turn",
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "answer": "DELTA receipt last recorded code RECEIPT-a599020c-1066-46e0-93d7-a99e526ff6a2.",
+      "firstPass": {
+        "chars": 1429,
+        "scannedBytes": 17496,
+        "incomplete": false,
+        "ordinaryHasCodes": false,
+        "passages": [
+          {
+            "runId": "11111111-1111-4111-a111-111111111111",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "recordedAt": 1738555200000,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-ef9d1d62-8d89-43d2-a03f-9ed77daed17d."
+          },
+          {
+            "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "recordedAt": 1778050800000,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-a599020c-1066-46e0-93d7-a99e526ff6a2."
+          }
+        ]
+      },
+      "buildStable": true,
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "afad0ee5ea9d230bae04062009f18f91529843454f516047a1d31ccb6b9e34ed",
+        "packages/sdk/dist/store/evidence/source-text.js": "7452d195b9261426b765fd1678542a16437cf767243184e2389b011398abac4c",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "afad0ee5ea9d230bae04062009f18f91529843454f516047a1d31ccb6b9e34ed",
+        "packages/sdk/dist/store/evidence/source-text.js": "7452d195b9261426b765fd1678542a16437cf767243184e2389b011398abac4c",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      }
+    },
+    {
+      "name": "control-reverse",
+      "root": "/tmp/namzu-recorded-time-cli-Qh1drf",
+      "live": false,
+      "expectMissing": false,
+      "reverse": true,
+      "passed": true,
+      "records": [
+        {
+          "runId": "11111111-1111-4111-a111-111111111111",
+          "seq": 2,
+          "timestamp": 1778050800000,
+          "code": "RECEIPT-f0c9f169-184d-428c-b4e9-f2f3325b3902"
+        },
+        {
+          "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+          "seq": 2,
+          "timestamp": 1738555200000,
+          "code": "RECEIPT-d07831c6-cbbd-494f-8976-b6275b786c1f"
+        }
+      ],
+      "expected": {
+        "runId": "11111111-1111-4111-a111-111111111111",
+        "seq": 2,
+        "timestamp": 1778050800000,
+        "code": "RECEIPT-f0c9f169-184d-428c-b4e9-f2f3325b3902"
+      },
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "requests": 1,
+      "toolCalls": [],
+      "stopReason": "end_turn",
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "answer": "DELTA receipt last recorded code RECEIPT-f0c9f169-184d-428c-b4e9-f2f3325b3902.",
+      "firstPass": {
+        "chars": 1429,
+        "scannedBytes": 17496,
+        "incomplete": false,
+        "ordinaryHasCodes": false,
+        "passages": [
+          {
+            "runId": "11111111-1111-4111-a111-111111111111",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "recordedAt": 1778050800000,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-f0c9f169-184d-428c-b4e9-f2f3325b3902."
+          },
+          {
+            "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "recordedAt": 1738555200000,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-d07831c6-cbbd-494f-8976-b6275b786c1f."
+          }
+        ]
+      },
+      "buildStable": true,
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "afad0ee5ea9d230bae04062009f18f91529843454f516047a1d31ccb6b9e34ed",
+        "packages/sdk/dist/store/evidence/source-text.js": "7452d195b9261426b765fd1678542a16437cf767243184e2389b011398abac4c",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "afad0ee5ea9d230bae04062009f18f91529843454f516047a1d31ccb6b9e34ed",
+        "packages/sdk/dist/store/evidence/source-text.js": "7452d195b9261426b765fd1678542a16437cf767243184e2389b011398abac4c",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      }
+    },
+    {
+      "name": "live-reverse",
+      "root": "/tmp/namzu-recorded-time-cli-Fw0LlM",
+      "live": true,
+      "expectMissing": false,
+      "reverse": true,
+      "passed": true,
+      "records": [
+        {
+          "runId": "11111111-1111-4111-a111-111111111111",
+          "seq": 2,
+          "timestamp": 1778050800000,
+          "code": "RECEIPT-b1582282-5741-4ca3-ba0d-ae3cbffd4d50"
+        },
+        {
+          "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+          "seq": 2,
+          "timestamp": 1738555200000,
+          "code": "RECEIPT-2fc2d757-1a02-4754-8078-6680aa866689"
+        }
+      ],
+      "expected": {
+        "runId": "11111111-1111-4111-a111-111111111111",
+        "seq": 2,
+        "timestamp": 1778050800000,
+        "code": "RECEIPT-b1582282-5741-4ca3-ba0d-ae3cbffd4d50"
+      },
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "requests": 1,
+      "toolCalls": [],
+      "stopReason": "end_turn",
+      "usage": {
+        "totalTokens": 7183,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 7183
+        }
+      },
+      "answer": "The last recorded DELTA receipt code was `RECEIPT-b1582282-5741-4ca3-ba0d-ae3cbffd4d50`.",
+      "firstPass": {
+        "chars": 1429,
+        "scannedBytes": 17496,
+        "incomplete": false,
+        "ordinaryHasCodes": false,
+        "passages": [
+          {
+            "runId": "11111111-1111-4111-a111-111111111111",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "recordedAt": 1778050800000,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-b1582282-5741-4ca3-ba0d-ae3cbffd4d50."
+          },
+          {
+            "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "recordedAt": 1738555200000,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-2fc2d757-1a02-4754-8078-6680aa866689."
+          }
+        ]
+      },
+      "buildStable": true,
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "afad0ee5ea9d230bae04062009f18f91529843454f516047a1d31ccb6b9e34ed",
+        "packages/sdk/dist/store/evidence/source-text.js": "7452d195b9261426b765fd1678542a16437cf767243184e2389b011398abac4c",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "afad0ee5ea9d230bae04062009f18f91529843454f516047a1d31ccb6b9e34ed",
+        "packages/sdk/dist/store/evidence/source-text.js": "7452d195b9261426b765fd1678542a16437cf767243184e2389b011398abac4c",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      }
+    },
+    {
+      "name": "live",
+      "root": "/tmp/namzu-recorded-time-cli-395pCh",
+      "live": true,
+      "expectMissing": false,
+      "reverse": false,
+      "passed": true,
+      "records": [
+        {
+          "runId": "11111111-1111-4111-a111-111111111111",
+          "seq": 2,
+          "timestamp": 1738555200000,
+          "code": "RECEIPT-fb7b1cb3-d602-46cc-b1d9-00e8f17c89d2"
+        },
+        {
+          "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+          "seq": 2,
+          "timestamp": 1778050800000,
+          "code": "RECEIPT-9acfb87a-c22e-4241-b005-8301b32b70bc"
+        }
+      ],
+      "expected": {
+        "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+        "seq": 2,
+        "timestamp": 1778050800000,
+        "code": "RECEIPT-9acfb87a-c22e-4241-b005-8301b32b70bc"
+      },
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "requests": 1,
+      "toolCalls": [],
+      "stopReason": "end_turn",
+      "usage": {
+        "totalTokens": 7166,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 7166
+        }
+      },
+      "answer": "The last recorded DELTA receipt code was `RECEIPT-9acfb87a-c22e-4241-b005-8301b32b70bc`.",
+      "firstPass": {
+        "chars": 1429,
+        "scannedBytes": 17496,
+        "incomplete": false,
+        "ordinaryHasCodes": false,
+        "passages": [
+          {
+            "runId": "11111111-1111-4111-a111-111111111111",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "recordedAt": 1738555200000,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-fb7b1cb3-d602-46cc-b1d9-00e8f17c89d2."
+          },
+          {
+            "runId": "eeeeeeee-eeee-4eee-aeee-eeeeeeeeeeee",
+            "seq": 2,
+            "part": 0,
+            "byteOffset": 0,
+            "recordedAt": 1778050800000,
+            "source": "tool_completed",
+            "toolName": "read",
+            "isError": false,
+            "retained": "full",
+            "excerpt": "DELTA receipt last recorded code RECEIPT-9acfb87a-c22e-4241-b005-8301b32b70bc."
+          }
+        ]
+      },
+      "buildStable": true,
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "afad0ee5ea9d230bae04062009f18f91529843454f516047a1d31ccb6b9e34ed",
+        "packages/sdk/dist/store/evidence/source-text.js": "7452d195b9261426b765fd1678542a16437cf767243184e2389b011398abac4c",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "afad0ee5ea9d230bae04062009f18f91529843454f516047a1d31ccb6b9e34ed",
+        "packages/sdk/dist/store/evidence/source-text.js": "7452d195b9261426b765fd1678542a16437cf767243184e2389b011398abac4c",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      }
+    }
+  ]
+}
