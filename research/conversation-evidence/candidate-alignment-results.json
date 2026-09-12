@@ -1,0 +1,243 @@
+{
+  "date": "2026-09-12",
+  "revision": "e1b8bc72",
+  "method": "Synthetic bounded candidate-discovery ablation with actual built SDK ranking; no model or archive I/O.",
+  "buildBefore": {
+    "run/evidence-recall.js": "354227a027d8b8abaeeee5907b1259455fb22d66bfea4663b1430c3cf666f417",
+    "store/evidence/passages.js": "a7de5fcf47f2b994aa2ef96e918ef2d6eaa9afa919dfaf45d2353d2227a44a71"
+  },
+  "buildAfter": {
+    "run/evidence-recall.js": "354227a027d8b8abaeeee5907b1259455fb22d66bfea4663b1430c3cf666f417",
+    "store/evidence/passages.js": "a7de5fcf47f2b994aa2ef96e918ef2d6eaa9afa919dfaf45d2353d2227a44a71"
+  },
+  "trials": [
+    {
+      "id": "sentence-substring",
+      "query": "Search the original DELTA observations in this conversation.",
+      "noise": "Packing information is unrelated.",
+      "target": "DELTA original observation: receipt A17.",
+      "terms": [
+        "Search",
+        "original",
+        "DELTA",
+        "observations",
+        "in",
+        "this",
+        "conversation"
+      ],
+      "current": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": []
+      },
+      "extraStopWords": {
+        "candidateCount": 1,
+        "targetSelected": true,
+        "excerpts": [
+          "DELTA original observation: receipt A17."
+        ]
+      },
+      "tokenAlignedPrototype": {
+        "candidateCount": 1,
+        "targetSelected": true,
+        "excerpts": [
+          "DELTA original observation: receipt A17."
+        ]
+      },
+      "fullNineDocumentReference": {
+        "candidateCount": 9,
+        "targetSelected": true,
+        "excerpts": [
+          "DELTA original observation: receipt A17."
+        ]
+      }
+    },
+    {
+      "id": "technical-word-substring",
+      "query": "What was the DELTA code?",
+      "noise": "The decoder completed an unrelated operation.",
+      "target": "DELTA code: receipt A17.",
+      "terms": [
+        "DELTA",
+        "code"
+      ],
+      "current": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": []
+      },
+      "extraStopWords": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": []
+      },
+      "tokenAlignedPrototype": {
+        "candidateCount": 1,
+        "targetSelected": true,
+        "excerpts": [
+          "DELTA code: receipt A17."
+        ]
+      },
+      "fullNineDocumentReference": {
+        "candidateCount": 9,
+        "targetSelected": true,
+        "excerpts": [
+          "DELTA code: receipt A17."
+        ]
+      }
+    },
+    {
+      "id": "single-digit",
+      "query": "3",
+      "noise": "Record 13000 is unrelated.",
+      "target": "Record 3: receipt A17.",
+      "terms": [
+        "3"
+      ],
+      "current": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": [
+          "Record 13000 is unrelated. Unique entry 3."
+        ]
+      },
+      "extraStopWords": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": [
+          "Record 13000 is unrelated. Unique entry 3."
+        ]
+      },
+      "tokenAlignedPrototype": {
+        "candidateCount": 2,
+        "targetSelected": true,
+        "excerpts": [
+          "Record 3: receipt A17."
+        ]
+      },
+      "fullNineDocumentReference": {
+        "candidateCount": 9,
+        "targetSelected": true,
+        "excerpts": [
+          "Record 3: receipt A17."
+        ]
+      }
+    },
+    {
+      "id": "unicode-name",
+      "query": "İZMİR",
+      "noise": "İZMİRLİ observations are unrelated.",
+      "target": "İZMİR: receipt A17.",
+      "terms": [
+        "İZMİR"
+      ],
+      "current": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": []
+      },
+      "extraStopWords": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": []
+      },
+      "tokenAlignedPrototype": {
+        "candidateCount": 1,
+        "targetSelected": true,
+        "excerpts": [
+          "İZMİR: receipt A17."
+        ]
+      },
+      "fullNineDocumentReference": {
+        "candidateCount": 9,
+        "targetSelected": true,
+        "excerpts": [
+          "İZMİR: receipt A17."
+        ]
+      }
+    },
+    {
+      "id": "underscore-id",
+      "query": "id_1",
+      "noise": "id_100 is unrelated.",
+      "target": "id_1: receipt A17.",
+      "terms": [
+        "id_1"
+      ],
+      "current": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": []
+      },
+      "extraStopWords": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": []
+      },
+      "tokenAlignedPrototype": {
+        "candidateCount": 1,
+        "targetSelected": true,
+        "excerpts": [
+          "id_1: receipt A17."
+        ]
+      },
+      "fullNineDocumentReference": {
+        "candidateCount": 9,
+        "targetSelected": true,
+        "excerpts": [
+          "id_1: receipt A17."
+        ]
+      }
+    },
+    {
+      "id": "common-whole-word",
+      "query": "Search the original DELTA observations in this conversation.",
+      "noise": "An unrelated item is in a queue.",
+      "target": "DELTA original observation: receipt A17.",
+      "terms": [
+        "Search",
+        "original",
+        "DELTA",
+        "observations",
+        "in",
+        "this",
+        "conversation"
+      ],
+      "current": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": [
+          "An unrelated item is in a queue. Unique entry 0."
+        ]
+      },
+      "extraStopWords": {
+        "candidateCount": 1,
+        "targetSelected": true,
+        "excerpts": [
+          "DELTA original observation: receipt A17."
+        ]
+      },
+      "tokenAlignedPrototype": {
+        "candidateCount": 8,
+        "targetSelected": false,
+        "excerpts": [
+          "An unrelated item is in a queue. Unique entry 0."
+        ]
+      },
+      "fullNineDocumentReference": {
+        "candidateCount": 9,
+        "targetSelected": true,
+        "excerpts": [
+          "DELTA original observation: receipt A17."
+        ]
+      }
+    }
+  ],
+  "totals": {
+    "cases": 6,
+    "current": 0,
+    "extraStopWords": 2,
+    "tokenAlignedPrototype": 5,
+    "fullNineDocumentReference": 6
+  }
+}
