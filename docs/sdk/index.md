@@ -2,6 +2,7 @@
 
 The kernel.
 
+* [Automatic conversation evidence recall](evidence-recall.md) - Scoped historical passages ranked within a bounded candidate pool and added only to the current request.
 * [Request-only step context](step-context.md) - Changing observations after history, separate from system policy and operator intent.
 
 * [Native structured output](native-structured-output.md) - Query response schemas, local validation and bounded correction.

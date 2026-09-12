@@ -1,0 +1,250 @@
+{
+  "root": "/tmp/namzu-natural-recall-8zhrTk",
+  "live": true,
+  "checkCurrent": true,
+  "recallEvidence": true,
+  "provider": "codex",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "original": {
+    "tracking": "TAKIP-a646fd84-bee8-45be-9d74-5c2c78e0e860",
+    "depot": "DEPO-06d96243-1808-4b47-8d31-8f04d5ea74cc"
+  },
+  "replacement": {
+    "tracking": "YENI-TAKIP-6f5c1e15-35a9-409a-bd4c-d7a870b32ed5",
+    "depot": "YENI-DEPO-94542d3e-7bad-4208-95cc-c80e7f683fbf"
+  },
+  "turns": [
+    {
+      "phase": 1,
+      "prompt": "sevkiyatlar.txt dosyasının tamamını incele; yalnızca hangi tür kayıtlar içerdiğini bir cümleyle söyle.",
+      "args": [
+        "--quiet",
+        "run-stream",
+        "--session",
+        "natural-recall",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-natural-recall-8zhrTk/workspace",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "25000",
+        "sevkiyatlar.txt dosyasının tamamını incele; yalnızca hangi tür kayıtlar içerdiğini bir cümleyle söyle."
+      ],
+      "tokenBudget": 25000,
+      "done": {
+        "kind": "done",
+        "text": "Dosya, ambalajın sağlam olduğunu ve teslimatın beklendiğini belirten sevkiyat denetim kayıtları içeriyor.",
+        "budget": {
+          "limit": 25000,
+          "ownTokens": 14637,
+          "treeTokens": 14637,
+          "reservedTokens": 0,
+          "remainingTokens": 10363,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "stopReason": "end_turn"
+      },
+      "errors": [],
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "sevkiyatlar.txt"
+          }
+        }
+      ],
+      "requestUsage": [
+        {
+          "promptTokens": 6587,
+          "completionTokens": 61,
+          "totalTokens": 6648,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        },
+        {
+          "promptTokens": 7907,
+          "completionTokens": 82,
+          "totalTokens": 7989,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "totalTokens": 14637,
+      "cachedTokens": 5632
+    },
+    {
+      "phase": 2,
+      "prompt": "Az önce incelediğin dökümde DELTA siparişinin takip kodu ve hedef deposu neydi?",
+      "args": [
+        "--quiet",
+        "run-stream",
+        "--session",
+        "natural-recall",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-natural-recall-8zhrTk/workspace",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "50000",
+        "Az önce incelediğin dökümde DELTA siparişinin takip kodu ve hedef deposu neydi?"
+      ],
+      "tokenBudget": 50000,
+      "done": {
+        "kind": "done",
+        "text": "DELTA siparişinin takip kodu **TAKIP-a646fd84-bee8-45be-9d74-5c2c78e0e860**, hedef deposu ise **DEPO-06d96243-1808-4b47-8d31-8f04d5ea74cc** idi.",
+        "budget": {
+          "limit": 50000,
+          "ownTokens": 8644,
+          "treeTokens": 8644,
+          "reservedTokens": 0,
+          "remainingTokens": 41356,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "stopReason": "end_turn"
+      },
+      "errors": [],
+      "calls": [],
+      "requestUsage": [
+        {
+          "promptTokens": 8550,
+          "completionTokens": 94,
+          "totalTokens": 8644,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "totalTokens": 8644,
+      "cachedTokens": 0
+    },
+    {
+      "phase": 3,
+      "prompt": "Peki aynı siparişin güncel dökümdeki takip kodu ve hedef deposu ne?",
+      "args": [
+        "--quiet",
+        "run-stream",
+        "--session",
+        "natural-recall",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-natural-recall-8zhrTk/workspace",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "25000",
+        "Peki aynı siparişin güncel dökümdeki takip kodu ve hedef deposu ne?"
+      ],
+      "tokenBudget": 25000,
+      "done": {
+        "kind": "done",
+        "text": "Güncel dökümde DELTA siparişinin takip kodu **YENI-TAKIP-6f5c1e15-35a9-409a-bd4c-d7a870b32ed5**, hedef deposu ise **YENI-DEPO-94542d3e-7bad-4208-95cc-c80e7f683fbf**.",
+        "budget": {
+          "limit": 25000,
+          "ownTokens": 17694,
+          "treeTokens": 17694,
+          "reservedTokens": 0,
+          "remainingTokens": 7306,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "stopReason": "end_turn"
+      },
+      "errors": [],
+      "calls": [
+        {
+          "name": "grep",
+          "input": {
+            "pattern": "DELTA",
+            "path": "sevkiyatlar.txt",
+            "case_sensitive": true,
+            "context_lines": 0,
+            "max_results": 20
+          }
+        }
+      ],
+      "requestUsage": [
+        {
+          "promptTokens": 8653,
+          "completionTokens": 92,
+          "totalTokens": 8745,
+          "cachedTokens": 3584,
+          "cacheWriteTokens": 0
+        },
+        {
+          "promptTokens": 8843,
+          "completionTokens": 106,
+          "totalTokens": 8949,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "totalTokens": 17694,
+      "cachedTokens": 9216
+    }
+  ],
+  "prerequisites": {
+    "capturedBoth": true,
+    "initialStopReason": "end_turn",
+    "initialCompleted": true,
+    "visibleOriginalCount": 0,
+    "initialSourceUnchanged": true,
+    "successfulInitialRead": true
+  },
+  "observations": {
+    "correctOriginal": true,
+    "usedReplacement": false,
+    "allOriginalAbsentFromVisible": true,
+    "archiveSearches": 0,
+    "exactArchiveReads": 0,
+    "workspaceObservations": 0,
+    "failedTools": 0,
+    "replacementUnchanged": true
+  },
+  "passed": true,
+  "currentCheck": {
+    "correctReplacement": true,
+    "usedOriginal": false,
+    "workspaceObservations": 1,
+    "sourceUnchanged": true,
+    "failedTools": 0,
+    "passed": true
+  },
+  "fingerprints": {
+    "packages/sdk/src/run/evidence-recall.ts": "eb83ea098665cbcc39c52a5fbd5085df484d96eb4ed723eda8fd1f6ee829de0c",
+    "packages/cli/src/integrations/sessions/evidence-recall.ts": "ca917fe5628edbaccfe7d5be8b82bd2abadbe4cb2db1339a49cf93e012b84227",
+    "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+    "packages/sdk/src/runtime/query/tool-output-budget.ts": "eb60a59edceff27fdc16365c2b7ec1734c105a58f97cf5eba7dd12d3b325544c",
+    "packages/cli/src/integrations/sessions/conversation-search.ts": "bfd1281c41842cdd71ef2f56c52ac5ab1b0a9f08e1ddc3552ae4504f54effc1a",
+    "packages/cli/src/tui/agent.ts": "9980e15d7e2a502968c49458be904ae6b3b4d87e910aa351699190039c2de248",
+    "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+    "research/conversation-evidence/natural-cli.mjs": "ec3a8f86b257cb845c89b79c425f453a5eca7a88a69e0fbbf4a50234edffcb4b"
+  }
+}

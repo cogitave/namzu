@@ -12,9 +12,14 @@ import {
 	mcpJsonSchemaToZod,
 	query,
 } from '@namzu/sdk'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
-import { readConversationEvidence, searchConversation } from './conversation-search.js'
+import {
+	readConversationEvidence,
+	searchConversation,
+	searchConversationTerms,
+} from './conversation-search.js'
+import { createConversationEvidenceRecall } from './evidence-recall.js'
 import { CliPathBuilder } from './paths.js'
 import {
 	type CliSessions,
@@ -56,6 +61,109 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 describe('bounded original conversation evidence', () => {
+	it('shares term cursors only with the exact term set and invocation exclusion', async () => {
+		const { sessions, sessionId } = await fixture()
+		for (let i = 0; i < 7; i++) await transcript(sessions, sessionId, `DELTA receipt ${i}`)
+		const excluded = generateRunId()
+		const input = {
+			terms: ['DELTA', 'receipt'],
+			excludeRunId: excluded,
+			maxReadBytes: 8 * 1024 * 1024,
+		}
+		const first = await searchConversationTerms(sessions, sessionId, input)
+		expect(first.nextCursor).toBeDefined()
+		const cursor = first.nextCursor!
+		await expect(
+			searchConversation(sessions, sessionId, { query: 'DELTA', cursor }),
+		).rejects.toThrow('query')
+		await expect(
+			searchConversationTerms(sessions, sessionId, { ...input, terms: ['DELTA'], cursor }),
+		).rejects.toThrow('query')
+		await expect(
+			searchConversationTerms(sessions, sessionId, {
+				...input,
+				excludeRunId: generateRunId(),
+				cursor,
+			}),
+		).rejects.toThrow('query')
+		const next = await searchConversationTerms(sessions, sessionId, {
+			...input,
+			terms: ['receipt', 'DELTA', 'DELTA'],
+			cursor,
+		})
+		expect(next.matches.length).toBeGreaterThan(0)
+	})
+
+	it('omits active invocation and refuses late ownership changes in automatic recall', async () => {
+		const { sessions, sessionId } = await fixture()
+		const old = await transcript(sessions, sessionId, 'DELTA history ORIGINAL-17')
+		const active = await transcript(sessions, sessionId, 'DELTA active CURRENT-92')
+		const assertOwner = vi.fn()
+		const recall = createConversationEvidenceRecall(sessions, sessionId, assertOwner)
+		const ctx = {
+			runId: active.runId,
+			messages: [createUserMessage('DELTA')],
+			stepNumber: 1,
+			prepared: {},
+			steps: [],
+		}
+		const first = await recall(ctx)
+		expect(first?.context).toContain('ORIGINAL-17')
+		expect(first?.context).not.toContain('CURRENT-92')
+		expect(first?.context).toContain('"retained":"preview"')
+		expect(first?.context).toContain(old.runId)
+		assertOwner
+			.mockReset()
+			.mockImplementationOnce(() => {})
+			.mockImplementation(() => {
+				throw new Error('Ownership changed')
+			})
+		await expect(recall(ctx)).rejects.toThrow('Ownership changed')
+	})
+
+	it('revalidates indexed bytes on each recall and never falls back from a damaged source', async () => {
+		const { sessions, sessionId } = await fixture()
+		const { runId, path } = await transcript(sessions, sessionId, 'DELTA ORIGINAL-17')
+		await writeFile(
+			join(path, 'run.json'),
+			JSON.stringify({
+				id: runId,
+				status: 'completed',
+				metadata: {
+					scope: { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId },
+				},
+			}),
+		)
+		await writeFile(
+			join(path, 'transcript.jsonl'),
+			`${[
+				{ type: 'run_started', runId, seq: 1 },
+				{
+					type: 'tool_completed',
+					runId,
+					seq: 2,
+					toolName: 'read',
+					toolUseId: 'observation',
+					isError: false,
+					result: 'DELTA ORIGINAL-17',
+				},
+			]
+				.map((event) => JSON.stringify(event))
+				.join('\n')}\n`,
+		)
+		const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+		const ctx = {
+			runId: generateRunId(),
+			messages: [createUserMessage('DELTA')],
+			stepNumber: 1,
+			prepared: {},
+			steps: [],
+		}
+		expect((await recall(ctx))?.context).toContain('ORIGINAL-17')
+		await writeFile(join(path, 'transcript.jsonl'), 'not a valid transcript\n')
+		expect(await recall(ctx)).toBeUndefined()
+	})
+
 	it('continues past matching announcements to the original observation without claiming absence', async () => {
 		const { sessions, sessionId } = await fixture()
 		const { runId, path } = await transcript(sessions, sessionId, 'seed')

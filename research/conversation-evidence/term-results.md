@@ -88,3 +88,9 @@ This does not resolve the previous live source-selection failures. The next
 layer must choose and rank candidates within an explicit total retrieval
 budget, attach them as historical request context rather than current truth,
 and pass the same unassisted historical/current-state conversation checks.
+
+## Follow-up
+
+The subsequent [automatic recall experiment](automatic-results.md) adds bounded
+candidate ranking and request-context attachment. The earlier samples above
+remain unchanged; they describe the implementation tested at that time.

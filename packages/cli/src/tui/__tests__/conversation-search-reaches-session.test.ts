@@ -142,6 +142,82 @@ async function send(session: AgentSession, runId = generateRunId()) {
 	}
 }
 
+it.each([false, true])(
+	'recalls scoped evidence into real Session requests only when opted in (%s)',
+	async (recallEvidence) => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-automatic-evidence-'))
+		roots.push(cwd)
+		const sessions = await openSessions(cwd)
+		const sessionId = await startConversation(sessions)
+		const otherId = await startConversation(sessions)
+		await archive(
+			cwd,
+			sessions,
+			sessionId,
+			`Recover the previous exact detail: ${'filler '.repeat(10000)}\nDELTA retained receipt: ORIGINAL-471`,
+		)
+		await archive(cwd, sessions, otherId, 'DELTA private receipt: FOREIGN-888')
+		await writeFile(join(cwd, 'receipt.txt'), 'DELTA current receipt: CURRENT-992')
+		const provider = new MockLLMProvider({ turns: [{ text: 'one' }, { text: 'two' }] })
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			scope: {
+				sessionId,
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				tenantId: sessions.tenantId,
+			},
+			stateRoot: sessions.root,
+			conversationSessions: sessions,
+			sandbox: { enabled: false },
+			memory: { recall: false },
+			compaction: { recallEvidence },
+		})
+		opened.push(session)
+		for await (const _event of session.send(
+			[createUserMessage('What was the earlier DELTA receipt?')],
+			{ runId: generateRunId(), permissionMode: 'auto' },
+		)) {
+			/* real Session + kernel */
+		}
+		const request = provider.requests[0]
+		const recalled =
+			request?.messages
+				.filter(
+					(message) =>
+						message.role === 'user' &&
+						message.source?.type === 'runtime-context' &&
+						message.source.kind === 'step-context',
+				)
+				.map((message) => message.content)
+				.join('\n') ?? ''
+		if (recallEvidence) {
+			expect(recalled).toContain('ORIGINAL-471')
+			expect(recalled).toContain('historical observations')
+		} else expect(recalled).not.toContain('ORIGINAL-471')
+		for (const forbidden of ['FOREIGN-888', 'CURRENT-992'])
+			expect(recalled).not.toContain(forbidden)
+		expect(
+			request?.messages
+				.filter((message) => message.role === 'system')
+				.map((message) => message.content)
+				.join('\n'),
+		).not.toContain('ORIGINAL-471')
+		// The previous request-only contribution must not become the next operator input.
+		for await (const _event of session.send([createUserMessage('continue')], {
+			runId: generateRunId(),
+			permissionMode: 'auto',
+		})) {
+			/* no archive query */
+		}
+		expect(JSON.stringify(provider.requests[1]?.messages)).not.toContain('ORIGINAL-471')
+		expect(await readFile(join(cwd, 'receipt.txt'), 'utf8')).toBe(
+			'DELTA current receipt: CURRENT-992',
+		)
+	},
+)
+
 it('keeps evidence attached to its invoking run when the host changes conversations', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-evidence-session-'))
 	roots.push(cwd)

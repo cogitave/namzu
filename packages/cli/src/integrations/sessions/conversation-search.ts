@@ -127,6 +127,7 @@ async function indexedSource(
 	budget: { scannedBytes: number },
 	signal?: AbortSignal,
 	active?: Pick<ToolContext, 'runId' | 'captureRunEvidence'>,
+	maxReadBytes = SCAN_BYTES,
 ): Promise<RunTextEvidenceSource | undefined> {
 	if (cursor.backend === 'live' && (runId !== active?.runId || !active.captureRunEvidence))
 		throw new Error('The live evidence owner is no longer available.')
@@ -135,7 +136,7 @@ async function indexedSource(
 		runId === active?.runId &&
 		active.captureRunEvidence
 	) {
-		const source = await active.captureRunEvidence(SCAN_BYTES - budget.scannedBytes)
+		const source = await active.captureRunEvidence(maxReadBytes - budget.scannedBytes)
 		if (source) {
 			if (
 				source.scope.runId !== runId ||
@@ -162,7 +163,7 @@ async function indexedSource(
 		try {
 			const before = await handle.stat()
 			if (!before.isFile() || before.size > 512 * 1024) throw new Error('Invalid run metadata.')
-			if (budget.scannedBytes + before.size > SCAN_BYTES)
+			if (budget.scannedBytes + before.size > maxReadBytes)
 				throw new Error('Metadata exceeds page budget.')
 			const bytes = Buffer.alloc(before.size)
 			let offset = 0
@@ -218,7 +219,7 @@ async function indexedSource(
 		scope,
 		runDir,
 		indexDir: join(runDir, 'evidence-index'),
-		maxReadBytes: SCAN_BYTES - budget.scannedBytes,
+		maxReadBytes: maxReadBytes - budget.scannedBytes,
 	})
 }
 
@@ -394,14 +395,58 @@ export async function searchConversation(
 	signal?: AbortSignal,
 	active?: Pick<ToolContext, 'runId' | 'captureRunEvidence'>,
 ): Promise<ConversationSearchResult> {
+	return searchConversationCore(sessions, sessionId, input, signal, active)
+}
+
+/** Host-only bounded candidate discovery; does not change the model tool schema. */
+export async function searchConversationTerms(
+	sessions: CliSessions,
+	sessionId: SessionId,
+	input: { terms: readonly string[]; excludeRunId: string; maxReadBytes: number; cursor?: string },
+	signal?: AbortSignal,
+): Promise<ConversationSearchResult> {
+	return searchConversationCore(sessions, sessionId, input, signal)
+}
+
+/** Searches only local runs of the host-selected conversation, never arbitrary paths. */
+async function searchConversationCore(
+	sessions: CliSessions,
+	sessionId: SessionId,
+	input: {
+		query?: string
+		terms?: readonly string[]
+		excludeRunId?: string
+		maxReadBytes?: number
+		caseSensitive?: boolean
+		runId?: string
+		limit?: number
+		cursor?: string
+	},
+	signal?: AbortSignal,
+	active?: Pick<ToolContext, 'runId' | 'captureRunEvidence'>,
+): Promise<ConversationSearchResult> {
 	signal?.throwIfAborted()
-	if (input.query.length < 1 || input.query.length > 256 || !input.query.trim())
-		throw new Error('Supply a literal query of 1–256 characters.')
+	const terms = input.terms ? [...new Set(input.terms)].sort() : [input.query ?? '']
+	if (
+		!terms.length ||
+		terms.length > 16 ||
+		terms.some(
+			(term) => typeof term !== 'string' || term.length < 1 || term.length > 256 || !term.trim(),
+		) ||
+		(input.terms && input.query !== undefined)
+	)
+		throw new Error('Supply a literal query or 1–16 literal terms of 1–256 characters.')
+	const maxReadBytes = input.maxReadBytes ?? SCAN_BYTES
+	if (!Number.isSafeInteger(maxReadBytes) || maxReadBytes < 1 || maxReadBytes > SCAN_BYTES)
+		throw new Error('Invalid evidence read ceiling.')
+	const excluded = input.excludeRunId === undefined ? undefined : asRunId(input.excludeRunId)
+	const queryKey = JSON.stringify([input.terms ? 'terms' : 'literal', terms, excluded])
 	const caseSensitive = input.caseSensitive ?? false
 	if (typeof caseSensitive !== 'boolean') throw new Error('caseSensitive must be a boolean.')
-	const expression = caseSensitive
-		? undefined
-		: new RegExp(input.query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'iu')
+	const expression = new RegExp(
+		terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
+		caseSensitive ? 'u' : 'iu',
+	)
 	const limit = input.limit ?? 5
 	if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Limit must be 1–20.')
 	const paths = new CliPathBuilder(sessions.root)
@@ -426,7 +471,7 @@ export async function searchConversation(
 	])
 	let cursor: SearchCursor
 	if (input.cursor) {
-		cursor = decodeCursor(input.cursor, scope, input.query)
+		cursor = decodeCursor(input.cursor, scope, queryKey)
 		if (cursor.caseSensitive !== caseSensitive)
 			throw new Error('Search cursor case sensitivity changed.')
 		if (input.runId && (cursor.runIds.length !== 1 || cursor.runIds[0] !== asRunId(input.runId)))
@@ -454,9 +499,9 @@ export async function searchConversation(
 		}
 		cursor = {
 			scope,
-			query: input.query,
+			query: queryKey,
 			caseSensitive,
-			runIds: runIds.sort(),
+			runIds: runIds.filter((id) => id !== excluded).sort(),
 			index: 0,
 			offset: 0,
 			seq: 0,
@@ -468,22 +513,31 @@ export async function searchConversation(
 	let outputBytes = 0
 	while (cursor.index < cursor.runIds.length) {
 		signal?.throwIfAborted()
-		if (SCAN_BYTES - result.scannedBytes < 1.5 * 1024 * 1024 || result.matches.length >= limit)
+		if (maxReadBytes - result.scannedBytes < 1.5 * 1024 * 1024 || result.matches.length >= limit)
 			break
 		const runId = cursor.runIds[cursor.index] as string
 		const pageMatches: EvidenceMatch[] = []
 		let pageBytes = 0
 		let usingIndex = false
 		try {
-			const source = await indexedSource(sessions, sessionId, runId, cursor, result, signal, active)
+			const source = await indexedSource(
+				sessions,
+				sessionId,
+				runId,
+				cursor,
+				result,
+				signal,
+				active,
+				maxReadBytes,
+			)
 			if (source) {
-				if (SCAN_BYTES - result.scannedBytes < 6 * 1024 * 1024) break
+				if (maxReadBytes - result.scannedBytes < 6 * 1024 * 1024) break
 				usingIndex = true
 				// One bounded SDK page per call. Reserve enough output for three 512-character excerpts, even when every character needs JSON escaping.
 				if (OUTPUT_BYTES - outputBytes < 11_000) break
 				const page = await source.search(
 					{
-						query: input.query,
+						...(input.terms ? { terms } : { query: input.query }),
 						caseSensitive,
 						cursor: cursor.indexCursor,
 						limit: Math.min(3, limit - result.matches.length),
@@ -521,18 +575,18 @@ export async function searchConversation(
 				join(runsRoot, runId, 'transcript.jsonl'),
 				runId,
 				cursor,
-				SCAN_BYTES - result.scannedBytes,
+				maxReadBytes - result.scannedBytes,
 				(bytes) => {
 					result.scannedBytes += bytes
 				},
 				(event) => {
-					const offset = expression
-						? (expression.exec(event.text)?.index ?? -1)
-						: event.text.indexOf(input.query)
+					const offset = expression.exec(event.text)?.index ?? -1
 					if (offset < 0) return true
 					const text = event.text.slice(
 						Math.max(0, offset - 160),
-						offset + input.query.length + 320,
+						input.terms
+							? Math.max(0, offset - 160) + 512
+							: offset + (input.query?.length ?? 0) + 320,
 					)
 					const match = { runId, seq: event.seq, source: event.source, part: event.part, text }
 					const bytes = Buffer.byteLength(JSON.stringify(match))
@@ -561,7 +615,7 @@ export async function searchConversation(
 			if (usingIndex) {
 				// On a failed SDK operation its exact I/O count is unavailable. Charge the
 				// remaining ceiling and yield, rather than making another unbounded attempt.
-				result.scannedBytes = SCAN_BYTES
+				result.scannedBytes = maxReadBytes
 				nextRun(cursor)
 				break
 			}

@@ -128,3 +128,9 @@ integrity, current-versus-historical counterexamples and unassisted live checks.
 It must not turn a past observation into proof of current state or equate a
 stored artifact with information the model has understood. This remains open;
 no autonomous-memory milestone is marked complete by these measurements.
+
+## Follow-up
+
+The subsequent [automatic recall experiment](automatic-results.md) adds bounded
+candidate ranking and request-context attachment. The earlier samples above
+remain unchanged; they describe the implementation tested at that time.

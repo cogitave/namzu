@@ -24,6 +24,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `contextWindowTokens` | The window the kernel measures fullness against, when the model's table entry is wrong or a project wants compaction earlier. Absent, the kernel resolves it from the model. |
 | `deduplicateObservations` | Enabled by default. Repeated identical read-only text observations share one full result in each model request. Set `false` to preserve the previous representation. Tool execution and canonical history are unchanged; see the [SDK policy and limits](../sdk/salience-working-set.md#exact-repeated-observations-in-the-active-request). |
 | `retainedToolPreviewChars` | Nonnegative safe integer; default 4,000 in recorded conversations. Limits the preview of overflow text only after full text and its integrity manifest are saved. Set `0` to keep the previous 40,000-character preview budget. The spill threshold, smaller results and independently supplied model text are unchanged. |
+| `recallEvidence` | Optional boolean, default `false`. Retrieve bounded historical passages from this recorded conversation before each model request; see the limits below. Independent of project-memory recall. |
 | `consolidate` | `true` selects one consolidated `learning` entry per run instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 
 The CLI uses one of these writers per run, including resumed runs. Retrieval is
@@ -41,6 +42,29 @@ ordinary budget. Exact originals remain available through
 [conversation evidence search](conversation-evidence.md); see the
 [SDK retention contract](../sdk/harness-invariants.md) for text/rich-channel
 boundaries. A short preview is an excerpt, not the complete output.
+
+# Automatic historical evidence
+
+Set `compaction.recallEvidence: true` to enable the experimental
+[SDK evidence recall step](../sdk/evidence-recall.md) in recorded CLI turns,
+including resume and resident turns using the conversation host. Stateless
+sessions do not gain archive access. The default remains off.
+
+Each request scans at most four bounded pages, accounting at most 8 MiB of
+source/metadata bytes across those pages, from this conversation only. Each
+page examines at most 100 run-directory entries. Enumeration is bounded, not
+an exhaustive or chronological search of a large archive. Up to four ranked
+passages occupy at most 6,000 added characters. A one-second deadline cancels
+optional retrieval; source or ownership failures expose no cached passage.
+Legacy transcript text is labelled as a preview. Authenticated retained output
+keeps its source tool, error flag and exact event/byte reference.
+
+The requesting invocation is excluded from this automatic pass. Explicit
+`search_conversation`/`read_conversation` still cover its live writer, further
+pages, and exact text after compaction. These tools retain their literal-query
+schema. Automatic passages are historical context, not a new user message or
+proof of current workspace state. The feature neither reads the current
+workspace to infer its past nor replays a state-changing action.
 
 # `/context`
 

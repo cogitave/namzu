@@ -91,6 +91,7 @@ import {
 	type ToolReviewRequest,
 	type TopicId,
 	WebFetchTool,
+	asRunId,
 	batchNeedsReview,
 	buildAskUserQuestionTool,
 	buildMemoryTools,
@@ -195,6 +196,7 @@ import {
 	buildConversationReadTool,
 	buildConversationSearchTool,
 } from '../integrations/sessions/conversation-search.js'
+import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
 import type { CliSessions } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
@@ -2005,6 +2007,29 @@ export async function createAgentSession(
 				}),
 			)
 	}
+	const evidenceRecallSteps = new Map<
+		SessionId,
+		ReturnType<typeof createConversationEvidenceRecall>
+	>()
+	const evidenceRecallFor = (sessionId: SessionId) => {
+		const sessions = options.conversationSessions
+		if (!sessions || options.compaction?.recallEvidence !== true) return []
+		let step = evidenceRecallSteps.get(sessionId)
+		if (!step) {
+			step = createConversationEvidenceRecall(sessions, sessionId, (runId) => {
+				const owner = delegationScopes.get(asRunId(runId))
+				if (
+					!owner ||
+					owner.sessionId !== sessionId ||
+					owner.tenantId !== sessions.tenantId ||
+					owner.projectId !== sessions.projectId
+				)
+					throw new Error('The requesting run no longer owns this conversation.')
+			})
+			evidenceRecallSteps.set(sessionId, step)
+		}
+		return [step]
+	}
 	let subagentRuntime: SubagentRuntime | undefined
 	// Stays empty when the runtime below throws, which is the honest answer: the
 	// catch is non-fatal and the session then genuinely has no delegate to
@@ -2550,6 +2575,7 @@ export async function createAgentSession(
 									}),
 								]),
 						...(options.conversationSessions ? [createContextInventoryStep()] : []),
+						...evidenceRecallFor(entry.sessionId),
 					],
 					...(options.compaction?.consolidate
 						? { consolidateInto: memoryStore }
@@ -2989,6 +3015,7 @@ export async function createAgentSession(
 												}),
 											]),
 									...(options.conversationSessions ? [createContextInventoryStep()] : []),
+									...evidenceRecallFor(turnScope.sessionId),
 								],
 								taskStore: runTaskStore,
 								systemPrompt,

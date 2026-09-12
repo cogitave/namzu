@@ -71,6 +71,8 @@ export interface RunLimitsConfig {
 
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
+	/** Opt-in bounded historical evidence recall into request context. Default false. */
+	readonly recallEvidence?: boolean
 	/** Retained overflow preview in recorded conversations; default 4,000 chars. 0 keeps the ordinary 40,000-char budget. */
 	readonly retainedToolPreviewChars?: number
 	/** Mask exact repeated read-only observations in model requests; enabled unless false. */

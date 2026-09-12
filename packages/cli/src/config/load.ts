@@ -548,6 +548,7 @@ const CONFIG_READERS: ConfigReaders = {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		const raw = v as {
 			strategy?: unknown
+			recallEvidence?: unknown
 			retainedToolPreviewChars?: unknown
 			deduplicateObservations?: unknown
 			contextWindowTokens?: unknown
@@ -558,6 +559,7 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'strategy' &&
 				key !== 'contextWindowTokens' &&
 				key !== 'consolidate' &&
+				key !== 'recallEvidence' &&
 				key !== 'retainedToolPreviewChars' &&
 				key !== 'deduplicateObservations'
 			) {
@@ -570,6 +572,8 @@ const CONFIG_READERS: ConfigReaders = {
 		) {
 			return invalidConfigValue(context, ['deduplicateObservations'], 'must be true or false')
 		}
+		if (raw.recallEvidence !== undefined && typeof raw.recallEvidence !== 'boolean')
+			return invalidConfigValue(context, ['recallEvidence'], 'must be true or false')
 		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
 			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
 		}
@@ -606,6 +610,7 @@ const CONFIG_READERS: ConfigReaders = {
 				? { contextWindowTokens: raw.contextWindowTokens }
 				: {}),
 			...(raw.consolidate !== undefined ? { consolidate: raw.consolidate } : {}),
+			...(raw.recallEvidence !== undefined ? { recallEvidence: raw.recallEvidence } : {}),
 			...(raw.retainedToolPreviewChars !== undefined
 				? { retainedToolPreviewChars: raw.retainedToolPreviewChars }
 				: {}),

@@ -9,6 +9,7 @@ import { promisify } from 'node:util';
 const exec = promisify(execFile);
 const live = process.argv.includes('--live');
 const checkCurrent = process.argv.includes('--check-current');
+const recallEvidence = process.argv.includes('--recall-evidence');
 const root = await mkdtemp(join(tmpdir(), 'namzu-natural-recall-'));
 const home = join(root, 'home');
 const cwd = join(root, 'workspace');
@@ -23,7 +24,7 @@ const originalText = Array.from({ length: 400 }, (_, i) => i === 210
 const replacementText = `Güncel revizyon; önceki dökümün yerini aldı.\nDELTA siparişi. Takip kodu: ${replacement.tracking}. Hedef deposu: ${replacement.depot}.\n`;
 await writeFile(file, originalText);
 await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'codex', model: 'gpt-5.6-luna' }], subagents: { active: [] } }));
-await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n');
+await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + (recallEvidence ? 'compaction:\n  recallEvidence: true\n' : ''));
 const sdkURL = new URL('../../packages/sdk/dist/index.js', import.meta.url);
 const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
 const preload = join(root, 'scripted-provider.mjs');
@@ -42,7 +43,7 @@ ProviderRegistry.create=()=>{let step=0;return {provider:{id:'scripted',name:'sc
  yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
 }}};};`);
 
-const report = { root, live, checkCurrent, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [] };
+const report = { root, live, checkCurrent, recallEvidence, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [] };
 const allEvents = async () => {
   const events = [];
   for (const session of await readdir(join(home, 'sessions'), { withFileTypes: true })) {
@@ -138,7 +139,7 @@ try {
 } catch(error) {report.passed=false;report.error=String(error.message);process.exitCode=1;}
 finally {
   report.fingerprints={};
-  for(const path of ['packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
+  for(const path of ['packages/sdk/src/run/evidence-recall.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
     report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
   await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({root,live,passed:report.passed,prerequisites:report.prerequisites,observations:report.observations,currentCheck:report.currentCheck,turns:report.turns.map(t=>({phase:t.phase,calls:t.calls,totalTokens:t.totalTokens})),error:report.error}));
