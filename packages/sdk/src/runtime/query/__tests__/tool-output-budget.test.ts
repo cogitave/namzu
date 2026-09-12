@@ -30,6 +30,69 @@ describe('applyToolOutputBudget', () => {
 	})
 
 	const base = { toolName: 'read', toolUseId: 'call_1' }
+	it.each([2_000, 60_000])('retains all %s characters before using condensed text', (size) => {
+		const output = '🦉'.repeat(size / 2)
+		const out = applyToolOutputBudget({
+			...base,
+			output,
+			preview: 'Condensed result',
+			maxChars: 40_000,
+			retainedPreviewChars: 4_000,
+			spillDir: dir,
+		})
+		expect(out.output).toContain('Condensed result')
+		expect(out.output).toContain(`${SPILL_MARKER} ${out.spillPath}`)
+		expect(out.output.length).toBeLessThanOrEqual(4_000)
+		expect(out.originalLength).toBe(size)
+		expect(out.truncated).toBe(true)
+		expect(out.spillIntegrity).toBeDefined()
+		expect(readFileSync(out.spillPath!, 'utf8')).toBe(output)
+	})
+
+	it.each(['no-store', 'failed-manifest'] as const)(
+		'keeps under-cap text intact when condensation retention has %s',
+		(failure) => {
+			if (failure === 'failed-manifest') {
+				const name = createHash('sha256').update(base.toolUseId).digest('hex')
+				mkdirSync(join(dir, `${name}.txt.manifest.json`))
+			}
+			const output = 'Original detail. '.repeat(100)
+			const out = applyToolOutputBudget({
+				...base,
+				output,
+				preview: 'Condensed result',
+				maxChars: 40_000,
+				...(failure === 'failed-manifest' ? { spillDir: dir } : {}),
+			})
+			expect(out.output).toBe(output)
+			expect(out.truncated).toBe(false)
+			expect(out.spillIntegrity).toBeUndefined()
+		},
+	)
+
+	it('bounds the original when condensation cannot be authenticated', () => {
+		const output = 'Original detail. '.repeat(5000)
+		const out = applyToolOutputBudget({ ...base, output, preview: 'Condensed', maxChars: 1_000 })
+		expect(out.output.length).toBeLessThanOrEqual(1_000)
+		expect(out.output).toContain('Original detail.')
+		expect(out.output).toContain('not retained')
+		expect(out.output).not.toContain('Condensed')
+	})
+
+	it.each([0, 150, 1_000])('keeps notices and condensed recovery within cap %s', (maxChars) => {
+		const output = 'x'.repeat(2_000)
+		const out = applyToolOutputBudget({
+			...base,
+			output,
+			preview: 'Condensed',
+			notice: 'Rich content withheld.',
+			maxChars,
+			spillDir: dir,
+		})
+		if (maxChars > 0) expect(out.output.length).toBeLessThanOrEqual(maxChars)
+		expect(out.output).toContain('Rich content withheld.')
+		expect(readFileSync(out.spillPath!, 'utf8')).toBe(output)
+	})
 
 	it('separates authenticated preview size from the spill threshold', () => {
 		const output = `HEAD-${'🦉 evidence '.repeat(5000)}-TAIL`

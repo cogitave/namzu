@@ -1,0 +1,287 @@
+{
+  "date": "2026-09-13",
+  "reproducer": "node research/conversation-evidence/interrupted-cli.mjs --effect --torn [--live]",
+  "baseline": {
+    "root": "/tmp/namzu-interrupted-cli-b2dUf5",
+    "passed": false,
+    "failure": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert.ok(original?.outputSpillIntegrity && !original.result.includes(report.seed.receipt))\n",
+    "counter": 1,
+    "toolResultChars": 1827,
+    "retainedOriginal": false,
+    "omittedRowsNotice": true,
+    "resultContainsOriginalReceipt": true,
+    "caveat": "Seed stopped at missing retention assertion; recovery was not run. Original fingerprints did not include executor or budget modules. This is failure evidence, not a controlled performance comparison."
+  },
+  "trials": {
+    "scriptedTorn": {
+      "root": "/tmp/namzu-interrupted-cli-KiwFI9",
+      "passed": true,
+      "live": false,
+      "torn": true,
+      "effect": true,
+      "originalTool": "bash",
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "seed": {
+        "sessionId": "4e423b0e-1f00-4a8b-ad20-e43d6a8f7ae4",
+        "runId": "bee37290-80f9-45e8-b1a6-6fd2418507a1",
+        "receipt": "ORCHID-fdac078d-f6da-42e2-b19a-eb2e4d3a616c",
+        "root": "/tmp/namzu-interrupted-cli-KiwFI9/home",
+        "originalOutputHash": "8e35144df1cf20509ea66ef170d47838bade1c5d384da1cb4235722e48ef2abc"
+      },
+      "seedExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "metadataStatus": "idle",
+      "originalSeq": 18,
+      "exactOriginalRead": true,
+      "receiptInPreview": true,
+      "retainedOutputHash": "8e35144df1cf20509ea66ef170d47838bade1c5d384da1cb4235722e48ef2abc",
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-interrupted-cli-KiwFI9/workspace",
+        "--resume",
+        "4e423b0e-1f00-4a8b-ad20-e43d6a8f7ae4",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "35000",
+        "What was the ORCHID receipt from the earlier command? Please read and quote the original passage."
+      ],
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "ORCHID",
+            "runId": "bee37290-80f9-45e8-b1a6-6fd2418507a1"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "bee37290-80f9-45e8-b1a6-6fd2418507a1",
+            "seq": 18,
+            "part": 0,
+            "byteOffset": 178296
+          }
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "f5aa292c3dfcb577d6343ba30e1c45a8c860595f4a616d7fe49e9efc46965aa3",
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "after": {
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "f5aa292c3dfcb577d6343ba30e1c45a8c860595f4a616d7fe49e9efc46965aa3",
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "oldRunBefore": {
+        "metadata": "040e0295f4ec41747b926127dc9fafdb5530be5315b77f99f2b4af241b2be0c3",
+        "transcript": "7ff209505e9cb76f689a744ee576a4d6a23d002969c4f963b6850b5692364da0"
+      },
+      "oldRunAfter": {
+        "metadata": "040e0295f4ec41747b926127dc9fafdb5530be5315b77f99f2b4af241b2be0c3",
+        "transcript": "7ff209505e9cb76f689a744ee576a4d6a23d002969c4f963b6850b5692364da0"
+      },
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "outputs": [
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "scannedBytes": 709213,
+          "incomplete": true,
+          "unavailableRuns": 0,
+          "matches": 1,
+          "originalMatches": 1,
+          "hasContinuation": false
+        },
+        {
+          "name": "read_conversation",
+          "isError": false,
+          "runId": "bee37290-80f9-45e8-b1a6-6fd2418507a1",
+          "seq": 18,
+          "source": "tool_completed",
+          "scannedBytes": 186345,
+          "complete": false,
+          "retainedPreview": false,
+          "totalChars": 339109,
+          "characters": 6000,
+          "containsOriginal": true,
+          "hasContinuation": true
+        }
+      ]
+    },
+    "liveTorn": {
+      "root": "/tmp/namzu-interrupted-cli-sVeA4m",
+      "passed": true,
+      "live": true,
+      "torn": true,
+      "effect": true,
+      "originalTool": "bash",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "seed": {
+        "sessionId": "353d2a86-71ae-4c55-abe6-3a638a0fbbc6",
+        "runId": "a6c675ea-0897-42dd-9729-fdb263d487f8",
+        "receipt": "ORCHID-2e2279c8-d077-461d-8459-6fcfec5ac7dd",
+        "root": "/tmp/namzu-interrupted-cli-sVeA4m/home",
+        "originalOutputHash": "62b99c46cfa9962ad13eb5445e8e033280eb39476c9bad014056a1e6bb575a3f"
+      },
+      "seedExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "metadataStatus": "idle",
+      "originalSeq": 18,
+      "exactOriginalRead": true,
+      "receiptInPreview": true,
+      "retainedOutputHash": "62b99c46cfa9962ad13eb5445e8e033280eb39476c9bad014056a1e6bb575a3f",
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-interrupted-cli-sVeA4m/workspace",
+        "--resume",
+        "353d2a86-71ae-4c55-abe6-3a638a0fbbc6",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "35000",
+        "What was the ORCHID receipt from the earlier command? Please read and quote the original passage."
+      ],
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "ORCHID",
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "a6c675ea-0897-42dd-9729-fdb263d487f8",
+            "seq": 18,
+            "part": 0,
+            "byteOffset": 177900
+          }
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "f5aa292c3dfcb577d6343ba30e1c45a8c860595f4a616d7fe49e9efc46965aa3",
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "after": {
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "f5aa292c3dfcb577d6343ba30e1c45a8c860595f4a616d7fe49e9efc46965aa3",
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "oldRunBefore": {
+        "metadata": "0a4f2f03001348f173e7b34e48a1f46883c0439575d2fe2549ad68caf2f78f3f",
+        "transcript": "fb1ba85392c2da374bfcd69f374832661a7de9cd01b49015bda0a0729adc2894"
+      },
+      "oldRunAfter": {
+        "metadata": "0a4f2f03001348f173e7b34e48a1f46883c0439575d2fe2549ad68caf2f78f3f",
+        "transcript": "fb1ba85392c2da374bfcd69f374832661a7de9cd01b49015bda0a0729adc2894"
+      },
+      "usage": {
+        "totalTokens": 22025,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 22025
+        }
+      },
+      "outputs": [
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "scannedBytes": 709213,
+          "incomplete": true,
+          "unavailableRuns": 0,
+          "matches": 1,
+          "originalMatches": 1,
+          "hasContinuation": true
+        },
+        {
+          "name": "read_conversation",
+          "isError": false,
+          "runId": "a6c675ea-0897-42dd-9729-fdb263d487f8",
+          "seq": 18,
+          "source": "tool_completed",
+          "scannedBytes": 186345,
+          "complete": false,
+          "retainedPreview": false,
+          "totalChars": 339109,
+          "characters": 6000,
+          "containsOriginal": true,
+          "hasContinuation": true
+        }
+      ]
+    }
+  }
+}

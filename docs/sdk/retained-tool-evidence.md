@@ -272,6 +272,17 @@ replacement/redaction happens before retention. A fresh run resolves its output
 directory when the tool executes, after the store initializes; it no longer
 captures a permanently empty directory during query construction.
 
+Successful shell-result condensation also retains the permitted original before
+removing similar rows, stack frames or progress lines, even when the original is
+under the ordinary output cap. Its compact presentation carries the recovery
+path and `outputTruncated: true`; `outputLength` describes the original text.
+Only authenticated retention permits this extra reduction. Without a usable
+store or manifest, the ordinary bounded original is returned instead. Hook
+replacements remain the retention boundary; pre-redaction text is not spilled
+by condensation. The same-text rich-content channel uses the same preview.
+This preserves captured tool text, not bytes a subprocess or sandbox discarded
+before returning its result.
+
 Alongside `tool-output/<sha256(toolUseId)>.txt`, retention writes a private,
 exclusive `.txt.manifest.json` sidecar. Its SHA-256 is recorded in the additive
 `tool_completed.outputSpillIntegrity` field. The version-one manifest contains

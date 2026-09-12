@@ -1640,8 +1640,8 @@ export class ToolExecutor {
 			: formatFailedToolOutput(result.output, result.error)
 
 		const postOverride = post.override
-		let output =
-			postOverride?.output ?? (result.success ? this.maybeCompress(toolName, rawOutput) : rawOutput)
+		let output = postOverride?.output ?? rawOutput
+		const preview = !postOverride && result.success ? this.maybeCompress(toolName, output) : output
 		let selectedContent = postOverride?.isError
 			? undefined
 			: (postOverride?.content ?? result.content)
@@ -1667,17 +1667,22 @@ export class ToolExecutor {
 			toolName,
 			toolUseId: toolCall.id,
 			output,
+			preview,
 			maxChars: maxToolOutputChars,
 			retainedPreviewChars: this.config.retainedToolPreviewChars,
 			spillDir: this.outputDirectory(),
 			onError: (message) =>
-				this.log.warn('Failed to spill oversized tool output', {
+				this.log.warn('Failed to retain original tool output', {
 					[NAMZU.RUN_ID]: this.config.runId,
 					[GENAI.TOOL_NAME]: toolName,
 					'exception.message': message,
 				}),
 		})
-		if (budgeted.truncated) {
+		if (
+			budgeted.truncated &&
+			maxToolOutputChars > 0 &&
+			budgeted.originalLength > maxToolOutputChars
+		) {
 			this.log.warn('Tool output exceeded the model-visible budget', {
 				[NAMZU.RUN_ID]: this.config.runId,
 				[GENAI.TOOL_NAME]: toolName,

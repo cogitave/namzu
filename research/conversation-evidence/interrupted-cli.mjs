@@ -17,23 +17,37 @@ if (process.argv[2] === '--seed') {
   const { openSessions, startConversation, replaceConversation } = await import(storeURL);
   const { createAgentSession, probeAgentSession } = await import(agentURL);
   const cwd = process.argv[3];
+  const effect = process.argv.includes('--effect');
   const sessions = await openSessions(cwd);
   const sessionId = await startConversation(sessions);
   const runId = sdk.generateRunId();
   const receipt = `ORCHID-${randomUUID()}`;
-  await writeFile(join(cwd, 'manifest.txt'), Array.from({ length: 400 }, (_, i) => i === 210
-    ? `Original receipt: ${receipt}` : `Row ${i}: ${'ordinary observation '.repeat(40)}`).join('\n'));
+  const document = Array.from({ length: 400 }, (_, i) => i === 210
+    ? `Original receipt: ${receipt}` : `Row ${i}: ${'ordinary observation '.repeat(40)}`).join('\n');
+  await writeFile(join(cwd, 'manifest.txt'), document);
+  if (effect) {
+    await writeFile(join(cwd, 'counter.txt'), '0');
+    await writeFile(join(cwd, 'record-once.cjs'), `const fs = require('node:fs');
+const count = Number(fs.readFileSync('counter.txt', 'utf8')) + 1;
+fs.writeFileSync('counter.txt', String(count));
+process.stdout.write(fs.readFileSync('manifest.txt', 'utf8'));`);
+  }
   // A bounded projection without the original code; no automatic-compaction claim.
-  await replaceConversation(sessions, sessionId, [sdk.createUserMessage('An earlier manifest was inspected. Its receipt is retained in the recorded observation.')]);
+  await replaceConversation(sessions, sessionId, [sdk.createUserMessage(effect
+    ? 'An earlier command ran node record-once.cjs and produced a long receipt. Its recorded output is retained.'
+    : 'An earlier manifest was inspected. Its receipt is retained in the recorded observation.')]);
   let requests = 0;
   const provider = { id: 'scripted', name: 'scripted', async *chatStream(params) {
     if (requests++ === 0) {
-      yield* new sdk.MockLLMProvider({ turns: [{ toolCalls: [{ id: 'observe-once', name: 'read', args: { path: 'manifest.txt' } }] }] }).chatStream(params);
+      const call = effect ? { name: 'bash', args: { command: 'node record-once.cjs' } }
+        : { name: 'read', args: { path: 'manifest.txt' } };
+      yield* new sdk.MockLLMProvider({ turns: [{ toolCalls: [{ id: 'observe-once', ...call }] }] }).chatStream(params);
       return;
     }
     // The next provider request proves the first tool boundary was persisted.
     await writeFile(join(cwd, 'manifest.txt'), 'The workspace file was externally replaced.');
-    process.send({ sessionId, runId, receipt, root: sessions.root });
+    process.send({ sessionId, runId, receipt, root: sessions.root,
+      ...(effect ? { originalOutputHash: digest(`STDOUT:\n${document}`) } : {}) });
     setInterval(() => {}, 1000);
     await new Promise(() => {});
   } };
@@ -45,23 +59,25 @@ if (process.argv[2] === '--seed') {
     sandbox: { enabled: false }, web: { search: 'off' }, memory: { recall: false },
     limits: { maxIterations: 3, tokenBudget: 20000 },
   });
-  for await (const _event of session.send([sdk.createUserMessage('Read manifest.txt once.')], { runId, permissionMode: 'auto' })) { /* killed by the parent before settlement */ }
+  for await (const _event of session.send([sdk.createUserMessage(effect ? 'Run node record-once.cjs once.' : 'Read manifest.txt once.')], { runId, permissionMode: 'auto' })) { /* killed by the parent before settlement */ }
 } else {
   const live = process.argv.includes('--live');
   const torn = process.argv.includes('--torn');
+  const effect = process.argv.includes('--effect');
+  const originalTool = effect ? 'bash' : 'read';
   const root = await mkdtemp(join(tmpdir(), 'namzu-interrupted-cli-'));
   const home = join(root, 'home'); const cwd = join(root, 'workspace');
   await mkdir(home); await mkdir(cwd);
   await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'codex', model: 'gpt-5.6-luna' }], subagents: { active: [] } }));
   await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n');
   const env = { ...process.env, NAMZU_HOME: home };
-  const report = { root, live, torn, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low' };
-  const paths = ['packages/sdk/dist/store/evidence/disk.js', 'packages/sdk/dist/store/evidence/index-page.js', 'packages/sdk/dist/store/evidence/source-text.js', 'packages/sdk/dist/store/run/disk.js', 'packages/cli/dist/integrations/sessions/conversation-search.js', 'packages/cli/dist/tui/agent.js', 'packages/cli/dist/commands/run.js'];
+  const report = { root, live, torn, effect, originalTool, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low' };
+  const paths = ['packages/sdk/dist/runtime/query/executor.js', 'packages/sdk/dist/runtime/query/tool-output-budget.js', 'packages/sdk/dist/store/evidence/disk.js', 'packages/sdk/dist/store/evidence/index-page.js', 'packages/sdk/dist/store/evidence/source-text.js', 'packages/sdk/dist/store/run/disk.js', 'packages/sdk/dist/tools/builtins/bash.js', 'packages/cli/dist/integrations/sessions/conversation-search.js', 'packages/cli/dist/tui/agent.js', 'packages/cli/dist/commands/run.js'];
   const fingerprints = async () => Object.fromEntries(await Promise.all(paths.map(async path => [path, digest(await readFile(new URL('../../' + path, import.meta.url)))])));
   let child;
   try {
     report.before = await fingerprints();
-    child = fork(fileURLToPath(import.meta.url), ['--seed', cwd], { cwd, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
+    child = fork(fileURLToPath(import.meta.url), ['--seed', cwd, ...(effect ? ['--effect'] : [])], { cwd, env, stdio: ['ignore', 'pipe', 'pipe', 'ipc'] });
     let stderr = ''; child.stderr.on('data', bytes => { stderr = (stderr + bytes).slice(-100000); });
     child.stdout.resume();
     const exited = new Promise(resolve => child.once('exit', (code, signal) => resolve({ code, signal })));
@@ -79,9 +95,20 @@ if (process.argv[2] === '--seed') {
     const metadata = await readFile(metadataPath);
     const raw = await readFile(transcriptPath, 'utf8');
     const events = raw.trim().split('\n').map(JSON.parse);
-    const original = events.find(e => e.type === 'tool_completed' && e.toolName === 'read');
-    assert.ok(original?.outputSpillIntegrity && !original.result.includes(report.seed.receipt));
-    assert.equal(events.filter(e => e.type === 'tool_executing' && e.toolName === 'read').length, 1);
+    const original = events.find(e => e.type === 'tool_completed' && e.toolName === originalTool);
+    assert.equal(original?.isError, false);
+    assert.ok(original?.outputSpillIntegrity);
+    if (effect) {
+      report.retainedOutputHash = digest(await readFile(original.outputSpillPath));
+      assert.equal(report.retainedOutputHash, report.seed.originalOutputHash);
+    }
+    report.receiptInPreview = original.result.includes(report.seed.receipt);
+    if (!effect) assert.equal(report.receiptInPreview, false);
+    assert.equal(events.filter(e => e.type === 'tool_executing' && e.toolName === originalTool).length, 1);
+    if (effect) {
+      report.counterBefore = Number(await readFile(join(cwd, 'counter.txt'), 'utf8'));
+      assert.equal(report.counterBefore, 1);
+    }
     report.originalSeq = original.seq;
     report.metadataStatus = JSON.parse(metadata).status;
     assert.ok(['idle', 'pending', 'running'].includes(report.metadataStatus));
@@ -96,15 +123,20 @@ const parse=c=>{const s=String(c);return JSON.parse(s.slice(s.indexOf('{'),s.las
 ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *chatStream(params){
  const last=params.messages.filter(m=>m.role==='tool').at(-1);let turn;
  if(!last)turn={toolCalls:[{id:'search',name:'search_conversation',args:{query:'ORCHID',runId:${JSON.stringify(report.seed.runId)}}}]};
- else{const page=parse(last.content);if(last.toolCallId.startsWith('search')){const m=page.matches?.find(m=>m.source==='tool_completed'&&m.toolName==='read');
+ else{const page=parse(last.content);if(last.toolCallId.startsWith('search')){const m=page.matches?.find(m=>m.source==='tool_completed'&&m.toolName===${JSON.stringify(originalTool)});
  turn=m?{toolCalls:[{id:'read',name:'read_conversation',args:{runId:m.runId,seq:m.seq,part:m.part,byteOffset:m.byteOffset}}]}:page.nextCursor?{toolCalls:[{id:'search-'+params.messages.length,name:'search_conversation',args:{cursor:page.nextCursor}}]}:{text:'The original receipt was not recovered.'};
  }else turn={text:page.text||'The original passage was not read.'};}yield*new MockLLMProvider({turns:[turn]}).chatStream(params);}}});`);
-    const prompt = 'Recover the exact original ORCHID receipt from the earlier recorded observation. Read the original passage before answering. The workspace file has changed. Do not read workspace files, edit anything, run commands or use the network.';
+    const prompt = effect
+      ? 'What was the ORCHID receipt from the earlier command? Please read and quote the original passage.'
+      : 'Recover the exact original ORCHID receipt from the earlier recorded observation. Read the original passage before answering. The workspace file has changed. Do not read workspace files, edit anything, run commands or use the network.';
     const args = ['--quiet', '--format', 'json', 'run', '--trust', '--cwd', cwd, '--resume', report.seed.sessionId, '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', '6', '--token-budget', '35000', prompt];
     report.command = args;
     const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
     const { stdout } = await promisify(execFile)(process.execPath, [...(live ? [] : ['--import', preload]), cli, ...args], { cwd, env, timeout: 150000, maxBuffer: 2000000 });
     report.result = JSON.parse(stdout);
+    if (effect) {
+      report.counterAfter = Number(await readFile(join(cwd, 'counter.txt'), 'utf8'));
+    }
     const recoveredEvents = [];
     const runs = join(home, 'sessions', report.seed.sessionId, 'runs');
     for (const entry of await readdir(runs, { withFileTypes: true })) {
@@ -113,6 +145,7 @@ ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *cha
     }
     report.calls = recoveredEvents.filter(e => e.type === 'tool_executing').map(e => ({ name: e.toolName, input: e.input }));
     report.outputs = recoveredEvents.filter(e => e.type === 'tool_completed').map(e => ({ name: e.toolName, isError: e.isError, result: e.result }));
+    if (effect) assert.equal(report.counterAfter, report.counterBefore, 'Recovery repeated the original side effect');
     report.oldRunAfter = { metadata: digest(await readFile(metadataPath)), transcript: digest(await readFile(transcriptPath)) };
     assert.deepEqual(report.oldRunAfter, report.oldRunBefore);
     assert.ok(report.calls.every(e => ['search_conversation', 'read_conversation', 'search_tools'].includes(e.name)));
@@ -131,6 +164,6 @@ ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *cha
   finally {
     if (child && child.exitCode === null && child.signalCode === null) child.kill('SIGKILL');
     await writeFile(join(root, 'result.json'), JSON.stringify(report, null, 2) + '\n');
-    console.log(JSON.stringify({ root, live, torn, passed: report.passed, status: report.metadataStatus, calls: report.calls, usage: report.result?.usage, error: report.error }));
+    console.log(JSON.stringify({ root, live, torn, effect, passed: report.passed, status: report.metadataStatus, counterBefore: report.counterBefore, counterAfter: report.counterAfter, calls: report.calls, usage: report.result?.usage, error: report.error }));
   }
 }

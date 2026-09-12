@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Retain permitted originals before shell-output condensation in the [SDK evidence pipeline](sdk/retained-tool-evidence.md), keeping [CLI historical command recovery](cli/conversation-evidence.md) separate from repeating an action; failed authentication falls back to the ordinary bounded original.
+
 - **Update** Added explicit [SDK snapshot consistency](sdk/retained-tool-evidence.md) and connected [CLI recovery](cli/conversation-evidence.md) for nonterminal run records after process interruption, preserving ownership and output integrity without resuming work or repairing the transcript; incomplete final fragments have a bounded read-only prefix scan.
 
 - **Update** Continue cold [conversation reads](cli/conversation-evidence.md) through bounded internal index pages, preserving restart recovery, per-operation scope checks, cancellation, shared I/O accounting and explicit continuation at the limits.

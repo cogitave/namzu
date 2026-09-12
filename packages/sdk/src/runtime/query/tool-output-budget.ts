@@ -158,6 +158,8 @@ export interface ApplyToolOutputBudgetOptions {
 	readonly toolUseId: string
 	readonly output: string
 	readonly maxChars: number
+	/** Optional condensed presentation; used only after authenticated retention of output. */
+	readonly preview?: string
 	/** Smaller preview only after the full output and its integrity manifest are saved. */
 	readonly retainedPreviewChars?: number
 	/** An omission notice that shares the text budget, never extends it. */
@@ -199,7 +201,9 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 			: Math.max(0, limit - notice.length - (notice && output ? 2 : 0))
 	const withNotice = (text: string) => [text, notice].filter(Boolean).join('\n\n')
 
-	if (textBudget === undefined || originalLength <= textBudget) {
+	const preview =
+		opts.preview !== undefined && opts.preview.length < originalLength ? opts.preview : undefined
+	if (preview === undefined && (textBudget === undefined || originalLength <= textBudget)) {
 		return { output: withNotice(output), originalLength, truncated: false }
 	}
 
@@ -211,7 +215,7 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 	const recovery = spillPath
 		? [
 				`${SPILL_MARKER} ${spillPath}`,
-				'Read a specific window with `read` (offset/limit) or search it with `grep`. Do NOT read it whole — that is what exceeded the budget.',
+				'Read a specific window with `read` (offset/limit) or search it with `grep`. Read only the passages needed for the task; do not repeat the original action to recover its output.',
 			].join('\n')
 		: 'The full output was not retained. Use a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.'
 	const requestedPreview = opts.retainedPreviewChars
@@ -229,9 +233,29 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 	const minimumRecoveryChars = `\n[... omitted ...]\n${SPILL_MARKER} ${spillPath}\n`.length
 	const effectiveTextBudget =
 		previewTextBudget > minimumRecoveryChars ? previewTextBudget : textBudget
+	// Condensation is a display choice, not permission to discard evidence. The
+	// original can be under the ordinary cap while still losing distinct rows.
+	// Failed retention falls back to the original, bounded by the usual cap.
+	if (preview !== undefined && retained?.integrity) {
+		const condensed = [preview, recovery].filter(Boolean).join('\n\n')
+		if (effectiveTextBudget === undefined || condensed.length <= effectiveTextBudget) {
+			return {
+				output: withNotice(condensed),
+				originalLength,
+				truncated: true,
+				spillPath,
+				spillIntegrity: retained.integrity,
+			}
+		}
+	}
+	if (textBudget === undefined || originalLength <= textBudget) {
+		return { output: withNotice(output), originalLength, truncated: false }
+	}
 
 	return {
-		output: withNotice(boundedPreview(output, effectiveTextBudget, opts.toolName, recovery)),
+		output: withNotice(
+			boundedPreview(output, effectiveTextBudget ?? textBudget, opts.toolName, recovery),
+		),
 		originalLength,
 		truncated: true,
 		...(spillPath ? { spillPath } : {}),

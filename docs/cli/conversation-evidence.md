@@ -16,6 +16,11 @@ preserved in compaction events. Replacing the session's projected history does
 not replace these run transcripts; reopening the conversation can still find
 the recorded text without repeating an external action or making a model call.
 
+This includes full recorded `bash` output behind a condensed display of similar
+lines. Condensation keeps an authenticated original, so earlier row values can
+be retrieved without running the command again. Reading that evidence does not
+establish the outcome of an action interrupted before its result was recorded.
+
 This includes originals removed by [`/compact`](context-and-compaction.md),
 archived before replacement in a separate zero-model maintenance record. User
 text is not inferred from an assistant's summary. Manual archives use the same
