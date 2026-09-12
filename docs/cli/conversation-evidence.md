@@ -213,6 +213,19 @@ than a summary or search excerpt. `part` defaults to zero; compaction events
 can contain several textual messages with different part indices. The tool
 shares search's host-bound ownership and filesystem checks. It never reads
 caller-selected paths or follows an `outputSpillPath` from a transcript.
+After an indexed or live search returns a match, the CLI temporarily retains its
+authenticated SDK address under this conversation's root, tenant, project,
+session, run, sequence and part. A following read can go directly to that source
+instead of locating the same record again from the first index page. It still
+reopens the source, checks current ownership and authenticates the record and
+requested text; a changed closed source is refused, not silently substituted.
+Only locations are retained, not text or authorization. The process holds at most
+128 locations for ten minutes, and releases them when the conversation host closes.
+After expiry, eviction or process restart, the durable run/sequence/part address
+still works through bounded lookup pages. If a former live owner is gone, a fresh
+read can locate the now-closed run normally; an already-issued live read cursor
+retains its existing owner requirement.
+
 Supply the optional `byteOffset` from search to start near a match, or omit it
 to read from the beginning. Copy the returned value exactly: rounding or estimating
 a byte position can split a UTF-8 character and is refused. The read tool's error
@@ -232,7 +245,7 @@ encountered, including earlier events. `totalChars` is omitted when unavailable.
 
 The 4 MiB record cap still applies. Cursors share the bounded ten-minute cache
 and file-snapshot checks used by search. A read cursor is separate from a search
-cursor. After restart or expiry, begin again from the durable address without
+cursor. Closing the host releases both kinds of cursor. After restart or expiry, begin again from the durable address without
 a cursor. Text pages revalidate their source record, so reading many pages of
 one large JSONL record trades repeated bounded I/O for avoiding an in-memory
 payload cache. Indexed spill reads verify just the selected chunks and manifest.

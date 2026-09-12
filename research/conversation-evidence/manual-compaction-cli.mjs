@@ -118,7 +118,7 @@ turn=m?{toolCalls:[{id:'read',name:'read_conversation',args:address}]}:{toolCall
     report.exactReadObserved = report.outputs.some(e => {
       if (e.name !== 'read_conversation' || e.isError) return false;
       const page = JSON.parse(e.result);
-      return page.retainedPreview === false && typeof page.text === 'string' && page.text.includes(report.seed.code);
+      return page.runId === report.seed.archive && page.source === 'compaction_shed:user' && page.retainedPreview === false && typeof page.text === 'string' && page.text.includes(report.seed.code);
     });
     assert.ok(report.exactReadObserved, 'The original receipt must appear in an exact read result, not only a search excerpt.');
     assert.ok(report.calls.every(e => ['search_conversation', 'read_conversation', 'search_tools'].includes(e.name)));

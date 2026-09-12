@@ -224,7 +224,7 @@ it.each([false, true])(
 	},
 )
 
-it('recovers a late compacted message through real Session tools within five model turns', async () => {
+it('recovers a late compacted message through real Session tools within four model turns', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-many-compacted-messages-'))
 	roots.push(cwd)
 	const sessions = await openSessions(cwd)
@@ -295,7 +295,7 @@ it('recovers a late compacted message through real Session tools within five mod
 			name = 'read_conversation'
 			input = { ...address, cursor: page.nextCursor }
 		}
-		if (observed.length >= 5) {
+		if (observed.length >= 4) {
 			yield* new MockLLMProvider({
 				turns: [{ text: 'Retrieval exceeded the experiment budget.' }],
 			}).chatStream(params)
@@ -331,13 +331,8 @@ it('recovers a late compacted message through real Session tools within five mod
 			last: observed.at(-1)?.messages.filter((message) => message.role === 'tool'),
 		}),
 	).toContain(code)
-	expect(calls).toEqual([
-		'search_conversation',
-		'search_conversation',
-		'read_conversation',
-		'read_conversation',
-	])
-	expect(observed).toHaveLength(5)
+	expect(calls).toEqual(['search_conversation', 'search_conversation', 'read_conversation'])
+	expect(observed).toHaveLength(4)
 })
 
 it('keeps manual compaction unpublished on archive failure', async () => {

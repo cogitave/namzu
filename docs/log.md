@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-13
+
+- **Update** Carry authenticated search locations into [exact conversation reads](cli/conversation-evidence.md), removing repeated index lookup while retaining scope, source-integrity, expiry and cancellation checks; release both read and search cursors when the host closes.
+
 ## 2026-09-12
 
 - **Update** Reuse a single authenticated transcript record within each [evidence search](sdk/retained-tool-evidence.md); [manual CLI compaction](cli/context-and-compaction.md) now groups removed messages in one event, with individual textual-part addresses.

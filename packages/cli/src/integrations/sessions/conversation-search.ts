@@ -108,14 +108,61 @@ function conversationScope(sessions: CliSessions, sessionId: SessionId): string 
 	return JSON.stringify([resolve(sessions.root), sessions.tenantId, sessions.projectId, sessionId])
 }
 
+function conversationReadScope(sessions: CliSessions, sessionId: SessionId): string {
+	return JSON.stringify([
+		'read-evidence',
+		resolve(sessions.root),
+		sessions.tenantId,
+		sessions.projectId,
+		sessionId,
+	])
+}
+
+interface ReadLocation {
+	scope: string
+	backend: 'index' | 'live'
+	address: string
+	expires: number
+}
+
+// Locations only, never payloads or authorization. Every read reopens its
+// source and authenticates this SDK address under the current host scope.
+const readLocations = new Map<string, ReadLocation>()
+function readLocationKey(scope: string, runId: string, seq: number, part: number): string {
+	return JSON.stringify([scope, runId, seq, part])
+}
+
+function retainReadLocation(
+	scope: string,
+	runId: string,
+	backend: SearchCursor['backend'],
+	match: { seq: number; part: number; address: string },
+): void {
+	if (backend !== 'index' && backend !== 'live') return
+	if (typeof match.address !== 'string' || !match.address.length || match.address.length > 8192)
+		return
+	const now = Date.now()
+	for (const [key, location] of readLocations)
+		if (location.expires <= now) readLocations.delete(key)
+	const key = readLocationKey(scope, runId, match.seq, match.part)
+	readLocations.delete(key)
+	while (readLocations.size >= 128)
+		readLocations.delete(readLocations.keys().next().value as string)
+	readLocations.set(key, { scope, backend, address: match.address, expires: now + 10 * 60_000 })
+}
+
 /** Release process-local search resources after the host has settled this conversation's work. */
 export async function releaseConversationEvidence(
 	sessions: CliSessions,
 	sessionId: SessionId,
 ): Promise<void> {
 	const scope = conversationScope(sessions, sessionId)
+	const readScope = conversationReadScope(sessions, sessionId)
 	await runDiscovery.release(scope)
-	for (const [token, cursor] of cursors) if (cursor.scope === scope) cursors.delete(token)
+	for (const [token, cursor] of cursors)
+		if (cursor.scope === scope || cursor.scope === readScope) cursors.delete(token)
+	for (const [key, location] of readLocations)
+		if (location.scope === scope) readLocations.delete(key)
 }
 // Short handles keep pagination metadata out of the model context. The bounded
 // process-local cache owns the scope and file snapshot; callers cannot edit them.
@@ -687,6 +734,8 @@ async function searchConversationCore(
 				result.incomplete ||= page.incomplete
 				cursor.omitted ||= page.incomplete
 				if (page.unavailable.length) result.unavailableRuns++
+				signal?.throwIfAborted()
+				for (const match of page.matches) retainReadLocation(scope, runId, cursor.backend, match)
 				cursor.indexCursor = page.nextCursor ?? undefined
 				if (!page.nextCursor) {
 					nextRun(cursor)
@@ -874,13 +923,7 @@ export async function readConversationEvidence(
 	const session = await sessions.store.getSession(sessionId, sessions.tenantId)
 	if (!session || session.projectId !== sessions.projectId)
 		throw new Error('Conversation is outside the current scope.')
-	const scope = JSON.stringify([
-		'read-evidence',
-		resolve(sessions.root),
-		sessions.tenantId,
-		sessions.projectId,
-		sessionId,
-	])
+	const scope = conversationReadScope(sessions, sessionId)
 	const query = JSON.stringify([runId, input.seq, part, input.byteOffset ?? 0])
 	const cursor: SearchCursor = input.cursor
 		? decodeCursor(input.cursor, scope, query)
@@ -894,6 +937,19 @@ export async function readConversationEvidence(
 				omitted: false,
 				expires: Date.now() + 10 * 60_000,
 			}
+	if (!input.cursor) {
+		const key = readLocationKey(conversationScope(sessions, sessionId), runId, input.seq, part)
+		const location = readLocations.get(key)
+		if (location && location.expires <= Date.now()) readLocations.delete(key)
+		else if (
+			location &&
+			(location.backend !== 'live' || (active?.runId === runId && active.captureRunEvidence))
+		) {
+			cursor.backend = location.backend
+			cursor.address = location.address
+			cursor.byteOffset = input.byteOffset ?? 0
+		}
+	}
 	const result: ConversationEvidencePage = {
 		runId,
 		seq: input.seq,
