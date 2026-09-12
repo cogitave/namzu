@@ -53,6 +53,14 @@ This improves candidate discovery behind frequent words without claiming global
 ranking or semantic coverage. Queries with all or none of their tokens covered
 in returned excerpts are not refined.
 
+The temporary recall context also distinguishes complete traversal from complete
+presentation. `omittedPassages` counts eligible distinct candidates withheld by
+the passage or character limit. Their `additionalEvidence` addresses can be
+passed to `read_conversation` to recover the exact archived text, even when the
+scan has no continuation. `omittedAddresses` reports addresses which did not fit.
+These are bounded-pool counts, not archive totals or proof of historical absence.
+Scope, integrity and read limits are checked again when the model reads them.
+
 Matching ignores letter case
 by default: `destination` also finds `Destination`. Set `caseSensitive: true` to
 retain exact case matching. This is Unicode case-insensitive literal matching,

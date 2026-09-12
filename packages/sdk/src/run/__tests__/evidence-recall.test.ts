@@ -66,6 +66,59 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('discloses withheld distinct passages even when candidate traversal completed', async () => {
+		const entries = Array.from({ length: 5 }, (_, i) =>
+			candidate(`DELTA receipt code V${i}`, { seq: i + 2 }),
+		)
+		const { recall } = fixture(entries)
+		const result = await recall(context('DELTA receipt code'))
+		const meta = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(meta).toMatchObject({ incomplete: false, omittedPassages: 1, omittedAddresses: 0 })
+		expect(rendered(result?.context)).toHaveLength(4)
+		expect(meta.additionalEvidence).toEqual([
+			{ runId: sourceRun, seq: 6, part: 0, byteOffset: 1024 },
+		])
+		expect(meta.continuations).toBeUndefined()
+	})
+
+	it('keeps addresses and omission counts when no whole excerpt fits', async () => {
+		const { recall } = fixture([candidate(`DELTA ${'x'.repeat(490)}`)], { maxChars: 1150 })
+		const result = await recall(context())
+		expect(rendered(result?.context)).toHaveLength(0)
+		expect(result!.context!.length).toBeLessThanOrEqual(1150)
+		const meta = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(meta).toMatchObject({ incomplete: false, omittedPassages: 1, omittedAddresses: 0 })
+		expect(meta.additionalEvidence).toHaveLength(1)
+	})
+
+	it('counts eligible groups only, excluding visible text, exact copies and zero-score matches', async () => {
+		const entries = [
+			candidate(),
+			candidate(),
+			candidate('unrelated'),
+			candidate('DELTA other', { seq: 3 }),
+		]
+		const { recall } = fixture(entries)
+		const ctx = context('DELTA')
+		const result = await recall({
+			...ctx,
+			messages: [...ctx.messages, createAssistantMessage('DELTA other')],
+		})
+		expect(JSON.parse(result!.context!.split('\n')[1]!)).toMatchObject({ omittedPassages: 0 })
+		expect(rendered(result?.context)).toHaveLength(1)
+	})
+
+	it('counts addresses that cannot fit without silently raising the character limit', async () => {
+		const entries = Array.from({ length: 24 }, (_, i) => candidate(`DELTA ${i}`, { seq: i + 2 }))
+		const { recall } = fixture(entries, { maxChars: 1150, maxPassages: 1 })
+		const result = await recall(context())
+		expect(result!.context!.length).toBeLessThanOrEqual(1150)
+		const meta = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(meta.omittedPassages).toBe(23)
+		expect(meta.omittedAddresses).toBeGreaterThan(0)
+		expect(meta.additionalEvidence.length + meta.omittedAddresses).toBe(23)
+	})
+
 	it('surfaces incomplete empty scans and host continuation calls without inventing a passage', async () => {
 		const continuation = { toolName: 'search_archive', input: { cursor: 'opaque', limit: 2 } }
 		const { recall } = fixture([], {

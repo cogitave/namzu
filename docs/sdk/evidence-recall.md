@@ -123,10 +123,28 @@ The metadata retains `incomplete` even when no passage was selected, including
 when all matches are already visible. An empty or bounded scan is not proof of
 absence. Available continuation calls appear as `continuations`, with
 `omittedContinuations` counting hints that did not fit the character allowance.
-Distinct text takes priority over hints, and hints take priority over extra
-duplicate addresses. Both omissions are explicit. A complete scan with no new
-selected text still adds no context; a context budget too small for the framing
-skips recall altogether.
+`omittedPassages` counts eligible distinct passage groups from this returned
+pool which were not selected, either because of `maxPassages` or the character
+ceiling. It excludes visible text, exact copies and zero-score groups; it is not
+a count of all relevant records in the archive. `incomplete` still describes
+source traversal, so it can be false while `omittedPassages` is positive.
+
+When text is omitted, `additionalEvidence` contains as many representative
+`runId`/`seq`/`part`/optional `byteOffset` addresses as fit; `omittedAddresses`
+counts omitted passage groups whose address did not fit. These addresses reuse
+the validated candidate scope, disclose no omitted text and grant no authority.
+A host archive tool must revalidate scope and source on a later read. Their
+order remains relevance, not chronology. SDK callers supply their own archive
+read tools; the CLI accepts these addresses through `read_conversation`.
+A [recorded CLI comparison](../../research/conversation-evidence/selection-coverage-results.md)
+shows exact recovery of a matched receipt omitted by selection.
+
+Distinct text takes priority over traversal hints, then omitted-passage
+addresses, then extra addresses of selected exact duplicates. All share the
+original character ceiling. An omission-only block is retained even if no whole
+excerpt fits and source traversal was complete. A complete scan with no eligible
+new text still adds no context; a context budget too small for the framing skips
+recall altogether.
 
 Defaults are four distinct passages and 6,000 added characters, including framing and
 escaped JSON; callers may set `maxPassages` up to eight and `maxChars` up to

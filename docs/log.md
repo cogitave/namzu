@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Disclosed eligible passages withheld from automatic evidence context, retained bounded read addresses and omission-only metadata, and verified exact recovery through the CLI Session without confusing completed traversal with complete presentation.
+
 - **Update** Added bounded lexical query refinement to SDK evidence recall and used existing CLI pages for uncovered terms while preserving independent broad/focused continuations, shared read limits and incomplete-scan semantics.
 
 - **Update** Added optional SDK token evidence matching with shared ranking keys, authenticated chunk boundaries and bound continuations; connected automatic CLI recall while preserving explicit literal search.

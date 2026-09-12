@@ -374,6 +374,91 @@ it('hands automatic recall off to the real search tool without repeating its fir
 	expect(executed).toEqual(['search_conversation'])
 })
 
+it('reads a ranked-out passage by its address through the real CLI Session', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-recall-selection-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	const sourceRun = await archive(
+		cwd,
+		sessions,
+		sessionId,
+		Array.from({ length: 5 }, (_, i) => `DELTA receipt code VALUE-${i}`),
+	)
+	const observed: ChatCompletionParams[] = []
+	const provider = new MockLLMProvider()
+	vi.spyOn(provider, 'chatStream').mockImplementation(async function* (params) {
+		observed.push(params)
+		if (observed.length === 1) {
+			const context = params.messages
+				.filter(
+					(m) =>
+						m.role === 'user' &&
+						m.source?.type === 'runtime-context' &&
+						m.source.kind === 'step-context',
+				)
+				.map((m) => m.content)
+				.join('\n')
+			expect(context).not.toContain('VALUE-4')
+			const meta = JSON.parse(
+				context.split('\n').find((line) => line.startsWith('{"incomplete":'))!,
+			)
+			expect(meta).toMatchObject({ incomplete: false, omittedPassages: 1, omittedAddresses: 0 })
+			expect(meta.additionalEvidence).toHaveLength(1)
+			expect(meta.additionalEvidence[0].runId).toBe(sourceRun)
+			expect(meta.continuations).toBeUndefined()
+			yield* new MockLLMProvider({
+				turns: [
+					{
+						toolCalls: [
+							{
+								id: 'read-omitted',
+								name: 'read_conversation',
+								args: meta.additionalEvidence[0],
+							},
+						],
+					},
+				],
+			}).chatStream(params)
+		} else {
+			expect(
+				JSON.stringify(
+					params.messages.filter((m) => m.role === 'tool' && m.toolCallId === 'read-omitted'),
+				),
+			).toContain('VALUE-4')
+			yield* new MockLLMProvider({ turns: [{ text: 'VALUE-4' }] }).chatStream(params)
+		}
+	})
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+	const executed: string[] = []
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		scope: {
+			sessionId,
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+		},
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		sandbox: { enabled: false },
+		memory: { recall: false },
+		compaction: { recallEvidence: true },
+		onRunEvent(event) {
+			if (event.type === 'tool_executing') executed.push(event.toolName)
+		},
+	})
+	opened.push(session)
+	for await (const _event of session.send([createUserMessage('DELTA receipt code')], {
+		runId: generateRunId(),
+		permissionMode: 'auto',
+	})) {
+		/* consume the production Session and its actual archive read */
+	}
+	expect(observed).toHaveLength(2)
+	expect(executed).toEqual(['read_conversation'])
+})
+
 it('closes retained directory discovery when the owning CLI Session closes', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-discovery-owner-'))
 	roots.push(cwd)
