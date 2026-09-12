@@ -57,6 +57,12 @@ function fixture(candidates = [candidate()], options: Partial<EvidenceRecallOpti
 	const retrieve = vi.fn(async () => batch(...candidates))
 	return { retrieve, recall: createEvidenceRecallStep({ scope, retrieve, ...options }) }
 }
+function rendered(text: string | undefined) {
+	return (text ?? '')
+		.split('\n')
+		.filter((line) => line.startsWith('{"runId":'))
+		.map((line) => JSON.parse(line))
+}
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
@@ -164,6 +170,102 @@ describe('ephemeral scoped evidence recall', () => {
 				],
 			}),
 		).toBeUndefined()
+	})
+
+	it('keeps a correction alongside repeated observations with every distinct source address', async () => {
+		const old = 'DELTA tracking destination: OLD-471.'
+		const correction =
+			'DELTA tracking destination changed to NEW-892 after review. Previous receipt OLD-471 is superseded; this entry records the correction.'
+		const copies = Array.from({ length: 4 }, (_, i) =>
+			candidate(old, { seq: i + 1, scope: { ...scope, runId: generateRunId() } }),
+		)
+		const { recall } = fixture([...copies, candidate(correction, { seq: 5 })])
+		const result = await recall(context('DELTA tracking destination'))
+		const selected = rendered(result?.context)
+		expect(selected).toHaveLength(2)
+		expect(selected.map((item) => item.excerpt)).toEqual(expect.arrayContaining([old, correction]))
+		const repeated = selected.find((item) => item.excerpt === old)
+		expect([repeated, ...repeated.otherOccurrences].map(({ runId }) => runId)).toEqual(
+			copies.map((item) => item.scope.runId),
+		)
+		expect(repeated.omittedOccurrences).toBe(0)
+		expect(result?.context).toContain('repetition is not corroboration')
+		expect(result?.context).toContain('seq orders events only within one run')
+	})
+
+	it('does not let duplicate observations change the bounded BM25 corpus statistics', async () => {
+		const base = [
+			candidate('DELTA depot tracking', { seq: 1 }),
+			candidate('DELTA tracking tracking package receipt', { seq: 2 }),
+			candidate('DELTA tracking receipt for another container in the depot', { seq: 3 }),
+		]
+		const query = context('DELTA tracking depot')
+		const expected = rendered((await fixture(base).recall(query))?.context).map((p) => p.excerpt)
+		for (const duplicate of base) {
+			const copies = Array.from({ length: 20 }, (_, i) => ({ ...duplicate, seq: i + 4 }))
+			const actual = await fixture([...base, ...copies]).recall(query)
+			expect(rendered(actual?.context).map((p) => p.excerpt)).toEqual(expected)
+		}
+	})
+
+	it('preserves small literal differences instead of inferring which version is true or current', async () => {
+		const texts = ['DELTA ID: A17', 'DELTA ID: A18', 'DELTA ID: a17', 'DELTA ID: A17 ']
+		const { recall } = fixture(texts.map((text, i) => candidate(text, { seq: i + 1 })))
+		const selected = rendered((await recall(context('DELTA ID')))?.context)
+		expect(selected.map((p) => p.excerpt)).toEqual(texts)
+		expect(selected.every((p) => p.otherOccurrences === undefined)).toBe(true)
+	})
+
+	it('keeps preview, error, unknown status and different producers distinct even at equal addresses', async () => {
+		const sameText = 'DELTA tracking code: A17'
+		const candidates = [
+			candidate(sameText),
+			candidate(sameText, { isError: false }),
+			candidate(sameText, { isError: true }),
+			candidate(sameText, { retained: 'preview' }),
+			candidate(sameText, { toolName: 'write' }),
+			candidate(sameText, { source: 'message_completed', toolName: undefined }),
+		]
+		const selected = rendered(
+			(await fixture(candidates, { maxPassages: 8 }).recall(context()))?.context,
+		)
+		expect(selected).toHaveLength(candidates.length)
+		for (const [i, passage] of selected.entries()) {
+			expect(passage).toMatchObject({
+				source: candidates[i]!.source,
+				retained: candidates[i]!.retained,
+			})
+			expect(passage.isError).toBe(candidates[i]!.isError)
+			expect(passage.toolName).toBe(candidates[i]!.toolName)
+			expect(passage.otherOccurrences).toBeUndefined()
+		}
+	})
+
+	it('reserves text for distinct passages before adding repeated addresses and accounts omissions', async () => {
+		const copies = Array.from({ length: 23 }, (_, i) =>
+			candidate('DELTA tracking code: A17', { seq: i + 1 }),
+		)
+		const { recall } = fixture([...copies, candidate('DELTA tracking code: A18', { seq: 24 })], {
+			maxChars: 1400,
+		})
+		const result = await recall(context())
+		expect(result!.context!.length).toBeLessThanOrEqual(1400)
+		const selected = rendered(result?.context)
+		expect(selected).toHaveLength(2)
+		const repeated = selected.find((p) => p.excerpt.endsWith('A17'))
+		expect(repeated.omittedOccurrences).toBeGreaterThan(0)
+		expect(repeated.otherOccurrences.length + repeated.omittedOccurrences).toBe(22)
+		expect(selected[1].excerpt).toBe('DELTA tracking code: A18')
+	})
+
+	it('validates foreign duplicate text before grouping its origins', async () => {
+		const { recall } = fixture([
+			candidate(),
+			candidate(undefined, {
+				scope: { ...scope, runId: sourceRun, sessionId: generateSessionId() },
+			}),
+		])
+		await expect(recall(context())).rejects.toThrow('different conversation')
 	})
 
 	it('validates all scopes even for irrelevant/duplicate candidates and snapshots host scope', async () => {

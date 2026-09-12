@@ -87,7 +87,14 @@ function deferred() {
 }
 
 /** Produce the original evidence through the SDK, then discard it from the chat projection. */
-async function archive(cwd: string, sessions: CliSessions, sessionId: SessionId, text: string) {
+async function archive(
+	cwd: string,
+	sessions: CliSessions,
+	sessionId: SessionId,
+	text: string | readonly string[],
+) {
+	const texts = typeof text === 'string' ? [text] : text
+	let observation = 0
 	const tools = new ToolRegistry()
 	tools.register(
 		defineTool({
@@ -99,7 +106,7 @@ async function archive(cwd: string, sessions: CliSessions, sessionId: SessionId,
 			readOnly: true,
 			destructive: false,
 			concurrencySafe: true,
-			execute: async () => ({ success: true, output: text }),
+			execute: async () => ({ success: true, output: texts[observation++] ?? '' }),
 		}),
 	)
 	const runId = generateRunId()
@@ -107,12 +114,19 @@ async function archive(cwd: string, sessions: CliSessions, sessionId: SessionId,
 		runId,
 		provider: new MockLLMProvider({
 			turns: [
-				{ toolCalls: [{ id: 'observe', name: 'archive_observation', args: {} }] },
+				...texts.map((_, i) => ({
+					toolCalls: [{ id: `observe-${i}`, name: 'archive_observation', args: {} }],
+				})),
 				{ text: 'Observation recorded.' },
 			],
 		}),
 		tools,
-		runConfig: { model: 'mock', timeoutMs: 10_000, tokenBudget: 100_000, maxIterations: 3 },
+		runConfig: {
+			model: 'mock',
+			timeoutMs: 10_000,
+			tokenBudget: 100_000,
+			maxIterations: texts.length + 2,
+		},
 		agentId: 'archive-fixture',
 		agentName: 'Archive fixture',
 		messages: [createUserMessage('Inspect the original.')],
@@ -217,6 +231,76 @@ it.each([false, true])(
 		)
 	},
 )
+
+it('recalls a recorded correction despite repeated tool observations in a fresh Session', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-diverse-evidence-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	const old = 'DELTA tracking destination: OLD-471.'
+	const corrected =
+		'DELTA tracking destination changed to NEW-892 after review. The earlier receipt had a typo; this entry records the correction.'
+	const sourceRun = await archive(cwd, sessions, sessionId, [...Array(4).fill(old), corrected])
+	const provider = new MockLLMProvider({ turns: [{ text: 'Historical observations received.' }] })
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		scope: {
+			sessionId,
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+		},
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		sandbox: { enabled: false },
+		memory: { recall: false },
+		compaction: { recallEvidence: true },
+	})
+	opened.push(session)
+	for await (const _event of session.send([createUserMessage('DELTA tracking destination')], {
+		runId: generateRunId(),
+		permissionMode: 'auto',
+	})) {
+		/* real recorded writer and fresh CLI Session; only provider decisions are scripted */
+	}
+	expect(provider.requests).toHaveLength(1)
+	const context = provider.requests[0]!.messages.filter(
+		(m) =>
+			m.role === 'user' && m.source?.type === 'runtime-context' && m.source.kind === 'step-context',
+	)
+		.map((m) => m.content)
+		.join('\n')
+	const passages = context
+		.split('\n')
+		.filter((line) => line.startsWith('{"runId":'))
+		.map((line) => JSON.parse(line))
+	expect(passages.map((p) => p.excerpt)).toEqual(expect.arrayContaining([old, corrected]))
+	expect(passages).toHaveLength(2)
+	const repeated = passages.find((p) => p.excerpt === old)
+	expect(repeated.runId).toBe(sourceRun)
+	expect(repeated.omittedOccurrences).toBe(0)
+	expect(repeated.otherOccurrences).toHaveLength(3)
+	for (const occurrence of [repeated, ...repeated.otherOccurrences]) {
+		let cursor: string | undefined
+		let text = ''
+		let complete = false
+		for (let page = 0; page < 16; page++) {
+			const exact = await readConversationEvidence(sessions, sessionId, { ...occurrence, cursor })
+			text += exact.text
+			complete = exact.complete
+			cursor = exact.nextCursor
+			if (!cursor) break
+		}
+		expect(complete).toBe(true)
+		expect(text).toBe(old)
+	}
+	const ordinary = provider.requests[0]!.messages.filter(
+		(m) =>
+			m.role !== 'user' || m.source?.type !== 'runtime-context' || m.source.kind !== 'step-context',
+	)
+	expect(JSON.stringify(ordinary)).not.toMatch(/OLD-471|NEW-892/)
+})
 
 it('closes retained directory discovery when the owning CLI Session closes', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-discovery-owner-'))

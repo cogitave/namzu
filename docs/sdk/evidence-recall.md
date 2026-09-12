@@ -52,16 +52,32 @@ filter. Literal spelling is preserved for search. There is no stemming,
 translation, synonym expansion or embedding model. Other languages may need a
 host retrieval strategy that suits their text.
 
-Duplicate source/excerpt addresses and exact passages already visible in
-history are omitted. Remaining candidates are ranked using BM25 with `k1=1.5`
-and `b=0.75`, using statistics **only from the bounded returned pool**, not the
-whole archive. Zero-score passages are omitted; ties retain discovery order.
+Duplicate source/excerpt addresses with equal metadata and exact passages already
+visible in history are omitted. Remaining candidates with exactly equal text,
+`source`, `toolName`, `isError` and `retained` share one passage. Missing status
+is distinct from explicit success. Letter case, whitespace and changed identifiers
+are preserved; this is not semantic similarity or automatic conflict resolution.
+
+Distinct passages are ranked using BM25 with `k1=1.5` and `b=0.75`, using statistics
+**only from those groups in the bounded returned pool**, not the whole archive.
+Copies therefore cannot change term frequencies across documents or consume
+every passage slot while a distinct correction remains in the candidate pool.
+Zero-score passages are omitted; ties retain first-discovery order.
 The score measures lexical relevance, not confidence, truth or freshness.
 The mathematical starting point was inspected in the pinned Pydantic AI
 Harness [conversation search implementation](https://github.com/pydantic/pydantic-ai-harness/blob/c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504/pydantic_ai_harness/conversation_search/_toolset.py).
 These constants are not claimed to be optimal.
 
-Defaults are four passages and 6,000 added characters, including framing and
+The first-discovered occurrence supplies each passage's `runId`, `seq`, `part` and optional
+`byteOffset`. Equal observations retain their additional addresses under
+`otherOccurrences`; `omittedOccurrences` counts extra addresses from this bounded
+pool that did not fit. Neither field counts every occurrence in the archive.
+Distinct passage text and one address per passage take priority over extra
+addresses. Repetition does not establish independent corroboration. Event `seq`
+orders observations within one run only; presentation order is relevance, and
+run UUIDs do not establish chronology between runs.
+
+Defaults are four distinct passages and 6,000 added characters, including framing and
 escaped JSON; callers may set `maxPassages` up to eight and `maxChars` up to
 12,000. The context budget can lower that allowance. Whole passages which do
 not fit are omitted. The default deadline is 1,000ms (`timeoutMs`, at most

@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Grouped exact repeated observations before SDK evidence-recall ranking, preserving bounded provenance and preview/error distinctions so copies cannot crowd a distinct correction out of the passage allowance; verified recorded CLI Session and Luna/low execution.
+
 - **Update** Made CLI conversation run discovery resumable beyond its first 100 directory entries, with bounded process-local resources, consistent concurrent pages, directory-change refusal and Session shutdown cleanup.
 
 - **Update** Added writer-owned text predecessor links to SDK JSONL events so bounded live evidence recall skips nontext bookkeeping, while preserving operational records, integrity boundaries, exact reads and restart behavior.
