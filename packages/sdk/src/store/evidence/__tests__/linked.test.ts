@@ -43,6 +43,134 @@ async function fixture() {
 }
 
 it.each(['live', 'closed'] as const)(
+	'authenticates token boundaries across UTF-8 chunks and binds pagination mode (%s)',
+	async (mode) => {
+		const f = await fixture()
+		const chunk = EVIDENCE_CHUNK_BYTES
+		let text = `${' '.repeat(chunk - 1)}a3 `
+		text += `${' '.repeat(2 * chunk - 1 - Buffer.byteLength(text))}🦉3 FIRST `
+		text += `${' '.repeat(3 * chunk - 2 - Buffer.byteLength(text))}𐐀3 `
+		text += `${' '.repeat(4 * chunk - Buffer.byteLength(text))}3 SECOND`
+		const retained = applyToolOutputBudget({
+			toolUseId: 'tokens',
+			toolName: 'read',
+			output: text,
+			maxChars: 1000,
+			spillDir: join(f.runDir, 'tool-output'),
+		})
+		await f.append({
+			type: 'tool_completed',
+			toolUseId: 'tokens',
+			toolName: 'read',
+			result: retained.output,
+			isError: false,
+			outputTruncated: true,
+			outputSpillIntegrity: retained.spillIntegrity,
+		})
+		if (mode === 'closed') await f.meta(f.scope, 'completed')
+		const reopen = async () =>
+			mode === 'live'
+				? await f.source()
+				: createDiskRunTextEvidenceSource({
+						scope: f.scope,
+						runDir: f.runDir,
+						indexDir: join(f.root, 'index'),
+					})
+		const matches = []
+		let cursor: string | undefined
+		let bytes = 0
+		for (let i = 0; i < 12; i++) {
+			const source = await reopen()
+			const page = await source.search({
+				query: '3',
+				matchMode: 'token',
+				caseSensitive: false,
+				limit: 1,
+				cursor,
+			})
+			expect(page.incomplete).toBe(false)
+			expect(page.unavailable).toEqual([])
+			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			bytes += page.scannedBytes
+			matches.push(...page.matches)
+			cursor = page.nextCursor ?? undefined
+			if (!cursor) break
+			await expect(source.search({ query: '3', caseSensitive: false, cursor })).rejects.toThrow(
+				'query changed',
+			)
+		}
+		expect(cursor).toBeUndefined()
+		expect(matches).toHaveLength(2)
+		expect(matches[0]!.excerpt).toContain('🦉3 FIRST')
+		expect(matches[1]!.excerpt).toContain('3 SECOND')
+		expect(bytes).toBeGreaterThan(Buffer.byteLength(text)) // actual authenticated I/O, not just matched bytes
+		for (const match of matches) {
+			expect(text.slice(match.characterOffset, match.characterOffset! + match.excerpt.length)).toBe(
+				match.excerpt,
+			)
+			const read = await (await reopen()).read({
+				address: match.address,
+				byteOffset: match.byteOffset,
+			})
+			expect(read.text.startsWith(match.excerpt)).toBe(true)
+		}
+		for (const input of [{}, { query: '' }, { query: 'two words' }, { terms: ['3', '.*'] }])
+			await expect((await reopen()).search({ ...input, matchMode: 'token' })).rejects.toThrow(
+				'Token search requires',
+			)
+		await expect(
+			(await reopen()).search(
+				{ query: '3', matchMode: 'token' },
+				AbortSignal.abort(new Error('stopped')),
+			),
+		).rejects.toThrow('stopped')
+	},
+)
+
+it.each(['live', 'closed'] as const)(
+	'rejects a token match when its preceding chunk has changed (%s)',
+	async (mode) => {
+		const f = await fixture()
+		const text = `${' '.repeat(2 * EVIDENCE_CHUNK_BYTES + 2048)}UNIQUE receipt`
+		const retained = applyToolOutputBudget({
+			toolUseId: 'preceding',
+			toolName: 'read',
+			output: text,
+			maxChars: 1000,
+			spillDir: join(f.runDir, 'tool-output'),
+		})
+		await f.append({
+			type: 'tool_completed',
+			toolUseId: 'preceding',
+			toolName: 'read',
+			result: retained.output,
+			isError: false,
+			outputTruncated: true,
+			outputSpillIntegrity: retained.spillIntegrity,
+		})
+		if (mode === 'closed') await f.meta(f.scope, 'completed')
+		const source =
+			mode === 'live'
+				? await f.source()
+				: createDiskRunTextEvidenceSource({
+						scope: f.scope,
+						runDir: f.runDir,
+						indexDir: join(f.root, 'index'),
+					})
+		const spill = join(f.runDir, 'tool-output', `${digest('preceding')}.txt`)
+		const changed = Buffer.from(text)
+		changed[EVIDENCE_CHUNK_BYTES + 100] = 65
+		await writeFile(spill, changed)
+		const literal = await source.search({ query: 'UNIQUE' })
+		expect(literal.matches).toHaveLength(1) // the selected literal window is intact
+		const token = await source.search({ query: 'UNIQUE', matchMode: 'token' })
+		expect(token.matches).toHaveLength(0)
+		expect(token.incomplete).toBe(true)
+		expect(token.unavailable).toHaveLength(1)
+	},
+)
+
+it.each(['live', 'closed'] as const)(
 	'scans literal term sets with exact offsets and bound continuations (%s)',
 	async (mode) => {
 		const f = await fixture()

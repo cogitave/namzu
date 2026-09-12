@@ -50,7 +50,7 @@ export function createConversationEvidenceRecall(
 					)
 						throw new Error('The active evidence source has a different owner.')
 					const page = await source.search(
-						{ terms, caseSensitive: false, cursor: liveCursor, limit: 4 },
+						{ terms, matchMode: 'token', caseSensitive: false, cursor: liveCursor, limit: 4 },
 						signal,
 					)
 					assertOwner(runId)
@@ -100,6 +100,7 @@ export function createConversationEvidenceRecall(
 					sessionId,
 					{
 						terms,
+						matchMode: 'token',
 						excludeRunId: runId,
 						maxReadBytes: remaining,
 						cursor,
@@ -145,6 +146,7 @@ export function createConversationEvidenceRecall(
 							terms,
 							liveCursor,
 							liveOmitted,
+							'token',
 						),
 					},
 				})

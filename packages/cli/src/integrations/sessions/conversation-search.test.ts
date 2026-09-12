@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, opendir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
 	MockLLMProvider,
 	RunDiskStore,
@@ -69,6 +69,101 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 describe('bounded original conversation evidence', () => {
+	it.each(['live', 'closed', 'legacy'] as const)(
+		'keeps substring noise out of automatic recall (%s)',
+		async (backend) => {
+			const { sessions, sessionId } = await fixture()
+			const runId = generateRunId()
+			const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+			const owner = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+			const store = new RunDiskStore({ baseDir: dirname(path) })
+			await store.initRun(runId)
+			if (backend !== 'legacy')
+				await writeFile(
+					join(path, 'run.json'),
+					JSON.stringify({
+						id: runId,
+						status: backend === 'live' ? 'running' : 'completed',
+						metadata: { scope: owner },
+					}),
+				)
+			await store.appendEvent({ type: 'run_started', runId, seq: 1 } as RunEvent)
+			const noise = Array.from(
+				{ length: 12 },
+				(_, i) => `Packing information for unrelated entry ${i}`,
+			)
+			const target = 'DELTA original observation: receipt A17'
+			const texts = backend === 'live' ? [target, ...noise] : [...noise, target]
+			for (const [i, result] of texts.entries())
+				await store.appendEvent({
+					type: 'tool_completed',
+					runId,
+					seq: i + 2,
+					toolName: 'read',
+					toolUseId: `read-${i}`,
+					isError: false,
+					result,
+				} as RunEvent)
+			const captureRunEvidence = (maxReadBytes?: number) =>
+				store.captureTextEvidence(owner, maxReadBytes)
+			const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+			const ctx = {
+				runId: backend === 'live' ? runId : generateRunId(),
+				messages: [
+					createUserMessage('Search the original DELTA observations in this conversation.'),
+				],
+				steps: [],
+				prepared: {},
+				stepNumber: 1,
+				...(backend === 'live' ? { captureRunEvidence } : {}),
+			}
+			const result = await recall(ctx)
+			expect(result?.context).toContain('receipt A17')
+			expect(result?.context).not.toContain('Packing information')
+			const literal = await searchConversation(
+				sessions,
+				sessionId,
+				{ query: 'in', runId },
+				undefined,
+				backend === 'live' ? { runId, captureRunEvidence } : undefined,
+			)
+			expect(literal.matches.some((m) => m.text.includes('Packing information'))).toBe(true)
+			expect((await store.readEvents()).filter((e) => e.type === 'tool_completed')).toHaveLength(13)
+		},
+	)
+
+	it('retains token matching when a model continues a host search by cursor alone', async () => {
+		const { sessions, sessionId } = await fixture()
+		const { runId, path } = await transcript(sessions, sessionId, 'seed')
+		const texts = ['in A', 'in B', 'in C', 'in D', 'in E', 'Packing information', 'in FINAL']
+		await writeFile(
+			join(path, 'transcript.jsonl'),
+			`${[
+				{ type: 'run_started', runId, seq: 1 },
+				...texts.map((result, i) => ({ type: 'tool_completed', runId, seq: i + 2, result })),
+			]
+				.map((e) => JSON.stringify(e))
+				.join('\n')}\n`,
+		)
+		const request = {
+			terms: ['in'],
+			matchMode: 'token' as const,
+			excludeRunId: generateRunId(),
+			maxReadBytes: 8 * 1024 * 1024,
+		}
+		const first = await searchConversationTerms(sessions, sessionId, request)
+		expect(first.matches).toHaveLength(5)
+		const cursor = first.nextCursor!
+		await expect(
+			searchConversationTerms(sessions, sessionId, { ...request, matchMode: 'literal', cursor }),
+		).rejects.toThrow('matching mode changed')
+		const final = await searchConversation(sessions, sessionId, { cursor })
+		expect(final.matches.map((m) => m.text)).toEqual(['in FINAL'])
+		expect(final.nextCursor).toBeUndefined()
+		expect(final.incomplete).toBe(false)
+		expect(final.guidance).toContain('complete Unicode')
+	})
+
 	it('refuses oversized live handles before retaining a bridge cursor', async () => {
 		const { sessions, sessionId } = await fixture()
 		for (const cursor of ['', 'x'.repeat(4097)])

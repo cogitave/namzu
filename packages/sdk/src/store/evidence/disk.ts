@@ -43,13 +43,14 @@ const scopeSchema = z
 	})
 	.strict()
 const cursorSchema = z.object({
-	kind: z.enum(['search', 'search-terms']),
+	kind: z.enum(['search', 'search-terms', 'search-tokens']),
 	query: z.string().max(256),
 	termsKey: z
 		.string()
 		.regex(/^[a-f0-9]{64}$/)
 		.optional(),
 	caseSensitive: z.boolean().default(true),
+	matchMode: z.enum(['literal', 'token']).default('literal'),
 	seq: integer.optional(),
 	part: integer.optional(),
 	mode: z.enum(['tools', 'text']).default('tools'),
@@ -168,6 +169,7 @@ function createSource(
 					query: z.string().max(256).optional(),
 					terms: evidenceTermsSchema,
 					caseSensitive: z.boolean().default(true),
+					matchMode: z.enum(['literal', 'token']).default('literal'),
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
 					part: integer.optional(),
@@ -178,7 +180,12 @@ function createSource(
 			if (input.part !== undefined && input.seq === undefined)
 				throw new Error('Part requires an event sequence.')
 			const { query, terms, termsKey, browse } = evidenceSearchInput(input)
-			const kind = terms ? ('search-terms' as const) : ('search' as const)
+			const kind =
+				input.matchMode === 'token'
+					? ('search-tokens' as const)
+					: terms
+						? ('search-terms' as const)
+						: ('search' as const)
 			return access(signal, async (handle, size, seal, sourceKey, budget) => {
 				const cursor = input.cursor
 					? cursorSchema.parse(seal.unpack(input.cursor))
@@ -194,12 +201,14 @@ function createSource(
 							chunk: 0,
 							within: 0,
 							caseSensitive: input.caseSensitive,
+							matchMode: input.matchMode,
 						}
 				if (
 					cursor.kind !== kind ||
 					cursor.query !== query ||
 					cursor.termsKey !== termsKey ||
 					cursor.caseSensitive !== input.caseSensitive ||
+					cursor.matchMode !== input.matchMode ||
 					cursor.seq !== input.seq ||
 					cursor.part !== input.part ||
 					cursor.mode !== mode
@@ -220,7 +229,7 @@ function createSource(
 				let entryIndex = cursor.entry
 				let chunk = cursor.chunk
 				let within = cursor.within
-				const matchPassage = passageMatcher(terms ?? query, input.caseSensitive)
+				const matchPassage = passageMatcher(terms ?? query, input.caseSensitive, input.matchMode)
 				while (entryIndex < page.entries.length && matches.length < input.limit) {
 					const entry = page.entries[entryIndex]
 					if (!entry) throw new Error('Invalid index entry.')
@@ -253,11 +262,11 @@ function createSource(
 								!input.caseSensitive ||
 								(terms ?? [query]).some((term) => source.mayMatch(chunk, term))
 							) {
-								const window = await source.window(chunk)
+								const window = await source.window(chunk, input.matchMode === 'token')
 								const text = decode(window.bytes)
 								const page = passagesInWindow(
 									text,
-									within,
+									Math.max(within, window.searchFrom ?? 0),
 									matchPassage,
 									input.limit - matches.length,
 									entry.spill ? (chunk + 1) * EVIDENCE_CHUNK_BYTES - window.offset : undefined,

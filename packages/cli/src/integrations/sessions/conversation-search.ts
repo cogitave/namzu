@@ -82,6 +82,7 @@ interface SearchCursor {
 	scope: string
 	query: string
 	caseSensitive?: boolean
+	matchMode?: 'literal' | 'token'
 	runIds: string[]
 	index: number
 	offset: number
@@ -142,6 +143,7 @@ export function retainLiveConversationSearch(
 	terms: readonly string[],
 	indexCursor: string,
 	omitted = false,
+	matchMode: 'literal' | 'token' = 'literal',
 ): string {
 	if (typeof indexCursor !== 'string' || !indexCursor.length || indexCursor.length > 4096)
 		throw new Error('Invalid live evidence continuation.')
@@ -149,6 +151,7 @@ export function retainLiveConversationSearch(
 		scope: conversationScope(sessions, sessionId),
 		query: JSON.stringify(['terms', [...new Set(terms)].sort(), undefined]),
 		caseSensitive: false,
+		matchMode,
 		runIds: [asRunId(runId)],
 		singleRunId: runId,
 		index: 0,
@@ -445,7 +448,13 @@ export async function searchConversation(
 export async function searchConversationTerms(
 	sessions: CliSessions,
 	sessionId: SessionId,
-	input: { terms: readonly string[]; excludeRunId: string; maxReadBytes: number; cursor?: string },
+	input: {
+		terms: readonly string[]
+		excludeRunId: string
+		maxReadBytes: number
+		cursor?: string
+		matchMode?: 'literal' | 'token'
+	},
 	signal?: AbortSignal,
 ): Promise<ConversationSearchResult> {
 	return searchConversationCore(sessions, sessionId, input, signal)
@@ -461,6 +470,7 @@ async function searchConversationCore(
 		excludeRunId?: string
 		maxReadBytes?: number
 		caseSensitive?: boolean
+		matchMode?: 'literal' | 'token'
 		runId?: string
 		limit?: number
 		cursor?: string
@@ -482,6 +492,7 @@ async function searchConversationCore(
 			...(kind === 'terms' ? { terms } : { query: terms[0] }),
 			excludeRunId: input.excludeRunId ?? excluded ?? undefined,
 			caseSensitive: input.caseSensitive ?? stored.caseSensitive,
+			matchMode: input.matchMode ?? stored.matchMode,
 		}
 	}
 	const terms = input.terms ? [...new Set(input.terms)].sort() : [input.query ?? '']
@@ -501,10 +512,23 @@ async function searchConversationCore(
 	const queryKey = JSON.stringify([input.terms ? 'terms' : 'literal', terms, excluded])
 	const caseSensitive = input.caseSensitive ?? false
 	if (typeof caseSensitive !== 'boolean') throw new Error('caseSensitive must be a boolean.')
+	const matchMode = input.matchMode ?? 'literal'
+	if (!['literal', 'token'].includes(matchMode)) throw new Error('Invalid evidence matching mode.')
+	if (matchMode === 'token' && !terms.every((term) => /^[\p{L}\p{N}_]+$/u.test(term)))
+		throw new Error('Token search requires nonempty letter/number/underscore tokens.')
 	const expression = new RegExp(
 		terms.map((term) => term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'),
 		caseSensitive ? 'u' : 'iu',
 	)
+	// Legacy whole-record scanning uses the same token units and lowercase key
+	// as SDK token discovery/ranking. Regex /iu folding is intentionally different.
+	const tokenKeys = new Set(terms.map((term) => (caseSensitive ? term : term.toLowerCase())))
+	const matchOffset = (text: string) => {
+		if (matchMode === 'literal') return expression.exec(text)?.index ?? -1
+		for (const word of text.matchAll(/[\p{L}\p{N}_]+/gu))
+			if (tokenKeys.has(caseSensitive ? word[0] : word[0].toLowerCase())) return word.index
+		return -1
+	}
 	const limit = input.limit ?? 5
 	if (!Number.isInteger(limit) || limit < 1 || limit > 20) throw new Error('Limit must be 1–20.')
 	const paths = new CliPathBuilder(sessions.root)
@@ -521,12 +545,17 @@ async function searchConversationCore(
 		incomplete: false,
 		unavailableRuns: 0,
 	}
+	if (matchMode === 'token')
+		result.guidance +=
+			' This recall scan matches complete Unicode letter/number/underscore tokens, using lowercase keys when case-insensitive.'
 	const scope = conversationScope(sessions, sessionId)
 	let cursor: SearchCursor
 	if (input.cursor) {
 		cursor = decodeCursor(input.cursor, scope, queryKey)
 		if (cursor.caseSensitive !== caseSensitive)
 			throw new Error('Search cursor case sensitivity changed.')
+		if ((cursor.matchMode ?? 'literal') !== matchMode)
+			throw new Error('Search cursor matching mode changed.')
 		if (input.runId && cursor.singleRunId !== asRunId(input.runId))
 			throw new Error('The run ID does not match the continuation scope.')
 	} else {
@@ -548,6 +577,7 @@ async function searchConversationCore(
 			scope,
 			query: queryKey,
 			caseSensitive,
+			matchMode,
 			discoveryCursor,
 			singleRunId: input.runId,
 			runIds: runIds.filter((id) => id !== excluded).sort(),
@@ -597,6 +627,7 @@ async function searchConversationCore(
 					{
 						...(input.terms ? { terms } : { query: input.query }),
 						caseSensitive,
+						matchMode,
 						cursor: cursor.indexCursor,
 						limit: Math.min(3, limit - result.matches.length),
 					},
@@ -638,7 +669,7 @@ async function searchConversationCore(
 					result.scannedBytes += bytes
 				},
 				(event) => {
-					const offset = expression.exec(event.text)?.index ?? -1
+					const offset = matchOffset(event.text)
 					if (offset < 0) return true
 					const text = event.text.slice(
 						Math.max(0, offset - 160),

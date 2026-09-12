@@ -35,6 +35,15 @@ invocation from host-owned state. This also accepts cursors supplied by automati
 evidence recall, whose multi-term query does not need to be reconstructed by the
 model. An empty request with neither query nor cursor is invalid.
 
+Automatic recall uses complete Unicode letter/number/underscore tokens with the
+same lowercase matching keys as SDK relevance scoring. Its continuation restores
+that matching mode too, including in older unindexed transcripts. Thus `in`
+inside `Packing` does not consume an automatic candidate slot, and token `3`
+does not select `13000`. A new explicit `search_conversation({query: ...})`
+retains literal substring matching; the model-facing tool adds no mode argument.
+Frequent complete words can still fill bounded pages before a relevant passage;
+token alignment does not establish global archive ranking.
+
 Matching ignores letter case
 by default: `destination` also finds `Destination`. Set `caseSensitive: true` to
 retain exact case matching. This is Unicode case-insensitive literal matching,

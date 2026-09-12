@@ -76,14 +76,17 @@ The mathematical starting point was inspected in the pinned Pydantic AI
 Harness [conversation search implementation](https://github.com/pydantic/pydantic-ai-harness/blob/c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504/pydantic_ai_harness/conversation_search/_toolset.py).
 These constants are not claimed to be optimal.
 
-Candidate discovery can limit ranking quality before scoring starts. The CLI's
-current literal scan can match `in` inside `Packing`, while the scorer counts
-complete word tokens and gives that occurrence zero frequency. Enough such
-matches, or genuinely frequent whole-word matches, can consume the bounded
+Candidate discovery can limit ranking quality before scoring starts. The CLI
+uses the SDK's optional token mode for automatic discovery, so `in` inside
+`Packing` no longer consumes a match slot that the scorer would then reject.
+Discovery and scoring share token units and lowercase keys. Host callbacks
+choose their own retrieval semantics; a custom literal source can still have
+this mismatch. Genuinely frequent whole-word matches can also consume the bounded
 candidate allowance before a relevant passage is visited. A small
 [candidate-discovery ablation](../../research/conversation-evidence/candidate-alignment-results.md)
-records this limitation and tests alternatives; its token-aligned prototype is
-not a shipped retrieval mode. Explicit literal search still supports substrings.
+records the original limitation and alternatives. Token alignment addresses
+substring pollution, not arbitrary candidate ordering or global relevance.
+Explicit literal search still supports substrings.
 
 The first-discovered occurrence supplies each passage's `runId`, `seq`, `part` and optional
 `byteOffset`. Equal observations retain their additional addresses under

@@ -52,11 +52,36 @@ binds term membership and case sensitivity; changing membership, switching to
 same terms or repeating one does not. Term cursors have a distinct private
 format so an older reader cannot mistake one for an empty-query browse cursor.
 
+Optional `matchMode: 'token'` matches complete Unicode letter/number/underscore
+tokens. Each query or term must be one such token; empty browsing, phrases and
+punctuation expressions require the default `'literal'` mode. With
+`caseSensitive: false`, token matching uses `toLowerCase()` keys, exactly as the
+bounded recall scorer does. This differs from literal search's regex simple
+Unicode case folding: `s` does not match `ſ` in token mode. Neither mode changes
+source text, normalizes accents or supplies language-specific word segmentation.
+For example, token `3` matches `3`, not `13000`; `id_1` does not match `id_100`.
+Matching mode is bound into continuations; changing it requires a new search.
+Token cursors have a distinct kind that older readers reject.
+
+Token searches authenticate the preceding UTF-8 code point at spill chunk
+boundaries. The preceding chunk is read and hash-checked under the same I/O
+ceiling before its boundary information is used; a damaged preceding chunk
+makes that evidence unavailable. This can cost another 64 KiB per visited
+window, rather than pretending boundary validation is free. Current-page
+byte accounting includes these reads. Excerpts, character offsets and exact
+reads still refer to original text, and overlapping windows do not duplicate
+match starts. Default literal searches and exact reads keep their existing
+window behavior.
+
 ```ts
 import type { RunTextEvidenceSource } from '@namzu/sdk'
 
 export async function findShipmentCandidates(source: RunTextEvidenceSource) {
   return source.search({ terms: ['DELTA', 'tracking code', 'destination'], caseSensitive: false })
+}
+
+export async function findShipmentTokens(source: RunTextEvidenceSource) {
+  return source.search({ terms: ['DELTA', 'tracking', '3'], matchMode: 'token', caseSensitive: false })
 }
 ```
 

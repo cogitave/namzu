@@ -6,10 +6,13 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
 
-it.each(['query', 'terms'] as const)(
+it.each(['query', 'terms', 'tokens'] as const)(
 	'shares an atomically published index and reads a previous process address (%s)',
 	async (mode) => {
-		const search = mode === 'query' ? { query: 'RECEIPT' } : { terms: ['absent', 'RECEIPT'] }
+		const search =
+			mode === 'query'
+				? { query: 'RECEIPT' }
+				: { terms: ['absent', 'RECEIPT'], ...(mode === 'tokens' ? { matchMode: 'token' } : {}) }
 		const root = await mkdtemp(join(tmpdir(), 'namzu-evidence-restart-'))
 		try {
 			const scope = {

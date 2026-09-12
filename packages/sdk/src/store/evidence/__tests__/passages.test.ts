@@ -37,6 +37,44 @@ it('uses locale-independent simple Unicode case matching', () => {
 	expect(passageMatcher('k', false)('K', 0)?.hit).toBe(0)
 })
 
+it.each([
+	['in', 'Packing information', 'in'],
+	['code', 'decoder', 'code'],
+	['3', '13000', '3'],
+	['id_1', 'id_100', 'ID_1'],
+	['İZMİR', 'İZMİRLİ', 'İZMİR'],
+	['k', 'prefix_k', 'K'],
+	['𐐀', '𐐀tail', '𐐨'],
+])('discovers complete tokens for %s without changing literal search', (term, noise, target) => {
+	const text = `${noise} ${target}`
+	expect(passageMatcher(term, false)(text, 0)).toBeDefined()
+	expect(passageMatcher(term, false, 'token')(text, 0)?.hit).toBe(noise.length + 1)
+	expect(passageMatcher(term, false, 'token')(noise, 1)).toBeUndefined()
+})
+
+it('uses the ranking lowercase key rather than regex simple-folding in token mode', () => {
+	expect(passageMatcher('s', false)('ſ', 0)).toBeDefined()
+	expect(passageMatcher('s', false, 'token')('ſ', 0)).toBeUndefined()
+	expect(passageMatcher('İ', false, 'token')('i', 0)).toBeUndefined()
+	expect(passageMatcher('delta', true, 'token')('DELTA', 0)).toBeUndefined()
+})
+
+it('keeps long token matches crossing excerpt ends, without accepting mid-token suffixes', () => {
+	const long = 'B'.repeat(256)
+	const text = `A ${' '.repeat(430)}${long} ${' '.repeat(600)}A`
+	let next = 0
+	const excerpts = []
+	for (let i = 0; i < 8 && next < text.length; i++) {
+		const page = passagesInWindow(text, next, passageMatcher(['A', long], true, 'token'), 1)
+		expect(page.next).toBeGreaterThan(next)
+		excerpts.push(...page.passages.map((p) => text.slice(p.start, p.end)))
+		next = page.next
+	}
+	expect(next).toBe(text.length)
+	expect(excerpts).toHaveLength(3)
+	expect(excerpts.some((text) => text.includes(long))).toBe(true)
+})
+
 it('finds mixed-length literals without regex expansion or duplicate short matches', () => {
 	const text = `${'x '.repeat(240)}${'LONG'.repeat(40)} ${'[a].*'} ${'x '.repeat(400)}`
 	const matcher = passageMatcher(['LONG'.repeat(40), '[a].*', 'x'], true)

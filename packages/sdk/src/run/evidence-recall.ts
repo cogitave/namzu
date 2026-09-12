@@ -1,6 +1,7 @@
 import type { RunEvidenceScope, RunTextEvidenceSource } from '../store/evidence/types.js'
 import type { Message } from '../types/message/index.js'
 import type { PrepareStep } from '../types/run/prepare-step.js'
+import { evidenceTokenKey, evidenceTokens } from '../utils/evidence-tokens.js'
 import { isEntityId } from '../utils/id.js'
 
 /** @experimental An authenticated historical passage, never a current-state assertion. */
@@ -88,10 +89,6 @@ function queryFrom(messages: readonly Message[]): string {
 	return ''
 }
 
-function words(text: string): string[] {
-	return text.match(/[\p{L}\p{N}_]+/gu) ?? []
-}
-
 interface Passage {
 	candidate: EvidenceRecallCandidate
 	others: EvidenceRecallCandidate[]
@@ -119,9 +116,11 @@ function passages(candidates: readonly EvidenceRecallCandidate[]): Passage[] {
 // BM25 over ONLY the bounded candidate pool, not global archive statistics.
 // Fixed k1=1.5 and b=.75 are starting values, not a calibrated confidence score.
 function ranked(groups: readonly Passage[], terms: readonly string[]) {
-	const docs = groups.map(({ candidate }) => words(candidate.excerpt).map((s) => s.toLowerCase()))
+	const docs = groups.map(({ candidate }) =>
+		evidenceTokens(candidate.excerpt).map((s) => evidenceTokenKey(s)),
+	)
 	const average = docs.reduce((sum, doc) => sum + doc.length, 0) / docs.length || 1
-	const query = [...new Set(terms.map((term) => term.toLowerCase()))]
+	const query = [...new Set(terms.map((term) => evidenceTokenKey(term)))]
 	const idf = query.map((term) => {
 		const count = docs.filter((doc) => doc.includes(term)).length
 		return Math.log(1 + (docs.length - count + 0.5) / (count + 0.5))
@@ -248,7 +247,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 		)
 		const query = latestUserMessage?.content ?? fallbackQuery ?? queryFrom(messages)
 		// Keep source spelling for literal discovery (e.g. Turkish İ); fold only scores.
-		const terms = [...new Set(words(query.slice(-4_000)))]
+		const terms = [...new Set(evidenceTokens(query.slice(-4_000)))]
 			.filter((term) => term.length <= 256 && !GLUE.has(term.toLowerCase()))
 			.slice(0, 16)
 		if (!terms.length || charBudget <= HEADER.length + 200 || pending.has(retrieve))

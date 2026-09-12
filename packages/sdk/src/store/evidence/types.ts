@@ -25,7 +25,14 @@ export interface RunEvidenceSearchOptions {
 	 * This is candidate discovery, not relevance ranking or natural-language parsing.
 	 */
 	readonly terms?: readonly string[]
-	/** Defaults to true. False uses Unicode case-insensitive literal matching. */
+	/**
+	 * Defaults to literal substring matching. Token mode accepts only single
+	 * Unicode letter/number/underscore tokens and matches complete tokens.
+	 * Case-insensitive tokens use toLowerCase(), as bounded evidence ranking does.
+	 * Empty-query browsing and phrases require literal mode. Bound into cursors.
+	 */
+	readonly matchMode?: 'literal' | 'token'
+	/** Defaults to true. False uses the selected mode's case rules (see matchMode). */
 	readonly caseSensitive?: boolean
 	readonly cursor?: string
 }

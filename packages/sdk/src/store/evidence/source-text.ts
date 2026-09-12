@@ -46,7 +46,10 @@ export interface TextSource {
 	retained: 'full' | 'preview'
 	chunks: number
 	mayMatch(chunk: number, query: string): boolean
-	window(chunk: number): Promise<{ bytes: Buffer; offset: number; characterOffset?: number }>
+	window(
+		chunk: number,
+		preceding?: boolean,
+	): Promise<{ bytes: Buffer; offset: number; characterOffset?: number; searchFrom?: number }>
 }
 
 export async function sourceText(
@@ -108,13 +111,16 @@ export async function sourceText(
 		chunks: Math.max(1, manifest.chunks.length),
 		mayMatch: (chunk, query) =>
 			manifest.chunks[chunk] ? mayContain(manifest.chunks[chunk].filter, query) : query === '',
-		async window(chunk) {
+		async window(chunk, preceding = false) {
 			const file = await openEvidence(path)
 			try {
 				const before = await file.stat()
 				if (before.size !== manifest.bytes) throw new Error('Retained output size changed.')
 				const pieces: Buffer[] = []
-				for (let index = chunk; index < Math.min(chunk + 2, manifest.chunks.length); index++) {
+				// A token boundary needs the previous code point. Authenticate its
+				// entire chunk and charge that read; never trust an unverified byte.
+				const first = preceding && chunk > 0 ? chunk - 1 : chunk
+				for (let index = first; index < Math.min(chunk + 2, manifest.chunks.length); index++) {
 					const bytes = await readBytes(
 						file,
 						index * EVIDENCE_CHUNK_BYTES,
@@ -131,12 +137,27 @@ export async function sourceText(
 				)
 					throw new Error('Retained output changed during read.')
 				const all = Buffer.concat(pieces)
-				let start = 0
-				while (start < all.length && ((all[start] ?? 0) & 0xc0) === 0x80) start++
+				const ownedStart = (chunk - first) * EVIDENCE_CHUNK_BYTES
+				let contentStart = ownedStart
+				while (contentStart < all.length && ((all[contentStart] ?? 0) & 0xc0) === 0x80)
+					contentStart++
+				let start = contentStart
+				if (preceding && chunk > 0) {
+					start--
+					while (start > 0 && ((all[start] ?? 0) & 0xc0) === 0x80) start--
+				}
+				const prefixChars = decode(all.subarray(start, contentStart)).length
+				const characterOffset =
+					manifest.chunks[chunk]?.characterOffset ?? (chunk === 0 ? 0 : undefined)
 				return {
-					bytes: utf8Page(all.subarray(start), EVIDENCE_CHUNK_BYTES + SEARCH_OVERLAP_BYTES - start),
-					offset: chunk * EVIDENCE_CHUNK_BYTES + start,
-					characterOffset: manifest.chunks[chunk]?.characterOffset ?? (chunk === 0 ? 0 : undefined),
+					bytes: utf8Page(
+						all.subarray(start),
+						ownedStart + EVIDENCE_CHUNK_BYTES + SEARCH_OVERLAP_BYTES - start,
+					),
+					offset: first * EVIDENCE_CHUNK_BYTES + start,
+					characterOffset:
+						characterOffset === undefined ? undefined : characterOffset - prefixChars,
+					searchFrom: prefixChars,
 				}
 			} finally {
 				await file.close()

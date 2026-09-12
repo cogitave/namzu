@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Added optional SDK token evidence matching with shared ranking keys, authenticated chunk boundaries and bound continuations; connected automatic CLI recall while preserving explicit literal search.
+
 - **Update** Documented evidence recall's candidate-discovery mismatch with token ranking, with six bounded lexical controls and a separate frequent-word counterexample; distinguished experimental alternatives from shipped behavior.
 
 - **Update** Preserved live evidence omissions across automatic-to-explicit search handoff, distinguishing pending pages from already missing bytes; verified preview, altered, missing and healthy retained-output cases through scoped tests and production CLI controls.
