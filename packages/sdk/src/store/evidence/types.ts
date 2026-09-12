@@ -13,6 +13,16 @@ export interface DiskRunEvidenceOptions {
 	readonly indexDir: string
 	/** Optional smaller I/O ceiling per operation, in bytes (1–8 MiB). */
 	readonly maxReadBytes?: number
+	/**
+	 * Disk readers default to closed runs. Snapshot mode also reads explicitly
+	 * scoped nonterminal runs, checking file/metadata stamps before and after
+	 * every operation. It neither claims a writer is dead nor resumes it.
+	 * Appends or metadata changes invalidate continuations and addresses.
+	 * Nonterminal search results remain incomplete even at the snapshot end.
+	 * An incomplete final JSONL fragment is excluded without changing the file;
+	 * the backward boundary scan is capped at one record (4 MiB) and billed.
+	 */
+	readonly consistency?: 'closed' | 'snapshot'
 }
 
 /** @experimental Literal search; empty query browses tool records. */

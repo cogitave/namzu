@@ -259,6 +259,45 @@ it('reports a missing part after traversing empty lookup pages', async () => {
 	)
 })
 
+it('reads an unclosed run without claiming its writer or changing its stored status', async () => {
+	const f = await fixture('live')
+	await f.metadata('idle')
+	const metadata = await readFile(join(f.path, 'run.json'), 'utf8')
+	const transcript = await readFile(join(f.path, 'transcript.jsonl'), 'utf8')
+	const search = async () => {
+		let page = await searchConversation(f.sessions, f.sessionId, {
+			runId: f.runId,
+			query: 'ORCHID',
+		})
+		while (!page.matches.length && page.nextCursor)
+			page = await searchConversation(f.sessions, f.sessionId, { cursor: page.nextCursor })
+		return page
+	}
+	const found = await search()
+	expect(found.matches).toHaveLength(1)
+	expect(found.incomplete).toBe(true)
+	expect(found.unavailableRuns).toBe(0)
+	const match = found.matches[0]!
+	const page = await readConversationEvidence(f.sessions, f.sessionId, match)
+	expect(page.text).toBe('α🦉 ORCHID original receipt')
+	expect(page.complete).toBe(true)
+	expect(page.retainedPreview).toBe(false)
+	expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+	expect(await readFile(join(f.path, 'run.json'), 'utf8')).toBe(metadata)
+	expect(await readFile(join(f.path, 'transcript.jsonl'), 'utf8')).toBe(transcript)
+	await releaseConversationEvidence(f.sessions, f.sessionId)
+	expect((await readConversationEvidence(f.sessions, f.sessionId, match)).text).toBe(page.text)
+	// A now-terminal status is a new source version, not permission to reuse an old seal.
+	const refreshed = (await search()).matches[0]!
+	await f.metadata('completed')
+	await expect(readConversationEvidence(f.sessions, f.sessionId, refreshed)).rejects.toThrow()
+	const closed = await search()
+	expect(closed.incomplete).toBe(false)
+	expect((await readConversationEvidence(f.sessions, f.sessionId, closed.matches[0]!)).text).toBe(
+		page.text,
+	)
+})
+
 it('rechecks live scope, cancellation and remaining bytes between lookup operations', async () => {
 	const f = await fixture('live')
 	for (let seq = 3; seq < 132; seq++)

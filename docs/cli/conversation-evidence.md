@@ -188,11 +188,27 @@ For the requesting live invocation, the CLI uses the SDK writer's captured
 boundary and searches newest records first. Later appends preserve existing
 search/read continuations, including when compaction happens between calls.
 Only that invocation's host-provided capability is accepted, and its scope must
-match the authorized conversation. Unsupported stores, older records and other
-active invocations retain the bounded transcript scan. A contradictory
-ownership record is refused, never downgraded to that scanner. An indexed
-cursor also refuses a source that is no longer eligible; a live cursor cannot
-downgrade to a transcript scan when its writer is no longer available.
+match the authorized conversation. For other explicitly scoped runs with `idle`,
+`pending` or `running` metadata, the CLI uses the SDK's snapshot consistency mode.
+This includes interrupted runs whose process exited before terminal status was
+recorded. It recovers authenticated original output without assuming whether a
+writer is alive, acquiring its execution lease, resuming actions or changing the
+stored status. The transcript and metadata are checked before and after every
+operation. Changes invalidate the snapshot cursor/address and require a fresh
+search. Unlike the requesting writer's captured boundary, these snapshots do
+not preserve cursors across concurrent appends.
+
+An incomplete final JSONL fragment is excluded using a bounded backward scan,
+charged to the existing 8 MiB allowance. The original transcript is not repaired
+or truncated. Nonterminal snapshot search remains `incomplete: true`, even with
+no continuation; a full exact read establishes the selected recorded text, not
+that the interrupted task finished. A complete but malformed record still
+fails validation. An unbounded or absent complete prefix is unavailable.
+
+Unsupported stores and older unscoped records retain the bounded transcript
+scan. Contradictory ownership or an unknown scoped status is refused. An indexed
+or snapshot cursor cannot downgrade to that scanner when its source becomes
+ineligible; an existing live cursor still requires its original writer.
 
 Without a retained authenticated original, a recorded tool preview stays a
 preview. Its truncation marker makes search incomplete even for a negative
@@ -213,7 +229,7 @@ than a summary or search excerpt. `part` defaults to zero; compaction events
 can contain several textual messages with different part indices. The tool
 shares search's host-bound ownership and filesystem checks. It never reads
 caller-selected paths or follows an `outputSpillPath` from a transcript.
-After an indexed or live search returns a match, the CLI temporarily retains its
+After an indexed, snapshot or live search returns a match, the CLI temporarily retains its
 authenticated SDK address under this conversation's root, tenant, project,
 session, run, sequence and part. A following read can go directly to that source
 instead of locating the same record again from the first index page. It still
@@ -232,8 +248,8 @@ Its saved position resumes on the next
 call, including when the text has been located but reading it needs a fresh
 budget. The ceiling bounds both I/O and work on very small pages; it does not
 guarantee that every address returns text in one call.
-If a former live owner is gone, a fresh
-read can locate the now-closed run normally; an already-issued live read cursor
+If a former live owner is gone, a fresh read can locate its closed run or
+nonterminal snapshot normally; an already-issued live read cursor
 retains its existing owner requirement.
 
 Supply the optional `byteOffset` from search to start near a match, or omit it

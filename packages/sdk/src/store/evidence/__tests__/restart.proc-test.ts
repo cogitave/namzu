@@ -6,6 +6,61 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { expect, it } from 'vitest'
 
+it.each([false, true])(
+	'reopens an unclosed snapshot across processes without repairing it (torn: %s)',
+	async (torn) => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-unclosed-snapshot-'))
+		try {
+			const scope = {
+				tenantId: randomUUID(),
+				projectId: randomUUID(),
+				sessionId: randomUUID(),
+				runId: randomUUID(),
+			}
+			const sdkUrl = new URL('../../../../dist/index.js', import.meta.url).href
+			const script = `import {RunDiskStore,createDiskRunTextEvidenceSource,createUserMessage} from ${JSON.stringify(sdkUrl)};
+import {writeFile} from 'node:fs/promises';import {join} from 'node:path';
+const [root,raw,mode,address]=process.argv.slice(1),scope=JSON.parse(raw),runDir=join(root,scope.runId);
+if(mode==='seed') {
+ const store=new RunDiskStore({baseDir:root});await store.initRun(scope.runId);
+ await writeFile(join(runDir,'run.json'),JSON.stringify({id:scope.runId,status:'idle',metadata:{scope}}));
+ await store.appendEvent({type:'run_started',runId:scope.runId,seq:1});
+ await store.appendEvent({type:'compaction_shed',runId:scope.runId,seq:2,iteration:1,reason:'threshold',messages:[createUserMessage('ORCHID exact original α🦉',[{data:'A'.repeat(5*1024*1024),mediaType:'image/png'}])]});
+} else {
+ const source=createDiskRunTextEvidenceSource({scope,runDir,indexDir:join(runDir,'index'),consistency:'snapshot'});
+ console.log(JSON.stringify(mode==='search'?await source.search({query:'ORCHID'}):await source.read({address})));
+}`
+			const exec = promisify(execFile)
+			const child = async (mode: string, address = '') => {
+				const { stdout } = await exec(
+					process.execPath,
+					['--input-type=module', '-e', script, root, JSON.stringify(scope), mode, address],
+					{ timeout: 20000, maxBuffer: 100000 },
+				)
+				return stdout ? JSON.parse(stdout) : undefined
+			}
+			await child('seed')
+			const path = join(root, scope.runId, 'transcript.jsonl')
+			if (torn) await writeFile(path, `${await readFile(path, 'utf8')}{"type":"unfinished`)
+			const original = await readFile(path)
+			const metadataPath = join(root, scope.runId, 'run.json')
+			const metadata = await readFile(metadataPath)
+			const search = await child('search')
+			expect(search.incomplete).toBe(true)
+			expect(search.unavailable).toEqual([])
+			expect(search.matches).toHaveLength(1)
+			const read = await child('read', search.matches[0].address)
+			expect(read.text).toBe('ORCHID exact original α🦉')
+			expect(read.retained).toBe('full')
+			expect(read.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			expect(await readFile(path)).toEqual(original)
+			expect(await readFile(metadataPath)).toEqual(metadata)
+		} finally {
+			await rm(root, { recursive: true, force: true })
+		}
+	},
+)
+
 it('reads retained compaction text and restores whole attachments across processes', async () => {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-compaction-restart-'))
 	try {

@@ -1,0 +1,397 @@
+{
+  "date": "2026-09-13",
+  "baselineCommit": "738d0127",
+  "baseline": {
+    "root": "/tmp/namzu-interrupted-probe-kb55ZF",
+    "seed": {
+      "sessionId": "95a704f6-ae5c-4e50-bb1e-9ab6d9d2e21d",
+      "runId": "4651dced-8894-4d4e-9d54-91704013a056",
+      "receipt": "ORCHID-3d2b4796-2bca-4de5-bf90-b79337558e67",
+      "root": "/tmp/namzu-interrupted-probe-kb55ZF/home",
+      "tenantId": "9f185b8f-79ee-493d-bc7a-4669cba689e1",
+      "projectId": "0419efd3-5c06-41e2-8381-bc5800ff5018"
+    },
+    "exit": {
+      "code": null,
+      "signal": "SIGKILL"
+    },
+    "metadataStatus": "idle",
+    "retainedOriginal": true,
+    "recovery": {
+      "search": {
+        "guidance": "Search is case-insensitive. Matches are excerpts: use read_conversation with runId, seq, part and byteOffset for the original passage and nearby details. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Some recorded evidence was omitted or unavailable. These matches cannot establish absence; report missing historical details honestly rather than substituting current values.",
+        "matches": [],
+        "scannedRuns": 1,
+        "scannedBytes": 44701,
+        "incomplete": true,
+        "unavailableRuns": 0
+      }
+    },
+    "verification": "Real CLI Session killed after one persisted read; fresh-process conversation API search found zero matches despite retained original. This initial probe did not fingerprint built modules."
+  },
+  "runs": {
+    "scripted": {
+      "root": "/tmp/namzu-interrupted-cli-2YSanl",
+      "passed": true,
+      "live": false,
+      "torn": false,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "seed": {
+        "sessionId": "d72d66d4-d5df-4154-948a-e2a1d619e117",
+        "runId": "d9f70eeb-a1f8-45fb-b631-1ef551733236",
+        "receipt": "ORCHID-46bbb194-4dca-4b63-a3d5-9d973f7b1eb1",
+        "root": "/tmp/namzu-interrupted-cli-2YSanl/home"
+      },
+      "seedExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "metadataStatus": "idle",
+      "originalSeq": 16,
+      "exactOriginalRead": true,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-interrupted-cli-2YSanl/workspace",
+        "--resume",
+        "d72d66d4-d5df-4154-948a-e2a1d619e117",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "35000",
+        "Recover the exact original ORCHID receipt from the earlier recorded observation. Read the original passage before answering. The workspace file has changed. Do not read workspace files, edit anything, run commands or use the network."
+      ],
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "ORCHID",
+            "runId": "d9f70eeb-a1f8-45fb-b631-1ef551733236"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "d9f70eeb-a1f8-45fb-b631-1ef551733236",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 179024
+          }
+        }
+      ],
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "oldRunBefore": {
+        "metadata": "ff6177924adef6286f0d3fb5513144ab632b053ab8af2aca9f287036326d3ca9",
+        "transcript": "c1ef29c2f720215fdbc6d727bb257dfb2cd45592aa3b5052d6c8318e5e3116bb"
+      },
+      "oldRunAfter": {
+        "metadata": "ff6177924adef6286f0d3fb5513144ab632b053ab8af2aca9f287036326d3ca9",
+        "transcript": "c1ef29c2f720215fdbc6d727bb257dfb2cd45592aa3b5052d6c8318e5e3116bb"
+      },
+      "before": {
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "after": {
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "outputs": [
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "matches": 1,
+          "originalMatches": 1,
+          "scannedBytes": 675132,
+          "incomplete": true,
+          "unavailableRuns": 0,
+          "hasContinuation": false
+        },
+        {
+          "name": "read_conversation",
+          "isError": false,
+          "runId": "d9f70eeb-a1f8-45fb-b631-1ef551733236",
+          "seq": 16,
+          "source": "tool_completed",
+          "characters": 6000,
+          "scannedBytes": 146804,
+          "retainedPreview": false,
+          "complete": false,
+          "hasContinuation": true,
+          "containsOriginal": true
+        }
+      ]
+    },
+    "scriptedTorn": {
+      "root": "/tmp/namzu-interrupted-cli-IfaEKs",
+      "passed": true,
+      "live": false,
+      "torn": true,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "seed": {
+        "sessionId": "060ade34-d0ed-4465-b5cd-e996d356f789",
+        "runId": "1deb7874-c9df-4c3f-a3ac-81cfca90a8b9",
+        "receipt": "ORCHID-e92030c4-ba45-4486-b457-9877eab5b078",
+        "root": "/tmp/namzu-interrupted-cli-IfaEKs/home"
+      },
+      "seedExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "metadataStatus": "idle",
+      "originalSeq": 16,
+      "exactOriginalRead": true,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-interrupted-cli-IfaEKs/workspace",
+        "--resume",
+        "060ade34-d0ed-4465-b5cd-e996d356f789",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "35000",
+        "Recover the exact original ORCHID receipt from the earlier recorded observation. Read the original passage before answering. The workspace file has changed. Do not read workspace files, edit anything, run commands or use the network."
+      ],
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "ORCHID",
+            "runId": "1deb7874-c9df-4c3f-a3ac-81cfca90a8b9"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "1deb7874-c9df-4c3f-a3ac-81cfca90a8b9",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 179024
+          }
+        }
+      ],
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "oldRunBefore": {
+        "metadata": "fbc183624c6b49476455787edd7f1c14bb0e3b3b4d3eb69bbf6f339045f87569",
+        "transcript": "dfc7a9f109760d6342bddd4c6d0aced079b78ff6ed303979a645a59e2fe56ee8"
+      },
+      "oldRunAfter": {
+        "metadata": "fbc183624c6b49476455787edd7f1c14bb0e3b3b4d3eb69bbf6f339045f87569",
+        "transcript": "dfc7a9f109760d6342bddd4c6d0aced079b78ff6ed303979a645a59e2fe56ee8"
+      },
+      "before": {
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "after": {
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "outputs": [
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "matches": 1,
+          "originalMatches": 1,
+          "scannedBytes": 718930,
+          "incomplete": true,
+          "unavailableRuns": 0,
+          "hasContinuation": false
+        },
+        {
+          "name": "read_conversation",
+          "isError": false,
+          "runId": "1deb7874-c9df-4c3f-a3ac-81cfca90a8b9",
+          "seq": 16,
+          "source": "tool_completed",
+          "characters": 6000,
+          "scannedBytes": 190602,
+          "retainedPreview": false,
+          "complete": false,
+          "hasContinuation": true,
+          "containsOriginal": true
+        }
+      ]
+    },
+    "liveTorn": {
+      "root": "/tmp/namzu-interrupted-cli-GAS26k",
+      "passed": true,
+      "live": true,
+      "torn": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "seed": {
+        "sessionId": "3e3051ec-3fc6-4d8e-ad1a-6f0873c16cfc",
+        "runId": "5eb1b853-0507-409f-8d70-884bc7ea97e4",
+        "receipt": "ORCHID-d3f78bdb-5239-4896-96bd-cb473d584079",
+        "root": "/tmp/namzu-interrupted-cli-GAS26k/home"
+      },
+      "seedExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "metadataStatus": "idle",
+      "originalSeq": 16,
+      "exactOriginalRead": true,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-interrupted-cli-GAS26k/workspace",
+        "--resume",
+        "3e3051ec-3fc6-4d8e-ad1a-6f0873c16cfc",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "35000",
+        "Recover the exact original ORCHID receipt from the earlier recorded observation. Read the original passage before answering. The workspace file has changed. Do not read workspace files, edit anything, run commands or use the network."
+      ],
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "ORCHID",
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "5eb1b853-0507-409f-8d70-884bc7ea97e4",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 179024
+          }
+        }
+      ],
+      "usage": {
+        "totalTokens": 22087,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 22087
+        }
+      },
+      "oldRunBefore": {
+        "metadata": "12c4397d4e6ff8e158b7eb3668e0727df57d14c03354b091947f9942cbc1dcd9",
+        "transcript": "a33d2fc3b30aa37527c5577bb6e3893cb08d6f43e41d10987a71d3b790141776"
+      },
+      "oldRunAfter": {
+        "metadata": "12c4397d4e6ff8e158b7eb3668e0727df57d14c03354b091947f9942cbc1dcd9",
+        "transcript": "a33d2fc3b30aa37527c5577bb6e3893cb08d6f43e41d10987a71d3b790141776"
+      },
+      "before": {
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "after": {
+        "packages/sdk/dist/store/evidence/disk.js": "f0f065d857c21f74643cdddf79490fe3f721e94dcd2a0d6dc8267660efa2f5f0",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/run.js": "248e48207839b1b8e26273e4a023986b64a96253696bbc975b72532a9756744d"
+      },
+      "outputs": [
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "matches": 1,
+          "originalMatches": 1,
+          "scannedBytes": 718930,
+          "incomplete": true,
+          "unavailableRuns": 0,
+          "hasContinuation": true
+        },
+        {
+          "name": "read_conversation",
+          "isError": false,
+          "runId": "5eb1b853-0507-409f-8d70-884bc7ea97e4",
+          "seq": 16,
+          "source": "tool_completed",
+          "characters": 6000,
+          "scannedBytes": 190602,
+          "retainedPreview": false,
+          "complete": false,
+          "hasContinuation": true,
+          "containsOriginal": true
+        }
+      ]
+    }
+  }
+}

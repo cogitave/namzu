@@ -56,12 +56,34 @@ Live searches also reuse the parsed record already read through their captured
 chain. This reduces repeated parsing and I/O, not the number of parts to inspect.
 
 `createDiskRunEvidenceSource(DiskRunEvidenceOptions)` binds a `RunEvidenceSource`
-to one closed invocation. The host supplies `scope` (tenant, project, Session
+to one closed invocation by default. The host supplies `scope` (tenant, project, Session
 and run UUIDs), `runDir` and `indexDir`. It does not discover or authorize runs.
 The source checks `run.json.metadata.scope`, the run ID and terminal status
 before reading its transcript or creating an index. This invocation scope is
 recorded by `RunPersistence`, independently of a shared ancestor token account.
 An old record without explicit scope is unavailable; no ownership is guessed.
+
+Both disk factories accept `consistency: 'snapshot'` to read an explicitly
+authorized run whose recorded status is `idle`, `pending` or `running`, as well
+as a terminal run. A process can exit after persisting an observation but before
+recording terminal status. Snapshot retrieval does not claim the process is dead
+or alive, acquire its execution lease, resume its work or change its status.
+It uses the same metadata, file-stamp, record and retained-output integrity
+checks as closed retrieval. Metadata and the transcript must remain unchanged
+during each operation; later changes invalidate existing cursors and addresses.
+Snapshot and closed-mode addresses are not interchangeable. Unknown statuses and
+contradictory ownership are refused. The default remains `consistency: 'closed'`.
+
+For a nonterminal snapshot, an incomplete final JSONL fragment is excluded from
+the searchable boundary. The reader looks backward at most 4 MiB for the last
+newline, in bounded chunks charged to the same I/O allowance. It never truncates
+or repairs the transcript. No complete bounded prefix means refusal, not an empty
+history. Earlier malformed complete records still fail their normal validation.
+A terminal source's torn record is still refused. Snapshot searches of nonterminal
+runs return `incomplete: true` even when the captured prefix has no continuation;
+that run has no recorded terminal boundary. An exact read's `retained: 'full'`
+describes the selected stored text, not completion or success of the interrupted
+action. No retrieval operation replays an action to obtain missing output.
 
 `search` accepts an optional literal `query` of at most 256 UTF-16 code units,
 `caseSensitive` (default `true`), and an opaque `cursor`. Set `caseSensitive` to

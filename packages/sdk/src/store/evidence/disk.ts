@@ -14,8 +14,10 @@ import {
 	type EvidenceBudget,
 	EvidencePageLimit,
 	PAGE_BYTES,
+	RECORD_BYTES,
 	decode,
 	openEvidence,
+	readBytes,
 	readSmall,
 	stamp,
 } from './io.js'
@@ -67,8 +69,25 @@ const pointerSchema = entrySchema.pick({
 	part: true,
 })
 const addressSchema = z.object({ kind: z.literal('text'), entry: pointerSchema })
+
+/** Ignore an uncommitted tail in a nonterminal snapshot without repairing the writer's file. */
+async function completePrefix(handle: FileHandle, size: number, budget: EvidenceBudget) {
+	if ((await readBytes(handle, size - 1, 1, budget))[0] === 10) return size
+	const floor = Math.max(0, size - RECORD_BYTES)
+	let end = size - 1
+	while (end > floor) {
+		const start = Math.max(floor, end - 65_536)
+		const bytes = await readBytes(handle, start, end - start, budget)
+		const newline = bytes.lastIndexOf(10)
+		if (newline >= 0) return start + newline + 1
+		end = start
+	}
+	if (floor === 0) throw new Error('Transcript has no complete recorded evidence.')
+	throw new Error('Incomplete transcript tail exceeds the bounded record size.')
+}
 /**
- * @experimental Bounded, authenticated disk index over one explicitly authorized closed run.
+ * @experimental Bounded, authenticated disk index over one explicitly authorized run.
+ * Closed by default; snapshot mode permits nonterminal metadata without assuming a dead writer.
  * The host owns authorization and the private directories. Stat changes invalidate addresses;
  * individual record/chunk digests detect changed bytes. This is not a hostile filesystem sandbox.
  */
@@ -105,6 +124,7 @@ function createSource(
 	options: DiskRunEvidenceOptions,
 	mode: 'tools' | 'text',
 ): RunTextEvidenceSource {
+	const consistency = z.enum(['closed', 'snapshot']).parse(options.consistency ?? 'closed')
 	const maxReadBytes = z
 		.number()
 		.int()
@@ -123,6 +143,7 @@ function createSource(
 			seal: EvidenceSeal,
 			sourceKey: string,
 			budget: EvidenceBudget,
+			nonterminal: boolean,
 		) => Promise<T>,
 	): Promise<T> {
 		const budget: EvidenceBudget = { bytes: 0, limit: maxReadBytes, signal }
@@ -133,22 +154,34 @@ function createSource(
 		if (metaStamp !== stamp(await lstat(metaPath)))
 			throw new Error('Run metadata changed during retrieval.')
 		const meta = JSON.parse(decode(metaBytes))
+		const terminal = ['completed', 'failed', 'cancelled'].includes(meta.status)
+		const readable =
+			terminal ||
+			(consistency === 'snapshot' && ['idle', 'pending', 'running'].includes(meta.status))
 		if (
 			meta.id !== scope.runId ||
-			!['completed', 'failed', 'cancelled'].includes(meta.status) ||
+			!readable ||
 			JSON.stringify(scopeSchema.parse(meta.metadata?.scope)) !== JSON.stringify(scope)
 		)
-			throw new Error('Evidence run is not closed or does not belong to the authorized scope.')
+			throw new Error(
+				consistency === 'closed'
+					? 'Evidence run is not closed or does not belong to the authorized scope.'
+					: 'Evidence run does not satisfy snapshot consistency or its authorized scope.',
+			)
 		const path = join(runDir, 'transcript.jsonl')
 		const handle = await openEvidence(path)
 		try {
 			const before = await handle.stat()
 			if (before.size === 0) throw new Error('Transcript is empty; evidence is incomplete.')
+			const size =
+				consistency === 'snapshot' && !terminal
+					? await completePrefix(handle, before.size, budget)
+					: before.size
 			const sourceKey = digest(
-				`${mode === 'text' ? 'text-v2:' : ''}${scopeKey}:${stamp(before)}:${digest(metaBytes)}`,
+				`${consistency === 'snapshot' ? 'snapshot-v1:' : ''}${mode === 'text' ? 'text-v2:' : ''}${scopeKey}:${stamp(before)}:${digest(metaBytes)}`,
 			)
 			const seal = await evidenceSeal(indexDir, scopeKey, sourceKey, budget)
-			const value = await action(handle, before.size, seal, sourceKey, budget)
+			const value = await action(handle, size, seal, sourceKey, budget, !terminal)
 			signal?.throwIfAborted()
 			if (
 				stamp(before) !== stamp(await handle.stat()) ||
@@ -186,7 +219,7 @@ function createSource(
 					: terms
 						? ('search-terms' as const)
 						: ('search' as const)
-			return access(signal, async (handle, size, seal, sourceKey, budget) => {
+			return access(signal, async (handle, size, seal, sourceKey, budget, nonterminal) => {
 				const readSource = createTextSourceReader(handle, runDir, scope.runId, budget)
 				const cursor = input.cursor
 					? cursorSchema.parse(seal.unpack(input.cursor))
@@ -323,7 +356,7 @@ function createSource(
 					scannedBytes: budget.bytes,
 					indexedRecords: cacheHit ? 0 : page.records,
 					cacheHit,
-					incomplete: unavailable.length > 0 || partial,
+					incomplete: nonterminal || unavailable.length > 0 || partial,
 					unavailable,
 				}
 			})

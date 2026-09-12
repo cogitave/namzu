@@ -78,6 +78,131 @@ async function fixture(
 }
 
 describe('bounded retained tool evidence', () => {
+	it.each(['idle', 'pending', 'running'])(
+		'reads a scoped %s snapshot without closing or replaying the run',
+		async (status) => {
+			const original = `${'background '.repeat(10000)}ORCHID original 🦉`
+			const f = await fixture([{ text: original, spill: true }])
+			const path = join(f.runDir, 'run.json')
+			const metadata = JSON.stringify({ id: f.scope.runId, status, metadata: { scope: f.scope } })
+			await writeFile(path, metadata)
+			const transcript = await readFile(join(f.runDir, 'transcript.jsonl'))
+			await expect(f.source.search()).rejects.toThrow('not closed')
+			const source = createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' })
+			const result = await source.search({ query: 'ORCHID' })
+			expect(result.matches).toHaveLength(1)
+			expect(result.incomplete).toBe(true)
+			expect(result.unavailable).toEqual([])
+			expect(result.nextCursor).toBeNull()
+			const match = result.matches[0]!
+			const read = await source.read({ address: match.address, byteOffset: match.byteOffset })
+			expect(read.text).toContain('ORCHID original 🦉')
+			expect(read.retained).toBe('full')
+			expect(read.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			expect(await readFile(path, 'utf8')).toBe(metadata)
+			expect(await readFile(join(f.runDir, 'transcript.jsonl'))).toEqual(transcript)
+			await expect(source.search({}, AbortSignal.abort(new Error('cancelled')))).rejects.toThrow(
+				'cancelled',
+			)
+			await expect(
+				source.read({ address: match.address }, AbortSignal.abort(new Error('cancelled'))),
+			).rejects.toThrow('cancelled')
+		},
+	)
+
+	it('keeps snapshot addresses bound to their source version, consistency mode and owner', async () => {
+		const f = await fixture([{ text: 'ORCHID exact original', spill: true }])
+		const snapshot = createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' })
+		const closed = createDiskRunTextEvidenceSource(f)
+		const match = (await snapshot.search({ query: 'ORCHID' })).matches[0]!
+		await expect(closed.read({ address: match.address })).rejects.toThrow()
+		expect((await snapshot.read({ address: match.address })).text).toBe('ORCHID exact original')
+		const path = join(f.runDir, 'transcript.jsonl')
+		await writeFile(
+			path,
+			(await readFile(path, 'utf8')).replace('exact original', 'newer original'),
+		)
+		await expect(snapshot.read({ address: match.address })).rejects.toThrow()
+		const next = (await snapshot.search({ query: 'ORCHID' })).matches[0]!
+		expect((await snapshot.read({ address: next.address })).text).toBe('ORCHID newer original')
+		await writeFile(
+			join(f.runDir, 'run.json'),
+			JSON.stringify({
+				id: f.scope.runId,
+				status: 'idle',
+				metadata: { scope: { ...f.scope, sessionId: randomUUID() } },
+			}),
+		)
+		await expect(snapshot.search()).rejects.toThrow('authorized scope')
+		await expect(snapshot.read({ address: next.address })).rejects.toThrow('authorized scope')
+	})
+
+	it('refuses unknown snapshot status and changed authenticated output', async () => {
+		const f = await fixture([{ text: `${'background '.repeat(1000)}ORCHID`, spill: true }])
+		const snapshot = createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' })
+		const match = (await snapshot.search({ query: 'ORCHID' })).matches[0]!
+		const files = await readdir(join(f.runDir, 'tool-output'))
+		const output = files.find((name) => !name.endsWith('.json'))!
+		await writeFile(join(f.runDir, 'tool-output', output), 'changed original')
+		await expect(snapshot.read({ address: match.address })).rejects.toThrow()
+		const changed = await snapshot.search({ query: 'ORCHID' })
+		expect(changed.matches).toEqual([])
+		expect(changed.unavailable).toHaveLength(1)
+		await writeFile(
+			join(f.runDir, 'run.json'),
+			JSON.stringify({ id: f.scope.runId, status: 'unknown', metadata: { scope: f.scope } }),
+		)
+		await expect(snapshot.search()).rejects.toThrow('snapshot consistency')
+	})
+
+	it('recovers complete records before an interrupted final append without repairing the file', async () => {
+		const f = await fixture([{ text: `${'background '.repeat(1000)}ORCHID exact 🦉`, spill: true }])
+		const metadataPath = join(f.runDir, 'run.json')
+		await writeFile(
+			metadataPath,
+			JSON.stringify({ id: f.scope.runId, status: 'idle', metadata: { scope: f.scope } }),
+		)
+		const path = join(f.runDir, 'transcript.jsonl')
+		const raw = `${await readFile(path, 'utf8')}{"type":"message_completed","content":"unfinished`
+		await writeFile(path, raw)
+		const source = createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' })
+		const page = await source.search({ query: 'ORCHID' })
+		expect(page.matches).toHaveLength(1)
+		expect(page.incomplete).toBe(true)
+		expect(page.unavailable).toEqual([])
+		expect(page.nextCursor).toBeNull()
+		const match = page.matches[0]!
+		const exact = await source.read({ address: match.address, byteOffset: match.byteOffset })
+		expect(exact.text).toContain('ORCHID exact 🦉')
+		expect(exact.retained).toBe('full')
+		expect(exact.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+		expect((await source.search({ query: 'unfinished' })).matches).toEqual([])
+		expect(await readFile(path, 'utf8')).toBe(raw)
+		await writeFile(
+			metadataPath,
+			JSON.stringify({ id: f.scope.runId, status: 'completed', metadata: { scope: f.scope } }),
+		)
+		await expect(source.search()).rejects.toThrow(/torn|Oversized/)
+	})
+
+	it.each([20, 4 * 1024 * 1024])(
+		'refuses an uncommitted tail without a bounded complete prefix (%i)',
+		async (size) => {
+			const f = await fixture([])
+			await writeFile(
+				join(f.runDir, 'run.json'),
+				JSON.stringify({ id: f.scope.runId, status: 'running', metadata: { scope: f.scope } }),
+			)
+			const path = join(f.runDir, 'transcript.jsonl')
+			const raw = `${size > 20 ? await readFile(path, 'utf8') : ''}${'x'.repeat(size)}`
+			await writeFile(path, raw)
+			await expect(
+				createDiskRunTextEvidenceSource({ ...f, consistency: 'snapshot' }).search(),
+			).rejects.toThrow(/complete recorded evidence|bounded record size/)
+			expect(await readFile(path, 'utf8')).toBe(raw)
+		},
+	)
+
 	it('crosses many compacted messages without rereading the shared record for every part', async () => {
 		const f = await fixture([])
 		const path = join(f.runDir, 'transcript.jsonl')
