@@ -123,7 +123,10 @@ guidance calls for checking newer evidence and revalidating mutable facts before
 acting. Historical instructions grant no new authority.
 
 Unit tests cover bounded pagination, exact Unicode reads, scope exclusion,
-corruption, interruption, reopening and prompt compaction. The
+corruption, interruption, reopening and prompt compaction. Query integration
+tests remove an old exact receipt through both structured and sliding-window
+compaction, then recover it through the registered history tools. They check the
+actual provider messages and tool completion, not only the prompt factory. The
 [CLI experiment](../../research/resident/history-recall.md) exercises actual
 tool calls against evidence omitted from the latest state. This experimental
 API adds no persistent schema fields and does not change ordinary chat history.

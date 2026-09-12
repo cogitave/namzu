@@ -61,6 +61,7 @@ pnpm -r build
 node research/resident/history-recall-cli.mjs
 node research/resident/history-recall-cli.mjs --live
 node research/resident/history-recall-cli.mjs --live --interactive
+node research/resident/history-recall-cli.mjs --live --codex
 ```
 
 Both live runs used Zen `muse-spark-1.3-contributor-free`, low effort, read-only
@@ -89,6 +90,17 @@ transcripts remain at the recorded temporary paths; the committed result omits
 provider reasoning and unrelated local data. These two synthetic examples do
 not establish general memory quality or a performance advantage.
 
+The completion audit added one small-model check with Codex
+`gpt-5.6-luna` at low effort, using the resident profile and the same limits.
+It recovered the exact original code and corrected destination with one search
+and two reads, reported 14,246 total tokens, confirmed cleanup and admitted no
+new step when reopened. [Its result](results/2026-09-12-history-recall-luna.json)
+records this separate third live admission. It also had unpriced usage; the
+figures are not a monetary comparison. The earlier Zen fingerprints identify
+the original reproducer in `f4b3ffb2`; the later script only adds the `--codex`
+research option and its provider/model metadata. The runtime fingerprints still
+match both experiments.
+
 ## Other verification and remaining scope
 
 SDK tests exercise large histories, empty pages, byte caps, invalid/symlinked
@@ -97,6 +109,9 @@ admission boundaries. The real-process interruption regression kills an owner
 after a file effect: recall reports no completed step until explicit inspected
 settlement, then reads the consumed inputs without replaying that effect.
 Prompt tests preserve the history reference and guidance through compaction.
+Two additional real-query tests force structured and sliding-window compaction,
+assert the receipt is absent from the next provider request, then retrieve it
+through actual search/read dispatch and inspect the resulting provider messages.
 CLI session tests execute the actual registered tools with a scripted provider,
 reject unrelated/departed runs and keep ordinary chats free of these tools.
 
@@ -105,6 +120,8 @@ Local verification passed: workspace typecheck, build, lint and package tests
 agenda/archive process tests, documentation conformance and compiled fences,
 exported signature types, SDK test presence and project-reference checks. Lint
 retains existing warnings. This is not a claim that every release gate ran.
+The completion audit additionally passed the two new query tests and all 252
+SDK process tests. See the [requirement-by-requirement audit](history-recall-audit.md).
 
 The live experiment used foreground CLI processes on Linux. It did not exercise
 a TUI, native Windows, a managed worker or a model-induced compaction. Both

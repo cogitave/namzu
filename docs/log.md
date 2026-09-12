@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Verified resident recall through actual query compaction with both structured and sliding-window strategies, and added a reproducible Luna/low CLI check alongside the Zen runs.
+
 - **Update** Added bounded, pursuit-scoped retrieval of settled resident summaries and consumed wake inputs, mounted read-only recall tools in both CLI context profiles, and tested omitted evidence, later corrections, pagination, scope and compaction.
 
 - **Update** Retained resident wake inputs as a bounded durable batch through admission and interruption, projected all accepted evidence into both CLI context profiles, and exposed pending input counts in resident status.

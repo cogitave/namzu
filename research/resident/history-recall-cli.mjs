@@ -41,6 +41,8 @@ if (process.argv[2] === '--seed') {
 } else {
   const live = process.argv.includes('--live');
   const profile = process.argv.includes('--interactive') ? 'interactive' : 'resident';
+  const provider = process.argv.includes('--codex') ? 'codex' : 'zen';
+  const model = provider === 'codex' ? 'gpt-5.6-luna' : 'muse-spark-1.3-contributor-free';
   const exec = promisify(execFile);
   const root = await mkdtemp(join(tmpdir(), 'namzu-history-recall-cli-'));
   const home = join(root, 'home');
@@ -49,7 +51,7 @@ if (process.argv[2] === '--seed') {
   await mkdir(cwd);
   await writeFile(join(home, 'preferences.json'), JSON.stringify({
     version: 3,
-    providers: [{ id: 'zen', model: 'muse-spark-1.3-contributor-free' }],
+    providers: [{ id: provider, model }],
     subagents: { active: [] },
   }));
   await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\n');
@@ -64,7 +66,7 @@ if (process.argv[2] === '--seed') {
     commands.push({ args, result });
     return result;
   }
-  const report = { root, live, profile, commands, observed: {} };
+  const report = { root, live, profile, provider, model, commands, observed: {} };
   try {
     const added = await command(['add', '--trust', 'Resolve the DELTA delivery once the recipient confirms. Recover the exact tracking code and current destination from recorded inputs, applying any later correction. Read the original and correction in full before reporting. Complete with a concise summary naming the tracking code and the corrected destination. Do not ship anything, send a message, read workspace files or run commands.']);
     const id = added.agenda.pursuits[0].id;
@@ -78,7 +80,7 @@ if (process.argv[2] === '--seed') {
     await command(['wake', id, 'The recipient confirms DELTA. Recover the prior delivery details and report the corrected result now.']);
     report.observed.exactEvidenceAbsentFromLatestState = true;
     if (live) {
-      const finished = await command(['run', '--trust', '--max-steps', '1', '--provider', 'zen', '--model', 'muse-spark-1.3-contributor-free', '--effort', 'low', '--context-profile', profile, '--tool-loading', 'deferred', '--max-iterations', '6', '--token-budget', '40000']);
+      const finished = await command(['run', '--trust', '--max-steps', '1', '--provider', provider, '--model', model, '--effort', 'low', '--context-profile', profile, '--tool-loading', 'deferred', '--max-iterations', '6', '--token-budget', '40000']);
       const result = finished.agenda.pursuits[0].state;
       report.observed.phase = result.phase;
       report.observed.summary = result.summary;
@@ -111,7 +113,7 @@ if (process.argv[2] === '--seed') {
       assert.equal(starts.length, 1);
       assert.equal(receipts[0].cleanup, 'confirmed');
       assert.equal(receipts[0].stopReason, 'end_turn');
-      assert.match(starts[0].model, /muse-spark-1.3-contributor-free/);
+      assert.equal(starts[0].model, model);
       const calls = toolEvents.filter(e => e.type === 'tool_executing').map(e => e.toolName);
       const completed = toolEvents.filter(e => e.type === 'tool_completed');
       report.observed.tools = calls;
@@ -139,6 +141,6 @@ if (process.argv[2] === '--seed') {
       'research/resident/history-recall-cli.mjs',
     ]) report.fingerprints[path] = createHash('sha256').update(await readFile(new URL(`../../${path}`, import.meta.url))).digest('hex');
     await writeFile(join(root, 'result.json'), `${JSON.stringify(report, null, 2)}\n`);
-    console.log(JSON.stringify({ root, live, profile, passed: report.passed, ...report.observed, error: report.error }, null, 2));
+    console.log(JSON.stringify({ root, live, profile, provider, model, passed: report.passed, ...report.observed, error: report.error }, null, 2));
   }
 }

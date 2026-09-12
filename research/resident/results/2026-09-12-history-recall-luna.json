@@ -1,0 +1,104 @@
+{
+  "date": "2026-09-12",
+  "runtimeCommit": "f4b3ffb2",
+  "provider": "codex",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "permissionMode": "plan",
+  "toolLoading": "deferred",
+  "modelAdmissions": 1,
+  "scriptedSettlements": 2,
+  "fixture": "/tmp/namzu-history-recall-cli-waXt1g",
+  "passed": true,
+  "seed": {
+    "tracking": "TRACK-a0cd7a7e-9225-4420-a130-e3a5b35e93d8",
+    "destination": "DEPOT-9273de61-2b96-4605-8baf-55333a5a061f",
+    "original": 5,
+    "corrected": 8,
+    "latestSummary": "Correction recorded; await recipient confirmation."
+  },
+  "observed": {
+    "exactEvidenceAbsentFromLatestState": true,
+    "phase": "complete",
+    "summary": "Recipient confirmation received. DELTA tracking code: TRACK-a0cd7a7e-9225-4420-a130-e3a5b35e93d8. Applying the later correction, the current destination is DEPOT-9273de61-2b96-4605-8baf-55333a5a061f.",
+    "tools": [
+      "search_resident_history",
+      "read_resident_history",
+      "read_resident_history"
+    ],
+    "terminalReopenAdmittedNoStep": true
+  },
+  "calls": [
+    {
+      "tool": "search_resident_history",
+      "input": {
+        "query": "DELTA",
+        "limit": 8
+      }
+    },
+    {
+      "tool": "read_resident_history",
+      "input": {
+        "revision": 5,
+        "part": 1
+      }
+    },
+    {
+      "tool": "read_resident_history",
+      "input": {
+        "revision": 8,
+        "part": 1
+      }
+    }
+  ],
+  "results": [
+    {
+      "tool": "search_resident_history",
+      "isError": false
+    },
+    {
+      "tool": "read_resident_history",
+      "isError": false
+    },
+    {
+      "tool": "read_resident_history",
+      "isError": false
+    }
+  ],
+  "receipt": {
+    "stopReason": "end_turn",
+    "cleanup": "confirmed",
+    "usage": {
+      "totalTokens": 14246,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 14246
+      }
+    },
+    "budget": {
+      "limit": 40000,
+      "ownTokens": 14246,
+      "treeTokens": 14246,
+      "reservedTokens": 0,
+      "remainingTokens": 25754,
+      "inFlightRequests": 0,
+      "unsettledChildren": 0,
+      "poisoned": false,
+      "unresolvedRequests": 0
+    }
+  },
+  "fingerprints": {
+    "packages/sdk/src/manager/resident/history.ts": "b81a32ff43f037b2fa6a24e15ca0266bbb95747224e5f5c1e44808a74d8ac9e8",
+    "packages/sdk/src/manager/resident/history-disk.ts": "85f00532409e636bb6af75be01008c28dc519e95cae823e2407e615fc3057db3",
+    "packages/sdk/dist/manager/resident/history.js": "6c2064453947f8e7a0d1b7def1372be0244a6f36a15547f9005185c638d544ff",
+    "packages/cli/src/integrations/resident/session-step.ts": "cc7dbb0ae7ff9175422f414cd6a02cf87901f2559a61096ddabc1ab770fc5bdb",
+    "packages/cli/dist/integrations/resident/session-step.js": "a074b208f0685c69905a9ab2b27d1526f087698f4362cc0f43a37c95b1f7b23a",
+    "research/resident/history-recall-cli.mjs": "99aed3a6857adb6393c8265e5a46b512140e4b12d8c0927f6929af585a211286"
+  },
+  "limitsOfEvidence": [
+    "One additional synthetic small-model low-effort run, not a general memory benchmark.",
+    "Earlier steps are scripted SDK settlements; runtime compaction is verified separately with deterministic providers.",
+    "Foreground Linux CLI; no new Windows, TUI or managed-worker live claim."
+  ]
+}
