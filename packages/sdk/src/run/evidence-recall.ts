@@ -54,7 +54,7 @@ export interface EvidenceRecallOptions {
 	readonly retrieve: (request: EvidenceRecallRequest) => Promise<EvidenceRecallBatch>
 	/** Entire added context, including labels. Default 6,000; maximum 12,000 UTF-16 units. */
 	readonly maxChars?: number
-	/** Default 4; maximum 8 passages from at most 24 candidates. */
+	/** Default 4; maximum 8 new passages plus visible quotes combined, from at most 24 candidates. */
 	readonly maxPassages?: number
 	/** Default 1,000ms; maximum 10,000ms. Late results are discarded. */
 	readonly timeoutMs?: number
@@ -348,6 +348,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				throw new Error('Evidence recall exceeded its bounded retrieval contract.')
 			const continuations = continuationHints(batch)
 			const candidates: EvidenceRecallCandidate[] = []
+			const visibleCandidates: EvidenceRecallCandidate[] = []
 			const seen = new Set<string>()
 			const visible = visibleText(messages)
 			// Validate the WHOLE batch before exposing any passage, including foreign
@@ -396,17 +397,60 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				if (!candidate.excerpt || seen.has(key)) continue
 				seen.add(key)
 				const escaped = JSON.stringify(candidate.excerpt).slice(1, -1)
-				if (visible.some((text) => text.includes(candidate.excerpt) || text.includes(escaped)))
+				if (visible.some((text) => text.includes(candidate.excerpt) || text.includes(escaped))) {
+					visibleCandidates.push(candidate)
 					continue
+				}
 				candidates.push(candidate)
 			}
 			const rankedGroups = ranked(passages(candidates), terms).map(({ group }) => group)
+			// Text visibility does not establish its archive address or recording time.
+			// Rank separately so visible copies cannot change new-text BM25 statistics.
+			const visibleGroups = ranked(passages(visibleCandidates), terms).map(({ group }) => group)
+			// One representative per distinct quote before additional occurrences.
+			// A repeated quote must not hide the source of a distinct visible correction.
+			const visibleEvidence = [
+				...new Map(
+					[
+						...visibleGroups.map((group) => group.candidate),
+						...visibleGroups.flatMap((group) => group.others),
+					].map((candidate) => {
+						const reference = {
+							textQuote: candidate.excerpt,
+							address: address(candidate),
+							recordedAt: candidate.recordedAt,
+							source: candidate.source,
+							toolName: candidate.toolName,
+							isError: candidate.isError,
+							retained: candidate.retained,
+						}
+						return [JSON.stringify(reference), reference] as const
+					}),
+				).values(),
+			]
 			const selected: { group: Passage; line: string }[] = []
-			const metadata = (included: number, omitted: readonly Passage[], addresses = 0) =>
+			const metadata = (
+				included: number,
+				omitted: readonly Passage[],
+				addresses = 0,
+				visibleCount = 0,
+			) =>
 				`${HEADER}${JSON.stringify({
 					incomplete: batch.incomplete,
 					scannedBytes: batch.scannedBytes,
 					omittedPassages: omitted.length,
+					...(visibleEvidence.length
+						? {
+								visibleEvidence: visibleEvidence.slice(0, visibleCount),
+								omittedVisibleEvidence: visibleEvidence.length - visibleCount,
+								...(visibleCount
+									? {
+											visibleEvidenceGuidance:
+												'Each textQuote is an exact, bounded match in visible text paired with this archive source, not a full record. Use its address for more text; list order is not chronology.',
+										}
+									: {}),
+							}
+						: {}),
 					...(omitted.length
 						? {
 								additionalEvidence: omitted
@@ -446,8 +490,20 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			}
 			// Distinct text and traversal hints precede omitted-passage addresses.
 			// Even a complete scan may leave relevant text outside model context.
+			let includedAddresses = 0
 			for (let included = 1; included <= omitted.length; included++) {
 				const next = metadata(includedContinuations, omitted, included)
+				if (used + next.length - header.length > charBudget) break
+				used += next.length - header.length
+				includedAddresses = included
+				header = next
+			}
+
+			// Bind visible quotes to their sources; do not infer association from list order.
+			// New passages, traversal hints and their omitted addresses take priority.
+			const visibleLimit = Math.min(visibleEvidence.length, maxPassages - selected.length)
+			for (let included = 1; included <= visibleLimit; included++) {
+				const next = metadata(includedContinuations, omitted, includedAddresses, included)
 				if (used + next.length - header.length > charBudget) break
 				used += next.length - header.length
 				header = next
@@ -465,7 +521,8 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				}
 			}
 			const block = header + selected.map(({ line }) => line).join('')
-			return (selected.length || omitted.length || batch.incomplete) && block.length <= charBudget
+			return (selected.length || omitted.length || visibleEvidence.length || batch.incomplete) &&
+				block.length <= charBudget
 				? { context: [prepared.context, block].filter(Boolean).join('\n\n') }
 				: undefined
 		} finally {

@@ -66,6 +66,94 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('binds visible quotes to source metadata while preserving status and original history', async () => {
+		const text = 'DELTA receipt "SAME" <untrusted>'
+		const entries = [
+			candidate(text, { recordedAt: 1000, seq: 2, isError: false }),
+			candidate(text, { recordedAt: 2000, seq: 3, isError: true, retained: 'preview' }),
+			candidate(text, { seq: 4, source: 'compaction_shed:tool' }),
+		]
+		const ctx = { ...context('DELTA receipt'), messages: [createUserMessage(text)] }
+		const before = structuredClone(ctx.messages)
+		const result = await fixture(entries).recall(ctx)
+		expect(ctx.messages).toEqual(before)
+		expect(result?.context).not.toContain('<untrusted>')
+		expect(rendered(result?.context)).toHaveLength(0)
+		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(metadata.visibleEvidence.map((e: { recordedAt?: number }) => e.recordedAt)).toEqual([
+			1000,
+			2000,
+			undefined,
+		])
+		expect(metadata.visibleEvidence.every((e: { textQuote: string }) => e.textQuote === text)).toBe(
+			true,
+		)
+		expect(metadata.visibleEvidence[1]).toMatchObject({ isError: true, retained: 'preview' })
+		expect(metadata.visibleEvidence[2]).toMatchObject({ source: 'compaction_shed:tool' })
+		expect(metadata.incomplete).toBe(false)
+		expect(metadata.omittedPassages).toBe(0)
+	})
+
+	it('counts visible source omissions within the same character budget', async () => {
+		const entries = Array.from({ length: 24 }, (_, i) => candidate('DELTA visible', { seq: i + 1 }))
+		const result = await fixture(entries, { maxChars: 1400 }).recall({
+			...context('DELTA'),
+			messages: [createAssistantMessage('DELTA visible')],
+			latestUserMessage: createUserMessage('DELTA'),
+		})
+		expect(result!.context!.length).toBeLessThanOrEqual(1400)
+		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(metadata.omittedVisibleEvidence).toBeGreaterThan(0)
+		expect(metadata.visibleEvidence.length + metadata.omittedVisibleEvidence).toBe(24)
+		expect(
+			metadata.visibleEvidence.every((e: { textQuote: string }) => e.textQuote === 'DELTA visible'),
+		).toBe(true)
+		expect(rendered(result?.context)).toHaveLength(0)
+	})
+
+	it('keeps new-text ranking independent of visible duplicates and omits irrelevant references', async () => {
+		const novel = [
+			candidate('DELTA tracking ORIGINAL', { seq: 2 }),
+			candidate('DELTA OTHER', { seq: 3 }),
+		]
+		const copies = Array.from({ length: 8 }, (_, i) =>
+			candidate('DELTA tracking visible', { seq: i + 4 }),
+		)
+		const irrelevant = candidate('not relevant', { seq: 20 })
+		const ctx = {
+			...context(),
+			messages: [createAssistantMessage('DELTA tracking visible; not relevant')],
+			latestUserMessage: createUserMessage('DELTA tracking code'),
+		}
+		const baseline = await fixture(novel, { maxPassages: 1 }).recall(ctx)
+		const result = await fixture([...novel, ...copies, irrelevant], { maxPassages: 1 }).recall(ctx)
+		expect(rendered(result?.context).map((p) => p.excerpt)).toEqual(
+			rendered(baseline?.context).map((p) => p.excerpt),
+		)
+		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(metadata.visibleEvidence).toHaveLength(0)
+		expect(metadata.omittedVisibleEvidence).toBe(8)
+	})
+
+	it('allocates one source per distinct visible quote before extra copies', async () => {
+		const old = 'DELTA '.repeat(50) + 'OLD'
+		const correction = 'DELTA '.repeat(50) + 'CORRECTED'
+		const copies = Array.from({ length: 12 }, (_, i) => candidate(old, { seq: i + 1 }))
+		const result = await fixture([...copies, candidate(correction, { seq: 20 })], {
+			maxChars: 2300,
+		}).recall({
+			...context(),
+			latestUserMessage: createUserMessage('DELTA'),
+			messages: [createAssistantMessage(`${old}\n${correction}`)],
+		})
+		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(result!.context!.length).toBeLessThanOrEqual(2300)
+		expect(
+			metadata.visibleEvidence.slice(0, 2).map((e: { textQuote: string }) => e.textQuote),
+		).toEqual([old, correction])
+		expect(metadata.omittedVisibleEvidence).toBeGreaterThan(0)
+	})
+
 	it('preserves recording times of equal observations without treating them as separate votes', async () => {
 		const first = Date.UTC(2025, 1, 1)
 		const second = Date.UTC(2026, 1, 1)
@@ -297,20 +385,31 @@ describe('ephemeral scoped evidence recall', () => {
 		},
 	)
 
-	it('does not duplicate already visible passages or duplicate addresses', async () => {
+	it('uses one quoted source reference for an already visible passage', async () => {
 		const a = candidate('DELTA receipt\tA17')
 		const { recall } = fixture([a, a])
 		const first = await recall(context())
 		expect(first?.context?.split('"excerpt"')).toHaveLength(2)
-		expect(
-			await recall({
-				...context(),
-				messages: [
-					createUserMessage('DELTA'),
-					createAssistantMessage(JSON.stringify({ excerpt: a.excerpt })),
-				],
-			}),
-		).toBeUndefined()
+		const visible = await recall({
+			...context(),
+			messages: [
+				createUserMessage('DELTA'),
+				createAssistantMessage(JSON.stringify({ excerpt: a.excerpt })),
+			],
+		})
+		expect(rendered(visible?.context)).toHaveLength(0)
+		expect(visible?.context).not.toContain('"excerpt"')
+		const metadata = JSON.parse(visible!.context!.split('\n')[1]!)
+		expect(metadata.visibleEvidence).toHaveLength(1)
+		expect(metadata.visibleEvidence[0].textQuote).toBe(a.excerpt)
+		expect(metadata.visibleEvidence[0].address).toEqual({
+			runId: sourceRun,
+			seq: 2,
+			part: 0,
+			byteOffset: 1024,
+		})
+		expect(metadata.visibleEvidence[0].recordedAt).toBeUndefined()
+		expect(metadata.omittedVisibleEvidence).toBe(0)
 	})
 
 	it('keeps a correction alongside repeated observations with every distinct source address', async () => {

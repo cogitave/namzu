@@ -8,6 +8,7 @@ import {
 	type RunTextEvidenceSource,
 	type SessionId,
 	ToolRegistry,
+	createAssistantMessage,
 	createUserMessage,
 	defineTool,
 	generateRunId,
@@ -130,6 +131,29 @@ describe('bounded original conversation evidence', () => {
 				...(active ? { captureRunEvidence } : {}),
 			})
 			expect(result?.context).toContain(`"recordedAt":${recordedAt}`)
+			const visible = await recall({
+				runId: active?.runId ?? generateRunId(),
+				messages: [createUserMessage('DELTA'), createAssistantMessage('DELTA receipt CODE-17')],
+				steps: [],
+				prepared: {},
+				stepNumber: 1,
+				...(active ? { captureRunEvidence } : {}),
+			})
+			expect(visible?.context).not.toContain('"excerpt"')
+			const metadata = JSON.parse(visible!.context!.split('\n')[1]!)
+			expect(metadata.visibleEvidence).toHaveLength(1)
+			const ref = metadata.visibleEvidence[0]
+			expect(ref.textQuote).toBe('DELTA receipt CODE-17')
+			expect(ref.recordedAt).toBe(recordedAt)
+			const restored = await readConversationEvidence(
+				sessions,
+				sessionId,
+				ref.address,
+				undefined,
+				active,
+			)
+			expect(restored.text).toBe('DELTA receipt CODE-17')
+			expect(restored.recordedAt).toBe(recordedAt)
 		},
 	)
 

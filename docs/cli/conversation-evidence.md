@@ -72,6 +72,15 @@ scan has no continuation. `omittedAddresses` reports addresses which did not fit
 These are bounded-pool counts, not archive totals or proof of historical absence.
 Scope, integrity and read limits are checked again when the model reads them.
 
+For text already present in the conversation, `visibleEvidence` binds an exact
+bounded `textQuote` to its validated `address`, recording time (when known),
+source/tool and error/retention metadata. The quote makes the source association
+explicit without loading the full archive record. Pass its `address` to
+`read_conversation` for more text; reference order does not map to visible-message order. The same validation
+and read limits apply. `omittedVisibleEvidence` counts references which did not
+fit the shared context allowance. This can be positive even when traversal is
+complete; no archive-wide absence or timestamp completeness is implied.
+
 Matching ignores letter case
 by default: `destination` also finds `Destination`. Set `caseSensitive: true` to
 retain exact case matching. This is Unicode case-insensitive literal matching,

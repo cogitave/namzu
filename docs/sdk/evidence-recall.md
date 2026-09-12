@@ -60,8 +60,8 @@ filter. Literal spelling is preserved for search. There is no stemming,
 translation, synonym expansion or embedding model. Other languages may need a
 host retrieval strategy that suits their text.
 
-Duplicate source/excerpt addresses with equal metadata and exact passages already
-visible in history are omitted. Remaining candidates with exactly equal text,
+Duplicate source/excerpt addresses with equal metadata are omitted. Exact passages
+already visible in history contribute quoted source references instead of new passages. Remaining candidates with exactly equal text,
 `source`, `toolName`, `isError` and `retained` share one passage. Missing status
 is distinct from explicit success. Letter case, whitespace and changed identifiers
 are preserved; this is not semantic similarity or automatic conflict resolution.
@@ -77,9 +77,33 @@ The representative passage and each included `otherOccurrences` entry preserve
 their own recording times. Equal text still shares one passage and receives no
 extra ranking votes. Time metadata shares the existing character allowance.
 `additionalEvidence` remains a plain read address; reading it returns the time.
-Already visible exact text is still suppressed even if its recording metadata
-is absent from visible history. Use explicit archive search/read to recover that
-metadata; automatic recall does not guarantee temporal coverage of visible text.
+Already visible exact text is suppressed from new passage text, but its validated
+sources appear separately in `visibleEvidence`. Each entry binds its exact bounded
+`textQuote` (at most 512 UTF-16 units) to a directly readable `address` (`runId`, `seq`, `part`, optional `byteOffset`), optional
+`recordedAt`, `source`, optional `toolName`/`isError`, and `retained`. The quote
+repeats only the authenticated candidate excerpt needed to make the association
+explicit; it does not reload the full source or establish that a
+preview is complete. Matching text may occur in several visible messages, so the
+list is not a mapping to their order. Read an entry's `address` with the host's
+archive tool for text beyond the quote.
+
+Visible candidates are ranked separately so they do not change new-text BM25
+statistics. Positive-score candidates are grouped by the existing exact-copy
+rules, then equal quote/reference metadata is deduplicated. One representative per distinct
+quote is offered before extra occurrences, so copies cannot consume the whole
+reference allowance ahead of a distinct visible correction. Visible quoted references
+and new passages share `maxPassages`; new text takes priority. Extra references
+can therefore be omitted even if characters remain. `omittedVisibleEvidence`
+counts references from this bounded pool that did not fit, not total historical
+occurrences. Source time, error and retention remain distinct; missing metadata
+is not filled in from visible text. References are revalidated each pass, even
+when similar metadata was previously visible. No semantic temporal-intent
+classifier or current-state assertion is added.
+Quoted references do not validate a model's final free-form answer. The
+[visible-source CLI experiment](../../research/conversation-evidence/visible-evidence-results.md)
+records both the improvement over unquoted references and an unresolved exact-code
+copy error from a live low-effort model.
+
 The [recorded CLI comparison](../../research/conversation-evidence/recorded-time-results.md)
 checks both date orders with a small model at low effort.
 
@@ -157,10 +181,10 @@ A [recorded CLI comparison](../../research/conversation-evidence/selection-cover
 shows exact recovery of a matched receipt omitted by selection.
 
 Distinct text takes priority over traversal hints, then omitted-passage
-addresses, then extra addresses of selected exact duplicates. All share the
+addresses, visible-text source references, and extra addresses of selected exact duplicates. All share the
 original character ceiling. An omission-only block is retained even if no whole
-excerpt fits and source traversal was complete. A complete scan with no eligible
-new text still adds no context; a context budget too small for the framing skips
+excerpt fits and source traversal was complete. A complete scan with no new text can still add visible-source references or their
+omission counts. A scan with no eligible text or references adds no context; a context budget too small for the framing skips
 recall altogether.
 
 Defaults are four distinct passages and 6,000 added characters, including framing and

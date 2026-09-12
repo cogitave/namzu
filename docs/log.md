@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Preserved bounded archive references for text already visible in model context, binding exact bounded quotes to source metadata and keeping new-text ranking, lookup authority and omission accounting separate.
+
 - **Update** Preserved stored event recording times through SDK evidence search/read and CLI recall, including exact-copy provenance, compaction-copy semantics and unknown timestamps; kept sequence, source integrity and character limits independent of wall-clock ordering.
 
 - **Update** Disclosed eligible passages withheld from automatic evidence context, retained bounded read addresses and omission-only metadata, and verified exact recovery through the CLI Session without confusing completed traversal with complete presentation.
