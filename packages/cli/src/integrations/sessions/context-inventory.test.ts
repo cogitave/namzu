@@ -8,7 +8,7 @@ function context(messages: Message[], remainingTokens = 10_000): PrepareStepCont
 		stepNumber: 1,
 		messages,
 		steps: [],
-		prepared: { system: 'Existing recalled memory' },
+		prepared: { system: 'Existing system policy', context: 'Existing recalled memory' },
 		contextBudget: { remainingTokens, windowTokens: 100_000 },
 	}
 }
@@ -24,11 +24,13 @@ it('preserves earlier guidance and reports bounded metadata without copying payl
 	const output = await createContextInventoryStep()(
 		context(Array.from({ length: 20 }, () => tool('secret-payload'.repeat(2000)))),
 	)
-	expect(output?.system).toContain('Existing recalled memory')
-	expect(output?.system).not.toContain('secret-payload')
-	expect(output?.system?.length).toBeLessThan(1500)
-	expect(output?.system).toContain('read_conversation')
-	const data = JSON.parse(output!.system!.split('\n').at(-1)!)
+	expect(output?.context).toContain('Existing recalled memory')
+	expect(output?.system).toBeUndefined()
+	expect(output?.context).not.toContain('Existing system policy')
+	expect(output?.context).not.toContain('secret-payload')
+	expect(output?.context?.length).toBeLessThan(1500)
+	expect(output?.context).toContain('read_conversation')
+	const data = JSON.parse(output!.context!.split('\n').at(-1)!)
 	expect(data.largestToolBlocks).toHaveLength(6)
 	expect(data.visibleToolTextChars).toBe(20 * 14 * 2000)
 })
@@ -42,8 +44,8 @@ it('does not inflate image base64 into text and recomputes after working-set cha
 			]),
 		]),
 	)
-	expect(output?.system).toContain('"visibleToolTextChars":3')
-	expect(output?.system).toContain('"visibleNonTextBlocks":1')
-	expect(output?.system?.length).toBeLessThan(1500)
+	expect(output?.context).toContain('"visibleToolTextChars":3')
+	expect(output?.context).toContain('"visibleNonTextBlocks":1')
+	expect(output?.context?.length).toBeLessThan(1500)
 	expect(await step(context([], 90_000))).toBeUndefined()
 })

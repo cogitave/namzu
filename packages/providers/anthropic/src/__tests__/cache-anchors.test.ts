@@ -1,4 +1,4 @@
-import type { ChatCompletionParams } from '@namzu/sdk'
+import { type ChatCompletionParams, createRuntimeContextMessage } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import { AnthropicProvider } from '../client.js'
@@ -276,4 +276,37 @@ describe('cache usage is read back off the wire', () => {
 			cacheWriteTokens: 0,
 		})
 	})
+})
+
+it('anchors completed tool output before request-only context', async () => {
+	const body = await bodyFor({
+		messages: [
+			{ role: 'user', content: 'Original task' },
+			{
+				role: 'assistant',
+				content: null,
+				toolCalls: [{ id: 'c', type: 'function', function: { name: 'read', arguments: '{}' } }],
+			},
+			{ role: 'tool', toolCallId: 'c', content: 'Observed text' },
+			createRuntimeContextMessage('Inventory snapshot', 'step-context'),
+		],
+	})
+	const messages = body.messages as { role: string; content: string | Block[] }[]
+	const history = messages.at(-2)!.content as Block[]
+	expect(history.at(-1)).toMatchObject({
+		type: 'tool_result',
+		cache_control: { type: 'ephemeral' },
+	})
+	expect(JSON.stringify(messages.at(-1))).toContain('Inventory snapshot')
+	expect(JSON.stringify(messages.at(-1))).not.toContain('cache_control')
+})
+
+it('does not anchor after the first transient context even if more text follows', async () => {
+	const body = await bodyFor({
+		messages: [
+			createRuntimeContextMessage('Current observation', 'step-context'),
+			{ role: 'user', content: 'Additional observation' },
+		],
+	})
+	expect(JSON.stringify(body.messages)).not.toContain('cache_control')
 })

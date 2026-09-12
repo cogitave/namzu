@@ -2,6 +2,8 @@
 
 The kernel.
 
+* [Request-only step context](step-context.md) - Changing observations after history, separate from system policy and operator intent.
+
 * [Native structured output](native-structured-output.md) - Query response schemas, local validation and bounded correction.
 * [Native provider admission](native-provider-capabilities.md) - Explicit driver support and fallback route checks.
 

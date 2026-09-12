@@ -38,12 +38,19 @@ if (process.argv[2] === '--prepare') {
     // The live wrapper changes only the external file between provider requests.
     // All live model decisions, history and tool calls use the production driver.
     await writeFile(preload, `import { ProviderRegistry, MockLLMProvider } from ${JSON.stringify(sdkURL.href)};
-import {writeFile} from 'node:fs/promises';
+import {writeFile,appendFile} from 'node:fs/promises';
+import {createHash} from 'node:crypto';
 const original = ProviderRegistry.create.bind(ProviderRegistry);
 ProviderRegistry.create = (...args) => {
  const created = original(...args); const provider = created.provider;
- const stream = provider.chatStream.bind(provider); let replaced = false;
+ const stream = provider.chatStream.bind(provider); let replaced = false; let previous = ''; let requestNumber=0;
  provider.chatStream = async function* (params) {
+  const system=params.messages.filter(m=>m.role==='system').map(m=>m.content).join('\\n\\n');
+  const portable=params.messages.filter(m=>m.role!=='system').map(m=>JSON.stringify([m.role,m.content,m.toolCallId,m.toolCalls])).join('\\n');
+  let common=0; while(common<previous.length && common<portable.length && previous[common]===portable[common])common++;
+  const context=params.messages.filter(m=>m.source?.type==='runtime-context'&&m.source.kind==='step-context');
+  await appendFile(${JSON.stringify(join(root,'request-shapes.jsonl'))},JSON.stringify({request:++requestNumber,systemChars:system.length,systemDigest:createHash('sha256').update(system).digest('hex'),portableInputChars:portable.length,commonPortablePrefixChars:common,stepContextCount:context.length,stepContextChars:context.reduce((n,m)=>n+String(m.content).length,0)})+'\\n');
+  previous=portable;
   const readIds = params.messages.flatMap(m=>m.role==='assistant'?(m.toolCalls??[]):[]).filter(c=>c.function.name==='read').map(c=>c.id);
   const readResult = params.messages.find(m=>m.role==='tool'&&readIds.includes(m.toolCallId));
   if(readResult && !replaced) { await writeFile(${JSON.stringify(join(cwd, 'manifest.txt'))}, 'Manually replaced. Original receipt removed.\\n'); replaced=true; }
@@ -72,6 +79,8 @@ ProviderRegistry.create = (...args) => {
     assert.equal(runIds.length, 1); report.runId = runIds[0];
     const events = (await readFile(join(runs, runIds[0], 'transcript.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
     report.calls = events.filter(e=>e.type==='tool_executing').map(e=>({name:e.toolName,input:e.input}));
+    report.requestShapes=(await readFile(join(root,'request-shapes.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
+    report.requestUsage=events.filter(e=>e.type==='message_completed'&&e.usage).map(e=>({iteration:e.iteration,...e.usage}));
     const completed = events.filter(e=>e.type==='tool_completed');
     const first = completed.find(e=>e.toolName==='read');
     assert.ok(first.outputTruncated && first.outputSpillIntegrity);
@@ -99,7 +108,7 @@ ProviderRegistry.create = (...args) => {
   } catch(error) { report.passed=false;report.error=error instanceof Error?error.message:String(error);process.exitCode=1; }
   finally {
     report.fingerprints = {};
-    for(const path of ['packages/sdk/src/store/evidence/passages.ts','packages/sdk/src/store/evidence/disk.ts','packages/sdk/src/store/evidence/types.ts','packages/sdk/src/store/evidence/linked.ts','packages/sdk/src/store/evidence/source-text.ts','packages/sdk/src/store/evidence/record-chain.ts','packages/sdk/src/store/run/disk.ts','packages/sdk/src/runtime/query/events.ts','packages/sdk/src/runtime/query/index.ts','packages/cli/src/integrations/sessions/conversation-search.ts','research/conversation-evidence/active-cli.mjs'])
+    for(const path of ['packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/types/run/prepare-step.ts','packages/sdk/src/types/message/index.ts','packages/cli/src/integrations/sessions/context-inventory.ts','packages/sdk/src/store/evidence/passages.ts','packages/sdk/src/store/evidence/disk.ts','packages/sdk/src/store/evidence/types.ts','packages/sdk/src/store/evidence/linked.ts','packages/sdk/src/store/evidence/source-text.ts','packages/sdk/src/store/evidence/record-chain.ts','packages/sdk/src/store/run/disk.ts','packages/sdk/src/runtime/query/events.ts','packages/sdk/src/runtime/query/index.ts','packages/cli/src/integrations/sessions/conversation-search.ts','research/conversation-evidence/active-cli.mjs'])
       report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
     await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify({root,live,passed:report.passed,calls:report.calls,usage:report.result?.usage,error:report.error}));

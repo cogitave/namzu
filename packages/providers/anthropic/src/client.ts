@@ -405,8 +405,9 @@ function toolResultContent(
 function toAnthropicMessages(
 	messages: ChatCompletionParams['messages'],
 	targetRoute: ProviderRoute,
-): AnthropicMessageParam[] {
+): { messages: AnthropicMessageParam[]; cacheEnd: number } {
 	const out: AnthropicMessageParam[] = []
+	let cacheEnd: number | undefined
 	let pendingToolResults: AnthropicToolResultBlock[] = []
 
 	const flushToolResults = () => {
@@ -418,6 +419,14 @@ function toAnthropicMessages(
 
 	for (const msg of messages) {
 		if (msg.role === 'system') continue
+		if (
+			msg.role === 'user' &&
+			msg.source?.type === 'runtime-context' &&
+			msg.source.kind === 'step-context'
+		) {
+			flushToolResults()
+			cacheEnd ??= out.length
+		}
 
 		if (msg.role === 'assistant') {
 			const restored = restoreSearch(msg, targetRoute)
@@ -531,7 +540,7 @@ function toAnthropicMessages(
 	}
 
 	flushToolResults()
-	return out
+	return { messages: out, cacheEnd: cacheEnd ?? out.length }
 }
 
 function toAnthropicTools(
@@ -660,12 +669,12 @@ function toAnthropicToolChoice(tc?: ToolChoice, parallelToolCalls?: boolean): un
 }
 
 /**
- * Final cache breakpoint: the last content block of the last non-empty
- * message. Caches the whole conversation prefix so the next iteration
- * (which only appends messages) reads the prior history at cache rates.
+ * Final cache breakpoint: the last non-empty block before request-only step
+ * context, or the last message when no such context is present. A breakpoint
+ * after changing context would include a suffix the next request replaces.
  */
-function applyMessageCacheBreakpoint(messages: AnthropicMessageParam[]): void {
-	for (let i = messages.length - 1; i >= 0; i--) {
+function applyMessageCacheBreakpoint(messages: AnthropicMessageParam[], cacheEnd: number): void {
+	for (let i = cacheEnd - 1; i >= 0; i--) {
 		const msg = messages[i]
 		if (!msg) continue
 		if (typeof msg.content === 'string') {
@@ -960,8 +969,8 @@ export class AnthropicProvider implements LLMProvider {
 		const model = this.resolveModel(params)
 		const providerRoute = resolveAnthropicRoute(model, params.providerRoute)
 		const system = extractSystem(params.messages, cachingEnabled)
-		const messages = toAnthropicMessages(params.messages, providerRoute)
-		if (cachingEnabled) applyMessageCacheBreakpoint(messages)
+		const { messages, cacheEnd } = toAnthropicMessages(params.messages, providerRoute)
+		if (cachingEnabled) applyMessageCacheBreakpoint(messages, cacheEnd)
 		const tools = toAnthropicTools(
 			params,
 			cachingEnabled,

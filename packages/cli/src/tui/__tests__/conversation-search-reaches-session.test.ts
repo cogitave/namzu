@@ -2,7 +2,10 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { AnthropicProvider } from '@namzu/anthropic'
+import { CodexProvider } from '@namzu/openai'
 import {
+	type ChatCompletionParams,
 	DiskMemoryStore,
 	type LLMProvider,
 	type Message,
@@ -686,4 +689,103 @@ it('recovers retained output in the same running CLI invocation after compaction
 			.some((message) => message.role === 'tool' && message.toolCallId === 'observe-once'),
 	).toBe(true)
 	expect(await readFile(join(cwd, 'manifest.txt'), 'utf8')).toContain('Manually replaced')
+})
+
+it('keeps changing inventory after history on both native provider wires', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-inventory-wire-'))
+	roots.push(cwd)
+	await writeFile(join(cwd, 'observed.txt'), 'Observed inventory payload. '.repeat(1000))
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	const script = new MockLLMProvider({
+		turns: [
+			{ toolCalls: [{ id: 'observe', name: 'read', args: { path: 'observed.txt' } }] },
+			{ toolCalls: [{ id: 'search', name: 'search_conversation', args: { query: 'missing-id' } }] },
+			{ text: 'Done.' },
+		],
+	})
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider: script } as never)
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		scope: {
+			sessionId,
+			topicId: sessions.topicId,
+			tenantId: sessions.tenantId,
+			projectId: sessions.projectId,
+		},
+		sandbox: { enabled: false },
+		memory: { recall: false },
+	})
+	opened.push(session)
+	await send(session)
+	expect(script.requests).toHaveLength(3)
+	const second = script.requests[1]!
+	const third = script.requests[2]!
+	for (const request of [second, third]) {
+		const tail = request.messages.at(-1)!
+		expect(tail).toMatchObject({
+			role: 'user',
+			source: { type: 'runtime-context', kind: 'step-context' },
+		})
+		expect(tail.content).toContain('Context inventory')
+		expect(
+			request.messages
+				.filter((m) => m.role === 'system')
+				.some((m) => m.content?.includes('Context inventory')),
+		).toBe(false)
+		expect(
+			request.messages.filter(
+				(m) =>
+					m.role === 'user' &&
+					m.source?.type === 'runtime-context' &&
+					m.source.kind === 'step-context',
+			),
+		).toHaveLength(1)
+	}
+	expect(third.messages.slice(0, second.messages.length - 1)).toEqual(second.messages.slice(0, -1))
+
+	async function wire(kind: 'codex' | 'anthropic', params: ChatCompletionParams) {
+		let body: Record<string, unknown> = {}
+		const create = async (request: Record<string, unknown>) => {
+			body = request
+			return (async function* () {
+				yield { type: 'message_start', message: { id: 'fixture' } }
+			})()
+		}
+		const provider =
+			kind === 'codex'
+				? new CodexProvider({ accessToken: 'fixture', accountId: 'fixture' })
+				: new AnthropicProvider({ apiKey: 'fixture' })
+		;(provider as unknown as { client: unknown }).client =
+			kind === 'codex' ? { responses: { create } } : { messages: { create } }
+		for await (const _chunk of provider.chatStream({
+			...params,
+			providerRoute: undefined,
+			cacheControl: { type: 'ephemeral' },
+			model: kind === 'codex' ? 'gpt-5.6-luna' : 'claude-sonnet-5',
+		})) {
+			/* inspect the actual adapter request */
+		}
+		return body
+	}
+	for (const kind of ['codex', 'anthropic'] as const) {
+		const before = await wire(kind, second)
+		const after = await wire(kind, third)
+		const system = kind === 'codex' ? 'instructions' : 'system'
+		expect(after[system]).toEqual(before[system])
+		expect(JSON.stringify(after[system])).not.toContain('Context inventory')
+		const inputs = after[kind === 'codex' ? 'input' : 'messages'] as {
+			role?: string
+			content?: unknown
+		}[]
+		expect(inputs.at(-1)?.role).toBe('user')
+		expect(JSON.stringify(inputs.at(-1))).toContain('Context inventory')
+		expect(JSON.stringify(inputs)).toContain('Observed inventory payload.')
+		if (kind === 'anthropic') {
+			expect(JSON.stringify(inputs.at(-1))).not.toContain('cache_control')
+			expect(JSON.stringify(inputs.at(-2))).toContain('cache_control')
+		}
+	}
 })

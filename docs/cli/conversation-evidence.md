@@ -141,8 +141,12 @@ estimated remaining context falls below one quarter of the window. It yields
 when fewer than 1,500 estimated tokens remain. Small ordinary turns receive no
 inventory. Non-text payloads are counted without treating base64 as text tokens.
 No extra model call or filesystem scan is performed, and preceding memory
-guidance is preserved. The inventory is recomputed on each request, including
-after history changes; it is not persisted as new user instructions.
+guidance is preserved. The inventory uses SDK
+[`prepareStep.context`](../sdk/step-context.md), keeping it after history through
+OpenAI and Anthropic conversion. Preceding context stages are composed; system
+stages remain untouched. It is labelled runtime context, recomputed on each
+request, and not retained as operator input. Stable placement does not guarantee
+provider cache hits or reduce total input tokens by itself.
 
 This is a bounded adaptation of the state-visibility idea in
 [VISTA v5](https://arxiv.org/html/2606.30005v5). It does not implement VISTA's

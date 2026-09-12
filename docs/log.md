@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Added SDK request-only step context with runtime provenance and per-stage token estimates; CLI context inventories now remain after history on OpenAI and Anthropic wires while preserving system policy and operator intent. Anthropic message cache breakpoints stop before this changing context.
+
 - **Update** Added case-insensitive retained-text search and pagination across distinct passages within a chunk. CLI conversation search now ignores case by default; SDK run-source search retains its case-sensitive default and exact text/offset and integrity contracts.
 
 - **Update** Added writer-bound retained-text capture for a running invocation; ordinary CLI conversation retrieval now survives further appends and compaction while checking scope, record integrity, bounded reads and exact text.

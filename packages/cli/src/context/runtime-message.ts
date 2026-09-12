@@ -3,6 +3,8 @@ import type { RuntimeContextMessageKind } from '@namzu/sdk'
 /** Human label for provider-user-role context authored by the runtime. */
 export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 	switch (kind) {
+		case 'step-context':
+			return 'Step context'
 		case 'advisory':
 			return 'Advisor context'
 		case 'answer-review':

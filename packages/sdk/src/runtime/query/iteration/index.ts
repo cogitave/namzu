@@ -589,9 +589,9 @@ export class IterationOrchestrator {
 					// mutation, and per-iteration this is trivial next to the model
 					// call it precedes.
 					// A step's skills and its guidance ride the same ephemeral
-					// trailing system message. Appending leaves the cached prefix
-					// intact; rewriting the run's own prompt to carry a phase's
-					// skills would invalidate it on every iteration.
+					// system message. A driver may move it before history; changing
+					// system guidance can therefore affect prefix caching. Observations
+					// that need no system authority use step.context below.
 					// `renderSkillsSection` already answers null for an empty list, so
 					// there is no length check here — a second guard for the same
 					// case is one more thing to keep in agreement with the first.
@@ -612,10 +612,9 @@ export class IterationOrchestrator {
 						? `Approval policy changed from "${policyChange.from}" to "${policyChange.to}" (${policyChange.reason}). Tool calls from here on are reviewed under the new policy.`
 						: null
 					// State that changed during the run, reported once per turn.
-					// `turn` contributions land HERE and nowhere else: in the
-					// system prompt they would be cached for the run or read as
-					// a standing instruction, and either way the state they
-					// exist to report goes stale silently.
+					// `turn` contributions are recomputed here, not fixed when the
+					// run's prompt is assembled. They retain system authority and
+					// may affect caching just like the other system contributions.
 					const turnSections =
 						this.ctx.promptContributions?.render('turn', {
 							iteration: iterationNum,
@@ -627,6 +626,7 @@ export class IterationOrchestrator {
 					const requestHistory = stepPreamble
 						? [...baseMessages, createSystemMessage(stepPreamble)]
 						: [...baseMessages]
+					if (step.context) requestHistory.push(this.stepContextMessage(step.context))
 					const messages = projectRequestRichContent(
 						this.projectObservations(requestHistory),
 						this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
@@ -1809,25 +1809,13 @@ export class IterationOrchestrator {
 		)
 	}
 
-	/**
-	 * Ask the host how to shape this step.
-	 *
-	 * Fails OPEN on a throw — same reasoning as `stopWhen` and deliberately
-	 * opposite to a guardrail: a broken step-shaping hook should not kill an
-	 * otherwise healthy run, and unlike a safety check, nothing unsafe gets
-	 * through when it is skipped.
-	 */
-	/**
-	 * A host's chance to refuse the next model call.
-	 *
-	 * Fails CLOSED, which is the opposite of `prepareStep` below and the
-	 * reason they are separate hooks rather than one with two return
-	 * shapes. A broken step-SHAPER skipped costs a run its per-step tuning;
-	 * a broken step-REFUSER skipped is a refusal that did not happen, which
-	 * is precisely what the hook exists to prevent. The thrown error's
-	 * message becomes the reason, so an operator is not left with a run
-	 * that stopped and no account of it.
-	 */
+	private stepContextMessage(content: string) {
+		return createRuntimeContextMessage(
+			`Current step context (runtime-generated; not a new user request):\n${content}`,
+			'step-context',
+		)
+	}
+
 	private stepContext(stepNumber: number, prepared: PrepareStepResult): PrepareStepContext {
 		const model = prepared.model ?? this.ctx.runConfig.model
 		const window = resolveContextWindow(
@@ -1841,7 +1829,9 @@ export class IterationOrchestrator {
 		)
 		const skills = prepared.skills ? renderSkillsSection([...prepared.skills]) : null
 		const preamble = [prepared.system, skills].filter(Boolean).join('\n\n')
-		const preparedTokens = preamble ? estimateMessageTokens(createSystemMessage(preamble)) : 0
+		const preparedTokens =
+			(preamble ? estimateMessageTokens(createSystemMessage(preamble)) : 0) +
+			(prepared.context ? estimateMessageTokens(this.stepContextMessage(prepared.context)) : 0)
 		const responseReserve = Math.min(
 			prepared.maxResponseTokens ??
 				this.ctx.runConfig.maxResponseTokens ??
@@ -1868,6 +1858,7 @@ export class IterationOrchestrator {
 		}
 	}
 
+	/** Refuse the next call on a veto or hook error; do not skip a failed admission check. */
 	private async beforeStep(stepNumber: number): Promise<StepVeto | undefined> {
 		const configured = this.ctx.beforeStep
 		if (!configured) return undefined
@@ -1878,11 +1869,13 @@ export class IterationOrchestrator {
 		}
 	}
 
+	/** Shape the next request. A failed tuning stage is skipped; admission belongs to beforeStep. */
 	private async prepareStep(stepNumber: number): Promise<{
 		allowedTools?: string[]
 		toolChoice?: ToolChoice
 		model?: string
 		system?: string
+		context?: string
 		skills?: readonly Skill[]
 		temperature?: number
 		maxResponseTokens?: number
@@ -1917,6 +1910,7 @@ export class IterationOrchestrator {
 			toolChoice?: ToolChoice
 			model?: string
 			system?: string
+			context?: string
 			skills?: readonly Skill[]
 			temperature?: number
 			maxResponseTokens?: number
@@ -1953,6 +1947,7 @@ export class IterationOrchestrator {
 		if (result.toolChoice !== undefined) prepared.toolChoice = result.toolChoice
 		if (result.model !== undefined) prepared.model = result.model
 		if (result.system !== undefined) prepared.system = result.system
+		if (result.context !== undefined) prepared.context = result.context
 		if (result.skills !== undefined) prepared.skills = result.skills
 		if (result.temperature !== undefined) prepared.temperature = result.temperature
 		if (result.maxResponseTokens !== undefined) {

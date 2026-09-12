@@ -9,7 +9,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { PrepareStep } from '../../../types/run/index.js'
+import type { PrepareStep, PrepareStepChain } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
 import type { ToolDefinition } from '../../../types/tool/index.js'
 import { drainQuery } from '../index.js'
@@ -45,7 +45,7 @@ function tool(name: string, calls: string[]): ToolDefinition {
 
 async function run(opts: {
 	turns: NonNullable<ConstructorParameters<typeof MockLLMProvider>[0]>['turns']
-	prepareStep?: PrepareStep
+	prepareStep?: PrepareStepChain
 	toolNames?: string[]
 }) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-prepare-'))
@@ -231,4 +231,80 @@ describe('prepareStep is safe to get wrong', () => {
 		})
 		expect(provider.requests[0]?.model).toBe('async-model')
 	})
+})
+
+it('replaces request-only context without changing history or operator intent', async () => {
+	const intents: unknown[] = []
+	const { provider, result } = await run({
+		turns: [
+			{ toolCalls: [{ name: 'search', args: {} }] },
+			{ toolCalls: [{ name: 'search', args: {} }] },
+			{ text: 'done' },
+		],
+		prepareStep: ({ stepNumber, messages, latestUserMessage }) => {
+			intents.push(latestUserMessage?.content)
+			expect(JSON.stringify(messages)).not.toContain('OBSERVATION-')
+			return stepNumber < 3
+				? { context: `OBSERVATION-${stepNumber}`, system: 'Stable step policy' }
+				: undefined
+		},
+	})
+	for (const [index, request] of provider.requests.entries()) {
+		const observations = request.messages.filter(
+			(m) =>
+				m.role === 'user' &&
+				m.source?.type === 'runtime-context' &&
+				m.source.kind === 'step-context',
+		)
+		expect(observations).toHaveLength(index < 2 ? 1 : 0)
+		if (index < 2) {
+			expect(request.messages.at(-1)).toBe(observations[0])
+			expect(observations[0]!.content).toContain('runtime-generated; not a new user request')
+			expect(observations[0]!.content).toContain(`OBSERVATION-${index + 1}`)
+			expect(
+				request.messages
+					.filter((m) => m.role === 'system')
+					.some((m) => m.content?.includes('Stable step policy')),
+			).toBe(true)
+		}
+	}
+	expect(intents).toEqual(['do the work', 'do the work', 'do the work'])
+	expect(JSON.stringify(result.messages)).not.toContain('OBSERVATION-')
+})
+
+it('accounts for preceding context stages and composes them in declaration order', async () => {
+	const budgets: number[] = []
+	const { provider } = await run({
+		turns: [{ text: 'done' }],
+		prepareStep: [
+			({ contextBudget }) => {
+				budgets.push(contextBudget!.remainingTokens)
+				return { context: 'DATA-'.repeat(1000), system: 'Policy' }
+			},
+			({ prepared, contextBudget }) => {
+				budgets.push(contextBudget!.remainingTokens)
+				return { context: `${prepared.context} END` }
+			},
+		],
+	})
+	expect(budgets[0]! - budgets[1]!).toBeGreaterThan(1000)
+	expect(provider.requests[0]!.messages.at(-1)!.content).toContain('DATA-'.repeat(1000) + ' END')
+	expect(
+		provider.requests[0]!.messages.filter((m) => m.role === 'system').some(
+			(m) => m.content === 'Policy',
+		),
+	).toBe(true)
+})
+
+it('allows a later stage to clear context without clearing system policy', async () => {
+	const { provider } = await run({
+		turns: [{ text: 'done' }],
+		prepareStep: [() => ({ context: 'STALE-DATA', system: 'Policy' }), () => ({ context: '' })],
+	})
+	expect(JSON.stringify(provider.requests[0]!.messages)).not.toContain('STALE-DATA')
+	expect(
+		provider.requests[0]!.messages.filter((m) => m.role === 'system').some(
+			(m) => m.content === 'Policy',
+		),
+	).toBe(true)
 })

@@ -1,0 +1,450 @@
+{
+  "date": "2026-09-12",
+  "baseCommit": "cff2b6aa",
+  "environment": "Linux/WSL, Node 24.19.0",
+  "protocol": "active-cli.mjs; unchanged outcome assertions; passive request-shape and usage recording; one declared live Codex Luna/low sample",
+  "reference": {
+    "repo": "https://github.com/pydantic/pydantic-ai-harness",
+    "revision": "c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504",
+    "file": "pydantic_ai_harness/tool_output_limits/_capability.py",
+    "observation": "Bounded head/tail spill preview with a read_tool_result handle. Examined for subsequent output-cost work; no preview-cap change implemented in this experiment."
+  },
+  "priorSamples": [
+    {
+      "root": "/tmp/namzu-active-evidence-cli-mm3zwK",
+      "usage": {
+        "totalTokens": 82425,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 82425
+        }
+      },
+      "passed": true,
+      "systemChars": [
+        10651,
+        11199,
+        11252,
+        11307,
+        11362
+      ],
+      "systemDigests": [
+        "d8f54e4f7bb9df0dadd6cfb82ed4552edae67c685ba37e522cabc86b7c15e993",
+        "581b06b17ca5e20156896ccce446cb14f5090a20ef4fd213747d2c5136fb1c44",
+        "76f13dc4ae8726719d852952cdca5e465a2c575db1a7939d30f11f7a36c416d5",
+        "df99656a5bfebad962f620e2c7d619468922e60d2f8833be90e14a222c872433",
+        "5f0a41d8c24564c06b9b4cf380095d93cbea052e33c7b4cd0aa4e88dfd342044"
+      ],
+      "distinctToolSchemaDigests": 1,
+      "requestUsage": [
+        {
+          "promptTokens": 6395,
+          "completionTokens": 86,
+          "totalTokens": 6481,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "promptTokens": 17896,
+          "completionTokens": 40,
+          "totalTokens": 17936,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "promptTokens": 18113,
+          "completionTokens": 58,
+          "totalTokens": 18171,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "promptTokens": 18869,
+          "completionTokens": 79,
+          "totalTokens": 18948,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "promptTokens": 20822,
+          "completionTokens": 67,
+          "totalTokens": 20889,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      ]
+    },
+    {
+      "root": "/tmp/namzu-active-evidence-cli-aPnlqu",
+      "usage": {
+        "totalTokens": 45835,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 45835
+        }
+      },
+      "passed": true,
+      "systemChars": [
+        10651,
+        11253,
+        11307
+      ],
+      "systemDigests": [
+        "8a39da51eb1c6197263ada15c49d2a6d7687aff1df2ad1ab98fdfe0fbfc4c255",
+        "ac5848affd17db7be9dfcc5216fd2c188dd8b11fcd2570c003e73f3aa6e62092",
+        "f8c32502648cbe0d6f1c16b5b4ea26c1905b9f2691a06420c0a32b897a76c21c"
+      ],
+      "distinctToolSchemaDigests": 1,
+      "requestUsage": [
+        {
+          "promptTokens": 6395,
+          "completionTokens": 137,
+          "totalTokens": 6532,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        },
+        {
+          "promptTokens": 18588,
+          "completionTokens": 125,
+          "totalTokens": 18713,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "promptTokens": 20526,
+          "completionTokens": 64,
+          "totalTokens": 20590,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "root": "/tmp/namzu-active-evidence-cli-jeOY25",
+      "live": false,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "2528be9d-db43-4251-8b22-82d49d41fdb6",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "observations": {
+        "bothIdentifiersRecovered": true,
+        "originalReadCalls": 1,
+        "searches": 1,
+        "exactReads": 1,
+        "failedTools": 0,
+        "workspaceStillReplaced": true
+      },
+      "requestShapes": [
+        {
+          "request": 1,
+          "systemChars": 10651,
+          "systemDigest": "7705908374793525b816f79902bc7c98b89a7e911cd813b1e969175826116479",
+          "portableInputChars": 489,
+          "commonPortablePrefixChars": 0,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 2,
+          "systemChars": 10651,
+          "systemDigest": "7705908374793525b816f79902bc7c98b89a7e911cd813b1e969175826116479",
+          "portableInputChars": 41417,
+          "commonPortablePrefixChars": 489,
+          "stepContextCount": 1,
+          "stepContextChars": 612
+        },
+        {
+          "request": 3,
+          "systemChars": 10651,
+          "systemDigest": "7705908374793525b816f79902bc7c98b89a7e911cd813b1e969175826116479",
+          "portableInputChars": 43463,
+          "commonPortablePrefixChars": 40766,
+          "stepContextCount": 1,
+          "stepContextChars": 666
+        },
+        {
+          "request": 4,
+          "systemChars": 10651,
+          "systemDigest": "7705908374793525b816f79902bc7c98b89a7e911cd813b1e969175826116479",
+          "portableInputChars": 50100,
+          "commonPortablePrefixChars": 42750,
+          "stepContextCount": 1,
+          "stepContextChars": 721
+        }
+      ],
+      "requestUsage": [
+        {
+          "iteration": 1,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 2,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 3,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 4,
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "fingerprints": {
+        "packages/sdk/src/runtime/query/iteration/index.ts": "22540d39a4082753449eede55cc8b25297d94e20b9dee1e7df9c6a9ab7f6d27a",
+        "packages/sdk/src/types/run/prepare-step.ts": "b947c51cd6b3b829195cae363613a70f3fbf5a818f7b8267fdfcf97a53215ea5",
+        "packages/sdk/src/types/message/index.ts": "8498f1b925e68f8b161c62bb8f2bb7e58162f5f34ffbb9ddfabbc72ae8fb3062",
+        "packages/cli/src/integrations/sessions/context-inventory.ts": "9cf80e2f16ae333cf1ea881b09252118c6445de2d20e3cf3ab6e3fc5778a7dee",
+        "packages/sdk/src/store/evidence/passages.ts": "2743f3edd0ccc28b389bc347ceb160c1a51c7a2e09fa616ef0a07216d7b1c0b5",
+        "packages/sdk/src/store/evidence/disk.ts": "96444d9901ef942821c6e67af15400ef57b26d0524e87cededb2cf5950643932",
+        "packages/sdk/src/store/evidence/types.ts": "bbf06ed0fc62ff8e0c53a7360c58cf7d4ec348571170ca1df8b53cee653cef4b",
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "77efb390e9d076ecbab661df19160df9d5d290ff302be23da5308c0d563f4778",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "3a4b10d4262c5e5cf2a2347933c6719a5ac88f2a90e563c2c2b96cec107eb8fc"
+      },
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "budget": {
+        "limit": 65000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 65000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "root": "/tmp/namzu-active-evidence-cli-hblhbF",
+      "live": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "f5bbcb84-cf2a-4aaf-b5d7-4dc0e81306a9",
+            "seq": 18,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "f5bbcb84-cf2a-4aaf-b5d7-4dc0e81306a9",
+            "seq": 18,
+            "part": 0,
+            "byteOffset": 183131
+          }
+        }
+      ],
+      "observations": {
+        "bothIdentifiersRecovered": true,
+        "originalReadCalls": 1,
+        "searches": 1,
+        "exactReads": 2,
+        "failedTools": 0,
+        "workspaceStillReplaced": true
+      },
+      "requestShapes": [
+        {
+          "request": 1,
+          "systemChars": 10651,
+          "systemDigest": "0c1b14bf513abb164599b80303340b006ab720f74d99131286ce636fea20b8de",
+          "portableInputChars": 489,
+          "commonPortablePrefixChars": 0,
+          "stepContextCount": 0,
+          "stepContextChars": 0
+        },
+        {
+          "request": 2,
+          "systemChars": 10651,
+          "systemDigest": "0c1b14bf513abb164599b80303340b006ab720f74d99131286ce636fea20b8de",
+          "portableInputChars": 41583,
+          "commonPortablePrefixChars": 489,
+          "stepContextCount": 1,
+          "stepContextChars": 612
+        },
+        {
+          "request": 3,
+          "systemChars": 10651,
+          "systemDigest": "0c1b14bf513abb164599b80303340b006ab720f74d99131286ce636fea20b8de",
+          "portableInputChars": 44050,
+          "commonPortablePrefixChars": 40932,
+          "stepContextCount": 1,
+          "stepContextChars": 666
+        },
+        {
+          "request": 4,
+          "systemChars": 10651,
+          "systemDigest": "0c1b14bf513abb164599b80303340b006ab720f74d99131286ce636fea20b8de",
+          "portableInputChars": 57477,
+          "commonPortablePrefixChars": 43337,
+          "stepContextCount": 1,
+          "stepContextChars": 776
+        }
+      ],
+      "requestUsage": [
+        {
+          "iteration": 1,
+          "promptTokens": 6395,
+          "completionTokens": 81,
+          "totalTokens": 6476,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 2,
+          "promptTokens": 17919,
+          "completionTokens": 42,
+          "totalTokens": 17961,
+          "cachedTokens": 5632,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 3,
+          "promptTokens": 18626,
+          "completionTokens": 186,
+          "totalTokens": 18812,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        {
+          "iteration": 4,
+          "promptTokens": 22487,
+          "completionTokens": 69,
+          "totalTokens": 22556,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      ],
+      "fingerprints": {
+        "packages/sdk/src/runtime/query/iteration/index.ts": "22540d39a4082753449eede55cc8b25297d94e20b9dee1e7df9c6a9ab7f6d27a",
+        "packages/sdk/src/types/run/prepare-step.ts": "b947c51cd6b3b829195cae363613a70f3fbf5a818f7b8267fdfcf97a53215ea5",
+        "packages/sdk/src/types/message/index.ts": "8498f1b925e68f8b161c62bb8f2bb7e58162f5f34ffbb9ddfabbc72ae8fb3062",
+        "packages/cli/src/integrations/sessions/context-inventory.ts": "9cf80e2f16ae333cf1ea881b09252118c6445de2d20e3cf3ab6e3fc5778a7dee",
+        "packages/sdk/src/store/evidence/passages.ts": "2743f3edd0ccc28b389bc347ceb160c1a51c7a2e09fa616ef0a07216d7b1c0b5",
+        "packages/sdk/src/store/evidence/disk.ts": "96444d9901ef942821c6e67af15400ef57b26d0524e87cededb2cf5950643932",
+        "packages/sdk/src/store/evidence/types.ts": "bbf06ed0fc62ff8e0c53a7360c58cf7d4ec348571170ca1df8b53cee653cef4b",
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "77efb390e9d076ecbab661df19160df9d5d290ff302be23da5308c0d563f4778",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "3a4b10d4262c5e5cf2a2347933c6719a5ac88f2a90e563c2c2b96cec107eb8fc"
+      },
+      "usage": {
+        "totalTokens": 65805,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 65805
+        }
+      },
+      "budget": {
+        "limit": 65000,
+        "ownTokens": 65805,
+        "treeTokens": 65805,
+        "reservedTokens": 0,
+        "remainingTokens": 0,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    }
+  ],
+  "finalSourceFingerprints": {
+    "packages/sdk/src/runtime/query/iteration/index.ts": "d04e850e62f153485f951ebe0e07bb5d352c73b78e29ed77dfd0b2b990e58c82",
+    "packages/sdk/src/types/run/prepare-step.ts": "1d34c5932e6c9a6a022bf33e99eeb42a97183f49393c8e35ebed6465285c36f2",
+    "packages/providers/anthropic/src/client.ts": "cfc68c4c4e77088604744b593c101427f7157a30ffd1ffc01836776044e35c67",
+    "packages/providers/anthropic/src/__tests__/cache-anchors.test.ts": "b37d86dc13628e7fa95d9f6009f3adf5407f859fa31076c3eb86a387f4420c6f",
+    "packages/cli/src/tui/__tests__/conversation-search-reaches-session.test.ts": "1d6b013f618d721182dfe27a55cd4bfabbcfcf7009991b3585ab4ac112f330b2"
+  },
+  "sourceNotes": [
+    "Run fingerprints preserve the source at execution. Subsequent comment-only changes in iteration/index.ts and prepare-step.ts were compared using TypeScript transpileModule with removeComments; emitted JavaScript was identical.",
+    "Anthropic cache-boundary implementation was tested after the live Codex run using the complete provider suite and actual CLI Session wire recording; it was not a live Anthropic request."
+  ],
+  "limits": [
+    "Portable prefix lengths are UTF-16 string lengths of a diagnostic serialization, not native request/cache-key or token measurements.",
+    "Stable system content was checked within each run, not across different synthetic workspaces.",
+    "The prior live samples used different model call sequences and are not controlled cache baselines.",
+    "One request reported 5632 cached tokens. No causal cache-hit, latency or cost improvement is established.",
+    "The live sample made two overlapping exact reads. It did not resolve all redundant context use.",
+    "The 65000-token admission budget can settle above its threshold; the live run reported 65805 tokens.",
+    "Subscription tokens had no price mapping; zero recorded cost does not mean free."
+  ]
+}

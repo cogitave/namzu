@@ -31,7 +31,7 @@ export interface PrepareStepContext {
 	readonly signal?: AbortSignal
 	/**
 	 * Estimated room for additional step context after existing messages,
-	 * earlier stages' system/skills, and a response reserve. Recomputed for
+	 * earlier stages' system/skills/context, and a response reserve. Recomputed for
 	 * each stage and its selected model; not a billing limit or fit guarantee.
 	 * `beforeStep` observes its existing boundary before compaction runs.
 	 */
@@ -127,10 +127,9 @@ export interface PrepareStepResult {
 	 * research wants the search skill, writing wants the style guide, and
 	 * neither benefits from carrying the other.
 	 *
-	 * Rendered into the same ephemeral trailing system message `system`
-	 * uses, and for the same reason: appending leaves the cached prefix
-	 * intact, where rewriting the run's prompt would invalidate it every
-	 * iteration for what is usually one phase's worth of guidance.
+	 * Rendered into the same ephemeral system message `system` uses. Providers
+	 * may move that message before history, so changing skills can invalidate
+	 * reuse of the conversation prefix even though the run's prompt is unchanged.
 	 *
 	 * ADDITIVE to the run's skills, not a replacement. A skill the run
 	 * always carries is not something a step should be able to take away by
@@ -152,11 +151,24 @@ export interface PrepareStepResult {
 	 * Guidance for this step ONLY, appended as a system message that is not
 	 * retained afterwards.
 	 *
-	 * Kept separate from the run's system prompt on purpose: the prompt is
-	 * the cached prefix, and rewriting it per step would bust the cache on
-	 * every iteration for what is usually one sentence of phase direction.
+	 * Some providers collect all system messages before conversation history.
+	 * Changing this field can therefore invalidate reuse of the history prefix.
+	 * Use `context` for changing observations that do not require system authority.
 	 */
 	readonly system?: string
+
+	/**
+	 * Current observations for this request only, appended after history and any
+	 * step system guidance. Carried as a visibly labelled user-role message with
+	 * runtime provenance, not operator input or system authority. It never enters
+	 * durable conversation history or replaces `latestUserMessage`.
+	 *
+	 * Useful for changing inventories and retrieved data on providers that hoist
+	 * system messages. This preserves the history's placement, not a cache-hit
+	 * guarantee. Later stages may compose `prepared.context` or replace it; an
+	 * empty string clears it. The next step starts without it.
+	 */
+	readonly context?: string
 
 	readonly temperature?: number
 	readonly maxResponseTokens?: number

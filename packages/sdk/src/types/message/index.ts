@@ -246,6 +246,7 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'auto-continuation',
 	'limit-finalization',
 	'steering',
+	'step-context',
 	'structured-output',
 	'task-completion',
 ] as const

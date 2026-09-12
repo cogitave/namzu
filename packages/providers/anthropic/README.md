@@ -72,6 +72,12 @@ configured route replays them after restart or `/resume`; another model,
 provider, or chain member receives portable assistant/tool history without
 foreign native thinking metadata.
 
+When message caching is enabled, its final breakpoint ends before any
+[request-only step context](../../../docs/sdk/step-context.md), on the stable
+conversation history. The changing context remains in the request, outside that
+cache boundary. Requests without step context keep their ordinary message
+breakpoint; provider cache hits are not guaranteed.
+
 Set exactly one of `apiKey` or `authToken`. The kernel's credential vault can
 hold the key instead, so it never reaches the driver's config as a plain
 string.
