@@ -63,7 +63,7 @@ searchable payload shapes before returning that page's matches. A corrupt record
 invalidates matches from that run on the current page. Earlier pages establish
 only the visited records, not validity of the entire transcript.
 
-Each call examines at most 100 directory entries and reads at most 8 MiB, in
+Each call discovers at most 100 directory entries and reads at most 8 MiB, in
 64 KiB chunks. Individual JSONL records are capped at 4 MiB; total transcript
 size is no longer capped at 2 MiB. Match payloads total at most 12,000 bytes.
 `nextCursor`, when present, continues at an unconsumed record or message inside
@@ -89,9 +89,21 @@ ceiling and yields instead of attempting another run in that call. `incomplete` 
 exists or if any run or partial evidence was omitted. An authenticated full spill
 does not become incomplete merely because its model-visible preview was truncated. Follow continuation even
 when the current page has zero matches. Incomplete absence is not proof that
-missing evidence does not exist. Enumeration is bounded before sorting; cursors
-cover only the initially enumerated runs, not a complete index beyond 100 entries.
-An exact `runId` can search a run excluded by enumeration.
+missing evidence does not exist. Directory discovery also continues: after the
+current batch's runs have been visited, the next call discovers up to 100 more
+entries. Empty batches containing no run IDs still return a continuation. Run
+IDs are sorted within each batch; discovery order is the filesystem's order,
+not chronology or relevance ranking. An exact `runId` bypasses enumeration.
+
+Directory continuations retain a private descriptor and cached name pages,
+bounded to 32 scans and 128 pages per process. Concurrent use of the same
+continuation returns the same page. Names are discovery hints, never ownership
+authority or cached evidence: each run still passes the regular scope and
+source checks. A changed or replaced run directory invalidates further
+discovery and requires a new search. Exhaustion closes the descriptor;
+expiration, eviction and CLI Session shutdown release abandoned scans. Cursors
+are process-local and do not survive restart. An exactly full directory batch
+may require one final empty page to establish exhaustion.
 
 This surface searches only runs physically owned by the selected conversation.
 It does not traverse fork ancestry, delegated sessions, arbitrary artifact

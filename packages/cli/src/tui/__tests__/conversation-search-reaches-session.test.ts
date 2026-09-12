@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { mkdtemp, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AnthropicProvider } from '@namzu/anthropic'
@@ -217,6 +217,40 @@ it.each([false, true])(
 		)
 	},
 )
+
+it('closes retained directory discovery when the owning CLI Session closes', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-discovery-owner-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	const runs = join(
+		new CliPathBuilder(sessions.root).sessionDir(sessions.projectId, sessionId),
+		'runs',
+	)
+	await mkdir(runs, { recursive: true })
+	for (let i = 0; i < 100; i++) await mkdir(join(runs, `not-a-run-${i}`))
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider: new MockLLMProvider() } as never)
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		scope: {
+			sessionId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+			topicId: sessions.topicId,
+		},
+		sandbox: { enabled: false },
+		memory: { recall: false },
+	})
+	opened.push(session)
+	const first = await searchConversation(sessions, sessionId, { query: 'DELTA' })
+	expect(first.nextCursor).toBeDefined()
+	await session.close()
+	await expect(
+		searchConversation(sessions, sessionId, { query: 'DELTA', cursor: first.nextCursor }),
+	).rejects.toThrow('expired')
+})
 
 it('keeps evidence attached to its invoking run when the host changes conversations', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-evidence-session-'))

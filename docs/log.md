@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Made CLI conversation run discovery resumable beyond its first 100 directory entries, with bounded process-local resources, consistent concurrent pages, directory-change refusal and Session shutdown cleanup.
+
 - **Update** Added writer-owned text predecessor links to SDK JSONL events so bounded live evidence recall skips nontext bookkeeping, while preserving operational records, integrity boundaries, exact reads and restart behavior.
 
 - **Update** Exposed writer-bound evidence capture to SDK step preparation and connected automatic CLI recall within a running invocation, preserving shared read limits and cancellation; verified actual compaction and bounded live CLI behavior.

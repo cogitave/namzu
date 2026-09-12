@@ -1,6 +1,6 @@
 import { randomBytes } from 'node:crypto'
 import { constants } from 'node:fs'
-import { lstat, open, opendir } from 'node:fs/promises'
+import { lstat, open } from 'node:fs/promises'
 import { join, relative, resolve, sep } from 'node:path'
 import {
 	type RunEvidenceScope,
@@ -11,10 +11,10 @@ import {
 	asRunId,
 	createDiskRunTextEvidenceSource,
 	defineTool,
-	isEntityId,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
 import { CliPathBuilder } from './paths.js'
+import { RunDiscovery } from './run-discovery.js'
 import type { CliSessions } from './store.js'
 
 /** Stable capability guidance; include only when this host mounts both tools. */
@@ -24,7 +24,6 @@ For what a file contained earlier, recover its earlier observation; reading or s
 
 const RECORD_BYTES = 4 * 1024 * 1024
 const SCAN_BYTES = 8 * 1024 * 1024
-const MAX_RUNS = 100
 const OUTPUT_BYTES = 12_000
 
 interface EvidenceMatch {
@@ -96,6 +95,23 @@ interface SearchCursor {
 	indexCursor?: string
 	address?: string
 	byteOffset?: number
+	discoveryCursor?: string
+	singleRunId?: string
+}
+const runDiscovery = new RunDiscovery()
+
+function conversationScope(sessions: CliSessions, sessionId: SessionId): string {
+	return JSON.stringify([resolve(sessions.root), sessions.tenantId, sessions.projectId, sessionId])
+}
+
+/** Release process-local search resources after the host has settled this conversation's work. */
+export async function releaseConversationEvidence(
+	sessions: CliSessions,
+	sessionId: SessionId,
+): Promise<void> {
+	const scope = conversationScope(sessions, sessionId)
+	await runDiscovery.release(scope)
+	for (const [token, cursor] of cursors) if (cursor.scope === scope) cursors.delete(token)
 }
 // Short handles keep pagination metadata out of the model context. The bounded
 // process-local cache owns the scope and file snapshot; callers cannot edit them.
@@ -463,35 +479,24 @@ async function searchConversationCore(
 		incomplete: false,
 		unavailableRuns: 0,
 	}
-	const scope = JSON.stringify([
-		resolve(sessions.root),
-		sessions.tenantId,
-		sessions.projectId,
-		sessionId,
-	])
+	const scope = conversationScope(sessions, sessionId)
 	let cursor: SearchCursor
 	if (input.cursor) {
 		cursor = decodeCursor(input.cursor, scope, queryKey)
 		if (cursor.caseSensitive !== caseSensitive)
 			throw new Error('Search cursor case sensitivity changed.')
-		if (input.runId && (cursor.runIds.length !== 1 || cursor.runIds[0] !== asRunId(input.runId)))
+		if (input.runId && cursor.singleRunId !== asRunId(input.runId))
 			throw new Error('The run ID does not match the continuation scope.')
 	} else {
 		const runIds: string[] = []
+		let discoveryCursor: string | undefined
 		if (input.runId) runIds.push(asRunId(input.runId))
 		else {
 			try {
 				await checkedPath(sessions.root, runsRoot)
-				const directory = await opendir(runsRoot)
-				let entries = 0
-				for await (const entry of directory) {
-					signal?.throwIfAborted()
-					if (++entries > MAX_RUNS) {
-						result.incomplete = true
-						break
-					}
-					if (isEntityId(entry.name, 'run')) runIds.push(entry.name)
-				}
+				const page = await runDiscovery.read(scope, runsRoot, undefined, signal)
+				runIds.push(...page.runIds)
+				discoveryCursor = page.next
 			} catch (error) {
 				if ((error as NodeJS.ErrnoException).code === 'ENOENT') return result
 				throw error
@@ -501,6 +506,8 @@ async function searchConversationCore(
 			scope,
 			query: queryKey,
 			caseSensitive,
+			discoveryCursor,
+			singleRunId: input.runId,
 			runIds: runIds.filter((id) => id !== excluded).sort(),
 			index: 0,
 			offset: 0,
@@ -508,6 +515,15 @@ async function searchConversationCore(
 			omitted: result.incomplete,
 			expires: Date.now() + 10 * 60_000,
 		}
+	}
+	// Read at most one directory page per call, and only after all runs in
+	// the preceding page have been visited. Empty/noise pages still continue.
+	if (input.cursor && cursor.index >= cursor.runIds.length && cursor.discoveryCursor) {
+		await checkedPath(sessions.root, runsRoot)
+		const page = await runDiscovery.read(scope, runsRoot, cursor.discoveryCursor, signal)
+		cursor.runIds = page.runIds.filter((id) => id !== excluded)
+		cursor.index = 0
+		cursor.discoveryCursor = page.next
 	}
 	result.incomplete ||= cursor.omitted
 	let outputBytes = 0
@@ -622,7 +638,7 @@ async function searchConversationCore(
 		}
 		nextRun(cursor)
 	}
-	if (cursor.index < cursor.runIds.length) {
+	if (cursor.index < cursor.runIds.length || cursor.discoveryCursor) {
 		result.incomplete = true
 		result.nextCursor = encodeCursor(cursor)
 		result.guidance +=

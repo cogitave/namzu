@@ -91,3 +91,7 @@ retained text after compaction within the same running invocation. The combined
 pass still has four pages and an 8 MiB accounted-read ceiling. Explicit tools
 remain available for later pages, longer excerpts and exact sequential reads;
 automatic recall does not claim an exhaustive search of long-running history.
+The CLI's directory discovery continues across batches of 100 entries, so that
+limit no longer permanently excludes later runs. The automatic four-page pass
+can still stop before discovery or text traversal is exhausted; explicit search
+continuations remain necessary beyond that allowance.

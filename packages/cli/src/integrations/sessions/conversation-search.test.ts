@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, symlink, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, opendir, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
@@ -18,6 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import {
 	readConversationEvidence,
+	releaseConversationEvidence,
 	searchConversation,
 	searchConversationTerms,
 } from './conversation-search.js'
@@ -33,7 +34,10 @@ import {
 } from './store.js'
 
 const dirs: string[] = []
-afterEach(() => {
+const evidenceOwners: { sessions: CliSessions; sessionId: SessionId }[] = []
+afterEach(async () => {
+	for (const owner of evidenceOwners.splice(0))
+		await releaseConversationEvidence(owner.sessions, owner.sessionId)
 	for (const dir of dirs.splice(0)) removeTempDir(dir)
 })
 
@@ -42,6 +46,7 @@ async function fixture() {
 	dirs.push(cwd)
 	const sessions = await openSessions(cwd)
 	const sessionId = await startConversation(sessions)
+	evidenceOwners.push({ sessions, sessionId })
 	return { cwd, sessions, sessionId }
 }
 
@@ -63,6 +68,52 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 describe('bounded original conversation evidence', () => {
+	it('reaches runs beyond the initial 100-entry page without duplicates or false completeness', async () => {
+		const { sessions, sessionId } = await fixture()
+		for (let i = 0; i < 120; i++) await transcript(sessions, sessionId, 'unrelated observation')
+		const runs = join(
+			new CliPathBuilder(sessions.root).sessionDir(sessions.projectId, sessionId),
+			'runs',
+		)
+		const directory = await opendir(runs)
+		const ids: string[] = []
+		for await (const entry of directory) ids.push(entry.name)
+		const target = ids[119]
+		if (!target) throw new Error('Fixture target missing')
+		await writeFile(
+			join(runs, target, 'transcript.jsonl'),
+			`${[
+				{ type: 'run_started', runId: target, seq: 1 },
+				{ type: 'message_completed', runId: target, seq: 2, content: 'DELTA ORIGINAL-471' },
+			]
+				.map((e) => JSON.stringify(e))
+				.join('\n')}\n`,
+		)
+		const first = await searchConversation(sessions, sessionId, { query: 'DELTA' })
+		expect(first.matches).toHaveLength(0)
+		expect(first.scannedRuns).toBe(100)
+		expect(first.incomplete).toBe(true)
+		expect(first.nextCursor).toBeDefined()
+		const options = { query: 'DELTA', cursor: first.nextCursor }
+		const [second, repeated] = await Promise.all([
+			searchConversation(sessions, sessionId, options),
+			searchConversation(sessions, sessionId, options),
+		])
+		expect(second).toEqual(repeated)
+		expect(second.scannedRuns).toBe(20)
+		expect(second.matches).toMatchObject([{ runId: target, text: 'DELTA ORIGINAL-471' }])
+		expect(second.incomplete).toBe(false)
+		expect(second.nextCursor).toBeUndefined()
+		const exact = await readConversationEvidence(sessions, sessionId, {
+			runId: target,
+			seq: 2,
+			part: 0,
+		})
+		expect(exact.text).toBe('DELTA ORIGINAL-471')
+		await releaseConversationEvidence(sessions, sessionId)
+		await expect(searchConversation(sessions, sessionId, options)).rejects.toThrow('expired')
+	})
+
 	it('recalls an active observation past 512 nontext events within the live page allowance', async () => {
 		const { cwd, sessions, sessionId } = await fixture()
 		const runId = generateRunId()

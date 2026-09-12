@@ -195,6 +195,7 @@ import {
 	CONVERSATION_EVIDENCE_GUIDANCE,
 	buildConversationReadTool,
 	buildConversationSearchTool,
+	releaseConversationEvidence,
 } from '../integrations/sessions/conversation-search.js'
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
 import type { CliSessions } from '../integrations/sessions/store.js'
@@ -2397,6 +2398,9 @@ export async function createAgentSession(
 	})
 	const operations = new SessionOperationOwner(async () => {
 		const results = await Promise.allSettled([
+			options.conversationSessions
+				? releaseConversationEvidence(options.conversationSessions, scope.sessionId)
+				: undefined,
 			subagentRuntime?.close?.(),
 			sessionPlugins
 				? sessionPlugins.manager
