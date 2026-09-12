@@ -1,0 +1,1073 @@
+{
+  "date": "2026-09-12",
+  "trials": [
+    {
+      "root": "/tmp/namzu-empty-run-search-Y2FHn5",
+      "baseline": true,
+      "live": false,
+      "noiseRuns": 32,
+      "passes": [
+        {
+          "temperature": "cold",
+          "pages": [
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1976,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 1978,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 2,
+              "scannedRuns": 1,
+              "scannedBytes": 688550,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 307.72030000000007
+        },
+        {
+          "temperature": "warm",
+          "pages": [
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3247,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 0,
+              "scannedRuns": 1,
+              "scannedBytes": 3248,
+              "incomplete": true,
+              "continues": true
+            },
+            {
+              "matches": 2,
+              "scannedRuns": 1,
+              "scannedBytes": 645361,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 202.81370000000015
+        }
+      ],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "seed": {
+        "sessionId": "cad96eee-1384-4c28-83a5-b4befea324d8",
+        "runId": "11dbc4ca-a5c5-4fb5-a599-1c5189461c4f",
+        "runDir": "/tmp/namzu-empty-run-search-Y2FHn5/home/sessions/cad96eee-1384-4c28-83a5-b4befea324d8/runs/11dbc4ca-a5c5-4fb5-a599-1c5189461c4f",
+        "tracking": "TRACK-9c0e89a3-8ee8-4179-8024-85da09ca66ff",
+        "destination": "DEPOT-47a28670-a4a8-4a67-b60d-6cbacc69ea56",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "passed": true,
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "fa724d573970851ae5f1a68b7110b7207bccb058d029771bb0e7f1bcb5db3660",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "buildStable": true
+    },
+    {
+      "root": "/tmp/namzu-empty-run-search-TDMpaw",
+      "baseline": false,
+      "live": false,
+      "noiseRuns": 32,
+      "passes": [
+        {
+          "temperature": "cold",
+          "pages": [
+            {
+              "matches": 2,
+              "scannedRuns": 33,
+              "scannedBytes": 751826,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 269.354701
+        },
+        {
+          "temperature": "warm",
+          "pages": [
+            {
+              "matches": 2,
+              "scannedRuns": 33,
+              "scannedBytes": 749287,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 186.40120000000002
+        }
+      ],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8f94c7c437877bf1c85f0872b5318a843a9861367bae4765e92c8797daac3a61",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "seed": {
+        "sessionId": "57a3046e-10bf-4768-a36b-5d2b17b47cef",
+        "runId": "5f1ca6c3-3aa0-4141-8714-b16b411de722",
+        "runDir": "/tmp/namzu-empty-run-search-TDMpaw/home/sessions/57a3046e-10bf-4768-a36b-5d2b17b47cef/runs/5f1ca6c3-3aa0-4141-8714-b16b411de722",
+        "tracking": "TRACK-49f44483-324e-4736-907f-cb17abeca7bd",
+        "destination": "DEPOT-4fff0f00-3d6b-4c98-93bc-85757c7b2c4b",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-empty-run-search-TDMpaw/workspace",
+        "--resume",
+        "57a3046e-10bf-4768-a36b-5d2b17b47cef",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "5",
+        "--token-budget",
+        "40000",
+        "What were the original DELTA tracking code and destination? The workspace file was replaced. Recover them from the recorded conversation and read the original passage. Do not read or change workspace files, run commands, or use external services."
+      ],
+      "result": {
+        "text": "ing unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-49f44483-324e-4736-907f-cb17abeca7bd.\n212\tInspection row 211: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n213\tInspection row 212: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-4fff0f00-3d6b-4c98-93bc-85757c7b2c4b.\n215\tInspection row 214: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n216\tInspection row 215: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n217\tInspection row 216: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n218\tInspection row 217: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n219\tInspection row 218: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n220\tInspection row 219: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchang",
+        "usage": {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        },
+        "budget": {
+          "limit": 40000,
+          "ownTokens": 0,
+          "treeTokens": 0,
+          "reservedTokens": 0,
+          "remainingTokens": 40000,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "5f1ca6c3-3aa0-4141-8714-b16b411de722",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "toolErrors": [],
+      "passed": true,
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8f94c7c437877bf1c85f0872b5318a843a9861367bae4765e92c8797daac3a61",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "buildStable": true
+    },
+    {
+      "root": "/tmp/namzu-empty-run-search-AYuZUJ",
+      "baseline": false,
+      "live": true,
+      "noiseRuns": 32,
+      "passes": [
+        {
+          "temperature": "cold",
+          "pages": [
+            {
+              "matches": 2,
+              "scannedRuns": 33,
+              "scannedBytes": 751826,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 556.7925989999999
+        },
+        {
+          "temperature": "warm",
+          "pages": [
+            {
+              "matches": 2,
+              "scannedRuns": 33,
+              "scannedBytes": 749287,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 353.4404999999997
+        }
+      ],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8f94c7c437877bf1c85f0872b5318a843a9861367bae4765e92c8797daac3a61",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "seed": {
+        "sessionId": "5cf2ff5f-19c6-4374-a449-37f201ca61ca",
+        "runId": "faaa18c4-6a0e-413f-bfb8-e96ebe72f673",
+        "runDir": "/tmp/namzu-empty-run-search-AYuZUJ/home/sessions/5cf2ff5f-19c6-4374-a449-37f201ca61ca/runs/faaa18c4-6a0e-413f-bfb8-e96ebe72f673",
+        "tracking": "TRACK-89f5e331-ea9e-4dc2-89f1-ff84484b3979",
+        "destination": "DEPOT-fe326269-3389-45c2-af4a-3a5530a3c718",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-empty-run-search-AYuZUJ/workspace",
+        "--resume",
+        "5cf2ff5f-19c6-4374-a449-37f201ca61ca",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "5",
+        "--token-budget",
+        "40000",
+        "What were the original DELTA tracking code and destination? The workspace file was replaced. Recover them from the recorded conversation and read the original passage. Do not read or change workspace files, run commands, or use external services."
+      ],
+      "result": {
+        "text": "The original DELTA passage states:\n\n- **Tracking code:** `TRACK-89f5e331-ea9e-4dc2-89f1-ff84484b3979`\n- **Destination:** `DEPOT-fe326269-3389-45c2-af4a-3a5530a3c718`",
+        "usage": {
+          "totalTokens": 31237,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 31237
+          }
+        },
+        "budget": {
+          "limit": 40000,
+          "ownTokens": 31237,
+          "treeTokens": 31237,
+          "reservedTokens": 0,
+          "remainingTokens": 8763,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "faaa18c4-6a0e-413f-bfb8-e96ebe72f673",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 180900
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "faaa18c4-6a0e-413f-bfb8-e96ebe72f673",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "toolErrors": [
+        {
+          "name": "read_conversation",
+          "result": "Error: Cannot read this evidence address. Use search_conversation to locate a retained run/seq/part; restart without cursor if it expired or the file changed."
+        }
+      ],
+      "passed": false,
+      "error": "AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    'search_conversation',\n    'read_conversation',\n+   'read_conversation'\n  ]\n",
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8f94c7c437877bf1c85f0872b5318a843a9861367bae4765e92c8797daac3a61",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "buildStable": true,
+      "postRunAudit": {
+        "source": "retained tool_completed events, independently inspected after the original script verdict",
+        "searchAddresses": [
+          {
+            "runId": "faaa18c4-6a0e-413f-bfb8-e96ebe72f673",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          },
+          {
+            "runId": "faaa18c4-6a0e-413f-bfb8-e96ebe72f673",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 183138
+          }
+        ],
+        "singleSearch": true,
+        "readsUseReturnedAddresses": false,
+        "readCount": 2,
+        "noToolErrors": false,
+        "bothIdentifiersExact": true
+      }
+    },
+    {
+      "root": "/tmp/namzu-empty-run-search-WLUDw1",
+      "baseline": false,
+      "live": true,
+      "noiseRuns": 32,
+      "passes": [
+        {
+          "temperature": "cold",
+          "pages": [
+            {
+              "matches": 2,
+              "scannedRuns": 33,
+              "scannedBytes": 751826,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 273.79600500000004
+        },
+        {
+          "temperature": "warm",
+          "pages": [
+            {
+              "matches": 2,
+              "scannedRuns": 33,
+              "scannedBytes": 749287,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 186.80560400000013
+        }
+      ],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "ecfc7cb4c76881f386a9d1d85aa1449d38788347cfcb8548a6fac4ea3ddaf798",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "seed": {
+        "sessionId": "3f74684a-72e8-4905-8471-8370aacf6e17",
+        "runId": "3b7abc59-e379-4ac9-a286-91327bd58200",
+        "runDir": "/tmp/namzu-empty-run-search-WLUDw1/home/sessions/3f74684a-72e8-4905-8471-8370aacf6e17/runs/3b7abc59-e379-4ac9-a286-91327bd58200",
+        "tracking": "TRACK-b0ece62c-236b-4976-9166-b83c7e357e8a",
+        "destination": "DEPOT-5c652f44-2d11-4a98-b266-669ee61ca6a7",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-empty-run-search-WLUDw1/workspace",
+        "--resume",
+        "3f74684a-72e8-4905-8471-8370aacf6e17",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "5",
+        "--token-budget",
+        "40000",
+        "What were the original DELTA tracking code and destination? The workspace file was replaced. Recover them from the recorded conversation and read the original passage. Do not read or change workspace files, run commands, or use external services."
+      ],
+      "result": {
+        "text": "The original DELTA passage states:\n\n- **Tracking code:** `TRACK-b0ece62c-236b-4976-9166-b83c7e357e8a`\n- **Destination:** `DEPOT-5c652f44-2d11-4a98-b266-669ee61ca6a7`",
+        "usage": {
+          "totalTokens": 25779,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 25779
+          }
+        },
+        "budget": {
+          "limit": 40000,
+          "ownTokens": 25779,
+          "treeTokens": 25779,
+          "reservedTokens": 0,
+          "remainingTokens": 14221,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "3b7abc59-e379-4ac9-a286-91327bd58200",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "3b7abc59-e379-4ac9-a286-91327bd58200",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 183138
+          }
+        }
+      ],
+      "toolErrors": [],
+      "passed": false,
+      "error": "AssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\n+ actual - expected\n\n  [\n    'search_conversation',\n    'read_conversation',\n+   'read_conversation'\n  ]\n",
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "ecfc7cb4c76881f386a9d1d85aa1449d38788347cfcb8548a6fac4ea3ddaf798",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "buildStable": true,
+      "postRunAudit": {
+        "source": "retained tool_completed events, independently inspected after the original script verdict",
+        "searchAddresses": [
+          {
+            "runId": "3b7abc59-e379-4ac9-a286-91327bd58200",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          },
+          {
+            "runId": "3b7abc59-e379-4ac9-a286-91327bd58200",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 183138
+          }
+        ],
+        "singleSearch": true,
+        "readsUseReturnedAddresses": true,
+        "readCount": 2,
+        "noToolErrors": true,
+        "bothIdentifiersExact": true,
+        "note": "Original script incorrectly required one read. Both reads used distinct exact search addresses and succeeded. Original verdict remains preserved; the script now permits one or two exact reads for the two requested fields."
+      }
+    },
+    {
+      "root": "/tmp/namzu-empty-run-search-jL5vos",
+      "baseline": false,
+      "live": false,
+      "noiseRuns": 32,
+      "passes": [
+        {
+          "temperature": "cold",
+          "pages": [
+            {
+              "matches": 2,
+              "scannedRuns": 33,
+              "scannedBytes": 751826,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 302.000092
+        },
+        {
+          "temperature": "warm",
+          "pages": [
+            {
+              "matches": 2,
+              "scannedRuns": 33,
+              "scannedBytes": 749287,
+              "incomplete": false,
+              "continues": false
+            }
+          ],
+          "elapsedMs": 196.47079500000018
+        }
+      ],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "ecfc7cb4c76881f386a9d1d85aa1449d38788347cfcb8548a6fac4ea3ddaf798",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "seed": {
+        "sessionId": "71ff2bd6-0bb6-4fc0-99e2-472726ba1074",
+        "runId": "15a6de2e-6411-4166-9082-73de11ef8d5b",
+        "runDir": "/tmp/namzu-empty-run-search-jL5vos/home/sessions/71ff2bd6-0bb6-4fc0-99e2-472726ba1074/runs/15a6de2e-6411-4166-9082-73de11ef8d5b",
+        "tracking": "TRACK-ad16ce1f-bc4e-485d-9e17-b32f22064bdf",
+        "destination": "DEPOT-b9365ce3-9894-4ab2-833a-8e899c746d7f",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-empty-run-search-jL5vos/workspace",
+        "--resume",
+        "71ff2bd6-0bb6-4fc0-99e2-472726ba1074",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "5",
+        "--token-budget",
+        "40000",
+        "What were the original DELTA tracking code and destination? The workspace file was replaced. Recover them from the recorded conversation and read the original passage. Do not read or change workspace files, run commands, or use external services."
+      ],
+      "result": {
+        "text": "ing unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-ad16ce1f-bc4e-485d-9e17-b32f22064bdf.\n212\tInspection row 211: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n213\tInspection row 212: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-b9365ce3-9894-4ab2-833a-8e899c746d7f.\n215\tInspection row 214: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n216\tInspection row 215: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n217\tInspection row 216: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n218\tInspection row 217: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n219\tInspection row 218: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \n220\tInspection row 219: \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchanged; \u03b1\ud83e\udd89 packaging unchang",
+        "usage": {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        },
+        "budget": {
+          "limit": 40000,
+          "ownTokens": 0,
+          "treeTokens": 0,
+          "reservedTokens": 0,
+          "remainingTokens": 40000,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "15a6de2e-6411-4166-9082-73de11ef8d5b",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "toolErrors": [],
+      "searchAddresses": [
+        {
+          "runId": "15a6de2e-6411-4166-9082-73de11ef8d5b",
+          "seq": 16,
+          "part": 0,
+          "byteOffset": 181304
+        },
+        {
+          "runId": "15a6de2e-6411-4166-9082-73de11ef8d5b",
+          "seq": 16,
+          "part": 0,
+          "byteOffset": 183138
+        }
+      ],
+      "passed": true,
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "ecfc7cb4c76881f386a9d1d85aa1449d38788347cfcb8548a6fac4ea3ddaf798",
+        "packages/sdk/dist/store/evidence/disk.js": "8dd0e85bd0e8a85dd8ee3721fbcd1e477ad62859ed28ae470571aa05e8087f3d",
+        "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378"
+      },
+      "buildStable": true
+    }
+  ],
+  "totalLiveTokens": 57016
+}

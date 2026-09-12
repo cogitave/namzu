@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Advanced conversation search through exhausted nonmatching indexed runs within the same bounded call, retaining partial-page continuation, ownership checks and shared I/O limits; clarified exact byte-position recovery after a live UTF-8 read refusal.
+
 - **Update** Made prose-answer reviewer exceptions and malformed verdicts fail settlement, propagated cancellation without waiting for uncooperative callbacks, and preserved bounded rejection counts with feedback across checkpoints and compaction.
 
 - **Update** Retained finalized Codex Responses items when the terminal output snapshot is empty, preserving native conversation continuity, tool-call finish reasons and hosted citations with unchanged replay eligibility checks.

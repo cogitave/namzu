@@ -8,6 +8,7 @@ import {
 	type RunTextEvidenceSource,
 	type SessionId,
 	ToolRegistry,
+	asRunId,
 	createAssistantMessage,
 	createUserMessage,
 	defineTool,
@@ -70,7 +71,138 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 	return { runId, path }
 }
 
+async function closedTranscript(
+	sessions: CliSessions,
+	sessionId: SessionId,
+	order: number,
+	text: string,
+) {
+	const runId = asRunId(`00000000-0000-4000-8000-${order.toString(16).padStart(12, '0')}`)
+	const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+	const store = new RunDiskStore({ baseDir: dirname(path) })
+	await store.initRun(runId)
+	await store.appendEvent({ type: 'run_started', runId, seq: 1 } as RunEvent)
+	await store.appendEvent({ type: 'message_completed', runId, seq: 2, content: text } as RunEvent)
+	await store.appendEvent({ type: 'run_completed', runId, seq: 3 } as RunEvent)
+	await writeFile(
+		join(path, 'run.json'),
+		JSON.stringify({
+			id: runId,
+			status: 'completed',
+			metadata: {
+				scope: { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId },
+			},
+		}),
+	)
+	return { runId, path }
+}
+
 describe('bounded original conversation evidence', () => {
+	it.each([0, 250_000])(
+		'crosses exhausted nonmatching indexed runs within the shared byte ceiling (payload %i)',
+		async (padding) => {
+			const { sessions, sessionId } = await fixture()
+			for (let i = 1; i <= 16; i++)
+				await closedTranscript(sessions, sessionId, i, `Unrelated ${i} ${'x'.repeat(padding)}`)
+			const target = await closedTranscript(sessions, sessionId, 17, 'TARGET original receipt A17')
+			const pages = []
+			let cursor: string | undefined
+			do {
+				const page = await searchConversation(
+					sessions,
+					sessionId,
+					cursor ? { cursor } : { query: 'TARGET' },
+				)
+				pages.push(page)
+				expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+				expect(page.scannedRuns).toBeLessThanOrEqual(100)
+				expect(page.unavailableRuns).toBe(0)
+				expect(Buffer.byteLength(JSON.stringify(page.matches))).toBeLessThanOrEqual(12_000)
+				cursor = page.nextCursor
+				expect(pages.length).toBeLessThan(17)
+			} while (cursor)
+			if (padding === 0) {
+				expect(pages).toHaveLength(1)
+				expect(pages[0]!.scannedRuns).toBe(17)
+				const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+				const prepared = await recall({
+					runId: generateRunId(),
+					messages: [createUserMessage('TARGET')],
+					steps: [],
+					prepared: {},
+					stepNumber: 1,
+				})
+				expect(prepared?.context).toContain('TARGET original receipt A17')
+			} else expect(pages.length).toBeGreaterThan(1)
+			expect(pages.at(-1)!.incomplete).toBe(false)
+			expect(pages.flatMap((page) => page.matches)).toEqual([
+				expect.objectContaining({
+					runId: target.runId,
+					seq: 2,
+					text: 'TARGET original receipt A17',
+				}),
+			])
+		},
+	)
+
+	it('does not skip a nonmatching partial index when a later run already matches', async () => {
+		const { sessions, sessionId } = await fixture()
+		await closedTranscript(sessions, sessionId, 1, 'Unrelated complete run')
+		const partial = await closedTranscript(sessions, sessionId, 2, 'Replaced fixture')
+		const events = [
+			{ type: 'run_started', runId: partial.runId, seq: 1 },
+			...Array.from({ length: 70 }, (_, i) => ({
+				type: 'message_completed',
+				runId: partial.runId,
+				seq: i + 2,
+				content: i === 69 ? 'TARGET within partial run' : `Unrelated message ${i}`,
+			})),
+		]
+		await writeFile(
+			join(partial.path, 'transcript.jsonl'),
+			`${events.map((e) => JSON.stringify(e)).join('\n')}\n`,
+		)
+		const later = await closedTranscript(sessions, sessionId, 3, 'TARGET in later run')
+		const first = await searchConversation(sessions, sessionId, { query: 'TARGET' })
+		expect(first.matches).toEqual([])
+		expect(first.scannedRuns).toBe(2)
+		expect(first.incomplete).toBe(true)
+		expect(first.nextCursor).toBeDefined()
+		const second = await searchConversation(sessions, sessionId, { cursor: first.nextCursor })
+		expect(second.matches).toEqual([expect.objectContaining({ runId: partial.runId, seq: 71 })])
+		const third = await searchConversation(sessions, sessionId, { cursor: second.nextCursor })
+		expect(third.matches).toEqual([expect.objectContaining({ runId: later.runId })])
+		expect(third.incomplete).toBe(false)
+	})
+
+	it('preserves unavailable ownership while crossing an exhausted empty index', async () => {
+		const { sessions, sessionId } = await fixture()
+		await closedTranscript(sessions, sessionId, 1, 'No relevant observation')
+		const foreign = await closedTranscript(sessions, sessionId, 2, 'TARGET foreign secret')
+		await writeFile(
+			join(foreign.path, 'run.json'),
+			JSON.stringify({
+				id: foreign.runId,
+				status: 'completed',
+				metadata: {
+					scope: {
+						tenantId: sessions.tenantId,
+						projectId: sessions.projectId,
+						sessionId: await startConversation(sessions),
+						runId: foreign.runId,
+					},
+				},
+			}),
+		)
+		const target = await closedTranscript(sessions, sessionId, 3, 'TARGET own observation')
+		const page = await searchConversation(sessions, sessionId, { query: 'TARGET' })
+		expect(page.matches).toEqual([expect.objectContaining({ runId: target.runId })])
+		expect(JSON.stringify(page)).not.toContain('foreign secret')
+		expect(page.unavailableRuns).toBe(1)
+		expect(page.incomplete).toBe(true)
+		expect(page.nextCursor).toBeUndefined()
+	})
+
 	it.each(['live', 'closed', 'legacy'] as const)(
 		'preserves event time in search, exact read and automatic context (%s)',
 		async (backend) => {

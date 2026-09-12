@@ -123,8 +123,14 @@ a compaction record. Pass it as `cursor`; optionally repeated `query` and
 `caseSensitive` settings must match the original search. Omit `runId` or repeat
 the original single-run ID. A recall cursor may represent a multi-term host
 query, so use cursor alone for those continuations. Closed, explicitly scoped runs use the SDK
-text index: one bounded index page, at most three matches per call, may require
-continuation even when `limit` is larger. The index also pages within large
+text index: one bounded index page per visited run, at most three indexed matches
+per call, may require continuation even when `limit` is larger. When an indexed
+run is completely searched with no matches, the call advances to the next run
+within the same shared read and directory-discovery limits. It does not spend a
+model round trip on each small irrelevant run. A matching or partial index page
+returns control; partial empty pages still require continuation. Known omissions
+stay incomplete even when scanning advances, and failed operations with unknown
+read cost still charge the remaining ceiling and yield. The index also pages within large
 compaction records. Case-insensitive search bypasses case-sensitive index
 filters and verifies the original text; it can need more I/O or pages while
 keeping the same ceilings.
@@ -203,7 +209,10 @@ can contain several textual messages with different part indices. The tool
 shares search's host-bound ownership and filesystem checks. It never reads
 caller-selected paths or follows an `outputSpillPath` from a transcript.
 Supply the optional `byteOffset` from search to start near a match, or omit it
-to read from the beginning. Repeat that initial offset unchanged with subsequent
+to read from the beginning. Copy the returned value exactly: rounding or estimating
+a byte position can split a UTF-8 character and is refused. The read tool's error
+guidance points back to the exact search position without exposing private paths.
+Repeat that initial offset unchanged with subsequent
 cursor calls. The tool returns `offset` in UTF-16 units, not bytes. A legacy
 record without a character index must be read sequentially from zero.
 

@@ -648,7 +648,9 @@ async function searchConversationCore(
 			if (source) {
 				if (maxReadBytes - result.scannedBytes < 6 * 1024 * 1024) break
 				usingIndex = true
-				// One bounded SDK page per call. Reserve enough output for three 512-character excerpts, even when every character needs JSON escaping.
+				// At most one SDK page per run. Empty exhausted runs can be
+				// crossed within this call's shared byte/discovery ceilings.
+				// Reserve three 512-character excerpts even under JSON escaping.
 				if (OUTPUT_BYTES - outputBytes < 11_000) break
 				const page = await source.search(
 					{
@@ -684,7 +686,10 @@ async function searchConversationCore(
 				cursor.omitted ||= page.incomplete
 				if (page.unavailable.length) result.unavailableRuns++
 				cursor.indexCursor = page.nextCursor ?? undefined
-				if (!page.nextCursor) nextRun(cursor)
+				if (!page.nextCursor) {
+					nextRun(cursor)
+					if (page.matches.length === 0) continue
+				}
 				break
 			}
 			const page = await scanTranscript(
@@ -1004,7 +1009,7 @@ export function buildConversationReadTool(
 					type: 'integer',
 					minimum: 0,
 					description:
-						'Optional byteOffset returned by search to read near a match. Repeat it unchanged with cursor. Omit to read from the beginning.',
+						'Copy byteOffset exactly from search to read near a match; do not round or estimate it. Repeat it unchanged with cursor. Omit to read from the beginning.',
 				},
 				cursor: { type: 'string', minLength: 48, maxLength: 48 },
 			},
@@ -1043,7 +1048,7 @@ export function buildConversationReadTool(
 					success: false,
 					output: '',
 					error:
-						'Cannot read this evidence address. Use search_conversation to locate a retained run/seq/part; restart without cursor if it expired or the file changed.',
+						'Cannot read this evidence address. Use search_conversation to locate a retained run/seq/part. Copy byteOffset exactly from search; an estimated offset may split a UTF-8 character. Omit it to start at the beginning. Restart without cursor if it expired or the file changed.',
 				}
 			}
 		},

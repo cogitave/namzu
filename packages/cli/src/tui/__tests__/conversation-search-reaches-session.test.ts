@@ -156,6 +156,57 @@ async function send(session: AgentSession, runId = generateRunId()) {
 	}
 }
 
+it('explains an invalid estimated byte position and accepts the exact archive address', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-evidence-position-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	const text = 'α🦉 TARGET original receipt A17'
+	const runId = await archive(cwd, sessions, sessionId, text)
+	const search = await searchConversation(sessions, sessionId, { query: 'TARGET', runId })
+	const match = search.matches[0]!
+	expect(match.byteOffset).toBe(0)
+	const address = { runId, seq: match.seq, part: match.part, byteOffset: match.byteOffset }
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [
+					{ id: 'estimated', name: 'read_conversation', args: { ...address, byteOffset: 1 } },
+				],
+			},
+			{ toolCalls: [{ id: 'exact', name: 'read_conversation', args: address }] },
+			{ text: 'A17' },
+		],
+	})
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		scope: {
+			sessionId,
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+		},
+		sandbox: { enabled: false },
+		memory: { recall: false },
+	})
+	opened.push(session)
+	await send(session)
+	expect(provider.requests).toHaveLength(3)
+	const invalid = provider.requests[1]!.messages.find(
+		(m) => m.role === 'tool' && m.toolCallId === 'estimated',
+	)
+	expect(invalid?.content).toContain('Copy byteOffset exactly from search')
+	expect(invalid?.content).toContain('UTF-8')
+	expect(invalid?.content).not.toContain(cwd)
+	const exact = provider.requests[2]!.messages.find(
+		(m) => m.role === 'tool' && m.toolCallId === 'exact',
+	)
+	expect(exact?.content).toContain(text)
+})
+
 it.each([false, true])(
 	'settles an exact-copy review from retained evidence, refusing changed ownership (%s)',
 	async (changedOwnership) => {
