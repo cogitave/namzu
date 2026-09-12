@@ -80,15 +80,21 @@ export class EventTranslator {
 
 	captureRunEvidence(
 		maxReadBytes?: number,
+		signal?: AbortSignal,
 	): Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined> {
 		return this.withTranscriptLock(async () => {
+			signal?.throwIfAborted()
 			const run = this.runMgr.getRun()
 			if (run.status !== 'running')
 				throw new Error('Evidence capture requires the active invocation.')
 			const { tenantId, projectId, sessionId, runId } = this.runMgr.getRunScope()
-			return this.runMgr
+			const source = await this.runMgr
 				.getRunStore()
 				.captureTextEvidence?.({ tenantId, projectId, sessionId, runId }, maxReadBytes)
+			signal?.throwIfAborted()
+			if (this.runMgr.getRun().status !== 'running')
+				throw new Error('Evidence capture requires the active invocation.')
+			return source
 		})
 	}
 

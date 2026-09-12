@@ -18,6 +18,7 @@ if (process.argv[2] === '--prepare') {
   console.log(sessionId);
 } else {
   const live = process.argv.includes('--live');
+  const automatic = process.argv.includes('--automatic');
   const previewArg = process.argv.find(arg=>arg.startsWith('--preview-chars='));
   const previewChars = previewArg ? Number(previewArg.slice('--preview-chars='.length)) : undefined;
   if(previewChars !== undefined) assert.ok(Number.isSafeInteger(previewChars) && previewChars >= 0);
@@ -30,10 +31,10 @@ if (process.argv[2] === '--prepare') {
     : i === 213 ? `Destination of DELTA: ${destination}.`
     : `Inspection row ${i}: ${'α🦉 packaging unchanged; '.repeat(30)}`).join('\n'));
   await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'codex', model: 'gpt-5.6-luna' }], subagents: { active: [] } }));
-  await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + (previewChars === undefined ? '' : `compaction:\n  retainedToolPreviewChars: ${previewChars}\n`));
+  await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + ((previewChars !== undefined || automatic) ? 'compaction:\n' + (previewChars !== undefined ? `  retainedToolPreviewChars: ${previewChars}\n` : '') + (automatic ? '  recallEvidence: true\n' : '') : ''));
   const env = { ...process.env, NAMZU_HOME: home };
   const exec = promisify(execFile);
-  const report = { root, live, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', tracking, destination, ...(previewChars === undefined ? {} : {previewChars}) };
+  const report = { root, live, automatic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', tracking, destination, ...(previewChars === undefined ? {} : {previewChars}) };
   try {
     const prepared = await exec(process.execPath, [fileURLToPath(import.meta.url), '--prepare', cwd], { cwd, env, timeout: 30_000, maxBuffer: 1_000_000 });
     const sessionId = prepared.stdout.trim(); report.sessionId = sessionId;
@@ -52,7 +53,7 @@ ProviderRegistry.create = (...args) => {
   const portable=params.messages.filter(m=>m.role!=='system').map(m=>JSON.stringify([m.role,m.content,m.toolCallId,m.toolCalls])).join('\\n');
   let common=0; while(common<previous.length && common<portable.length && previous[common]===portable[common])common++;
   const context=params.messages.filter(m=>m.source?.type==='runtime-context'&&m.source.kind==='step-context');
-  await appendFile(${JSON.stringify(join(root,'request-shapes.jsonl'))},JSON.stringify({request:++requestNumber,systemChars:system.length,systemDigest:createHash('sha256').update(system).digest('hex'),portableInputChars:portable.length,commonPortablePrefixChars:common,stepContextCount:context.length,stepContextChars:context.reduce((n,m)=>n+String(m.content).length,0)})+'\\n');
+  await appendFile(${JSON.stringify(join(root,'request-shapes.jsonl'))},JSON.stringify({request:++requestNumber,systemChars:system.length,systemDigest:createHash('sha256').update(system).digest('hex'),portableInputChars:portable.length,commonPortablePrefixChars:common,stepContextCount:context.length,contextHasOriginals:context.some(m=>String(m.content).includes(${JSON.stringify(tracking)})&&String(m.content).includes(${JSON.stringify(destination)})),ordinaryHasOriginals:params.messages.filter(m=>!context.includes(m)).some(m=>String(m.content).includes(${JSON.stringify(tracking)})&&String(m.content).includes(${JSON.stringify(destination)})),stepContextChars:context.reduce((n,m)=>n+String(m.content).length,0)})+'\\n');
   previous=portable;
   const readIds = params.messages.flatMap(m=>m.role==='assistant'?(m.toolCalls??[]):[]).filter(c=>c.function.name==='read').map(c=>c.id);
   const readResult = params.messages.find(m=>m.role==='tool'&&readIds.includes(m.toolCallId));
@@ -61,6 +62,7 @@ ProviderRegistry.create = (...args) => {
   const parse = (value) => { const text=String(value);return JSON.parse(text.slice(text.indexOf('{'),text.lastIndexOf('}')+1)); };
   const last = params.messages.filter(m=>m.role==='tool').at(-1); let turn;
   if(!last) turn={toolCalls:[{id:'observe-once',name:'read',args:{path:'manifest.txt'}}]};
+  else if(readIds.includes(last.toolCallId) && ${JSON.stringify(automatic)}) turn={text:context.map(m=>m.content).join('\\n')};
   else if(readIds.includes(last.toolCallId)) turn={toolCalls:[{id:'search',name:'search_conversation',args:{query:'DELTA'}}]};
   else { const page=parse(last.content);
    if(last.toolCallId.startsWith('search')) { const match=page.matches?.[0];
@@ -71,10 +73,13 @@ ProviderRegistry.create = (...args) => {
  };
  return created;
 };`);
-    const prompt = 'Read manifest.txt once using the read tool. Then recover the exact tracking code and destination of the original DELTA receipt from this conversation using search_conversation and read_conversation. The file will be externally replaced after the initial read. Do not read workspace files again, run commands, edit anything or contact external services. Report both original identifiers exactly.';
-    const args = ['--quiet', '--format', 'json', 'run', '--trust', '--cwd', cwd, '--resume', sessionId, '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', '8', '--token-budget', '65000', prompt];
+    const prompt = automatic ? 'manifest.txt dosyasının tamamını incele. Ardından DELTA kaydının takip kodunu ve hedef deposunu aynen bildir.' : 'Read manifest.txt once using the read tool. Then recover the exact tracking code and destination of the original DELTA receipt from this conversation using search_conversation and read_conversation. The file will be externally replaced after the initial read. Do not read workspace files again, run commands, edit anything or contact external services. Report both original identifiers exactly.';
+    const args = ['--quiet', '--format', 'json', 'run', '--trust', '--cwd', cwd, '--resume', sessionId, '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', automatic ? '6' : '8', '--token-budget', automatic ? '35000' : '65000', prompt];
     report.command = args;
     const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
+    const builtFiles = ['packages/sdk/dist/runtime/query/events.js','packages/sdk/dist/runtime/query/index.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/cli/dist/integrations/sessions/evidence-recall.js'];
+    report.buildBefore = {};
+    for (const path of builtFiles) report.buildBefore[path] = createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
     const { stdout } = await exec(process.execPath, ['--import', preload, cli, ...args], { cwd, env, timeout: 180_000, maxBuffer: 2_000_000 });
     report.result = JSON.parse(stdout);
     const runs = join(home, 'sessions', sessionId, 'runs');
@@ -89,9 +94,10 @@ ProviderRegistry.create = (...args) => {
     assert.ok(first.outputTruncated && first.outputSpillIntegrity);
     assert.ok(!first.result.includes(tracking) && !first.result.includes(destination));
     report.outputs = completed.map(e=>({name:e.toolName,isError:e.isError,...(e.toolName==='read'?{truncated:e.outputTruncated,previewChars:e.result.length,originalChars:e.outputLength}:{result:e.result})}));
-    // User outcome and requested workflow are separate observations. The original
-    // assertions below still require an exact read, even if both IDs appear in search excerpts.
+    // User outcome and requested workflow are separate observations. Guided mode
+    // requires explicit archive tools; natural automatic mode permits read-only exploration.
     report.observations = {
+      compactions: events.filter(e=>e.type==='compaction_completed').length,
       bothIdentifiersRecovered: report.result.text.includes(tracking) && report.result.text.includes(destination),
       originalReadCalls: report.calls.filter(e=>e.name==='read').length,
       searches: report.calls.filter(e=>e.name==='search_conversation').length,
@@ -101,17 +107,22 @@ ProviderRegistry.create = (...args) => {
     };
     assert.ok(report.result.text.includes(tracking)); assert.ok(report.result.text.includes(destination));
     assert.equal(report.calls.filter(e=>e.name==='read').length, 1);
-    assert.ok(report.calls.some(e=>e.name==='search_conversation'));
-    assert.ok(report.calls.some(e=>e.name==='read_conversation'));
-    assert.ok(report.calls.every(e=>['read','search_conversation','read_conversation','search_tools'].includes(e.name)));
+    if(!automatic) { assert.ok(report.calls.some(e=>e.name==='search_conversation')); assert.ok(report.calls.some(e=>e.name==='read_conversation')); }
+    assert.ok(report.calls.every(e=>(automatic ? ['glob','grep','read','search_conversation','read_conversation','search_tools'] : ['read','search_conversation','read_conversation','search_tools']).includes(e.name)));
     assert.ok(completed.every(e=>!e.isError));
 
     assert.match(await readFile(join(cwd, 'manifest.txt'), 'utf8'), /^Manually replaced/);
     report.passed = true;
   } catch(error) { report.passed=false;report.error=error instanceof Error?error.message:String(error);process.exitCode=1; }
   finally {
+    if (report.buildBefore) {
+      report.buildAfter = {};
+      for (const path of Object.keys(report.buildBefore)) report.buildAfter[path] = createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
+      report.buildStable = Object.keys(report.buildBefore).every(path=>report.buildBefore[path]===report.buildAfter[path]);
+      if(!report.buildStable){report.passed=false;report.error='Built modules changed during the CLI experiment.';process.exitCode=1;}
+    }
     report.fingerprints = {};
-    for(const path of ['packages/sdk/src/runtime/query/tool-output-budget.ts','packages/sdk/src/runtime/query/executor.ts','packages/cli/src/tui/agent.ts','packages/cli/src/config/load.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/types/run/prepare-step.ts','packages/sdk/src/types/message/index.ts','packages/cli/src/integrations/sessions/context-inventory.ts','packages/sdk/src/store/evidence/passages.ts','packages/sdk/src/store/evidence/disk.ts','packages/sdk/src/store/evidence/types.ts','packages/sdk/src/store/evidence/linked.ts','packages/sdk/src/store/evidence/source-text.ts','packages/sdk/src/store/evidence/record-chain.ts','packages/sdk/src/store/run/disk.ts','packages/sdk/src/runtime/query/events.ts','packages/sdk/src/runtime/query/index.ts','packages/cli/src/integrations/sessions/conversation-search.ts','research/conversation-evidence/active-cli.mjs'])
+    for(const path of ['packages/sdk/src/run/evidence-recall.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/sdk/src/runtime/query/executor.ts','packages/cli/src/tui/agent.ts','packages/cli/src/config/load.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/types/run/prepare-step.ts','packages/sdk/src/types/message/index.ts','packages/cli/src/integrations/sessions/context-inventory.ts','packages/sdk/src/store/evidence/passages.ts','packages/sdk/src/store/evidence/disk.ts','packages/sdk/src/store/evidence/types.ts','packages/sdk/src/store/evidence/linked.ts','packages/sdk/src/store/evidence/source-text.ts','packages/sdk/src/store/evidence/record-chain.ts','packages/sdk/src/store/run/disk.ts','packages/sdk/src/runtime/query/events.ts','packages/sdk/src/runtime/query/index.ts','packages/cli/src/integrations/sessions/conversation-search.ts','research/conversation-evidence/active-cli.mjs'])
       report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
     await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify({root,live,passed:report.passed,calls:report.calls,usage:report.result?.usage,error:report.error}));

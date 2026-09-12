@@ -62,8 +62,9 @@ export async function findShipmentCandidates(source: RunTextEvidenceSource) {
 
 This optional SDK operation is a candidate-discovery primitive. Existing CLI
 and resident search tools retain their literal-query interfaces. Automatic
-selection and request-context attachment are separate host/runtime work; adding
-this operation alone does not establish reliable natural-language recall.
+selection and request-context attachment are provided separately by the
+[bounded recall step](evidence-recall.md); adding multi-term discovery alone
+does not establish reliable natural-language recall.
 
 `read({ address, byteOffset? }, signal?)` returns exact retained text, at most
 6,000 code units, together with `totalBytes` and `nextByteOffset`. Start at the
@@ -109,6 +110,10 @@ invocation's completed event boundary. The kernel serializes capture with durabl
 appends and rejects capture after the invocation leaves its running state or is
 cancelled. Unsupported stores return `undefined`. Hosts still authorize the
 conversation; this capability has no model-selected path, scope or run argument.
+`PrepareStepContext.captureRunEvidence(maxReadBytes?, signal?)` exposes the same
+boundary to host preparation/admission callbacks, with an optional local
+cancellation signal. The [evidence recall step](evidence-recall.md) can therefore
+reattach missing text during a running invocation as well as after restart.
 
 The optional `RunStore.captureTextEvidence(scope, maxReadBytes?)` seam lets a
 store provide that capability. `RunDiskStore` implements it using hash-linked

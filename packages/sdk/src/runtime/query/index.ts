@@ -1722,6 +1722,17 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		const runDir = ctx.runMgr.getRunDir()
 		return runDir ? join(runDir, TOOL_OUTPUT_DIR_NAME) : undefined
 	}
+	// The same invocation-owned capability serves tools and optional preparation.
+	// Local cancellation cannot override the run's cancellation or settled state.
+	const captureRunEvidence = async (maxReadBytes?: number, signal?: AbortSignal) => {
+		const combined = signal
+			? AbortSignal.any([ctx.abortController.signal, signal])
+			: ctx.abortController.signal
+		combined.throwIfAborted()
+		const source = await eventTranslator.captureRunEvidence(maxReadBytes, combined)
+		combined.throwIfAborted()
+		return source
+	}
 
 	const toolExecutor = ToolingBootstrap.init(
 		{
@@ -1771,12 +1782,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// cleaned up with the run and reachable by the model's own
 			// `read`/`grep` without a new affordance.
 			toolOutputDir,
-			captureRunEvidence: async (maxReadBytes) => {
-				ctx.abortController.signal.throwIfAborted()
-				const source = await eventTranslator.captureRunEvidence(maxReadBytes)
-				ctx.abortController.signal.throwIfAborted()
-				return source
-			},
+			captureRunEvidence,
 			...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
 			...(verificationGate ? { authorizationGate: verificationGate } : {}),
 			recordAudit: (input) => ctx.runMgr.recordAudit(input),
@@ -1970,6 +1976,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	}
 
 	const iterationOrchestrator = new IterationOrchestrator({
+		captureRunEvidence,
 		provider: resilientProvider,
 		providerCapabilities: capabilities,
 		strictCapabilities: params.strictCapabilities === true,

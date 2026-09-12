@@ -1,4 +1,4 @@
-import type { RunEvidenceScope } from '../store/evidence/types.js'
+import type { RunEvidenceScope, RunTextEvidenceSource } from '../store/evidence/types.js'
 import type { Message } from '../types/message/index.js'
 import type { PrepareStep } from '../types/run/prepare-step.js'
 import { isEntityId } from '../utils/id.js'
@@ -19,6 +19,10 @@ export interface EvidenceRecallCandidate {
 /** @experimental The host enforces the read ceiling, ownership and source integrity. */
 export interface EvidenceRecallRequest {
 	readonly runId: string
+	/** Optional current writer; bound to this recall's cancellation and deadline. */
+	readonly captureRunEvidence?: (
+		maxReadBytes?: number,
+	) => Promise<RunTextEvidenceSource | undefined>
 	readonly terms: readonly string[]
 	readonly maxReadBytes: number
 	readonly maxCandidates: number
@@ -129,7 +133,15 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 	const maxPassages = bounded(options.maxPassages ?? 4, 8, 'maxPassages')
 	const timeoutMs = bounded(options.timeoutMs ?? 1_000, 10_000, 'timeoutMs')
 	const fallbackQuery = options.query
-	return async ({ runId, messages, prepared, latestUserMessage, contextBudget, signal }) => {
+	return async ({
+		runId,
+		messages,
+		prepared,
+		latestUserMessage,
+		contextBudget,
+		signal,
+		captureRunEvidence,
+	}) => {
 		signal?.throwIfAborted()
 		const charBudget = Math.min(
 			maxChars,
@@ -154,6 +166,16 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			const operation = Promise.resolve().then(() =>
 				retrieve({
 					runId,
+					...(captureRunEvidence
+						? {
+								captureRunEvidence: async (maxReadBytes?: number) => {
+									controller.signal.throwIfAborted()
+									const source = await captureRunEvidence(maxReadBytes, controller.signal)
+									controller.signal.throwIfAborted()
+									return source
+								},
+							}
+						: {}),
 					terms,
 					maxReadBytes: 8 * 1024 * 1024,
 					maxCandidates: 24,
@@ -241,6 +263,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			clearTimeout(timer)
 			signal?.removeEventListener('abort', abort)
 			if (rejectAbort) controller.signal.removeEventListener('abort', rejectAbort)
+			controller.abort(new Error('Evidence recall pass ended.'))
 		}
 	}
 }

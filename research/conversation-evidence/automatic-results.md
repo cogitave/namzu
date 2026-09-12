@@ -95,3 +95,9 @@ does not resolve paraphrases in every language. An empty recall is not proof
 of absence, and source labels do not guarantee the model will always choose
 correctly. This step advances the dynamic-context goal; it does not complete
 Namzu's broader autonomous-kernel vision.
+
+## Follow-up
+
+[Current-invocation recall](current-automatic-results.md) subsequently connected
+the live writer to preparation and verified automatic recovery after actual
+compaction in a CLI Session. The prior observations above remain unchanged.

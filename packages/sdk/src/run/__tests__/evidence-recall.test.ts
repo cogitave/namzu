@@ -15,6 +15,7 @@ import {
 	type EvidenceRecallBatch,
 	type EvidenceRecallCandidate,
 	type EvidenceRecallOptions,
+	type EvidenceRecallRequest,
 	createEvidenceRecallStep,
 } from '../evidence-recall.js'
 
@@ -59,6 +60,23 @@ function fixture(candidates = [candidate()], options: Partial<EvidenceRecallOpti
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('passes the current writer with a bounded lifetime, then revokes new captures', async () => {
+		let held: EvidenceRecallRequest['captureRunEvidence']
+		const capture = vi.fn(async () => undefined)
+		const recall = createEvidenceRecallStep({
+			scope,
+			retrieve: async ({ captureRunEvidence }) => {
+				held = captureRunEvidence
+				expect(await held!(2 * 1024 * 1024)).toBeUndefined()
+				return batch()
+			},
+		})
+		await recall({ ...context(), captureRunEvidence: capture })
+		expect(capture).toHaveBeenCalledWith(2 * 1024 * 1024, expect.any(AbortSignal))
+		await expect(held!()).rejects.toThrow('pass ended')
+		expect(capture).toHaveBeenCalledTimes(1)
+	})
+
 	it('ranks the bounded pool, keeps exact provenance, and changes only trailing context', async () => {
 		const { recall } = fixture(
 			[

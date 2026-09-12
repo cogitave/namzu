@@ -1842,6 +1842,7 @@ export class IterationOrchestrator {
 			runId: this.ctx.runMgr.id,
 			stepNumber,
 			messages: this.ctx.runMgr.messages,
+			...(this.ctx.captureRunEvidence ? { captureRunEvidence: this.ctx.captureRunEvidence } : {}),
 			...(this.latestUserMessage ? { latestUserMessage: this.latestUserMessage } : {}),
 			signal: this.ctx.abortController.signal,
 			contextBudget: {

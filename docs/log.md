@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Exposed writer-bound evidence capture to SDK step preparation and connected automatic CLI recall within a running invocation, preserving shared read limits and cancellation; verified actual compaction and bounded live CLI behavior.
+
 - **Update** Added opt-in SDK evidence recall into trailing request context with bounded candidate BM25 ranking, scoped cancellation and exact provenance; connected recorded CLI turns and resume, with natural historical/current CLI validation.
 
 - **Update** Added optional multi-term literal discovery to SDK live and closed retained-evidence sources, sharing bounded authenticated scans and preserving exact paging, scope and cancellation; measured combined versus separate searches on an original CLI artifact.

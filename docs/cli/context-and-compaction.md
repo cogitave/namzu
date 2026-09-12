@@ -52,17 +52,21 @@ sessions do not gain archive access. The default remains off.
 
 Each request scans at most four bounded pages, accounting at most 8 MiB of
 source/metadata bytes across those pages, from this conversation only. Each
-page examines at most 100 run-directory entries. Enumeration is bounded, not
+closed-history enumeration examines at most 100 run-directory entries. Enumeration is bounded, not
 an exhaustive or chronological search of a large archive. Up to four ranked
 passages occupy at most 6,000 added characters. A one-second deadline cancels
 optional retrieval; source or ownership failures expose no cached passage.
 Legacy transcript text is labelled as a preview. Authenticated retained output
 keeps its source tool, error flag and exact event/byte reference.
 
-The requesting invocation is excluded from this automatic pass. Explicit
-`search_conversation`/`read_conversation` still cover its live writer, further
-pages, and exact text after compaction. These tools retain their literal-query
-schema. Automatic passages are historical context, not a new user message or
+The pass first visits at most two pages from the requesting invocation's live
+writer, then uses the remaining page/read budget for earlier invocations.
+Live search follows authenticated completed records, including originals shed
+by compaction. The current run is excluded from disk enumeration, so a missing
+live owner cannot silently fall back to reading an active transcript as closed
+history. Unsupported capture and incomplete traversal remain incomplete.
+Explicit `search_conversation`/`read_conversation` still provide further pages
+and exact text after compaction. These tools retain their literal-query schema. Automatic passages are historical context, not a new user message or
 proof of current workspace state. The feature neither reads the current
 workspace to infer its past nor replays a state-changing action.
 

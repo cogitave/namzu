@@ -1,4 +1,9 @@
-import { type PrepareStep, type SessionId, createEvidenceRecallStep } from '@namzu/sdk'
+import {
+	type EvidenceRecallCandidate,
+	type PrepareStep,
+	type SessionId,
+	createEvidenceRecallStep,
+} from '@namzu/sdk'
 import { searchConversationTerms } from './conversation-search.js'
 import type { CliSessions } from './store.js'
 
@@ -11,13 +16,77 @@ export function createConversationEvidenceRecall(
 	const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId }
 	return createEvidenceRecallStep({
 		scope,
-		async retrieve({ runId, terms, signal, maxReadBytes, maxCandidates }) {
+		async retrieve({ runId, terms, signal, maxReadBytes, maxCandidates, captureRunEvidence }) {
 			assertOwner(runId)
-			const candidates = []
+			const candidates: EvidenceRecallCandidate[] = []
 			let scannedBytes = 0
 			let incomplete = false
+			let pages = 0
+			// Reserve at least two of the four pages for earlier invocations. The
+			// current writer is visited directly, never rediscovered as a disk run.
+			let liveCursor: string | undefined
+			if (captureRunEvidence) {
+				for (let livePage = 0; livePage < 2; livePage++) {
+					signal.throwIfAborted()
+					const remaining = maxReadBytes - scannedBytes
+					if (remaining < 1024 * 1024) {
+						incomplete = true
+						break
+					}
+					const source = await captureRunEvidence(remaining)
+					assertOwner(runId)
+					if (!source) {
+						if (liveCursor) throw new Error('The active evidence source disappeared.')
+						incomplete = true
+						break
+					}
+					const owner = { ...scope, runId }
+					if (
+						Object.entries(owner).some(
+							([key, value]) => source.scope[key as keyof typeof owner] !== value,
+						)
+					)
+						throw new Error('The active evidence source has a different owner.')
+					const page = await source.search(
+						{ terms, caseSensitive: false, cursor: liveCursor, limit: 4 },
+						signal,
+					)
+					assertOwner(runId)
+					if (
+						!Number.isSafeInteger(page.scannedBytes) ||
+						page.scannedBytes < 0 ||
+						page.scannedBytes > remaining ||
+						page.matches.length > 4
+					)
+						throw new Error('The active evidence page exceeded its retrieval bounds.')
+					if (
+						Object.entries(owner).some(
+							([key, value]) => page.scope[key as keyof typeof owner] !== value,
+						)
+					)
+						throw new Error('The active evidence page has a different owner.')
+					pages++
+					scannedBytes += page.scannedBytes
+					incomplete ||= page.incomplete || page.unavailable.length > 0
+					for (const match of page.matches)
+						candidates.push({
+							scope: owner,
+							seq: match.seq,
+							part: match.part,
+							source: match.source,
+							toolName: match.toolName,
+							isError: match.isError,
+							retained: match.retained,
+							excerpt: match.excerpt,
+							...(match.characterOffset === undefined ? {} : { byteOffset: match.byteOffset }),
+						})
+					liveCursor = page.nextCursor ?? undefined
+					if (!liveCursor) break
+				}
+				incomplete ||= liveCursor !== undefined
+			}
 			let cursor: string | undefined
-			for (let pageIndex = 0; pageIndex < 4; pageIndex++) {
+			for (; pages < 4; pages++) {
 				signal.throwIfAborted()
 				const remaining = maxReadBytes - scannedBytes
 				if (remaining < 6 * 1024 * 1024) {

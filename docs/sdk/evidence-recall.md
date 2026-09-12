@@ -26,6 +26,12 @@ it cannot enforce the callback's internal I/O or authenticate invented bytes.
 Use [retained evidence sources](retained-tool-evidence.md) for authenticated local
 observations. A custom host is responsible for equivalent guarantees.
 
+When the kernel exposes a live writer, `EvidenceRecallRequest.captureRunEvidence`
+captures completed events from that invoking run. The wrapper binds capture to
+the recall deadline and parent cancellation, and rejects new captures after the
+recall pass ends. Stores without the capability return `undefined`. This does
+not authorize discovery of another run or extend an expired invocation.
+
 Each `EvidenceRecallCandidate` carries `scope`, event `seq`, textual `part`,
 `source`, `retained`, `excerpt`, optional `toolName`, `isError` and UTF-8
 `byteOffset`. Excerpts are at most 512 UTF-16 units and are emitted without
@@ -79,7 +85,9 @@ Current facts still require sufficiently fresh evidence. Missing, bounded or
 unavailable history is not proof of absence; explicit archive search/read
 tools remain necessary for details outside the automatic pass.
 
-The [CLI option](../cli/context-and-compaction.md) currently excludes the
-requesting invocation from automatic recall. Explicit conversation tools can
-also recover the current run through its writer-bound capture. Automatic
-recall does not yet replace that path after compaction within a single run.
+The [CLI option](../cli/context-and-compaction.md) uses this live capability for
+up to two pages before visiting earlier invocations. It can recover original
+retained text after compaction within the same running invocation. The combined
+pass still has four pages and an 8 MiB accounted-read ceiling. Explicit tools
+remain available for later pages, longer excerpts and exact sequential reads;
+automatic recall does not claim an exhaustive search of long-running history.

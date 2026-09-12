@@ -17,6 +17,16 @@ import type { StepResult } from './step.js'
  */
 export interface PrepareStepContext {
 	readonly runId: RunId
+	/**
+	 * Optional writer-bound snapshot of this invocation's completed events.
+	 * Never discovers other runs or repeats tools. Unsupported stores return
+	 * undefined; cancellation or a settled invocation rejects capture. A local
+	 * signal can shorten, never extend, the run's lifetime.
+	 */
+	readonly captureRunEvidence?: (
+		maxReadBytes?: number,
+		signal?: AbortSignal,
+	) => Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined>
 	/** 1-based, matching the iteration number in events and traces. */
 	readonly stepNumber: number
 	/** Full history as it stands, so a decision can read what happened. */

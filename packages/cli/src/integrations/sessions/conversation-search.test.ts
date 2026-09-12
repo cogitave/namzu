@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import {
 	MockLLMProvider,
 	type RunEvent,
+	type RunTextEvidenceSource,
 	type SessionId,
 	ToolRegistry,
 	createUserMessage,
@@ -61,6 +62,46 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 describe('bounded original conversation evidence', () => {
+	it.each(['source', 'page', 'budget'])(
+		'rejects an invalid live %s without falling back to disk history',
+		async (invalid) => {
+			const { sessions, sessionId } = await fixture()
+			await transcript(sessions, sessionId, 'DELTA prior evidence')
+			const runId = generateRunId()
+			const owner = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+			const foreign = { ...owner, sessionId: generateRunId() }
+			const search = vi.fn(async () => ({
+				scope: invalid === 'page' ? foreign : owner,
+				matches: [],
+				nextCursor: null,
+				scannedBytes: invalid === 'budget' ? 9 * 1024 * 1024 : 0,
+				indexedRecords: 0,
+				cacheHit: false,
+				incomplete: false,
+				unavailable: [],
+			}))
+			const source: RunTextEvidenceSource = {
+				scope: invalid === 'source' ? foreign : owner,
+				search,
+				read: async () => {
+					throw new Error('Unexpected read')
+				},
+			}
+			const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+			await expect(
+				recall({
+					runId,
+					messages: [createUserMessage('DELTA')],
+					stepNumber: 2,
+					prepared: {},
+					steps: [],
+					captureRunEvidence: async () => source,
+				}),
+			).rejects.toThrow(invalid === 'budget' ? 'retrieval bounds' : 'different owner')
+			expect(search).toHaveBeenCalledTimes(invalid === 'source' ? 0 : 1)
+		},
+	)
+
 	it('shares term cursors only with the exact term set and invocation exclusion', async () => {
 		const { sessions, sessionId } = await fixture()
 		for (let i = 0; i < 7; i++) await transcript(sessions, sessionId, `DELTA receipt ${i}`)

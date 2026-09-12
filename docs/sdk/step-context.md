@@ -42,6 +42,24 @@ operator message, or persist as conversation input on resume. A host can record
 provider requests separately; request-context digests can still describe its
 presence. The runtime provenance must not be presented as text the operator typed.
 
+## Capturing the active invocation
+
+`PrepareStepContext.captureRunEvidence(maxReadBytes?, signal?)` exposes the
+same writer-owned boundary used by evidence tools. It is available to both
+`prepareStep` and `beforeStep` through their shared context. It returns a
+`RunTextEvidenceSource`, or `undefined` when the store does not implement
+capture. The optional signal can shorten the run's lifetime for this read;
+it cannot keep a cancelled or settled run active. Capture is serialized with
+complete durable appends and checks cancellation before and after acquiring
+the boundary. It does not accept a path or another run ID.
+
+The [automatic recall step](evidence-recall.md) passes a wrapper of this
+capability to its host retriever. Each pass obtains a fresh boundary. A bounded
+cursor can continue through a newer snapshot of the same writer, preserving
+its original search boundary. After restart, begin a new search. See
+[retained tool evidence](retained-tool-evidence.md) for source integrity,
+byte/character offsets and the explicit live traversal limits.
+
 ## Provider placement and cache limits
 
 A trailing SDK system message does not necessarily stay behind history on the
