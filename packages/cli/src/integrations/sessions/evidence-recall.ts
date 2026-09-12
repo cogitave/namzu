@@ -26,6 +26,7 @@ export function createConversationEvidenceRecall(
 			// Reserve at least two of the four pages for earlier invocations. The
 			// current writer is visited directly, never rediscovered as a disk run.
 			let liveCursor: string | undefined
+			let liveOmitted = false
 			if (captureRunEvidence) {
 				for (let livePage = 0; livePage < 2; livePage++) {
 					signal.throwIfAborted()
@@ -68,7 +69,7 @@ export function createConversationEvidenceRecall(
 						throw new Error('The active evidence page has a different owner.')
 					pages++
 					scannedBytes += page.scannedBytes
-					incomplete ||= page.incomplete || page.unavailable.length > 0
+					liveOmitted ||= page.incomplete || page.unavailable.length > 0
 					for (const match of page.matches)
 						candidates.push({
 							scope: owner,
@@ -84,7 +85,7 @@ export function createConversationEvidenceRecall(
 					liveCursor = page.nextCursor ?? undefined
 					if (!liveCursor) break
 				}
-				incomplete ||= liveCursor !== undefined
+				incomplete ||= liveOmitted || liveCursor !== undefined
 			}
 			let cursor: string | undefined
 			for (; pages < 4; pages++) {
@@ -137,7 +138,14 @@ export function createConversationEvidenceRecall(
 				continuations.push({
 					toolName: 'search_conversation',
 					input: {
-						cursor: retainLiveConversationSearch(sessions, sessionId, runId, terms, liveCursor),
+						cursor: retainLiveConversationSearch(
+							sessions,
+							sessionId,
+							runId,
+							terms,
+							liveCursor,
+							liveOmitted,
+						),
 					},
 				})
 			if (cursor) continuations.push({ toolName: 'search_conversation', input: { cursor } })

@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Preserved live evidence omissions across automatic-to-explicit search handoff, distinguishing pending pages from already missing bytes; verified preview, altered, missing and healthy retained-output cases through scoped tests and production CLI controls.
+
 - **Update** Connected bounded automatic evidence recall to explicit search continuations, including same-writer live history; preserved incomplete empty-scan metadata and added cursor-only CLI continuation with original scope/query validation.
 
 - **Update** Grouped exact repeated observations before SDK evidence-recall ranking, preserving bounded provenance and preview/error distinctions so copies cannot crowd a distinct correction out of the passage allowance; verified recorded CLI Session and Luna/low execution.

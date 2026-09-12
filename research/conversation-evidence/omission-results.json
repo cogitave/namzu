@@ -1,0 +1,710 @@
+{
+  "date": "2026-09-12",
+  "purpose": "Preserve known live-source omissions when automatic recall hands a bounded scan to explicit conversation search.",
+  "baselineRevision": "bb0281bb",
+  "method": "Production CLI, kernel, RunDiskStore and file/search tools; scripted provider decisions. No paid model requests.",
+  "trials": [
+    {
+      "root": "/tmp/namzu-omission-cli-kdnsEb",
+      "damage": "changed",
+      "baseline": true,
+      "provider": "scripted",
+      "modelCalls": 0,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-omission-cli-kdnsEb/workspace",
+        "--resume",
+        "cd61f40c-19ba-427c-8fb3-67c389a43769",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "8",
+        "--token-budget",
+        "25000",
+        "Search the original DELTA observations in this conversation."
+      ],
+      "buildBefore": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "41f9517f6cbd49bb8317799411379ff30260ea8fd2357f31587836b5aad4636f",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "a04f80eb80e73ccd13f072e4ef43625f0f176406e1c2532fcfc42e32ce671b13"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "41f9517f6cbd49bb8317799411379ff30260ea8fd2357f31587836b5aad4636f",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "a04f80eb80e73ccd13f072e4ef43625f0f176406e1c2532fcfc42e32ce671b13"
+      },
+      "buildStable": true,
+      "passed": false,
+      "error": "Error: Command failed: /home/arda/.local/node/bin/node --import /tmp/namzu-omission-cli-kdnsEb/fault-and-model.mjs /home/arda/workspaces/@cogitave/cogitave/namzu/packages/cli/dist/bin.js --quiet --format json run --trust --cwd /tmp/namzu-omission-cli-kdnsEb/workspace --resume cd61f40c-19ba-427c-8fb3-67c389a43769 --provider codex --model gpt-5.6-luna --effort low --max-iterations 8 --token-budget 25000 Search the original DELTA observations in this conversation.\n     +0ms  sandbox     ! Sandbox off by configuration: commands run in this process, with this shell's environment, against the real working directory. Remove `sandbox.enabled: false` to turn it back on.\n{\n  \"level\": \"error\",\n  \"message\": \"run did not finish normally: max_iterations\"\n}\n"
+    },
+    {
+      "root": "/tmp/namzu-omission-cli-LXgisR",
+      "damage": "changed",
+      "baseline": true,
+      "provider": "scripted",
+      "modelCalls": 0,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-omission-cli-LXgisR/workspace",
+        "--resume",
+        "a2e63705-275c-451f-92aa-0d85d36cd0d0",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "8",
+        "--token-budget",
+        "25000",
+        "DELTA"
+      ],
+      "buildBefore": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "41f9517f6cbd49bb8317799411379ff30260ea8fd2357f31587836b5aad4636f",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "a04f80eb80e73ccd13f072e4ef43625f0f176406e1c2532fcfc42e32ce671b13"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "41f9517f6cbd49bb8317799411379ff30260ea8fd2357f31587836b5aad4636f",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "a04f80eb80e73ccd13f072e4ef43625f0f176406e1c2532fcfc42e32ce671b13"
+      },
+      "buildStable": true,
+      "final": {
+        "incomplete": false,
+        "unavailableRuns": 0,
+        "hasNext": false,
+        "matches": 2
+      },
+      "sourcePages": [
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 0,
+          "hasNext": false,
+          "scannedBytes": 14631
+        },
+        {
+          "incomplete": true,
+          "unavailable": 1,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 115736
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 139561
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 2,
+          "hasNext": false,
+          "scannedBytes": 54211
+        },
+        {
+          "incomplete": true,
+          "unavailable": 1,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 118052
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 107466
+        }
+      ],
+      "requests": [
+        {
+          "request": 0,
+          "metadata": {}
+        },
+        {
+          "request": 1,
+          "metadata": {
+            "incomplete": true,
+            "scannedBytes": 255297,
+            "continuations": [
+              {
+                "toolName": "search_conversation",
+                "input": {
+                  "cursor": "ef91aebe1e475de83db643f82e6353643a6a62f52c6b0659"
+                }
+              }
+            ],
+            "omittedContinuations": 0
+          }
+        },
+        {
+          "request": 2,
+          "metadata": {
+            "incomplete": true,
+            "scannedBytes": 225518,
+            "continuations": [
+              {
+                "toolName": "search_conversation",
+                "input": {
+                  "cursor": "51fe305240e9a5c17c1b7533323498ef2c02d39d162cd8e7"
+                }
+              }
+            ],
+            "omittedContinuations": 0
+          }
+        }
+      ],
+      "fault": {
+        "damage": "changed",
+        "originalBytes": 87081,
+        "path": "/tmp/namzu-omission-cli-LXgisR/home/sessions/a2e63705-275c-451f-92aa-0d85d36cd0d0/runs/fb3f5a5f-a2dc-4e02-8c8d-50deada7f374/tool-output/c8951cc7fb8f8a9bc76c66a0da45fe426291467d80a8db95e41311f85c37ada6.txt"
+      },
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt",
+            "limit": 1000
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "broken.txt",
+            "limit": 1000
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "cursor": "ef91aebe1e475de83db643f82e6353643a6a62f52c6b0659"
+          }
+        }
+      ],
+      "stopReason": "end_turn",
+      "passed": true
+    },
+    {
+      "root": "/tmp/namzu-omission-cli-J3iWGL",
+      "damage": "changed",
+      "baseline": false,
+      "provider": "scripted",
+      "modelCalls": 0,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-omission-cli-J3iWGL/workspace",
+        "--resume",
+        "a23a8196-2545-4e49-baf4-810461d6a893",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "8",
+        "--token-budget",
+        "25000",
+        "DELTA"
+      ],
+      "buildBefore": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "f7351a9e8c47c569bfe6942ef8b0d0bea74cee5c901dab22d5a18f71a845b44a",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "0cec115032e912c6e21794ba8b4a65d5f0497e16019e0f8accff690c9aae819c"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "f7351a9e8c47c569bfe6942ef8b0d0bea74cee5c901dab22d5a18f71a845b44a",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "0cec115032e912c6e21794ba8b4a65d5f0497e16019e0f8accff690c9aae819c"
+      },
+      "buildStable": true,
+      "final": {
+        "incomplete": true,
+        "unavailableRuns": 0,
+        "hasNext": false,
+        "matches": 2
+      },
+      "sourcePages": [
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 0,
+          "hasNext": false,
+          "scannedBytes": 14631
+        },
+        {
+          "incomplete": true,
+          "unavailable": 1,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 115736
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 139561
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 2,
+          "hasNext": false,
+          "scannedBytes": 54211
+        },
+        {
+          "incomplete": true,
+          "unavailable": 1,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 118226
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 107466
+        }
+      ],
+      "requests": [
+        {
+          "request": 0,
+          "metadata": {}
+        },
+        {
+          "request": 1,
+          "metadata": {
+            "incomplete": true,
+            "scannedBytes": 255297,
+            "continuations": [
+              {
+                "toolName": "search_conversation",
+                "input": {
+                  "cursor": "34d8dd2ff8ec6c48a3efabf81b53cdf2389edc518ead5e5e"
+                }
+              }
+            ],
+            "omittedContinuations": 0
+          }
+        },
+        {
+          "request": 2,
+          "metadata": {
+            "incomplete": true,
+            "scannedBytes": 225692,
+            "continuations": [
+              {
+                "toolName": "search_conversation",
+                "input": {
+                  "cursor": "49f0470f3fcc5a3443d8c358045532572735d5677a3b8f17"
+                }
+              }
+            ],
+            "omittedContinuations": 0
+          }
+        }
+      ],
+      "fault": {
+        "damage": "changed",
+        "originalBytes": 87081,
+        "path": "/tmp/namzu-omission-cli-J3iWGL/home/sessions/a23a8196-2545-4e49-baf4-810461d6a893/runs/d3369150-df1b-45f5-87a9-54e5e9c74f46/tool-output/c8951cc7fb8f8a9bc76c66a0da45fe426291467d80a8db95e41311f85c37ada6.txt"
+      },
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt",
+            "limit": 1000
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "broken.txt",
+            "limit": 1000
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "cursor": "34d8dd2ff8ec6c48a3efabf81b53cdf2389edc518ead5e5e"
+          }
+        }
+      ],
+      "stopReason": "end_turn",
+      "passed": true
+    },
+    {
+      "root": "/tmp/namzu-omission-cli-TyZYIY",
+      "damage": "missing",
+      "baseline": false,
+      "provider": "scripted",
+      "modelCalls": 0,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-omission-cli-TyZYIY/workspace",
+        "--resume",
+        "1ec0d6eb-c21b-4206-9ab2-6aa8ef983587",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "8",
+        "--token-budget",
+        "25000",
+        "DELTA"
+      ],
+      "buildBefore": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "f7351a9e8c47c569bfe6942ef8b0d0bea74cee5c901dab22d5a18f71a845b44a",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "0cec115032e912c6e21794ba8b4a65d5f0497e16019e0f8accff690c9aae819c"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "f7351a9e8c47c569bfe6942ef8b0d0bea74cee5c901dab22d5a18f71a845b44a",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "0cec115032e912c6e21794ba8b4a65d5f0497e16019e0f8accff690c9aae819c"
+      },
+      "buildStable": true,
+      "final": {
+        "incomplete": true,
+        "unavailableRuns": 0,
+        "hasNext": false,
+        "matches": 2
+      },
+      "sourcePages": [
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 0,
+          "hasNext": false,
+          "scannedBytes": 14631
+        },
+        {
+          "incomplete": true,
+          "unavailable": 1,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 115736
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 139561
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 2,
+          "hasNext": false,
+          "scannedBytes": 54211
+        },
+        {
+          "incomplete": true,
+          "unavailable": 1,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 118226
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 107466
+        }
+      ],
+      "requests": [
+        {
+          "request": 0,
+          "metadata": {}
+        },
+        {
+          "request": 1,
+          "metadata": {
+            "incomplete": true,
+            "scannedBytes": 255297,
+            "continuations": [
+              {
+                "toolName": "search_conversation",
+                "input": {
+                  "cursor": "7ae23ed874cb8d85b8208603271bee856d6350b85bd970ce"
+                }
+              }
+            ],
+            "omittedContinuations": 0
+          }
+        },
+        {
+          "request": 2,
+          "metadata": {
+            "incomplete": true,
+            "scannedBytes": 225692,
+            "continuations": [
+              {
+                "toolName": "search_conversation",
+                "input": {
+                  "cursor": "705cc25bb456e039264ccc6ee61e8426cd78d6924b51b835"
+                }
+              }
+            ],
+            "omittedContinuations": 0
+          }
+        }
+      ],
+      "fault": {
+        "damage": "missing",
+        "originalBytes": 87081,
+        "path": "/tmp/namzu-omission-cli-TyZYIY/home/sessions/1ec0d6eb-c21b-4206-9ab2-6aa8ef983587/runs/a8f914e6-1277-4ee2-b993-c76df0972f2f/tool-output/c8951cc7fb8f8a9bc76c66a0da45fe426291467d80a8db95e41311f85c37ada6.txt"
+      },
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt",
+            "limit": 1000
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "broken.txt",
+            "limit": 1000
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "cursor": "7ae23ed874cb8d85b8208603271bee856d6350b85bd970ce"
+          }
+        }
+      ],
+      "stopReason": "end_turn",
+      "passed": true
+    },
+    {
+      "root": "/tmp/namzu-omission-cli-znYEQ6",
+      "damage": "healthy",
+      "baseline": false,
+      "provider": "scripted",
+      "modelCalls": 0,
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-omission-cli-znYEQ6/workspace",
+        "--resume",
+        "fe647dd7-237f-4bd7-94af-fff70d5dcfa1",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "8",
+        "--token-budget",
+        "25000",
+        "DELTA"
+      ],
+      "buildBefore": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "f7351a9e8c47c569bfe6942ef8b0d0bea74cee5c901dab22d5a18f71a845b44a",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "0cec115032e912c6e21794ba8b4a65d5f0497e16019e0f8accff690c9aae819c"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/store/run/disk.js": "92cf1d695ce815f7a038899b22f4a2d1d6b765d778fd2d3d8b1600318f05f5ca",
+        "packages/sdk/dist/store/evidence/linked.js": "de1cfdb82903254ff191c0b071bc745cd116599560578c602e89be26ff7b94ee",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "f7351a9e8c47c569bfe6942ef8b0d0bea74cee5c901dab22d5a18f71a845b44a",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "0cec115032e912c6e21794ba8b4a65d5f0497e16019e0f8accff690c9aae819c"
+      },
+      "buildStable": true,
+      "final": {
+        "incomplete": false,
+        "unavailableRuns": 0,
+        "hasNext": false,
+        "matches": 2
+      },
+      "sourcePages": [
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 0,
+          "hasNext": false,
+          "scannedBytes": 14631
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 224362
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 139561
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 2,
+          "hasNext": false,
+          "scannedBytes": 54211
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 226678
+        },
+        {
+          "incomplete": false,
+          "unavailable": 0,
+          "matches": 4,
+          "hasNext": true,
+          "scannedBytes": 107466
+        }
+      ],
+      "requests": [
+        {
+          "request": 0,
+          "metadata": {}
+        },
+        {
+          "request": 1,
+          "metadata": {
+            "incomplete": true,
+            "scannedBytes": 363923,
+            "continuations": [
+              {
+                "toolName": "search_conversation",
+                "input": {
+                  "cursor": "1d8939f96cd0c361fef84548a86cd141d419a9c0bc61ac74"
+                }
+              }
+            ],
+            "omittedContinuations": 0
+          }
+        },
+        {
+          "request": 2,
+          "metadata": {
+            "incomplete": true,
+            "scannedBytes": 334144,
+            "continuations": [
+              {
+                "toolName": "search_conversation",
+                "input": {
+                  "cursor": "fc4fedb9125573319603f9644190cdd9f21bd9070c237d41"
+                }
+              }
+            ],
+            "omittedContinuations": 0
+          }
+        }
+      ],
+      "fault": {
+        "damage": "healthy",
+        "originalBytes": 87081,
+        "path": "/tmp/namzu-omission-cli-znYEQ6/home/sessions/fe647dd7-237f-4bd7-94af-fff70d5dcfa1/runs/f9e173bd-ae47-44de-baf0-409b23993fc8/tool-output/c8951cc7fb8f8a9bc76c66a0da45fe426291467d80a8db95e41311f85c37ada6.txt"
+      },
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt",
+            "limit": 1000
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "broken.txt",
+            "limit": 1000
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "cursor": "1d8939f96cd0c361fef84548a86cd141d419a9c0bc61ac74"
+          }
+        }
+      ],
+      "stopReason": "end_turn",
+      "passed": true
+    }
+  ],
+  "interpretation": {
+    "baseline": "The source reported unavailable evidence but the final continuation incorrectly returned incomplete:false.",
+    "changed": "Final continuation preserves incomplete:true with unavailableRuns:0 and no next cursor.",
+    "missing": "Same result for an absent retained spill.",
+    "healthy": "Pending pages alone do not permanently mark a healthy scan incomplete.",
+    "initialFixture": "The first full-sentence query reached max_iterations; narrowed to DELTA to isolate omission propagation. It is recorded as a failed trial, not a pass.",
+    "limits": [
+      "No live model behavior or TUI rendering claim.",
+      "No new compaction, archive-size or throughput benchmark.",
+      "SDK page counters remain per-page; only CLI scan omission state is cumulative."
+    ]
+  },
+  "validation": {
+    "focusedCLI": "29 tests passed",
+    "typecheck": "passed",
+    "build": "passed",
+    "workspaceLint": "passed; existing warnings remain",
+    "workspaceTests": "passed; SDK 6349 tests, CLI 2857 passed and 5 skipped",
+    "docs": "69 pages passed",
+    "fences": "passed; 47 docs + 20 READMEs, 1 sketch excluded",
+    "diffCheck": "passed"
+  }
+}

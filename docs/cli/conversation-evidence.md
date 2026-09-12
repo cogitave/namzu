@@ -91,7 +91,15 @@ index beside each closed run (`evidence-index/`), reused after restart. This
 index is disposable; the run transcript and retained outputs remain primary.
 
 Results include `scannedRuns`, `scannedBytes`, `unavailableRuns` and `incomplete`.
-Counts describe the current call. If an SDK operation fails before returning
+Counts describe the current call. A continuation also preserves omissions seen
+earlier in that same scan, including when an automatic live scan hands off to
+this tool. Finishing its remaining pages does not erase a prior preview or
+unavailable original. A final page may therefore have `unavailableRuns: 0`, no
+`nextCursor`, and `incomplete: true`: it found no new unavailable run, but the
+whole continued scan still cannot establish absence. Omissions from a separate
+closed-history scan do not mark an otherwise healthy live scan as incomplete.
+
+If an SDK operation fails before returning
 its byte count, `scannedBytes` conservatively charges the remaining 8 MiB
 ceiling and yields instead of attempting another run in that call. `incomplete` remains true while another page
 exists or if any run or partial evidence was omitted. An authenticated full spill

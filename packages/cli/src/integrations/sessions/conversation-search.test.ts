@@ -142,6 +142,10 @@ describe('bounded original conversation evidence', () => {
 			} as RunEvent)
 		const captureRunEvidence = (maxReadBytes?: number) =>
 			store.captureTextEvidence(owner, maxReadBytes)
+		// An omission in a separate historical scan must not taint this healthy
+		// live writer's continuation merely because the overall recall is incomplete.
+		const unavailablePast = await transcript(sessions, sessionId, 'unrelated historical record')
+		await writeFile(join(unavailablePast.path, 'transcript.jsonl'), 'damaged historical record\n')
 		const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
 		const result = await recall({
 			runId,
@@ -169,10 +173,72 @@ describe('bounded original conversation evidence', () => {
 		})
 		expect(page.matches.map((m) => m.text)).toEqual(['DELTA code 1', 'DELTA code 0'])
 		expect(page.matches.some((m) => m.text.includes('later'))).toBe(false)
+		expect(page.incomplete).toBe(false)
 		const rejected = await searchConversation(sessions, sessionId, hint.input)
 		expect(rejected.matches).toHaveLength(0)
 		expect(rejected.unavailableRuns).toBe(1)
 		expect((await store.readEvents()).filter((e) => e.type === 'tool_completed')).toHaveLength(11)
+	})
+
+	it('retains an earlier live preview omission after continuing beyond the automatic page limit', async () => {
+		const { cwd, sessions, sessionId } = await fixture()
+		const runId = generateRunId()
+		const owner = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+		const store = new RunDiskStore({ baseDir: join(cwd, 'writer') })
+		const runDir = await store.initRun(runId)
+		await writeFile(
+			join(runDir, 'run.json'),
+			JSON.stringify({ id: runId, metadata: { scope: owner } }),
+		)
+		await store.appendEvent({ type: 'run_started', runId, seq: 1 } as RunEvent)
+		for (let i = 0; i < 10; i++)
+			await store.appendEvent({
+				type: 'tool_completed',
+				runId,
+				seq: i + 2,
+				toolName: 'read',
+				toolUseId: `read-${i}`,
+				result: `DELTA code ${i}`,
+				isError: false,
+			} as RunEvent)
+		await store.appendEvent({
+			type: 'tool_completed',
+			runId,
+			seq: 12,
+			toolName: 'read',
+			toolUseId: 'preview',
+			result: 'Unretained observation excerpt.',
+			isError: false,
+			outputTruncated: true,
+		} as RunEvent)
+		const captureRunEvidence = (maxReadBytes?: number) =>
+			store.captureTextEvidence(owner, maxReadBytes)
+		const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+		const result = await recall({
+			runId,
+			messages: [createUserMessage('DELTA')],
+			steps: [],
+			prepared: {},
+			stepNumber: 1,
+			captureRunEvidence,
+		})
+		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(metadata.incomplete).toBe(true)
+		const input = metadata.continuations[0].input
+		const page = await searchConversation(sessions, sessionId, input, undefined, {
+			runId,
+			captureRunEvidence,
+		})
+		expect(page.matches.map((m) => m.text)).toEqual(['DELTA code 1', 'DELTA code 0'])
+		expect(page.nextCursor).toBeUndefined()
+		expect(page.unavailableRuns).toBe(0) // no new missing record on this page
+		expect(page.incomplete).toBe(true) // earlier omitted bytes still prevent an exhaustive claim
+		expect(page.guidance).toContain('Some recorded evidence was omitted or unavailable')
+		const repeated = await searchConversation(sessions, sessionId, input, undefined, {
+			runId,
+			captureRunEvidence,
+		})
+		expect(repeated.incomplete).toBe(true)
 	})
 
 	it('reaches runs beyond the initial 100-entry page without duplicates or false completeness', async () => {

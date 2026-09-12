@@ -73,6 +73,11 @@ require the same requesting writer; they cannot fall back to closed history
 after it ends. An incomplete empty scan is explicitly reported even without a
 selected passage. Automatic passes themselves still start at the current source.
 
+The live continuation retains earlier preview/unavailable omissions from its
+automatic scan. Exhausting the next pages clears the “more pages” condition,
+not an already observed omission. A healthy scan can finish as complete;
+missing evidence in a different history scan does not taint that live cursor.
+
 Explicit `search_conversation`/`read_conversation` provide further pages and
 exact text after compaction. New searches still use a literal query; cursor-only
 continuation restores its host-owned query. Automatic passages are historical context, not a new user message or

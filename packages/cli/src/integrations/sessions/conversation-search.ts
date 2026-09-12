@@ -141,6 +141,7 @@ export function retainLiveConversationSearch(
 	runId: string,
 	terms: readonly string[],
 	indexCursor: string,
+	omitted = false,
 ): string {
 	if (typeof indexCursor !== 'string' || !indexCursor.length || indexCursor.length > 4096)
 		throw new Error('Invalid live evidence continuation.')
@@ -153,7 +154,7 @@ export function retainLiveConversationSearch(
 		index: 0,
 		offset: 0,
 		seq: 0,
-		omitted: false,
+		omitted,
 		expires: Date.now() + 10 * 60_000,
 		backend: 'live',
 		indexCursor,
