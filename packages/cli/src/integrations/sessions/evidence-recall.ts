@@ -4,9 +4,37 @@ import {
 	type PrepareStep,
 	type SessionId,
 	createEvidenceRecallStep,
+	refineEvidenceRecallTerms,
 } from '@namzu/sdk'
 import { retainLiveConversationSearch, searchConversationTerms } from './conversation-search.js'
 import type { CliSessions } from './store.js'
+
+interface RecallScan {
+	terms: readonly string[]
+	cursor?: string
+	started: boolean
+	omitted: boolean
+}
+
+function newScan(terms: readonly string[]): RecallScan {
+	return { terms, started: false, omitted: false }
+}
+
+// At most one focused scan per source class. It spends an existing page and
+// leaves the broader cursor intact. Completing a subset cannot exhaust it.
+function advanceScan(
+	scans: RecallScan[],
+	scan: RecallScan,
+	nextCursor: string | undefined,
+	excerpts: readonly string[],
+	canRefine: boolean,
+): void {
+	scan.started = true
+	scan.cursor = nextCursor
+	if (!canRefine || scans.length !== 1 || !nextCursor) return
+	const focused = refineEvidenceRecallTerms(scan.terms, excerpts)
+	if (focused) scans.push(newScan(focused))
+}
 
 /** A stable hook per conversation keeps timed-out reads from piling up across turns. */
 export function createConversationEvidenceRecall(
@@ -25,10 +53,11 @@ export function createConversationEvidenceRecall(
 			let pages = 0
 			// Reserve at least two of the four pages for earlier invocations. The
 			// current writer is visited directly, never rediscovered as a disk run.
-			let liveCursor: string | undefined
-			let liveOmitted = false
+			const liveScans = [newScan(terms)]
 			if (captureRunEvidence) {
 				for (let livePage = 0; livePage < 2; livePage++) {
+					const scan = [...liveScans].reverse().find((s) => !s.started || s.cursor)
+					if (!scan) break
 					signal.throwIfAborted()
 					const remaining = maxReadBytes - scannedBytes
 					if (remaining < 1024 * 1024) {
@@ -38,7 +67,8 @@ export function createConversationEvidenceRecall(
 					const source = await captureRunEvidence(remaining)
 					assertOwner(runId)
 					if (!source) {
-						if (liveCursor) throw new Error('The active evidence source disappeared.')
+						if (liveScans.some((s) => s.cursor))
+							throw new Error('The active evidence source disappeared.')
 						incomplete = true
 						break
 					}
@@ -50,7 +80,13 @@ export function createConversationEvidenceRecall(
 					)
 						throw new Error('The active evidence source has a different owner.')
 					const page = await source.search(
-						{ terms, matchMode: 'token', caseSensitive: false, cursor: liveCursor, limit: 4 },
+						{
+							terms: scan.terms,
+							matchMode: 'token',
+							caseSensitive: false,
+							cursor: scan.cursor,
+							limit: 4,
+						},
 						signal,
 					)
 					assertOwner(runId)
@@ -69,7 +105,7 @@ export function createConversationEvidenceRecall(
 						throw new Error('The active evidence page has a different owner.')
 					pages++
 					scannedBytes += page.scannedBytes
-					liveOmitted ||= page.incomplete || page.unavailable.length > 0
+					scan.omitted ||= page.incomplete || page.unavailable.length > 0
 					for (const match of page.matches)
 						candidates.push({
 							scope: owner,
@@ -82,13 +118,20 @@ export function createConversationEvidenceRecall(
 							excerpt: match.excerpt,
 							...(match.characterOffset === undefined ? {} : { byteOffset: match.byteOffset }),
 						})
-					liveCursor = page.nextCursor ?? undefined
-					if (!liveCursor) break
+					advanceScan(
+						liveScans,
+						scan,
+						page.nextCursor ?? undefined,
+						page.matches.map((match) => match.excerpt),
+						livePage < 1,
+					)
 				}
-				incomplete ||= liveOmitted || liveCursor !== undefined
+				incomplete ||= liveScans.some((s) => s.omitted || s.cursor !== undefined)
 			}
-			let cursor: string | undefined
+			const historyScans = [newScan(terms)]
 			for (; pages < 4; pages++) {
+				const scan = [...historyScans].reverse().find((s) => !s.started || s.cursor)
+				if (!scan) break
 				signal.throwIfAborted()
 				const remaining = maxReadBytes - scannedBytes
 				if (remaining < 6 * 1024 * 1024) {
@@ -99,11 +142,11 @@ export function createConversationEvidenceRecall(
 					sessions,
 					sessionId,
 					{
-						terms,
+						terms: scan.terms,
 						matchMode: 'token',
 						excludeRunId: runId,
 						maxReadBytes: remaining,
-						cursor,
+						cursor: scan.cursor,
 					},
 					signal,
 				)
@@ -129,13 +172,20 @@ export function createConversationEvidenceRecall(
 						byteOffset: match.byteOffset,
 					})
 				}
-				cursor = page.nextCursor
-				if (!cursor || candidates.length >= maxCandidates) break
+				advanceScan(
+					historyScans,
+					scan,
+					page.nextCursor,
+					page.matches.map((match) => match.text),
+					pages < 3,
+				)
+				if (candidates.length >= maxCandidates) break
 			}
 			assertOwner(runId)
 			signal.throwIfAborted()
 			const continuations: EvidenceRecallContinuation[] = []
-			if (liveCursor)
+			for (const scan of [...liveScans].reverse()) {
+				if (!scan.cursor) continue
 				continuations.push({
 					toolName: 'search_conversation',
 					input: {
@@ -143,18 +193,21 @@ export function createConversationEvidenceRecall(
 							sessions,
 							sessionId,
 							runId,
-							terms,
-							liveCursor,
-							liveOmitted,
+							scan.terms,
+							scan.cursor,
+							scan.omitted,
 							'token',
 						),
 					},
 				})
-			if (cursor) continuations.push({ toolName: 'search_conversation', input: { cursor } })
+			}
+			for (const scan of [...historyScans].reverse())
+				if (scan.cursor)
+					continuations.push({ toolName: 'search_conversation', input: { cursor: scan.cursor } })
 			return {
 				candidates,
 				scannedBytes,
-				incomplete: incomplete || cursor !== undefined,
+				incomplete: incomplete || historyScans.some((s) => s.cursor !== undefined),
 				continuations,
 			}
 		},

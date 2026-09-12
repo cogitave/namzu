@@ -1,7 +1,7 @@
 import type { RunEvidenceScope, RunTextEvidenceSource } from '../store/evidence/types.js'
 import type { Message } from '../types/message/index.js'
 import type { PrepareStep } from '../types/run/prepare-step.js'
-import { evidenceTokenKey, evidenceTokens } from '../utils/evidence-tokens.js'
+import { evidenceTokenKey, evidenceTokens, isEvidenceToken } from '../utils/evidence-tokens.js'
 import { isEntityId } from '../utils/id.js'
 
 /** @experimental An authenticated historical passage, never a current-state assertion. */
@@ -67,6 +67,42 @@ const GLUE = new Set(
 	),
 )
 const pending = new WeakMap<EvidenceRecallOptions['retrieve'], Promise<EvidenceRecallBatch>>()
+
+/**
+ * @experimental Suggest a strict query subset not yet covered by bounded excerpts.
+ * This is lexical coverage, not relevance or proof of absence from the archive.
+ * Hosts may spend an existing page on it, retaining the original continuation.
+ * Accepts 1–16 single-token terms (≤256 UTF-16 units) and ≤24 excerpts (≤512 each).
+ * Returns undefined when no terms or all terms were observed; never performs I/O.
+ */
+export function refineEvidenceRecallTerms(
+	terms: readonly string[],
+	excerpts: readonly string[],
+): string[] | undefined {
+	if (
+		!Array.isArray(terms) ||
+		terms.length < 1 ||
+		terms.length > 16 ||
+		terms.some((term) => typeof term !== 'string' || term.length > 256 || !isEvidenceToken(term))
+	)
+		throw new Error('Evidence refinement requires 1–16 bounded single-token terms.')
+	if (
+		!Array.isArray(excerpts) ||
+		excerpts.length > 24 ||
+		excerpts.some((text) => typeof text !== 'string' || text.length > 512)
+	)
+		throw new Error('Evidence refinement requires at most 24 bounded excerpts.')
+	const unique = new Map<string, string>()
+	for (const term of terms) {
+		const key = evidenceTokenKey(term)
+		if (!unique.has(key)) unique.set(key, term)
+	}
+	const observed = new Set(
+		excerpts.flatMap((text) => evidenceTokens(text).map((token) => evidenceTokenKey(token))),
+	)
+	const uncovered = [...unique].filter(([key]) => !observed.has(key)).map(([, term]) => term)
+	return uncovered.length > 0 && uncovered.length < unique.size ? uncovered : undefined
+}
 
 function bounded(value: number, ceiling: number, name: string): number {
 	if (!Number.isSafeInteger(value) || value < 1 || value > ceiling)

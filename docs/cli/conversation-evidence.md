@@ -41,8 +41,17 @@ that matching mode too, including in older unindexed transcripts. Thus `in`
 inside `Packing` does not consume an automatic candidate slot, and token `3`
 does not select `13000`. A new explicit `search_conversation({query: ...})`
 retains literal substring matching; the model-facing tool adds no mode argument.
-Frequent complete words can still fill bounded pages before a relevant passage;
-token alignment does not establish global archive ranking.
+When a broad automatic page covers only some query tokens and has more results,
+the host may use an existing page to search the uncovered tokens. It retains the
+broad continuation and makes at most one focused scan each for the current
+writer and earlier invocations. The total remains four pages, at most two live,
+and 8 MiB of accounted reads. Restarted reads count against that same ceiling.
+If the focused scan finishes, remaining pages resume the broad cursor. Pending
+broad pages still make the combined result incomplete; finishing a narrower
+query never establishes complete coverage. Each cursor restores its own terms.
+This improves candidate discovery behind frequent words without claiming global
+ranking or semantic coverage. Queries with all or none of their tokens covered
+in returned excerpts are not refined.
 
 Matching ignores letter case
 by default: `destination` also finds `Destination`. Set `caseSensitive: true` to

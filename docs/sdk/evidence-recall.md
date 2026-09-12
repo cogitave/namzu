@@ -88,6 +88,28 @@ records the original limitation and alternatives. Token alignment addresses
 substring pollution, not arbitrary candidate ordering or global relevance.
 Explicit literal search still supports substrings.
 
+`refineEvidenceRecallTerms(terms, excerpts)` is an optional, pure SDK helper
+for host discovery. It compares the same lowercase token keys in a bounded
+excerpt pool with the original query terms and returns only uncovered terms,
+preserving first spelling and order. It returns `undefined` if none or all of
+the terms were observed; case variants do not create additional terms. It
+accepts 1–16 single-token terms of at most 256 UTF-16 units each and 0–24 excerpts
+of at most 512 units each; invalid input throws. It performs no I/O, model call,
+semantic inference or archive-wide frequency calculation. Its coverage is of
+these excerpts only, not proof that a query aspect is answered or absent.
+
+The CLI may spend an already allocated page on this strict subset when the
+broad search has a continuation. There is at most one focused scan for the
+current writer and one for earlier invocations. A focused scan starts from the
+beginning under the same scope, token matching, cancellation and shared byte
+ceiling; its reads are charged again. If it completes while pages remain, the
+host resumes the preserved broad cursor. Exhausting the subset cannot exhaust
+the original query. This can reach a rare query term behind frequent-word
+matches, but cannot guarantee globally optimal candidates; an excerpt pool
+covering every query token will not trigger refinement. No stop words are added.
+The [measured CLI comparison](../../research/conversation-evidence/refined-discovery-results.md)
+records the recovery improvement, increased I/O and remaining counterexamples.
+
 The first-discovered occurrence supplies each passage's `runId`, `seq`, `part` and optional
 `byteOffset`. Equal observations retain their additional addresses under
 `otherOccurrences`; `omittedOccurrences` counts extra addresses from this bounded
@@ -141,8 +163,9 @@ limit no longer permanently excludes later runs. The automatic four-page pass
 can still stop before discovery or text traversal is exhausted; explicit search
 continuations remain necessary beyond that allowance.
 
-When traversal has another page, the CLI supplies a continuation for the live
-writer and/or earlier invocations. The model can pass its opaque `cursor` to
+When traversal has another page, the CLI supplies up to four continuations:
+focused before broad within the live writer, then focused before broad within
+earlier invocations. Each keeps its own query and omissions. The model can pass its opaque `cursor` to
 `search_conversation` without reconstructing the automatic multi-term query.
 Automatic passes still revalidate from the beginning; the explicit read-only
 continuation provides access beyond that bounded pass without an action replay.

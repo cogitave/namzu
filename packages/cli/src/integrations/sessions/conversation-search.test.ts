@@ -23,6 +23,7 @@ import {
 	searchConversation,
 	searchConversationTerms,
 } from './conversation-search.js'
+import * as conversationSearch from './conversation-search.js'
 import { createConversationEvidenceRecall } from './evidence-recall.js'
 import { CliPathBuilder } from './paths.js'
 import {
@@ -131,6 +132,193 @@ describe('bounded original conversation evidence', () => {
 			expect((await store.readEvents()).filter((e) => e.type === 'tool_completed')).toHaveLength(13)
 		},
 	)
+
+	it.each(['live', 'closed', 'legacy'] as const)(
+		'retrieves uncovered terms before common whole words fill automatic recall (%s)',
+		async (backend) => {
+			const { sessions, sessionId } = await fixture()
+			const runId = generateRunId()
+			const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+			const owner = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+			const store = new RunDiskStore({ baseDir: dirname(path) })
+			await store.initRun(runId)
+			if (backend !== 'legacy')
+				await writeFile(
+					join(path, 'run.json'),
+					JSON.stringify({
+						id: runId,
+						status: backend === 'live' ? 'running' : 'completed',
+						metadata: { scope: owner },
+					}),
+				)
+			await store.appendEvent({ type: 'run_started', runId, seq: 1 } as RunEvent)
+			const noise = Array.from({ length: 24 }, (_, i) => `An unrelated item is in queue ${i}`)
+			const target = 'DELTA original observation: receipt A17'
+			const texts = backend === 'live' ? [target, ...noise] : [...noise, target]
+			for (const [i, result] of texts.entries())
+				await store.appendEvent({
+					type: 'tool_completed',
+					runId,
+					seq: i + 2,
+					toolName: 'read',
+					toolUseId: `read-${i}`,
+					isError: false,
+					result,
+				} as RunEvent)
+			const captureRunEvidence = (maxReadBytes?: number) =>
+				store.captureTextEvidence(owner, maxReadBytes)
+			const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+			const ctx = {
+				runId: backend === 'live' ? runId : generateRunId(),
+				messages: [
+					createUserMessage('Search the original DELTA observations in this conversation.'),
+				],
+				steps: [],
+				prepared: {},
+				stepNumber: 1,
+				...(backend === 'live' ? { captureRunEvidence } : {}),
+			}
+			const result = await recall(ctx)
+			expect(result?.context).toContain('receipt A17')
+			expect(result?.context).toContain('"incomplete":true')
+			expect((await store.readEvents()).filter((e) => e.type === 'tool_completed')).toHaveLength(25)
+		},
+	)
+
+	it('keeps broad and focused live/history cursors within the original four-page budget', async () => {
+		const { sessions, sessionId } = await fixture()
+		async function source(live: boolean) {
+			const runId = generateRunId()
+			const owner = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+			const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+			const store = new RunDiskStore({ baseDir: dirname(path) })
+			await store.initRun(runId)
+			await writeFile(
+				join(path, 'run.json'),
+				JSON.stringify({
+					id: runId,
+					status: live ? 'running' : 'completed',
+					metadata: { scope: owner },
+				}),
+			)
+			await store.appendEvent({ type: 'run_started', runId, seq: 1 } as RunEvent)
+			const noise = Array.from({ length: 12 }, (_, i) => `in queue ${i}`)
+			const target = Array.from({ length: 6 }, (_, i) => `DELTA receipt ${i}`)
+			for (const [i, result] of (live ? [...target, ...noise] : [...noise, ...target]).entries())
+				await store.appendEvent({
+					type: 'tool_completed',
+					runId,
+					seq: i + 2,
+					result,
+					toolName: 'read',
+					toolUseId: `read-${i}`,
+					isError: false,
+				} as RunEvent)
+			return { store, runId, owner }
+		}
+		const live = await source(true)
+		await source(false)
+		const liveTerms: (readonly string[])[] = []
+		const remainingBudgets: number[] = []
+		let liveBytes = 0
+		const captureRunEvidence = async (maxReadBytes?: number) => {
+			remainingBudgets.push(maxReadBytes!)
+			const captured = await live.store.captureTextEvidence(live.owner, maxReadBytes)
+			if (!captured) throw new Error('Expected active evidence writer')
+			return {
+				...captured,
+				search: async (...args: Parameters<RunTextEvidenceSource['search']>) => {
+					liveTerms.push(args[0]?.terms ?? [])
+					const page = await captured.search(...args)
+					liveBytes += page.scannedBytes
+					return page
+				},
+			}
+		}
+		const history = vi.spyOn(conversationSearch, 'searchConversationTerms')
+		try {
+			const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+			const result = await recall({
+				runId: live.runId,
+				messages: [createUserMessage('in DELTA')],
+				steps: [],
+				prepared: {},
+				stepNumber: 1,
+				captureRunEvidence,
+			})
+			const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+			expect(liveTerms).toEqual([['in', 'DELTA'], ['DELTA']])
+			expect(history).toHaveBeenCalledTimes(2)
+			expect(history.mock.calls.map((call) => call[2].terms)).toEqual([['in', 'DELTA'], ['DELTA']])
+			expect(history.mock.calls[0]![2].maxReadBytes).toBe(8 * 1024 * 1024 - liveBytes)
+			const firstHistory = await history.mock.results[0]!.value
+			expect(history.mock.calls[1]![2].maxReadBytes).toBe(
+				8 * 1024 * 1024 - liveBytes - firstHistory.scannedBytes,
+			)
+			expect(remainingBudgets[1]).toBeLessThan(remainingBudgets[0]!)
+			expect(metadata.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			expect(metadata.incomplete).toBe(true)
+			expect(metadata.continuations).toHaveLength(4)
+			const runtime = { runId: live.runId, captureRunEvidence }
+			for (const [i, hint] of metadata.continuations.entries()) {
+				const page = await searchConversation(sessions, sessionId, hint.input, undefined, runtime)
+				expect(page.matches.length).toBeGreaterThan(0)
+				expect(
+					page.matches.every((m) => m.text.startsWith(i % 2 === 0 ? 'DELTA' : 'in queue')),
+				).toBe(true)
+			}
+			expect(
+				(await live.store.readEvents()).filter((e) => e.type === 'tool_completed'),
+			).toHaveLength(18)
+		} finally {
+			history.mockRestore()
+		}
+	})
+
+	it('returns to the broad cursor after an empty focused scan without starting it again', async () => {
+		const { sessions, sessionId } = await fixture()
+		const { runId, path } = await transcript(sessions, sessionId, 'seed')
+		await writeFile(
+			join(path, 'transcript.jsonl'),
+			`${[
+				{ type: 'run_started', runId, seq: 1 },
+				...Array.from({ length: 24 }, (_, i) => ({
+					type: 'tool_completed',
+					runId,
+					seq: i + 2,
+					result: `in queue ${i}`,
+				})),
+			]
+				.map((event) => JSON.stringify(event))
+				.join('\n')}\n`,
+		)
+		const search = vi.spyOn(conversationSearch, 'searchConversationTerms')
+		try {
+			const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+			const result = await recall({
+				runId: generateRunId(),
+				messages: [createUserMessage('in DELTA')],
+				steps: [],
+				prepared: {},
+				stepNumber: 1,
+			})
+			expect(search.mock.calls.map((call) => call[2].terms)).toEqual([
+				['in', 'DELTA'],
+				['DELTA'],
+				['in', 'DELTA'],
+				['in', 'DELTA'],
+			])
+			const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+			expect(metadata.incomplete).toBe(true)
+			expect(metadata.continuations).toHaveLength(1)
+			const page = await searchConversation(sessions, sessionId, metadata.continuations[0].input)
+			expect(page.matches.map((m) => m.text)).toEqual(
+				Array.from({ length: 5 }, (_, i) => `in queue ${i + 15}`),
+			)
+		} finally {
+			search.mockRestore()
+		}
+	})
 
 	it('retains token matching when a model continues a host search by cursor alone', async () => {
 		const { sessions, sessionId } = await fixture()
