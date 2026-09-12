@@ -101,12 +101,13 @@ describe('bounded original conversation evidence', () => {
 			})
 			expect(Buffer.byteLength(JSON.stringify(page.matches))).toBeLessThanOrEqual(12_000)
 			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
-			expect(page.guidance).toContain('case-sensitive')
+			expect(page.guidance).toContain('case-insensitive')
 			for (const match of page.matches) if (match.seq === 2) expect(match.toolName).toBeUndefined()
 			sequences.push(...page.matches.map((match) => match.seq))
 			cursor = page.nextCursor
 		} while (cursor)
-		expect(sequences).toEqual([2, 3, 4, 5, 6, 7, 8, 9])
+		expect([...new Set(sequences)]).toEqual([2, 3, 4, 5, 6, 7, 8, 9])
+		expect(sequences.length).toBeGreaterThan(8)
 	})
 
 	it('recovers tool evidence from a real SDK transcript containing a tool-only assistant turn', async () => {
@@ -530,4 +531,43 @@ it('continues a full read beyond the per-call scan budget and marks retained pre
 	expect(second.text).toBe('retained preview')
 	expect(second.complete).toBe(true)
 	expect(second.retainedPreview).toBe(true)
+})
+
+it('ignores case in legacy transcripts, allows exact case and binds it to pagination', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { runId } = await transcript(sessions, sessionId, 'Destination of DELTA: α🦉 a.*[B]')
+	const page = await searchConversation(sessions, sessionId, { query: 'destination', runId })
+	expect(page.matches).toHaveLength(1)
+	expect(page.matches[0]!.text).toContain('Destination of DELTA')
+	expect(
+		(
+			await searchConversation(sessions, sessionId, {
+				query: 'destination',
+				runId,
+				caseSensitive: true,
+			})
+		).matches,
+	).toHaveLength(0)
+	expect(
+		(await searchConversation(sessions, sessionId, { query: 'A.*[b]', runId })).matches,
+	).toHaveLength(1)
+	expect(
+		(await searchConversation(sessions, sessionId, { query: 'A.*[c]', runId })).matches,
+	).toHaveLength(0)
+	await transcript(sessions, sessionId, 'Destination of DELTA: second')
+	const first = await searchConversation(sessions, sessionId, { query: 'destination', limit: 1 })
+	expect(first.nextCursor).toBeDefined()
+	await expect(
+		searchConversation(sessions, sessionId, {
+			query: 'destination',
+			cursor: first.nextCursor,
+			caseSensitive: true,
+		}),
+	).rejects.toThrow('case sensitivity changed')
+	const second = await searchConversation(sessions, sessionId, {
+		query: 'destination',
+		cursor: first.nextCursor,
+	})
+	expect(second.matches).toHaveLength(1)
+	expect(second.matches[0]!.runId).not.toBe(first.matches[0]!.runId)
 })

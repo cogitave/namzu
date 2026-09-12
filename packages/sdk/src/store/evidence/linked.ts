@@ -2,7 +2,7 @@ import { lstat } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
-import { digest } from './format.js'
+import { EVIDENCE_CHUNK_BYTES, digest } from './format.js'
 import { type EvidenceSeal, eventTexts, evidenceSeal } from './index-page.js'
 import {
 	type EvidenceBudget,
@@ -13,6 +13,7 @@ import {
 	readBytes,
 	readSmall,
 } from './io.js'
+import { passageMatcher, passagesInWindow } from './passages.js'
 import { type RecordPointer, recordPointerSchema } from './record-chain.js'
 import { readTextPage, sourceText, textPointerSchema } from './source-text.js'
 import type {
@@ -35,11 +36,13 @@ const scopeSchema = z
 const cursorSchema = z.object({
 	kind: z.literal('linked-search'),
 	query: z.string().max(256),
+	caseSensitive: z.boolean().default(true),
 	seq: integer.optional(),
 	part: integer.optional(),
 	next: recordPointerSchema.nullable(),
 	textIndex: integer,
 	chunk: integer,
+	within: integer.default(0),
 })
 const addressSchema = z.object({ kind: z.literal('linked-text'), entry: textPointerSchema })
 
@@ -108,6 +111,7 @@ export function createLinkedRunTextEvidenceSource(
 			const input = z
 				.object({
 					query: z.string().max(256).default(''),
+					caseSensitive: z.boolean().default(true),
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
 					part: integer.optional(),
@@ -128,9 +132,17 @@ export function createLinkedRunTextEvidenceSource(
 							next: tip as RecordPointer | null,
 							textIndex: 0,
 							chunk: 0,
+							within: 0,
+							caseSensitive: input.caseSensitive,
 						}
-				if (cursor.query !== input.query || cursor.seq !== input.seq || cursor.part !== input.part)
+				if (
+					cursor.query !== input.query ||
+					cursor.caseSensitive !== input.caseSensitive ||
+					cursor.seq !== input.seq ||
+					cursor.part !== input.part
+				)
 					throw new Error('Search cursor query changed.')
+				const matchPassage = passageMatcher(input.query, input.caseSensitive)
 				const matches: RunTextEvidenceMatch[] = []
 				const unavailable: string[] = []
 				let records = 0
@@ -207,15 +219,20 @@ export function createLinkedRunTextEvidenceSource(
 							while (cursor.chunk < source.chunks && chunks < 64 && matches.length < input.limit) {
 								signal?.throwIfAborted()
 								chunks++
-								if (source.mayMatch(cursor.chunk, input.query)) {
+								if (!input.caseSensitive || source.mayMatch(cursor.chunk, input.query)) {
 									const window = await source.window(cursor.chunk)
 									const text = decode(window.bytes)
-									const hit = text.indexOf(input.query)
-									if (hit >= 0) {
-										let start = Math.max(0, hit - 120)
-										if (start > 0 && /[\uDC00-\uDFFF]/.test(text[start] ?? '')) start--
-										let end = Math.min(text.length, start + 512)
-										if (end < text.length && /[\uDC00-\uDFFF]/.test(text[end] ?? '')) end--
+									const page = passagesInWindow(
+										text,
+										cursor.within,
+										matchPassage,
+										input.limit - matches.length,
+										source.entry.spill
+											? (cursor.chunk + 1) * EVIDENCE_CHUNK_BYTES - window.offset
+											: undefined,
+									)
+									cursor.within = page.next
+									for (const { start, end } of page.passages) {
 										matches.push({
 											address: seal.pack({ kind: 'linked-text', entry: { ...pointer, part } }),
 											seq: pointer.seq,
@@ -232,7 +249,9 @@ export function createLinkedRunTextEvidenceSource(
 													: window.characterOffset + start,
 										})
 									}
+									if (cursor.within < text.length) break
 								}
+								cursor.within = 0
 								cursor.chunk++
 								if (!input.query) cursor.chunk = source.chunks
 							}
@@ -245,11 +264,13 @@ export function createLinkedRunTextEvidenceSource(
 						}
 						cursor.textIndex++
 						cursor.chunk = 0
+						cursor.within = 0
 					}
 					if (cursor.textIndex < texts.length) break
 					cursor.next = previous
 					cursor.textIndex = 0
 					cursor.chunk = 0
+					cursor.within = 0
 				}
 				return {
 					scope,

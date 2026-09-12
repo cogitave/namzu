@@ -15,9 +15,11 @@ export interface DiskRunEvidenceOptions {
 	readonly maxReadBytes?: number
 }
 
-/** @experimental Case-sensitive literal search; empty query browses tool records. */
+/** @experimental Literal search; empty query browses tool records. */
 export interface RunEvidenceSearchOptions {
 	readonly query?: string
+	/** Defaults to true. False uses Unicode case-insensitive literal matching. */
+	readonly caseSensitive?: boolean
 	readonly cursor?: string
 }
 

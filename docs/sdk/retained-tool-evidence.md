@@ -17,15 +17,23 @@ before reading its transcript or creating an index. This invocation scope is
 recorded by `RunPersistence`, independently of a shared ancestor token account.
 An old record without explicit scope is unavailable; no ownership is guessed.
 
-`search` accepts an optional case-sensitive literal `query` of at most 256
-UTF-16 code units and an opaque `cursor`. An empty query browses tool records.
+`search` accepts an optional literal `query` of at most 256 UTF-16 code units,
+`caseSensitive` (default `true`), and an opaque `cursor`. Set `caseSensitive` to
+`false` for Unicode case-insensitive literal matching. Returned text and
+UTF-8/UTF-16 offsets always refer to the unchanged original. Matching does not
+apply locale-specific casing, normalize accents or provide fuzzy/semantic search. An empty query browses tool records.
 Each result contains its scope, up to four matches, `nextCursor`, actual
 `scannedBytes`, `indexedRecords`, `cacheHit`, `incomplete` and `unavailable`.
 Matches identify the event sequence, tool name, `isError`, retained-text status,
 an excerpt of at most 512 code units, an opaque `address` and a UTF-8
-`byteOffset`. Event order is preserved within an invocation. Equal text from
-different tool completions remains distinct. A long result can match in more
-than one search window; this is not an exhaustive list of occurrences.
+`byteOffset`. Closed sources follow event order; live sources visit newest records
+first. Passages within a part follow text order. Equal text from
+different tool completions remains distinct. A window can yield several distinct
+passages; nearby occurrences fully covered by one excerpt are grouped. At the
+match limit, the cursor resumes within that window. Chunk overlap finds boundary
+matches without emitting the same starting position twice. This is a passage
+search, not an exhaustive list of occurrences. Cursors bind query and case
+sensitivity; changing either requires a new search.
 
 `read({ address, byteOffset? }, signal?)` returns exact retained text, at most
 6,000 code units, together with `totalBytes` and `nextByteOffset`. Start at the
@@ -115,7 +123,10 @@ manifests also retain the total UTF-16 length and per-chunk character positions.
 selected window verifies the manifest and each selected chunk, without hashing
 the entire large output again. Search filters include a 1 KiB overlap for
 queries spanning chunk boundaries. Filters can have false positives; matching
-text is always checked against verified bytes. This is literal retrieval, not
+text is always checked against verified bytes. These filters encode exact case:
+case-insensitive searches bypass their negative decisions and verify the text
+chunks instead. This can read more bytes or need more pages under the same
+per-call I/O ceiling. This is literal retrieval, not
 semantic ranking or an embedding memory.
 
 The reader derives the artifact path from the authorized invocation and tool

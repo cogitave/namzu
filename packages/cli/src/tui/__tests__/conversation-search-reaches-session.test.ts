@@ -523,10 +523,15 @@ it('recovers retained output in the same running CLI invocation after compaction
 	const sessionId = await startConversation(sessions)
 	const runId = generateRunId()
 	const receipt = `DELTA ${randomUUID()}`
+	const destination = `DEPOT-${randomUUID()}`
 	await writeFile(
 		join(cwd, 'manifest.txt'),
 		Array.from({ length: 400 }, (_, i) =>
-			i === 210 ? receipt : `row ${i}: ${'α🦉 unchanged; '.repeat(30)}`,
+			i === 210
+				? receipt
+				: i === 213
+					? `Destination of DELTA: ${destination}`
+					: `row ${i}: ${'α🦉 unchanged; '.repeat(30)}`,
 		).join('\n'),
 	)
 	let requests = 0
@@ -577,7 +582,7 @@ it('recovers retained output in the same running CLI invocation after compaction
 				turn = {
 					usage: { promptTokens: 29000, completionTokens: 100, totalTokens: 29100 },
 					toolCalls: [
-						{ id: 'search-live', name: 'search_conversation', args: { query: 'DELTA', runId } },
+						{ id: 'search-live', name: 'search_conversation', args: { query: 'delta', runId } },
 					],
 				}
 			else {
@@ -593,7 +598,7 @@ it('recovers retained output in the same running CLI invocation after compaction
 										{
 											id: `search-live-${step}`,
 											name: 'search_conversation',
-											args: { query: 'DELTA', runId, cursor: page.nextCursor },
+											args: { query: 'delta', runId, cursor: page.nextCursor },
 										},
 									],
 								},
@@ -604,6 +609,12 @@ it('recovers retained output in the same running CLI invocation after compaction
 					expect(match?.text, JSON.stringify(page)).toContain(receipt)
 					expect(match.retained).toBe('full')
 					expect(match.toolName).toBe('read')
+					expect(
+						page.matches.some(
+							(item: { text: string; seq: number }) =>
+								item.seq === match.seq && item.text.includes(destination),
+						),
+					).toBe(true)
 					address = { runId, seq: match.seq, part: match.part, byteOffset: match.byteOffset }
 					turn = { toolCalls: [{ id: 'recover-live', name: 'read_conversation', args: address }] }
 				} else if (page.nextCursor && !page.text) {
@@ -619,6 +630,7 @@ it('recovers retained output in the same running CLI invocation after compaction
 				} else {
 					recovered = page.text
 					expect(recovered).toContain(receipt)
+					expect(recovered).toContain(destination)
 					turn = { text: 'Exact original recovered from the same invocation.' }
 				}
 			}

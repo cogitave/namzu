@@ -1,0 +1,188 @@
+{
+  "date": "2026-09-12",
+  "baseCommit": "5996a845",
+  "protocol": "active-cli.mjs; original assertions retained; two live trials declared before starting",
+  "samples": [
+    {
+      "root": "/tmp/namzu-active-evidence-cli-84hGOw",
+      "live": false,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "c51850a6-b8b6-4d25-9b16-de7fee5eab0a",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "77efb390e9d076ecbab661df19160df9d5d290ff302be23da5308c0d563f4778",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "0c754884bb909559f3c8c4fd615c75caaf559a8ffe58937503d8a3ff37c4b22e"
+      },
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      }
+    },
+    {
+      "root": "/tmp/namzu-active-evidence-cli-mm3zwK",
+      "live": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA receipt",
+            "caseSensitive": false,
+            "limit": 20
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "caseSensitive": true,
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "c212ce65-1529-41e2-a666-50d0c0580309",
+            "seq": 18,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "observations": {
+        "bothIdentifiersRecovered": true,
+        "originalReadCalls": 1,
+        "searches": 2,
+        "exactReads": 1,
+        "failedTools": 0,
+        "workspaceStillReplaced": true
+      },
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/passages.ts": "2743f3edd0ccc28b389bc347ceb160c1a51c7a2e09fa616ef0a07216d7b1c0b5",
+        "packages/sdk/src/store/evidence/disk.ts": "96444d9901ef942821c6e67af15400ef57b26d0524e87cededb2cf5950643932",
+        "packages/sdk/src/store/evidence/types.ts": "bbf06ed0fc62ff8e0c53a7360c58cf7d4ec348571170ca1df8b53cee653cef4b",
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "77efb390e9d076ecbab661df19160df9d5d290ff302be23da5308c0d563f4778",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "7ba4e3dbd6987c3a002a7ecf812487a320a19ad9ea5fca804214f3e0621d6454"
+      },
+      "usage": {
+        "totalTokens": 82425,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 82425
+        }
+      }
+    },
+    {
+      "root": "/tmp/namzu-active-evidence-cli-aPnlqu",
+      "live": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "passed": true,
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "caseSensitive": false,
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "8cfcb8ff-2054-4c99-9746-c33062f27bea",
+            "seq": 23,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "observations": {
+        "bothIdentifiersRecovered": true,
+        "originalReadCalls": 1,
+        "searches": 1,
+        "exactReads": 1,
+        "failedTools": 0,
+        "workspaceStillReplaced": true
+      },
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/passages.ts": "2743f3edd0ccc28b389bc347ceb160c1a51c7a2e09fa616ef0a07216d7b1c0b5",
+        "packages/sdk/src/store/evidence/disk.ts": "96444d9901ef942821c6e67af15400ef57b26d0524e87cededb2cf5950643932",
+        "packages/sdk/src/store/evidence/types.ts": "bbf06ed0fc62ff8e0c53a7360c58cf7d4ec348571170ca1df8b53cee653cef4b",
+        "packages/sdk/src/store/evidence/linked.ts": "bb6fa62a445f4d3c3c6b52757d9dc6f812362a22b223fc38d182ff1f8215e19a",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "77efb390e9d076ecbab661df19160df9d5d290ff302be23da5308c0d563f4778",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7af01ec3ba424cb62b5f8fb366f4636bfc4618bd30cf44ac9970839d337a8295",
+        "research/conversation-evidence/active-cli.mjs": "7ba4e3dbd6987c3a002a7ecf812487a320a19ad9ea5fca804214f3e0621d6454"
+      },
+      "usage": {
+        "totalTokens": 45835,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 45835
+        }
+      }
+    }
+  ]
+}

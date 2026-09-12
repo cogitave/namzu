@@ -77,6 +77,16 @@ ProviderRegistry.create = (...args) => {
     assert.ok(first.outputTruncated && first.outputSpillIntegrity);
     assert.ok(!first.result.includes(tracking) && !first.result.includes(destination));
     report.outputs = completed.map(e=>({name:e.toolName,isError:e.isError,...(e.toolName==='read'?{truncated:e.outputTruncated}:{result:e.result})}));
+    // User outcome and requested workflow are separate observations. The original
+    // assertions below still require an exact read, even if both IDs appear in search excerpts.
+    report.observations = {
+      bothIdentifiersRecovered: report.result.text.includes(tracking) && report.result.text.includes(destination),
+      originalReadCalls: report.calls.filter(e=>e.name==='read').length,
+      searches: report.calls.filter(e=>e.name==='search_conversation').length,
+      exactReads: report.calls.filter(e=>e.name==='read_conversation').length,
+      failedTools: completed.filter(e=>e.isError).length,
+      workspaceStillReplaced: /^Manually replaced/.test(await readFile(join(cwd,'manifest.txt'),'utf8')),
+    };
     assert.ok(report.result.text.includes(tracking)); assert.ok(report.result.text.includes(destination));
     assert.equal(report.calls.filter(e=>e.name==='read').length, 1);
     assert.ok(report.calls.some(e=>e.name==='search_conversation'));
@@ -89,7 +99,7 @@ ProviderRegistry.create = (...args) => {
   } catch(error) { report.passed=false;report.error=error instanceof Error?error.message:String(error);process.exitCode=1; }
   finally {
     report.fingerprints = {};
-    for(const path of ['packages/sdk/src/store/evidence/linked.ts','packages/sdk/src/store/evidence/source-text.ts','packages/sdk/src/store/evidence/record-chain.ts','packages/sdk/src/store/run/disk.ts','packages/sdk/src/runtime/query/events.ts','packages/sdk/src/runtime/query/index.ts','packages/cli/src/integrations/sessions/conversation-search.ts','research/conversation-evidence/active-cli.mjs'])
+    for(const path of ['packages/sdk/src/store/evidence/passages.ts','packages/sdk/src/store/evidence/disk.ts','packages/sdk/src/store/evidence/types.ts','packages/sdk/src/store/evidence/linked.ts','packages/sdk/src/store/evidence/source-text.ts','packages/sdk/src/store/evidence/record-chain.ts','packages/sdk/src/store/run/disk.ts','packages/sdk/src/runtime/query/events.ts','packages/sdk/src/runtime/query/index.ts','packages/cli/src/integrations/sessions/conversation-search.ts','research/conversation-evidence/active-cli.mjs'])
       report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
     await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
     console.log(JSON.stringify({root,live,passed:report.passed,calls:report.calls,usage:report.result?.usage,error:report.error}));

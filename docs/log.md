@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Added case-insensitive retained-text search and pagination across distinct passages within a chunk. CLI conversation search now ignores case by default; SDK run-source search retains its case-sensitive default and exact text/offset and integrity contracts.
+
 - **Update** Added writer-bound retained-text capture for a running invocation; ordinary CLI conversation retrieval now survives further appends and compaction while checking scope, record integrity, bounded reads and exact text.
 
 - **Update** Unified ordinary conversation retrieval with the bounded SDK text index, including full retained tool output, assistant and compaction text, UTF-8/UTF-16 positions, scoped headless resume and deferred read availability; verified real CLI compaction and a separate-process Luna/low recall run.

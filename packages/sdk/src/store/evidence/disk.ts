@@ -2,7 +2,7 @@ import { lstat } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
-import { digest, mayContain } from './format.js'
+import { EVIDENCE_CHUNK_BYTES, digest, mayContain } from './format.js'
 import {
 	type EvidenceSeal,
 	entrySchema,
@@ -19,6 +19,7 @@ import {
 	readSmall,
 	stamp,
 } from './io.js'
+import { passageMatcher, passagesInWindow } from './passages.js'
 import { readTextPage, sourceText } from './source-text.js'
 import type {
 	DiskRunEvidenceOptions,
@@ -43,12 +44,14 @@ const scopeSchema = z
 const cursorSchema = z.object({
 	kind: z.literal('search'),
 	query: z.string().max(256),
+	caseSensitive: z.boolean().default(true),
 	seq: integer.optional(),
 	part: integer.optional(),
 	mode: z.enum(['tools', 'text']).default('tools'),
 	position: positionSchema,
 	entry: integer.max(64),
 	chunk: integer,
+	within: integer.default(0),
 })
 const pointerSchema = entrySchema.pick({
 	offset: true,
@@ -158,6 +161,7 @@ function createSource(
 			const input = z
 				.object({
 					query: z.string().max(256).optional(),
+					caseSensitive: z.boolean().default(true),
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
 					part: integer.optional(),
@@ -180,9 +184,12 @@ function createSource(
 							position: { offset: 0, seq: 0, textIndex: 0 },
 							entry: 0,
 							chunk: 0,
+							within: 0,
+							caseSensitive: input.caseSensitive,
 						}
 				if (
 					cursor.query !== query ||
+					cursor.caseSensitive !== input.caseSensitive ||
 					cursor.seq !== input.seq ||
 					cursor.part !== input.part ||
 					cursor.mode !== mode
@@ -202,6 +209,8 @@ function createSource(
 				let partial = false
 				let entryIndex = cursor.entry
 				let chunk = cursor.chunk
+				let within = cursor.within
+				const matchPassage = passageMatcher(query, input.caseSensitive)
 				while (entryIndex < page.entries.length && matches.length < input.limit) {
 					const entry = page.entries[entryIndex]
 					if (!entry) throw new Error('Invalid index entry.')
@@ -212,27 +221,32 @@ function createSource(
 					) {
 						entryIndex++
 						chunk = 0
+						within = 0
 						continue
 					}
 					try {
 						if (entry.truncated && !entry.spill) partial = true
-						if (!entry.spill && !mayContain(entry.filter, query)) {
+						if (input.caseSensitive && !entry.spill && !mayContain(entry.filter, query)) {
 							entryIndex++
 							chunk = 0
+							within = 0
 							continue
 						}
 						const source = await sourceText(handle, entry, runDir, scope.runId, budget)
 						while (chunk < source.chunks && matches.length < input.limit) {
 							signal?.throwIfAborted()
-							if (source.mayMatch(chunk, query)) {
+							if (!input.caseSensitive || source.mayMatch(chunk, query)) {
 								const window = await source.window(chunk)
 								const text = decode(window.bytes)
-								const hit = text.indexOf(query)
-								if (hit >= 0) {
-									let start = Math.max(0, hit - 120)
-									if (start > 0 && /[\uDC00-\uDFFF]/.test(text[start] ?? '')) start--
-									let end = Math.min(text.length, start + 512)
-									if (end < text.length && /[\uDC00-\uDFFF]/.test(text[end] ?? '')) end--
+								const page = passagesInWindow(
+									text,
+									within,
+									matchPassage,
+									input.limit - matches.length,
+									entry.spill ? (chunk + 1) * EVIDENCE_CHUNK_BYTES - window.offset : undefined,
+								)
+								within = page.next
+								for (const { start, end } of page.passages) {
 									matches.push({
 										address: seal.pack({ kind: 'text', entry: pointerSchema.parse(entry) }),
 										seq: entry.seq,
@@ -249,7 +263,9 @@ function createSource(
 										byteOffset: window.offset + Buffer.byteLength(text.slice(0, start)),
 									})
 								}
+								if (within < text.length) break
 							}
+							within = 0
 							chunk++
 							if (!query) {
 								chunk = source.chunks
@@ -264,12 +280,13 @@ function createSource(
 					}
 					entryIndex++
 					chunk = 0
+					within = 0
 				}
 				const nextCursor =
 					entryIndex < page.entries.length
-						? seal.pack({ ...cursor, entry: entryIndex, chunk })
+						? seal.pack({ ...cursor, entry: entryIndex, chunk, within })
 						: page.next && (input.seq === undefined || page.next.seq < input.seq)
-							? seal.pack({ ...cursor, position: page.next, entry: 0, chunk: 0 })
+							? seal.pack({ ...cursor, position: page.next, entry: 0, chunk: 0, within: 0 })
 							: null
 				return {
 					scope,

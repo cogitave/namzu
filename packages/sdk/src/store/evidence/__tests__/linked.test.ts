@@ -8,7 +8,7 @@ import type { RunEvent } from '../../../types/run/events.js'
 import { asRunId } from '../../../utils/id.js'
 import { RunDiskStore } from '../../run/disk.js'
 import { createDiskRunTextEvidenceSource } from '../disk.js'
-import { digest } from '../format.js'
+import { EVIDENCE_CHUNK_BYTES, digest } from '../format.js'
 import type { RunTextEvidenceSearchResult } from '../types.js'
 
 const roots: string[] = []
@@ -220,7 +220,109 @@ it('refuses a record that cannot fit the requested budget instead of returning a
 	const source = (await f.store.captureTextEvidence(f.scope, 1024 * 1024))!
 	await expect(source.search()).rejects.toThrow('page budget')
 	const normal = await f.source()
-	const page = await normal.search({ query: 'xxx' })
+	const page = await normal.search({ query: 'xxx', limit: 1 })
 	expect(page.matches).toHaveLength(1)
 	expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
 })
+
+it.each(['live', 'closed'] as const)(
+	'pages distinct passages and preserves exact Unicode positions (%s)',
+	async (mode) => {
+		const f = await fixture()
+		// Two hits in one 64 KiB chunk, one crossing its boundary and one owned by the next chunk.
+		let text = `${'α🦉'.repeat(400)}DELTA tracking=TRACK-original${' '.repeat(1800)}Destination of DELTA: DEPOT-original`
+		text += `${' '.repeat(EVIDENCE_CHUNK_BYTES - 3 - Buffer.byteLength(text))}dElTa boundary`
+		text += `${' '.repeat(1200)}DELTA fourth${' '.repeat(600)}`
+		const retained = applyToolOutputBudget({
+			toolUseId: 'passages',
+			toolName: 'read',
+			output: text,
+			maxChars: 1000,
+			spillDir: join(f.runDir, 'tool-output'),
+		})
+		await f.append({
+			type: 'tool_completed',
+			toolUseId: 'passages',
+			toolName: 'read',
+			result: retained.output,
+			isError: false,
+			outputTruncated: true,
+			outputSpillIntegrity: retained.spillIntegrity,
+		})
+		if (mode === 'closed') await f.meta(f.scope, 'completed')
+		const source =
+			mode === 'live'
+				? await f.source()
+				: createDiskRunTextEvidenceSource({
+						scope: f.scope,
+						runDir: f.runDir,
+						indexDir: join(f.root, 'index'),
+					})
+		const query = 'delta'
+		expect((await source.search({ query })).matches).toHaveLength(0) // SDK default stays case sensitive.
+		const matches = []
+		let cursor: string | undefined
+		for (let count = 0; count < 10; count++) {
+			const page = await source.search({ query, caseSensitive: false, limit: 1, cursor })
+			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			expect(page.incomplete).toBe(false)
+			expect(page.matches.length).toBeLessThanOrEqual(1)
+			matches.push(...page.matches)
+			if (page.nextCursor)
+				await expect(
+					source.search({ query, caseSensitive: true, cursor: page.nextCursor }),
+				).rejects.toThrow('query changed')
+			cursor = page.nextCursor ?? undefined
+			if (!cursor) break
+		}
+		expect(cursor).toBeUndefined()
+		expect(matches).toHaveLength(4)
+		for (const [index, label] of [
+			'TRACK-original',
+			'DEPOT-original',
+			'boundary',
+			'fourth',
+		].entries()) {
+			const match = matches[index]!
+			expect(match.excerpt).toContain(label)
+			expect(text.slice(match.characterOffset, match.characterOffset! + match.excerpt.length)).toBe(
+				match.excerpt,
+			)
+			expect(
+				Buffer.from(text)
+					.subarray(match.byteOffset, match.byteOffset + Buffer.byteLength(match.excerpt))
+					.toString(),
+			).toBe(match.excerpt)
+			const read = await source.read({ address: match.address, byteOffset: match.byteOffset })
+			expect(read.text).toContain(label)
+			expect(read.text).toBe(
+				text.slice(read.characterOffset, read.characterOffset! + read.text.length),
+			)
+		}
+	},
+)
+
+it.each(['live', 'closed'] as const)(
+	'matches literal Unicode case without changing inline text (%s)',
+	async (mode) => {
+		const f = await fixture()
+		const text = 'İ α🦉 a.*[B] Σςσ K abc Ä end'
+		await f.append({ type: 'message_completed', content: text })
+		if (mode === 'closed') await f.meta(f.scope, 'completed')
+		const source =
+			mode === 'live'
+				? await f.source()
+				: createDiskRunTextEvidenceSource({
+						scope: f.scope,
+						runDir: f.runDir,
+						indexDir: join(f.root, 'index'),
+					})
+		for (const query of ['A.*[b]', 'σΣΣ', 'k', 'ä']) {
+			const page = await source.search({ query, caseSensitive: false })
+			expect(page.matches).toHaveLength(1)
+			expect(page.matches[0]!.excerpt).toBe(text)
+			expect((await source.search({ query, caseSensitive: true })).matches).toHaveLength(0)
+		}
+		expect((await source.search({ query: 'a.*[c]', caseSensitive: false })).matches).toHaveLength(0)
+	},
+)

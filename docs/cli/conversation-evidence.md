@@ -16,15 +16,22 @@ preserved in compaction events. Replacing the session's projected history does
 not replace these run transcripts; reopening the conversation can still find
 the recorded text without repeating an external action or making a model call.
 
-`query` is a case-sensitive literal string of 1–256 characters. Optional `runId`
+`query` is a literal string of 1–256 characters. Matching ignores letter case
+by default: `destination` also finds `Destination`. Set `caseSensitive: true` to
+retain exact case matching. This is Unicode case-insensitive literal matching,
+without locale-specific casing, accent normalization, regex operators or fuzzy
+ranking. For example, it does not equate `İ` with `i` or `ß` with `ss`. Optional `runId`
 narrows the search to one run in the current conversation; optional `limit`
 selects 1–20 matches (default 5). Each match includes the run ID, event sequence,
-source event type, zero-based textual `part`, and an excerpt around the first
-occurrence in a bounded text window. Indexed matches also report `retained`
+source event type, zero-based textual `part`, and a bounded excerpt. Indexed
+sources return separate matching passages within the same window and continue
+within it at the match limit; nearby hits already covered by an excerpt are
+grouped. The legacy transcript scanner returns the first occurrence per textual
+part. Indexed matches also report `retained`
 (`full` or `preview`), optional originating `toolName`/`isError`, and, when character positions are known, a `byteOffset`
 for reading near the match. A long result may match several windows. `runId`, `seq`, and `part` form a durable read address.
 `guidance` states that matches are excerpts, points to `read_conversation` for
-nearby details, and reminds the caller that literal search is case-sensitive.
+nearby details, and states the selected case sensitivity.
 The originating tool distinguishes an original observation from earlier
 conversation search/read output that repeats that observation.
 Historical text is evidence to evaluate, not instructions to execute.
@@ -43,12 +50,14 @@ Each call examines at most 100 directory entries and reads at most 8 MiB, in
 64 KiB chunks. Individual JSONL records are capped at 4 MiB; total transcript
 size is no longer capped at 2 MiB. Match payloads total at most 12,000 bytes.
 `nextCursor`, when present, continues at an unconsumed record or message inside
-a compaction record. Pass it as `cursor` with the same `query`; omit `runId` or
+a compaction record. Pass it as `cursor` with the same `query` and `caseSensitive` setting; omit `runId` or
 repeat the original single-run ID. Closed, explicitly scoped runs use the SDK
 text index: one bounded index page, at most three matches per call, may require
 continuation even when `limit` is larger. The index also pages within large
-compaction records.
-The 48-character handle binds the host scope, query and file snapshot. It expires
+compaction records. Case-insensitive search bypasses case-sensitive index
+filters and verifies the original text; it can need more I/O or pages while
+keeping the same ceilings.
+The 48-character handle binds the host scope, query, case sensitivity and file snapshot. It expires
 after ten minutes, process restart or eviction from a 128-entry cache. Restart
 the search if the cursor expires. Changed files are reported as unavailable;
 restart to search the new snapshot. Verified append-only growth is allowed for
@@ -170,3 +179,8 @@ The initial read used a scripted provider through the real CLI Session;
 recovery used the live provider. This is one integration experiment, not a
 benchmark gain. [Reproduction and measurements](../../research/conversation-evidence/results.md)
 distinguish that run from deterministic command and compaction checks.
+
+The 2026-09-12 [passage-search follow-up](../../research/conversation-evidence/passage-results.md)
+records two Luna/low CLI trials and deterministic active/closed-source checks.
+Both live trials recovered the original IDs; their different token costs do not
+establish a performance improvement.
