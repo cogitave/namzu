@@ -7,6 +7,7 @@ import type {
 	RunMessageSnapshot,
 	RunStore,
 } from '../../types/run/store.js'
+import { ToolExecutionCollector } from './tool-executions.js'
 
 /**
  * Process-local {@link RunStore}: a run's evidence with no filesystem.
@@ -23,6 +24,15 @@ import type {
  * environments with no writable filesystem at all.
  */
 export class InMemoryRunStore implements RunStore {
+	async readToolExecutions(ids: readonly string[], signal?: AbortSignal) {
+		signal?.throwIfAborted()
+		const collector = new ToolExecutionCollector(this.requireInit(), ids)
+		for (const event of this.events) {
+			signal?.throwIfAborted()
+			collector.accept(event)
+		}
+		return collector.finish()
+	}
 	private runId: string | null = null
 	private parentRunId: string | undefined
 	private meta: Run | null = null

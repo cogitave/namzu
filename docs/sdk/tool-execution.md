@@ -132,3 +132,41 @@ compare-and-swap or continuous file watching.
 successful write, a same-size external change, refusal on a subsequent query,
 and successful recovery after reading current contents. The builtin stale-file
 suite also covers sandbox drift, matching anchors and successive own edits.
+
+## Recovery after an interrupted effect
+
+`resumeRun` distinguishes a tool that completed from one that merely started.
+If a command changed external state but the process died before recording its
+result, its outcome is unknown. The runtime answers that checkpointed call with
+an explicit unknown-outcome result and does not automatically execute it again.
+Completed results are reused; calls proven not to have started can continue.
+A model may then inspect current state before deciding on further work. This is
+not an exactly-once guarantee for arbitrary external systems.
+
+`RunStore.readToolExecutions?(toolUseIds, signal?)` returns a
+`ToolExecutionSnapshot`: `complete` and selected `records`, keyed by call ID.
+Each `ToolExecutionRecord` has `status: 'started'` or `status: 'completed'`;
+a completion includes its result/error fields. A later start supersedes an
+older completion, so an interrupted retry is not mistaken for its earlier
+attempt. IDs must identify calls uniquely within the run. The runtime checks
+the requested ID and tool name before reusing a record.
+
+Disk recovery scans only the JSONL metadata, without loading retained outputs
+or compaction attachments: 64 KiB reads, at most 256 MiB per log, 4 MiB per
+record and 4,096 selected IDs. It validates run ownership, sequence, UTF-8 and
+source stability. An incomplete final fragment makes the snapshot incomplete;
+other malformed records, exceeded bounds and unavailable sources are refused.
+Retrieval does not repair the log. Normal execution-store initialization retains
+its existing torn-tail repair behavior when resuming a writer.
+
+For stores without the optional method, the runtime validates a strict
+`readEvents` result. That fallback inherits the custom store's read/allocation
+costs; it does not provide the disk scanner's I/O bounds. Missing, incomplete or
+contradictory execution evidence yields unknown outcomes rather than permission
+to repeat calls. Cancellation propagates.
+
+An explicit answer to a validated durable question owns re-entry of that
+question's tool, even if its event store is unavailable. It does not authorize
+re-entry of interrupted siblings. Tools using `requestPause` must make their
+own pre-pause work safe to re-enter; a question answer cannot undo an external
+effect. An ordinary tool approval does not override a recorded unknown outcome.

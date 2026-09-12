@@ -31,6 +31,7 @@ import {
 } from '../evidence/record-chain.js'
 import type { RunEvidenceScope, RunTextEvidenceSource } from '../evidence/types.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
+import { readToolExecutionsIn } from './tool-executions.js'
 
 /**
  * This store's on-disk format, versioned as a unit — which is how a
@@ -59,6 +60,14 @@ const CHECKPOINT_SCHEMA = defineSchema({
 export type { CompletedToolRecord }
 
 export class RunDiskStore implements RunStore {
+	async readToolExecutions(ids: readonly string[], signal?: AbortSignal) {
+		return readToolExecutionsIn(
+			join(this.requireInit(), 'transcript.jsonl'),
+			this.boundRunId!,
+			ids,
+			signal,
+		)
+	}
 	private baseDir: string
 	private runDir: string | null = null
 	private log: Logger

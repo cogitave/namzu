@@ -139,10 +139,10 @@ import { ResultAssembler } from './result.js'
 import {
 	type PendingResumePlan,
 	applyPendingResume,
+	interruptedToolCalls,
 	planCrashResume,
 	planPendingResume,
 	recoverCompletedCalls,
-	unansweredToolCalls,
 } from './resume-pending.js'
 import {
 	acquireSandbox,
@@ -2322,23 +2322,19 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						? planPendingResume(projectedCheckpoint, params.pendingDecision, ctx.log)
 						: null
 
-				// Results of tools that finished before the process died. The
-				// executor already emits one `tool_completed` per tool inline
-				// and the transcript already persists it, so the record was
-				// durable all along — it was simply never read back, and the
-				// resumed run re-ran calls that had already charged a card or
-				// sent an email.
-				const unanswered = unansweredToolCalls(projectedCheckpoint.messages)
+				// Recover completed observations and explicitly unknown outcomes.
+				// A recorded start is not proof that its external effect failed.
+				const unanswered = interruptedToolCalls(projectedCheckpoint.messages)
 				recoveredResults =
 					unanswered.length > 0
-						? await recoverCompletedCalls(ctx.runMgr, unanswered, ctx.log)
+						? await recoverCompletedCalls(ctx.runMgr, unanswered, ctx.log, {
+								answers: pendingResume?.answers,
+								signal: ctx.abortController.signal,
+							})
 						: new Map()
 
-				// A batch caught MID-execution is a resume, not a fresh
-				// decision: stripping the turn and letting the model re-decide
-				// would re-run everything that already ran. Only taken when
-				// the transcript proves execution had begun — a tool-review
-				// park has no completions and keeps the cheap repair below.
+				// Preserve both known and unknown outcomes before continuing calls
+				// whose absence of a start was established by a complete scan.
 				if (!pendingResume && recoveredResults.size > 0) {
 					pendingResume = planCrashResume(projectedCheckpoint, recoveredResults, ctx.log)
 				}

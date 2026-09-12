@@ -98,7 +98,27 @@ export interface CompletedToolRecord {
 	readonly isError: boolean
 }
 
+/** The latest recorded execution boundary of a tool call, not its inferred external effect. */
+export type ToolExecutionRecord =
+	| (CompletedToolRecord & { readonly status: 'completed' })
+	| { readonly toolUseId: string; readonly toolName: string; readonly status: 'started' }
+
+/** Absence proves no recorded start only when the whole selected log is complete. */
+export interface ToolExecutionSnapshot {
+	readonly complete: boolean
+	readonly records: ReadonlyMap<string, ToolExecutionRecord>
+}
+
 export interface RunStore {
+	/**
+	 * Optional bounded recovery scan for selected call IDs. A started call without
+	 * a completion has an unknown outcome and must not be automatically replayed.
+	 * The runtime falls back to strict readEvents for stores without this method.
+	 */
+	readToolExecutions?(
+		toolUseIds: readonly string[],
+		signal?: AbortSignal,
+	): Promise<ToolExecutionSnapshot>
 	/** Optional bounded read capability anchored to this writer's completed event boundary. */
 	captureTextEvidence?(
 		scope: RunEvidenceScope,
@@ -193,10 +213,9 @@ export interface RunStore {
 	 * already come back, and the resumed run re-executes those calls. For a
 	 * file write that is waste; for a payment or an email it is a second one.
 	 *
-	 * A backend that does not retain individual events answers with an empty
-	 * map, which costs re-execution and is honest. It must not answer with a
-	 * PARTIAL map: a caller reads a present entry as "this call is already
-	 * answered", so a half-remembered batch is worse than a forgotten one.
+	 * This completed-only view cannot distinguish an unstarted call from an
+	 * interrupted effect. It is not authority to execute an absent call. Runtime
+	 * recovery uses readToolExecutions or a strict readEvents scan instead.
 	 */
 	readCompletedTools(): Promise<Map<string, CompletedToolRecord>>
 

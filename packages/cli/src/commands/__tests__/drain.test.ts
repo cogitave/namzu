@@ -294,6 +294,18 @@ describe('the drain is actually reached', () => {
 		// other instantly. A constant default would be exactly that bug.
 		expect(holder).toContain(String(process.pid))
 	})
+
+	it('keeps configured run limits when constructing the resume host', async () => {
+		agentSpies.createAgentSession.mockClear()
+		drainsOneRun()
+		const { ctx } = contextCapturing()
+		const limits = { tokenBudget: 35000, maxIterations: 6 }
+		await drainCommand.handler({
+			ctx: { ...ctx, config: { ...ctx.config, limits } },
+			rawArgs: SCOPE_ARGS,
+		})
+		expect(agentSpies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({ limits })
+	})
 })
 
 describe('the resume is actually reached, carrying the fence', () => {

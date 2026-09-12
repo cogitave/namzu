@@ -16,7 +16,7 @@ import {
 import type { ToolRegistryContract } from '../../../types/tool/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { ToolExecutor } from '../executor.js'
-import { planCrashResume, unansweredToolCalls } from '../resume-pending.js'
+import { interruptedToolCalls, planCrashResume } from '../resume-pending.js'
 
 /**
  * A batch's results reach the history only when the WHOLE batch settles,
@@ -166,7 +166,7 @@ describe('planning the resume of a part-executed batch', () => {
 
 		const warned = (log.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]
 		expect(warned?.[1]).toMatchObject({
-			'namzu.runtime.completed': 1,
+			'namzu.runtime.recovered': 1,
 			'namzu.runtime.total': 2,
 			'namzu.runtime.remaining': ['send_email'],
 		})
@@ -178,6 +178,13 @@ describe('planning the resume of a part-executed batch', () => {
 			{ role: 'tool', content: 'charged', toolCallId: 't1' } as Message,
 			{ role: 'tool', content: 'sent', toolCallId: 't2' } as Message,
 		]
+		expect(
+			planCrashResume(checkpointWith(messages), new Map([['t1', {}]]), makeLogger()),
+		).toBeNull()
+	})
+
+	it('leaves an abandoned batch before a newer operator message to history repair', () => {
+		const messages = [...parkedBatch(), createUserMessage('stop charging; check the account')]
 		expect(
 			planCrashResume(checkpointWith(messages), new Map([['t1', {}]]), makeLogger()),
 		).toBeNull()
@@ -258,12 +265,12 @@ describe('executing a batch that carries recovered results', () => {
 })
 
 describe('which calls are worth asking about', () => {
-	it('is only the unanswered ones', () => {
+	it('includes answered siblings because the resumed executor reconstructs the whole batch', () => {
 		const messages: Message[] = [
 			...parkedBatch(),
 			{ role: 'tool', content: 'charged', toolCallId: 't1' } as Message,
 		]
-		expect(unansweredToolCalls(messages).map((tc) => tc.id)).toEqual(['t2'])
+		expect(interruptedToolCalls(messages).map((tc) => tc.id)).toEqual(['t1', 't2'])
 	})
 
 	it('does not let a result before or after the immediate batch answer by global id', () => {
@@ -277,11 +284,11 @@ describe('which calls are worth asking about', () => {
 			{ role: 'tool', content: 'too late', toolCallId: 't1' } as Message,
 		]
 
-		expect(unansweredToolCalls(before).map((tc) => tc.id)).toEqual(['t1', 't2'])
-		expect(unansweredToolCalls(displaced).map((tc) => tc.id)).toEqual(['t1', 't2'])
+		expect(interruptedToolCalls(before).map((tc) => tc.id)).toEqual(['t1', 't2'])
+		expect(interruptedToolCalls(displaced).map((tc) => tc.id)).toEqual(['t1', 't2'])
 	})
 
 	it('is empty when the history holds no tool calls at all', () => {
-		expect(unansweredToolCalls([createUserMessage('hello')])).toEqual([])
+		expect(interruptedToolCalls([createUserMessage('hello')])).toEqual([])
 	})
 })

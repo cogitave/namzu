@@ -142,3 +142,9 @@ filter use the current run instead of a shared placeholder directory.
 A durable `drain` resolves its Topic from the persisted Session and verifies
 the supplied Project and tenant before creating a provider session. A fabricated
 Topic or checkpoint-only scope without its Session record is refused.
+
+`drain` passes configured `limits.tokenBudget` and `limits.maxIterations` to its
+resume host. Use the same token limit that owns the original run's budget ledger;
+resuming does not grant a fresh allowance. A mismatch is refused. Checkpoint
+recovery preserves [unknown tool outcomes](../sdk/tool-execution.md#recovery-after-an-interrupted-effect)
+instead of automatically repeating actions without a recorded completion.

@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Distinguish started, completed and unstarted calls during [SDK execution recovery](sdk/tool-execution.md); interrupted effects and unavailable logs no longer authorize automatic replay, while bound question answers and proven unstarted siblings remain resumable. Preserve conversation order and carry configured limits through [CLI durable recovery](cli/project-state.md).
+
 - **Update** Retain permitted originals before shell-output condensation in the [SDK evidence pipeline](sdk/retained-tool-evidence.md), keeping [CLI historical command recovery](cli/conversation-evidence.md) separate from repeating an action; failed authentication falls back to the ordinary bounded original.
 
 - **Update** Added explicit [SDK snapshot consistency](sdk/retained-tool-evidence.md) and connected [CLI recovery](cli/conversation-evidence.md) for nonterminal run records after process interruption, preserving ownership and output integrity without resuming work or repairing the transcript; incomplete final fragments have a bounded read-only prefix scan.

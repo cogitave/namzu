@@ -1,0 +1,132 @@
+{
+  "date": "2026-09-13",
+  "scenario": "External effect before recorded tool completion; SIGKILL then real CLI drain",
+  "results": {
+    "scripted": {
+      "model": "scripted",
+      "effort": "low",
+      "passed": true,
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "status": "completed",
+      "toolStarts": [
+        {
+          "toolUseId": "inspect",
+          "toolName": "read"
+        },
+        {
+          "toolUseId": "effect",
+          "toolName": "bash"
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/runtime/query/index.js": "295a5024c87b7fc4c2ba15ed78e1a7f800bb7e6f5c8c2bc2ace1c64571017238",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "d3e5a5c231ba0bf1e7a1a37fd6fae3224d01f261e65e9da90283937215519be2",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "99d54f3e57f405044463beae880d12a061c45328beaad8d36b73840488c0b00b"
+      },
+      "after": {
+        "packages/sdk/dist/runtime/query/index.js": "295a5024c87b7fc4c2ba15ed78e1a7f800bb7e6f5c8c2bc2ace1c64571017238",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "d3e5a5c231ba0bf1e7a1a37fd6fae3224d01f261e65e9da90283937215519be2",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "99d54f3e57f405044463beae880d12a061c45328beaad8d36b73840488c0b00b"
+      },
+      "usage": {
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "totalTokens": 0,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 35000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 35000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "seedExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "localArtifactDirectory": "/tmp/namzu-unknown-effect-cli-nUo6lt"
+    },
+    "live": {
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "passed": true,
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "status": "completed",
+      "toolStarts": [
+        {
+          "toolUseId": "inspect",
+          "toolName": "read"
+        },
+        {
+          "toolUseId": "effect",
+          "toolName": "bash"
+        },
+        {
+          "toolUseId": "call_RpLIvzjBtE1Bn9yIgrOjV1TE",
+          "toolName": "read"
+        }
+      ],
+      "before": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "99d54f3e57f405044463beae880d12a061c45328beaad8d36b73840488c0b00b"
+      },
+      "after": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "99d54f3e57f405044463beae880d12a061c45328beaad8d36b73840488c0b00b"
+      },
+      "usage": {
+        "promptTokens": 21207,
+        "completionTokens": 124,
+        "totalTokens": 21331,
+        "cachedTokens": 6656,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 35000,
+        "ownTokens": 21331,
+        "treeTokens": 21331,
+        "reservedTokens": 0,
+        "remainingTokens": 13669,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "seedExit": {
+        "code": null,
+        "signal": "SIGKILL"
+      },
+      "localArtifactDirectory": "/tmp/namzu-unknown-effect-cli-lKxhqV"
+    }
+  }
+}

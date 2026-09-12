@@ -1,6 +1,7 @@
 import { isDeepStrictEqual } from 'node:util'
 
 import type { RunPersistence } from '../../manager/run/persistence.js'
+import { ToolExecutionCollector } from '../../store/run/tool-executions.js'
 import type {
 	CheckpointId,
 	HITLResumeDecision,
@@ -9,6 +10,7 @@ import type {
 } from '../../types/hitl/index.js'
 import type { AssistantMessage, Message, ToolCall } from '../../types/message/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
+import type { ToolExecutionSnapshot } from '../../types/run/store.js'
 import type { Logger } from '../../utils/logger.js'
 import type { PriorToolResults, ToolCallDenials, ToolExecutor } from './executor.js'
 import { PendingAnswers } from './question-park.js'
@@ -192,24 +194,11 @@ function planQuestionResume(
 }
 
 /**
- * Decide whether a checkpoint left behind a batch that was PART-WAY
- * through executing when the process died.
- *
- * The ordinary repair for an unanswered assistant turn — strip it and let
- * the model re-decide — is right when nothing ran: the calls were still
- * awaiting a decision, so re-deciding costs only a round trip. It is
- * exactly wrong when some of them already ran, because re-deciding means
- * re-executing, and a tool that charged a card does not become idempotent
- * on the second attempt.
- *
- * The discriminator is the transcript: a tool-review park records the
- * checkpoint BEFORE any execution, so it has no completed calls and takes
- * the cheap path unchanged. One or more completions means execution had
- * begun, which is a resume, not a fresh decision.
- *
- * The calls that did NOT complete are executed here for the first time,
- * through the ordinary executor — so every guard, permission check and
- * probe still applies to them.
+ * Preserve a restored batch's recorded and explicitly unknown outcomes.
+ * `completed` comes from recoverCompletedCalls: missing entries are eligible
+ * only after a complete scan establishes that they have no recorded start.
+ * A started tool with no trustworthy completion is carried as an unknown
+ * outcome, not executed again. An untouched batch uses ordinary history repair.
  */
 export function planCrashResume(
 	checkpoint: IterationCheckpoint,
@@ -219,13 +208,19 @@ export function planCrashResume(
 	const assistant = lastUnansweredBatch(checkpoint.messages)?.assistant
 	const calls = assistant?.toolCalls
 	if (!assistant || !calls || calls.length === 0) return null
+	// Only the current tail can be resumed in place. An older incomplete
+	// batch belongs to history repair; re-appending it would move its action
+	// past a newer operator message and silently reorder the conversation.
+	const ownerIndex = checkpoint.messages.lastIndexOf(assistant)
+	if (checkpoint.messages.slice(ownerIndex + 1).some((message) => message.role !== 'tool'))
+		return null
 
 	const done = calls.filter((tc) => completed.has(tc.id))
 	if (done.length === 0) return null
 
 	log.warn('Checkpoint holds a tool batch that was part-way through executing', {
 		'namzu.checkpoint.id': checkpoint.id,
-		'namzu.runtime.completed': done.length,
+		'namzu.runtime.recovered': done.length,
 		'namzu.runtime.total': calls.length,
 		'namzu.runtime.remaining': calls
 			.filter((tc) => !completed.has(tc.id))
@@ -336,37 +331,67 @@ function modifiedCallIds(decision: HITLResumeDecision): ReadonlySet<string> {
 }
 
 /**
- * Results the run already produced for calls in `toolCalls`.
- *
- * Read from the transcript, which records a `tool_completed` per tool as
- * it finishes — durable long before the batch settles. Scoped to the calls
- * being resumed so an id from an earlier turn can never answer this one.
- *
- * A failure to read is not fatal: the worst case is the behaviour that
- * existed before this recovery, and refusing to resume because a log could
- * not be read would be a strictly worse trade.
+ * Recover completed results and close interrupted calls with unknown outcomes.
+ * Only a complete execution scan can authorize the absence of a start record.
+ * Unreadable, partial or contradictory evidence never becomes permission to
+ * replay; an explicitly answered durable question may re-enter its own tool.
  */
 export async function recoverCompletedCalls(
 	runMgr: RunPersistence,
 	toolCalls: readonly ToolCall[],
 	log: Logger,
+	options: { answers?: PendingAnswers; signal?: AbortSignal } = {},
 ): Promise<Map<string, { result: string; isError: boolean }>> {
 	const recovered = new Map<string, { result: string; isError: boolean }>()
+	let snapshot: ToolExecutionSnapshot | undefined
 	try {
-		const completed = await runMgr.getRunStore().readCompletedTools()
-		for (const call of toolCalls) {
-			const record = completed.get(call.id)
-			if (record) recovered.set(call.id, { result: record.result, isError: record.isError })
+		const store = runMgr.getRunStore()
+		if (store.readToolExecutions) {
+			snapshot = await store.readToolExecutions(
+				toolCalls.map((call) => call.id),
+				options.signal,
+			)
+		} else {
+			const collector = new ToolExecutionCollector(
+				runMgr.id,
+				toolCalls.map((call) => call.id),
+			)
+			for (const event of await store.readEvents({ integrity: 'strict' })) {
+				options.signal?.throwIfAborted()
+				collector.accept(event)
+			}
+			snapshot = collector.finish()
 		}
 	} catch (error) {
+		if (options.signal?.aborted) throw error
 		log.warn('Could not read the transcript to recover completed tool calls', {
 			'exception.message': error instanceof Error ? error.message : String(error),
 		})
-		return new Map()
+	}
+	for (const call of toolCalls) {
+		const record = snapshot?.records.get(call.id)
+		if (
+			snapshot?.complete &&
+			(!record || (record.toolName === call.function.name && record.toolUseId === call.id))
+		) {
+			if (!record) continue // Complete evidence proves this call has no recorded start.
+			if (record.status === 'completed') {
+				recovered.set(call.id, { result: record.result, isError: record.isError })
+				continue
+			}
+		}
+		// The validated checkpoint and explicit answer own this re-entry even
+		// when the prior event store is unavailable. No sibling inherits it.
+		if ([...(options.answers?.entries() ?? [])].some(([id]) => isPauseForCall(id, call.id)))
+			continue
+		recovered.set(call.id, {
+			result: `Tool execution was interrupted and no trustworthy completion is available for \`${call.function.name}\`. Its outcome is unknown. This resume did not execute it again. Verify external state before deciding whether another call is needed; do not replay a state-changing action to recover its output.`,
+			isError: true,
+		})
 	}
 
 	if (recovered.size > 0) {
-		log.info('Recovered tool results from the transcript instead of re-executing', {
+		log.info('Restored recorded or unknown tool outcomes without re-executing', {
 			'namzu.runtime.recovered': recovered.size,
 			'namzu.runtime.of_calls': toolCalls.length,
 		})
@@ -452,13 +477,13 @@ function synthesizeResponse(assistant: AssistantMessage): ChatCompletionResponse
 }
 
 /**
- * Tool calls in the history that no `tool_result` answers.
- *
- * The set worth asking the transcript about: an already-answered call's
- * result is in the history and needs no recovery.
+ * All calls owned by the last incomplete batch. Applying a resume plan
+ * reconstructs that entire batch, including any partial results already in
+ * the checkpoint. Those answered siblings must also be recovered, or their
+ * missing prior-result entries would let the executor repeat them.
  */
-export function unansweredToolCalls(messages: readonly Message[]): ToolCall[] {
-	return lastUnansweredBatch(messages)?.unanswered ?? []
+export function interruptedToolCalls(messages: readonly Message[]): ToolCall[] {
+	return lastUnansweredBatch(messages)?.assistant.toolCalls ?? []
 }
 
 function lastUnansweredBatch(

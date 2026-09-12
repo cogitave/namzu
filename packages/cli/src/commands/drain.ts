@@ -15,12 +15,6 @@ import { sessionStore } from '../integrations/sessions/database.js'
  * a process; a drain is a process that picks up processes somebody else's
  * machine dropped.
  *
- * The store is named rather than assumed. namzu's own runs are not
- * checkpointed to disk today, so every run this command can find was
- * written by an SDK host — and a default path would have this command
- * report "nothing parked" against a directory nobody writes to, which is
- * the reading that makes an empty queue indistinguishable from a missing
- * one.
  */
 
 import {
@@ -346,6 +340,7 @@ export const drainCommand: CommandDef = {
 			stateRoot,
 			rules: permissions.rules,
 			permissionMode: 'auto',
+			...(ctx.config.limits ? { limits: ctx.config.limits } : {}),
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 			...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),

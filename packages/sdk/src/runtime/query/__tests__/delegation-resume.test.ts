@@ -74,22 +74,28 @@ describe('a fan-out interrupted part-way through', () => {
 	})
 
 	const recordCompletions = async (ids: readonly string[]) => {
-		const lines = ids.map((id) =>
+		const lines = ids.map((id, index) =>
 			JSON.stringify({
 				type: 'tool_completed',
+				runId: RID,
+				seq: index + 2,
 				toolUseId: id,
 				toolName: 'create_task',
 				result: `${id} finished its work`,
 				isError: false,
 			}),
 		)
-		await writeFile(join(dir, RID, 'transcript.jsonl'), `${lines.join('\n')}\n`, 'utf-8')
+		await writeFile(
+			join(dir, RID, 'transcript.jsonl'),
+			`${JSON.stringify({ type: 'run_started', runId: RID, seq: 1 })}\n${lines.join('\n')}\n`,
+			'utf-8',
+		)
 	}
 
 	it('recovers the workers that already finished', async () => {
 		await recordCompletions(['w1', 'w2', 'w3'])
 
-		const runMgr = { getRunStore: () => store } as never
+		const runMgr = { id: RID, getRunStore: () => store } as never
 		const recovered = await recoverCompletedCalls(
 			runMgr,
 			(fanOut()[1] as { toolCalls: { id: string }[] }).toolCalls as never,
@@ -135,7 +141,7 @@ describe('a fan-out interrupted part-way through', () => {
 
 		const warned = (log.warn as unknown as { mock: { calls: unknown[][] } }).mock.calls[0]
 		expect(warned?.[1]).toMatchObject({
-			'namzu.runtime.completed': 3,
+			'namzu.runtime.recovered': 3,
 			'namzu.runtime.total': 5,
 		})
 	})
@@ -158,7 +164,7 @@ describe('a fan-out interrupted part-way through', () => {
 	it('does not confuse a worker id with one from an earlier turn', async () => {
 		await recordCompletions(['from-an-older-turn'])
 
-		const runMgr = { getRunStore: () => store } as never
+		const runMgr = { id: RID, getRunStore: () => store } as never
 		const recovered = await recoverCompletedCalls(
 			runMgr,
 			(fanOut()[1] as { toolCalls: { id: string }[] }).toolCalls as never,
