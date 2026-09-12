@@ -7,7 +7,7 @@ import {
 	refineEvidenceRecallTerms,
 } from '@namzu/sdk'
 import { retainLiveConversationSearch, searchConversationTerms } from './conversation-search.js'
-import type { CliSessions } from './store.js'
+import type { ConversationContext } from './store.js'
 
 interface RecallScan {
 	terms: readonly string[]
@@ -38,7 +38,7 @@ function advanceScan(
 
 /** A stable hook per conversation keeps timed-out reads from piling up across turns. */
 export function createConversationEvidenceRecall(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 	assertOwner: (runId: string) => void,
 ): PrepareStep {

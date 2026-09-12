@@ -307,13 +307,17 @@ export const drainCommand: CommandDef = {
 			return 1
 		}
 
+		let conversationStore: ReturnType<typeof sessionStore>
 		let owningSession: Session | null
 		try {
-			owningSession = await sessionStore(stateRoot, true).getSession(
-				scope.sessionId,
-				scope.tenantId,
-			)
-			if (!owningSession || owningSession.projectId !== scope.projectId) {
+			conversationStore = sessionStore(stateRoot, true)
+			owningSession = await conversationStore.getSession(scope.sessionId, scope.tenantId)
+			if (
+				!owningSession ||
+				owningSession.id !== scope.sessionId ||
+				owningSession.tenantId !== scope.tenantId ||
+				owningSession.projectId !== scope.projectId
+			) {
 				throw new Error(
 					`Session ${scope.sessionId} is not persisted under Project ${scope.projectId}`,
 				)
@@ -338,9 +342,19 @@ export const drainCommand: CommandDef = {
 				tenantId: scope.tenantId,
 			},
 			stateRoot,
+			conversationSessions: {
+				store: conversationStore,
+				root: stateRoot,
+				projectId: scope.projectId,
+				tenantId: scope.tenantId,
+				topicId: owningSession.topicId,
+			},
 			rules: permissions.rules,
 			permissionMode: 'auto',
 			...(ctx.config.limits ? { limits: ctx.config.limits } : {}),
+			...(ctx.config.compaction ? { compaction: ctx.config.compaction } : {}),
+			...(ctx.config.memory ? { memory: ctx.config.memory } : {}),
+			...(ctx.config.web ? { web: ctx.config.web } : {}),
 			...(ctx.config.mcpServers ? { mcpServers: ctx.config.mcpServers } : {}),
 			...(ctx.config.plugins ? { plugins: ctx.config.plugins } : {}),
 			...(ctx.config.sandbox ? { sandbox: ctx.config.sandbox } : {}),
@@ -387,6 +401,9 @@ export const drainCommand: CommandDef = {
 						claimFence: claim.fence,
 					})
 					if (outcome.resumed) {
+						if (outcome.run.status === 'failed' || outcome.run.status === 'cancelled') {
+							throw new Error(`Resumed run ended with status "${outcome.run.status}".`)
+						}
 						ctx.formatter.info(`✔ ${entry.runId} · ${outcome.run.status}`)
 						return
 					}

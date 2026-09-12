@@ -1,0 +1,386 @@
+{
+  "date": "2026-09-13",
+  "entrypoint": "CLI drain",
+  "cases": {
+    "missing_tools": {
+      "passed": false,
+      "error": "ENOENT: no such file or directory, open '/tmp/namzu-checkpoint-evidence-cli-gtbhLu/request.json'",
+      "model": "scripted",
+      "effort": "low",
+      "limits": {
+        "maxIterations": 6,
+        "tokenBudget": 35000,
+        "timeoutMs": 150000
+      },
+      "counterBefore": 1,
+      "before": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "99d54f3e57f405044463beae880d12a061c45328beaad8d36b73840488c0b00b",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339"
+      },
+      "localArtifactDirectory": "/tmp/namzu-checkpoint-evidence-cli-gtbhLu",
+      "status": "failed",
+      "usage": {
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "totalTokens": 0,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 35000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 0,
+        "inFlightRequests": 1,
+        "unsettledChildren": 0,
+        "poisoned": true,
+        "unresolvedRequests": 1
+      },
+      "toolsStarted": [
+        "read",
+        "bash",
+        "read"
+      ],
+      "originalActionStarts": 1,
+      "counterAfter": 1
+    },
+    "control": {
+      "passed": true,
+      "model": "scripted",
+      "effort": "low",
+      "limits": {
+        "maxIterations": 6,
+        "tokenBudget": 45000,
+        "timeoutMs": 150000
+      },
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "recoveredReceipt": true,
+      "originalActionStarts": 1,
+      "before": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "5115ecd24f46cc8ae14f70f9f3693c2a9157df2066eed888878e9bc00b1cd183"
+      },
+      "after": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "5115ecd24f46cc8ae14f70f9f3693c2a9157df2066eed888878e9bc00b1cd183"
+      },
+      "localArtifactDirectory": "/tmp/namzu-checkpoint-evidence-cli-uyWkrT",
+      "status": "completed",
+      "usage": {
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "totalTokens": 0,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 45000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 45000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "toolsStarted": [
+        "read",
+        "bash",
+        "read",
+        "search_conversation",
+        "read_conversation"
+      ]
+    },
+    "altered": {
+      "passed": true,
+      "model": "scripted",
+      "effort": "low",
+      "limits": {
+        "maxIterations": 6,
+        "tokenBudget": 45000,
+        "timeoutMs": 150000
+      },
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "recoveredReceipt": false,
+      "before": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339"
+      },
+      "after": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339"
+      },
+      "localArtifactDirectory": "/tmp/namzu-checkpoint-evidence-cli-wcfhSg",
+      "status": "completed",
+      "usage": {
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "totalTokens": 0,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 45000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 45000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "toolsStarted": [
+        "read",
+        "bash",
+        "read",
+        "search_conversation"
+      ],
+      "originalActionStarts": 1
+    },
+    "provider_failure": {
+      "passed": true,
+      "model": "scripted",
+      "effort": "low",
+      "limits": {
+        "maxIterations": 6,
+        "tokenBudget": 45000,
+        "timeoutMs": 150000
+      },
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "exitCode": 1,
+      "before": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "5115ecd24f46cc8ae14f70f9f3693c2a9157df2066eed888878e9bc00b1cd183"
+      },
+      "after": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "5115ecd24f46cc8ae14f70f9f3693c2a9157df2066eed888878e9bc00b1cd183"
+      },
+      "localArtifactDirectory": "/tmp/namzu-checkpoint-evidence-cli-65J1F7",
+      "status": "failed",
+      "usage": {
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "totalTokens": 0,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 45000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 0,
+        "inFlightRequests": 1,
+        "unsettledChildren": 0,
+        "poisoned": true,
+        "unresolvedRequests": 1
+      },
+      "toolsStarted": [
+        "read",
+        "bash",
+        "read"
+      ],
+      "originalActionStarts": 1
+    },
+    "live_before_guidance": {
+      "passed": false,
+      "error": "Expected values to be strictly equal:\n\n2 !== 1\n",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "limits": {
+        "maxIterations": 6,
+        "tokenBudget": 45000,
+        "timeoutMs": 150000
+      },
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "before": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "8d175c324aefd547b80bccdb4cf33321e9875719d389e005ac0d46be3b4f3339"
+      },
+      "localArtifactDirectory": "/tmp/namzu-checkpoint-evidence-cli-pgpwvM",
+      "status": "completed",
+      "usage": {
+        "promptTokens": 23537,
+        "completionTokens": 497,
+        "totalTokens": 24034,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 45000,
+        "ownTokens": 24034,
+        "treeTokens": 24034,
+        "reservedTokens": 0,
+        "remainingTokens": 20966,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "toolsStarted": [
+        "read",
+        "bash",
+        "read",
+        "grep",
+        "read",
+        "bash"
+      ],
+      "originalActionStarts": 1
+    },
+    "live_after_guidance": {
+      "passed": false,
+      "error": "The expression evaluated to a falsy value:\n\n  assert.ok(report.toolStarts.some(e=>e.toolName==='read_conversation'))\n",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "limits": {
+        "maxIterations": 6,
+        "tokenBudget": 45000,
+        "timeoutMs": 150000
+      },
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "recoveredReceipt": true,
+      "originalActionStarts": 1,
+      "before": {
+        "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+        "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+        "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+        "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+        "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+        "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "5115ecd24f46cc8ae14f70f9f3693c2a9157df2066eed888878e9bc00b1cd183"
+      },
+      "localArtifactDirectory": "/tmp/namzu-checkpoint-evidence-cli-ZJXvIV",
+      "status": "completed",
+      "usage": {
+        "promptTokens": 15637,
+        "completionTokens": 241,
+        "totalTokens": 15878,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 45000,
+        "ownTokens": 15878,
+        "treeTokens": 15878,
+        "reservedTokens": 0,
+        "remainingTokens": 29122,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "toolsStarted": [
+        "read",
+        "bash",
+        "read",
+        "search_conversation",
+        "read"
+      ],
+      "offlineVerification": {
+        "passed": true,
+        "root": "/tmp/namzu-checkpoint-evidence-cli-ZJXvIV",
+        "originalHarnessPassed": false,
+        "originalHarnessError": "The expression evaluated to a falsy value:\n\n  assert.ok(report.toolStarts.some(e=>e.toolName==='read_conversation'))\n",
+        "recoveredReceipt": true,
+        "originalActionStarts": 1,
+        "counter": 1,
+        "usage": {
+          "promptTokens": 15637,
+          "completionTokens": 241,
+          "totalTokens": 15878,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        },
+        "budget": {
+          "limit": 45000,
+          "ownTokens": 15878,
+          "treeTokens": 15878,
+          "reservedTokens": 0,
+          "remainingTokens": 29122,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "currentHashes": {
+          "packages/sdk/dist/runtime/query/index.js": "e6848947847047f3ddabf1f14d82b1eb4580b4566e4a052a5c308a30a409562c",
+          "packages/sdk/dist/runtime/query/resume-pending.js": "c887ae94e0b2125cf999bea904644d0da863d0ad5c4636dea862bcaf2dd11b77",
+          "packages/sdk/dist/runtime/query/executor.js": "463db6eeee8b09274bc7f1ff4344b0ac55669274bddf60fa721281129fe6e3a4",
+          "packages/sdk/dist/store/run/tool-executions.js": "49fda6b6fcd5e3e7bff3c109b2bd2f7bd450272f939958c4a0ef506b02e58405",
+          "packages/sdk/dist/store/run/disk.js": "25d4e4b6729b4559ef722cb93a060fe06d980d059d7db1f563447862997e606d",
+          "packages/sdk/dist/tools/builtins/bash.js": "dfec330f1a1865c49e42c283ee0a1eeeaf8de1cb234c6bca2252115fac3bacdc",
+          "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+          "packages/cli/dist/commands/drain.js": "4912431c78cebf5843fc94fbe68e120cb5b9ca1413b66d3c999f00a003060476",
+          "packages/cli/dist/integrations/sessions/conversation-search.js": "5115ecd24f46cc8ae14f70f9f3693c2a9157df2066eed888878e9bc00b1cd183"
+        }
+      }
+    }
+  }
+}

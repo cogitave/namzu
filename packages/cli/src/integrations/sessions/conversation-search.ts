@@ -15,11 +15,12 @@ import {
 } from '@namzu/sdk'
 import { CliPathBuilder } from './paths.js'
 import { RunDiscovery } from './run-discovery.js'
-import type { CliSessions } from './store.js'
+import type { ConversationContext } from './store.js'
 
 /** Stable capability guidance; include only when this host mounts both tools. */
 export const CONVERSATION_EVIDENCE_GUIDANCE = `## Conversation evidence
 When a question asks about an earlier observation, use the evidence already in context. If the detail is missing or clipped, use search_conversation to locate the original recorded output, then read_conversation for exact text beyond an excerpt. Pass a supplied recall continuation's cursor to search_conversation to continue from the scan's existing position. This works before compaction as well as after compaction or restart, within this conversation only.
+A path following "The full output was written to:" identifies an internal backing file, not a workspace file. Recover its contents through search_conversation and read_conversation, which verify ownership and retained-byte integrity. Do not use bash, read or grep to bypass a workspace-path refusal when recovering archived output.
 recordedAt is the event recorder’s wall-clock time in Unix milliseconds, not the time its text became true. For compaction_shed it dates the copy, not the original observation. Missing stamps stay unknown; clocks can move backwards or differ. Event seq orders one run only; UUIDs, file order and mtime do not establish cross-run chronology.
 For what a file contained earlier, recover its earlier observation; reading or searching the current file cannot establish its past contents. For what is true now, inspect the current source when freshness matters. Do not substitute one time for the other. Report unavailable historical evidence honestly and never repeat a state-changing action to recover its output.`
 
@@ -106,11 +107,11 @@ interface SearchCursor {
 }
 const runDiscovery = new RunDiscovery()
 
-function conversationScope(sessions: CliSessions, sessionId: SessionId): string {
+function conversationScope(sessions: ConversationContext, sessionId: SessionId): string {
 	return JSON.stringify([resolve(sessions.root), sessions.tenantId, sessions.projectId, sessionId])
 }
 
-function conversationReadScope(sessions: CliSessions, sessionId: SessionId): string {
+function conversationReadScope(sessions: ConversationContext, sessionId: SessionId): string {
 	return JSON.stringify([
 		'read-evidence',
 		resolve(sessions.root),
@@ -155,7 +156,7 @@ function retainReadLocation(
 
 /** Release process-local search resources after the host has settled this conversation's work. */
 export async function releaseConversationEvidence(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 ): Promise<void> {
 	const scope = conversationScope(sessions, sessionId)
@@ -189,7 +190,7 @@ function decodeCursor(token: string, scope: string, query?: string): SearchCurso
 
 /** Bridge an already validated writer search to the ordinary scoped search tool. */
 export function retainLiveConversationSearch(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 	runId: string,
 	terms: readonly string[],
@@ -218,7 +219,7 @@ export function retainLiveConversationSearch(
 
 /** Bounded metadata probe. Contradictory ownership never falls back to legacy scanning. */
 async function indexedSource(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 	runId: string,
 	cursor: SearchCursor,
@@ -519,7 +520,7 @@ function textEvents(
 
 /** Searches only local runs of the host-selected conversation, never arbitrary paths. */
 export async function searchConversation(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 	input: {
 		query?: string
@@ -536,7 +537,7 @@ export async function searchConversation(
 
 /** Host-only bounded candidate discovery; does not change the model tool schema. */
 export async function searchConversationTerms(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 	input: {
 		terms: readonly string[]
@@ -552,7 +553,7 @@ export async function searchConversationTerms(
 
 /** Searches only local runs of the host-selected conversation, never arbitrary paths. */
 async function searchConversationCore(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 	request: {
 		query?: string
@@ -830,7 +831,7 @@ async function searchConversationCore(
 }
 
 export function buildConversationSearchTool(
-	resolveScope: (context: ToolContext) => { sessions: CliSessions; sessionId: SessionId },
+	resolveScope: (context: ToolContext) => { sessions: ConversationContext; sessionId: SessionId },
 ): ToolDefinition {
 	return defineTool({
 		name: 'search_conversation',
@@ -916,7 +917,7 @@ export interface ConversationEvidencePage {
 
 /** Read a recorded text by durable run/event/part identity, within the current conversation. */
 export async function readConversationEvidence(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 	input: { runId: string; seq: number; part?: number; cursor?: string; byteOffset?: number },
 	signal?: AbortSignal,
@@ -1076,7 +1077,7 @@ export async function readConversationEvidence(
 }
 
 export function buildConversationReadTool(
-	resolveScope: (context: ToolContext) => { sessions: CliSessions; sessionId: SessionId },
+	resolveScope: (context: ToolContext) => { sessions: ConversationContext; sessionId: SessionId },
 ): ToolDefinition {
 	return defineTool({
 		name: 'read_conversation',

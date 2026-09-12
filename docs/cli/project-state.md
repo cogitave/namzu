@@ -148,3 +148,9 @@ resume host. Use the same token limit that owns the original run's budget ledger
 resuming does not grant a fresh allowance. A mismatch is refused. Checkpoint
 recovery preserves [unknown tool outcomes](../sdk/tool-execution.md#recovery-after-an-interrupted-effect)
 instead of automatically repeating actions without a recorded completion.
+
+Durable recovery also carries configured compaction, memory and web options,
+and mounts conversation evidence against that persisted Session. An explicitly
+disabled web or memory option is preserved. A resumed run that settles as
+`failed` or `cancelled` is included in `drain`'s `failed` results and produces
+exit code 1; entering the resumed loop alone does not count as success.

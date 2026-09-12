@@ -8,8 +8,8 @@ tags: [cli, compaction, tools, sessions]
 
 # Conversation evidence search
 
-The interactive host, `run --resume` / `run --continue`, and persistent
-`run-stream --session` provide `search_conversation` for recovering exact
+The interactive host, `run --resume` / `run --continue`, persistent
+`run-stream --session`, and durable `drain` provide `search_conversation` for recovering exact
 identifiers or phrases from durable output of the current conversation. It
 searches recorded assistant completions, tool results, and textual messages
 preserved in compaction events. Replacing the session's projected history does
@@ -32,6 +32,21 @@ clipped. Recovery is useful before compaction too. The SDK's general evidence
 rules distinguish historical observations from current state; the CLI names
 the available retrieval tools and their conversation scope. Stateless hosts
 receive no instruction to use unavailable conversation tools.
+
+`drain` binds these tools to the persisted Session, Project and tenant passed
+to the command. It does not create a new workspace Project or choose history
+from the current folder. Retrieval uses the CLI application's conversation
+hierarchy and the active writer's capture capability; `--store` names a
+checkpoint queue, not an arbitrary directory the model may search. Completed
+observations in a resumed batch remain retrievable even when another call in
+that batch was interrupted.
+
+A path in a retained-output preview identifies its backing file. In a CLI
+conversation, use `search_conversation` and `read_conversation` for that output;
+they verify ownership and retained-byte integrity. The host explicitly directs
+the model to this route rather than using filesystem tools to work around a
+workspace-path refusal. This guidance is not an access-control substitute:
+existing tool permissions and the configured sandbox still govern execution.
 
 For a question about what a file contained earlier, the retained observation
 is the source. For a question about what it contains now, fresh workspace

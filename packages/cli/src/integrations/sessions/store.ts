@@ -75,6 +75,12 @@ export interface CliSessions {
 	readonly turnEvidence?: DiskConversationEvidence
 }
 
+/** Persisted conversation ownership and history; no goal or UI sidecars are needed for retrieval. */
+export type ConversationContext = Pick<
+	CliSessions,
+	'store' | 'projectId' | 'topicId' | 'tenantId' | 'root'
+>
+
 export interface RecentConversation {
 	readonly id: SessionId
 	readonly title: string
@@ -349,7 +355,7 @@ async function createConversation(s: CliSessions, id?: SessionId): Promise<Sessi
  * topic id.
  */
 async function requireConversationInScope(
-	s: CliSessions,
+	s: ConversationContext,
 	sessionId: SessionId,
 	op: string,
 ): Promise<Session> {
@@ -374,7 +380,7 @@ async function requireConversationInScope(
  * outside the current Project never silently reaches the requested operation.
  */
 export async function requireWritableConversation(
-	s: CliSessions,
+	s: ConversationContext,
 	sessionId: SessionId,
 	op = 'continue conversation',
 ): Promise<void> {

@@ -199,7 +199,7 @@ import {
 	releaseConversationEvidence,
 } from '../integrations/sessions/conversation-search.js'
 import { createConversationEvidenceRecall } from '../integrations/sessions/evidence-recall.js'
-import type { CliSessions } from '../integrations/sessions/store.js'
+import type { ConversationContext } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
 import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
@@ -1305,7 +1305,7 @@ export interface AgentSessionOptions {
 	 */
 	readonly stateRoot?: string
 	/** Host-owned durable conversations, for run-scoped original evidence retrieval. */
-	readonly conversationSessions?: CliSessions
+	readonly conversationSessions?: ConversationContext
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
 	readonly residentToolEvidence?: ResidentToolEvidenceSource

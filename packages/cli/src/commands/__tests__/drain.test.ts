@@ -239,6 +239,22 @@ describe('the command refuses before it opens anything', () => {
 })
 
 describe('the drain is actually reached', () => {
+	it.each(['id', 'tenantId', 'projectId'] as const)(
+		'refuses a persisted Session whose %s differs from the requested conversation',
+		async (field) => {
+			agentSpies.createAgentSession.mockClear()
+			agentSpies.getSession.mockResolvedValueOnce({
+				id: ENTRY.sessionId,
+				tenantId: ENTRY.tenantId,
+				projectId: ENTRY.projectId,
+				topicId: '66b7abae-e8da-4a77-9f42-3405e7b7d5f5',
+				[field]: '193cc60e-d8ca-49c5-86e8-30428312e4c8',
+			})
+			const { ctx } = contextCapturing()
+			expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(64)
+			expect(agentSpies.createAgentSession).not.toHaveBeenCalled()
+		},
+	)
 	it('refuses a checkpoint-only scope without its persisted Session before creating a provider', async () => {
 		agentSpies.createAgentSession.mockClear()
 		agentSpies.getSession.mockResolvedValueOnce(null)
@@ -305,6 +321,31 @@ describe('the drain is actually reached', () => {
 			rawArgs: SCOPE_ARGS,
 		})
 		expect(agentSpies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({ limits })
+	})
+
+	it('binds history and retrieval settings to the persisted conversation without opening another project', async () => {
+		agentSpies.createAgentSession.mockClear()
+		drainsOneRun()
+		const { ctx } = contextCapturing()
+		const config = {
+			...ctx.config,
+			compaction: { recallEvidence: true, retainedToolPreviewChars: 3000 },
+			memory: { recall: false },
+			web: { search: 'off' as const },
+		}
+		expect(await drainCommand.handler({ ctx: { ...ctx, config }, rawArgs: SCOPE_ARGS })).toBe(0)
+		expect(agentSpies.createAgentSession.mock.calls[0]?.[2]).toMatchObject({
+			conversationSessions: {
+				root: process.env.NAMZU_HOME,
+				store: { getSession: agentSpies.getSession },
+				projectId: ENTRY.projectId,
+				tenantId: ENTRY.tenantId,
+				topicId: '66b7abae-e8da-4a77-9f42-3405e7b7d5f5',
+			},
+			compaction: config.compaction,
+			memory: config.memory,
+			web: config.web,
+		})
 	})
 })
 
@@ -374,6 +415,17 @@ describe('the resume is actually reached, carrying the fence', () => {
 })
 
 describe('what the pass reports', () => {
+	it.each(['failed', 'cancelled'])(
+		'does not report a resumed %s run as success',
+		async (status) => {
+			resumeDurable.mockResolvedValueOnce({ resumed: true, run: { status }, state: {} })
+			drainsOneRun()
+			const { ctx, errors, info } = contextCapturing()
+			expect(await drainCommand.handler({ ctx, rawArgs: SCOPE_ARGS })).toBe(1)
+			expect(errors.join(' ')).toContain(`Resumed run ended with status "${status}"`)
+			expect(info.some((message) => message.startsWith('✔'))).toBe(false)
+		},
+	)
 	it('exits 1 and names the run when work failed', async () => {
 		drainRuns.mockClear()
 		drainRuns.mockResolvedValueOnce({

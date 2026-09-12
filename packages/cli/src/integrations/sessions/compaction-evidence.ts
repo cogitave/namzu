@@ -7,11 +7,11 @@ import {
 } from '@namzu/sdk'
 import { cliLogger } from '../../logging.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
-import { type CliSessions, requireWritableConversation } from './store.js'
+import { type ConversationContext, requireWritableConversation } from './store.js'
 
 /** A zero-model maintenance record, separate from closed model invocations. */
 export async function retainManualCompaction(
-	sessions: CliSessions,
+	sessions: ConversationContext,
 	sessionId: SessionId,
 	messages: readonly Message[],
 	signal?: AbortSignal,
