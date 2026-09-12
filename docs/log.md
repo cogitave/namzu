@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Retained finalized Codex Responses items when the terminal output snapshot is empty, preserving native conversation continuity, tool-call finish reasons and hosted citations with unchanged replay eligibility checks.
+
 - **Update** Preserved bounded archive references for text already visible in model context, binding exact bounded quotes to source metadata and keeping new-text ranking, lookup authority and omission accounting separate.
 
 - **Update** Preserved stored event recording times through SDK evidence search/read and CLI recall, including exact-copy provenance, compaction-copy semantics and unknown timestamps; kept sequence, source integrity and character limits independent of wall-clock ordering.

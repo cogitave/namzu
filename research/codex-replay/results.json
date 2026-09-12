@@ -1,0 +1,390 @@
+{
+  "baseCommit": "fd0d2709",
+  "measuredAt": "2026-09-12",
+  "liveCases": [
+    {
+      "artifact": "/tmp/namzu-codex-replay-jR4qG8/result.json",
+      "mode": "run (non-publishing)",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "changedDriver": false,
+      "originalScriptPassed": false,
+      "originalError": "TypeError [ERR_INVALID_ARG_TYPE]: The \"path\" argument must be of type string. Received undefined",
+      "buildStable": true,
+      "providerBuildSha256": "4aaa138f40e2c82643d0da35bf020f0dc36e9e01c2caac5e04e80e9544fd4ba5",
+      "modelRequests": 3,
+      "turns": [
+        {
+          "answer": "The observation code is `NOTE-a3aab9a5`.",
+          "totalTokens": 11984
+        },
+        {
+          "answer": "I didn\u2019t read any observation code in this conversation.",
+          "totalTokens": 5980
+        }
+      ],
+      "streamShapes": [
+        {
+          "doneTypes": [
+            "reasoning",
+            "function_call"
+          ],
+          "doneEncryptedReasoning": 1,
+          "terminalTypes": []
+        },
+        {
+          "doneTypes": [
+            "message"
+          ],
+          "doneEncryptedReasoning": 0,
+          "terminalTypes": []
+        },
+        {
+          "doneTypes": [
+            "reasoning",
+            "message"
+          ],
+          "doneEncryptedReasoning": 1,
+          "terminalTypes": []
+        }
+      ],
+      "emittedReplay": [
+        {
+          "itemTypes": [],
+          "contentMatches": true,
+          "finishReason": "stop",
+          "toolCalls": 0
+        },
+        {
+          "itemTypes": [],
+          "contentMatches": false,
+          "finishReason": "stop",
+          "toolCalls": 0
+        },
+        {
+          "itemTypes": [],
+          "contentMatches": false,
+          "finishReason": "stop",
+          "toolCalls": 0
+        }
+      ],
+      "toolContinuation": [
+        {
+          "type": "reasoning",
+          "exactItemReplayed": false
+        },
+        {
+          "type": "function_call",
+          "exactItemReplayed": false
+        }
+      ]
+    },
+    {
+      "artifact": "/tmp/namzu-codex-replay-x4aoeA/result.json",
+      "mode": "run (non-publishing)",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "changedDriver": false,
+      "originalScriptPassed": false,
+      "originalError": "Error: Command failed: /home/arda/.local/node/bin/node --import /tmp/namzu-codex-replay-x4aoeA/observe.mjs /home/arda/workspaces/@cogitave/cogitave/namzu/packages/cli/dist/bin.js --quiet --format json run --trust --cwd /tmp/namzu-codex-replay-x4aoeA/workspace --provider codex --model gpt-5.6-luna --effort low --max-iterations 3 --token-budget 30000 --resume e912b0f8-78a3-451b-b387-9215be17ecdf Read note.txt and report its observation code. Only read that file; do not change files or run commands.\n{\n  \"level\": \"error\",\n  \"message\": \"conversation \\\"e912b0f8-78a3-451b-b387-9215be17ecdf\\\" has no messages to resume \u2014 its transcript is empty\"\n}\n",
+      "buildStable": true,
+      "providerBuildSha256": "4aaa138f40e2c82643d0da35bf020f0dc36e9e01c2caac5e04e80e9544fd4ba5",
+      "modelRequests": 0,
+      "turns": [],
+      "streamShapes": [],
+      "emittedReplay": []
+    },
+    {
+      "artifact": "/tmp/namzu-codex-replay-qigKpo/result.json",
+      "mode": "run (non-publishing)",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "changedDriver": false,
+      "originalScriptPassed": false,
+      "originalError": "Error: ENOTDIR: not a directory, open '/tmp/namzu-codex-replay-qigKpo/home/sessions/fd0c1fd8-ef20-4627-be2a-f90be349b7ce/runs/index.json/transcript.jsonl'",
+      "buildStable": true,
+      "providerBuildSha256": "4aaa138f40e2c82643d0da35bf020f0dc36e9e01c2caac5e04e80e9544fd4ba5",
+      "modelRequests": 3,
+      "turns": [
+        {
+          "answer": "The observation code is `NOTE-1fa63fbc`.",
+          "totalTokens": 13518
+        },
+        {
+          "answer": "I don\u2019t have an observation code visible in the conversation context.",
+          "totalTokens": 6760
+        }
+      ],
+      "streamShapes": [
+        {
+          "doneTypes": [
+            "reasoning",
+            "function_call"
+          ],
+          "doneEncryptedReasoning": 1,
+          "terminalTypes": []
+        },
+        {
+          "doneTypes": [
+            "message"
+          ],
+          "doneEncryptedReasoning": 0,
+          "terminalTypes": []
+        },
+        {
+          "doneTypes": [
+            "reasoning",
+            "message"
+          ],
+          "doneEncryptedReasoning": 1,
+          "terminalTypes": []
+        }
+      ],
+      "emittedReplay": [
+        {
+          "itemTypes": [],
+          "contentMatches": true,
+          "finishReason": "stop",
+          "toolCalls": 0
+        },
+        {
+          "itemTypes": [],
+          "contentMatches": false,
+          "finishReason": "stop",
+          "toolCalls": 0
+        },
+        {
+          "itemTypes": [],
+          "contentMatches": false,
+          "finishReason": "stop",
+          "toolCalls": 0
+        }
+      ],
+      "toolContinuation": [
+        {
+          "type": "reasoning",
+          "exactItemReplayed": false
+        },
+        {
+          "type": "function_call",
+          "exactItemReplayed": false
+        }
+      ]
+    },
+    {
+      "artifact": "/tmp/namzu-codex-replay-du6b34/result.json",
+      "mode": "run (non-publishing)",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "changedDriver": true,
+      "originalScriptPassed": false,
+      "originalError": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert.ok(report.turns.every(t => t.result.text.includes(code)))\n",
+      "buildStable": true,
+      "providerBuildSha256": "c90e4376da4cc06e56d3a77486495201180dacd8539d84639eec349963438963",
+      "modelRequests": 3,
+      "turns": [
+        {
+          "answer": "The observation code is `NOTE-6352d3de`.",
+          "totalTokens": 13531
+        },
+        {
+          "answer": "I don\u2019t see an observation code in the conversation context.",
+          "totalTokens": 6752
+        }
+      ],
+      "streamShapes": [
+        {
+          "doneTypes": [
+            "reasoning",
+            "function_call"
+          ],
+          "doneEncryptedReasoning": 1,
+          "terminalTypes": []
+        },
+        {
+          "doneTypes": [
+            "message"
+          ],
+          "doneEncryptedReasoning": 0,
+          "terminalTypes": []
+        },
+        {
+          "doneTypes": [
+            "reasoning",
+            "message"
+          ],
+          "doneEncryptedReasoning": 1,
+          "terminalTypes": []
+        }
+      ],
+      "emittedReplay": [
+        {
+          "itemTypes": [
+            "reasoning",
+            "function_call"
+          ],
+          "contentMatches": true,
+          "finishReason": "tool_calls",
+          "toolCalls": 1
+        },
+        {
+          "itemTypes": [
+            "message"
+          ],
+          "contentMatches": true,
+          "finishReason": "stop",
+          "toolCalls": 0
+        },
+        {
+          "itemTypes": [
+            "reasoning",
+            "message"
+          ],
+          "contentMatches": true,
+          "finishReason": "stop",
+          "toolCalls": 0
+        }
+      ],
+      "toolContinuation": [
+        {
+          "type": "reasoning",
+          "exactItemReplayed": true
+        },
+        {
+          "type": "function_call",
+          "exactItemReplayed": true
+        }
+      ]
+    },
+    {
+      "artifact": "/tmp/namzu-codex-replay-Xhth0P/result.json",
+      "mode": "run-stream --session",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "changedDriver": true,
+      "originalScriptPassed": true,
+      "originalError": null,
+      "buildStable": true,
+      "providerBuildSha256": "c90e4376da4cc06e56d3a77486495201180dacd8539d84639eec349963438963",
+      "modelRequests": 3,
+      "turns": [
+        {
+          "answer": "The observation code is `NOTE-e92aa0c7`.",
+          "totalTokens": 13531
+        },
+        {
+          "answer": "The observation code was `NOTE-e92aa0c7`.",
+          "totalTokens": 6828
+        }
+      ],
+      "streamShapes": [
+        {
+          "doneTypes": [
+            "reasoning",
+            "function_call"
+          ],
+          "doneEncryptedReasoning": 1,
+          "terminalTypes": []
+        },
+        {
+          "doneTypes": [
+            "message"
+          ],
+          "doneEncryptedReasoning": 0,
+          "terminalTypes": []
+        },
+        {
+          "doneTypes": [
+            "message"
+          ],
+          "doneEncryptedReasoning": 0,
+          "terminalTypes": []
+        }
+      ],
+      "emittedReplay": [
+        {
+          "itemTypes": [
+            "reasoning",
+            "function_call"
+          ],
+          "contentMatches": true,
+          "finishReason": "tool_calls",
+          "toolCalls": 1
+        },
+        {
+          "itemTypes": [
+            "message"
+          ],
+          "contentMatches": true,
+          "finishReason": "stop",
+          "toolCalls": 0
+        },
+        {
+          "itemTypes": [
+            "message"
+          ],
+          "contentMatches": true,
+          "finishReason": "stop",
+          "toolCalls": 0
+        }
+      ],
+      "toolContinuation": [
+        {
+          "type": "reasoning",
+          "exactItemReplayed": true
+        },
+        {
+          "type": "function_call",
+          "exactItemReplayed": true
+        }
+      ],
+      "afterRestart": [
+        {
+          "type": "reasoning",
+          "encrypted": true,
+          "sameTurn": true,
+          "afterRestart": true
+        },
+        {
+          "type": "function_call",
+          "sameTurn": true,
+          "afterRestart": true
+        },
+        {
+          "type": "message",
+          "sameTurn": false,
+          "afterRestart": true
+        }
+      ],
+      "persisted": [
+        {
+          "contentMatches": true,
+          "itemCount": 2
+        },
+        {
+          "contentMatches": true,
+          "itemCount": 1
+        },
+        {
+          "contentMatches": true,
+          "itemCount": 2
+        },
+        {
+          "contentMatches": true,
+          "itemCount": 1
+        },
+        {
+          "contentMatches": true,
+          "itemCount": 1
+        }
+      ]
+    }
+  ],
+  "totalReportedLiveTokens": 78884,
+  "note": "Unpriced usage is not a zero-price claim. Only the final run-stream case tests supported conversation publication and restart; earlier run invocations were diagnostic and excluded from restart comparisons."
+}

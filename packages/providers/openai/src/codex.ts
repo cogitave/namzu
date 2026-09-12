@@ -464,6 +464,10 @@ export class CodexProvider implements LLMProvider {
 		}
 
 		const callIndex = new Map<string, number>()
+		// The subscription backend can leave response.completed.output empty.
+		// Retain finalized items, including opaque reasoning, at their output index;
+		// added items and deltas are not a complete native replay record.
+		const completedItems = new Map<number, ResponseOutputItem>()
 		let nextCallIndex = 0
 		let responseId = 'codex-response'
 		try {
@@ -546,6 +550,7 @@ export class CodexProvider implements LLMProvider {
 						break
 					}
 					case 'response.output_item.done':
+						completedItems.set(event.output_index, event.item)
 						if (event.item.type === 'web_search_call') {
 							yield {
 								id: responseId,
@@ -571,21 +576,26 @@ export class CodexProvider implements LLMProvider {
 						}
 						break
 					case 'response.completed': {
-						const calls = event.response.output
+						// A populated final snapshot remains authoritative. Never concatenate
+						// it with streamed items: that would replay the same tool call twice.
+						const output = event.response.output?.length
+							? event.response.output
+							: [...completedItems].sort(([left], [right]) => left - right).map(([, item]) => item)
+						const calls = output
 							.filter((item) => item.type === 'function_call')
 							.map((item) => ({
 								id: item.call_id,
 								name: item.name,
 								arguments: item.arguments,
 							}))
-						let content = event.response.output
+						let content = output
 							.filter((item) => item.type === 'message')
 							.flatMap((item) => item.content)
 							.filter((item) => item.type === 'output_text')
 							.map((item) => item.text)
 							.join('')
 						const sources = new Map<string, string>()
-						for (const item of event.response.output) {
+						for (const item of output) {
 							if (item.type !== 'message') continue
 							for (const part of item.content) {
 								if (part.type !== 'output_text') continue
@@ -617,7 +627,7 @@ export class CodexProvider implements LLMProvider {
 							route: targetRoute,
 							content: content || null,
 							toolCalls: calls,
-							items: event.response.output,
+							items: output,
 						}
 						yield {
 							id: event.response.id,

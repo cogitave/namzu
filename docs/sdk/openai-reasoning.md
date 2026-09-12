@@ -69,3 +69,31 @@ The Codex subscription driver also supports opt-in `webSearch: { mode: 'live' }`
 or `webSearch: { mode: 'cached' }` on completion parameters and run configuration.
 See [Web search](../cli/web-search.md) for capability checks, activity events,
 source retention, fallback behavior, and current driver limitations.
+
+## Native conversation continuity
+
+The subscription driver retains finalized Responses output, including encrypted
+reasoning, messages, function calls and hosted-tool items, in the assistant
+message's opaque `source.replayState`. The runtime persists this state with the
+message. It is replayed only when the provider/model/fallback route, visible
+content and tool calls still match the original response. Editing or compacting
+that message can make the state ineligible; switching models does not send the
+previous model's native items to the new model.
+
+The subscription stream can deliver completed items through
+`response.output_item.done` while leaving `response.completed.output` empty.
+The driver therefore collects finalized items by output index and uses them when
+the terminal snapshot is empty or absent. A populated terminal snapshot is used
+as supplied, without appending duplicates. The same resolved output determines
+the native replay record, tool-call finish reason and hosted citation links.
+Only `response.completed` commits replay state; unfinished added items, a
+disconnected stream, cancellation and failed/incomplete responses do not create
+a completed replay record.
+
+This follows the distinction between finalized items and response completion in
+the [official Responses event reference](https://developers.openai.com/api/reference/resources/responses/streaming-events).
+The empty terminal snapshot was observed directly on the subscription endpoint;
+it is not assumed to be the behavior of every OpenAI-compatible service.
+Previously discarded native items cannot be reconstructed from old plain-text
+history. This correction preserves newly received items and does not promise
+perfect recall or answer accuracy.
