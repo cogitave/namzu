@@ -74,10 +74,17 @@ describe('bounded original conversation evidence', () => {
 		const events = [
 			{ type: 'run_started', runId, seq: 1 },
 			...Array.from({ length: 8 }, (_, index) => ({
-				type: 'message_completed',
 				runId,
 				seq: index + 2,
-				content: '\u0001'.repeat(5000),
+				...(index < 3
+					? {
+							type: 'tool_completed',
+							toolName: '\u0001'.repeat(index === 0 ? 500 : 40),
+							toolUseId: `original-${index}`,
+							isError: false,
+							result: '\u0001'.repeat(5000),
+						}
+					: { type: 'message_completed', content: '\u0001'.repeat(5000) }),
 			})),
 		]
 		await writeFile(
@@ -94,6 +101,8 @@ describe('bounded original conversation evidence', () => {
 			})
 			expect(Buffer.byteLength(JSON.stringify(page.matches))).toBeLessThanOrEqual(12_000)
 			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			expect(page.guidance).toContain('case-sensitive')
+			for (const match of page.matches) if (match.seq === 2) expect(match.toolName).toBeUndefined()
 			sequences.push(...page.matches.map((match) => match.seq))
 			cursor = page.nextCursor
 		} while (cursor)

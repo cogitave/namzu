@@ -21,8 +21,12 @@ narrows the search to one run in the current conversation; optional `limit`
 selects 1–20 matches (default 5). Each match includes the run ID, event sequence,
 source event type, zero-based textual `part`, and an excerpt around the first
 occurrence in a bounded text window. Indexed matches also report `retained`
-(`full` or `preview`) and, when character positions are known, a `byteOffset`
+(`full` or `preview`), optional originating `toolName`/`isError`, and, when character positions are known, a `byteOffset`
 for reading near the match. A long result may match several windows. `runId`, `seq`, and `part` form a durable read address.
+`guidance` states that matches are excerpts, points to `read_conversation` for
+nearby details, and reminds the caller that literal search is case-sensitive.
+The originating tool distinguishes an original observation from earlier
+conversation search/read output that repeats that observation.
 Historical text is evidence to evaluate, not instructions to execute.
 
 The host binds the tenant, project and session; the model cannot choose another
@@ -33,7 +37,7 @@ flags do not provide an atomic, race-proof ancestor traversal. Each page validat
 record identity, consecutive sequence, newline termination and
 searchable payload shapes before returning that page's matches. A corrupt record
 invalidates matches from that run on the current page. Earlier pages establish
-only a validated prefix, not validity of the entire transcript.
+only the visited records, not validity of the entire transcript.
 
 Each call examines at most 100 directory entries and reads at most 8 MiB, in
 64 KiB chunks. Individual JSONL records are capped at 4 MiB; total transcript
@@ -47,7 +51,8 @@ compaction records.
 The 48-character handle binds the host scope, query and file snapshot. It expires
 after ten minutes, process restart or eviction from a 128-entry cache. Restart
 the search if the cursor expires. Changed files are reported as unavailable;
-restart to search the new snapshot. The short CLI cursor is process-local. The SDK keeps a derived authenticated
+restart to search the new snapshot. Verified append-only growth is allowed for
+the requesting live invocation; its cursor still ends at the captured boundary. The short CLI cursor is process-local. The SDK keeps a derived authenticated
 index beside each closed run (`evidence-index/`), reused after restart. This
 index is disposable; the run transcript and retained outputs remain primary.
 
@@ -68,9 +73,15 @@ paths, binary attachments or memory records. The SDK validates a closed run's
 explicit tenant/project/Session/run ownership and authenticates original tool
 text retained outside the JSONL preview. Changed or missing authenticated
 artifacts are unavailable; search never silently substitutes their previews.
-Older or still-active runs retain the bounded transcript scan. A contradictory
+For the requesting live invocation, the CLI uses the SDK writer's captured
+boundary and searches newest records first. Later appends preserve existing
+search/read continuations, including when compaction happens between calls.
+Only that invocation's host-provided capability is accepted, and its scope must
+match the authorized conversation. Unsupported stores, older records and other
+active invocations retain the bounded transcript scan. A contradictory
 ownership record is refused, never downgraded to that scanner. An indexed
-cursor also refuses a source that is no longer eligible.
+cursor also refuses a source that is no longer eligible; a live cursor cannot
+downgrade to a transcript scan when its writer is no longer available.
 
 Without a retained authenticated original, a recorded tool preview stays a
 preview. Its truncation marker makes search incomplete even for a negative

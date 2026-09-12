@@ -1,3 +1,4 @@
+import type { RunEvidenceScope, RunTextEvidenceSource } from '../../store/evidence/types.js'
 /**
  * RunStore — persistence contract for a run's own evidence.
  *
@@ -98,6 +99,12 @@ export interface CompletedToolRecord {
 }
 
 export interface RunStore {
+	/** Optional bounded read capability anchored to this writer's completed event boundary. */
+	captureTextEvidence?(
+		scope: RunEvidenceScope,
+		maxReadBytes?: number,
+	): Promise<RunTextEvidenceSource | undefined>
+
 	/**
 	 * Bind this store to a run, before any other call.
 	 *

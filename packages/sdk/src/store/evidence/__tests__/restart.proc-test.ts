@@ -74,3 +74,47 @@ it('shares an atomically published index between processes and reads a previous 
 		await rm(root, { recursive: true, force: true })
 	}
 })
+
+it('reconstructs a live writer boundary in another process and retains durable event identities', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-live-evidence-restart-'))
+	try {
+		const scope = {
+			tenantId: randomUUID(),
+			projectId: randomUUID(),
+			sessionId: randomUUID(),
+			runId: randomUUID(),
+		}
+		const storeUrl = new URL('../../../../dist/store/run/disk.js', import.meta.url).href
+		const exec = promisify(execFile)
+		const script = `import {RunDiskStore} from ${JSON.stringify(storeUrl)};
+import {writeFile} from 'node:fs/promises';import {join} from 'node:path';
+const [root, encoded, previous] = process.argv.slice(1); const scope = JSON.parse(encoded);
+const store = new RunDiskStore({baseDir:root});const dir = await store.initRun(scope.runId);
+if(!previous) {
+ await writeFile(join(dir,'run.json'),JSON.stringify({id:scope.runId,status:'running',metadata:{scope}}));
+ await store.appendEvent({type:'run_started',runId:scope.runId,seq:1});
+ await store.appendEvent({type:'message_completed',runId:scope.runId,seq:2,content:'original receipt 🦉'});
+} else await store.appendEvent({type:'message_completed',runId:scope.runId,seq:3,content:'new writer'});
+const source=await store.captureTextEvidence(scope);const page=await source.search({query:'original receipt'});
+const read=await source.read({address:page.matches[0].address});let oldRefused=false;
+if(previous) { try {await source.read({address:previous});} catch {oldRefused=true;} }
+console.log(JSON.stringify({page,read,oldRefused}));`
+		const child = async (previous = '') => {
+			const { stdout } = await exec(
+				process.execPath,
+				['--input-type=module', '-e', script, root, JSON.stringify(scope), previous],
+				{ timeout: 20_000, maxBuffer: 100_000 },
+			)
+			return JSON.parse(stdout)
+		}
+		const first = await child()
+		const next = await child(first.page.matches[0].address)
+		expect(first.read.text).toBe('original receipt 🦉')
+		expect(next.read.text).toBe(first.read.text)
+		expect(next.page.matches[0].seq).toBe(2)
+		expect(next.oldRefused).toBe(true)
+		expect(next.page.incomplete).toBe(false)
+	} finally {
+		await rm(root, { recursive: true, force: true })
+	}
+})

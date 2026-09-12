@@ -64,6 +64,41 @@ sequentially from zero can count returned text itself. New chunk character
 positions point to the first complete UTF-8 character in each window, allowing
 a search hit deep in a large file to be read without replaying earlier pages.
 
+## Reading a running invocation
+
+`ToolContext.captureRunEvidence(maxReadBytes?)` optionally captures the calling
+invocation's completed event boundary. The kernel serializes capture with durable
+appends and rejects capture after the invocation leaves its running state or is
+cancelled. Unsupported stores return `undefined`. Hosts still authorize the
+conversation; this capability has no model-selected path, scope or run argument.
+
+The optional `RunStore.captureTextEvidence(scope, maxReadBytes?)` seam lets a
+store provide that capability. `RunDiskStore` implements it using hash-linked
+JSONL records. A new persisted record adds `previousRecord`, containing the
+preceding record's byte offset, length, sequence and SHA-256, or `null` at an
+unlinked boundary. The writer commits the pointer after a successful append;
+capture takes that pointer under the same lock. It does not copy the transcript
+or load the whole history. On reopening, a bounded last-record read bootstraps
+the pointer. A torn/unlinked boundary produces incomplete evidence; it is never
+silently skipped as proof of a complete history.
+
+The captured `RunTextEvidenceSource` searches newest records first, with at most
+64 records, 64 textual parts and 64 chunk candidates per call. A continuation
+keeps its original boundary when later tool calls append new events. The host
+may resolve it through a newer capture of the same writer. Reads and searches
+verify selected record hashes and the same retained-output manifests as closed
+runs. Metadata ownership is checked before and after retrieval; transcript
+replacement/shortening is refused. Append-only growth does not invalidate old
+addresses. I/O remains bounded by 8 MiB (or the requested smaller ceiling),
+including both ownership checks. Exact UTF-8/UTF-16 paging is shared with the
+closed-run reader.
+
+Live cursors are bound to the scope, file identity and writer lifetime. A new
+writer, including after restart, requires a new search. Durable `runId`/`seq`/
+`part` identities remain available through the closed-run source after completion.
+This is local authenticated evidence retrieval, not an event replay protocol or
+a hostile-filesystem sandbox. It does not infer current facts from old output.
+
 ## Retention and integrity
 
 The model-visible output cap remains 40,000 characters by default. Oversized

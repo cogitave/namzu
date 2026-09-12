@@ -1,0 +1,316 @@
+{
+  "date": "2026-09-12",
+  "scope": "Same-invocation retained text, ordinary CLI. Synthetic private workspace; no benchmark-score claim.",
+  "samples": [
+    {
+      "label": "live-before-source-hints-1",
+      "artifact": "/tmp/namzu-active-evidence-cli-3tYQTs/result.json",
+      "live": true,
+      "passed": true,
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "limit": 20
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "1a73f394-ca45-466e-bcff-1f08db0c3937",
+            "seq": 23,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "usage": {
+        "totalTokens": 45067,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 45067
+        }
+      },
+      "answer": "Original DELTA receipt identifiers:\n\n- Tracking code: `TRACK-93be146f-1ba2-4a4f-a2a7-c9831c260cb4`\n- Destination: `DEPOT-a7b96281-3a48-49b4-abd6-2388a5667df6`",
+      "failure": null,
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/linked.ts": "a79bf0b32f83d621afa0b55f46a4e9899008897ec0d8e010e592f91ff1e82af0",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "3a0381d5b7ce4a2aa8922a65c217e9c9405db9a6fde53ad5591918435f4392f8",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "d8bb0312b275fca02ea2ed29d8094ae356b30a3718e8c3ae7b8bddbcfd6699cf",
+        "research/conversation-evidence/active-cli.mjs": "53eaeb5d9b2f96f42701bd871e97ca3c9dc3cca7d8791767882924a4deb7a3be"
+      }
+    },
+    {
+      "label": "live-before-source-hints-2",
+      "artifact": "/tmp/namzu-active-evidence-cli-IEWk4w/result.json",
+      "live": true,
+      "passed": false,
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "limit": 20
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "destination",
+            "runId": "612c51c4-a06a-4bc4-adb5-2941766d3652",
+            "limit": 20
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA original receipt",
+            "runId": "612c51c4-a06a-4bc4-adb5-2941766d3652",
+            "limit": 20
+          }
+        }
+      ],
+      "usage": {
+        "totalTokens": 80633,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 80633
+        }
+      },
+      "answer": "Tracking code: `TRACK-72e7d58b-7c44-4a69-9f96-e30ba649e4ec`\n\nDestination: not recovered from the retained evidence available so far.",
+      "failure": "The expression evaluated to a falsy value:\n\n  assert.ok(report.result.text.includes(destination))\n",
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/linked.ts": "f38a358023393023390bd3393d1e1cdf9ff7b629c824fe1c511b384aad91f45d",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "3a0381d5b7ce4a2aa8922a65c217e9c9405db9a6fde53ad5591918435f4392f8",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "d8bb0312b275fca02ea2ed29d8094ae356b30a3718e8c3ae7b8bddbcfd6699cf",
+        "research/conversation-evidence/active-cli.mjs": "53eaeb5d9b2f96f42701bd871e97ca3c9dc3cca7d8791767882924a4deb7a3be"
+      }
+    },
+    {
+      "label": "live-with-source-hints",
+      "artifact": "/tmp/namzu-active-evidence-cli-Oa83YI/result.json",
+      "live": true,
+      "passed": false,
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "limit": 20
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "TRACK-df5697f8-366f-4150-ad4b-927f26fe7a69",
+            "limit": 20
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "destination",
+            "limit": 20
+          }
+        }
+      ],
+      "usage": {
+        "totalTokens": 80949,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 80949
+        }
+      },
+      "answer": "Tracking code: `TRACK-df5697f8-366f-4150-ad4b-927f26fe7a69`\n\nDestination: not recovered from the retained evidence available.",
+      "failure": "The expression evaluated to a falsy value:\n\n  assert.ok(report.result.text.includes(destination))\n",
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/linked.ts": "f38a358023393023390bd3393d1e1cdf9ff7b629c824fe1c511b384aad91f45d",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "77efb390e9d076ecbab661df19160df9d5d290ff302be23da5308c0d563f4778",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "03ff2e823435335c2167f3b4391a6fae5fb585f1d4e37c54c9522508ea05ee6d",
+        "research/conversation-evidence/active-cli.mjs": "0c754884bb909559f3c8c4fd615c75caaf559a8ffe58937503d8a3ff37c4b22e"
+      }
+    },
+    {
+      "label": "final-offline-command",
+      "artifact": "/tmp/namzu-active-evidence-cli-HmDRbp/result.json",
+      "live": false,
+      "passed": true,
+      "model": "scripted",
+      "effort": "low",
+      "calls": [
+        {
+          "name": "read",
+          "input": {
+            "path": "manifest.txt"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "16c10cc1-e9f3-4ec6-945f-b3a60a95eb22",
+            "seq": 16,
+            "part": 0,
+            "byteOffset": 181304
+          }
+        }
+      ],
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "answer": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-0802560b-defa-4a07-8efc-7389dfbcd264.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n213\tInspection row 212: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of DELTA: DEPOT-4b2c6504-d87e-48f7-a72e-b7ac390f6aaa.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n216\tInspection row 215: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n217\tInspection row 216: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n218\tInspection row 217: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n219\tInspection row 218: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n220\tInspection row 219: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 pack",
+      "failure": null,
+      "fingerprints": {
+        "packages/sdk/src/store/evidence/linked.ts": "f38a358023393023390bd3393d1e1cdf9ff7b629c824fe1c511b384aad91f45d",
+        "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+        "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+        "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+        "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+        "packages/sdk/src/runtime/query/index.ts": "77efb390e9d076ecbab661df19160df9d5d290ff302be23da5308c0d563f4778",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "03ff2e823435335c2167f3b4391a6fae5fb585f1d4e37c54c9522508ea05ee6d",
+        "research/conversation-evidence/active-cli.mjs": "0c754884bb909559f3c8c4fd615c75caaf559a8ffe58937503d8a3ff37c4b22e"
+      }
+    }
+  ],
+  "appendMicrobenchmark": {
+    "root": "/tmp/namzu-evidence-append-cost-VJwEx1",
+    "node": "v24.19.0",
+    "platform": "linux",
+    "rows": [
+      {
+        "round": 0,
+        "mode": "baseline",
+        "events": 500,
+        "milliseconds": 120.42081299999998,
+        "bytes": 317861
+      },
+      {
+        "round": 0,
+        "mode": "linked",
+        "events": 500,
+        "milliseconds": 187.98682100000002,
+        "bytes": 384490
+      },
+      {
+        "round": 1,
+        "mode": "linked",
+        "events": 500,
+        "milliseconds": 168.43471899999997,
+        "bytes": 384490
+      },
+      {
+        "round": 1,
+        "mode": "baseline",
+        "events": 500,
+        "milliseconds": 115.66251299999999,
+        "bytes": 317861
+      },
+      {
+        "round": 2,
+        "mode": "baseline",
+        "events": 500,
+        "milliseconds": 117.92301299999997,
+        "bytes": 317861
+      },
+      {
+        "round": 2,
+        "mode": "linked",
+        "events": 500,
+        "milliseconds": 169.16211900000008,
+        "bytes": 384490
+      },
+      {
+        "round": 3,
+        "mode": "linked",
+        "events": 500,
+        "milliseconds": 172.06701899999985,
+        "bytes": 384490
+      },
+      {
+        "round": 3,
+        "mode": "baseline",
+        "events": 500,
+        "milliseconds": 118.30341300000009,
+        "bytes": 317861
+      },
+      {
+        "round": 4,
+        "mode": "baseline",
+        "events": 500,
+        "milliseconds": 115.55141300000014,
+        "bytes": 317861
+      },
+      {
+        "round": 4,
+        "mode": "linked",
+        "events": 500,
+        "milliseconds": 164.443718,
+        "bytes": 384490
+      }
+    ]
+  },
+  "medianMillisecondsPerAppend": {
+    "baseline": 0.23584602599999993,
+    "linked": 0.33832423800000017
+  },
+  "currentFingerprints": {
+    "packages/sdk/src/store/evidence/linked.ts": "f38a358023393023390bd3393d1e1cdf9ff7b629c824fe1c511b384aad91f45d",
+    "packages/sdk/src/store/evidence/source-text.ts": "68783899dc082960c2b33ffcf0ff4a7114ea4e5e2b47387031758028555fbeb9",
+    "packages/sdk/src/store/evidence/record-chain.ts": "79e8c09f0eab87c1c1e34bbcd574111c92a8e3459b9eb4c0673c8679c7ec5063",
+    "packages/sdk/src/store/run/disk.ts": "869fabbef7612d960d6777ac625bc19163857a93bab69e299e3155f2c58a7cff",
+    "packages/sdk/src/runtime/query/events.ts": "aa183bade5d1c8a588f3531edc48301e58b52c5e7ec2db4b3ddbeaa81cc1d469",
+    "packages/sdk/src/runtime/query/index.ts": "77efb390e9d076ecbab661df19160df9d5d290ff302be23da5308c0d563f4778",
+    "packages/cli/src/integrations/sessions/conversation-search.ts": "03ff2e823435335c2167f3b4391a6fae5fb585f1d4e37c54c9522508ea05ee6d",
+    "research/conversation-evidence/active-cli.mjs": "0c754884bb909559f3c8c4fd615c75caaf559a8ffe58937503d8a3ff37c4b22e"
+  }
+}

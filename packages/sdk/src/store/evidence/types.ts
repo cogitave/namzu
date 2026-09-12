@@ -1,4 +1,4 @@
-/** @experimental An explicitly authorized, closed invocation. No directory discovery. */
+/** @experimental An explicitly authorized invocation. No directory discovery. */
 export interface RunEvidenceScope {
 	readonly tenantId: string
 	readonly projectId: string

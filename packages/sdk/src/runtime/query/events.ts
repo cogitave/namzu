@@ -78,6 +78,20 @@ export class EventTranslator {
 		return this.withTranscriptLock(() => this.runMgr.getRunStore().readEvents(options))
 	}
 
+	captureRunEvidence(
+		maxReadBytes?: number,
+	): Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined> {
+		return this.withTranscriptLock(async () => {
+			const run = this.runMgr.getRun()
+			if (run.status !== 'running')
+				throw new Error('Evidence capture requires the active invocation.')
+			const { tenantId, projectId, sessionId, runId } = this.runMgr.getRunScope()
+			return this.runMgr
+				.getRunStore()
+				.captureTextEvidence?.({ tenantId, projectId, sessionId, runId }, maxReadBytes)
+		})
+	}
+
 	setGeneration(fence: FencingToken | undefined): void {
 		this.generation = fence
 	}

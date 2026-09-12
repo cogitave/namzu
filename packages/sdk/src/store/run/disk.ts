@@ -1,4 +1,5 @@
-import { appendFile, mkdir, readFile, readdir, unlink } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { appendFile, mkdir, readFile, readdir, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { Message } from '../../types/message/index.js'
@@ -19,6 +20,14 @@ import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { asCheckpointId, asRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
+import { digest } from '../evidence/format.js'
+import { createLinkedRunTextEvidenceSource } from '../evidence/linked.js'
+import {
+	type RecordPointer,
+	recordPointerSchema,
+	transcriptTail,
+} from '../evidence/record-chain.js'
+import type { RunEvidenceScope, RunTextEvidenceSource } from '../evidence/types.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
 
 /**
@@ -51,6 +60,10 @@ export class RunDiskStore implements RunStore {
 	private baseDir: string
 	private runDir: string | null = null
 	private log: Logger
+	private eventLock: Promise<void> = Promise.resolve()
+	private evidenceTip: RecordPointer | undefined
+	private evidenceEpoch = randomUUID()
+	private boundRunId: string | undefined
 	private indexLock: Promise<void> = Promise.resolve()
 
 	constructor(config: RunStoreConfig) {
@@ -76,19 +89,68 @@ export class RunDiskStore implements RunStore {
 		await mkdir(this.runDir, { recursive: true })
 		await healTornTranscript(this.runDir)
 		await healTornAuditTrail(this.runDir)
+		this.boundRunId = runId
+		this.evidenceEpoch = randomUUID()
+		this.evidenceTip = await transcriptTail(join(this.runDir, 'transcript.jsonl'), runId)
 		this.log.info('Run directory created', { 'namzu.run.dir': this.runDir })
 		return this.runDir
 	}
 
+	private withEventLock<T>(operation: () => Promise<T>): Promise<T> {
+		const next = this.eventLock.then(operation)
+		this.eventLock = next.then(
+			() => {},
+			() => {},
+		)
+		return next
+	}
+
 	async appendEvent(event: RunEvent): Promise<void> {
-		const dir = this.requireInit()
+		return this.withEventLock(async () => {
+			const path = join(this.requireInit(), 'transcript.jsonl')
+			const before = await stat(path).catch((error: NodeJS.ErrnoException) => {
+				if (error.code === 'ENOENT') return { size: 0 }
+				throw error
+			})
+			const previous = this.evidenceTip
+			const linked =
+				previous &&
+				previous.offset + previous.length === before.size &&
+				previous.seq + 1 === event.seq
+			const line = Buffer.from(
+				`${JSON.stringify({ ...event, timestamp: Date.now(), previousRecord: linked ? previous : null })}\n`,
+			)
+			await appendFile(path, line)
+			const pointer = recordPointerSchema.safeParse({
+				offset: before.size,
+				length: line.length,
+				sha256: digest(line),
+				seq: event.seq,
+			})
+			this.evidenceTip =
+				event.runId === this.boundRunId && pointer.success ? pointer.data : undefined
+		})
+	}
 
-		const line = `${JSON.stringify({
-			...event,
-			timestamp: Date.now(),
-		})}\n`
-
-		await appendFile(join(dir, 'transcript.jsonl'), line, 'utf-8')
+	/** Capture a writer-owned, immutable read boundary between complete appends. */
+	async captureTextEvidence(
+		scope: RunEvidenceScope,
+		maxReadBytes?: number,
+	): Promise<RunTextEvidenceSource | undefined> {
+		return this.withEventLock(async () => {
+			if (scope.runId !== this.boundRunId)
+				throw new Error('Evidence capture does not own this run.')
+			if (!this.evidenceTip) return undefined
+			const runDir = this.requireInit()
+			const before = await stat(join(runDir, 'transcript.jsonl'))
+			const tip = { ...this.evidenceTip }
+			if (before.size < tip.offset + tip.length)
+				throw new Error('Evidence transcript was shortened.')
+			return createLinkedRunTextEvidenceSource(
+				{ scope, runDir, indexDir: join(runDir, 'evidence-index'), maxReadBytes },
+				{ tip, identity: `${before.dev}:${before.ino}`, epoch: this.evidenceEpoch },
+			)
+		})
 	}
 
 	async readEvents(options?: ReadRunEventsOptions): Promise<readonly PersistedRunEvent[]> {

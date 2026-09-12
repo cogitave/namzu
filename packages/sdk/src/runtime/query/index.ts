@@ -1760,6 +1760,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// cleaned up with the run and reachable by the model's own
 			// `read`/`grep` without a new affordance.
 			toolOutputDir,
+			captureRunEvidence: async (maxReadBytes) => {
+				ctx.abortController.signal.throwIfAborted()
+				const source = await eventTranslator.captureRunEvidence(maxReadBytes)
+				ctx.abortController.signal.throwIfAborted()
+				return source
+			},
 			...(params.repairToolCall ? { repairToolCall: params.repairToolCall } : {}),
 			...(verificationGate ? { authorizationGate: verificationGate } : {}),
 			recordAudit: (input) => ctx.runMgr.recordAudit(input),

@@ -223,6 +223,11 @@ export interface ToolDispatchOptions {
 }
 
 export interface ToolContext {
+	/** Host-owned read snapshot of this invocation. Never replays effects. Unsupported stores return undefined. */
+	captureRunEvidence?: (
+		maxReadBytes?: number,
+	) => Promise<import('../../store/evidence/types.js').RunTextEvidenceSource | undefined>
+
 	runId: RunId
 	workingDirectory: string
 	/**

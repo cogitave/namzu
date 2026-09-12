@@ -1034,6 +1034,13 @@ export type PersistedRunEvent = RunEvent & {
 	readonly seq: number
 	/** Epoch ms at which the store recorded the event. */
 	readonly timestamp: number
+	/** Optional disk integrity link to the preceding complete JSONL record. Null marks a chain boundary. */
+	readonly previousRecord?: {
+		readonly offset: number
+		readonly length: number
+		readonly sha256: string
+		readonly seq: number
+	} | null
 }
 
 /**

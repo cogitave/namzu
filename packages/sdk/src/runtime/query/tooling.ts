@@ -48,6 +48,7 @@ export interface ToolingBootstrapConfig {
 	readToolCallBudgetEvents?: () => Promise<readonly RunEvent[]>
 	maxToolOutputChars?: number
 	maxToolContentBytes?: number
+	captureRunEvidence?: import('../../types/tool/index.js').ToolContext['captureRunEvidence']
 	toolOutputDir?: string | (() => string | undefined)
 	repairToolCall?: RepairToolCall
 	/** Operator authorization shared with the direct-call review path. */
@@ -79,6 +80,7 @@ export class ToolingBootstrap {
 				abortSignal: config.abortSignal,
 				allowedTools: config.allowedTools,
 				invocationState: config.invocationState,
+				captureRunEvidence: config.captureRunEvidence,
 				pluginManager: config.pluginManager,
 				...(config.backgroundJobs ? { backgroundJobs: config.backgroundJobs } : {}),
 				...(config.backgroundJobOwner ? { backgroundJobOwner: config.backgroundJobOwner } : {}),

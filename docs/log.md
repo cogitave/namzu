@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Added writer-bound retained-text capture for a running invocation; ordinary CLI conversation retrieval now survives further appends and compaction while checking scope, record integrity, bounded reads and exact text.
+
 - **Update** Unified ordinary conversation retrieval with the bounded SDK text index, including full retained tool output, assistant and compaction text, UTF-8/UTF-16 positions, scoped headless resume and deferred read availability; verified real CLI compaction and a separate-process Luna/low recall run.
 
 - **Update** Added bounded authenticated tool-output indexing and exact recall across settled resident invocations; fixed fresh runs resolving spill storage before initialization and recorded invocation ownership independently of shared token budgets.

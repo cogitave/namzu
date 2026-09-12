@@ -401,6 +401,7 @@ export interface ToolExecutorConfig {
 	 * with `read`/`grep`. Absent ⇒ over-budget output is middle-elided and
 	 * the overflow is lost.
 	 */
+	captureRunEvidence?: ToolContext['captureRunEvidence']
 	toolOutputDir?: string | (() => string | undefined)
 	/**
 	 * Last chance to fix a tool call the model got wrong, before the error
@@ -1260,6 +1261,7 @@ export class ToolExecutor {
 				workingDirectory: this.config.workingDirectory,
 			},
 			invocationState: this.config.invocationState,
+			captureRunEvidence: this.config.captureRunEvidence,
 			toolRegistry: this.config.tools,
 			// The step's list wins where it has one; the run's is the default.
 			// Same precedence the request already uses when it decides which
