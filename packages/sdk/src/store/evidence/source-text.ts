@@ -55,24 +55,64 @@ export interface TextSource {
 	): Promise<{ bytes: Buffer; offset: number; characterOffset?: number; searchFrom?: number }>
 }
 
-export async function sourceText(
+interface TextRecord {
+	offset: number
+	length: number
+	sha256: string
+	seq: number
+	event: Record<string, unknown>
+	parts: ReturnType<typeof eventTexts>
+	archive?: z.infer<typeof compactionArchiveSchema>
+}
+
+/** One authenticated record per operation, never shared between calls or sources. */
+export function createTextSourceReader(
 	handle: FileHandle,
-	pointer: z.infer<typeof textPointerSchema>,
 	runDir: string,
 	runId: string,
 	budget: EvidenceBudget,
-	verifiedRecord?: Buffer,
+): (pointer: z.infer<typeof textPointerSchema>, verifiedRecord?: Buffer) => Promise<TextSource> {
+	let saved: TextRecord | undefined
+	return async (pointer, verifiedRecord) => {
+		budget.signal?.throwIfAborted()
+		if (
+			!saved ||
+			saved.offset !== pointer.offset ||
+			saved.length !== pointer.length ||
+			saved.sha256 !== pointer.sha256 ||
+			saved.seq !== pointer.seq
+		) {
+			const raw =
+				verifiedRecord ?? (await readBytes(handle, pointer.offset, pointer.length, budget))
+			if (raw.length !== pointer.length || digest(raw) !== pointer.sha256)
+				throw new Error('Recorded tool evidence changed.')
+			const event = JSON.parse(decode(raw)) as Record<string, unknown>
+			if (event.runId !== runId || event.seq !== pointer.seq)
+				throw new Error('Recorded text identity changed.')
+			saved = {
+				offset: pointer.offset,
+				length: pointer.length,
+				sha256: pointer.sha256,
+				seq: pointer.seq,
+				event,
+				parts: eventTexts(event),
+				archive:
+					event.type === 'compaction_archive' ? compactionArchiveSchema.parse(event) : undefined,
+			}
+		}
+		return sourceText(pointer, runDir, budget, saved)
+	}
+}
+
+async function sourceText(
+	pointer: z.infer<typeof textPointerSchema>,
+	runDir: string,
+	budget: EvidenceBudget,
+	{ event, parts, archive }: TextRecord,
 ): Promise<TextSource> {
-	const raw = verifiedRecord ?? (await readBytes(handle, pointer.offset, pointer.length, budget))
-	if (digest(raw) !== pointer.sha256) throw new Error('Recorded tool evidence changed.')
-	const event = JSON.parse(decode(raw))
-	if (event.runId !== runId || event.seq !== pointer.seq)
-		throw new Error('Recorded text identity changed.')
-	const part = eventTexts(event)[pointer.part]
+	const part = parts[pointer.part]
 	if (!part) throw new Error('Recorded text part is unavailable.')
 	const tool = event.type === 'tool_completed'
-	const archive =
-		event.type === 'compaction_archive' ? compactionArchiveSchema.parse(event) : undefined
 	const archivedPart = archive?.archive.parts[pointer.part]
 	if (archive && !archivedPart) throw new Error('Missing archived text part.')
 	const entry = entrySchema.parse({

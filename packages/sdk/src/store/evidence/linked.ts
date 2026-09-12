@@ -16,7 +16,7 @@ import {
 import { passageMatcher, passagesInWindow } from './passages.js'
 import { type RecordPointer, recordPointerSchema, recordPredecessors } from './record-chain.js'
 import { evidenceSearchInput, evidenceTermsSchema } from './search-input.js'
-import { readTextPage, sourceText, textPointerSchema } from './source-text.js'
+import { createTextSourceReader, readTextPage, textPointerSchema } from './source-text.js'
 import type {
 	DiskRunEvidenceOptions,
 	RunEvidenceReadOptions,
@@ -137,6 +137,7 @@ export function createLinkedRunTextEvidenceSource(
 						? ('linked-search-terms' as const)
 						: ('linked-search' as const)
 			return access(signal, async (handle, seal, budget) => {
+				const readSource = createTextSourceReader(handle, runDir, scope.runId, budget)
 				const cursor = input.cursor
 					? cursorSchema.parse(seal.unpack(input.cursor))
 					: {
@@ -215,14 +216,7 @@ export function createLinkedRunTextEvidenceSource(
 						}
 						parts++
 						try {
-							const source = await sourceText(
-								handle,
-								{ ...pointer, part },
-								runDir,
-								scope.runId,
-								budget,
-								raw,
-							)
+							const source = await readSource({ ...pointer, part }, raw)
 							if (source.retained === 'preview') incomplete = true
 							while (cursor.chunk < source.chunks && chunks < 64 && matches.length < input.limit) {
 								signal?.throwIfAborted()
@@ -304,7 +298,7 @@ export function createLinkedRunTextEvidenceSource(
 			return access(signal, async (handle, seal, budget) => {
 				const pointer = addressSchema.parse(seal.unpack(input.address)).entry
 				inBoundary(pointer)
-				const source = await sourceText(handle, pointer, runDir, scope.runId, budget)
+				const source = await createTextSourceReader(handle, runDir, scope.runId, budget)(pointer)
 				return readTextPage(source, scope, input.byteOffset, budget)
 			})
 		},

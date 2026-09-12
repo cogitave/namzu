@@ -21,7 +21,7 @@ import {
 } from './io.js'
 import { passageMatcher, passagesInWindow } from './passages.js'
 import { evidenceSearchInput, evidenceTermsSchema } from './search-input.js'
-import { readTextPage, sourceText } from './source-text.js'
+import { createTextSourceReader, readTextPage } from './source-text.js'
 import type {
 	DiskRunEvidenceOptions,
 	RunEvidenceReadOptions,
@@ -187,6 +187,7 @@ function createSource(
 						? ('search-terms' as const)
 						: ('search' as const)
 			return access(signal, async (handle, size, seal, sourceKey, budget) => {
+				const readSource = createTextSourceReader(handle, runDir, scope.runId, budget)
 				const cursor = input.cursor
 					? cursorSchema.parse(seal.unpack(input.cursor))
 					: {
@@ -255,7 +256,7 @@ function createSource(
 							within = 0
 							continue
 						}
-						const source = await sourceText(handle, entry, runDir, scope.runId, budget)
+						const source = await readSource(entry)
 						while (chunk < source.chunks && matches.length < input.limit) {
 							signal?.throwIfAborted()
 							if (
@@ -337,7 +338,7 @@ function createSource(
 				.parse(options)
 			return access(signal, async (handle, _size, seal, _sourceKey, budget) => {
 				const pointer = addressSchema.parse(seal.unpack(input.address)).entry
-				const source = await sourceText(handle, pointer, runDir, scope.runId, budget)
+				const source = await createTextSourceReader(handle, runDir, scope.runId, budget)(pointer)
 				const entry = source.entry
 				if (mode === 'tools' && entry.source !== 'tool_completed')
 					throw new Error('Not tool evidence.')

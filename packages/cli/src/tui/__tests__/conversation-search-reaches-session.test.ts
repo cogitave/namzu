@@ -224,6 +224,122 @@ it.each([false, true])(
 	},
 )
 
+it('recovers a late compacted message through real Session tools within five model turns', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-many-compacted-messages-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	const code = `ORCHID-${randomUUID()}`
+	const messages = Array.from({ length: 128 }, (_, part) =>
+		createUserMessage(`${'ordinary '.repeat(900)} ${part === 127 ? code : ''}`),
+	)
+	for (let i = 0; i < 8; i++) messages.push(createUserMessage(`Recent question ${i}`))
+	const options = {
+		cwd,
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		scope: {
+			sessionId,
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+		},
+		sandbox: { enabled: false },
+		memory: { recall: false },
+		web: { search: 'off' as const },
+	}
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({
+		provider: new MockLLMProvider({ turns: [{ text: 'Ready.' }] }),
+	} as never)
+	const seed = await createAgentSession(preferences, detected, options)
+	opened.push(seed)
+	await send(seed)
+	const compacted = await seed.compact(messages)
+	expect(compacted).not.toBeNull()
+	expect(JSON.stringify(compacted!.messages)).not.toContain(code)
+	await replaceConversation(sessions, sessionId, compacted!.messages)
+	await seed.close()
+
+	const provider = new MockLLMProvider()
+	const observed: ChatCompletionParams[] = []
+	const calls: string[] = []
+	let recovered = ''
+	let address: { runId: string; seq: number; part: number; byteOffset?: number } | undefined
+	vi.spyOn(provider, 'chatStream').mockImplementation(async function* (params) {
+		observed.push(params)
+		const tool = params.messages.filter((message) => message.role === 'tool').at(-1)
+		const raw = String(tool?.content ?? '')
+		const page = tool ? JSON.parse(raw.slice(raw.indexOf('{'), raw.lastIndexOf('}') + 1)) : null
+		let name = 'search_conversation'
+		let input: Record<string, unknown> = { query: 'ORCHID' }
+		if (page && tool?.toolCallId?.startsWith('search')) {
+			const match = page.matches.find(
+				(item: { source: string }) => item.source === 'compaction_shed:user',
+			)
+			if (match) {
+				address = {
+					runId: match.runId,
+					seq: match.seq,
+					part: match.part,
+					byteOffset: match.byteOffset,
+				}
+				name = 'read_conversation'
+				input = address
+			} else input = { cursor: page.nextCursor }
+		} else if (page) {
+			recovered += page.text
+			if (page.complete) {
+				yield* new MockLLMProvider({ turns: [{ text: recovered }] }).chatStream(params)
+				return
+			}
+			name = 'read_conversation'
+			input = { ...address, cursor: page.nextCursor }
+		}
+		if (observed.length >= 5) {
+			yield* new MockLLMProvider({
+				turns: [{ text: 'Retrieval exceeded the experiment budget.' }],
+			}).chatStream(params)
+			return
+		}
+		calls.push(name)
+		yield* new MockLLMProvider({
+			turns: [
+				{
+					toolCalls: [
+						{
+							id: `${name.startsWith('search') ? 'search' : 'read'}-${calls.length}`,
+							name,
+							args: input,
+						},
+					],
+				},
+			],
+		}).chatStream(params)
+	})
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+	const session = await createAgentSession(preferences, detected, {
+		...options,
+		conversationSessions: await openSessions(cwd),
+	})
+	opened.push(session)
+	await send(session)
+	expect(
+		recovered,
+		JSON.stringify({
+			calls,
+			requests: observed.length,
+			last: observed.at(-1)?.messages.filter((message) => message.role === 'tool'),
+		}),
+	).toContain(code)
+	expect(calls).toEqual([
+		'search_conversation',
+		'search_conversation',
+		'read_conversation',
+		'read_conversation',
+	])
+	expect(observed).toHaveLength(5)
+})
+
 it('keeps manual compaction unpublished on archive failure', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-manual-archive-failure-'))
 	roots.push(cwd)

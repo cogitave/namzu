@@ -1,0 +1,538 @@
+{
+  "sdkBefore": [
+    {
+      "root": "/tmp/namzu-archive-scan-cost-KDPWbO",
+      "phase": "cold",
+      "calls": 64,
+      "bytes": 417532404,
+      "found": [
+        {
+          "seq": 2,
+          "part": 2047
+        }
+      ],
+      "elapsedMs": 9189
+    },
+    {
+      "root": "/tmp/namzu-archive-scan-cost-KDPWbO",
+      "phase": "warm",
+      "calls": 64,
+      "bytes": 415814262,
+      "found": [
+        {
+          "seq": 2,
+          "part": 2047
+        }
+      ],
+      "elapsedMs": 9009
+    }
+  ],
+  "sdkAfter": [
+    {
+      "root": "/tmp/namzu-archive-scan-cost-s6AZus",
+      "phase": "cold",
+      "calls": 32,
+      "bytes": 23759066,
+      "found": [
+        {
+          "seq": 2,
+          "part": 2047
+        }
+      ],
+      "elapsedMs": 3599
+    },
+    {
+      "root": "/tmp/namzu-archive-scan-cost-s6AZus",
+      "phase": "warm",
+      "calls": 32,
+      "bytes": 22040924,
+      "found": [
+        {
+          "seq": 2,
+          "part": 2047
+        }
+      ],
+      "elapsedMs": 3222
+    }
+  ],
+  "cli": [
+    {
+      "root": "/tmp/namzu-manual-compaction-cli-A9dAXP",
+      "live": false,
+      "automatic": false,
+      "large": false,
+      "dense": true,
+      "provider": "scripted",
+      "model": "scripted",
+      "effort": "low",
+      "before": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "068cf4c55267ee28a48fb02a5a2e167c7a6043c55a6567507ca7336169c312db",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "seed": {
+        "sessionId": "db08ce17-c6ed-4b90-a528-02b77884a03b",
+        "code": "ORCHID-26ed0376-b737-45b5-8661-79d6715fe7f2",
+        "archive": "6646d8c6-d6c8-40f3-a651-b070dacc68b5",
+        "automatic": false,
+        "large": false,
+        "sawAutomatic": false,
+        "shed": 130,
+        "verifierTokens": 0,
+        "exactOriginalArchived": true,
+        "originalAbsentFromProjection": true
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-manual-compaction-cli-A9dAXP/workspace",
+        "--resume",
+        "db08ce17-c6ed-4b90-a528-02b77884a03b",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "45000",
+        "What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network."
+      ],
+      "result": {
+        "text": "ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context  ORCHID receipt code: ORCHID-26ed0376-b737-45b5-8661-79d6715fe7f2",
+        "usage": {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        },
+        "budget": {
+          "limit": 45000,
+          "ownTokens": 0,
+          "treeTokens": 0,
+          "reservedTokens": 0,
+          "remainingTokens": 45000,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "ORCHID"
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "cursor": "bfbd1f810164ed8595070f84f5c26d7a88dc6b7a963a4726"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "6646d8c6-d6c8-40f3-a651-b070dacc68b5",
+            "seq": 2,
+            "part": 127,
+            "byteOffset": 2442
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "6646d8c6-d6c8-40f3-a651-b070dacc68b5",
+            "seq": 2,
+            "part": 127,
+            "byteOffset": 2442,
+            "cursor": "8e120bb0f87049a6e49a4da52409c98d4307b7a7672a3e06"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "result": "{\"guidance\":\"Search is case-insensitive. Matches are excerpts: use read_conversation with runId, seq, part and byteOffset for the original passage and nearby details. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[],\"scannedRuns\":2,\"scannedBytes\":2114467,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"bfbd1f810164ed8595070f84f5c26d7a88dc6b7a963a4726\"}"
+        },
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "result": "{\"guidance\":\"Search is case-insensitive. Matches are excerpts: use read_conversation with runId, seq, part and byteOffset for the original passage and nearby details. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"6646d8c6-d6c8-40f3-a651-b070dacc68b5\",\"seq\":2,\"recordedAt\":1789246194263,\"part\":127,\"source\":\"compaction_shed:user\",\"text\":\"ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context  ORCHID receipt code: ORCHID-26ed0376-b737-45b5-8661-79d6715fe7f2\",\"retained\":\"full\",\"byteOffset\":2442}],\"scannedRuns\":1,\"scannedBytes\":2080040,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"49515b3118d71b973098472f570dd8d3c6386abc55fc1582\"}"
+        },
+        {
+          "name": "read_conversation",
+          "isError": false,
+          "result": "{\"runId\":\"6646d8c6-d6c8-40f3-a651-b070dacc68b5\",\"seq\":2,\"part\":127,\"text\":\"\",\"offset\":0,\"scannedBytes\":134620,\"complete\":false,\"retainedPreview\":false,\"nextCursor\":\"8e120bb0f87049a6e49a4da52409c98d4307b7a7672a3e06\"}"
+        },
+        {
+          "name": "read_conversation",
+          "isError": false,
+          "result": "{\"runId\":\"6646d8c6-d6c8-40f3-a651-b070dacc68b5\",\"seq\":2,\"part\":127,\"text\":\"ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context  ORCHID receipt code: ORCHID-26ed0376-b737-45b5-8661-79d6715fe7f2\",\"offset\":2442,\"scannedBytes\":2214328,\"complete\":true,\"retainedPreview\":false,\"source\":\"compaction_shed:user\",\"recordedAt\":1789246194263,\"totalChars\":2626}"
+        }
+      ],
+      "after": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "068cf4c55267ee28a48fb02a5a2e167c7a6043c55a6567507ca7336169c312db",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "passed": true,
+      "postRunAudit": {
+        "correctFinalCode": true,
+        "exactOriginalRead": true,
+        "originalVerifierTooWeak": true
+      }
+    },
+    {
+      "root": "/tmp/namzu-manual-compaction-cli-7gGkU2",
+      "live": true,
+      "automatic": false,
+      "large": false,
+      "dense": true,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "before": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "068cf4c55267ee28a48fb02a5a2e167c7a6043c55a6567507ca7336169c312db",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "seed": {
+        "sessionId": "6105f0d3-fcb9-4916-8ee4-7e7473e57c4f",
+        "code": "ORCHID-2196640b-d091-4b5a-9180-407a11d1a593",
+        "archive": "d889163e-0107-42b1-9fba-d7d6db354531",
+        "automatic": false,
+        "large": false,
+        "sawAutomatic": false,
+        "shed": 130,
+        "verifierTokens": 0,
+        "exactOriginalArchived": true,
+        "originalAbsentFromProjection": true
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-manual-compaction-cli-7gGkU2/workspace",
+        "--resume",
+        "6105f0d3-fcb9-4916-8ee4-7e7473e57c4f",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "6",
+        "--token-budget",
+        "45000",
+        "What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network."
+      ],
+      "result": {
+        "text": "The exact ORCHID receipt code was:\n\n`ORCHID-2196640b-d091-4b5a-9180-407a11d1a593`",
+        "usage": {
+          "totalTokens": 33098,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 33098
+          }
+        },
+        "budget": {
+          "limit": 45000,
+          "ownTokens": 33098,
+          "treeTokens": 33098,
+          "reservedTokens": 0,
+          "remainingTokens": 11902,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "ORCHID",
+            "limit": 20
+          }
+        },
+        {
+          "name": "search_conversation",
+          "input": {
+            "limit": 20,
+            "cursor": "7206f1b70660d2871e4b344774bf60ba5a8b0f8feda82477"
+          }
+        },
+        {
+          "name": "read_conversation",
+          "input": {
+            "runId": "d889163e-0107-42b1-9fba-d7d6db354531",
+            "seq": 2,
+            "part": 127,
+            "byteOffset": 2442
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "result": "{\"guidance\":\"Search is case-insensitive. Matches are excerpts: use read_conversation with runId, seq, part and byteOffset for the original passage and nearby details. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[],\"scannedRuns\":3,\"scannedBytes\":2129551,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"7206f1b70660d2871e4b344774bf60ba5a8b0f8feda82477\"}"
+        },
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "result": "{\"guidance\":\"Search is case-insensitive. Matches are excerpts: use read_conversation with runId, seq, part and byteOffset for the original passage and nearby details. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"d889163e-0107-42b1-9fba-d7d6db354531\",\"seq\":2,\"recordedAt\":1789246208943,\"part\":127,\"source\":\"compaction_shed:user\",\"text\":\"ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context  ORCHID receipt code: ORCHID-2196640b-d091-4b5a-9180-407a11d1a593\",\"retained\":\"full\",\"byteOffset\":2442}],\"scannedRuns\":1,\"scannedBytes\":2080040,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"f0733985699f8a29c38abb21c9379ad3d42ab9e36eb48ce6\"}"
+        },
+        {
+          "name": "read_conversation",
+          "isError": false,
+          "result": "{\"runId\":\"d889163e-0107-42b1-9fba-d7d6db354531\",\"seq\":2,\"part\":127,\"text\":\"\",\"offset\":0,\"scannedBytes\":134620,\"complete\":false,\"retainedPreview\":false,\"nextCursor\":\"b1e812bab6126e9708d390e5899043d129b03ef78fead1a7\"}"
+        }
+      ],
+      "after": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+        "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "068cf4c55267ee28a48fb02a5a2e167c7a6043c55a6567507ca7336169c312db",
+        "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+        "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+      },
+      "passed": true,
+      "postRunAudit": {
+        "correctFinalCode": true,
+        "exactOriginalRead": false,
+        "originalVerifierTooWeak": true
+      }
+    }
+  ],
+  "sdkVerifiedRepeat": {
+    "before": {
+      "disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+      "source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+      "linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f",
+      "compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef"
+    },
+    "after": {
+      "disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+      "source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+      "linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f",
+      "compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef"
+    },
+    "results": [
+      {
+        "root": "/tmp/namzu-archive-scan-cost-UwGapw",
+        "phase": "cold",
+        "calls": 32,
+        "bytes": 23759066,
+        "found": [
+          {
+            "seq": 2,
+            "part": 2047
+          }
+        ],
+        "elapsedMs": 3446
+      },
+      {
+        "root": "/tmp/namzu-archive-scan-cost-UwGapw",
+        "phase": "warm",
+        "calls": 32,
+        "bytes": 22040924,
+        "found": [
+          {
+            "seq": 2,
+            "part": 2047
+          }
+        ],
+        "elapsedMs": 3284
+      }
+    ]
+  },
+  "cliVerifiedScripted": {
+    "root": "/tmp/namzu-manual-compaction-cli-D925k1",
+    "live": false,
+    "automatic": false,
+    "large": false,
+    "dense": true,
+    "provider": "scripted",
+    "model": "scripted",
+    "effort": "low",
+    "before": {
+      "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+      "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+      "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+      "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+      "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+      "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "068cf4c55267ee28a48fb02a5a2e167c7a6043c55a6567507ca7336169c312db",
+      "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+      "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+      "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+    },
+    "seed": {
+      "sessionId": "fbb80948-3c3c-4c1b-81fc-ad9c5078b07a",
+      "code": "ORCHID-d6f9eb13-8189-4282-ba21-3532eda38151",
+      "archive": "3c049582-c0a8-470c-bfaf-40e744008cc9",
+      "automatic": false,
+      "large": false,
+      "sawAutomatic": false,
+      "shed": 130,
+      "verifierTokens": 0,
+      "exactOriginalArchived": true,
+      "originalAbsentFromProjection": true
+    },
+    "command": [
+      "--quiet",
+      "--format",
+      "json",
+      "run",
+      "--trust",
+      "--cwd",
+      "/tmp/namzu-manual-compaction-cli-D925k1/workspace",
+      "--resume",
+      "fbb80948-3c3c-4c1b-81fc-ad9c5078b07a",
+      "--provider",
+      "codex",
+      "--model",
+      "gpt-5.6-luna",
+      "--effort",
+      "low",
+      "--max-iterations",
+      "6",
+      "--token-budget",
+      "45000",
+      "What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network."
+    ],
+    "result": {
+      "text": "ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context  ORCHID receipt code: ORCHID-d6f9eb13-8189-4282-ba21-3532eda38151",
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "budget": {
+        "limit": 45000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 45000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    "calls": [
+      {
+        "name": "search_conversation",
+        "input": {
+          "query": "ORCHID"
+        }
+      },
+      {
+        "name": "search_conversation",
+        "input": {
+          "cursor": "b1a3cce88432f2e5e93b799ab4f4125c10e7ff5fc923d277"
+        }
+      },
+      {
+        "name": "read_conversation",
+        "input": {
+          "runId": "3c049582-c0a8-470c-bfaf-40e744008cc9",
+          "seq": 2,
+          "part": 127,
+          "byteOffset": 2442
+        }
+      },
+      {
+        "name": "read_conversation",
+        "input": {
+          "runId": "3c049582-c0a8-470c-bfaf-40e744008cc9",
+          "seq": 2,
+          "part": 127,
+          "byteOffset": 2442,
+          "cursor": "bf3da9d3a729d916d3e1a1df408bbb2557260d71fa7e3967"
+        }
+      }
+    ],
+    "outputs": [
+      {
+        "name": "search_conversation",
+        "isError": false,
+        "result": "{\"guidance\":\"Search is case-insensitive. Matches are excerpts: use read_conversation with runId, seq, part and byteOffset for the original passage and nearby details. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[],\"scannedRuns\":1,\"scannedBytes\":2080192,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"b1a3cce88432f2e5e93b799ab4f4125c10e7ff5fc923d277\"}"
+      },
+      {
+        "name": "search_conversation",
+        "isError": false,
+        "result": "{\"guidance\":\"Search is case-insensitive. Matches are excerpts: use read_conversation with runId, seq, part and byteOffset for the original passage and nearby details. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"3c049582-c0a8-470c-bfaf-40e744008cc9\",\"seq\":2,\"recordedAt\":1789246314576,\"part\":127,\"source\":\"compaction_shed:user\",\"text\":\"ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context  ORCHID receipt code: ORCHID-d6f9eb13-8189-4282-ba21-3532eda38151\",\"retained\":\"full\",\"byteOffset\":2442}],\"scannedRuns\":1,\"scannedBytes\":2080040,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"623c110871730725174edaa87855b8a63a22a12b8274f18b\"}"
+      },
+      {
+        "name": "read_conversation",
+        "isError": false,
+        "result": "{\"runId\":\"3c049582-c0a8-470c-bfaf-40e744008cc9\",\"seq\":2,\"part\":127,\"text\":\"\",\"offset\":0,\"scannedBytes\":134620,\"complete\":false,\"retainedPreview\":false,\"nextCursor\":\"bf3da9d3a729d916d3e1a1df408bbb2557260d71fa7e3967\"}"
+      },
+      {
+        "name": "read_conversation",
+        "isError": false,
+        "result": "{\"runId\":\"3c049582-c0a8-470c-bfaf-40e744008cc9\",\"seq\":2,\"part\":127,\"text\":\"ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context ordinary context  ORCHID receipt code: ORCHID-d6f9eb13-8189-4282-ba21-3532eda38151\",\"offset\":2442,\"scannedBytes\":2214328,\"complete\":true,\"retainedPreview\":false,\"source\":\"compaction_shed:user\",\"recordedAt\":1789246314576,\"totalChars\":2626}"
+      }
+    ],
+    "exactReadObserved": true,
+    "after": {
+      "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+      "packages/sdk/dist/store/evidence/compaction-archive.js": "7505673b39de7bce25fcfae6f1dbaf533842c7429c67e0fe5b2dc8bbc050c6ef",
+      "packages/sdk/dist/store/evidence/index-page.js": "0270785dac724279e3ff02ee0e06b736e6ed1ab9070aa837410f174f9fb9b3da",
+      "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+      "packages/sdk/dist/store/run/disk.js": "90731b350f9fa49297f668790976361b1612c74ab08ab52a0c84b4a2a9ac2e4b",
+      "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "068cf4c55267ee28a48fb02a5a2e167c7a6043c55a6567507ca7336169c312db",
+      "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116",
+      "packages/sdk/dist/store/evidence/disk.js": "16375c01b00cbe5454321cadb56972772a4b34f99274cea2db3063cdc7d1f88e",
+      "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f"
+    },
+    "passed": true
+  }
+}

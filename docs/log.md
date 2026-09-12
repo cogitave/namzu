@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Reuse a single authenticated transcript record within each [evidence search](sdk/retained-tool-evidence.md); [manual CLI compaction](cli/context-and-compaction.md) now groups removed messages in one event, with individual textual-part addresses.
+
 - **Update** Stored oversized compaction bodies outside bounded JSONL records while retaining whole messages and authenticated text chunks; connected automatic and manual CLI recovery, preserving scope, exact readback and event metadata across restart.
 
 - **Update** Retained original user and other removed messages before CLI `/compact` publishes its summary; added the SDK manual-retention callback and `manual` shed reason, with failure/cancellation preservation and scoped recovery after reopening.

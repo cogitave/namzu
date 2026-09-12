@@ -20,8 +20,11 @@ readable through `read_conversation`, including after restart.
 The host writes a separate zero-model maintenance record in the conversation's
 `runs/` directory, using the SDK run store and authenticated text index. It has
 `agentId: manual-compaction`, `provider: host`, `model: none`, zero iterations
-and zero model tokens; each removed message has a `compaction_shed` event with
-`reason: manual`. It adds no assistant answer, checkpoint or global run-index
+and zero model tokens. One `compaction_shed` event with `reason: manual` contains
+the removed messages in input order, matching automatic compaction. The SDK
+offloads large arrays and indexes each textual part. Raw event consumers must
+iterate `messages`; use the returned `seq` and `part` when reading search matches.
+It adds no assistant answer, checkpoint or global run-index
 entry, and does not reopen a completed model invocation. Verifier usage, if any,
 remains in the compaction result shown by the UI.
 

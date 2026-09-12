@@ -45,17 +45,15 @@ export async function retainManualCompaction(
 	}
 	try {
 		await append({ type: 'run_started', runId: persistence.id })
-		// Individual records keep unrelated messages from accumulating into a
-		// single oversized JSONL line. The index applies its normal read limits.
-		for (const message of messages) {
-			await append({
-				type: 'compaction_shed',
-				runId: persistence.id,
-				iteration: 0,
-				reason: 'manual',
-				messages: [message],
-			})
-		}
+		// The SDK bounds large records and indexes their individual text parts.
+		// Keep the same removed-message event shape as automatic compaction.
+		await append({
+			type: 'compaction_shed',
+			runId: persistence.id,
+			iteration: 0,
+			reason: 'manual',
+			messages: [...messages],
+		})
 		await append({ type: 'run_completed', runId: persistence.id, result: '' })
 		persistence.markCompleted()
 		// No model answer, checkpoint or global run-index row: this operation

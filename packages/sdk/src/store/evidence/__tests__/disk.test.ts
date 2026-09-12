@@ -78,6 +78,51 @@ async function fixture(
 }
 
 describe('bounded retained tool evidence', () => {
+	it('crosses many compacted messages without rereading the shared record for every part', async () => {
+		const f = await fixture([])
+		const path = join(f.runDir, 'transcript.jsonl')
+		const messages = Array.from({ length: 128 }, (_, part) => ({
+			role: 'user',
+			content: `${'ordinary '.repeat(900)} ${part === 127 ? 'ORCHID-PAGE-RECEIPT' : ''}`,
+		}))
+		await writeFile(
+			path,
+			`${await readFile(path, 'utf8')}${JSON.stringify({
+				type: 'compaction_shed',
+				runId: f.scope.runId,
+				seq: 2,
+				messages,
+			})}\n`,
+		)
+		for (const _phase of ['cold', 'warm']) {
+			const source = createDiskRunTextEvidenceSource(f)
+			let cursor: string | undefined
+			let bytes = 0
+			const matches = []
+			for (let page = 0; page < 2; page++) {
+				const result = await source.search({
+					query: 'orchid-page-receipt',
+					caseSensitive: false,
+					cursor,
+				})
+				expect(result.incomplete).toBe(false)
+				bytes += result.scannedBytes
+				matches.push(...result.matches)
+				cursor = result.nextCursor ?? undefined
+				if (!cursor) break
+			}
+			expect(cursor).toBeUndefined()
+			expect(bytes).toBeLessThan(5 * 1024 * 1024)
+			expect(matches).toHaveLength(1)
+			expect(matches[0]).toMatchObject({ seq: 2, part: 127 })
+			const read = await source.read({
+				address: matches[0]!.address,
+				byteOffset: matches[0]!.byteOffset,
+			})
+			expect(read.text).toContain('ORCHID-PAGE-RECEIPT')
+		}
+	})
+
 	it.each([false, true])(
 		'recovers stored event time through cache and exact reads (spill=%s)',
 		async (spill) => {

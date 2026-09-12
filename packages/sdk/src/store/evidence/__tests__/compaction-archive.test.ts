@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { createUserMessage } from '../../../types/message/index.js'
 import { asRunId } from '../../../utils/id.js'
 import { RunDiskStore } from '../../run/disk.js'
@@ -12,13 +12,15 @@ import {
 	compactionPartPath,
 } from '../compaction-archive.js'
 import { createDiskRunTextEvidenceSource } from '../disk.js'
+import * as evidenceIO from '../io.js'
 
 const roots: string[] = []
 afterEach(async () => {
+	vi.restoreAllMocks()
 	for (const root of roots.splice(0)) await rm(root, { recursive: true, force: true })
 })
 
-async function fixture() {
+async function fixture(extraParts = 0) {
 	const root = await mkdtemp(join(tmpdir(), 'namzu-compaction-archive-'))
 	roots.push(root)
 	const scope = {
@@ -31,7 +33,11 @@ async function fixture() {
 	const runDir = await store.initRun(scope.runId)
 	await writeFile(
 		join(runDir, 'run.json'),
-		JSON.stringify({ id: scope.runId, status: 'completed', metadata: { scope } }),
+		JSON.stringify({
+			id: scope.runId,
+			status: 'completed',
+			metadata: { scope },
+		}),
 	)
 	await store.appendEvent({ type: 'run_started', runId: scope.runId, seq: 1 })
 	const message = createUserMessage('ORCHID retained receipt', [
@@ -44,12 +50,70 @@ async function fixture() {
 			seq: 2,
 			iteration: 0,
 			reason: 'manual',
-			messages: [message],
+			messages: [
+				message,
+				...Array.from({ length: extraParts }, () => createUserMessage('ORCHID another receipt')),
+			],
 		})
 	const source = () =>
-		createDiskRunTextEvidenceSource({ scope, runDir, indexDir: join(runDir, 'evidence-index') })
+		createDiskRunTextEvidenceSource({
+			scope,
+			runDir,
+			indexDir: join(runDir, 'evidence-index'),
+		})
 	return { root, scope, store, runDir, message, append, source }
 }
+
+it.each(['live', 'closed'] as const)(
+	'cancels while reading a later part of a shared record (%s)',
+	async (mode) => {
+		const f = await fixture(1)
+		await f.append()
+		const source = mode === 'live' ? (await f.store.captureTextEvidence(f.scope))! : f.source()
+		const controller = new AbortController()
+		const original = evidenceIO.readSmall
+		let intervened = false
+		vi.spyOn(evidenceIO, 'readSmall').mockImplementation(async (path, ...args) => {
+			if (path.endsWith('1.txt.manifest.json')) {
+				intervened = true
+				controller.abort(new Error('operator interrupted retrieval'))
+			}
+			return original(path, ...args)
+		})
+		await expect(source.search({ query: 'ORCHID' }, controller.signal)).rejects.toThrow(
+			'operator interrupted retrieval',
+		)
+		expect(intervened).toBe(true)
+		vi.restoreAllMocks()
+		expect((await source.search({ query: 'ORCHID' })).matches).toHaveLength(2)
+	},
+)
+
+it('refuses changed closed transcripts even after their first part has been authenticated', async () => {
+	const f = await fixture(1)
+	await f.append()
+	const path = join(f.runDir, 'transcript.jsonl')
+	const lines = (await readFile(path, 'utf8')).trimEnd().split('\n')
+	const record = JSON.parse(lines[1]!)
+	record.timestamp = 12345
+	lines[1] = JSON.stringify(record)
+	const original = evidenceIO.readSmall
+	let intervened = false
+	vi.spyOn(evidenceIO, 'readSmall').mockImplementation(async (file, ...args) => {
+		if (!intervened && file.endsWith('1.txt.manifest.json')) {
+			intervened = true
+			await writeFile(path, `${lines.join('\n')}\n`)
+		}
+		return original(file, ...args)
+	})
+	const source = f.source()
+	await expect(source.search({ query: 'ORCHID' })).rejects.toThrow('changed during retrieval')
+	expect(intervened).toBe(true)
+	vi.restoreAllMocks()
+	const next = await source.search({ query: 'ORCHID' })
+	expect(next.matches).toHaveLength(2)
+	expect(next.matches.every((match) => match.recordedAt === 12345)).toBe(true)
+})
 
 it.each(['text', 'manifest', 'missing'] as const)(
 	'refuses changed retained compaction evidence (%s)',

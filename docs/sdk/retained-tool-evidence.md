@@ -47,6 +47,14 @@ publishing an unreadable reference. The manifest size can be the tighter limit.
 
 ## Closed invocation evidence
 
+Each search operation reuses at most one authenticated, parsed transcript record
+while visiting its textual parts. It does not reread a shared compaction array
+for every message. That temporary state is discarded between calls; a later
+search or read authenticates its source again. Manifest and text-chunk checks,
+cancellation, the source-change checks and the 64-part page limit still apply.
+Live searches also reuse the parsed record already read through their captured
+chain. This reduces repeated parsing and I/O, not the number of parts to inspect.
+
 `createDiskRunEvidenceSource(DiskRunEvidenceOptions)` binds a `RunEvidenceSource`
 to one closed invocation. The host supplies `scope` (tenant, project, Session
 and run UUIDs), `runDir` and `indexDir`. It does not discover or authorize runs.

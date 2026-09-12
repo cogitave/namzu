@@ -13,6 +13,7 @@ const agentURL = new URL('../../packages/cli/dist/tui/agent.js', import.meta.url
 const exec = promisify(execFile);
 const automatic = process.argv.includes('--automatic');
 const large = automatic || process.argv.includes('--large');
+const dense = process.argv.includes('--dense');
 
 if (process.argv[2] === '--seed') {
   const sdk = await import(sdkURL);
@@ -24,6 +25,7 @@ if (process.argv[2] === '--seed') {
   const code = `ORCHID-${randomUUID()}`;
   const original = `Background ${'ordinary context '.repeat(150)} ORCHID receipt code: ${code}`;
   const messages = [sdk.createUserMessage(original, large ? [{ data: 'A'.repeat(5 * 1024 * 1024), mediaType: 'image/png' }] : undefined), sdk.createAssistantMessage('Acknowledged.')];
+  if (dense) messages.unshift(...Array.from({ length: 127 }, () => sdk.createUserMessage('ordinary '.repeat(900))));
   for (let i = 0; i < (automatic ? 18 : 4); i++) messages.push(sdk.createUserMessage(`Later question ${i}`), sdk.createAssistantMessage(`Later answer ${i} ${automatic ? 'Background explanation. '.repeat(200) : ''}`));
   const provider = new sdk.MockLLMProvider({ turns: [{ text: 'Ready.' }] });
   const probe = await probeAgentSession();
@@ -78,24 +80,27 @@ if (process.argv[2] === '--seed') {
   await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n');
   const env = { ...process.env, NAMZU_HOME: home };
   const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
-  const report = { root, live, automatic, large, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low' };
+  const report = { root, live, automatic, large, dense, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low' };
   const fingerprintPaths = ['packages/sdk/dist/compaction/manual.js', 'packages/sdk/dist/store/evidence/compaction-archive.js', 'packages/sdk/dist/store/evidence/index-page.js', 'packages/sdk/dist/store/evidence/source-text.js', 'packages/sdk/dist/store/run/disk.js', 'packages/cli/dist/integrations/sessions/compaction-evidence.js', 'packages/cli/dist/integrations/sessions/conversation-search.js', 'packages/cli/dist/tui/agent.js'];
   const fingerprints = async () => Object.fromEntries(await Promise.all(fingerprintPaths.map(async path => [path, createHash('sha256').update(await readFile(new URL('../../' + path, import.meta.url))).digest('hex')])));
+  fingerprintPaths.push('packages/sdk/dist/store/evidence/disk.js', 'packages/sdk/dist/store/evidence/linked.js');
   report.before = await fingerprints();
   try {
-    const seed = await exec(process.execPath, [fileURLToPath(import.meta.url), '--seed', cwd, ...(automatic ? ['--automatic'] : large ? ['--large'] : [])], { cwd, env, timeout: 30000, maxBuffer: 1000000 });
+    const seed = await exec(process.execPath, [fileURLToPath(import.meta.url), '--seed', cwd, ...(automatic ? ['--automatic'] : large ? ['--large'] : []), ...(dense ? ['--dense'] : [])], { cwd, env, timeout: 30000, maxBuffer: 1000000 });
     report.seed = JSON.parse(seed.stdout);
     const preload = join(root, 'scripted-provider.mjs');
     await writeFile(preload, `import {ProviderRegistry,MockLLMProvider} from ${JSON.stringify(sdkURL.href)};
 const parse=(content)=>{const t=String(content);return JSON.parse(t.slice(t.indexOf('{'),t.lastIndexOf('}')+1));};
+let address;let recovered='';
 ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *chatStream(params){
 const last=params.messages.filter(m=>m.role==='tool').at(-1);let turn;
 if(!last)turn={toolCalls:[{id:'search',name:'search_conversation',args:{query:'ORCHID'}}]};
 else{const page=parse(last.content);if(last.toolCallId.startsWith('search')){const m=page.matches?.find(m=>m.source==='compaction_shed:user');
-turn=m?{toolCalls:[{id:'read',name:'read_conversation',args:{runId:m.runId,seq:m.seq,part:m.part,byteOffset:m.byteOffset}}]}:{toolCalls:[{id:'search-'+params.messages.length,name:'search_conversation',args:{cursor:page.nextCursor}}]};
-}else turn={text:page.text};}yield*new MockLLMProvider({turns:[turn]}).chatStream(params);}}});`);
+if(m)address={runId:m.runId,seq:m.seq,part:m.part,byteOffset:m.byteOffset};
+turn=m?{toolCalls:[{id:'read',name:'read_conversation',args:address}]}:{toolCalls:[{id:'search-'+params.messages.length,name:'search_conversation',args:{cursor:page.nextCursor}}]};
+}else{recovered+=page.text;turn=page.nextCursor?{toolCalls:[{id:'read-'+params.messages.length,name:'read_conversation',args:{...address,cursor:page.nextCursor}}]}:{text:recovered};}}yield*new MockLLMProvider({turns:[turn]}).chatStream(params);}}});`);
     const prompt = 'What was the exact ORCHID receipt code I supplied earlier? Recover the original conversation passage before answering. Do not use workspace files, commands, or the network.';
-    const args = ['--quiet', '--format', 'json', 'run', '--trust', '--cwd', cwd, '--resume', report.seed.sessionId, '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', '6', '--token-budget', '35000', prompt];
+    const args = ['--quiet', '--format', 'json', 'run', '--trust', '--cwd', cwd, '--resume', report.seed.sessionId, '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', '6', '--token-budget', dense ? '45000' : '35000', prompt];
     report.command = args;
     const { stdout } = await exec(process.execPath, [...(live ? [] : ['--import', preload]), cli, ...args], { cwd, env, timeout: 150000, maxBuffer: 2000000 });
     report.result = JSON.parse(stdout);
@@ -110,6 +115,12 @@ turn=m?{toolCalls:[{id:'read',name:'read_conversation',args:{runId:m.runId,seq:m
     assert.ok(report.result.text.includes(report.seed.code));
     assert.ok(report.calls.some(e => e.name === 'search_conversation'));
     assert.ok(report.calls.some(e => e.name === 'read_conversation'));
+    report.exactReadObserved = report.outputs.some(e => {
+      if (e.name !== 'read_conversation' || e.isError) return false;
+      const page = JSON.parse(e.result);
+      return page.retainedPreview === false && typeof page.text === 'string' && page.text.includes(report.seed.code);
+    });
+    assert.ok(report.exactReadObserved, 'The original receipt must appear in an exact read result, not only a search excerpt.');
     assert.ok(report.calls.every(e => ['search_conversation', 'read_conversation', 'search_tools'].includes(e.name)));
     assert.ok(report.outputs.every(e => !e.isError));
     report.after = await fingerprints();
