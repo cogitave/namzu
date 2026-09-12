@@ -20,6 +20,25 @@ context, not a new operator instruction. `maxAnswerReviews` bounds the permitted
 rejections; exhaustion stops with `answer_rejected`. `AnswerReviewContext.signal`
 carries run cancellation and should be forwarded to verification operations.
 
+Verdicts must explicitly return a boolean `accept`. Rejections require nonempty
+string feedback. A thrown error or malformed verdict fails the run; it neither
+accepts an unverified answer nor consumes model calls by repeatedly retrying a
+broken verifier. This changes the former exception-as-acceptance behavior.
+Hosts deliberately choosing that behavior must catch errors in their callback
+and return `{ accept: true }` themselves. Cancellation stops waiting for an
+unsettled reviewer, including one that ignores the signal; work started by the
+callback remains the host's responsibility to cancel.
+
+`maxAnswerReviews` is a nonnegative safe integer, default three correction
+opportunities. Zero stops on the first valid rejection. Each rejection commits
+its feedback and `IterationCheckpoint.answerReviewAttempts` before another
+request, including the rejection that exhausts the allowance. Resume restores
+this count independently of compacted messages. Supply the same review policy
+when resuming; restoring an older checkpoint or changing host policy changes
+the allowance. Checkpoints without a recorded counter start at zero, and invalid
+stored counters are refused before model work. This is checkpoint state, not a
+tamper-proof lifetime quota.
+
 ```ts
 import { createCommandGate } from '@namzu/sdk'
 
@@ -67,10 +86,10 @@ entire review message. Custom executors must separately bound captured output.
 
 Review is called on ordinary prose completion. Forced finalization, terminal tools
 and structured-output settlement have separate paths; `reviewAnswer` is not an
-unbypassable objective-verification boundary. Generic custom review hooks still
-fail open on an exception, and an uncooperative asynchronous hook can delay
-cancellation. The built-in command reviewer contains command/fingerprint errors
-and forwards cancellation, but cannot make arbitrary host callbacks cooperative.
+unbypassable objective-verification boundary. The built-in command reviewer
+contains command/fingerprint errors and forwards cancellation. Custom prose and
+structured reviewers both distinguish valid rejections from verification failures,
+but cannot stop external work whose implementation ignores cancellation.
 
 The CLI's headless `run` and `run-stream` commands accept repeatable `--gate`
 commands and `--gate-retries`; the TUI does not automatically install this gate.
@@ -82,3 +101,11 @@ The [cognitive architecture research](cognitive-architecture.md) separates model
 assertions, independent behavior checks and proposed executive control. A hidden
 test suite that rejects a completion is evidence of a missing behavior, not proof
 that memory loss caused it.
+
+The separation of corrective feedback from a failing validator follows
+[Pydantic AI's output validation](https://pydantic.dev/docs/ai/core-concepts/output/)
+and its distinction between `ModelRetry` and ordinary output-validator
+exceptions in [advanced tool behavior](https://pydantic.dev/docs/ai/tools-toolsets/tools-advanced/).
+This does not supply an automatic factual judge. Quote containment, correct
+source selection, semantic support and complete answers are separate checks;
+the host must define which claims its verifier can establish.

@@ -84,6 +84,18 @@ import { refreshWorkingMemory } from './phases/working-memory.js'
 import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
 import { streamProviderTurn } from './stream-turn.js'
 
+/** A host reviewer is not the model transport, even when its cause is an HTTP failure. */
+class AnswerReviewFailure extends NamzuError {
+	constructor(cause: unknown) {
+		super({
+			code: 'unknown',
+			message: `Answer review failed: ${toErrorMessage(cause)}`,
+			retryable: false,
+			details: { phase: 'answer-review' },
+			cause,
+		})
+	}
+}
 export type { IterationContext } from './phases/index.js'
 export type { PhaseSignal } from './phases/index.js'
 export type { ToolReviewOutcome } from './phases/index.js'
@@ -206,6 +218,7 @@ export class IterationOrchestrator {
 			},
 		}
 		ctx.checkpointMgr.setLatestUserMessageSource(() => this.latestUserMessage)
+		ctx.checkpointMgr.setAnswerReviewAttemptsSource?.(() => this.answerReviewAttempts)
 		ctx.checkpointMgr.setStructuredReviewAttemptsSource?.(() => this.structuredReviewAttempts)
 		ctx.checkpointMgr.setNativeStructuredAttemptsSource?.(() => this.nativeStructuredAttempts)
 		if (ctx.structuredOutput?.mode === 'native') {
@@ -223,6 +236,11 @@ export class IterationOrchestrator {
 		const maxReviews = ctx.structuredOutput?.maxReviews
 		if (maxReviews !== undefined && (!Number.isSafeInteger(maxReviews) || maxReviews < 0))
 			throw new RangeError('structuredOutput.maxReviews must be a nonnegative safe integer')
+		if (
+			ctx.maxAnswerReviews !== undefined &&
+			(!Number.isSafeInteger(ctx.maxAnswerReviews) || ctx.maxAnswerReviews < 0)
+		)
+			throw new RangeError('maxAnswerReviews must be a nonnegative safe integer')
 	}
 
 	/**
@@ -306,6 +324,7 @@ export class IterationOrchestrator {
 		const tracer = getTracer()
 		// Resume hydration happens after construction, before the loop starts.
 		this.latestUserMessage = this.ctx.checkpointMgr.restoredLatestUserMessage
+		this.answerReviewAttempts = this.ctx.checkpointMgr.restoredAnswerReviewAttempts ?? 0
 		this.structuredReviewAttempts = this.ctx.checkpointMgr.restoredStructuredReviewAttempts ?? 0
 		this.nativeStructuredAttempts = this.ctx.checkpointMgr.restoredNativeStructuredAttempts ?? 0
 		if (!this.latestUserMessage) {
@@ -351,6 +370,13 @@ export class IterationOrchestrator {
 					this.nativeStructuredAttempts > this.structuredOutputRetryLimit()
 				) {
 					runMgr.setStopReason('structured_output_failed')
+					break
+				}
+				if (
+					this.ctx.reviewAnswer &&
+					this.answerReviewAttempts > (this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT)
+				) {
+					runMgr.setStopReason('answer_rejected')
 					break
 				}
 				if (
@@ -1215,6 +1241,21 @@ export class IterationOrchestrator {
 							}
 							if (review && !review.accept) {
 								const attempt = ++this.answerReviewAttempts
+								runMgr.pushMessage(createRuntimeContextMessage(review.feedback, 'answer-review'))
+								// Commit the consumed allowance with its feedback before another
+								// request, including exhaustion. Compaction cannot reset this quota.
+								const checkpoint = await this.ctx.checkpointMgr.create(runMgr, iterationNum)
+								await this.ctx.emitEvent({
+									type: 'checkpoint_created',
+									runId: runMgr.id,
+									checkpointId: checkpoint.id,
+									iteration: iterationNum,
+								})
+								if (this.ctx.abortController.signal.aborted) {
+									runMgr.setStopReason('cancelled')
+									runMgr.markCancelled()
+									break
+								}
 								const limit = this.ctx.maxAnswerReviews ?? DEFAULT_ANSWER_REVIEW_LIMIT
 								if (attempt > limit) {
 									this.ctx.log.warn('Answer rejected more times than the run allows', {
@@ -1230,7 +1271,6 @@ export class IterationOrchestrator {
 									'namzu.retry.attempt': attempt,
 									'namzu.runtime.limit': limit,
 								})
-								runMgr.pushMessage(createRuntimeContextMessage(review.feedback, 'answer-review'))
 								await this.ctx.emitEvent({
 									type: 'iteration_completed',
 									runId: runMgr.id,
@@ -1633,6 +1673,7 @@ export class IterationOrchestrator {
 					// would burn the budget to arrive at the same error.
 					if (
 						!overflowRelieved &&
+						!(err instanceof AnswerReviewFailure) &&
 						classifyProviderError(err, this.ctx.provider.id).code === 'context_length_exceeded'
 					) {
 						overflowRelieved = true
@@ -2331,33 +2372,40 @@ export class IterationOrchestrator {
 		return 'accepted'
 	}
 
-	/**
-	 * Ask the host whether this answer is good enough.
-	 *
-	 * A hook that throws **accepts**, which is the opposite of what the
-	 * safety gates do, and deliberately so. Those are asked "is this
-	 * dangerous", where the cost of failing closed is one refused
-	 * operation. This is asked "is this good enough", where failing closed
-	 * means handing the answer back forever — so a broken judge would turn
-	 * every run into a loop that ends on a budget error naming nothing. One
-	 * unreviewed answer is the cheaper failure, and the throw is logged at
-	 * `error` so it is not mistaken for approval.
-	 */
+	/** A reviewer failure aborts settlement; only an explicit rejection requests correction. */
 	private async reviewAnswer(answer: string): Promise<AnswerReview | undefined> {
-		if (!this.ctx.reviewAnswer) return undefined
+		const reviewer = this.ctx.reviewAnswer
+		const signal = this.ctx.abortController.signal
+		if (!reviewer || signal.aborted) return undefined
+		let onAbort = () => {}
+		const aborted = new Promise<never>((_resolve, reject) => {
+			onAbort = () => reject(signal.reason ?? new Error('Answer review cancelled'))
+			signal.addEventListener('abort', onAbort, { once: true })
+		})
 		try {
-			return await this.ctx.reviewAnswer(answer, {
-				runId: this.ctx.runMgr.id,
-				iteration: this.ctx.runMgr.currentIteration,
-				signal: this.ctx.abortController.signal,
-				messages: this.ctx.runMgr.messages,
-			})
-		} catch (err) {
-			this.ctx.log.error('Answer review threw — accepting the answer unreviewed', {
-				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
-				'exception.message': toErrorMessage(err),
-			})
-			return { accept: true }
+			const verdict = await Promise.race([
+				Promise.resolve().then(() => {
+					signal.throwIfAborted()
+					return reviewer(answer, {
+						runId: this.ctx.runMgr.id,
+						iteration: this.ctx.runMgr.currentIteration,
+						signal,
+						messages: this.ctx.runMgr.messages,
+					})
+				}),
+				aborted,
+			])
+			if (signal.aborted) return undefined
+			if (!verdict || typeof verdict.accept !== 'boolean')
+				throw new Error('Answer reviewer returned an invalid verdict')
+			if (!verdict.accept && (typeof verdict.feedback !== 'string' || !verdict.feedback.trim()))
+				throw new Error('Answer reviewer rejection requires feedback')
+			return verdict
+		} catch (error) {
+			if (signal.aborted) return undefined
+			throw new AnswerReviewFailure(error)
+		} finally {
+			signal.removeEventListener('abort', onAbort)
 		}
 	}
 
@@ -2552,6 +2600,8 @@ export class IterationOrchestrator {
  * threw and is left saying so rather than dressed up as something specific.
  */
 function describeStepFailure(err: unknown, providerId: string): StepFailure {
+	if (err instanceof AnswerReviewFailure)
+		return { message: err.message, code: 'unknown', retryable: false }
 	const classified = classifyProviderError(err, providerId)
 	return {
 		message: toErrorMessage(err),

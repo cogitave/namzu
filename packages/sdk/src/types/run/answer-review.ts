@@ -43,6 +43,8 @@ export interface AnswerReviewContext {
  * a closing summary under pressure, and rejecting it would spend budget
  * the run has already run out of.
  *
+ * Exceptions and malformed verdicts fail the run. Cancellation stops waiting;
+ * work started by a reviewer must still honor the supplied signal.
  * Bounded: see the run's answer-review limit. A reviewer that never
  * accepts stops the run with a stop reason that names it, rather than
  * looping until the token budget ends the run for an unrelated reason.

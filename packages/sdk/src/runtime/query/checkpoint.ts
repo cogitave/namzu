@@ -214,6 +214,8 @@ export class CheckpointManager {
 	private workingStateSource?: () => WorkingStateSnapshot | undefined
 	private latestUserMessageSource?: () => UserMessage | undefined
 	private restoredUserMessage?: UserMessage
+	private answerReviewAttemptsSource?: () => number
+	private restoredAnswerAttempts = 0
 	private structuredReviewAttemptsSource?: () => number
 	private restoredReviewAttempts = 0
 	private nativeStructuredAttemptsSource?: () => number
@@ -298,6 +300,13 @@ export class CheckpointManager {
 		return this.restoredUserMessage
 	}
 
+	setAnswerReviewAttemptsSource(source: () => number): void {
+		this.answerReviewAttemptsSource = source
+	}
+	get restoredAnswerReviewAttempts(): number {
+		return this.restoredAnswerAttempts
+	}
+
 	setNativeStructuredAttemptsSource(source: () => number): void {
 		this.nativeStructuredAttemptsSource = source
 	}
@@ -344,6 +353,7 @@ export class CheckpointManager {
 			runCreatedAt: this.runCreatedAt,
 			iteration,
 			messages: [...runMgr.messages],
+			answerReviewAttempts: this.answerReviewAttemptsSource?.() ?? this.restoredAnswerAttempts,
 			nativeStructuredAttempts:
 				this.nativeStructuredAttemptsSource?.() ?? this.restoredNativeAttempts,
 			structuredReviewAttempts:
@@ -539,6 +549,10 @@ export class CheckpointManager {
 		// its origin's age. A guard that no input can trip would have read as
 		// protection and been none.
 		this.runCreatedAt ??= checkpoint.runCreatedAt
+		const answerAttempts = checkpoint.answerReviewAttempts ?? 0
+		if (!Number.isSafeInteger(answerAttempts) || answerAttempts < 0)
+			throw new Error('Checkpoint answerReviewAttempts must be a nonnegative safe integer')
+		this.restoredAnswerAttempts = answerAttempts
 		const nativeAttempts = checkpoint.nativeStructuredAttempts ?? 0
 		if (!Number.isSafeInteger(nativeAttempts) || nativeAttempts < 0)
 			throw new Error('Invalid nativeStructuredAttempts in checkpoint')

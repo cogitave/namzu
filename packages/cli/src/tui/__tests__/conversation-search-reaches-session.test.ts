@@ -41,7 +41,7 @@ import {
 	replaceConversation,
 	startConversation,
 } from '../../integrations/sessions/store.js'
-import { type AgentSession, type RunScope, createAgentSession } from '../agent.js'
+import { type AgentEvent, type AgentSession, type RunScope, createAgentSession } from '../agent.js'
 
 const registries = new Map<string, ToolRegistryContract>()
 vi.mock('@namzu/sdk', async (importOriginal) => {
@@ -155,6 +155,84 @@ async function send(session: AgentSession, runId = generateRunId()) {
 		// Consume the production adapter and kernel, including tool execution.
 	}
 }
+
+it.each([false, true])(
+	'settles an exact-copy review from retained evidence, refusing changed ownership (%s)',
+	async (changedOwnership) => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-evidence-review-'))
+		roots.push(cwd)
+		const sessions = await openSessions(cwd)
+		const sessionId = await startConversation(sessions)
+		const code = `RECEIPT-${randomUUID()}`
+		const sourceRun = await archive(cwd, sessions, sessionId, `Recorded receipt: ${code}`)
+		const search = await searchConversation(sessions, sessionId, { query: code, runId: sourceRun })
+		const address = search.matches[0]!
+		expect(address).toBeDefined()
+		if (changedOwnership) {
+			const path = join(sessions.root, 'sessions', sessionId, 'runs', sourceRun, 'run.json')
+			const metadata = JSON.parse(await readFile(path, 'utf8'))
+			metadata.metadata.scope.sessionId = randomUUID()
+			await writeFile(path, JSON.stringify(metadata))
+		}
+		const provider = new MockLLMProvider({ turns: [{ text: 'RECEIPT-wrong' }, { text: code }] })
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const review = vi.fn(async (answer: string, context: { signal?: AbortSignal }) => {
+			// This host policy verifies an exact copy from one known source. It is
+			// deliberately not a general-purpose factual judge or model prompt.
+			const page = await readConversationEvidence(sessions, sessionId, address, context.signal)
+			if (!page.complete || page.retainedPreview) throw new Error('Exact evidence is incomplete')
+			const expected = /Recorded receipt: (RECEIPT-[\w-]+)/.exec(page.text)?.[1]
+			if (!expected) throw new Error('Exact evidence has no receipt')
+			return answer === expected
+				? { accept: true as const }
+				: { accept: false as const, feedback: `Return only the recorded receipt: ${expected}` }
+		})
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			scope: {
+				sessionId,
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				tenantId: sessions.tenantId,
+			},
+			stateRoot: sessions.root,
+			conversationSessions: sessions,
+			sandbox: { enabled: false },
+			memory: { recall: false },
+			reviewAnswer: review,
+			maxAnswerReviews: 1,
+		})
+		opened.push(session)
+		const events: AgentEvent[] = []
+		for await (const event of session.send([createUserMessage('Return the recorded receipt.')], {
+			permissionMode: 'auto',
+		}))
+			events.push(event)
+		if (changedOwnership) {
+			expect(provider.requests).toHaveLength(1)
+			expect(review).toHaveBeenCalledTimes(1)
+			expect(events.some((e) => e.kind === 'done' || e.kind === 'paused')).toBe(false)
+			expect(events).toContainEqual(
+				expect.objectContaining({
+					kind: 'error',
+					message: expect.stringMatching(/Answer review failed:.*ownership/),
+					failure: expect.objectContaining({ code: 'unknown', retryable: false }),
+				}),
+			)
+		} else {
+			expect(provider.requests).toHaveLength(2)
+			expect(review).toHaveBeenCalledTimes(2)
+			expect(events.some((e) => e.kind === 'error')).toBe(false)
+			expect(events).toContainEqual(expect.objectContaining({ kind: 'done', text: code }))
+			expect(provider.requests[1]!.messages).toContainEqual(
+				expect.objectContaining({
+					source: { type: 'runtime-context', kind: 'answer-review' },
+					content: `Return only the recorded receipt: ${code}`,
+				}),
+			)
+		}
+	},
+)
 
 it.each([false, true])(
 	'recalls scoped evidence into real Session requests only when opted in (%s)',

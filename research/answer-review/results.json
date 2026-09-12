@@ -1,0 +1,234 @@
+{
+  "root": "/tmp/namzu-answer-review-RUXVso",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "cases": [
+    {
+      "changedOwnership": false,
+      "reviews": 1,
+      "events": [
+        {
+          "kind": "usage",
+          "totalTokens": 6815,
+          "budget": {
+            "limit": 20000,
+            "ownTokens": 6815,
+            "treeTokens": 6815,
+            "reservedTokens": 0,
+            "remainingTokens": 13185,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 6815
+          },
+          "contextTokens": 6802,
+          "contextMeasuredBy": "provider",
+          "contextWindowTokens": 400000,
+          "windowSource": "model-table"
+        },
+        {
+          "kind": "done",
+          "text": "RECEIPT-4516609e",
+          "budget": {
+            "limit": 20000,
+            "ownTokens": 6815,
+            "treeTokens": 6815,
+            "reservedTokens": 0,
+            "remainingTokens": 13185,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        }
+      ],
+      "modelCalls": 1
+    },
+    {
+      "changedOwnership": true,
+      "reviews": 1,
+      "events": [
+        {
+          "kind": "usage",
+          "totalTokens": 6815,
+          "budget": {
+            "limit": 20000,
+            "ownTokens": 6815,
+            "treeTokens": 6815,
+            "reservedTokens": 0,
+            "remainingTokens": 13185,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 6815
+          },
+          "contextTokens": 6802,
+          "contextMeasuredBy": "provider",
+          "contextWindowTokens": 400000,
+          "windowSource": "model-table"
+        },
+        {
+          "kind": "error",
+          "budget": {
+            "limit": 20000,
+            "ownTokens": 6815,
+            "treeTokens": 6815,
+            "reservedTokens": 0,
+            "remainingTokens": 13185,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "message": "Answer review failed: Run ownership differs from the authorized conversation.",
+          "failure": {
+            "code": "unknown",
+            "message": "Answer review failed: Run ownership differs from the authorized conversation.",
+            "details": {
+              "phase": "answer-review"
+            },
+            "retryable": false
+          }
+        }
+      ],
+      "modelCalls": 1
+    }
+  ],
+  "limits": {
+    "seedIterations": 3,
+    "reviewModelCalls": 3,
+    "perRunTokens": 20000
+  },
+  "buildBefore": {
+    "packages/sdk/dist/runtime/query/iteration/index.js": "34502fe07a3cf9ea58c84608cbd37a80bae137b480270aad4e0ec6e7d658da77",
+    "packages/sdk/dist/runtime/query/checkpoint.js": "7894f16809afee42eb1fea853cf5acc61d69a0a734d9b5f08e796f2fb611e6cb",
+    "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378",
+    "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+    "packages/providers/openai/dist/codex.js": "c90e4376da4cc06e56d3a77486495201180dacd8539d84639eec349963438963"
+  },
+  "seed": {
+    "command": [
+      "--quiet",
+      "run-stream",
+      "--trust",
+      "--cwd",
+      "/tmp/namzu-answer-review-RUXVso/workspace",
+      "--provider",
+      "codex",
+      "--model",
+      "gpt-5.6-luna",
+      "--effort",
+      "low",
+      "--max-iterations",
+      "3",
+      "--token-budget",
+      "20000",
+      "--session",
+      "review-source",
+      "Read only receipt.txt and report its recorded receipt. Do not change files or run commands."
+    ],
+    "terminal": [
+      {
+        "kind": "done",
+        "text": "Recorded receipt: `RECEIPT-4516609e`",
+        "budget": {
+          "limit": 20000,
+          "ownTokens": 13512,
+          "treeTokens": 13512,
+          "reservedTokens": 0,
+          "remainingTokens": 6488,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "stopReason": "end_turn"
+      }
+    ],
+    "usage": [
+      {
+        "kind": "usage",
+        "totalTokens": 6734,
+        "budget": {
+          "limit": 20000,
+          "ownTokens": 6734,
+          "treeTokens": 6734,
+          "reservedTokens": 0,
+          "remainingTokens": 13266,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 6734
+        },
+        "contextTokens": 6694,
+        "contextMeasuredBy": "provider",
+        "contextWindowTokens": 400000,
+        "windowSource": "model-table"
+      },
+      {
+        "kind": "usage",
+        "totalTokens": 13512,
+        "budget": {
+          "limit": 20000,
+          "ownTokens": 13512,
+          "treeTokens": 13512,
+          "reservedTokens": 0,
+          "remainingTokens": 6488,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        },
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 13512
+        },
+        "contextTokens": 6760,
+        "contextMeasuredBy": "provider",
+        "contextWindowTokens": 400000,
+        "windowSource": "model-table"
+      }
+    ],
+    "tools": [
+      null
+    ]
+  },
+  "sessionId": "3d50af0c-5a2e-45a5-b230-5635540de775",
+  "passed": true,
+  "buildAfter": {
+    "packages/sdk/dist/runtime/query/iteration/index.js": "34502fe07a3cf9ea58c84608cbd37a80bae137b480270aad4e0ec6e7d658da77",
+    "packages/sdk/dist/runtime/query/checkpoint.js": "7894f16809afee42eb1fea853cf5acc61d69a0a734d9b5f08e796f2fb611e6cb",
+    "packages/cli/dist/tui/agent.js": "e639ded29c913d4312d9b04be4f88f0cb632daf8390ce5c9c479d1c81543a378",
+    "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+    "packages/providers/openai/dist/codex.js": "c90e4376da4cc06e56d3a77486495201180dacd8539d84639eec349963438963"
+  },
+  "buildStable": true,
+  "postRunAudit": {
+    "source": "durable transcript.jsonl tool_executing events",
+    "executedTools": [
+      {
+        "runId": "5fd722dd-0f26-4ff4-875a-850c2afdf090",
+        "toolName": "read"
+      }
+    ],
+    "note": "The original script read event.name instead of event.toolName. The script is corrected for future runs; original seed summary retained unchanged."
+  },
+  "totalMeasuredTokens": 27142
+}

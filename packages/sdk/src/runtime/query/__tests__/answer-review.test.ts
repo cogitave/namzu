@@ -1,8 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 
+import { ProviderRequestError } from '../../../provider/errors.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { createCommandGate } from '../../../run/command-gate.js'
+import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
 import type { AnswerReview, ReviewAnswer } from '../../../types/run/answer-review.js'
 import {
 	generateProjectId,
@@ -41,25 +43,28 @@ function scriptedRun(
 		return original(params)
 	}) as typeof provider.chatStream
 
+	const params = {
+		provider,
+		tools: new ToolRegistry(),
+		agentId: 'a',
+		agentName: 'A',
+		messages: [{ role: 'user' as const, content: 'go' }],
+		workingDirectory: process.cwd(),
+		runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 10 },
+		projectId: generateProjectId(),
+		sessionId: generateSessionId(),
+		topicId: generateTopicId(),
+		tenantId: generateTenantId(),
+		runId: generateRunId(),
+		checkpointStore: new InMemoryCheckpointStore(),
+		reviewAnswer,
+		...(signal ? { signal } : {}),
+		...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
+	}
 	return {
+		params,
 		turns: () => turn,
-		run: () =>
-			drainQuery({
-				provider,
-				tools: new ToolRegistry(),
-				agentId: 'a',
-				agentName: 'A',
-				messages: [{ role: 'user', content: 'go' }],
-				workingDirectory: process.cwd(),
-				runConfig: { model: 'mock', tokenBudget: 100_000, timeoutMs: 30_000, maxIterations: 10 },
-				projectId: generateProjectId(),
-				sessionId: generateSessionId(),
-				topicId: generateTopicId(),
-				tenantId: generateTenantId(),
-				reviewAnswer,
-				...(signal ? { signal } : {}),
-				...(maxAnswerReviews !== undefined ? { maxAnswerReviews } : {}),
-			}),
+		run: () => drainQuery(params),
 	}
 }
 
@@ -190,19 +195,165 @@ describe('judging the answer a run is about to settle with', () => {
 		expect(review).toHaveBeenCalledTimes(3)
 	})
 
-	it('accepts when the reviewer throws, and does not loop', async () => {
-		// The opposite of what the safety gates do, deliberately. Those are
-		// asked "is this dangerous", where failing closed costs one refused
-		// operation. This is asked "is this good enough", where failing
-		// closed means handing the answer back forever.
+	it('fails when the reviewer throws, without accepting or looping', async () => {
 		const scripted = scriptedRun(['a'], () => {
 			throw new Error('reviewer exploded')
 		})
 
 		const run = await scripted.run()
-		expect(run.stopReason).not.toBe('answer_rejected')
+		expect(run.status).toBe('failed')
+		expect(run.lastError).toContain('reviewer exploded')
 		expect(scripted.turns()).toBe(1)
 	})
+
+	it.each(['throttle', 'context_overflow'] as const)(
+		'does not mistake a reviewer %s for failure of the generation provider',
+		async (kind) => {
+			const scripted = scriptedRun(['unchecked'], () => {
+				throw new ProviderRequestError({
+					kind,
+					providerId: 'external-verifier',
+					detail: 'verification dependency failed',
+				})
+			})
+			const run = await scripted.run()
+			expect(run.status).toBe('failed')
+			expect(run.stopReason).toBe('error')
+			expect(run.lastError).toContain('Answer review failed')
+			expect(run.lastProviderError).toBeUndefined()
+			// Generation completed; the subsequent host check failed. Do not
+			// rewrite that recorded model step as a transport failure.
+			expect(run.steps).toHaveLength(1)
+			expect(run.steps?.[0]?.failure).toBeUndefined()
+			expect(scripted.turns()).toBe(1)
+		},
+	)
+
+	it.each([
+		undefined,
+		null,
+		{},
+		{ accept: 'yes' },
+		{ accept: false },
+		{ accept: false, feedback: '' },
+		{ accept: false, feedback: '  ' },
+	])('fails on malformed verdict %j', async (verdict) => {
+		const scripted = scriptedRun(['unchecked'], () => verdict as AnswerReview)
+		const run = await scripted.run()
+		expect(run.status).toBe('failed')
+		expect(run.lastError).toMatch(/Answer reviewer/)
+		expect(scripted.turns()).toBe(1)
+	})
+
+	it('cancels while the reviewer remains pending and ignores its late rejection', async () => {
+		const controller = new AbortController()
+		let rejectLate!: (error: Error) => void
+		const scripted = scriptedRun(
+			['unchecked'],
+			() => {
+				controller.abort(new Error('operator stopped review'))
+				return new Promise((_resolve, reject) => {
+					rejectLate = reject
+				})
+			},
+			3,
+			controller.signal,
+		)
+		const run = await scripted.run()
+		expect(run.status).toBe('cancelled')
+		expect(run.stopReason).toBe('cancelled')
+		rejectLate(new Error('late reviewer failure'))
+		await Promise.resolve()
+		expect(scripted.turns()).toBe(1)
+	})
+
+	it.each([-1, Number.NaN, Number.POSITIVE_INFINITY, 0.5, Number.MAX_SAFE_INTEGER + 1])(
+		'rejects invalid review limit %s before model work',
+		async (limit) => {
+			const scripted = scriptedRun(['unchecked'], () => ({ accept: true }), limit)
+			await expect(scripted.run()).rejects.toThrow('maxAnswerReviews')
+			expect(scripted.turns()).toBe(0)
+		},
+	)
+
+	it('preserves exhaustion through checkpoint restore after feedback compaction', async () => {
+		const scripted = scriptedRun(
+			['unaccepted'],
+			() => ({ accept: false, feedback: 'Source does not match' }),
+			0,
+		)
+		expect((await scripted.run()).stopReason).toBe('answer_rejected')
+		const store = scripted.params.checkpointStore
+		const checkpoint = (await store.listCheckpoints(scripted.params)).find(
+			(cp) => cp.answerReviewAttempts === 1,
+		)
+		if (!checkpoint) throw new Error('rejection checkpoint missing')
+		expect(checkpoint.messages.at(-1)).toMatchObject({
+			content: 'Source does not match',
+			source: { type: 'runtime-context', kind: 'answer-review' },
+		})
+		await store.writeCheckpoint(scripted.params, {
+			...checkpoint,
+			messages: [{ role: 'user', content: 'Compacted history' }],
+		})
+		const restored = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
+		expect(restored.stopReason).toBe('answer_rejected')
+		expect(scripted.turns()).toBe(1)
+	})
+
+	it('keeps cancellation when it arrives during rejection persistence', async () => {
+		const controller = new AbortController()
+		const scripted = scriptedRun(
+			['unaccepted'],
+			() => ({ accept: false, feedback: 'Mismatch' }),
+			0,
+			controller.signal,
+		)
+		const store = scripted.params.checkpointStore
+		const save = store.writeCheckpoint.bind(store)
+		vi.spyOn(store, 'writeCheckpoint').mockImplementation(async (scope, checkpoint, fence) => {
+			await save(scope, checkpoint, fence)
+			if (checkpoint.answerReviewAttempts === 1) controller.abort()
+		})
+		const run = await scripted.run()
+		expect(run.status).toBe('cancelled')
+		expect(run.stopReason).toBe('cancelled')
+	})
+
+	it('resumes only the unspent correction allowance', async () => {
+		const scripted = scriptedRun(['unaccepted'], () => ({ accept: false, feedback: 'Mismatch' }), 2)
+		await scripted.run()
+		const checkpoint = (
+			await scripted.params.checkpointStore.listCheckpoints(scripted.params)
+		).find((cp) => cp.answerReviewAttempts === 1)
+		if (!checkpoint) throw new Error('rejection checkpoint missing')
+		const before = scripted.turns()
+		const run = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
+		expect(run.stopReason).toBe('answer_rejected')
+		expect(scripted.turns() - before).toBe(2)
+	})
+
+	it.each([-1, Number.POSITIVE_INFINITY, 0.5, Number.MAX_SAFE_INTEGER + 1])(
+		'rejects a corrupt checkpoint review counter %s before a model request',
+		async (answerReviewAttempts) => {
+			const scripted = scriptedRun(
+				['unaccepted'],
+				() => ({ accept: false, feedback: 'Mismatch' }),
+				0,
+			)
+			await scripted.run()
+			const store = scripted.params.checkpointStore
+			const checkpoint = (await store.listCheckpoints(scripted.params)).find(
+				(cp) => cp.answerReviewAttempts === 1,
+			)
+			if (!checkpoint) throw new Error('rejection checkpoint missing')
+			await store.writeCheckpoint(scripted.params, { ...checkpoint, answerReviewAttempts })
+			const run = await drainQuery({ ...scripted.params, resumeFromCheckpoint: checkpoint.id })
+			expect(run.status).toBe('failed')
+			expect(run.lastError).toContain('answerReviewAttempts')
+			expect(scripted.turns()).toBe(1)
+		},
+	)
 
 	it('is not consulted at all when no reviewer was supplied', async () => {
 		const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })

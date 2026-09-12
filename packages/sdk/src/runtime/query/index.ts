@@ -419,6 +419,7 @@ export interface QueryParams {
 	 *
 	 * Bounded by {@link maxAnswerReviews}. Never called on the forced-final
 	 * turn, which exists to extract a closing summary under pressure.
+	 * Exceptions or malformed verdicts fail the run; cancellation stops waiting.
 	 */
 	reviewAnswer?: ReviewAnswer
 
@@ -430,7 +431,7 @@ export interface QueryParams {
 	 */
 	promoteMemory?: PromoteMemory
 
-	/** Rejections allowed before the run stops. Default 3. */
+	/** Corrections allowed before the run stops. Nonnegative safe integer; default 3. Consumed rejections survive checkpoints. */
 	maxAnswerReviews?: number
 
 	/** Called with each completed step, as it completes. */
