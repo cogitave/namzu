@@ -15,6 +15,7 @@ import {
 } from './io.js'
 import { passageMatcher, passagesInWindow } from './passages.js'
 import { type RecordPointer, recordPointerSchema } from './record-chain.js'
+import { evidenceSearchInput, evidenceTermsSchema } from './search-input.js'
 import { readTextPage, sourceText, textPointerSchema } from './source-text.js'
 import type {
 	DiskRunEvidenceOptions,
@@ -34,8 +35,12 @@ const scopeSchema = z
 	})
 	.strict()
 const cursorSchema = z.object({
-	kind: z.literal('linked-search'),
+	kind: z.enum(['linked-search', 'linked-search-terms']),
 	query: z.string().max(256),
+	termsKey: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.optional(),
 	caseSensitive: z.boolean().default(true),
 	seq: integer.optional(),
 	part: integer.optional(),
@@ -110,7 +115,8 @@ export function createLinkedRunTextEvidenceSource(
 		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			const input = z
 				.object({
-					query: z.string().max(256).default(''),
+					query: z.string().max(256).optional(),
+					terms: evidenceTermsSchema,
 					caseSensitive: z.boolean().default(true),
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
@@ -121,12 +127,15 @@ export function createLinkedRunTextEvidenceSource(
 				.parse(options)
 			if (input.part !== undefined && input.seq === undefined)
 				throw new Error('Part requires an event sequence.')
+			const { query, terms, termsKey, browse } = evidenceSearchInput(input)
+			const kind = terms ? ('linked-search-terms' as const) : ('linked-search' as const)
 			return access(signal, async (handle, seal, budget) => {
 				const cursor = input.cursor
 					? cursorSchema.parse(seal.unpack(input.cursor))
 					: {
-							kind: 'linked-search' as const,
-							query: input.query,
+							kind,
+							query,
+							termsKey,
 							seq: input.seq,
 							part: input.part,
 							next: tip as RecordPointer | null,
@@ -136,13 +145,15 @@ export function createLinkedRunTextEvidenceSource(
 							caseSensitive: input.caseSensitive,
 						}
 				if (
-					cursor.query !== input.query ||
+					cursor.kind !== kind ||
+					cursor.query !== query ||
+					cursor.termsKey !== termsKey ||
 					cursor.caseSensitive !== input.caseSensitive ||
 					cursor.seq !== input.seq ||
 					cursor.part !== input.part
 				)
 					throw new Error('Search cursor query changed.')
-				const matchPassage = passageMatcher(input.query, input.caseSensitive)
+				const matchPassage = passageMatcher(terms ?? query, input.caseSensitive)
 				const matches: RunTextEvidenceMatch[] = []
 				const unavailable: string[] = []
 				let records = 0
@@ -219,7 +230,10 @@ export function createLinkedRunTextEvidenceSource(
 							while (cursor.chunk < source.chunks && chunks < 64 && matches.length < input.limit) {
 								signal?.throwIfAborted()
 								chunks++
-								if (!input.caseSensitive || source.mayMatch(cursor.chunk, input.query)) {
+								if (
+									!input.caseSensitive ||
+									(terms ?? [query]).some((term) => source.mayMatch(cursor.chunk, term))
+								) {
 									const window = await source.window(cursor.chunk)
 									const text = decode(window.bytes)
 									const page = passagesInWindow(
@@ -253,7 +267,7 @@ export function createLinkedRunTextEvidenceSource(
 								}
 								cursor.within = 0
 								cursor.chunk++
-								if (!input.query) cursor.chunk = source.chunks
+								if (browse) cursor.chunk = source.chunks
 							}
 							if (cursor.chunk < source.chunks) break
 						} catch (error) {

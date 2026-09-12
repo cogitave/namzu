@@ -35,6 +35,36 @@ matches without emitting the same starting position twice. This is a passage
 search, not an exhaustive list of occurrences. Cursors bind query and case
 sensitivity; changing either requires a new search.
 
+Alternatively, `search({ terms, caseSensitive?, cursor? })` discovers passages
+matching **any** of 1–16 nonblank literal terms, each at most 256 UTF-16 code
+units. `query` and `terms` are mutually exclusive, including an explicitly empty
+query. Exact duplicate terms are removed and order is canonicalized. Matching
+is substring-based and regex metacharacters remain literal. It does not split
+a natural-language question, rank relevance or require all terms to match.
+
+All terms share the same authenticated window read, four-match result limit
+and per-call I/O ceiling. Case-sensitive negative filters skip a window only
+when none of the terms may match; case-insensitive matching still checks the
+original text. Mixed-length matches fully covered by an excerpt are grouped,
+while a match crossing its end remains discoverable on continuation. The cursor
+binds term membership and case sensitivity; changing membership, switching to
+`query`, or changing case sensitivity requires a new search. Reordering the
+same terms or repeating one does not. Term cursors have a distinct private
+format so an older reader cannot mistake one for an empty-query browse cursor.
+
+```ts
+import type { RunTextEvidenceSource } from '@namzu/sdk'
+
+export async function findShipmentCandidates(source: RunTextEvidenceSource) {
+  return source.search({ terms: ['DELTA', 'tracking code', 'destination'], caseSensitive: false })
+}
+```
+
+This optional SDK operation is a candidate-discovery primitive. Existing CLI
+and resident search tools retain their literal-query interfaces. Automatic
+selection and request-context attachment are separate host/runtime work; adding
+this operation alone does not establish reliable natural-language recall.
+
 `read({ address, byteOffset? }, signal?)` returns exact retained text, at most
 6,000 code units, together with `totalBytes` and `nextByteOffset`. Start at the
 match's byte offset or zero, then use the returned continuation offsets. Pages

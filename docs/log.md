@@ -2,6 +2,8 @@
 
 ## 2026-09-12
 
+- **Update** Added optional multi-term literal discovery to SDK live and closed retained-evidence sources, sharing bounded authenticated scans and preserving exact paging, scope and cancellation; measured combined versus separate searches on an original CLI artifact.
+
 - **Update** Distinguished historical observations from current workspace state in SDK evidence guidance, and connected ordinary/resumed/resident CLI conversation recovery instructions to the tools actually mounted; added a natural-language CLI experiment with external file replacement.
 
 - **Update** Separated the SDK retained-output preview size from its overflow threshold, with ordinary-budget fallback on failed retention; recorded CLI turns now use shorter authenticated previews with a configuration opt-out and unchanged exact conversation recovery.

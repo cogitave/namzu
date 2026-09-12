@@ -18,6 +18,13 @@ export interface DiskRunEvidenceOptions {
 /** @experimental Literal search; empty query browses tool records. */
 export interface RunEvidenceSearchOptions {
 	readonly query?: string
+	/**
+	 * Find passages matching any of 1–16 nonblank literal terms (up to 256 UTF-16
+	 * units each) in the same bounded scan. Mutually exclusive with query, even
+	 * an empty query. Exact duplicate terms and their order do not matter.
+	 * This is candidate discovery, not relevance ranking or natural-language parsing.
+	 */
+	readonly terms?: readonly string[]
 	/** Defaults to true. False uses Unicode case-insensitive literal matching. */
 	readonly caseSensitive?: boolean
 	readonly cursor?: string

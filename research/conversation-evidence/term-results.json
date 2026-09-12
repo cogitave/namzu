@@ -1,0 +1,90 @@
+{
+  "fixtureRoot": "/tmp/namzu-natural-recall-mzadX7",
+  "scope": {
+    "tenantId": "334eb6e1-45aa-43ef-b68f-47e60a469277",
+    "projectId": "c96feb13-ec7f-407c-bb5b-8bc3cfe53d9a",
+    "sessionId": "50c2a80c-81aa-45f8-8c77-ea9f78d21111",
+    "runId": "238a62f6-1948-43f7-a1d3-ef4ec404f9d0"
+  },
+  "seq": 18,
+  "terms": [
+    "DELTA",
+    "takip",
+    "deposu"
+  ],
+  "combined": {
+    "calls": 1,
+    "scannedBytes": 586852,
+    "matches": [
+      {
+        "seq": 18,
+        "part": 0,
+        "byteOffset": 166403,
+        "excerpt": "or; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n211\tDELTA siparişi. Takip kodu: TAKIP-700704f7-171b-43b4-a6d0-9572f4cff6a1.\n212\tSevkiyat denetim kaydı 211: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekl"
+      },
+      {
+        "seq": 18,
+        "part": 0,
+        "byteOffset": 168068,
+        "excerpt": "or; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n214\tDELTA siparişinin hedef deposu: DEPO-4f272274-340d-4d8a-be4f-4161df42f851.\n215\tSevkiyat denetim kaydı 214: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat b"
+      }
+    ]
+  },
+  "separate": [
+    {
+      "query": "DELTA",
+      "calls": 1,
+      "scannedBytes": 586852,
+      "matches": [
+        {
+          "seq": 18,
+          "part": 0,
+          "byteOffset": 166403,
+          "excerpt": "or; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n211\tDELTA siparişi. Takip kodu: TAKIP-700704f7-171b-43b4-a6d0-9572f4cff6a1.\n212\tSevkiyat denetim kaydı 211: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekl"
+        },
+        {
+          "seq": 18,
+          "part": 0,
+          "byteOffset": 168068,
+          "excerpt": "or; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n214\tDELTA siparişinin hedef deposu: DEPO-4f272274-340d-4d8a-be4f-4161df42f851.\n215\tSevkiyat denetim kaydı 214: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat b"
+        }
+      ]
+    },
+    {
+      "query": "takip",
+      "calls": 1,
+      "scannedBytes": 586852,
+      "matches": [
+        {
+          "seq": 18,
+          "part": 0,
+          "byteOffset": 166420,
+          "excerpt": "am; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n211\tDELTA siparişi. Takip kodu: TAKIP-700704f7-171b-43b4-a6d0-9572f4cff6a1.\n212\tSevkiyat denetim kaydı 211: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj "
+        }
+      ]
+    },
+    {
+      "query": "deposu",
+      "calls": 1,
+      "scannedBytes": 586852,
+      "matches": [
+        {
+          "seq": 18,
+          "part": 0,
+          "byteOffset": 168093,
+          "excerpt": "imat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n214\tDELTA siparişinin hedef deposu: DEPO-4f272274-340d-4d8a-be4f-4161df42f851.\n215\tSevkiyat denetim kaydı 214: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağla"
+        }
+      ]
+    }
+  ],
+  "separateScannedBytes": 1760556,
+  "separateCalls": 3,
+  "recoveredBoth": true,
+  "fingerprints": {
+    "packages/sdk/src/store/evidence/disk.ts": "7898782eb3b959d1f85753684c9e60660ca843a7184d6cf5b65e419b0ba6c83a",
+    "packages/sdk/src/store/evidence/linked.ts": "44bb11a33f0b0214ae0f5c3160b32e8be33b4ce57f566372e5b2ac13f014d062",
+    "packages/sdk/src/store/evidence/passages.ts": "801e9e167600ebc504b385bae7751658aa23d0523755d3f94d7a9c102300c465",
+    "packages/sdk/src/store/evidence/search-input.ts": "c3261eed583be6a7495e6c1e98b1c95004202091e42183e2bb5a319ca81de70d",
+    "research/conversation-evidence/term-scan.mjs": "e8ed3883c335aaf5e5283119a7b4394429f5710560828b3158f33c0aec3fb7cf"
+  }
+}

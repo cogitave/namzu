@@ -20,6 +20,7 @@ import {
 	stamp,
 } from './io.js'
 import { passageMatcher, passagesInWindow } from './passages.js'
+import { evidenceSearchInput, evidenceTermsSchema } from './search-input.js'
 import { readTextPage, sourceText } from './source-text.js'
 import type {
 	DiskRunEvidenceOptions,
@@ -42,8 +43,12 @@ const scopeSchema = z
 	})
 	.strict()
 const cursorSchema = z.object({
-	kind: z.literal('search'),
+	kind: z.enum(['search', 'search-terms']),
 	query: z.string().max(256),
+	termsKey: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.optional(),
 	caseSensitive: z.boolean().default(true),
 	seq: integer.optional(),
 	part: integer.optional(),
@@ -161,6 +166,7 @@ function createSource(
 			const input = z
 				.object({
 					query: z.string().max(256).optional(),
+					terms: evidenceTermsSchema,
 					caseSensitive: z.boolean().default(true),
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
@@ -171,13 +177,15 @@ function createSource(
 				.parse(options)
 			if (input.part !== undefined && input.seq === undefined)
 				throw new Error('Part requires an event sequence.')
-			const query = input.query ?? ''
+			const { query, terms, termsKey, browse } = evidenceSearchInput(input)
+			const kind = terms ? ('search-terms' as const) : ('search' as const)
 			return access(signal, async (handle, size, seal, sourceKey, budget) => {
 				const cursor = input.cursor
 					? cursorSchema.parse(seal.unpack(input.cursor))
 					: {
-							kind: 'search' as const,
+							kind,
 							query,
+							termsKey,
 							seq: input.seq,
 							part: input.part,
 							mode,
@@ -188,7 +196,9 @@ function createSource(
 							caseSensitive: input.caseSensitive,
 						}
 				if (
+					cursor.kind !== kind ||
 					cursor.query !== query ||
+					cursor.termsKey !== termsKey ||
 					cursor.caseSensitive !== input.caseSensitive ||
 					cursor.seq !== input.seq ||
 					cursor.part !== input.part ||
@@ -210,7 +220,7 @@ function createSource(
 				let entryIndex = cursor.entry
 				let chunk = cursor.chunk
 				let within = cursor.within
-				const matchPassage = passageMatcher(query, input.caseSensitive)
+				const matchPassage = passageMatcher(terms ?? query, input.caseSensitive)
 				while (entryIndex < page.entries.length && matches.length < input.limit) {
 					const entry = page.entries[entryIndex]
 					if (!entry) throw new Error('Invalid index entry.')
@@ -226,7 +236,11 @@ function createSource(
 					}
 					try {
 						if (entry.truncated && !entry.spill) partial = true
-						if (input.caseSensitive && !entry.spill && !mayContain(entry.filter, query)) {
+						if (
+							input.caseSensitive &&
+							!entry.spill &&
+							!(terms ?? [query]).some((term) => mayContain(entry.filter, term))
+						) {
 							entryIndex++
 							chunk = 0
 							within = 0
@@ -235,7 +249,10 @@ function createSource(
 						const source = await sourceText(handle, entry, runDir, scope.runId, budget)
 						while (chunk < source.chunks && matches.length < input.limit) {
 							signal?.throwIfAborted()
-							if (!input.caseSensitive || source.mayMatch(chunk, query)) {
+							if (
+								!input.caseSensitive ||
+								(terms ?? [query]).some((term) => source.mayMatch(chunk, term))
+							) {
 								const window = await source.window(chunk)
 								const text = decode(window.bytes)
 								const page = passagesInWindow(
@@ -267,7 +284,7 @@ function createSource(
 							}
 							within = 0
 							chunk++
-							if (!query) {
+							if (browse) {
 								chunk = source.chunks
 								break
 							}

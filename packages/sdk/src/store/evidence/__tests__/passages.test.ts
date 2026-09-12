@@ -36,3 +36,21 @@ it('uses locale-independent simple Unicode case matching', () => {
 	expect(passageMatcher('ss', false)('ß', 0)).toBeUndefined()
 	expect(passageMatcher('k', false)('K', 0)?.hit).toBe(0)
 })
+
+it('finds mixed-length literals without regex expansion or duplicate short matches', () => {
+	const text = `${'x '.repeat(240)}${'LONG'.repeat(40)} ${'[a].*'} ${'x '.repeat(400)}`
+	const matcher = passageMatcher(['LONG'.repeat(40), '[a].*', 'x'], true)
+	let from = 0
+	const excerpts: string[] = []
+	for (let i = 0; i < 10 && from < text.length; i++) {
+		const page = passagesInWindow(text, from, matcher, 1)
+		expect(page.next).toBeGreaterThan(from)
+		excerpts.push(...page.passages.map((p) => text.slice(p.start, p.end)))
+		from = page.next
+	}
+	expect(from).toBe(text.length)
+	expect(excerpts.length).toBeLessThanOrEqual(5)
+	expect(excerpts.some((text) => text.includes('LONG'.repeat(40)))).toBe(true)
+	expect(excerpts.some((text) => text.includes('[a].*'))).toBe(true)
+	expect(passageMatcher(['[a].*', '🦉'], false)('abc', 0)).toBeUndefined()
+})

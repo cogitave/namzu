@@ -42,6 +42,116 @@ async function fixture() {
 	return { root, runDir, scope, store, append, source, meta }
 }
 
+it.each(['live', 'closed'] as const)(
+	'scans literal term sets with exact offsets and bound continuations (%s)',
+	async (mode) => {
+		const f = await fixture()
+		let text = `${'α🦉'.repeat(400)}DELTA original tracking${' '.repeat(1800)}GAMMA original depot`
+		text += `${' '.repeat(EVIDENCE_CHUNK_BYTES - 3 - Buffer.byteLength(text))}[a].* boundary`
+		text += `${' '.repeat(1200)}DELTA fourth${' '.repeat(600)}`
+		const retained = applyToolOutputBudget({
+			toolUseId: 'terms',
+			toolName: 'read',
+			output: text,
+			maxChars: 1000,
+			spillDir: join(f.runDir, 'tool-output'),
+		})
+		await f.append({
+			type: 'tool_completed',
+			toolUseId: 'terms',
+			toolName: 'read',
+			result: retained.output,
+			isError: false,
+			outputTruncated: true,
+			outputSpillIntegrity: retained.spillIntegrity,
+		})
+		if (mode === 'closed') await f.meta(f.scope, 'completed')
+		const reopen = async () =>
+			mode === 'live'
+				? await f.source()
+				: createDiskRunTextEvidenceSource({
+						scope: f.scope,
+						runDir: f.runDir,
+						indexDir: join(f.root, 'index'),
+					})
+		let source = await reopen()
+		const terms = ['not-present', 'delta', 'gamma', '[a].*']
+		const matches = []
+		let cursor: string | undefined
+		for (let i = 0; i < 10; i++) {
+			const page = await source.search({
+				terms: i % 2 ? [...terms].reverse().concat('delta') : terms,
+				caseSensitive: false,
+				limit: 1,
+				cursor,
+			})
+			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+			expect(page.incomplete).toBe(false)
+			matches.push(...page.matches)
+			cursor = page.nextCursor ?? undefined
+			if (!cursor) break
+			await expect(
+				source.search({ terms: ['different'], caseSensitive: false, cursor }),
+			).rejects.toThrow('query changed')
+			await expect(source.search({ query: '', caseSensitive: false, cursor })).rejects.toThrow(
+				'query changed',
+			)
+			await expect(source.search({ terms, caseSensitive: true, cursor })).rejects.toThrow(
+				'query changed',
+			)
+			if (mode === 'live')
+				await f.append({
+					type: 'message_completed',
+					content: 'DELTA outside captured boundary',
+				})
+			source = await reopen()
+		}
+		expect(cursor).toBeUndefined()
+		const exact = await source.search({ terms: ['absent', 'DELTA'], seq: 2 })
+		expect(exact.matches).toHaveLength(2)
+		expect(matches).toHaveLength(4)
+		expect(new Set(matches.map((m) => m.byteOffset)).size).toBe(4)
+		for (const match of matches) {
+			expect(match).toMatchObject({
+				seq: 2,
+				toolName: 'read',
+				retained: 'full',
+			})
+			expect(text.slice(match.characterOffset, match.characterOffset! + match.excerpt.length)).toBe(
+				match.excerpt,
+			)
+			const page = await source.read({
+				address: match.address,
+				byteOffset: match.byteOffset,
+			})
+			expect(page.text.startsWith(match.excerpt)).toBe(true)
+		}
+		await expect(
+			source.search({ terms }, AbortSignal.abort(new Error('cancelled'))),
+		).rejects.toThrow('cancelled')
+		for (const input of [
+			{ terms: [] },
+			{ terms: [''] },
+			{ terms: [' '] },
+			{ terms: ['x'.repeat(257)] },
+			{ terms: Array(17).fill('x') },
+			{ query: '', terms },
+		])
+			await expect(source.search(input)).rejects.toThrow()
+		const spill = join(f.runDir, 'tool-output', `${digest('terms')}.txt`)
+		await writeFile(spill, text.replace('GAMMA', 'ERROR'))
+		await expect(
+			source.read({
+				address: matches[1]!.address,
+				byteOffset: matches[1]!.byteOffset,
+			}),
+		).rejects.toThrow('changed')
+		const changed = await source.search({ terms: ['GAMMA'] })
+		expect(changed.incomplete).toBe(true)
+		expect(changed.matches).toHaveLength(0)
+	},
+)
+
 it('keeps an old search boundary and exact Unicode pages while concurrent appends continue', async () => {
 	const f = await fixture()
 	const text = '\ufeff' + 'α🦉\r\n'.repeat(20_000) + `UNIQUE ${randomUUID()}` + 'β'.repeat(20_000)
