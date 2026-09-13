@@ -45,6 +45,22 @@ It is not checkpointed or restored; resumed model turns capture a fresh request.
 Existing `messages` keeps its canonical-history meaning. A custom host omitting
 `requestMessages` must not be assumed to have supplied the transient evidence.
 
+`AnswerReviewContext.latestUserMessage` optionally supplies a separate, isolated
+copy of the latest accepted operator, goal-round or steering input at candidate
+dispatch. The built-in loop shares preparation's retained input tracking, so
+compaction can remove the original from history without replacing it with an
+older retained request, project instructions or a worker report. Checkpoint
+resume restores that tracking; a known later input supersedes it. Input delivered
+after candidate dispatch belongs to a later decision, not this review.
+
+This field contains one input, not a complete task specification. A follow-up
+may depend on earlier constraints. It also does not assert that the original
+message reached the provider verbatim: compaction may have represented it in
+working state. The isolated copy includes rich message content and costs that
+additional memory only when a reviewer is configured. Editing it cannot change
+canonical history, retained input tracking or a later review. Custom hosts may
+omit it. It is not automatically sent to `generateText`.
+
 The [recorded CLI Session probe](../../research/conversation-evidence/review-request-results.md)
 checks a corrupted receipt against request-only evidence, revalidates the
 archive, and requests a bounded correction. This is a task-specific policy,
@@ -185,3 +201,9 @@ answer to equal a recalled identifier rejects legitimate lowercase, prefix and
 example-generation requests. Normalizing a value before comparison can instead
 hide a spelling error. A verifier needs the task's claim or transformation
 contract; source visibility by itself supplies neither.
+
+The [task-conditioned review experiment](../../research/conversation-evidence/task-review-results.md)
+tests correct and incorrect candidates for quoting, explicit transformations,
+new examples and current-state questions. Its model verdict is separate from
+source authentication and from the test oracle; it does not install a default
+CLI judge or infer a complete acceptance specification for arbitrary tasks.

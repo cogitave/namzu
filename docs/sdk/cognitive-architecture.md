@@ -236,8 +236,15 @@ The existing SDK supplies useful integration seams:
 * `beforeStep` can refuse the next model call and fails closed on exceptions.
   This does not itself validate every tool outcome or certify task completion.
 * `reviewAnswer` can return feedback for another attempt, subject to its review
-  limit. It fails open on exceptions and is bypassed on forced-final turns.
+  limit. Exceptions fail settlement; it is bypassed on forced-final turns.
   Other termination paths also mean it is not a universal completion gate.
+
+The reviewer now receives isolated candidate-request context and the retained
+latest operator input, and can make one run-metered auxiliary inference. The
+[task-conditioned CLI probe](../../research/conversation-evidence/task-review-results.md)
+checks source copying, requested transformations and unavailable current facts.
+These supply and evaluate review inputs; they do not turn one recent message
+into a complete goal specification or prove general judgment accuracy.
 
 A research host must evaluate final evidence independently of answer prose and
 the answer-review callback. Integration must preserve the existing executor,

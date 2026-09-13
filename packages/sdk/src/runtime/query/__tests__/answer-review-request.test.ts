@@ -19,6 +19,7 @@ import type { ChatCompletionParams, LLMProvider, MockTurn } from '../../../types
 import type { AnswerReviewContext } from '../../../types/run/answer-review.js'
 import { generateRunId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
+import { SteeringBinding } from '../steering.js'
 
 const roots: string[] = []
 afterEach(async () => {
@@ -72,6 +73,9 @@ it.each(['prose', 'tool', 'native'] as const)(
 		const requests: Array<readonly Message[]> = []
 		const review = vi.fn((value: unknown, context: AnswerReviewContext) => {
 			const expected = context.iteration === 1 ? 'A17' : 'B42'
+			expect(context.latestUserMessage).toEqual(params.messages[0])
+			expect(context.latestUserMessage).not.toBe(params.messages[0])
+			if (context.latestUserMessage) context.latestUserMessage.content = 'Mutated reviewer copy'
 			expect(evidence(context)).toContain(`Request-only reference: ${expected}`)
 			expect(context.requestMessages).toEqual(provider.requests.at(-1)?.messages)
 			expect(context.requestMessages).not.toBe(provider.requests.at(-1)?.messages)
@@ -147,6 +151,54 @@ it('isolates nested reviewer mutations from provider requests and canonical hist
 	expect(JSON.stringify(original)).not.toContain('mutated')
 })
 
+it.each(
+	(['prose', 'tool', 'native'] as const).flatMap((mode) =>
+		(['inbound', 'steering'] as const).map((ingress) => ({ mode, ingress })),
+	),
+)(
+	'binds $mode review to dispatch input before a later $ingress arrival',
+	async ({ mode, ingress }) => {
+		const pending: Message[] = []
+		const steering = new SteeringBinding()
+		const provider = new MockLLMProvider({
+			capabilities: {
+				supportsNativeStructuredOutput: true,
+				supportsTools: true,
+				supportsFunctionCalling: true,
+				supportsStreaming: true,
+				supportsVision: true,
+			},
+			nextTurn: (_request, index) => {
+				if (index === 0) {
+					if (ingress === 'inbound') pending.push(createUserMessage('Use the NEW instruction.'))
+					else steering.steer('Use the NEW instruction.')
+				}
+				return mode === 'tool'
+					? { toolCalls: [{ name: 'structured_output', args: { code: 'candidate' } }] }
+					: { text: mode === 'native' ? '{"code":"candidate"}' : 'candidate' }
+			},
+		})
+		const params = await fixture(provider)
+		const observed: string[] = []
+		const review = (_value: unknown, context: AnswerReviewContext) => {
+			observed.push(context.latestUserMessage?.content ?? 'missing')
+			return { accept: true as const }
+		}
+		const run = await drainQuery({
+			...params,
+			steering,
+			inboundMessages: () => pending.splice(0),
+			...(mode === 'prose'
+				? { reviewAnswer: review }
+				: {
+						structuredOutput: { schema: z.object({ code: z.string() }), mode, review },
+					}),
+		})
+		expect(run.stopReason, run.lastError).toBe('end_turn')
+		expect(observed).toEqual(['Use the supplied reference.', 'Use the NEW instruction.'])
+	},
+)
+
 it('captures the image-repaired dispatch, not the rejected request', async () => {
 	const script = new MockLLMProvider({ turns: [{ text: 'recovered' }] })
 	const requests: ChatCompletionParams[] = []
@@ -179,6 +231,55 @@ it('captures the image-repaired dispatch, not the rejected request', async () =>
 	expect(result.stopReason, JSON.stringify(result.lastError)).toBe('end_turn')
 	expect(requests).toHaveLength(2)
 	expect(review).toHaveBeenCalledOnce()
+})
+
+it.each(['inbound', 'steering'] as const)(
+	'reconsiders a tool-mode answer on %s without a reviewer',
+	async (ingress) => {
+		const pending: Message[] = []
+		const steering = new SteeringBinding()
+		const provider = new MockLLMProvider({
+			nextTurn: (_request, index) => {
+				if (index === 0) {
+					if (ingress === 'inbound') pending.push(createUserMessage('Use B42 now.'))
+					else steering.steer('Use B42 now.')
+				}
+				return {
+					toolCalls: [{ name: 'structured_output', args: { code: index === 0 ? 'A17' : 'B42' } }],
+				}
+			},
+		})
+		const params = await fixture(provider)
+		const run = await drainQuery({
+			...params,
+			steering,
+			inboundMessages: () => pending.splice(0),
+			structuredOutput: { schema: z.object({ code: z.string() }), mode: 'tool' },
+		})
+		expect(run.stopReason, run.lastError).toBe('end_turn')
+		expect(provider.requests).toHaveLength(2)
+		expect(JSON.stringify(provider.requests[1]?.messages)).toContain('Use B42 now.')
+		expect(run.structuredOutput).toEqual({ code: 'B42' })
+	},
+)
+
+it('does not publish a tool-mode candidate if the final inbound check cancels the run', async () => {
+	const controller = new AbortController()
+	const provider = new MockLLMProvider({
+		turns: [{ toolCalls: [{ name: 'structured_output', args: { code: 'A17' } }] }],
+	})
+	const params = await fixture(provider)
+	const run = await drainQuery({
+		...params,
+		signal: controller.signal,
+		inboundMessages: () => {
+			if (provider.requests.length) controller.abort()
+			return []
+		},
+		structuredOutput: { schema: z.object({ code: z.string() }), mode: 'tool' },
+	})
+	expect(run.stopReason).toBe('cancelled')
+	expect(run.structuredOutput).toBeUndefined()
 })
 
 it('rebuilds request evidence after checkpoint resume instead of retaining the old snapshot', async () => {

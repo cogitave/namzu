@@ -23,6 +23,10 @@ before use: tool-result processing and JSON serialization do not preserve every
 possible Zod output type. Native mode rejects transformations that produce
 non-JSON data. The kernel does not rerun schema transforms during review.
 
+`latestUserMessage` supplies the latest accepted operator/goal/steering input at
+candidate dispatch, retained across compaction. It is an isolated copy and does
+not include later arrivals. It is one input, not the full task specification.
+
 ```ts
 import type { StructuredOutputConfig } from '@namzu/sdk'
 import { z } from 'zod'
@@ -48,6 +52,13 @@ for the reviewer, even if its promise does not settle; external work started by
 the callback must still honor the supplied signal. Only a solitary successful
 output-tool call is reviewed for settlement; a candidate alongside other calls
 is relayed until the model has observed their results.
+
+Before publishing an accepted tool-mode candidate, the loop checks for inbound
+messages and steering, including steering already attached to that tool's
+result. A new input gets another model turn with a fresh candidate and review.
+The old candidate's review remains bound to its dispatch input. This also works
+without a host reviewer. Forced finalization and existing run limits still apply;
+an interrupted run does not publish a pending candidate as completed output.
 
 A rejection saves feedback and `IterationCheckpoint.structuredReviewAttempts`
 before the next model request. Resume restores that counter independently of

@@ -1,5 +1,5 @@
 import type { RunId } from '../ids/index.js'
-import type { Message } from '../message/index.js'
+import type { Message, UserMessage } from '../message/index.js'
 import type { PreparationTextRequest, PreparationTextResult } from './prepare-step.js'
 
 /**
@@ -16,7 +16,7 @@ export type AnswerReview =
 	| {
 			readonly accept: false
 			/**
-			 * What to send back, as the user turn the model will read next.
+			 * Feedback supplied as runtime context on the next model request.
 			 *
 			 * Prose rather than a code, because the model is the audience
 			 * and a code would have to be explained to it anyway. Say what
@@ -32,7 +32,7 @@ export interface AnswerReviewContext {
 	readonly iteration: number
 	/** Run cancellation; reviewers should forward it to verification operations. */
 	readonly signal?: AbortSignal
-	/** The full history, so a reviewer can see how the answer was reached. */
+	/** Canonical history currently retained by the run; compaction may remove messages. */
 	readonly messages: readonly Message[]
 	/**
 	 * Isolated copy of the SDK messages dispatched for this candidate's model
@@ -44,6 +44,14 @@ export interface AnswerReviewContext {
 	 * as conversation history; modifying the copy cannot edit the run/request.
 	 */
 	readonly requestMessages?: readonly Message[]
+	/**
+	 * Isolated copy of the latest operator, goal-round or steering input accepted
+	 * before this candidate's dispatch. Retained even when compaction removes
+	 * that input from history. Excludes arrivals delivered after dispatch and
+	 * runtime reports. This is one input, not the complete task specification
+	 * or a guarantee that the original message was sent verbatim to the model.
+	 */
+	readonly latestUserMessage?: UserMessage
 	/**
 	 * Optional run-owned, tool-free inference: at most one call per review
 	 * invocation, revoked when the callback ends. Uses the same bounded text

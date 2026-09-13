@@ -37,7 +37,7 @@ import {
 import type { ToolChoice } from '../../../types/provider/chat.js'
 import { classifyProviderError } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
-import type { AnswerReview } from '../../../types/run/answer-review.js'
+import type { AnswerReview, AnswerReviewContext } from '../../../types/run/answer-review.js'
 import type {
 	PrepareStepContext,
 	PrepareStepResult,
@@ -84,6 +84,8 @@ import { runToolReview } from './phases/tool-review.js'
 import { refreshWorkingMemory } from './phases/working-memory.js'
 import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
 import { streamProviderTurn } from './stream-turn.js'
+
+type ReviewRequest = Pick<AnswerReviewContext, 'requestMessages' | 'latestUserMessage'>
 
 /** A host reviewer is not the model transport, even when its cause is an HTTP failure. */
 class AnswerReviewFailure extends NamzuError {
@@ -769,6 +771,11 @@ export class IterationOrchestrator {
 						model: requestedMember.model ?? stepModel,
 						chainIndex: requestedMember.index,
 					}
+					const operatorInputAtDispatch = this.latestUserMessage
+					const latestReviewUserMessage =
+						(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review) && operatorInputAtDispatch
+							? structuredClone(operatorInputAtDispatch)
+							: undefined
 					const { response, messageId, requestMessages } = yield* streamProviderTurn(
 						this.ctx.provider,
 						{
@@ -825,6 +832,10 @@ export class IterationOrchestrator {
 						Boolean(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review),
 					)
 					stepResponse = response
+					const reviewRequest: ReviewRequest = {
+						...(requestMessages ? { requestMessages } : {}),
+						...(latestReviewUserMessage ? { latestUserMessage: latestReviewUserMessage } : {}),
+					}
 
 					// Who answered THIS turn.
 					//
@@ -1084,7 +1095,7 @@ export class IterationOrchestrator {
 							if (candidate.success)
 								outcome = await this.reviewStructuredOutput(
 									candidate.value,
-									requestMessages,
+									reviewRequest,
 									stepModel,
 								)
 							else {
@@ -1234,7 +1245,7 @@ export class IterationOrchestrator {
 						if (!forceFinalize && this.ctx.reviewAnswer) {
 							const review = await this.reviewAnswer(
 								response.message.content ?? '',
-								requestMessages,
+								reviewRequest,
 								stepModel,
 							)
 							if (this.ctx.abortController.signal.aborted) {
@@ -1396,7 +1407,7 @@ export class IterationOrchestrator {
 					const structuredOutcome = await this.captureStructuredOutput(
 						reviewOutcome.results,
 						response,
-						requestMessages,
+						reviewRequest,
 						stepModel,
 					)
 					if (
@@ -1424,10 +1435,6 @@ export class IterationOrchestrator {
 						break
 					}
 					if (structuredOutcome === 'accepted') {
-						this.ctx.log.info('Structured output produced — ending run', {
-							[NAMZU.RUN_ID]: runMgr.id,
-							[NAMZU.ITERATION]: iterationNum,
-						})
 						await this.ctx.emitEvent({
 							type: 'iteration_completed',
 							runId: runMgr.id,
@@ -1440,6 +1447,21 @@ export class IterationOrchestrator {
 							runMgr.markCancelled()
 							break
 						}
+						if (!forceFinalize) {
+							const inbound = this.deliverInbound()
+							// Tool-result steering may already have been delivered by
+							// runToolReview. Its candidate still answers the older input.
+							if (inbound > 0 || this.latestUserMessage !== operatorInputAtDispatch) continue
+						}
+						if (this.ctx.abortController.signal.aborted) {
+							runMgr.setStopReason('cancelled')
+							runMgr.markCancelled()
+							break
+						}
+						this.ctx.log.info('Structured output produced — ending run', {
+							[NAMZU.RUN_ID]: runMgr.id,
+							[NAMZU.ITERATION]: iterationNum,
+						})
 						this.publishStructuredOutput()
 						runMgr.setStopReason('end_turn')
 						break
@@ -2289,7 +2311,7 @@ export class IterationOrchestrator {
 	private async captureStructuredOutput(
 		results: readonly ToolCallOutcome[],
 		response: ChatCompletionResponse,
-		requestMessages: readonly Message[] | undefined,
+		reviewRequest: ReviewRequest,
 		model: string,
 	): Promise<'absent' | 'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
 		if (!this.needsStructuredOutput() || this.ctx.structuredOutput?.mode === 'native')
@@ -2318,7 +2340,7 @@ export class IterationOrchestrator {
 				)
 			parsed = hit.output
 		}
-		return this.reviewStructuredOutput(parsed, requestMessages, model)
+		return this.reviewStructuredOutput(parsed, reviewRequest, model)
 	}
 
 	private publishStructuredOutput(): void {
@@ -2328,7 +2350,7 @@ export class IterationOrchestrator {
 
 	private async reviewStructuredOutput(
 		parsed: unknown,
-		requestMessages: readonly Message[] | undefined,
+		reviewRequest: ReviewRequest,
 		model: string,
 	): Promise<'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
 		if (this.ctx.abortController.signal.aborted) return 'cancelled'
@@ -2352,7 +2374,7 @@ export class IterationOrchestrator {
 							iteration: this.ctx.runMgr.currentIteration,
 							signal,
 							messages: this.ctx.runMgr.messages,
-							...(requestMessages ? { requestMessages } : {}),
+							...reviewRequest,
 							generateText: inference.generateText,
 						})
 					}),
@@ -2399,7 +2421,7 @@ export class IterationOrchestrator {
 	/** A reviewer failure aborts settlement; only an explicit rejection requests correction. */
 	private async reviewAnswer(
 		answer: string,
-		requestMessages: readonly Message[] | undefined,
+		reviewRequest: ReviewRequest,
 		model: string,
 	): Promise<AnswerReview | undefined> {
 		const reviewer = this.ctx.reviewAnswer
@@ -2420,7 +2442,7 @@ export class IterationOrchestrator {
 						iteration: this.ctx.runMgr.currentIteration,
 						signal,
 						messages: this.ctx.runMgr.messages,
-						...(requestMessages ? { requestMessages } : {}),
+						...reviewRequest,
 						generateText: inference.generateText,
 					})
 				}),

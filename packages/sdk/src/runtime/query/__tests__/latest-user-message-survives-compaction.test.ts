@@ -144,6 +144,7 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 		const steering = new SteeringBinding()
 		const events: RunEvent[] = []
 		const latest: (string | undefined)[] = []
+		const reviewed: (string | undefined)[] = []
 		const largeTurn = ingress === 'stranded-steering' ? 2 : 1
 		let output = 'ok'
 		const tools = new ToolRegistry()
@@ -195,6 +196,10 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 					latest.push(latestUserMessage?.content)
 					return undefined
 				},
+				reviewAnswer: (_answer, { latestUserMessage }) => {
+					reviewed.push(latestUserMessage?.content)
+					return { accept: true }
+				},
 				runConfig: {
 					model: 'mock',
 					timeoutMs: 20_000,
@@ -222,6 +227,9 @@ it.each(['inbound', 'tool-steering', 'stranded-steering'] as const)(
 				),
 		).toBe(true)
 		expect(latest.at(-1)).toBe(direction)
+		expect(reviewed).toEqual(
+			ingress === 'stranded-steering' ? ['ORIGINAL_TASK', direction] : [direction],
+		)
 		const finalRequest = provider.requests.at(-1)
 		expect(
 			finalRequest?.messages.some(
@@ -311,6 +319,7 @@ describe('which user-role messages can supply current intent', () => {
 						}
 			const provider = new MockLLMProvider({ turns: [{ text: 'done' }] })
 			const captured: (string | undefined)[] = []
+			const reviewed: (string | undefined)[] = []
 			await drainQuery({
 				...scope,
 				provider,
@@ -335,8 +344,13 @@ describe('which user-role messages can supply current intent', () => {
 					captured.push(latestUserMessage?.content)
 					return undefined
 				},
+				reviewAnswer: (_answer, { latestUserMessage }) => {
+					reviewed.push(latestUserMessage?.content)
+					return { accept: true }
+				},
 			})
 			expect(captured).toEqual([authoritative.content])
+			expect(reviewed).toEqual([authoritative.content])
 		},
 	)
 })
@@ -403,6 +417,7 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 	const restoredStore = new InMemoryCheckpointStore()
 	await restoredStore.writeCheckpoint(storedScope, JSON.parse(JSON.stringify(checkpoint)))
 	const provider = new MockLLMProvider({ turns: [{ text: 'Resumed.' }] })
+	const reviewed: (string | undefined)[] = []
 	const resumed = await drainQuery({
 		...params,
 		runId: paused.id,
@@ -414,8 +429,14 @@ it('resumes the current topic after a compacted checkpoint, without resurrecting
 		prepareStep: ({ latestUserMessage }) => ({
 			system: `Active topic: ${latestUserMessage?.content}`,
 		}),
+		reviewAnswer: (_answer, { latestUserMessage, messages }) => {
+			expect(messages.some((m) => m.content === current.content)).toBe(false)
+			reviewed.push(latestUserMessage?.content)
+			return { accept: true }
+		},
 	})
 	expect(resumed.status).toBe('completed')
+	expect(reviewed).toEqual([current.content])
 	expect(provider.requests[0]?.messages.at(-1)?.content).toBe(
 		'Active topic: CURRENT_DEPLOYMENT_REQUEST',
 	)

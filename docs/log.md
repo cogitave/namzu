@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Supply retained operator input at candidate dispatch to [answer reviewers](sdk/verification.md), preserve newly arriving messages before [tool-mode structured settlement](sdk/structured-output-review.md), and record task-conditioned CLI review controls.
+
 - **Update** Give prose and structured [answer reviewers](sdk/verification.md) one optional run-metered inference call per callback, sharing bounded preparation transport, preserving candidate provenance and revoking the capability on completion or cancellation.
 
 - **Update** Distinguish quoted identifiers from requested text transformations in [evidence recall](sdk/evidence-recall.md), preserving bounded context and exact archive bytes; record CLI controls for [task-aware answer verification](sdk/verification.md).
