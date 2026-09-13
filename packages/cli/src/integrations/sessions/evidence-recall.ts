@@ -11,6 +11,7 @@ import {
 	retainLiveConversationSearch,
 	searchConversationTerms,
 } from './conversation-search.js'
+import { assertEvidenceOwner, assertEvidenceSearchPage } from './evidence-page-validation.js'
 import type { ConversationContext } from './store.js'
 
 interface RecallScan {
@@ -89,12 +90,7 @@ export function createConversationEvidenceRecall(
 						break
 					}
 					const owner = { ...scope, runId }
-					if (
-						Object.entries(owner).some(
-							([key, value]) => source.scope[key as keyof typeof owner] !== value,
-						)
-					)
-						throw new Error('The active evidence source has a different owner.')
+					assertEvidenceOwner(source.scope, owner)
 					const page = await source.search(
 						{
 							terms: scan.terms,
@@ -108,19 +104,7 @@ export function createConversationEvidenceRecall(
 						signal,
 					)
 					assertOwner(runId)
-					if (
-						!Number.isSafeInteger(page.scannedBytes) ||
-						page.scannedBytes < 0 ||
-						page.scannedBytes > remaining ||
-						page.matches.length > 4
-					)
-						throw new Error('The active evidence page exceeded its retrieval bounds.')
-					if (
-						Object.entries(owner).some(
-							([key, value]) => page.scope[key as keyof typeof owner] !== value,
-						)
-					)
-						throw new Error('The active evidence page has a different owner.')
+					assertEvidenceSearchPage(page, owner, remaining, 4, signal)
 					pages++
 					scannedBytes += page.scannedBytes
 					excludedToolResults += page.excludedToolResults ?? 0

@@ -343,6 +343,17 @@ operation. Changes invalidate the snapshot cursor/address and require a fresh
 search. Unlike the requesting writer's captured boundary, these snapshots do
 not preserve cursors across concurrent appends.
 
+The CLI validates every indexed search/read page as well as its source. Explicit
+search and automatic recall share owner, remaining read-budget and match-shape
+checks. The entire match batch is checked before any address is cached. A page
+with a different tenant, project, session or run, invalid counters, oversized
+text or contradictory completeness is unavailable; its text is not returned to
+the model. Search reports incomplete coverage and charges the remaining read
+allowance when an invalid response leaves the operation's cost uncertain.
+These checks enforce the captured-source contract. Matching owner fields alone
+does not authenticate arbitrary text supplied by a custom host source; the
+built-in SDK readers still provide stored-byte integrity verification.
+
 An incomplete final JSONL fragment is excluded using a bounded backward scan,
 charged to the existing 8 MiB allowance. The original transcript is not repaired
 or truncated. Nonterminal snapshot search remains `incomplete: true`, even with
@@ -396,6 +407,12 @@ guarantee that every address returns text in one call.
 If a former live owner is gone, a fresh read can locate its closed run or
 nonterminal snapshot normally; an already-issued live read cursor
 retains its existing owner requirement.
+
+Cold address lookup verifies the returned sequence and part before reading.
+Read pages must match the requested byte position, fit the remaining allowance
+and have UTF-8 byte counts consistent with their continuation and total length.
+Cancellation is checked again after an awaited page returns, so a custom reader
+that ignores the signal cannot turn a cancelled request into successful text.
 
 Supply the optional `byteOffset` from search to start near a match, or omit it
 to read from the beginning. Copy the returned value exactly: rounding or estimating

@@ -16,6 +16,7 @@ import {
 	defineTool,
 	mcpJsonSchemaToZod,
 } from '@namzu/sdk'
+import { assertEvidenceReadPage, assertEvidenceSearchPage } from './evidence-page-validation.js'
 import { CliPathBuilder } from './paths.js'
 import { RunDiscovery } from './run-discovery.js'
 import type { ConversationContext } from './store.js'
@@ -863,6 +864,18 @@ async function searchConversationCore(
 					},
 					signal,
 				)
+				assertEvidenceSearchPage(
+					page,
+					{
+						tenantId: sessions.tenantId,
+						projectId: sessions.projectId,
+						sessionId,
+						runId,
+					},
+					maxReadBytes - result.scannedBytes,
+					matchSlots,
+					signal,
+				)
 				result.scannedBytes += page.scannedBytes
 				if (page.excludedToolResults)
 					result.excludedToolResults = (result.excludedToolResults ?? 0) + page.excludedToolResults
@@ -1157,6 +1170,7 @@ export async function readConversationEvidence(
 		complete: false,
 		retainedPreview: cursor.omitted,
 	}
+	const owner = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
 	let source = await indexedSource(sessions, sessionId, runId, cursor, result, signal, active)
 	if (source) {
 		let lookupPages = 0
@@ -1168,12 +1182,14 @@ export async function readConversationEvidence(
 				{ seq: input.seq, part, limit: 1, cursor: cursor.indexCursor },
 				signal,
 			)
-			signal?.throwIfAborted()
+			assertEvidenceSearchPage(search, owner, SCAN_BYTES - result.scannedBytes, 1, signal)
 			lookupPages++
 			result.scannedBytes += search.scannedBytes
 			if (search.unavailable.length)
 				throw new Error('The requested retained text is unavailable or changed.')
 			const match = search.matches[0]
+			if (match && (match.seq !== input.seq || match.part !== part))
+				throw new Error('Evidence lookup returned a different record identity.')
 			cursor.address = match?.address
 			cursor.indexCursor = search.nextCursor ?? undefined
 			if (!match && !search.nextCursor)
@@ -1194,6 +1210,13 @@ export async function readConversationEvidence(
 		if (!source || !cursor.address) throw new Error('Evidence source is no longer available.')
 		const page = await source.read(
 			{ address: cursor.address, byteOffset: cursor.byteOffset ?? 0 },
+			signal,
+		)
+		assertEvidenceReadPage(
+			page,
+			owner,
+			SCAN_BYTES - result.scannedBytes,
+			cursor.byteOffset ?? 0,
 			signal,
 		)
 		if (page.seq !== input.seq || page.part !== part)

@@ -1,0 +1,186 @@
+{
+  "date": "2026-09-13",
+  "base": "7168bbf6",
+  "contractFaultsOnly": true,
+  "regression": {
+    "before": {
+      "passed": 1,
+      "failed": 25,
+      "log": "/tmp/namzu-evidence-boundaries-before.log"
+    },
+    "newTests": 31,
+    "focusedPassed": 143
+  },
+  "probes": [
+    {
+      "root": "/tmp/namzu-source-boundary-1eXrXi",
+      "mode": "search",
+      "passed": true,
+      "controlledModel": true,
+      "liveTokens": 0,
+      "faults": [
+        {
+          "kind": "search",
+          "matches": 1
+        }
+      ],
+      "calls": [
+        "read",
+        "search_conversation"
+      ],
+      "stopReasons": [
+        "end_turn"
+      ],
+      "buildStable": true,
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/evidence-page-validation.js": "59f64d7da4268b05e5e6034f754c32a2435576c752d3b3bb242844269aa11216",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+        "packages/sdk/dist/store/run/disk.js": "e80d5fb45b0c4b0b9f2cb40d1b1072683081ef97def35982fd8f7e5b475e2f58"
+      },
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/evidence-page-validation.js": "59f64d7da4268b05e5e6034f754c32a2435576c752d3b3bb242844269aa11216",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+        "packages/sdk/dist/store/run/disk.js": "e80d5fb45b0c4b0b9f2cb40d1b1072683081ef97def35982fd8f7e5b475e2f58"
+      }
+    },
+    {
+      "root": "/tmp/namzu-source-boundary-YPt0vO",
+      "mode": "read",
+      "passed": true,
+      "controlledModel": true,
+      "liveTokens": 0,
+      "faults": [
+        {
+          "kind": "read",
+          "seq": 16,
+          "part": 0
+        }
+      ],
+      "calls": [
+        "read",
+        "search_conversation",
+        "read_conversation"
+      ],
+      "stopReasons": [
+        "end_turn"
+      ],
+      "buildStable": true,
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/evidence-page-validation.js": "59f64d7da4268b05e5e6034f754c32a2435576c752d3b3bb242844269aa11216",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+        "packages/sdk/dist/store/run/disk.js": "e80d5fb45b0c4b0b9f2cb40d1b1072683081ef97def35982fd8f7e5b475e2f58"
+      },
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/evidence-page-validation.js": "59f64d7da4268b05e5e6034f754c32a2435576c752d3b3bb242844269aa11216",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+        "packages/sdk/dist/store/run/disk.js": "e80d5fb45b0c4b0b9f2cb40d1b1072683081ef97def35982fd8f7e5b475e2f58"
+      }
+    }
+  ],
+  "tui": {
+    "root": "/tmp/namzu-source-boundary-GHMp3T",
+    "passed": true,
+    "controlledModel": true,
+    "liveTokens": 0,
+    "cols": 100,
+    "rows": 28,
+    "calls": [
+      "read",
+      "search_conversation",
+      "read_conversation"
+    ],
+    "foreignTextAbsent": true,
+    "finalAnswerCount": 1,
+    "idle": true,
+    "noteUnchanged": true,
+    "exitCode": 0
+  },
+  "live": {
+    "root": "/tmp/namzu-index-pages-0xGxlJ",
+    "model": "gpt-5.6-luna",
+    "provider": "codex",
+    "effort": "low",
+    "recallEvidence": false,
+    "limits": {
+      "iterations": 4,
+      "tokenAdmission": 30000,
+      "deadlineMs": 120000
+    },
+    "passed": true,
+    "calls": [
+      {
+        "name": "search_conversation",
+        "input": {
+          "query": "DELTA",
+          "limit": 10
+        }
+      }
+    ],
+    "usage": {
+      "totalTokens": 15010,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 15010
+      }
+    },
+    "answerContainsBothOriginals": true,
+    "sourcesUnchanged": true,
+    "buildStable": true,
+    "buildBefore": {
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+      "packages/cli/dist/integrations/sessions/evidence-page-validation.js": "59f64d7da4268b05e5e6034f754c32a2435576c752d3b3bb242844269aa11216",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+      "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+      "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+    },
+    "buildAfter": {
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+      "packages/cli/dist/integrations/sessions/evidence-page-validation.js": "59f64d7da4268b05e5e6034f754c32a2435576c752d3b3bb242844269aa11216",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+      "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+      "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+    },
+    "pages": [
+      {
+        "temperature": "cold",
+        "publicPages": 1,
+        "accountedBytes": 931737,
+        "exactRead": {
+          "runId": "73526d14-c5bb-4c43-944e-735280d8bda9",
+          "seq": 16,
+          "part": 0,
+          "containsOriginals": true
+        }
+      },
+      {
+        "temperature": "warm",
+        "publicPages": 1,
+        "accountedBytes": 1175602,
+        "exactRead": {
+          "runId": "73526d14-c5bb-4c43-944e-735280d8bda9",
+          "seq": 16,
+          "part": 0,
+          "containsOriginals": true
+        }
+      }
+    ]
+  },
+  "checks": {
+    "typecheck": "passed",
+    "lint": "passed with warnings",
+    "build": "passed",
+    "workspaceTests": "passed",
+    "sdkPassed": 6696,
+    "cliPassed": 3017,
+    "cliSkipped": 5,
+    "docs": "passed",
+    "fences": "passed",
+    "releaseOnlyGates": "not run",
+    "published": false
+  }
+}

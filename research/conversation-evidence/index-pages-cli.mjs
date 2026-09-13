@@ -23,7 +23,7 @@ const sdk = await import('../../packages/sdk/dist/index.js');
 const storage = await import('../../packages/cli/dist/integrations/sessions/store.js');
 const evidence = await import('../../packages/cli/dist/integrations/sessions/conversation-search.js');
 const hash = async path => createHash('sha256').update(await readFile(path)).digest('hex');
-const builtFiles = ['packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/tui/agent.js','packages/sdk/dist/store/evidence/disk.js'];
+const builtFiles = ['packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/integrations/sessions/evidence-page-validation.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/tui/agent.js','packages/sdk/dist/store/evidence/disk.js'];
 const fingerprints = async () => Object.fromEntries(await Promise.all(builtFiles.map(async path => [path,await hash(new URL('../../'+path,import.meta.url))])));
 const report = {root,baseline,live,recallEvidence:false,passes:[],buildBefore:await fingerprints()};
 let sessions, sessionId;
