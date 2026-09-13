@@ -1,0 +1,3134 @@
+{
+  "base": "6a6921c1",
+  "date": "2026-09-13",
+  "liveTokens": 53834,
+  "cases": [
+    {
+      "root": "/tmp/namzu-natural-recall-hjnsvy",
+      "live": true,
+      "inspectWire": true,
+      "failQueryPlan": true,
+      "checkCurrent": false,
+      "recallConfiguration": "default",
+      "referential": true,
+      "scriptedObservation": true,
+      "progressUpdates": false,
+      "queryAblation": false,
+      "resolveEvidenceQueries": false,
+      "checkTopic": false,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "original": {
+        "tracking": "TAKIP-1785107a-dbf1-4cb5-8008-f03513d38358",
+        "depot": "DEPO-ba29d3c0-fec1-4634-843d-8f23cedbe4de"
+      },
+      "replacement": {
+        "tracking": "YENI-TAKIP-a44b477e-b549-46aa-9420-bb3cd53afd72",
+        "depot": "YENI-DEPO-02cf2a44-b0fa-4f85-bb1c-d85cf2bc8196"
+      },
+      "turns": [
+        {
+          "phase": 1,
+          "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+          "args": [
+            "--quiet",
+            "run-stream",
+            "--session",
+            "natural-recall",
+            "--trust",
+            "--cwd",
+            "/tmp/namzu-natural-recall-hjnsvy/workspace",
+            "--provider",
+            "codex",
+            "--model",
+            "gpt-5.6-luna",
+            "--effort",
+            "low",
+            "--max-iterations",
+            "4",
+            "--token-budget",
+            "25000",
+            "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+          ],
+          "tokenBudget": 25000,
+          "scripted": true,
+          "done": {
+            "kind": "done",
+            "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+            "budget": {
+              "limit": 25000,
+              "ownTokens": 0,
+              "treeTokens": 0,
+              "reservedTokens": 0,
+              "remainingTokens": 25000,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          },
+          "errors": [],
+          "calls": [
+            {
+              "name": "read",
+              "input": {
+                "path": "sevkiyatlar.txt"
+              }
+            }
+          ],
+          "requestUsage": [
+            {
+              "promptTokens": 0,
+              "completionTokens": 0,
+              "totalTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            {
+              "promptTokens": 0,
+              "completionTokens": 0,
+              "totalTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          ],
+          "mainMessageTokens": 0,
+          "totalTokens": 0,
+          "auxiliaryTokens": 0,
+          "cachedTokens": 0
+        },
+        {
+          "phase": 2,
+          "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+          "args": [
+            "--quiet",
+            "run-stream",
+            "--session",
+            "natural-recall",
+            "--trust",
+            "--cwd",
+            "/tmp/namzu-natural-recall-hjnsvy/workspace",
+            "--provider",
+            "codex",
+            "--model",
+            "gpt-5.6-luna",
+            "--effort",
+            "low",
+            "--max-iterations",
+            "4",
+            "--token-budget",
+            "30000",
+            "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+          ],
+          "tokenBudget": 30000,
+          "scripted": false,
+          "done": {
+            "kind": "done",
+            "text": "YENI-TAKIP-a44b477e-b549-46aa-9420-bb3cd53afd72  \nYENI-DEPO-02cf2a44-b0fa-4f85-bb1c-d85cf2bc8196",
+            "budget": {
+              "limit": 30000,
+              "ownTokens": 17107,
+              "treeTokens": 17107,
+              "reservedTokens": 0,
+              "remainingTokens": 12893,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          },
+          "errors": [],
+          "calls": [
+            {
+              "name": "grep",
+              "input": {
+                "pattern": "DELTA",
+                "path": "sevkiyatlar.txt",
+                "case_sensitive": true,
+                "context_lines": 2,
+                "max_results": 10
+              }
+            }
+          ],
+          "requestUsage": [
+            {
+              "promptTokens": 8395,
+              "completionTokens": 56,
+              "totalTokens": 8451,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            {
+              "promptTokens": 8595,
+              "completionTokens": 61,
+              "totalTokens": 8656,
+              "cachedTokens": 6656,
+              "cacheWriteTokens": 0
+            }
+          ],
+          "mainMessageTokens": 17107,
+          "totalTokens": 17107,
+          "auxiliaryTokens": 0,
+          "cachedTokens": 6656
+        }
+      ],
+      "buildBefore": {
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+        "packages/sdk/dist/run/evidence-query.js": "d436fbf73b1d8e27d0cba7baedc8c6b4d657fbeb5109ba8a01ae276568ad2bbd",
+        "packages/sdk/dist/run/evidence-recall.js": "182161baa0d1c9da29624ebb6cc487de15e510cb517568744f8dc1a6320e6d87",
+        "packages/sdk/dist/run/preparation-context-error.js": "0ef905aac27ad8f11539d7a381d588d61ec6351384269c353609c9d2f87995f0",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+        "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+        "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "43ea2f2db04e1bf1cba3249337a8e78a317d60fe8cec4283178db943a79faada",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+        "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+      },
+      "prerequisites": {
+        "capturedBoth": true,
+        "initialStopReason": "end_turn",
+        "initialCompleted": true,
+        "visibleOriginalCount": 0,
+        "initialSourceUnchanged": true,
+        "successfulInitialRead": true,
+        "progressUpdates": 0
+      },
+      "observations": {
+        "correctOriginal": false,
+        "usedReplacement": true,
+        "allOriginalAbsentFromVisible": true,
+        "archiveSearches": 0,
+        "exactArchiveReads": 0,
+        "workspaceObservations": 1,
+        "failedTools": 0,
+        "replacementUnchanged": true
+      },
+      "passed": false,
+      "historicalPassed": false,
+      "buildAfter": {
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+        "packages/sdk/dist/run/evidence-query.js": "d436fbf73b1d8e27d0cba7baedc8c6b4d657fbeb5109ba8a01ae276568ad2bbd",
+        "packages/sdk/dist/run/evidence-recall.js": "182161baa0d1c9da29624ebb6cc487de15e510cb517568744f8dc1a6320e6d87",
+        "packages/sdk/dist/run/preparation-context-error.js": "0ef905aac27ad8f11539d7a381d588d61ec6351384269c353609c9d2f87995f0",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+        "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+        "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "43ea2f2db04e1bf1cba3249337a8e78a317d60fe8cec4283178db943a79faada",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+        "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+      },
+      "buildStable": true,
+      "receipts": [
+        {
+          "phase": "2",
+          "preparation": true,
+          "text": "INVALID_QUERY_PLAN_CONTROL",
+          "usage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "usage": {
+            "promptTokens": 8395,
+            "completionTokens": 56,
+            "totalTokens": 8451,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "usage": {
+            "promptTokens": 8595,
+            "completionTokens": 61,
+            "totalTokens": 8656,
+            "cachedTokens": 6656,
+            "cacheWriteTokens": 0
+          }
+        }
+      ],
+      "requests": [
+        {
+          "phase": "2",
+          "preparation": true,
+          "queryInput": {
+            "current": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+            "history": [
+              {
+                "message": 0,
+                "role": "user",
+                "text": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+                "truncated": false
+              },
+              {
+                "message": 1,
+                "role": "assistant",
+                "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+                "truncated": false
+              }
+            ],
+            "tokens": [
+              [
+                0,
+                "Az"
+              ],
+              [
+                1,
+                "önce"
+              ],
+              [
+                2,
+                "baktığın"
+              ],
+              [
+                3,
+                "kaydın"
+              ],
+              [
+                4,
+                "iki"
+              ],
+              [
+                5,
+                "kimliğini"
+              ],
+              [
+                6,
+                "aynen"
+              ],
+              [
+                7,
+                "yazar"
+              ],
+              [
+                8,
+                "mısın"
+              ],
+              [
+                9,
+                "sevkiyatlar"
+              ],
+              [
+                10,
+                "txt"
+              ],
+              [
+                11,
+                "dosyasındaki"
+              ],
+              [
+                12,
+                "DELTA"
+              ],
+              [
+                13,
+                "kaydını"
+              ],
+              [
+                14,
+                "incele"
+              ],
+              [
+                15,
+                "yalnızca"
+              ],
+              [
+                16,
+                "hangi"
+              ],
+              [
+                17,
+                "tür"
+              ],
+              [
+                18,
+                "bilgileri"
+              ],
+              [
+                19,
+                "içerdiğini"
+              ],
+              [
+                20,
+                "bir"
+              ],
+              [
+                21,
+                "cümleyle"
+              ],
+              [
+                22,
+                "söyle"
+              ],
+              [
+                23,
+                "kaydı"
+              ],
+              [
+                24,
+                "takip"
+              ],
+              [
+                25,
+                "kodu"
+              ],
+              [
+                26,
+                "ve"
+              ],
+              [
+                27,
+                "hedef"
+              ],
+              [
+                28,
+                "depo"
+              ],
+              [
+                29,
+                "bilgisi"
+              ],
+              [
+                30,
+                "içeriyor"
+              ]
+            ],
+            "omittedTokens": 0
+          },
+          "availability": false,
+          "contextChars": 0,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 556,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 556,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        }
+      ],
+      "wire": [
+        {
+          "phase": "2",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "toolChoice": "auto",
+          "instructions": {
+            "chars": 13199,
+            "sha256": "f6349e0bc002e01e68e25c28712e51ebf8334b423f199fd5193ffecb652df743",
+            "conversationGuidance": true,
+            "historicalSourceGuidance": true,
+            "scopedRecoveryGuidance": true,
+            "availability": false,
+            "invalidPlan": false,
+            "genericFilesystemRecovery": false,
+            "hostRecovery": false,
+            "originals": [
+              false,
+              false
+            ],
+            "replacements": [
+              false,
+              false
+            ]
+          },
+          "tools": [
+            {
+              "name": "bash",
+              "descriptionChars": 376,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "glob",
+              "descriptionChars": 217,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "grep",
+              "descriptionChars": 305,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "job",
+              "descriptionChars": 173,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read",
+              "descriptionChars": 237,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "edit",
+              "descriptionChars": 1179,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "write",
+              "descriptionChars": 735,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_memory",
+              "descriptionChars": 240,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read_memory",
+              "descriptionChars": 53,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "save_memory",
+              "descriptionChars": 227,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "update_memory",
+              "descriptionChars": 172,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "delete_memory",
+              "descriptionChars": 191,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_conversation",
+              "descriptionChars": 1221,
+              "historicalSourceGuidance": true
+            },
+            {
+              "name": "read_conversation",
+              "descriptionChars": 844,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "Agent",
+              "descriptionChars": 2005,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "wait_for_task",
+              "descriptionChars": 190,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_models",
+              "descriptionChars": 169,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_task_list",
+              "descriptionChars": 394,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "send_message",
+              "descriptionChars": 234,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "cancel_agent",
+              "descriptionChars": 251,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_create",
+              "descriptionChars": 264,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_update",
+              "descriptionChars": 193,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_list",
+              "descriptionChars": 255,
+              "historicalSourceGuidance": false
+            }
+          ],
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 112,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "read",
+              "chars": 2,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 4017,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": true,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "assistant",
+              "chars": 57,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 58,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 577,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            }
+          ]
+        },
+        {
+          "phase": "2",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "toolChoice": "auto",
+          "instructions": {
+            "chars": 13199,
+            "sha256": "f6349e0bc002e01e68e25c28712e51ebf8334b423f199fd5193ffecb652df743",
+            "conversationGuidance": true,
+            "historicalSourceGuidance": true,
+            "scopedRecoveryGuidance": true,
+            "availability": false,
+            "invalidPlan": false,
+            "genericFilesystemRecovery": false,
+            "hostRecovery": false,
+            "originals": [
+              false,
+              false
+            ],
+            "replacements": [
+              false,
+              false
+            ]
+          },
+          "tools": [
+            {
+              "name": "bash",
+              "descriptionChars": 376,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "glob",
+              "descriptionChars": 217,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "grep",
+              "descriptionChars": 305,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "job",
+              "descriptionChars": 173,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read",
+              "descriptionChars": 237,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "edit",
+              "descriptionChars": 1179,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "write",
+              "descriptionChars": 735,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_memory",
+              "descriptionChars": 240,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read_memory",
+              "descriptionChars": 53,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "save_memory",
+              "descriptionChars": 227,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "update_memory",
+              "descriptionChars": 172,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "delete_memory",
+              "descriptionChars": 191,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_conversation",
+              "descriptionChars": 1221,
+              "historicalSourceGuidance": true
+            },
+            {
+              "name": "read_conversation",
+              "descriptionChars": 844,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "Agent",
+              "descriptionChars": 2005,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "wait_for_task",
+              "descriptionChars": 190,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_models",
+              "descriptionChars": 169,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_task_list",
+              "descriptionChars": 394,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "send_message",
+              "descriptionChars": 234,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "cancel_agent",
+              "descriptionChars": 251,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_create",
+              "descriptionChars": 264,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_update",
+              "descriptionChars": 193,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_list",
+              "descriptionChars": 255,
+              "historicalSourceGuidance": false
+            }
+          ],
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 112,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "read",
+              "chars": 2,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 4017,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": true,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "assistant",
+              "chars": 57,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 58,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "reasoning",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "grep",
+              "chars": 2,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 301,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                true,
+                true
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 577,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            }
+          ]
+        }
+      ],
+      "fingerprints": {
+        "packages/sdk/src/runtime/query/callback-inference.ts": "88d2b8d13dfc584210fe68c502929fb04831131936908c0a4aa3055410bdca22",
+        "packages/sdk/src/runtime/query/iteration/index.ts": "be685b1aec97f96b9be4d173a02a33bac5881395ad7653f65802c0d4caea5e9a",
+        "packages/sdk/src/run/evidence-query.ts": "8f30bc038bb3de906cb80fac1ce8876b36ae955196a8b0eaab966370579f853f",
+        "packages/sdk/src/run/evidence-recall.ts": "b59a03a13ec549cbfad7c331cdd826ada93743a12c61fb22b567c697ba91b0b3",
+        "packages/sdk/src/run/preparation-context-error.ts": "8717cc37822841b6eb795840f57673468e92ac6a0f951f18a604b4f84f49360d",
+        "packages/cli/src/integrations/sessions/evidence-recall.ts": "0db760cbdf96f881ce8a5d90f816d4f6881abe6c825d6d80617115af5ae72905",
+        "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+        "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7c70e3d890899503282c63dc937ae5aa273fea1df0523e411f980d684d6b87cf",
+        "packages/cli/src/tui/agent.ts": "659b49ea57ad71aa9fd49b47ac088af902e7209fe72a569a8953da44c399903d",
+        "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+        "research/conversation-evidence/natural-cli.mjs": "32eb9ee76fc075dc165a4a1a941f2c5921eaf6e8e030c5f2fa342aac50adf0b8"
+      }
+    },
+    {
+      "root": "/tmp/namzu-natural-recall-wX1SPG",
+      "live": true,
+      "inspectWire": true,
+      "failQueryPlan": true,
+      "checkCurrent": true,
+      "recallConfiguration": "default",
+      "referential": true,
+      "scriptedObservation": true,
+      "progressUpdates": false,
+      "queryAblation": false,
+      "resolveEvidenceQueries": false,
+      "checkTopic": false,
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "original": {
+        "tracking": "TAKIP-25926bf5-99d3-46ff-a953-8052142fcfbb",
+        "depot": "DEPO-141b2e6b-f51c-40e0-97ed-072515427f01"
+      },
+      "replacement": {
+        "tracking": "YENI-TAKIP-6d11db3e-2b00-42cd-a407-21a06a60a2f4",
+        "depot": "YENI-DEPO-e0bb0da1-1bc6-465f-b99d-f7e8c3adbe40"
+      },
+      "turns": [
+        {
+          "phase": 1,
+          "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+          "args": [
+            "--quiet",
+            "run-stream",
+            "--session",
+            "natural-recall",
+            "--trust",
+            "--cwd",
+            "/tmp/namzu-natural-recall-wX1SPG/workspace",
+            "--provider",
+            "codex",
+            "--model",
+            "gpt-5.6-luna",
+            "--effort",
+            "low",
+            "--max-iterations",
+            "4",
+            "--token-budget",
+            "25000",
+            "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+          ],
+          "tokenBudget": 25000,
+          "scripted": true,
+          "done": {
+            "kind": "done",
+            "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+            "budget": {
+              "limit": 25000,
+              "ownTokens": 0,
+              "treeTokens": 0,
+              "reservedTokens": 0,
+              "remainingTokens": 25000,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          },
+          "errors": [],
+          "calls": [
+            {
+              "name": "read",
+              "input": {
+                "path": "sevkiyatlar.txt"
+              }
+            }
+          ],
+          "requestUsage": [
+            {
+              "promptTokens": 0,
+              "completionTokens": 0,
+              "totalTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            {
+              "promptTokens": 0,
+              "completionTokens": 0,
+              "totalTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          ],
+          "mainMessageTokens": 0,
+          "totalTokens": 0,
+          "auxiliaryTokens": 0,
+          "cachedTokens": 0
+        },
+        {
+          "phase": 2,
+          "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+          "args": [
+            "--quiet",
+            "run-stream",
+            "--session",
+            "natural-recall",
+            "--trust",
+            "--cwd",
+            "/tmp/namzu-natural-recall-wX1SPG/workspace",
+            "--provider",
+            "codex",
+            "--model",
+            "gpt-5.6-luna",
+            "--effort",
+            "low",
+            "--max-iterations",
+            "4",
+            "--token-budget",
+            "30000",
+            "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+          ],
+          "tokenBudget": 30000,
+          "scripted": false,
+          "done": {
+            "kind": "done",
+            "text": "TAKIP-25926bf5-99d3-46ff-a953-8052142fcfbb  \nDEPO-141b2e6b-f51c-40e0-97ed-072515427f01",
+            "budget": {
+              "limit": 30000,
+              "ownTokens": 17741,
+              "treeTokens": 17741,
+              "reservedTokens": 0,
+              "remainingTokens": 12259,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          },
+          "errors": [],
+          "calls": [
+            {
+              "name": "search_conversation",
+              "input": {
+                "query": "DELTA",
+                "limit": 10
+              }
+            }
+          ],
+          "requestUsage": [
+            {
+              "promptTokens": 8371,
+              "completionTokens": 46,
+              "totalTokens": 8417,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            },
+            {
+              "promptTokens": 9232,
+              "completionTokens": 92,
+              "totalTokens": 9324,
+              "cachedTokens": 6656,
+              "cacheWriteTokens": 0
+            }
+          ],
+          "mainMessageTokens": 17741,
+          "totalTokens": 17741,
+          "auxiliaryTokens": 0,
+          "cachedTokens": 6656
+        },
+        {
+          "phase": 3,
+          "prompt": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+          "args": [
+            "--quiet",
+            "run-stream",
+            "--session",
+            "natural-recall",
+            "--trust",
+            "--cwd",
+            "/tmp/namzu-natural-recall-wX1SPG/workspace",
+            "--provider",
+            "codex",
+            "--model",
+            "gpt-5.6-luna",
+            "--effort",
+            "low",
+            "--max-iterations",
+            "4",
+            "--token-budget",
+            "25000",
+            "Şimdi aynı dosyadaki güncel iki kimliği söyle."
+          ],
+          "tokenBudget": 25000,
+          "scripted": false,
+          "done": {
+            "kind": "done",
+            "text": "YENI-TAKIP-6d11db3e-2b00-42cd-a407-21a06a60a2f4  \nYENI-DEPO-e0bb0da1-1bc6-465f-b99d-f7e8c3adbe40",
+            "budget": {
+              "limit": 25000,
+              "ownTokens": 18986,
+              "treeTokens": 18986,
+              "reservedTokens": 0,
+              "remainingTokens": 6014,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          },
+          "errors": [],
+          "calls": [
+            {
+              "name": "grep",
+              "input": {
+                "pattern": "DELTA",
+                "path": "sevkiyatlar.txt",
+                "case_sensitive": true,
+                "context_lines": 0,
+                "max_results": 20
+              }
+            }
+          ],
+          "requestUsage": [
+            {
+              "promptTokens": 9344,
+              "completionTokens": 56,
+              "totalTokens": 9400,
+              "cachedTokens": 6656,
+              "cacheWriteTokens": 0
+            },
+            {
+              "promptTokens": 9518,
+              "completionTokens": 68,
+              "totalTokens": 9586,
+              "cachedTokens": 3584,
+              "cacheWriteTokens": 0
+            }
+          ],
+          "mainMessageTokens": 18986,
+          "totalTokens": 18986,
+          "auxiliaryTokens": 0,
+          "cachedTokens": 10240
+        }
+      ],
+      "buildBefore": {
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "7268c60031dc546860cfb9523e97c7d3387ddb0fb4cd29f100e7043a8b290855",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+        "packages/sdk/dist/run/evidence-query.js": "d436fbf73b1d8e27d0cba7baedc8c6b4d657fbeb5109ba8a01ae276568ad2bbd",
+        "packages/sdk/dist/run/evidence-recall.js": "182161baa0d1c9da29624ebb6cc487de15e510cb517568744f8dc1a6320e6d87",
+        "packages/sdk/dist/run/preparation-context-error.js": "0ef905aac27ad8f11539d7a381d588d61ec6351384269c353609c9d2f87995f0",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+        "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+        "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "43ea2f2db04e1bf1cba3249337a8e78a317d60fe8cec4283178db943a79faada",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+        "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+      },
+      "prerequisites": {
+        "capturedBoth": true,
+        "initialStopReason": "end_turn",
+        "initialCompleted": true,
+        "visibleOriginalCount": 0,
+        "initialSourceUnchanged": true,
+        "successfulInitialRead": true,
+        "progressUpdates": 0
+      },
+      "observations": {
+        "correctOriginal": true,
+        "usedReplacement": false,
+        "allOriginalAbsentFromVisible": true,
+        "archiveSearches": 1,
+        "exactArchiveReads": 0,
+        "workspaceObservations": 0,
+        "failedTools": 0,
+        "replacementUnchanged": true
+      },
+      "passed": true,
+      "currentCheck": {
+        "correctReplacement": true,
+        "usedOriginal": false,
+        "workspaceObservations": 1,
+        "sourceUnchanged": true,
+        "failedTools": 0,
+        "passed": true
+      },
+      "historicalPassed": true,
+      "buildAfter": {
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "7268c60031dc546860cfb9523e97c7d3387ddb0fb4cd29f100e7043a8b290855",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+        "packages/sdk/dist/run/evidence-query.js": "d436fbf73b1d8e27d0cba7baedc8c6b4d657fbeb5109ba8a01ae276568ad2bbd",
+        "packages/sdk/dist/run/evidence-recall.js": "182161baa0d1c9da29624ebb6cc487de15e510cb517568744f8dc1a6320e6d87",
+        "packages/sdk/dist/run/preparation-context-error.js": "0ef905aac27ad8f11539d7a381d588d61ec6351384269c353609c9d2f87995f0",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+        "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+        "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "43ea2f2db04e1bf1cba3249337a8e78a317d60fe8cec4283178db943a79faada",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+        "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+      },
+      "buildStable": true,
+      "receipts": [
+        {
+          "phase": "2",
+          "preparation": true,
+          "text": "INVALID_QUERY_PLAN_CONTROL",
+          "usage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "usage": {
+            "promptTokens": 8371,
+            "completionTokens": 46,
+            "totalTokens": 8417,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "usage": {
+            "promptTokens": 9232,
+            "completionTokens": 92,
+            "totalTokens": 9324,
+            "cachedTokens": 6656,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "phase": "3",
+          "preparation": true,
+          "text": "INVALID_QUERY_PLAN_CONTROL",
+          "usage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "phase": "3",
+          "preparation": false,
+          "usage": {
+            "promptTokens": 9344,
+            "completionTokens": 56,
+            "totalTokens": 9400,
+            "cachedTokens": 6656,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "phase": "3",
+          "preparation": false,
+          "usage": {
+            "promptTokens": 9518,
+            "completionTokens": 68,
+            "totalTokens": 9586,
+            "cachedTokens": 3584,
+            "cacheWriteTokens": 0
+          }
+        }
+      ],
+      "requests": [
+        {
+          "phase": "2",
+          "preparation": true,
+          "queryInput": {
+            "current": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+            "history": [
+              {
+                "message": 0,
+                "role": "user",
+                "text": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+                "truncated": false
+              },
+              {
+                "message": 1,
+                "role": "assistant",
+                "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+                "truncated": false
+              }
+            ],
+            "tokens": [
+              [
+                0,
+                "Az"
+              ],
+              [
+                1,
+                "önce"
+              ],
+              [
+                2,
+                "baktığın"
+              ],
+              [
+                3,
+                "kaydın"
+              ],
+              [
+                4,
+                "iki"
+              ],
+              [
+                5,
+                "kimliğini"
+              ],
+              [
+                6,
+                "aynen"
+              ],
+              [
+                7,
+                "yazar"
+              ],
+              [
+                8,
+                "mısın"
+              ],
+              [
+                9,
+                "sevkiyatlar"
+              ],
+              [
+                10,
+                "txt"
+              ],
+              [
+                11,
+                "dosyasındaki"
+              ],
+              [
+                12,
+                "DELTA"
+              ],
+              [
+                13,
+                "kaydını"
+              ],
+              [
+                14,
+                "incele"
+              ],
+              [
+                15,
+                "yalnızca"
+              ],
+              [
+                16,
+                "hangi"
+              ],
+              [
+                17,
+                "tür"
+              ],
+              [
+                18,
+                "bilgileri"
+              ],
+              [
+                19,
+                "içerdiğini"
+              ],
+              [
+                20,
+                "bir"
+              ],
+              [
+                21,
+                "cümleyle"
+              ],
+              [
+                22,
+                "söyle"
+              ],
+              [
+                23,
+                "kaydı"
+              ],
+              [
+                24,
+                "takip"
+              ],
+              [
+                25,
+                "kodu"
+              ],
+              [
+                26,
+                "ve"
+              ],
+              [
+                27,
+                "hedef"
+              ],
+              [
+                28,
+                "depo"
+              ],
+              [
+                29,
+                "bilgisi"
+              ],
+              [
+                30,
+                "içeriyor"
+              ]
+            ],
+            "omittedTokens": 0
+          },
+          "availability": false,
+          "contextChars": 0,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 556,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 556,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            true,
+            true
+          ]
+        },
+        {
+          "phase": "3",
+          "preparation": true,
+          "queryInput": {
+            "current": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+            "history": [
+              {
+                "message": 0,
+                "role": "user",
+                "text": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+                "truncated": false
+              },
+              {
+                "message": 1,
+                "role": "assistant",
+                "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+                "truncated": false
+              },
+              {
+                "message": 2,
+                "role": "user",
+                "text": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+                "truncated": false
+              },
+              {
+                "message": 3,
+                "role": "assistant",
+                "text": "TAKIP-25926bf5-99d3-46ff-a953-8052142fcfbb  \nDEPO-141b2e6b-f51c-40e0-97ed-072515427f01",
+                "truncated": false
+              }
+            ],
+            "tokens": [
+              [
+                0,
+                "Şimdi"
+              ],
+              [
+                1,
+                "aynı"
+              ],
+              [
+                2,
+                "dosyadaki"
+              ],
+              [
+                3,
+                "güncel"
+              ],
+              [
+                4,
+                "iki"
+              ],
+              [
+                5,
+                "kimliği"
+              ],
+              [
+                6,
+                "söyle"
+              ],
+              [
+                7,
+                "Az"
+              ],
+              [
+                8,
+                "önce"
+              ],
+              [
+                9,
+                "baktığın"
+              ],
+              [
+                10,
+                "kaydın"
+              ],
+              [
+                11,
+                "kimliğini"
+              ],
+              [
+                12,
+                "aynen"
+              ],
+              [
+                13,
+                "yazar"
+              ],
+              [
+                14,
+                "mısın"
+              ],
+              [
+                15,
+                "sevkiyatlar"
+              ],
+              [
+                16,
+                "txt"
+              ],
+              [
+                17,
+                "dosyasındaki"
+              ],
+              [
+                18,
+                "DELTA"
+              ],
+              [
+                19,
+                "kaydını"
+              ],
+              [
+                20,
+                "incele"
+              ],
+              [
+                21,
+                "yalnızca"
+              ],
+              [
+                22,
+                "hangi"
+              ],
+              [
+                23,
+                "tür"
+              ],
+              [
+                24,
+                "bilgileri"
+              ],
+              [
+                25,
+                "içerdiğini"
+              ],
+              [
+                26,
+                "bir"
+              ],
+              [
+                27,
+                "cümleyle"
+              ],
+              [
+                28,
+                "TAKIP"
+              ],
+              [
+                29,
+                "25926bf5"
+              ],
+              [
+                30,
+                "99d3"
+              ],
+              [
+                31,
+                "46ff"
+              ],
+              [
+                32,
+                "a953"
+              ],
+              [
+                33,
+                "8052142fcfbb"
+              ],
+              [
+                34,
+                "DEPO"
+              ],
+              [
+                35,
+                "141b2e6b"
+              ],
+              [
+                36,
+                "f51c"
+              ],
+              [
+                37,
+                "40e0"
+              ],
+              [
+                38,
+                "97ed"
+              ],
+              [
+                39,
+                "072515427f01"
+              ],
+              [
+                40,
+                "kaydı"
+              ],
+              [
+                41,
+                "takip"
+              ],
+              [
+                42,
+                "kodu"
+              ],
+              [
+                43,
+                "ve"
+              ],
+              [
+                44,
+                "hedef"
+              ],
+              [
+                45,
+                "depo"
+              ],
+              [
+                46,
+                "bilgisi"
+              ],
+              [
+                47,
+                "içeriyor"
+              ]
+            ],
+            "omittedTokens": 0
+          },
+          "availability": false,
+          "contextChars": 0,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            true,
+            true
+          ]
+        },
+        {
+          "phase": "3",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 556,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            true,
+            true
+          ]
+        },
+        {
+          "phase": "3",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 556,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            true,
+            true
+          ]
+        }
+      ],
+      "wire": [
+        {
+          "phase": "2",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "toolChoice": "auto",
+          "instructions": {
+            "chars": 13199,
+            "sha256": "de644a809afa89ebcb374c18d6043148a4201d4508a87d18a56db08f8b500251",
+            "conversationGuidance": true,
+            "historicalSourceGuidance": true,
+            "scopedRecoveryGuidance": true,
+            "availability": false,
+            "invalidPlan": false,
+            "genericFilesystemRecovery": false,
+            "hostRecovery": false,
+            "originals": [
+              false,
+              false
+            ],
+            "replacements": [
+              false,
+              false
+            ]
+          },
+          "tools": [
+            {
+              "name": "bash",
+              "descriptionChars": 376,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "glob",
+              "descriptionChars": 217,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "grep",
+              "descriptionChars": 305,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "job",
+              "descriptionChars": 173,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read",
+              "descriptionChars": 237,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "edit",
+              "descriptionChars": 1179,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "write",
+              "descriptionChars": 735,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_memory",
+              "descriptionChars": 240,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read_memory",
+              "descriptionChars": 53,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "save_memory",
+              "descriptionChars": 227,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "update_memory",
+              "descriptionChars": 172,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "delete_memory",
+              "descriptionChars": 191,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_conversation",
+              "descriptionChars": 1221,
+              "historicalSourceGuidance": true
+            },
+            {
+              "name": "read_conversation",
+              "descriptionChars": 844,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "Agent",
+              "descriptionChars": 2005,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "wait_for_task",
+              "descriptionChars": 190,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_models",
+              "descriptionChars": 169,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_task_list",
+              "descriptionChars": 394,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "send_message",
+              "descriptionChars": 234,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "cancel_agent",
+              "descriptionChars": 251,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_create",
+              "descriptionChars": 264,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_update",
+              "descriptionChars": 193,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_list",
+              "descriptionChars": 255,
+              "historicalSourceGuidance": false
+            }
+          ],
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 110,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "read",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 4000,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": true,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "assistant",
+              "chars": 55,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 56,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 556,
+              "availability": true,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            }
+          ]
+        },
+        {
+          "phase": "2",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "toolChoice": "auto",
+          "instructions": {
+            "chars": 13199,
+            "sha256": "de644a809afa89ebcb374c18d6043148a4201d4508a87d18a56db08f8b500251",
+            "conversationGuidance": true,
+            "historicalSourceGuidance": true,
+            "scopedRecoveryGuidance": true,
+            "availability": false,
+            "invalidPlan": false,
+            "genericFilesystemRecovery": false,
+            "hostRecovery": false,
+            "originals": [
+              false,
+              false
+            ],
+            "replacements": [
+              false,
+              false
+            ]
+          },
+          "tools": [
+            {
+              "name": "bash",
+              "descriptionChars": 376,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "glob",
+              "descriptionChars": 217,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "grep",
+              "descriptionChars": 305,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "job",
+              "descriptionChars": 173,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read",
+              "descriptionChars": 237,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "edit",
+              "descriptionChars": 1179,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "write",
+              "descriptionChars": 735,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_memory",
+              "descriptionChars": 240,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read_memory",
+              "descriptionChars": 53,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "save_memory",
+              "descriptionChars": 227,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "update_memory",
+              "descriptionChars": 172,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "delete_memory",
+              "descriptionChars": 191,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_conversation",
+              "descriptionChars": 1221,
+              "historicalSourceGuidance": true
+            },
+            {
+              "name": "read_conversation",
+              "descriptionChars": 844,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "Agent",
+              "descriptionChars": 2005,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "wait_for_task",
+              "descriptionChars": 190,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_models",
+              "descriptionChars": 169,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_task_list",
+              "descriptionChars": 394,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "send_message",
+              "descriptionChars": 234,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "cancel_agent",
+              "descriptionChars": 251,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_create",
+              "descriptionChars": 264,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_update",
+              "descriptionChars": 193,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_list",
+              "descriptionChars": 255,
+              "historicalSourceGuidance": false
+            }
+          ],
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 110,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "read",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 4000,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": true,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "assistant",
+              "chars": 55,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 56,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "reasoning",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "search_conversation",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 2819,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                true,
+                true
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 556,
+              "availability": true,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            }
+          ]
+        },
+        {
+          "phase": "3",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "toolChoice": "auto",
+          "instructions": {
+            "chars": 13199,
+            "sha256": "de644a809afa89ebcb374c18d6043148a4201d4508a87d18a56db08f8b500251",
+            "conversationGuidance": true,
+            "historicalSourceGuidance": true,
+            "scopedRecoveryGuidance": true,
+            "availability": false,
+            "invalidPlan": false,
+            "genericFilesystemRecovery": false,
+            "hostRecovery": false,
+            "originals": [
+              false,
+              false
+            ],
+            "replacements": [
+              false,
+              false
+            ]
+          },
+          "tools": [
+            {
+              "name": "bash",
+              "descriptionChars": 376,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "glob",
+              "descriptionChars": 217,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "grep",
+              "descriptionChars": 305,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "job",
+              "descriptionChars": 173,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read",
+              "descriptionChars": 237,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "edit",
+              "descriptionChars": 1179,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "write",
+              "descriptionChars": 735,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_memory",
+              "descriptionChars": 240,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read_memory",
+              "descriptionChars": 53,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "save_memory",
+              "descriptionChars": 227,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "update_memory",
+              "descriptionChars": 172,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "delete_memory",
+              "descriptionChars": 191,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_conversation",
+              "descriptionChars": 1221,
+              "historicalSourceGuidance": true
+            },
+            {
+              "name": "read_conversation",
+              "descriptionChars": 844,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "Agent",
+              "descriptionChars": 2005,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "wait_for_task",
+              "descriptionChars": 190,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_models",
+              "descriptionChars": 169,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_task_list",
+              "descriptionChars": 394,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "send_message",
+              "descriptionChars": 234,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "cancel_agent",
+              "descriptionChars": 251,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_create",
+              "descriptionChars": 264,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_update",
+              "descriptionChars": 193,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_list",
+              "descriptionChars": 255,
+              "historicalSourceGuidance": false
+            }
+          ],
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 110,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "read",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 4000,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": true,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "assistant",
+              "chars": 55,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 56,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "reasoning",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "search_conversation",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 2819,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                true,
+                true
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "reasoning",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "assistant",
+              "chars": 86,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                true,
+                true
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 46,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 556,
+              "availability": true,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            }
+          ]
+        },
+        {
+          "phase": "3",
+          "model": "gpt-5.6-luna",
+          "effort": "low",
+          "toolChoice": "auto",
+          "instructions": {
+            "chars": 13199,
+            "sha256": "de644a809afa89ebcb374c18d6043148a4201d4508a87d18a56db08f8b500251",
+            "conversationGuidance": true,
+            "historicalSourceGuidance": true,
+            "scopedRecoveryGuidance": true,
+            "availability": false,
+            "invalidPlan": false,
+            "genericFilesystemRecovery": false,
+            "hostRecovery": false,
+            "originals": [
+              false,
+              false
+            ],
+            "replacements": [
+              false,
+              false
+            ]
+          },
+          "tools": [
+            {
+              "name": "bash",
+              "descriptionChars": 376,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "glob",
+              "descriptionChars": 217,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "grep",
+              "descriptionChars": 305,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "job",
+              "descriptionChars": 173,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read",
+              "descriptionChars": 237,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "edit",
+              "descriptionChars": 1179,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "write",
+              "descriptionChars": 735,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_memory",
+              "descriptionChars": 240,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "read_memory",
+              "descriptionChars": 53,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "save_memory",
+              "descriptionChars": 227,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "update_memory",
+              "descriptionChars": 172,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "delete_memory",
+              "descriptionChars": 191,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "search_conversation",
+              "descriptionChars": 1221,
+              "historicalSourceGuidance": true
+            },
+            {
+              "name": "read_conversation",
+              "descriptionChars": 844,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "Agent",
+              "descriptionChars": 2005,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "wait_for_task",
+              "descriptionChars": 190,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_models",
+              "descriptionChars": 169,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "agent_task_list",
+              "descriptionChars": 394,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "send_message",
+              "descriptionChars": 234,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "cancel_agent",
+              "descriptionChars": 251,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_create",
+              "descriptionChars": 264,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_update",
+              "descriptionChars": 193,
+              "historicalSourceGuidance": false
+            },
+            {
+              "name": "task_list",
+              "descriptionChars": 255,
+              "historicalSourceGuidance": false
+            }
+          ],
+          "input": [
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 110,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "read",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 4000,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": true,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "assistant",
+              "chars": 55,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 56,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "reasoning",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "search_conversation",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 2819,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                true,
+                true
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "reasoning",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "assistant",
+              "chars": 86,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                true,
+                true
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 46,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "reasoning",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call",
+              "name": "grep",
+              "chars": 0,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            },
+            {
+              "type": "function_call_output",
+              "chars": 209,
+              "availability": false,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                true,
+                true
+              ]
+            },
+            {
+              "type": "message",
+              "role": "user",
+              "chars": 556,
+              "availability": true,
+              "invalidPlan": false,
+              "genericFilesystemRecovery": false,
+              "hostRecovery": false,
+              "originals": [
+                false,
+                false
+              ],
+              "replacements": [
+                false,
+                false
+              ]
+            }
+          ]
+        }
+      ],
+      "fingerprints": {
+        "packages/sdk/src/runtime/query/callback-inference.ts": "88d2b8d13dfc584210fe68c502929fb04831131936908c0a4aa3055410bdca22",
+        "packages/sdk/src/runtime/query/iteration/index.ts": "be685b1aec97f96b9be4d173a02a33bac5881395ad7653f65802c0d4caea5e9a",
+        "packages/sdk/src/run/evidence-query.ts": "8f30bc038bb3de906cb80fac1ce8876b36ae955196a8b0eaab966370579f853f",
+        "packages/sdk/src/run/evidence-recall.ts": "b59a03a13ec549cbfad7c331cdd826ada93743a12c61fb22b567c697ba91b0b3",
+        "packages/sdk/src/run/preparation-context-error.ts": "8717cc37822841b6eb795840f57673468e92ac6a0f951f18a604b4f84f49360d",
+        "packages/cli/src/integrations/sessions/evidence-recall.ts": "0db760cbdf96f881ce8a5d90f816d4f6881abe6c825d6d80617115af5ae72905",
+        "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+        "packages/sdk/src/runtime/query/tool-output-budget.ts": "7791c0161b00eec8f1e6310f5f116088177ced78172e741f02af7e6f72e6ad44",
+        "packages/cli/src/integrations/sessions/conversation-search.ts": "7c70e3d890899503282c63dc937ae5aa273fea1df0523e411f980d684d6b87cf",
+        "packages/cli/src/tui/agent.ts": "659b49ea57ad71aa9fd49b47ac088af902e7209fe72a569a8953da44c399903d",
+        "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+        "research/conversation-evidence/natural-cli.mjs": "421c27ce746619f5cea120cd4d00fe75d69f962dce1dd7b1f5af39b526c9ac19",
+        "research/conversation-evidence/observe-recall-wire.mjs": "ed887ef1abde8dfe7f58090d1f8f7727658442864954d328ac14520577b16c53"
+      }
+    }
+  ],
+  "observerCaveat": "Baseline availability flags in wire input are invalid: the first probe searched JSON-escaped text. Fixed before the candidate using decoded text/content blocks, with a regression test. Raw baseline results are unchanged. Baseline transport still establishes tool presence and conflicting guidance. Do not compare input chars across probe versions."
+}

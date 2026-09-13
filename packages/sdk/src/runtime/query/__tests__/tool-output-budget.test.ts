@@ -210,7 +210,8 @@ describe('applyToolOutputBudget', () => {
 			spillDir: dir,
 		})
 		expect(out.output).toContain('characters omitted')
-		expect(out.output).toMatch(/read.*offset\/limit|grep/i)
+		expect(out.output).toContain('host-authorized retained-output recovery tools')
+		expect(out.output).not.toMatch(/`read`|`grep`/)
 	})
 
 	it('degrades to middle-elision when there is nowhere to spill', () => {

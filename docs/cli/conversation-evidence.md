@@ -82,6 +82,11 @@ they verify ownership and retained-byte integrity. The host explicitly directs
 the model to this route rather than using filesystem tools to work around a
 workspace-path refusal. This guidance is not an access-control substitute:
 existing tool permissions and the configured sandbox still govern execution.
+New SDK previews defer to that host recovery route instead of recommending
+filesystem tools for internal paths. Historical previews are not rewritten.
+An [actual transport probe](../../research/conversation-evidence/recovery-guidance-results.md)
+records both the former conflicting instructions and a bounded live recovery
+after the correction; it does not establish a general accuracy rate.
 
 For a question about what a file contained earlier, the retained observation
 is the source. For a question about what it contains now, fresh workspace

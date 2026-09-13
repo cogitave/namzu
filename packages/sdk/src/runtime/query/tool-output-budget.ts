@@ -175,12 +175,10 @@ export interface ApplyToolOutputBudgetOptions {
 /**
  * Bound a tool result to the model-visible budget.
  *
- * Spilling beats truncating on every axis that matters: nothing is lost,
- * tokens are paid only if the agent decides the rest is worth re-reading,
- * and retrieval uses `read`/`grep` — tools it already has — rather than a
- * new affordance. A hosted agent runtime does the same thing above 100k
- * characters. Middle-elision is the fallback for a run with no directory
- * to write to.
+ * Retention keeps the original while bounding its model-visible preview.
+ * The host owns the recovery route and its permissions; a spill path is not
+ * proof that workspace read/grep tools can access it. Middle-elision is the
+ * fallback for a run with no directory to write to.
  *
  * The preview keeps head AND tail because the two ends carry different
  * information: the head has the schema/opening of a document, the tail has
@@ -215,7 +213,7 @@ export function applyToolOutputBudget(opts: ApplyToolOutputBudgetOptions): ToolO
 	const recovery = spillPath
 		? [
 				`${SPILL_MARKER} ${spillPath}`,
-				'Read a specific window with `read` (offset/limit) or search it with `grep`. Read only the passages needed for the task; do not repeat the original action to recover its output.',
+				'This path identifies retained output, not the original input. Use the host-authorized retained-output recovery tools when available; the path does not grant filesystem access. A fresh observation of the original input cannot recover its earlier contents. If recovery is unavailable, report the missing detail; do not replay the original action.',
 			].join('\n')
 		: 'The full output was not retained. Use a saved artifact or a read-only observation; do not repeat a state-changing action to recover its output.'
 	const requestedPreview = opts.retainedPreviewChars

@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 const live = process.argv.includes('--live');
+const inspectWire = process.argv.includes('--inspect-wire');
+if (inspectWire && !live) throw new Error('--inspect-wire requires --live.');
 const failQueryPlan = process.argv.includes('--fail-query-plan');
 if (failQueryPlan && !live) throw new Error('--fail-query-plan requires --live; only preparation is replaced, main requests remain live.');
 const checkCurrent = process.argv.includes('--check-current');
@@ -44,6 +46,8 @@ const preload = join(root, 'scripted-provider.mjs');
 const observer = join(root, 'observe-provider.mjs');
 await writeFile(observer, `import {ProviderRegistry,MockLLMProvider} from ${JSON.stringify(sdkURL.href)};
 import {appendFile} from 'node:fs/promises';
+${inspectWire ? `import {observeRecallWire} from ${JSON.stringify(new URL('./observe-recall-wire.mjs', import.meta.url).href)};
+observeRecallWire(${JSON.stringify(join(root, 'wire.jsonl'))}, ${JSON.stringify(original)}, ${JSON.stringify(replacement)});` : ''}
 const create=ProviderRegistry.create.bind(ProviderRegistry);
 ProviderRegistry.create=(...args)=>{const created=create(...args);const stream=created.provider.chatStream.bind(created.provider);
 created.provider.chatStream=async function*(params){
@@ -92,9 +96,9 @@ if(phase==='1') {
  yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
 }}};};`);
 
-const builtFiles=['packages/sdk/dist/runtime/query/callback-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/run/preparation-context-error.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
+const builtFiles=['packages/providers/openai/dist/codex.js','packages/sdk/dist/runtime/query/tool-output-budget.js','packages/sdk/dist/runtime/query/callback-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/run/preparation-context-error.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
 const fingerprints=async()=>Object.fromEntries(await Promise.all(builtFiles.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
-const report = { root, live, failQueryPlan, checkCurrent, recallConfiguration, referential, scriptedObservation, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
+const report = { root, live, inspectWire, failQueryPlan, checkCurrent, recallConfiguration, referential, scriptedObservation, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
 const allEvents = async () => {
   const events = [];
   for (const session of await readdir(join(home, 'sessions'), { withFileTypes: true })) {
@@ -236,8 +240,13 @@ finally {
   if(!report.buildStable){report.passed=false;report.error='Built modules changed during the experiment.';process.exitCode=1;}
   try {report.receipts=(await readFile(join(root,'receipts.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
   try {report.requests=(await readFile(join(root,'requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
+  if(inspectWire) {
+    try {report.wire=(await readFile(join(root,'wire.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);}
+    catch(error) {report.wire=[];report.wireError=error.code==='ENOENT'?'No transport capture file':String(error.message);}
+    if(!report.wire.length){report.passed=false;report.wireError??='No actual Responses transport request was observed.';process.exitCode=1;}
+  }
   report.fingerprints={};
-  for(const path of ['packages/sdk/src/runtime/query/callback-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/sdk/src/run/preparation-context-error.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
+  for(const path of ['packages/sdk/src/runtime/query/callback-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/sdk/src/run/preparation-context-error.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs','research/conversation-evidence/observe-recall-wire.mjs'])
     report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
   await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({root,live,passed:report.passed,prerequisites:report.prerequisites,observations:report.observations,currentCheck:report.currentCheck,turns:report.turns.map(t=>({phase:t.phase,calls:t.calls,totalTokens:t.totalTokens})),error:report.error}));

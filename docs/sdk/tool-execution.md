@@ -82,6 +82,15 @@ Hosts can fall back to the retained result text when the view is absent.
 
 ## Reusing available evidence
 
+When a tool result is shortened, its retained-output path identifies the saved
+observation, not the original input. The SDK directs recovery through available
+host-authorized tools without assuming that workspace `read`/`grep` tools can
+access internal storage. A fresh observation cannot recover earlier contents.
+Hosts with conversation search supply their specific recovery route. The notice
+does not grant access, guarantee recovery, or replay the original action; it
+shares the existing preview cap and may be shortened at very small limits.
+Previously recorded previews keep their original text.
+
 The coding-agent doctrine distinguishes successful tool observations from
 intentions, failures and unverified reports. A successful write's exact input
 is usable prior content on a later turn; the doctrine no longer demands an
