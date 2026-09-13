@@ -324,6 +324,75 @@ async function closedTranscript(
 }
 
 describe('bounded original conversation evidence', () => {
+	it('keeps a named focus through archived history and reopening without recalling other records', async () => {
+		const { sessions, sessionId, cwd } = await fixture()
+		await retainManualCompaction(
+			sessions,
+			sessionId,
+			Array.from({ length: 12 }, (_, i) => ({
+				role: 'tool' as const,
+				toolCallId: `old-${i}`,
+				content: `DELTA tracking code: WRONG-${i}`,
+			})),
+		)
+		const check = async (store: CliSessions) => {
+			const current = createUserMessage('Recall the earlier SIGMA tracking code.')
+			return createConversationEvidenceRecall(
+				store,
+				sessionId,
+				() => {},
+				true,
+			)({
+				runId: generateRunId(),
+				stepNumber: 1,
+				steps: [],
+				prepared: {},
+				messages: [createUserMessage('Inspect DELTA.'), current],
+				latestUserMessage: current,
+				generateText: async (request) => {
+					const input = JSON.parse(request.prompt) as { tokens: [number, string][] }
+					const id = (word: string) => {
+						const row = input.tokens.find(([, text]) => text === word)
+						if (!row) throw new Error('Test word was not offered')
+						return row[0]
+					}
+					return {
+						text: JSON.stringify({
+							mode: 'direct',
+							time: 'past',
+							termIds: ['SIGMA', 'tracking', 'code'].map(id),
+							focusIds: [id('SIGMA')],
+							basis: [],
+						}),
+						usage: {
+							promptTokens: 1,
+							completionTokens: 1,
+							totalTokens: 2,
+							cachedTokens: 0,
+							cacheWriteTokens: 0,
+						},
+						servedBy: { providerId: 'fixture', model: 'fixture', chainIndex: 0 },
+					}
+				},
+			})
+		}
+		const missing = await check(sessions)
+		expect(missing?.context).toContain('"matchedTerms":[]')
+		expect(missing?.context).not.toContain('WRONG-')
+		await retainManualCompaction(sessions, sessionId, [
+			{ role: 'tool', toolCallId: 'target', content: 'SIGMA tracking code: ORIGINAL-17' },
+		])
+		await releaseConversationEvidence(sessions, sessionId)
+		const reopened = await openSessions(cwd)
+		evidenceOwners.push({ sessions: reopened, sessionId })
+		const found = await check(reopened)
+		expect(found?.context).toContain('SIGMA tracking code: ORIGINAL-17')
+		expect(found?.context).toContain('compaction_shed:tool')
+		expect(found?.context).not.toContain('WRONG-')
+		// Focus affects automatic selection; the archive and explicit queries remain available.
+		const broad = await searchConversation(reopened, sessionId, { query: 'DELTA' })
+		expect(broad.matches.some((match) => match.text.includes('WRONG-'))).toBe(true)
+	})
 	it('recalls originals ahead of retained summaries and can still read every derived source', async () => {
 		const { sessions, sessionId } = await fixture()
 		const summaries = Array.from({ length: 4 }, (_, i) => ({

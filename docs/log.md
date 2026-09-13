@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Preserve grounded subject words during [automatic evidence discovery](sdk/evidence-recall.md#grounded-subject-focus), retaining scoped validation, explicit archive access and bounded empty-scan diagnostics.
+
 - **Creation** Document [assistant text phases](sdk/assistant-text.md), shared answer selection, partial cancellation records, native Codex replay and CLI item boundaries.
 
 - **Update** Carry quoted ambiguity interpretations from [conversation query planning](sdk/evidence-recall.md) into bounded temporary context, preserving cancellation and separating planning notes from archived evidence.

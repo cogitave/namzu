@@ -136,7 +136,7 @@ and exercises historical, current-state and new-topic requests. It draws on
 query resolution by term selection, without reproducing a trained research model
 or establishing a general retrieval success rate.
 
-Self-contained or new-topic plans keep the current literal query. Present-state
+Self-contained or new-topic plans without lexical focus keep the current literal query. Present-state
 plans never expand with historical terms; fresh source observations remain the
 main model's responsibility. When the planner identifies competing referents,
 an `ambiguous` plan selects no search terms and cites up to three exact history
@@ -155,6 +155,49 @@ competing referents or proof that the archive has no matching record.
 The [reference-context CLI comparison](../../research/conversation-evidence/reference-context-results.md)
 records the silent-abstention failure, the corrected clarification decision,
 and remaining unrelated-passage and repeated-output behavior.
+
+### Grounded subject focus
+
+With query resolution enabled, the same planner may select up to four
+`focusIds` from its selected `termIds`. These identify distinctive subject
+words likely to occur in an observation, rather than generic field words or a
+filename merely naming its container. A direct plan with focus must ground all
+selected terms in the current question and carry no history quotes. A contextual
+plan still requires exact supporting quotes. Focus IDs outside the selected
+terms reject the optional stage. Ambiguous and no-search plans cannot carry
+focus; present-state plans continue using current literal discovery.
+
+The SDK resolves IDs back to offered spellings as `queryResolution.focusTerms`.
+It passes those words as `EvidenceRecallRequest.terms` to the existing bounded
+host retrieval. A candidate must contain **any** focus word, matched using the
+same case-insensitive Unicode token keys as ranking. This is not a phrase or an
+all-words condition. The full resolved query still ranks the eligible passages.
+Every returned candidate is validated for bounds and conversation scope before
+filtering, including an off-subject candidate a custom host should not have
+returned. Filtering confers no authority on a source and never edits its bytes.
+
+`queryFocus` records the focus words, `matchedTerms` observed in bounded
+candidate excerpts, and `excludedPassages`, the number of grouped new or visible
+passages filtered out locally. It is not a count of excluded archive records,
+global term coverage, relevance confidence or proof of absence. An empty
+focused scan still supplies this bounded metadata when it fits, alongside the
+host's unchanged `incomplete`, exclusion counts and continuation hints. The
+note explicitly disclaims absence and permits different explicit archive
+queries. No broader query is silently run, no extra scan budget is allocated,
+and no state-changing action is replayed.
+
+This focus is a fallible planner interpretation. It can omit a useful passage
+that expresses the subject differently or whose bounded excerpt lacks the
+subject word. Source grounding verifies spelling, not that the selected word
+is a good subject. Explicit `search_conversation` and `read_conversation` retain
+their existing semantics, scope checks and access to the unfiltered archive.
+The metadata shares the existing context allowance; an oversized block is
+dropped rather than bypassing that limit. Without `resolveQuery`, without a
+valid focus, or outside the planner's bounded history window, existing literal
+retrieval behavior remains.
+
+See the [focused-query experiment](../../research/conversation-evidence/query-focus-results.md)
+for the common-field failure, archived-history controls and live sample limits.
 
 A `none` plan skips optional recall without a note. Malformed or
 ungrounded plans reject the optional stage through its existing fail-open

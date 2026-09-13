@@ -353,6 +353,8 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				: undefined
 		}
 		if (resolution) terms = [...resolution.terms]
+		const focusTerms = resolution?.focusTerms
+		const focusKeys = focusTerms?.map((term) => evidenceTokenKey(term))
 		const controller = new AbortController()
 		const abort = () => controller.abort(signal?.reason)
 		signal?.addEventListener('abort', abort, { once: true })
@@ -375,7 +377,8 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 								},
 							}
 						: {}),
-					terms,
+					// A JavaScript host must not mutate the cached plan or later ranking.
+					terms: [...(focusTerms ?? terms)],
 					maxReadBytes: 8 * 1024 * 1024,
 					maxCandidates: 24,
 					signal: controller.signal,
@@ -464,10 +467,33 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				}
 				candidates.push(candidate)
 			}
-			const rankedGroups = rankedBySource(passages(candidates), terms).map(({ group }) => group)
+			const matchesFocus = (group: Passage) => {
+				if (!focusKeys) return true
+				const words = new Set(
+					evidenceTokens(group.candidate.excerpt).map((word) => evidenceTokenKey(word)),
+				)
+				return focusKeys.some((key) => words.has(key))
+			}
+			const groups = passages(candidates)
+			const visiblePassages = passages(visibleCandidates)
+			// Grounding a subject word does not make every custom-host match relevant.
+			// Validate all owners and bytes above, then apply the same lexical focus.
+			const excludedFocusPassages = [...groups, ...visiblePassages].filter(
+				(group) => !matchesFocus(group),
+			).length
+			const observedWords = new Set(
+				focusTerms
+					? [...candidates, ...visibleCandidates].flatMap((candidate) =>
+							evidenceTokens(candidate.excerpt).map((word) => evidenceTokenKey(word)),
+						)
+					: [],
+			)
+			const rankedGroups = rankedBySource(groups.filter(matchesFocus), terms).map(
+				({ group }) => group,
+			)
 			// Text visibility does not establish its archive address or recording time.
 			// Rank separately so visible copies cannot change new-text BM25 statistics.
-			const visibleGroups = rankedBySource(passages(visibleCandidates), terms).map(
+			const visibleGroups = rankedBySource(visiblePassages.filter(matchesFocus), terms).map(
 				({ group }) => group,
 			)
 			// One representative per distinct quote before additional occurrences.
@@ -500,6 +526,19 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			) =>
 				`${HEADER}${JSON.stringify({
 					incomplete: batch.incomplete,
+					...(focusTerms
+						? {
+								queryFocus: {
+									terms: focusTerms,
+									matchedTerms: focusTerms.filter((term) =>
+										observedWords.has(evidenceTokenKey(term)),
+									),
+									excludedPassages: excludedFocusPassages,
+								},
+								queryFocusGuidance:
+									'Automatic discovery required any focus word. matchedTerms describes only bounded candidate excerpts, not the whole archive. Empty or excluded matches do not prove the requested record is absent. Focus is a fallible query interpretation; explicit archive search can use a different query. Never replace the requested subject with a different record.',
+							}
+						: {}),
 					...(resolution
 						? {
 								queryResolution: resolution,
@@ -606,6 +645,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			}
 			const block = header + selected.map(({ line }) => line).join('')
 			return (selected.length ||
+				focusTerms?.length ||
 				omitted.length ||
 				visibleEvidence.length ||
 				batch.incomplete ||
