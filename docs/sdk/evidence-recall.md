@@ -87,13 +87,21 @@ record two exact historical answers and one remaining current-answer spelling
 failure. This is not a guarantee that the model understands every reference.
 
 Planning receives only the current question (at most 1,000 UTF-16 units) and up
-to six eligible visible operator/assistant text messages, each truncated to its
-last 600 units. History selection examines at most 64 entries before the current
-operator boundary; tools, private reasoning, project policy and runtime task
-context are excluded. If the six newest eligible messages are all assistant
+to six visible reference excerpts. Operator/assistant messages use their last
+600 units. Within that same allowance, the latest nonempty system message marked
+with `source.type: 'compaction-summary'` may supply its first 600 units, preserving
+task information near the beginning. This is explicitly derived reference data,
+not an original observation or a new instruction. Prose headers alone do not
+qualify. At most one summary is selected, without splitting a UTF-16 pair.
+
+History selection examines at most 64 entries before the current operator
+boundary; tools, private reasoning, ordinary project/system policy and runtime task
+context are excluded. If the six newest eligible ordinary messages are all assistant
 updates, the same 64-entry scan continues looking for the nearest preceding
 operator request. When found, that request replaces the oldest selected update:
-the planner still receives at most six messages of at most 600 units each. This
+the planner still receives at most six excerpts of at most 600 units each. If a
+summary occupies one slot, the nearest operator remains alongside up to four
+recent updates. This
 prevents progress commentary from disabling reference resolution while its
 operator request is still inside the scan allowance. It does not restore a
 request removed by compaction or enlarge the history scan.
@@ -107,7 +115,7 @@ to precede the original acceptance time: no missing position is invented from
 text or timestamps. Hosts without retained-input metadata keep the existing
 text boundary fallback.
 
-It requires an operator message in that selected history. Missing inference,
+It requires an operator message or marked compaction summary in that selected history. Missing inference,
 missing prior context or longer questions keep literal retrieval. The planner
 cannot discover a referent that is absent from this bounded visible history.
 The [progress-heavy CLI comparison](../../research/conversation-evidence/query-history-results.md)
@@ -116,7 +124,7 @@ was fixed, and later query-planner failures, using separate reopened CLI process
 
 The planner receives up to 256 numbered word spellings from the supplied text,
 using the same tokenizer as candidate discovery. Current-question words come
-first, followed by recent operator messages, then recent assistant messages.
+first, followed by recent operator messages, the selected summary, then recent assistant messages.
 Exact spellings are deduplicated; punctuation-separated filenames and identifiers
 have separate word entries. Words longer than 256 units are not offered.
 
@@ -139,10 +147,18 @@ search units only, never rewrites source text or a model's final answer.
 
 The resulting `queryResolution` metadata records resolved word strings,
 positive `omittedTokens` when applicable, temporal interpretation and
-quoted message positions within that preparation history. These are references
+quoted message positions in the visible message array used for preparation.
+Summary-based quotes retain optional `source: 'compaction-summary'` alongside
+their actual `system` role, distinguishing them from original operator words.
+These are references
 to visible conversation, not authenticated archive addresses or proof of truth.
 They share the existing added-context character allowance. Grounding validates
 spelling and source inclusion, not semantic relevance.
+
+The [long-history CLI experiment](../../research/conversation-evidence/long-history-results.md)
+uses 18 intervening turns, real manual compaction and process restart.
+It distinguishes explicitly named historical questions from unnamed references;
+retaining a summary in planning does not by itself prove correct interpretation.
 
 The [indexed-query CLI trial](../../research/conversation-evidence/indexed-query-results.md)
 compares the observed spelling failure with selection from numbered source words

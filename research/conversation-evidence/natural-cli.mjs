@@ -19,6 +19,13 @@ if (recallEvidence && disableRecall) throw new Error('Choose either --recall-evi
 const recallConfiguration = disableRecall ? 'disabled' : recallEvidence ? 'enabled' : 'default';
 const referential = process.argv.includes('--referential');
 const scriptedObservation = process.argv.includes('--scripted-observation');
+const distractorIndex = process.argv.indexOf('--distractor-turns');
+const distractorTurns = distractorIndex < 0 ? 0 : Number(process.argv[distractorIndex + 1]);
+if (!Number.isInteger(distractorTurns) || distractorTurns < 0 || distractorTurns > 24) throw new Error('--distractor-turns must be 0–24.');
+const compactBeforeRecall = process.argv.includes('--compact-before-recall');
+const unnamedHistory = process.argv.includes('--unnamed-history');
+if (unnamedHistory && !distractorTurns) throw new Error('--unnamed-history requires intervening distractor turns.');
+if ((distractorTurns || compactBeforeRecall) && !scriptedObservation) throw new Error('Long-history controls require --scripted-observation.');
 const queryAblation = process.argv.includes('--query-ablation');
 const resolveEvidenceQueries = process.argv.includes('--resolve-queries');
 const checkTopic = process.argv.includes('--check-topic');
@@ -38,6 +45,7 @@ const originalText = Array.from({ length: 400 }, (_, i) => i === 210
   : `Sevkiyat denetim kaydı ${i}: ${'ambalaj sağlam; teslimat bekleniyor; '.repeat(20)}`).join('\n');
 const replacementText = `Güncel revizyon; önceki dökümün yerini aldı.\nDELTA siparişi. Takip kodu: ${replacement.tracking}. Hedef deposu: ${replacement.depot}.\n`;
 await writeFile(file, originalText);
+for (let i=0;i<distractorTurns;i++) await writeFile(join(cwd, `kontrol-${i}.txt`), `OMEGA-${i} is a separate inspection.\nLocal reference: ${randomUUID()}\n`);
 await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'codex', model: 'gpt-5.6-luna' }], subagents: { active: [] } }));
 await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + (disableRecall ? 'compaction:\n  recallEvidence: false\n' : recallEvidence ? 'compaction:\n  recallEvidence: true\n  resolveEvidenceQueries: '+resolveEvidenceQueries+'\n' : ''));
 const sdkURL = new URL('../../packages/sdk/dist/index.js', import.meta.url);
@@ -87,18 +95,20 @@ if(phase==='1') {
  ${progressUpdates} && index<=7 ? {text:'Inspection progress '+index+'.',toolCalls:[{id:'progress-'+index,name:'glob',args:{path:'.',pattern:'sevkiyatlar.txt'}}]}:
  {text:${JSON.stringify(progressUpdates ? 'Inspection completed.' : referential ? 'DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.' : 'Döküm sevkiyat denetim kayıtlarını içeriyor.')}};
 }
+ else if(Number(phase)>=10)turn=step++===0?{toolCalls:[{id:'distractor-read-'+phase,name:'read',args:{path:'kontrol-'+(Number(phase)-10)+'.txt'}}]}:{text:'Ayrı kontrol '+(Number(phase)-10)+' kaydı incelendi.'};
  else if(phase==='3')turn=step++===0?{toolCalls:[{id:'current-read',name:'read',args:{path:'sevkiyatlar.txt'}}]}:{text:String(last.content)};
  else if(step++===0)turn={toolCalls:[{id:'history-search',name:'search_conversation',args:{query:'DELTA'}}]};
  else {const page=parse(last.content);if(last.toolCallId.startsWith('history-search')){
- const match=page.matches?.find(m=>m.toolName==='read')??page.matches?.[0];
+ const match=page.matches?.find(m=>m.toolName==='read'&&m.source==='tool_completed');
+ if(!match&&!page.nextCursor)throw new Error('Controlled recovery exhausted search without the original read.');
  turn=match?{toolCalls:[{id:'history-read',name:'read_conversation',args:{runId:match.runId,seq:match.seq,part:match.part,byteOffset:match.byteOffset}}]}:{toolCalls:[{id:'history-search-'+step,name:'search_conversation',args:{query:'DELTA',cursor:page.nextCursor}}]};
  }else turn={text:page.text};}
  yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
 }}};};`);
 
-const builtFiles=['packages/providers/openai/dist/codex.js','packages/sdk/dist/runtime/query/tool-output-budget.js','packages/sdk/dist/runtime/query/callback-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/run/preparation-context-error.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
+const builtFiles=['packages/sdk/dist/compaction/manual.js','packages/cli/dist/integrations/sessions/compaction-evidence.js','packages/providers/openai/dist/codex.js','packages/sdk/dist/runtime/query/tool-output-budget.js','packages/sdk/dist/runtime/query/callback-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/run/preparation-context-error.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
 const fingerprints=async()=>Object.fromEntries(await Promise.all(builtFiles.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
-const report = { root, live, inspectWire, failQueryPlan, checkCurrent, recallConfiguration, referential, scriptedObservation, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
+const report = { root, live, inspectWire, failQueryPlan, checkCurrent, recallConfiguration, referential, scriptedObservation, distractorTurns, compactBeforeRecall, unnamedHistory, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
 const allEvents = async () => {
   const events = [];
   for (const session of await readdir(join(home, 'sessions'), { withFileTypes: true })) {
@@ -106,18 +116,31 @@ const allEvents = async () => {
     const runs = join(home, 'sessions', session.name, 'runs');
     for (const run of await readdir(runs, { withFileTypes: true })) {
       if (!run.isDirectory()) continue;
-      const text = await readFile(join(runs, run.name, 'transcript.jsonl'), 'utf8');
+      const runDir=join(runs,run.name);
+      let text;
+      try {text = await readFile(join(runDir, 'transcript.jsonl'), 'utf8');}
+      catch(error) {
+        const entries=await readdir(runDir);
+        // Admission may create an account before message validation starts a
+        // transcript. Do not mask the actual CLI error with a scanner ENOENT.
+        if(error.code==='ENOENT' && entries.length===1 && entries[0]==='token-budget.json') {
+          report.unstartedRuns??=[];
+          if(!report.unstartedRuns.includes(run.name))report.unstartedRuns.push(run.name);
+          continue;
+        }
+        throw error;
+      }
       events.push(...text.trim().split('\n').map(JSON.parse));
     }
   }
   return events;
 };
 
-async function turn(prompt, phase, tokenBudget) {
+async function turn(prompt, phase, tokenBudget, scriptedOverride = false) {
   const args = ['--quiet', 'run-stream', '--session', 'natural-recall', '--trust', '--cwd', cwd,
     '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', phase===1 && progressUpdates ? '12' : referential ? '4' : '6', '--token-budget', String(tokenBudget), prompt];
   const before = new Set((phase === 1 ? [] : await allEvents()).map(e=>e.runId));
-  const scripted = !live || (phase===1 && scriptedObservation);
+  const scripted = scriptedOverride || !live || (phase===1 && scriptedObservation);
   const record = { phase, prompt, args, tokenBudget, scripted };
   report.turns.push(record);
   let result;
@@ -153,6 +176,9 @@ try {
     if (output.outputSpillPath && output.outputSpillIntegrity) captured.push(await readFile(output.outputSpillPath,'utf8'));
   }
   const capturedBoth = containsBoth(captured.join('\n'));
+  const initialEvidencePaths=outputs.flatMap(output=>output.outputSpillPath&&output.outputSpillIntegrity?[output.outputSpillPath,output.outputSpillPath+'.manifest.json']:[]);
+  const evidenceHashes=async()=>Object.fromEntries(await Promise.all(initialEvidencePaths.map(async path=>[path,createHash('sha256').update(await readFile(path)).digest('hex')])));
+  report.initialEvidenceBefore=await evidenceHashes();
   const visibleText = [...outputs.map(e=>String(e.result)), ...first.events.filter(e=>e.type==='message_completed').map(e=>String(e.content??'')), first.record.done?.text??''].join('\n');
   const visibleOriginalCount = Object.values(original).filter(value=>visibleText.includes(value)).length;
   report.prerequisites = {
@@ -168,6 +194,18 @@ try {
     throw new Error('Initial observation is ineligible for a missing-detail recall trial.');
   if(progressUpdates && report.prerequisites.progressUpdates!==7) throw new Error('Expected seven recorded progress messages.');
   await writeFile(file, replacementText);
+  for (let i=0;i<distractorTurns;i++) {
+    const distractor=await turn(`Ayrı bir kontrol: kontrol-${i}.txt dosyasını oku ve tek cümleyle özetle.`, 10+i, 25_000, true);
+    if (distractor.record.done?.stopReason!=='end_turn' || distractor.record.errors.length || distractor.record.processError ||
+        distractor.record.calls.length!==1 || distractor.record.calls[0].name!=='read' ||
+        distractor.record.calls[0].input.path!==`kontrol-${i}.txt`) throw new Error('Distractor did not complete its single controlled file observation.');
+  }
+  if(compactBeforeRecall) {
+    const helper=fileURLToPath(new URL('./compact-natural.mjs',import.meta.url));
+    const compacted=await exec(process.execPath,[helper,cwd,JSON.stringify(Object.values(original))],{cwd,env:{...process.env,NAMZU_HOME:home},timeout:30_000,maxBuffer:1_000_000});
+    report.compaction=JSON.parse(compacted.stdout);
+    if(!report.compaction.initialReadRemoved || !report.compaction.originalToolArchived) throw new Error('Compaction did not remove and archive the initial read.');
+  }
   if(queryAblation){
     process.env.NAMZU_HOME=home;
     const {openSessions,resolveConversation,loadConversation}=await import('../../packages/cli/dist/integrations/sessions/store.js');
@@ -194,7 +232,7 @@ try {
     report.ablationArchivesUnchanged=JSON.stringify(before)===JSON.stringify(await archiveHashes());
     if(!report.ablationArchivesUnchanged)throw new Error('Read-only query ablation changed archive transcripts.');
   }
-  const second = await turn(referential ? 'Az önce baktığın kaydın iki kimliğini aynen yazar mısın?' : 'Az önce incelediğin dökümde DELTA siparişinin takip kodu ve hedef deposu neydi?', 2, referential ? 30_000 : 50_000);
+  const second = await turn(distractorTurns ? unnamedHistory ? 'En başta incelediğin kaydın iki kimliğini aynen yazar mısın?' : 'En başta incelediğin DELTA kaydının iki kimliğini aynen yazar mısın?' : referential ? 'Az önce baktığın kaydın iki kimliğini aynen yazar mısın?' : 'Az önce incelediğin dökümde DELTA siparişinin takip kodu ve hedef deposu neydi?', 2, referential ? 30_000 : 50_000);
   const answer = second.record.done?.text??'';
   report.observations = {
     correctOriginal: containsBoth(answer),
@@ -230,6 +268,9 @@ try {
     report.topicCheck={answer:topicText,sourceUnchanged:await readFile(file,'utf8')===replacementText,containsShippingIds:unrelated.some(id=>topicText.includes(id)),stopReason:topic.record.done?.stopReason};
     report.topicCheck.passed=!report.topicCheck.containsShippingIds&&report.topicCheck.sourceUnchanged&&!topic.record.processError&&topic.record.errors.length===0&&topic.record.done?.stopReason==='end_turn';
   }
+  report.initialEvidenceAfter=await evidenceHashes();
+  report.initialEvidenceUnchanged=JSON.stringify(report.initialEvidenceBefore)===JSON.stringify(report.initialEvidenceAfter);
+  report.passed=report.passed&&report.initialEvidenceUnchanged;
   report.historicalPassed=report.passed;
   report.passed=report.passed&&report.currentCheck?.passed!==false&&report.topicCheck?.passed!==false;
   if(!report.passed)process.exitCode=1;
@@ -246,7 +287,7 @@ finally {
     if(!report.wire.length){report.passed=false;report.wireError??='No actual Responses transport request was observed.';process.exitCode=1;}
   }
   report.fingerprints={};
-  for(const path of ['packages/sdk/src/runtime/query/callback-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/sdk/src/run/preparation-context-error.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs','research/conversation-evidence/observe-recall-wire.mjs'])
+  for(const path of ['packages/sdk/src/runtime/query/callback-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/sdk/src/run/preparation-context-error.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs','research/conversation-evidence/observe-recall-wire.mjs','research/conversation-evidence/compact-natural.mjs'])
     report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
   await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({root,live,passed:report.passed,prerequisites:report.prerequisites,observations:report.observations,currentCheck:report.currentCheck,turns:report.turns.map(t=>({phase:t.phase,calls:t.calls,totalTokens:t.totalTokens})),error:report.error}));

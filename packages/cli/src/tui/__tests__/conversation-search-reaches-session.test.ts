@@ -227,6 +227,95 @@ it.each([false, true])(
 	},
 )
 
+it('resolves a compacted subject through a derived summary after reopening the real Session', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-summary-reference-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd)
+	const sessionId = await startConversation(sessions)
+	const code = `ORIGINAL-${randomUUID()}`
+	await archive(cwd, sessions, sessionId, `DELTA retained receipt: ${code}`)
+	const provider = new MockLLMProvider({
+		nextTurn: (request) => {
+			if (
+				!String(request.messages[0]?.content).startsWith(
+					'Resolve a conversation-history search query.',
+				)
+			)
+				return { text: code }
+			const input = JSON.parse(String(request.messages[1]?.content))
+			const row = input.history.find((m: { source?: string }) => m.source === 'compaction-summary')
+			expect(row).toBeDefined()
+			expect(JSON.stringify(input)).not.toContain(code)
+			const delta = input.tokens.find(([, word]: [number, string]) => word === 'DELTA')
+			return {
+				text: JSON.stringify({
+					mode: 'contextual',
+					time: 'past',
+					termIds: [delta[0]],
+					focusIds: [delta[0]],
+					basis: [{ message: row.message, quote: 'Inspect the DELTA receipt.' }],
+				}),
+			}
+		},
+	})
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+	const options = {
+		cwd,
+		scope: {
+			sessionId,
+			topicId: sessions.topicId,
+			projectId: sessions.projectId,
+			tenantId: sessions.tenantId,
+		},
+		stateRoot: sessions.root,
+		conversationSessions: sessions,
+		sandbox: { enabled: false },
+		memory: { recall: false },
+	}
+	const session = await createAgentSession(preferences, detected, options)
+	opened.push(session)
+	const history = [
+		createUserMessage('Inspect the DELTA receipt.'),
+		createAssistantMessage('It contains an identifier.'),
+		...Array.from({ length: 18 }, (_, i) => [
+			createUserMessage(`Unrelated question ${i}`),
+			createAssistantMessage(`Unrelated answer ${i}`),
+		]).flat(),
+	]
+	const compacted = await session.compact(history)
+	expect(compacted).not.toBeNull()
+	expect(compacted!.messages).not.toContainEqual(history[0])
+	expect(JSON.stringify(compacted!.messages)).not.toContain(code)
+	await replaceConversation(sessions, sessionId, compacted!.messages)
+	await session.close()
+	expect(provider.requests).toHaveLength(0)
+	const reopened = await openSessions(cwd)
+	const next = await createAgentSession(preferences, detected, {
+		...options,
+		conversationSessions: reopened,
+	})
+	opened.push(next)
+	const question = 'What was the exact identifier of the record inspected at the beginning?'
+	for await (const _event of next.send(
+		[...(await loadConversation(reopened, sessionId)), createUserMessage(question)],
+		{ runId: generateRunId(), permissionMode: 'auto' },
+	)) {
+		/* Real compaction, archive discovery, request projection and reopened Session. */
+	}
+	expect(provider.requests).toHaveLength(2)
+	const request = provider.requests[1]!
+	const context = request.messages.filter(
+		(m) =>
+			m.role === 'user' && m.source?.type === 'runtime-context' && m.source.kind === 'step-context',
+	)
+	expect(JSON.stringify(context)).toContain(code)
+	expect(JSON.stringify(context)).toContain('compaction-summary')
+	expect(JSON.stringify(request.messages.filter((m) => !context.includes(m)))).not.toContain(code)
+	expect(request.messages).toContainEqual(
+		expect.objectContaining({ role: 'user', content: question }),
+	)
+})
+
 it('recovers a late compacted message through real Session tools within four model turns', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-many-compacted-messages-'))
 	roots.push(cwd)

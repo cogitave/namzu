@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Preserve one labelled compaction summary in bounded [evidence-query preparation](sdk/evidence-recall.md), retain derived-reference provenance, and measure named and unnamed historical follow-ups after 18 intervening CLI turns and real compaction.
+
 - **Update** Align shortened [tool-output recovery](sdk/tool-execution.md) with host-authorized archive access, distinguish retained observations from fresh source reads, and verify the actual CLI provider request with a bounded live past/current comparison.
 
 - **Update** Carry bounded availability status for failed [evidence recall](sdk/evidence-recall.md) into temporary request context, preserving diagnostics, cancellation and explicit archive recovery without exposing raw errors or rejected data.
