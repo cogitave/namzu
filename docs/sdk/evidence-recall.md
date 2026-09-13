@@ -138,7 +138,25 @@ or establishing a general retrieval success rate.
 
 Self-contained or new-topic plans keep the current literal query. Present-state
 plans never expand with historical terms; fresh source observations remain the
-main model's responsibility. A `none` plan skips optional recall. Malformed or
+main model's responsibility. When the planner identifies competing referents,
+an `ambiguous` plan selects no search terms and cites up to three exact history
+quotes. The host validates those quotes and emits a bounded, request-only
+planning note instead of fetching an arbitrarily selected subject. It asks the
+main model to check the references and clarify if needed; it is explicitly an
+interpretation that may be mistaken, not retrieved evidence or a new operator
+instruction. Quote inclusion does not prove semantic ambiguity.
+
+This note preserves earlier prepared context, uses the same character allowance
+(including JSON escaping), and is omitted entirely if it does not fit. It never
+changes history or system policy, grants no tool authority, and stops on parent
+cancellation. A new operator input invalidates the cached interpretation. A
+missing named subject should retain literal discovery, rather than be treated as
+competing referents or proof that the archive has no matching record.
+The [reference-context CLI comparison](../../research/conversation-evidence/reference-context-results.md)
+records the silent-abstention failure, the corrected clarification decision,
+and remaining unrelated-passage and repeated-output behavior.
+
+A `none` plan skips optional recall without a note. Malformed or
 ungrounded plans reject the optional stage through its existing fail-open
 diagnostic; the main task and explicit archive tools remain available. The
 previous operator query is never used just because literal retrieval was empty.

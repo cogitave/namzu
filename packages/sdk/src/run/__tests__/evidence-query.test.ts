@@ -128,8 +128,8 @@ describe('grounded conversation query resolution', () => {
 				}),
 				current,
 				history,
-			)?.terms,
-		).toEqual(selected)
+			),
+		).toMatchObject({ terms: selected })
 		expect(buildEvidenceQueryInput(current, history)!.tokens).not.toContain('kimliği')
 	})
 	it.each([
@@ -250,9 +250,9 @@ describe('grounded conversation query resolution', () => {
 			termIds: [input.tokens.indexOf('w5_0')],
 			basis: [{ message: 5, quote: 'w5_0' }],
 		}
-		expect(
-			validateEvidenceQueryResolution(JSON.stringify(raw), 'current', supplied)?.omittedTokens,
-		).toBe(225)
+		expect(validateEvidenceQueryResolution(JSON.stringify(raw), 'current', supplied)).toMatchObject(
+			{ omittedTokens: 225 },
+		)
 	})
 	it('fits JSON escaping and vocabulary rows inside the inference input allowance', async () => {
 		const ctx = context(
