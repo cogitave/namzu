@@ -6,6 +6,11 @@ the scripted control; both eligible live samples answered a historical question
 with the changed file's current values. The later live sample had an incomplete
 initial inspection and does not establish recall performance.
 
+A later [referential follow-up experiment](referential-results.md) tests the
+newer retrieval implementation after `6c682d87`. Its controlled initial read
+qualifies, but a live question omitting the record name still selects current
+workspace values. It records that separate failure and a query-resolution ablation.
+
 [Raw results and source fingerprints](natural-results.json) preserve the
 failures, terminal stop reasons, individual calls, exact synthetic identifiers
 and per-request usage. The [CLI harness](natural-cli.mjs) launches independent

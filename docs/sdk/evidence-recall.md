@@ -61,6 +61,15 @@ filter. Literal spelling is preserved for search. There is no stemming,
 translation, synonym expansion or embedding model. Other languages may need a
 host retrieval strategy that suits their text.
 
+The step does not resolve references such as “the record you just inspected”
+against earlier operator turns. A [restarted CLI experiment](../../research/conversation-evidence/referential-results.md)
+found no original identifiers for such a query, while an explicit query naming
+the record retrieved both. The live low-effort model then answered from a changed
+workspace file. That historical/current source-selection failure remains open;
+retention and exact archive-read tests do not establish referential understanding.
+An unrelated new-topic query also returned no evidence, so absence of matches
+alone is insufficient to justify using the previous operator's topic.
+
 Duplicate source/excerpt addresses with equal metadata are omitted. Exact passages
 already visible in history or an earlier stage's `prepared.system`/`prepared.context`
 contribute quoted source references instead of new passages. Tool text blocks

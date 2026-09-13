@@ -1,0 +1,1034 @@
+[
+  {
+    "root": "/tmp/namzu-natural-recall-Tg7MXP",
+    "live": false,
+    "checkCurrent": true,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "provider": "scripted",
+    "model": "scripted",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-5ab98ca7-6b2d-485d-850a-8d75c234ec4c",
+      "depot": "DEPO-1d2b4c97-5a7b-409c-93f8-7364d3de3e79"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-5ef3e688-361a-4413-8a1e-3ac1c04413b1",
+      "depot": "YENI-DEPO-f1ae5e6d-3ea4-403f-b48c-c0d88bd26035"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-Tg7MXP/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-Tg7MXP/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "or; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n211\tDELTA siparişi. Takip kodu: TAKIP-5ab98ca7-6b2d-485d-850a-8d75c234ec4c.\n212\tSevkiyat denetim kaydı 211: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n213\tSevkiyat denetim kaydı 212: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n214\tDELTA siparişinin hedef deposu: DEPO-1d2b4c97-5a7b-409c-93f8-7364d3de3e79.\n215\tSevkiyat denetim kaydı 214: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n216\tSevkiyat denetim kaydı 215: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n217\tSevkiyat denetim kaydı 216: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n218\tSevkiyat denetim kaydı 217: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n219\tSevkiyat denetim kaydı 218: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n220\tSevkiyat denetim kaydı 219: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat be",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 30000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "search_conversation",
+            "input": {
+              "query": "DELTA"
+            }
+          },
+          {
+            "name": "read_conversation",
+            "input": {
+              "runId": "738b5050-0466-4ee2-aa70-3488fd400aee",
+              "seq": 16,
+              "part": 0,
+              "byteOffset": 166403
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 3,
+        "prompt": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-Tg7MXP/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "25000",
+          "Şimdi aynı dosyadaki güncel iki kimliği söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "1\tGüncel revizyon; önceki dökümün yerini aldı.\n2\tDELTA siparişi. Takip kodu: YENI-TAKIP-5ef3e688-361a-4413-8a1e-3ac1c04413b1. Hedef deposu: YENI-DEPO-f1ae5e6d-3ea4-403f-b48c-c0d88bd26035.\n3\t",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 0,
+        "cachedTokens": 0
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/run/evidence-recall.js": "44c8cf1c0277d8d04098109f412afd9338e523912ed9226b01129e9e6e77af37",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "b777bc00124debaf0c390797006fd34933d7d8cd01e02f315631355dd56283eb",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true
+    },
+    "observations": {
+      "correctOriginal": true,
+      "usedReplacement": false,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 1,
+      "exactArchiveReads": 1,
+      "workspaceObservations": 0,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": true,
+    "currentCheck": {
+      "correctReplacement": true,
+      "usedOriginal": false,
+      "workspaceObservations": 1,
+      "sourceUnchanged": true,
+      "failedTools": 0,
+      "passed": true
+    },
+    "buildAfter": {
+      "packages/sdk/dist/run/evidence-recall.js": "44c8cf1c0277d8d04098109f412afd9338e523912ed9226b01129e9e6e77af37",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "b777bc00124debaf0c390797006fd34933d7d8cd01e02f315631355dd56283eb",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116"
+    },
+    "buildStable": true,
+    "fingerprints": {
+      "packages/sdk/src/run/evidence-recall.ts": "a3fe4d13e5d9efc36687d6c8a477848f5c98ddf8f260df0630c5e9f458eb85de",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "5cf0a772d9c8d5401c0c42ee6cb106a48a7a28b4413f2045d87b397325ba7de3",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "437965d167c388c658c67fe5f44dbb709aad844de05da021ec097bb3b607073f",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "08d5951f09033925aa2958892e65451d54d9b6e7bdd7997e6ed1b2ef5971cfe9"
+    }
+  },
+  {
+    "root": "/tmp/namzu-natural-recall-0TGiSr",
+    "live": true,
+    "checkCurrent": true,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "provider": "codex",
+    "model": "gpt-5.6-luna",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-cd64cd9e-bb21-4306-a91b-1b974645b561",
+      "depot": "DEPO-fab3094f-85f0-48d8-8f0d-f1a757944fce"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-cca6c14d-6b4a-47be-a549-276aef115db4",
+      "depot": "YENI-DEPO-011c0a5c-1bf7-49c0-ba05-20d72165c2eb"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-0TGiSr/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-0TGiSr/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "YENI-TAKIP-cca6c14d-6b4a-47be-a549-276aef115db4  \nYENI-DEPO-011c0a5c-1bf7-49c0-ba05-20d72165c2eb",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 17009,
+            "treeTokens": 17009,
+            "reservedTokens": 0,
+            "remainingTokens": 12991,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "grep",
+            "input": {
+              "pattern": "DELTA",
+              "path": "sevkiyatlar.txt",
+              "case_sensitive": true,
+              "context_lines": 2,
+              "max_results": 10
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 8135,
+            "completionTokens": 92,
+            "totalTokens": 8227,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 8698,
+            "completionTokens": 84,
+            "totalTokens": 8782,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 17009,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 3,
+        "prompt": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-0TGiSr/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "25000",
+          "Şimdi aynı dosyadaki güncel iki kimliği söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "YENI-TAKIP-cca6c14d-6b4a-47be-a549-276aef115db4 ve YENI-DEPO-011c0a5c-1bf7-49c0-ba05-20d72165c2eb.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 18477,
+            "treeTokens": 18477,
+            "reservedTokens": 0,
+            "remainingTokens": 6523,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt",
+              "readRange": [
+                1,
+                3
+              ]
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 9018,
+            "completionTokens": 41,
+            "totalTokens": 9059,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 9342,
+            "completionTokens": 76,
+            "totalTokens": 9418,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 18477,
+        "cachedTokens": 0
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/run/evidence-recall.js": "44c8cf1c0277d8d04098109f412afd9338e523912ed9226b01129e9e6e77af37",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "b777bc00124debaf0c390797006fd34933d7d8cd01e02f315631355dd56283eb",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true
+    },
+    "observations": {
+      "correctOriginal": false,
+      "usedReplacement": true,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 0,
+      "exactArchiveReads": 0,
+      "workspaceObservations": 1,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": false,
+    "currentCheck": {
+      "correctReplacement": true,
+      "usedOriginal": false,
+      "workspaceObservations": 1,
+      "sourceUnchanged": true,
+      "failedTools": 0,
+      "passed": true
+    },
+    "buildAfter": {
+      "packages/sdk/dist/run/evidence-recall.js": "44c8cf1c0277d8d04098109f412afd9338e523912ed9226b01129e9e6e77af37",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "b777bc00124debaf0c390797006fd34933d7d8cd01e02f315631355dd56283eb",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116"
+    },
+    "buildStable": true,
+    "requests": [
+      {
+        "phase": "2",
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "contextChars": 1436,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "3",
+        "contextChars": 1949,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "3",
+        "contextChars": 2358,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      }
+    ],
+    "fingerprints": {
+      "packages/sdk/src/run/evidence-recall.ts": "a3fe4d13e5d9efc36687d6c8a477848f5c98ddf8f260df0630c5e9f458eb85de",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "5cf0a772d9c8d5401c0c42ee6cb106a48a7a28b4413f2045d87b397325ba7de3",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "437965d167c388c658c67fe5f44dbb709aad844de05da021ec097bb3b607073f",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "08d5951f09033925aa2958892e65451d54d9b6e7bdd7997e6ed1b2ef5971cfe9"
+    }
+  },
+  {
+    "root": "/tmp/namzu-natural-recall-ejnVxZ",
+    "live": false,
+    "checkCurrent": true,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "queryAblation": true,
+    "provider": "scripted",
+    "model": "scripted",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-29685477-73aa-4c20-88a5-9e1a4de73250",
+      "depot": "DEPO-c7910bc7-3885-46ef-978b-4a1693cf8c93"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-53a65b2d-09fb-4986-bf05-e4e6226d505c",
+      "depot": "YENI-DEPO-9c7822dd-f656-472d-806f-af04e41e1fc9"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-ejnVxZ/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-ejnVxZ/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "or; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n211\tDELTA siparişi. Takip kodu: TAKIP-29685477-73aa-4c20-88a5-9e1a4de73250.\n212\tSevkiyat denetim kaydı 211: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n213\tSevkiyat denetim kaydı 212: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n214\tDELTA siparişinin hedef deposu: DEPO-c7910bc7-3885-46ef-978b-4a1693cf8c93.\n215\tSevkiyat denetim kaydı 214: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n216\tSevkiyat denetim kaydı 215: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n217\tSevkiyat denetim kaydı 216: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n218\tSevkiyat denetim kaydı 217: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n219\tSevkiyat denetim kaydı 218: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; \n220\tSevkiyat denetim kaydı 219: ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat bekleniyor; ambalaj sağlam; teslimat be",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 30000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "search_conversation",
+            "input": {
+              "query": "DELTA"
+            }
+          },
+          {
+            "name": "read_conversation",
+            "input": {
+              "runId": "06e5556f-3e7a-4931-b0f9-bc32691170a9",
+              "seq": 16,
+              "part": 0,
+              "byteOffset": 166403
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 3,
+        "prompt": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-ejnVxZ/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "25000",
+          "Şimdi aynı dosyadaki güncel iki kimliği söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "1\tGüncel revizyon; önceki dökümün yerini aldı.\n2\tDELTA siparişi. Takip kodu: YENI-TAKIP-53a65b2d-09fb-4986-bf05-e4e6226d505c. Hedef deposu: YENI-DEPO-9c7822dd-f656-472d-806f-af04e41e1fc9.\n3\t",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "totalTokens": 0,
+        "cachedTokens": 0
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/run/evidence-recall.js": "44c8cf1c0277d8d04098109f412afd9338e523912ed9226b01129e9e6e77af37",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "b777bc00124debaf0c390797006fd34933d7d8cd01e02f315631355dd56283eb",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true
+    },
+    "queryAblations": [
+      {
+        "label": "referential",
+        "query": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "contextChars": 0,
+        "originals": [
+          false,
+          false
+        ],
+        "metadata": null
+      },
+      {
+        "label": "previous-operator",
+        "query": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "contextChars": 2809,
+        "originals": [
+          true,
+          true
+        ],
+        "metadata": {
+          "incomplete": false,
+          "scannedBytes": 225635,
+          "omittedPassages": 0,
+          "visibleEvidence": [
+            {
+              "textQuote": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+              "address": {
+                "runId": "06e5556f-3e7a-4931-b0f9-bc32691170a9",
+                "seq": 23,
+                "part": 0,
+                "byteOffset": 0
+              },
+              "recordedAt": 1789265015317,
+              "source": "message_completed",
+              "retained": "full"
+            }
+          ],
+          "omittedVisibleEvidence": 0,
+          "visibleEvidenceGuidance": "Each textQuote is an exact, bounded match in visible text paired with this archive source, not a full record. Use its address for more text; list order is not chronology."
+        }
+      },
+      {
+        "label": "oracle-standalone",
+        "query": "Az önce incelediğin DELTA siparişinin takip kodu ve hedef deposu neydi?",
+        "contextChars": 2809,
+        "originals": [
+          true,
+          true
+        ],
+        "metadata": {
+          "incomplete": false,
+          "scannedBytes": 225635,
+          "omittedPassages": 0,
+          "visibleEvidence": [
+            {
+              "textQuote": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+              "address": {
+                "runId": "06e5556f-3e7a-4931-b0f9-bc32691170a9",
+                "seq": 23,
+                "part": 0,
+                "byteOffset": 0
+              },
+              "recordedAt": 1789265015317,
+              "source": "message_completed",
+              "retained": "full"
+            }
+          ],
+          "omittedVisibleEvidence": 0,
+          "visibleEvidenceGuidance": "Each textQuote is an exact, bounded match in visible text paired with this archive source, not a full record. Use its address for more text; list order is not chronology."
+        }
+      },
+      {
+        "label": "new-topic",
+        "query": "Akdeniz ikliminin özellikleri nelerdir?",
+        "contextChars": 0,
+        "originals": [
+          false,
+          false
+        ],
+        "metadata": null
+      }
+    ],
+    "ablationArchivesUnchanged": true,
+    "observations": {
+      "correctOriginal": true,
+      "usedReplacement": false,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 1,
+      "exactArchiveReads": 1,
+      "workspaceObservations": 0,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": true,
+    "currentCheck": {
+      "correctReplacement": true,
+      "usedOriginal": false,
+      "workspaceObservations": 1,
+      "sourceUnchanged": true,
+      "failedTools": 0,
+      "passed": true
+    },
+    "buildAfter": {
+      "packages/sdk/dist/run/evidence-recall.js": "44c8cf1c0277d8d04098109f412afd9338e523912ed9226b01129e9e6e77af37",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "b777bc00124debaf0c390797006fd34933d7d8cd01e02f315631355dd56283eb",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "f6b31c9efff9df66097f51d7d3ed9e6b414e51940dfad6783ae7a8af11467116"
+    },
+    "buildStable": true,
+    "fingerprints": {
+      "packages/sdk/src/run/evidence-recall.ts": "a3fe4d13e5d9efc36687d6c8a477848f5c98ddf8f260df0630c5e9f458eb85de",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "5cf0a772d9c8d5401c0c42ee6cb106a48a7a28b4413f2045d87b397325ba7de3",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "437965d167c388c658c67fe5f44dbb709aad844de05da021ec097bb3b607073f",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "12f68eea1d3fdf9495db2a55b46cce165f0be0d5f9ee99cd4b14dce3fb4a8c3a"
+    }
+  }
+]

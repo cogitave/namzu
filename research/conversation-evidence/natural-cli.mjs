@@ -10,6 +10,9 @@ const exec = promisify(execFile);
 const live = process.argv.includes('--live');
 const checkCurrent = process.argv.includes('--check-current');
 const recallEvidence = process.argv.includes('--recall-evidence');
+const referential = process.argv.includes('--referential');
+const scriptedObservation = process.argv.includes('--scripted-observation');
+const queryAblation = process.argv.includes('--query-ablation');
 const root = await mkdtemp(join(tmpdir(), 'namzu-natural-recall-'));
 const home = join(root, 'home');
 const cwd = join(root, 'workspace');
@@ -28,12 +31,25 @@ await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  ena
 const sdkURL = new URL('../../packages/sdk/dist/index.js', import.meta.url);
 const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
 const preload = join(root, 'scripted-provider.mjs');
-// Only the offline control replaces model choices. Live runs launch the plain CLI.
+const observer = join(root, 'observe-provider.mjs');
+await writeFile(observer, `import {ProviderRegistry} from ${JSON.stringify(sdkURL.href)};
+import {appendFile} from 'node:fs/promises';
+const create=ProviderRegistry.create.bind(ProviderRegistry);
+ProviderRegistry.create=(...args)=>{const created=create(...args);const stream=created.provider.chatStream.bind(created.provider);
+created.provider.chatStream=async function*(params){
+ const context=params.messages.filter(m=>m.source?.type==='runtime-context'&&m.source.kind==='step-context');
+ const ordinary=params.messages.filter(m=>!context.includes(m));
+ const codes=${JSON.stringify(Object.values(original))};
+ await appendFile(${JSON.stringify(join(root, 'requests.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,contextChars:context.reduce((n,m)=>n+String(m.content).length,0),contextOriginals:codes.map(code=>context.some(m=>String(m.content).includes(code))),ordinaryOriginals:codes.map(code=>ordinary.some(m=>JSON.stringify(m).includes(code)))})+'\\n');
+ yield* stream(params);
+};return created;};`);
+// Offline controls, and the optional initial observation, script only model
+// decisions. All file tools and persistence remain production implementations.
 await writeFile(preload, `import {ProviderRegistry,MockLLMProvider} from ${JSON.stringify(sdkURL.href)};
 const parse=c=>{const s=String(c);return JSON.parse(s.slice(s.indexOf('{'),s.lastIndexOf('}')+1));};
 ProviderRegistry.create=()=>{let step=0;return {provider:{id:'scripted',name:'scripted',async *chatStream(params){
  const phase=process.env.NAMZU_NATURAL_PHASE; const last=params.messages.filter(m=>m.role==='tool').at(-1); let turn;
- if(phase==='1')turn=step++===0?{toolCalls:[{id:'initial-read',name:'read',args:{path:'sevkiyatlar.txt'}}]}:{text:'Döküm sevkiyat denetim kayıtlarını içeriyor.'};
+if(phase==='1')turn=step++===0?{toolCalls:[{id:'initial-read',name:'read',args:{path:'sevkiyatlar.txt'}}]}:{text:${JSON.stringify(referential ? 'DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.' : 'Döküm sevkiyat denetim kayıtlarını içeriyor.')}};
  else if(phase==='3')turn=step++===0?{toolCalls:[{id:'current-read',name:'read',args:{path:'sevkiyatlar.txt'}}]}:{text:String(last.content)};
  else if(step++===0)turn={toolCalls:[{id:'history-search',name:'search_conversation',args:{query:'DELTA'}}]};
  else {const page=parse(last.content);if(last.toolCallId.startsWith('history-search')){
@@ -43,7 +59,9 @@ ProviderRegistry.create=()=>{let step=0;return {provider:{id:'scripted',name:'sc
  yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
 }}};};`);
 
-const report = { root, live, checkCurrent, recallEvidence, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [] };
+const builtFiles=['packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
+const fingerprints=async()=>Object.fromEntries(await Promise.all(builtFiles.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
+const report = { root, live, checkCurrent, recallEvidence, referential, scriptedObservation, queryAblation, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
 const allEvents = async () => {
   const events = [];
   for (const session of await readdir(join(home, 'sessions'), { withFileTypes: true })) {
@@ -60,14 +78,15 @@ const allEvents = async () => {
 
 async function turn(prompt, phase, tokenBudget) {
   const args = ['--quiet', 'run-stream', '--session', 'natural-recall', '--trust', '--cwd', cwd,
-    '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', '6', '--token-budget', String(tokenBudget), prompt];
+    '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', referential ? '4' : '6', '--token-budget', String(tokenBudget), prompt];
   const before = new Set((phase === 1 ? [] : await allEvents()).map(e=>e.runId));
-  const record = { phase, prompt, args, tokenBudget };
+  const scripted = !live || (phase===1 && scriptedObservation);
+  const record = { phase, prompt, args, tokenBudget, scripted };
   report.turns.push(record);
   let result;
   try {
-    result = await exec(process.execPath, [...(live ? [] : ['--import', preload]), cli, ...args], {
-      cwd, env: {...process.env, NAMZU_HOME:home, NAMZU_NATURAL_PHASE:String(phase)}, timeout:180_000, maxBuffer:2_000_000,
+    result = await exec(process.execPath, ['--import', scripted ? preload : observer, cli, ...args], {
+      cwd, env: {...process.env, NAMZU_HOME:home, NAMZU_NATURAL_PHASE:String(phase)}, timeout:referential ? 120_000 : 180_000, maxBuffer:2_000_000,
     });
   } catch (error) {
     record.processError = String(error.message);
@@ -86,7 +105,7 @@ async function turn(prompt, phase, tokenBudget) {
 }
 
 try {
-  const first = await turn('sevkiyatlar.txt dosyasının tamamını incele; yalnızca hangi tür kayıtlar içerdiğini bir cümleyle söyle.', 1, 25_000);
+  const first = await turn(referential ? 'sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.' : 'sevkiyatlar.txt dosyasının tamamını incele; yalnızca hangi tür kayıtlar içerdiğini bir cümleyle söyle.', 1, 25_000);
   const outputs = first.events.filter(e=>e.type==='tool_completed');
   const containsBoth = text=>typeof text==='string' && text.includes(original.tracking) && text.includes(original.depot);
   const captured = [];
@@ -105,8 +124,36 @@ try {
     initialSourceUnchanged: await readFile(file,'utf8')===originalText,
     successfulInitialRead: outputs.some(e=>e.toolName==='read'&&!e.isError),
   };
+  if(!capturedBoth || !report.prerequisites.initialCompleted || !report.prerequisites.initialSourceUnchanged || !report.prerequisites.successfulInitialRead || visibleOriginalCount!==0)
+    throw new Error('Initial observation is ineligible for a missing-detail recall trial.');
   await writeFile(file, replacementText);
-  const second = await turn('Az önce incelediğin dökümde DELTA siparişinin takip kodu ve hedef deposu neydi?', 2, 50_000);
+  if(queryAblation){
+    process.env.NAMZU_HOME=home;
+    const {openSessions,resolveConversation,loadConversation}=await import('../../packages/cli/dist/integrations/sessions/store.js');
+    const {createConversationEvidenceRecall}=await import('../../packages/cli/dist/integrations/sessions/evidence-recall.js');
+    const {createUserMessage,generateRunId}=await import(sdkURL);
+    const sessions=await openSessions(cwd);const sessionId=await resolveConversation(sessions,'natural-recall');
+    const messages=await loadConversation(sessions,sessionId);
+    const recall=createConversationEvidenceRecall(sessions,sessionId,()=>{});
+    const archiveDir=join(home,'sessions',sessionId,'runs');
+    const archivePaths=(await readdir(archiveDir,{withFileTypes:true})).filter(e=>e.isDirectory()).map(e=>join(archiveDir,e.name,'transcript.jsonl'));
+    const archiveHashes=async()=>Promise.all(archivePaths.map(async path=>createHash('sha256').update(await readFile(path)).digest('hex')));
+    const before=await archiveHashes();report.queryAblations=[];
+    for(const [label,query] of [
+      ['referential','Az önce baktığın kaydın iki kimliğini aynen yazar mısın?'],
+      ['previous-operator',first.record.prompt],
+      ['oracle-standalone','Az önce incelediğin DELTA siparişinin takip kodu ve hedef deposu neydi?'],
+      ['new-topic','Akdeniz ikliminin özellikleri nelerdir?'],
+    ]){
+      const operator=createUserMessage(query);
+      const result=await recall({runId:generateRunId(),stepNumber:1,steps:[],messages:[...messages,operator],latestUserMessage:operator,prepared:{}});
+      const text=result?.context??'';
+      report.queryAblations.push({label,query,contextChars:text.length,originals:Object.values(original).map(code=>text.includes(code)),metadata:text?JSON.parse(text.split('\n')[1]):null});
+    }
+    report.ablationArchivesUnchanged=JSON.stringify(before)===JSON.stringify(await archiveHashes());
+    if(!report.ablationArchivesUnchanged)throw new Error('Read-only query ablation changed archive transcripts.');
+  }
+  const second = await turn(referential ? 'Az önce baktığın kaydın iki kimliğini aynen yazar mısın?' : 'Az önce incelediğin dökümde DELTA siparişinin takip kodu ve hedef deposu neydi?', 2, referential ? 30_000 : 50_000);
   const answer = second.record.done?.text??'';
   report.observations = {
     correctOriginal: containsBoth(answer),
@@ -122,7 +169,7 @@ try {
     && report.observations.correctOriginal && !report.observations.usedReplacement && report.observations.replacementUnchanged
     && report.turns.every(t=>!t.processError&&t.errors.length===0&&t.done?.stopReason==='end_turn');
   if (checkCurrent) {
-    const current = await turn('Peki aynı siparişin güncel dökümdeki takip kodu ve hedef deposu ne?', 3, 25_000);
+    const current = await turn(referential ? 'Şimdi aynı dosyadaki güncel iki kimliği söyle.' : 'Peki aynı siparişin güncel dökümdeki takip kodu ve hedef deposu ne?', 3, 25_000);
     const currentAnswer = current.record.done?.text??'';
     report.currentCheck = {
       correctReplacement: Object.values(replacement).every(value=>currentAnswer.includes(value)),
@@ -138,6 +185,10 @@ try {
   if(!report.passed || report.currentCheck?.passed===false)process.exitCode=1;
 } catch(error) {report.passed=false;report.error=String(error.message);process.exitCode=1;}
 finally {
+  report.buildAfter=await fingerprints();
+  report.buildStable=JSON.stringify(report.buildBefore)===JSON.stringify(report.buildAfter);
+  if(!report.buildStable){report.passed=false;report.error='Built modules changed during the experiment.';process.exitCode=1;}
+  try {report.requests=(await readFile(join(root,'requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
   report.fingerprints={};
   for(const path of ['packages/sdk/src/run/evidence-recall.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
     report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
