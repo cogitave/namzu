@@ -1,0 +1,2714 @@
+{
+  "version": 1,
+  "root": "/tmp/namzu-lifetime-soak-1U3CYt",
+  "producerCheckout": "/tmp/namzu-resident-soak-0a362604",
+  "startedAt": 1789315935138,
+  "endedAt": 1789323167989,
+  "intervalMs": 600000,
+  "passed": true,
+  "failure": null,
+  "buildBefore": {
+    "sdk/dist/run/json-claim-verifier.js": "3440aed9ee47735cda88b9795eb0df924c940bd1c5ce2ed461e00fe9eda5e004",
+    "sdk/dist/manager/resident/host.js": "c7270ee34c1b8f840be82109c24698516049052ff3066e45889649dcfec1bac2",
+    "cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+    "cli/dist/integrations/resident/verification.js": "c2b32b5c226b483ffc1a84c5c4012df0619a76a27e931f428339573ec1ca6eed",
+    "cli/dist/integrations/resident/runner-worker.js": "3206c4a127eae89530608e90583f4f8c4e3ac63fc53221a52f425863ef7af625",
+    "cli/dist/integrations/resident/runner-launch.js": "218abff101129f72ec1201fd658756a5b2a911b011bf6786315137799eec2c27"
+  },
+  "buildAfter": {
+    "sdk/dist/run/json-claim-verifier.js": "3440aed9ee47735cda88b9795eb0df924c940bd1c5ce2ed461e00fe9eda5e004",
+    "sdk/dist/manager/resident/host.js": "c7270ee34c1b8f840be82109c24698516049052ff3066e45889649dcfec1bac2",
+    "cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+    "cli/dist/integrations/resident/verification.js": "c2b32b5c226b483ffc1a84c5c4012df0619a76a27e931f428339573ec1ca6eed",
+    "cli/dist/integrations/resident/runner-worker.js": "3206c4a127eae89530608e90583f4f8c4e3ac63fc53221a52f425863ef7af625",
+    "cli/dist/integrations/resident/runner-launch.js": "218abff101129f72ec1201fd658756a5b2a911b011bf6786315137799eec2c27"
+  },
+  "idle": [
+    {
+      "at": 1789316537446,
+      "wave": 1,
+      "before": 2,
+      "after": 2,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789317138397,
+      "wave": 2,
+      "before": 4,
+      "after": 4,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789317740097,
+      "wave": 3,
+      "before": 6,
+      "after": 6,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789318341842,
+      "wave": 4,
+      "before": 8,
+      "after": 8,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789318944748,
+      "wave": 5,
+      "before": 10,
+      "after": 10,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789319546432,
+      "wave": 6,
+      "before": 12,
+      "after": 12,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789320148168,
+      "wave": 7,
+      "before": 14,
+      "after": 14,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789320749715,
+      "wave": 8,
+      "before": 16,
+      "after": 16,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789321353814,
+      "wave": 9,
+      "before": 19,
+      "after": 19,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789321955571,
+      "wave": 10,
+      "before": 21,
+      "after": 21,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789322557491,
+      "wave": 11,
+      "before": 23,
+      "after": 23,
+      "intervalMs": 600000
+    },
+    {
+      "at": 1789323159364,
+      "wave": 12,
+      "before": 25,
+      "after": 25,
+      "intervalMs": 600000
+    }
+  ],
+  "workers": [
+    3588676,
+    3674777,
+    3815959,
+    3841482
+  ],
+  "abruptExit": {
+    "pid": 3674777,
+    "claimId": "b0cd09dc-e8c4-4470-bcfe-6fc2e4aac0ae",
+    "revision": 29,
+    "at": 1789320752169
+  },
+  "transitions": [
+    {
+      "at": 1789315936555,
+      "action": "start",
+      "args": [
+        "--trust",
+        "--max-steps",
+        "40",
+        "--max-idle-ms",
+        "120000",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "5",
+        "--token-budget",
+        "12000",
+        "--verify",
+        "checks.json"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3588676,
+        "instanceId": "fbcfdf62-23da-48c8-b12b-4e60c3c6c00f",
+        "phase": "running"
+      }
+    },
+    {
+      "at": 1789318343646,
+      "action": "stop",
+      "args": [],
+      "exit": 0,
+      "owner": {
+        "pid": 3588676,
+        "instanceId": "fbcfdf62-23da-48c8-b12b-4e60c3c6c00f",
+        "phase": "stopped"
+      }
+    },
+    {
+      "at": 1789318344742,
+      "action": "start",
+      "args": [
+        "--trust",
+        "--max-steps",
+        "40",
+        "--max-idle-ms",
+        "120000",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "5",
+        "--token-budget",
+        "12000",
+        "--verify",
+        "checks.json"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3674777,
+        "instanceId": "a1277a31-488d-4ae7-b6e9-adf29544e1b9",
+        "phase": "running"
+      }
+    },
+    {
+      "at": 1789320752450,
+      "action": "release",
+      "args": [
+        "a1277a31-488d-4ae7-b6e9-adf29544e1b9",
+        "--executor-stopped"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3674777,
+        "instanceId": "a1277a31-488d-4ae7-b6e9-adf29544e1b9",
+        "phase": "released"
+      }
+    },
+    {
+      "at": 1789320752730,
+      "action": "reconcile",
+      "args": [
+        "13c50aca-9d08-45ac-9579-01826a609c36",
+        "Inspected isolated scripted provider killed while sleeping. No mutations; missing usage is unknown.",
+        "--claim",
+        "b0cd09dc-e8c4-4470-bcfe-6fc2e4aac0ae",
+        "--revision",
+        "29",
+        "--outcome",
+        "wait",
+        "--executor-stopped"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3674777,
+        "instanceId": "a1277a31-488d-4ae7-b6e9-adf29544e1b9",
+        "phase": "released"
+      }
+    },
+    {
+      "at": 1789320753526,
+      "action": "start",
+      "args": [
+        "--trust",
+        "--max-steps",
+        "40",
+        "--max-idle-ms",
+        "120000",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "5",
+        "--token-budget",
+        "12000",
+        "--verify",
+        "checks.json"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3815959,
+        "instanceId": "a76e7b69-6c97-4521-add4-1e42111f3200",
+        "phase": "running"
+      }
+    },
+    {
+      "at": 1789323162129,
+      "action": "stop",
+      "args": [],
+      "exit": 0,
+      "owner": {
+        "pid": 3815959,
+        "instanceId": "a76e7b69-6c97-4521-add4-1e42111f3200",
+        "phase": "stopped"
+      }
+    },
+    {
+      "at": 1789323162710,
+      "action": "reconcile",
+      "args": [
+        "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "Inspected cancelled scripted read-only request and its finish receipt. No file mutations; retain pending input and wait.",
+        "--claim",
+        "3a322eaf-6571-4f90-b30b-20fe086f78f1",
+        "--revision",
+        "41",
+        "--outcome",
+        "wait",
+        "--executor-stopped"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3815959,
+        "instanceId": "a76e7b69-6c97-4521-add4-1e42111f3200",
+        "phase": "stopped"
+      }
+    },
+    {
+      "at": 1789323164067,
+      "action": "start",
+      "args": [
+        "--trust",
+        "--max-steps",
+        "40",
+        "--max-idle-ms",
+        "120000",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "5",
+        "--token-budget",
+        "12000",
+        "--verify",
+        "checks.json"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3841482,
+        "instanceId": "108445d6-97ba-448e-99ee-ed30872e8933",
+        "phase": "running"
+      }
+    },
+    {
+      "at": 1789323166547,
+      "action": "stop",
+      "args": [],
+      "exit": 0,
+      "owner": {
+        "pid": 3841482,
+        "instanceId": "108445d6-97ba-448e-99ee-ed30872e8933",
+        "phase": "stopped"
+      }
+    },
+    {
+      "at": 1789323167153,
+      "action": "archive",
+      "args": [
+        "13c50aca-9d08-45ac-9579-01826a609c36"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3841482,
+        "instanceId": "108445d6-97ba-448e-99ee-ed30872e8933",
+        "phase": "stopped"
+      }
+    },
+    {
+      "at": 1789323167427,
+      "action": "archive",
+      "args": [
+        "89f2ffe9-0e30-4de9-8730-6da781edff19"
+      ],
+      "exit": 0,
+      "owner": {
+        "pid": 3841482,
+        "instanceId": "108445d6-97ba-448e-99ee-ed30872e8933",
+        "phase": "stopped"
+      }
+    },
+    {
+      "at": 1789323167983,
+      "action": "stop",
+      "args": [],
+      "exit": 0,
+      "owner": {
+        "pid": 3841482,
+        "instanceId": "108445d6-97ba-448e-99ee-ed30872e8933",
+        "phase": "stopped"
+      }
+    }
+  ],
+  "policySnapshotVerified": true,
+  "requests": [
+    {
+      "at": 1789315936885,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 0,
+      "inputWaves": [],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789315937087,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 0,
+      "inputWaves": [],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789316538147,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 1,
+      "inputWaves": [
+        "wave-1"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789316538366,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 1,
+      "inputWaves": [
+        "wave-1"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789317139284,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 2,
+      "inputWaves": [
+        "wave-2"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789317139513,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 2,
+      "inputWaves": [
+        "wave-2"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789317741022,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 3,
+      "inputWaves": [
+        "wave-3"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789317741263,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 3,
+      "inputWaves": [
+        "wave-3"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789318342470,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 4,
+      "inputWaves": [
+        "wave-4"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789318342734,
+      "pid": 3588676,
+      "action": "wait",
+      "epoch": 4,
+      "inputWaves": [
+        "wave-4"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789318945660,
+      "pid": 3674777,
+      "action": "wait",
+      "epoch": 5,
+      "inputWaves": [
+        "wave-5"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789318945916,
+      "pid": 3674777,
+      "action": "wait",
+      "epoch": 5,
+      "inputWaves": [
+        "wave-5"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789319547367,
+      "pid": 3674777,
+      "action": "wait",
+      "epoch": 6,
+      "inputWaves": [
+        "wave-6"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789319547615,
+      "pid": 3674777,
+      "action": "wait",
+      "epoch": 6,
+      "inputWaves": [
+        "wave-6"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789320148910,
+      "pid": 3674777,
+      "action": "wait",
+      "epoch": 7,
+      "inputWaves": [
+        "wave-7"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789320149158,
+      "pid": 3674777,
+      "action": "wait",
+      "epoch": 7,
+      "inputWaves": [
+        "wave-7"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789320750364,
+      "pid": 3674777,
+      "action": "wait",
+      "epoch": 8,
+      "inputWaves": [
+        "wave-8"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789320750609,
+      "pid": 3674777,
+      "action": "wait",
+      "epoch": 8,
+      "inputWaves": [
+        "wave-8"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789320751346,
+      "pid": 3674777,
+      "action": "hang",
+      "epoch": 80,
+      "inputWaves": [
+        "wave-crash"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789321354799,
+      "pid": 3815959,
+      "action": "wait",
+      "epoch": 9,
+      "inputWaves": [
+        "wave-9"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789321355052,
+      "pid": 3815959,
+      "action": "wait",
+      "epoch": 9,
+      "inputWaves": [
+        "wave-9"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789321956377,
+      "pid": 3815959,
+      "action": "wait",
+      "epoch": 10,
+      "inputWaves": [
+        "wave-10"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789321956881,
+      "pid": 3815959,
+      "action": "wait",
+      "epoch": 10,
+      "inputWaves": [
+        "wave-10"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789322558461,
+      "pid": 3815959,
+      "action": "wait",
+      "epoch": 11,
+      "inputWaves": [
+        "wave-11"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789322558712,
+      "pid": 3815959,
+      "action": "wait",
+      "epoch": 11,
+      "inputWaves": [
+        "wave-11"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789323160284,
+      "pid": 3815959,
+      "action": "wait",
+      "epoch": 12,
+      "inputWaves": [
+        "wave-12"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789323160529,
+      "pid": 3815959,
+      "action": "wait",
+      "epoch": 12,
+      "inputWaves": [
+        "wave-12"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789323161752,
+      "pid": 3815959,
+      "action": "hang",
+      "epoch": 90,
+      "inputWaves": [
+        "wave-cancel"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789323164560,
+      "pid": 3841482,
+      "action": "complete",
+      "epoch": 8,
+      "inputWaves": [
+        "wave-final"
+      ],
+      "objective": "Continue this authorized pursuit: Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    },
+    {
+      "at": 1789323165303,
+      "pid": 3841482,
+      "action": "complete",
+      "epoch": 8,
+      "inputWaves": [
+        "wave-final"
+      ],
+      "objective": "Continue this authorized pursuit: Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested."
+    }
+  ],
+  "finishes": [
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "02e8ab31-6f06-4f8c-bc29-309143289372",
+      "runId": "17325368-5f00-4fd6-bffe-3744575bf146",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "0fdc3a18-7be8-4fe9-b51e-8c31ee986cfd",
+      "runId": "35594407-537f-4f6c-b4b4-debbd1e9036b",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "12924d47-b24d-4c3f-b2c4-4e9e15bc45b4",
+      "runId": "3b0f9a4d-0a5c-41b9-80ed-7dec90c2de60",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "19d6ed2b-530d-4f30-9db6-e72983588280",
+      "runId": "f466e662-b405-4745-b5d0-1b7d9aedf4b3",
+      "outcome": "complete",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": {
+        "answerSha256": "0ac0718adac6efb40a3aa5353722d1dd8ae6ac8d8b61e46419329ff370a3b460",
+        "receipt": {
+          "scope": "{\"tenantId\":\"0c4deae6-1b02-49f0-8ce7-da1d94e65ce6\",\"projectId\":\"19a88695-758d-4aab-ac2b-211732048fdb\",\"pursuitId\":\"89f2ffe9-0e30-4de9-8730-6da781edff19\",\"claimId\":\"19d6ed2b-530d-4f30-9db6-e72983588280\",\"sessionId\":\"77f6b41e-7a9f-4734-a6ea-47efa02a66ab\",\"runId\":\"f466e662-b405-4745-b5d0-1b7d9aedf4b3\",\"revision\":44}",
+          "runId": "f466e662-b405-4745-b5d0-1b7d9aedf4b3",
+          "iteration": 1,
+          "claims": {
+            "version": "8"
+          },
+          "observations": [
+            {
+              "source": "package.json",
+              "requestId": "da919619-fd0d-40d2-a6d7-804e0096034d",
+              "observedAt": 1789323165807,
+              "bytes": 15,
+              "sha256": "05fa1c621df2aba0657b67890b45ea9cc3a140e32aa00c30703b13fe3af194c2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "202e8e1f-f919-44c4-91db-d95aea3bb8c9",
+      "runId": "5b62aff0-a342-429f-83d0-310600825792",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "28fd9289-107b-4acf-af60-037f479ebf58",
+      "runId": "af827c61-661f-46ac-b8f0-d51325c0aea4",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "3a322eaf-6571-4f90-b30b-20fe086f78f1",
+      "runId": "6f23d76d-8e6a-4c6b-a388-2dbba0b95f68",
+      "outcome": null,
+      "error": true,
+      "cleanup": "confirmed",
+      "usage": null,
+      "budget": null,
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "45471c3a-0f5f-42b8-9023-498de0675e10",
+      "runId": "2f4562fb-0f57-4199-9417-9f89775ace6e",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "555ac4e7-26c2-4b13-a2dd-7b6f2178208d",
+      "runId": "f30758bf-318a-4a88-a0cf-86a48271bbae",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "577cb077-5b80-42c3-a6c4-250e631d4475",
+      "runId": "d134ead0-8305-44f8-b282-f8f1f8acf2ef",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "5a7321d0-1853-492c-ae0c-fa4ec43b5c1d",
+      "runId": "9ee9f3f7-85ec-4d9c-879a-5f6170b8937f",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "657b74e6-38b0-47ba-96dc-03b9a6e46fbb",
+      "runId": "0b2a0e59-2ac6-44d8-8841-6178d475ed94",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "6cddc9b2-acea-45ce-9ded-77d1215cf937",
+      "runId": "83c13ab7-1160-420e-99a6-ce8f8baf3d15",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "6de8fd85-dc21-457c-ab5e-6885e0d0b209",
+      "runId": "156bb35a-c8f7-4160-9cd9-ca03f6643536",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "72fd8af0-913a-4a0a-ae57-e2142eefc773",
+      "runId": "5b0862bf-beff-4b5c-a8e2-45367b436998",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "77f12be3-6c4f-460c-bdae-3d106c3697c6",
+      "runId": "1be7e1a4-bfe1-4ba9-a064-edb45882132a",
+      "outcome": "complete",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": {
+        "answerSha256": "0ac0718adac6efb40a3aa5353722d1dd8ae6ac8d8b61e46419329ff370a3b460",
+        "receipt": {
+          "scope": "{\"tenantId\":\"0c4deae6-1b02-49f0-8ce7-da1d94e65ce6\",\"projectId\":\"19a88695-758d-4aab-ac2b-211732048fdb\",\"pursuitId\":\"13c50aca-9d08-45ac-9579-01826a609c36\",\"claimId\":\"77f12be3-6c4f-460c-bdae-3d106c3697c6\",\"sessionId\":\"a318eb96-82f8-4593-a3ee-0a0008a8f426\",\"runId\":\"1be7e1a4-bfe1-4ba9-a064-edb45882132a\",\"revision\":44}",
+          "runId": "1be7e1a4-bfe1-4ba9-a064-edb45882132a",
+          "iteration": 1,
+          "claims": {
+            "version": "8"
+          },
+          "observations": [
+            {
+              "source": "package.json",
+              "requestId": "89d878a8-7852-4ec9-b423-6a7a4f902d0c",
+              "observedAt": 1789323165066,
+              "bytes": 15,
+              "sha256": "05fa1c621df2aba0657b67890b45ea9cc3a140e32aa00c30703b13fe3af194c2"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "824cb4b0-c670-4d52-9a23-e4f1f2ffa2b1",
+      "runId": "16afbe53-bb2c-4a71-84e0-0958cdb8c60f",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "83356a2c-28ab-4207-94e0-81136394d86f",
+      "runId": "ef85b5a3-8a2e-4053-a509-14c191343782",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "86f46681-9acf-4274-aa0c-95ca7926108a",
+      "runId": "7cdabc77-7bba-4bdc-af43-3577889d876d",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "8995b952-e8bf-40c0-825f-9191e7e0df02",
+      "runId": "4713eb12-8773-4201-951d-a5e195ee0890",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "a18af5b6-cf9b-431e-a437-5cca8b7afbf2",
+      "runId": "902bb2d7-eecf-48da-bef3-75874b4f26ca",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "bfe9cfe9-ae24-45b9-ad1e-0eefe8af7e3f",
+      "runId": "6551246d-1eec-4dfe-a625-2f8d4fbf244f",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "d4146c71-bd84-43b2-ba33-f28dd9acecfb",
+      "runId": "8ccdcbc8-1cd0-4b4c-96bc-3b909fdc91c1",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "d86df8a2-8ab7-4ae0-aefe-52237ab0e8b1",
+      "runId": "a7746f61-9737-4417-a156-8d5223fc6a67",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "db958320-a262-4c78-9252-4318b3e3e228",
+      "runId": "778345c5-5888-4ee4-930b-7ee2ca56b421",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "e0931674-c1b2-4de8-92bf-f6d79eecdafd",
+      "runId": "3d588109-18e8-41ff-b06e-1b65dcae7965",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "eb729352-9580-427a-aa42-1cde91ba06fa",
+      "runId": "a0705614-4fe4-4380-95bb-2ab8b150342d",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+      "claimId": "f212cd8b-1840-405a-b32e-4ac8c5aff154",
+      "runId": "fb6441ef-d846-47fc-a97d-24a107d454e8",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    },
+    {
+      "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+      "claimId": "f925fb19-5537-4a21-a953-159f45dc1c8f",
+      "runId": "7bac92a6-f200-4480-a34c-3b0ccd4466c7",
+      "outcome": "wait",
+      "error": false,
+      "cleanup": "confirmed",
+      "usage": {
+        "totalTokens": 120,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 120
+        }
+      },
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 120,
+        "treeTokens": 120,
+        "reservedTokens": 0,
+        "remainingTokens": 11880,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "verificationPolicy": {
+        "version": 1,
+        "claims": [
+          {
+            "id": "version",
+            "source": "package.json",
+            "pointer": "/version"
+          }
+        ]
+      },
+      "verification": null
+    }
+  ],
+  "runTokens": [
+    {
+      "id": "16afbe53-bb2c-4a71-84e0-0958cdb8c60f",
+      "tokens": 120
+    },
+    {
+      "id": "902bb2d7-eecf-48da-bef3-75874b4f26ca",
+      "tokens": 120
+    },
+    {
+      "id": "156bb35a-c8f7-4160-9cd9-ca03f6643536",
+      "tokens": 120
+    },
+    {
+      "id": "fb6441ef-d846-47fc-a97d-24a107d454e8",
+      "tokens": 120
+    },
+    {
+      "id": "f30758bf-318a-4a88-a0cf-86a48271bbae",
+      "tokens": 120
+    },
+    {
+      "id": "4713eb12-8773-4201-951d-a5e195ee0890",
+      "tokens": 120
+    },
+    {
+      "id": "e8174bb8-5458-477d-8fa4-c8643a775b7d",
+      "tokens": 0
+    },
+    {
+      "id": "9ee9f3f7-85ec-4d9c-879a-5f6170b8937f",
+      "tokens": 120
+    },
+    {
+      "id": "2f4562fb-0f57-4199-9417-9f89775ace6e",
+      "tokens": 120
+    },
+    {
+      "id": "778345c5-5888-4ee4-930b-7ee2ca56b421",
+      "tokens": 120
+    },
+    {
+      "id": "af827c61-661f-46ac-b8f0-d51325c0aea4",
+      "tokens": 120
+    },
+    {
+      "id": "35594407-537f-4f6c-b4b4-debbd1e9036b",
+      "tokens": 120
+    },
+    {
+      "id": "8ccdcbc8-1cd0-4b4c-96bc-3b909fdc91c1",
+      "tokens": 120
+    },
+    {
+      "id": "f466e662-b405-4745-b5d0-1b7d9aedf4b3",
+      "tokens": 120
+    },
+    {
+      "id": "3d588109-18e8-41ff-b06e-1b65dcae7965",
+      "tokens": 120
+    },
+    {
+      "id": "6f23d76d-8e6a-4c6b-a388-2dbba0b95f68",
+      "tokens": 0
+    },
+    {
+      "id": "7bac92a6-f200-4480-a34c-3b0ccd4466c7",
+      "tokens": 120
+    },
+    {
+      "id": "1be7e1a4-bfe1-4ba9-a064-edb45882132a",
+      "tokens": 120
+    },
+    {
+      "id": "0b2a0e59-2ac6-44d8-8841-6178d475ed94",
+      "tokens": 120
+    },
+    {
+      "id": "a0705614-4fe4-4380-95bb-2ab8b150342d",
+      "tokens": 120
+    },
+    {
+      "id": "5b62aff0-a342-429f-83d0-310600825792",
+      "tokens": 120
+    },
+    {
+      "id": "17325368-5f00-4fd6-bffe-3744575bf146",
+      "tokens": 120
+    },
+    {
+      "id": "6551246d-1eec-4dfe-a625-2f8d4fbf244f",
+      "tokens": 120
+    },
+    {
+      "id": "83c13ab7-1160-420e-99a6-ce8f8baf3d15",
+      "tokens": 120
+    },
+    {
+      "id": "a7746f61-9737-4417-a156-8d5223fc6a67",
+      "tokens": 120
+    },
+    {
+      "id": "5b0862bf-beff-4b5c-a8e2-45367b436998",
+      "tokens": 120
+    },
+    {
+      "id": "7cdabc77-7bba-4bdc-af43-3577889d876d",
+      "tokens": 120
+    },
+    {
+      "id": "3b0f9a4d-0a5c-41b9-80ed-7dec90c2de60",
+      "tokens": 120
+    },
+    {
+      "id": "d134ead0-8305-44f8-b282-f8f1f8acf2ef",
+      "tokens": 120
+    },
+    {
+      "id": "ef85b5a3-8a2e-4053-a509-14c191343782",
+      "tokens": 120
+    }
+  ],
+  "archivedPursuitsRemaining": 0,
+  "inspection": {
+    "scope": {
+      "tenantId": "0c4deae6-1b02-49f0-8ce7-da1d94e65ce6",
+      "agentKey": "default",
+      "throughRevision": 101
+    },
+    "fromRevision": 1,
+    "throughRevision": 101,
+    "nextCursor": null,
+    "historyComplete": true,
+    "unavailableRevisions": [],
+    "historyBytes": 210625,
+    "receiptBytesReserved": 5898240,
+    "archivedPursuits": [
+      "13c50aca-9d08-45ac-9579-01826a609c36",
+      "89f2ffe9-0e30-4de9-8730-6da781edff19"
+    ],
+    "attempts": [
+      {
+        "revision": 4,
+        "pursuitRevision": 2,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "bfe9cfe9-ae24-45b9-ad1e-0eefe8af7e3f",
+        "step": 1,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 5,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "bfe9cfe9-ae24-45b9-ad1e-0eefe8af7e3f",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "6551246d-1eec-4dfe-a625-2f8d4fbf244f",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 6,
+        "pursuitRevision": 2,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "28fd9289-107b-4acf-af60-037f479ebf58",
+        "step": 1,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 7,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "28fd9289-107b-4acf-af60-037f479ebf58",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "af827c61-661f-46ac-b8f0-d51325c0aea4",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 9,
+        "pursuitRevision": 5,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "8995b952-e8bf-40c0-825f-9191e7e0df02",
+        "step": 2,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 11,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "8995b952-e8bf-40c0-825f-9191e7e0df02",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "4713eb12-8773-4201-951d-a5e195ee0890",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 12,
+        "pursuitRevision": 5,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "e0931674-c1b2-4de8-92bf-f6d79eecdafd",
+        "step": 2,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 13,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "e0931674-c1b2-4de8-92bf-f6d79eecdafd",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "3d588109-18e8-41ff-b06e-1b65dcae7965",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 15,
+        "pursuitRevision": 8,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "db958320-a262-4c78-9252-4318b3e3e228",
+        "step": 3,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 17,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "db958320-a262-4c78-9252-4318b3e3e228",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "778345c5-5888-4ee4-930b-7ee2ca56b421",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 18,
+        "pursuitRevision": 8,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "5a7321d0-1853-492c-ae0c-fa4ec43b5c1d",
+        "step": 3,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 19,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "5a7321d0-1853-492c-ae0c-fa4ec43b5c1d",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "9ee9f3f7-85ec-4d9c-879a-5f6170b8937f",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 21,
+        "pursuitRevision": 11,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "202e8e1f-f919-44c4-91db-d95aea3bb8c9",
+        "step": 4,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 23,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "202e8e1f-f919-44c4-91db-d95aea3bb8c9",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "5b62aff0-a342-429f-83d0-310600825792",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 24,
+        "pursuitRevision": 11,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "577cb077-5b80-42c3-a6c4-250e631d4475",
+        "step": 4,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 25,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "577cb077-5b80-42c3-a6c4-250e631d4475",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "d134ead0-8305-44f8-b282-f8f1f8acf2ef",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 27,
+        "pursuitRevision": 14,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "d4146c71-bd84-43b2-ba33-f28dd9acecfb",
+        "step": 5,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 29,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "d4146c71-bd84-43b2-ba33-f28dd9acecfb",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "8ccdcbc8-1cd0-4b4c-96bc-3b909fdc91c1",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 30,
+        "pursuitRevision": 14,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "0fdc3a18-7be8-4fe9-b51e-8c31ee986cfd",
+        "step": 5,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 31,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "0fdc3a18-7be8-4fe9-b51e-8c31ee986cfd",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "35594407-537f-4f6c-b4b4-debbd1e9036b",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 35,
+        "pursuitRevision": 17,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "555ac4e7-26c2-4b13-a2dd-7b6f2178208d",
+        "step": 6,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 37,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "555ac4e7-26c2-4b13-a2dd-7b6f2178208d",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "f30758bf-318a-4a88-a0cf-86a48271bbae",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 38,
+        "pursuitRevision": 17,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "72fd8af0-913a-4a0a-ae57-e2142eefc773",
+        "step": 6,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 39,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "72fd8af0-913a-4a0a-ae57-e2142eefc773",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "5b0862bf-beff-4b5c-a8e2-45367b436998",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 41,
+        "pursuitRevision": 20,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "02e8ab31-6f06-4f8c-bc29-309143289372",
+        "step": 7,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 43,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "02e8ab31-6f06-4f8c-bc29-309143289372",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "17325368-5f00-4fd6-bffe-3744575bf146",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 44,
+        "pursuitRevision": 20,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "824cb4b0-c670-4d52-9a23-e4f1f2ffa2b1",
+        "step": 7,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 45,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "824cb4b0-c670-4d52-9a23-e4f1f2ffa2b1",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "16afbe53-bb2c-4a71-84e0-0958cdb8c60f",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 47,
+        "pursuitRevision": 23,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "657b74e6-38b0-47ba-96dc-03b9a6e46fbb",
+        "step": 8,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 49,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "657b74e6-38b0-47ba-96dc-03b9a6e46fbb",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "0b2a0e59-2ac6-44d8-8841-6178d475ed94",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 50,
+        "pursuitRevision": 23,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "6de8fd85-dc21-457c-ab5e-6885e0d0b209",
+        "step": 8,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 51,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "6de8fd85-dc21-457c-ab5e-6885e0d0b209",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "156bb35a-c8f7-4160-9cd9-ca03f6643536",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 53,
+        "pursuitRevision": 26,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "eb729352-9580-427a-aa42-1cde91ba06fa",
+        "step": 9,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 55,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "eb729352-9580-427a-aa42-1cde91ba06fa",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "a0705614-4fe4-4380-95bb-2ab8b150342d",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 56,
+        "pursuitRevision": 26,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "83356a2c-28ab-4207-94e0-81136394d86f",
+        "step": 9,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 57,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "83356a2c-28ab-4207-94e0-81136394d86f",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "ef85b5a3-8a2e-4053-a509-14c191343782",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 59,
+        "pursuitRevision": 29,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "b0cd09dc-e8c4-4470-bcfe-6fc2e4aac0ae",
+        "step": 10,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 61,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "b0cd09dc-e8c4-4470-bcfe-6fc2e4aac0ae",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "e8174bb8-5458-477d-8fa4-c8643a775b7d",
+          "ownTokens": 0,
+          "treeTokens": null,
+          "ownCostUsd": null,
+          "unpricedOwnTokens": null,
+          "usageFinal": false,
+          "cleanup": "unknown",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 64,
+        "pursuitRevision": 32,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "a18af5b6-cf9b-431e-a437-5cca8b7afbf2",
+        "step": 11,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 66,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "a18af5b6-cf9b-431e-a437-5cca8b7afbf2",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "902bb2d7-eecf-48da-bef3-75874b4f26ca",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 67,
+        "pursuitRevision": 29,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "86f46681-9acf-4274-aa0c-95ca7926108a",
+        "step": 10,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 68,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "86f46681-9acf-4274-aa0c-95ca7926108a",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "7cdabc77-7bba-4bdc-af43-3577889d876d",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 70,
+        "pursuitRevision": 35,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "6cddc9b2-acea-45ce-9ded-77d1215cf937",
+        "step": 12,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 71,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "6cddc9b2-acea-45ce-9ded-77d1215cf937",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "83c13ab7-1160-420e-99a6-ce8f8baf3d15",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 73,
+        "pursuitRevision": 32,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "45471c3a-0f5f-42b8-9023-498de0675e10",
+        "step": 11,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 74,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "45471c3a-0f5f-42b8-9023-498de0675e10",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "2f4562fb-0f57-4199-9417-9f89775ace6e",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 76,
+        "pursuitRevision": 38,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "f925fb19-5537-4a21-a953-159f45dc1c8f",
+        "step": 13,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 78,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "f925fb19-5537-4a21-a953-159f45dc1c8f",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "7bac92a6-f200-4480-a34c-3b0ccd4466c7",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 79,
+        "pursuitRevision": 35,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "f212cd8b-1840-405a-b32e-4ac8c5aff154",
+        "step": 12,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 80,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "f212cd8b-1840-405a-b32e-4ac8c5aff154",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "fb6441ef-d846-47fc-a97d-24a107d454e8",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 82,
+        "pursuitRevision": 41,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "d86df8a2-8ab7-4ae0-aefe-52237ab0e8b1",
+        "step": 14,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 84,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "d86df8a2-8ab7-4ae0-aefe-52237ab0e8b1",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "a7746f61-9737-4417-a156-8d5223fc6a67",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 85,
+        "pursuitRevision": 38,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "12924d47-b24d-4c3f-b2c4-4e9e15bc45b4",
+        "step": 13,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 86,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "12924d47-b24d-4c3f-b2c4-4e9e15bc45b4",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "3b0f9a4d-0a5c-41b9-80ed-7dec90c2de60",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 88,
+        "pursuitRevision": 41,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "3a322eaf-6571-4f90-b30b-20fe086f78f1",
+        "step": 14,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 90,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "3a322eaf-6571-4f90-b30b-20fe086f78f1",
+          "outcome": "wait"
+        },
+        "receipt": {
+          "runId": "6f23d76d-8e6a-4c6b-a388-2dbba0b95f68",
+          "ownTokens": 0,
+          "treeTokens": 0,
+          "ownCostUsd": null,
+          "unpricedOwnTokens": null,
+          "usageFinal": false,
+          "cleanup": "confirmed",
+          "verification": "unconfirmed"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 94,
+        "pursuitRevision": 44,
+        "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+        "claimId": "77f12be3-6c4f-460c-bdae-3d106c3697c6",
+        "step": 15,
+        "objective": "Alpha: track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 95,
+          "pursuitId": "13c50aca-9d08-45ac-9579-01826a609c36",
+          "claimId": "77f12be3-6c4f-460c-bdae-3d106c3697c6",
+          "outcome": "complete"
+        },
+        "receipt": {
+          "runId": "1be7e1a4-bfe1-4ba9-a064-edb45882132a",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "recorded"
+        },
+        "receiptStatus": "available"
+      },
+      {
+        "revision": 96,
+        "pursuitRevision": 44,
+        "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+        "claimId": "19d6ed2b-530d-4f30-9db6-e72983588280",
+        "step": 15,
+        "objective": "Beta: independently track the package version. Only read. Retain new inputs and wait until completion is explicitly requested.",
+        "settlement": {
+          "revision": 97,
+          "pursuitId": "89f2ffe9-0e30-4de9-8730-6da781edff19",
+          "claimId": "19d6ed2b-530d-4f30-9db6-e72983588280",
+          "outcome": "complete"
+        },
+        "receipt": {
+          "runId": "f466e662-b405-4745-b5d0-1b7d9aedf4b3",
+          "ownTokens": 120,
+          "treeTokens": 120,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 120,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "recorded"
+        },
+        "receiptStatus": "available"
+      }
+    ],
+    "recorded": {
+      "ownTokens": 3360,
+      "treeTokens": 3360,
+      "ownCostUsd": 0,
+      "unpricedOwnTokens": 3360
+    },
+    "unknown": {
+      "ownUsageAttempts": 2,
+      "treeUsageAttempts": 2,
+      "ownPriceAttempts": 30
+    },
+    "usageComplete": false
+  },
+  "sourceSha256": "a6db7953184f2358cd21a5da9035b18e28d1a71a4da9d5ba6f77992549ea1e7e",
+  "inspectionBuild": {
+    "sdk/dist/manager/resident/activity.js": "adf2b512c2993f11a64e7de3cbca543e97fa4b487815963fee01ab3ca7a43b81",
+    "sdk/dist/manager/resident/consumption.js": "c255bce93ec7c795503d62872d0d477ae433f15f085e012de26a9cb62a615ce4",
+    "cli/dist/integrations/resident/inspection.js": "992433a7232b97c99ff2a2dfd3ae40cf7f11d3463acb64b6ddbb32f67bb7c2dd",
+    "cli/dist/commands/resident.js": "2b40473b6127d2249658ff334dad1e71832bd293f0c500876c15967dff8067f4"
+  },
+  "inspectedStateFiles": 431,
+  "inspectionReadOnly": true,
+  "audit": {
+    "elapsedMs": 7232851,
+    "admissions": 30,
+    "verifiedCompletions": 2,
+    "knownTokens": 3360,
+    "incompleteUsage": 2,
+    "idleModelRequests": 0
+  }
+}

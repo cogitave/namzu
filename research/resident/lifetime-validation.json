@@ -1,0 +1,202 @@
+{
+  "version": 1,
+  "curatedAt": 1789335954297,
+  "sourceCommits": [
+    "0a0baf25",
+    "830f81eb",
+    "9a4877ac"
+  ],
+  "note": "These are retained command logs and observed outcomes, not a substitute for rerunning release gates before a push. Packaging checks used the feature commit; later SDK fixes changed no metadata. Lint has 15 existing CLI warnings and the CLI suite has five existing skips.",
+  "logs": [
+    {
+      "check": "workspace typecheck",
+      "path": "/tmp/namzu-resident-mean-typecheck.log",
+      "bytes": 87,
+      "sha256": "1fd1daa5199f1ee633b707050352a0d89d4765d14a4266401906f9d22374e0de",
+      "expectedMarker": "> tsc --build",
+      "tail": "> namzu@0.1.0 typecheck /home/arda/workspaces/@cogitave/cogitave/namzu\n> tsc --build"
+    },
+    {
+      "check": "workspace lint",
+      "path": "/tmp/namzu-resident-mean-lint.log",
+      "bytes": 54281,
+      "sha256": "73aa8531fe0b6ceeb63874b97c5af19371da8ee7a4b762965a655a2b4c458418",
+      "expectedMarker": "packages/cli lint: Done",
+      "tail": "packages/cli lint:     2241      │ - → → → .join('\\n')·+·'\\n',\npackages/cli lint:          2241 │ + → → → .join('\\n')}\\n`,\npackages/cli lint:     2242 2242 │   \t)\npackages/cli lint:     2243 2243 │   \tconst first = await readConversationEvidence(sessions, sessionId, { runId, seq: 12 })\npackages/cli lint:   \npackages/cli lint: Checked 459 files in 113ms. No fixes applied.\npackages/cli lint: Found 15 warnings.\npackages/cli lint: Done"
+    },
+    {
+      "check": "workspace build",
+      "path": "/tmp/namzu-consumption-uuid-build.log",
+      "bytes": 1704,
+      "sha256": "8670737bbcc8926bf5fb3196ffac85ac8178b73b6fa05e07231dcb1eaf6c2484",
+      "expectedMarker": "packages/cli build: Done",
+      "tail": "packages/providers/openrouter build: Done\npackages/telemetry build$ tsc --build\npackages/providers/zen build: Done\npackages/sandbox build: Done\npackages/telemetry build: Done\npackages/live build: Done\npackages/cli build$ tsc --build && chmod +x dist/bin.js\npackages/cli build: Done"
+    },
+    {
+      "check": "workspace tests before SDK follow-up corrections",
+      "path": "/tmp/namzu-consumption-workspace-tests-final.log",
+      "bytes": 165950,
+      "sha256": "86c3a0442755465605c6b73706cec78a2585022498c181105c3a982078544586",
+      "expectedMarker": "packages/cli test: Done",
+      "tail": "packages/cli test:  ✓ src/commands/__tests__/run-flags-unknown-option.test.ts (4 tests) 2ms\npackages/cli test:  ✓ src/tui/__tests__/hooks-are-listed-by-event.test.ts (2 tests) 2ms\npackages/cli test:  Test Files  339 passed (339)\npackages/cli test:       Tests  3052 passed | 5 skipped (3057)\npackages/cli test:    Start at  19:56:09\npackages/cli test:    Duration  30.65s (transform 14.65s, setup 4.90s, collect 506.63s, tests 348.74s, environment 48ms, prepare 19.28s)\npackages/cli test: \npackages/cli test: Done"
+    },
+    {
+      "check": "final SDK tests",
+      "path": "/tmp/namzu-resident-mean-sdk.log",
+      "bytes": 54870,
+      "sha256": "34b10b4980ebdabd3576909d181767223bb5b19ded88e340583c57fac868dc69",
+      "expectedMarker": "6825 passed",
+      "tail": " ✓ src/__tests__/topic-errors-are-public.test.ts (3 tests) 3ms\n ✓ src/__tests__/code-runtime-is-public.test.ts (1 test) 2ms\n ✓ src/__tests__/replay-public-surface.test.ts (3 tests) 2ms\n\n Test Files  681 passed (681)\n      Tests  6825 passed (6825)\n   Start at  20:20:20\n   Duration  17.01s (transform 25.26s, setup 16.27s, collect 242.08s, tests 102.41s, environment 100ms, prepare 40.77s)"
+    },
+    {
+      "check": "CLI tests",
+      "path": "/tmp/namzu-consumption-uuid-cli.log",
+      "bytes": 57054,
+      "sha256": "42c3e721b85f49f26c9de25d90814b131b8058fccb11a92a8884ee1251376c28",
+      "expectedMarker": "3052 passed | 5 skipped",
+      "tail": " ✓ src/tui/__tests__/mcp-shows-failures-too.test.ts (5 tests) 2ms\n ✓ src/tui/__tests__/hooks-are-listed-by-event.test.ts (2 tests) 2ms\n ✓ src/commands/__tests__/run-flags-unknown-option.test.ts (4 tests) 2ms\n\n Test Files  339 passed (339)\n      Tests  3052 passed | 5 skipped (3057)\n   Start at  20:13:13\n   Duration  31.05s (transform 14.60s, setup 4.88s, collect 518.74s, tests 347.47s, environment 47ms, prepare 19.30s)"
+    },
+    {
+      "check": "final SDK process tests",
+      "path": "/tmp/namzu-resident-final-process.log",
+      "bytes": 7766,
+      "sha256": "94db25fffc8a915b08842f986573567ed20e0c442aaa916702e471eed31043f2",
+      "expectedMarker": "266 passed",
+      "tail": " ✓ src/skills/__tests__/an-edited-skill-reaches-the-model.proc-test.ts (12 tests) 45ms\n ✓ src/plugin/__tests__/a-plugin-skill-reaches-the-model.proc-test.ts (10 tests) 37ms\n ✓ src/__fixtures__/sdk-test-working-directory.proc-test.ts (1 test) 1ms\n\n Test Files  40 passed (40)\n      Tests  266 passed (266)\n   Start at  20:33:26\n   Duration  72.59s (transform 1.09s, setup 117ms, collect 2.31s, tests 65.62s, environment 4ms, prepare 1.40s)"
+    },
+    {
+      "check": "SDK coverage",
+      "path": "/tmp/namzu-resident-final-coverage.log",
+      "bytes": 107686,
+      "sha256": "b82294550c9cac8154fe16ad7bec3464214dfc782024631879d1f6b130a2faca",
+      "expectedMarker": "6825 passed",
+      "tail": "  templates.ts     |   97.01 |       90 |     100 |   97.01 | 115-116           \n  types.ts         |     100 |      100 |     100 |     100 |                   \n src/vault         |   85.53 |    89.36 |    92.3 |   85.53 |                   \n  ...alProvider.ts |     100 |    94.44 |     100 |     100 | 102               \n  ...ntialVault.ts |     100 |    85.71 |     100 |     100 | 65,90-91          \n  index.ts         |     100 |      100 |     100 |     100 |                   \n  ...umentation.ts |   64.94 |     87.5 |      75 |   64.94 | 76-77,97-141      \n-------------------|---------|----------|---------|---------|-------------------"
+    },
+    {
+      "check": "SDK coverage floors",
+      "path": "/tmp/namzu-resident-final-coverage-gate.log",
+      "bytes": 705,
+      "sha256": "e490e63f350770c5663d10b3ad6920e7edd727d77250654ca05eb2ae1e8b2b9b",
+      "expectedMarker": "per-module coverage floor gate passed",
+      "tail": "bus        4     97.7% / 94% ✓          94.4% / 91% ✓         \nconnector  31    93.4% / 47% ✓          87.0% / 84% ✓         \ndirectory  6     87.8% / 85% ✓          85.4% / 82% ✓         \npricing    1     100.0% / 97% ✓         100.0% / 97% ✓        \nrag        10    96.8% / 92% ✓          95.6% / 92% ✓         \nregistry   16    95.9% / 93% ✓          92.9% / 90% ✓         \n\n✓ per-module coverage floor gate passed"
+    },
+    {
+      "check": "documentation conformance",
+      "path": "/tmp/namzu-resident-mean-docs.log",
+      "bytes": 610,
+      "sha256": "612cf3eccc09e55a3e1e624737e983bc98083ab02be84ce566be85f348bb9b69",
+      "expectedMarker": "passed",
+      "tail": "ℹ suites 0\nℹ pass 4\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 123.661281\nOKF v0.2 gate passed: 73 file(s) under docs"
+    },
+    {
+      "check": "TypeScript documentation fences",
+      "path": "/tmp/namzu-resident-mean-fences.log",
+      "bytes": 486,
+      "sha256": "187abc04df9eec6f3f49d91d49f8e86d24adceec590e446641bbc10e0cd72760",
+      "expectedMarker": "50 fence(s) compiled",
+      "tail": "doc-fence gate: 0 problem(s)\n           50 fence(s) compiled against packages/sdk/dist\n           1 `ts sketch` fence(s) skipped by declaration\n           0 `ts verbatim` fence(s) compared against their source\n           0 TypeScript-ish fence(s) in a language this gate does not compile (typescript, tsx, js, javascript, jsx) — retag as `ts` to check them\n           20 publishable package README(s) compiled alongside docs/\n           0 file(s) under docs/ outside FENCE_CONFORMING"
+    },
+    {
+      "check": "evaluations",
+      "path": "/tmp/namzu-consumption-evals.log",
+      "bytes": 1099,
+      "sha256": "96d82a027865d62c7bd9088c296ddef598d2b3302f2982516ebc1d95dc04dbed",
+      "expectedMarker": "Wrote /tmp/namzu-consumption-evals.json",
+      "tail": "  completion: 1.00\n  step-budget: 1.00\nsecurity/oauth-state: 7/7 passed (mean 1.00) in 2ms\n  1.000 ±0.000 (95% CI 1.000–1.000, n=7); assumes cases are independent\n\n  state-independence: 1.00\n  difference-check-is-insufficient: 1.00\nWrote /tmp/namzu-consumption-evals.json"
+    },
+    {
+      "check": "consumer package installation at 0a0baf25",
+      "path": "/tmp/namzu-consumer-check.log",
+      "bytes": 5105,
+      "sha256": "7cfee985098cb4b6aa18c58cf4e199dea2337478e35982e7405e78cc023272ff",
+      "expectedMarker": "span-smoke both green",
+      "tail": "=== @namzu/sandbox public-surface fixture ===\n✅ @namzu/sandbox public surface intact: 5 constants + 4 runtime exports + serializeSandboxError JSON round-trip\n\n=== @namzu/telemetry single-api-instance + span-smoke fixture ===\n✅ single @opentelemetry/api instance at /tmp/namzu-consumer.TSRdKA/node_modules/@opentelemetry/api/build/src/index.js\n✅ span-smoke: InMemorySpanExporter captured 1 span with name \"verify.sdk.span\" via trace.getTracer(\"namzu\")\n\n✅ @namzu/telemetry fixture: single-api-instance + span-smoke both green"
+    },
+    {
+      "check": "publint at 0a0baf25",
+      "path": "/tmp/namzu-consumption-publint-fixed-build.log",
+      "bytes": 2610,
+      "sha256": "851411b0bf6f713d45c599d9ed92e74b1cacb18903c369dc770fb2b2677c0e0b",
+      "expectedMarker": "Running publint v0.3.24 for @namzu/zen",
+      "tail": "Packing files with `pnpm pack`...\nLinting...\nAll good!\nPackage: @namzu/zen\nRunning publint v0.3.24 for @namzu/zen...\nPacking files with `pnpm pack`...\nLinting...\nAll good!"
+    },
+    {
+      "check": "source name audit",
+      "path": "/tmp/namzu-consumption-external.log",
+      "bytes": 1265,
+      "sha256": "4ffdc35ea14c03dbfe23f5105c5988888c7e44746988211b1bde0829ced261ab",
+      "expectedMarker": null,
+      "tail": "ℹ suites 0\nℹ pass 13\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 1004.834503\nNo third-party product name in a comment or identifier."
+    },
+    {
+      "check": "log standard",
+      "path": "/tmp/namzu-consumption-log-standard.log",
+      "bytes": 6093,
+      "sha256": "5eae87932a407f75e9f58a63462b5f2548991057790f31854e81ed7fd309756e",
+      "expectedMarker": null,
+      "tail": "ℹ suites 12\nℹ pass 39\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 6272.008355\n✓ log standard gate passed (961 files scanned)"
+    },
+    {
+      "check": "model prices",
+      "path": "/tmp/namzu-consumption-prices.log",
+      "bytes": 41,
+      "sha256": "6997764027c18e1a31d9dc94b1203ee8f2cb3cb5ec25015f1dff2b2f5df42f2c",
+      "expectedMarker": null,
+      "tail": "model price catalogue matches its source"
+    },
+    {
+      "check": "signature exports",
+      "path": "/tmp/namzu-consumption-uuid-signature.log",
+      "bytes": 71,
+      "sha256": "92ed403b57708d9d51093d43dd89e73a66a0c210e92b20f0dd33f23fa27f1c0e",
+      "expectedMarker": null,
+      "tail": "✓ signature types exported — 676 signature(s) across 19 package(s)"
+    },
+    {
+      "check": "lifecycle audit regressions",
+      "path": "/tmp/namzu-lifetime-audit-final.log",
+      "bytes": 858,
+      "sha256": "abf38faa2ed114ec98963d663a80fe9d7ef12866f9cf0c28c4131e93bf04950f",
+      "expectedMarker": "pass 8",
+      "tail": "ℹ tests 8\nℹ suites 0\nℹ pass 8\nℹ fail 0\nℹ cancelled 0\nℹ skipped 0\nℹ todo 0\nℹ duration_ms 55.779401"
+    }
+  ],
+  "failures": [
+    {
+      "kind": "short-soak assertion selected a completion in the wait-input check",
+      "path": "/tmp/namzu-lifetime-soak-O4Ljlz/result.json",
+      "sha256": "736fe87edafa1ab0c58788f341473efdb70742e16202fdcdd0e3a3deec9eca2e",
+      "failure": "AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\n\n  assert.ok(\n\n    at file:///home/arda/workspaces/@cogitave/cogitave/namzu/research/resident/lifetime-soak.mjs:325:10"
+    },
+    {
+      "kind": "scale fixture supplied a nonfuture wake time",
+      "path": "/tmp/namzu-lifetime-scale-Q8Xv9C/result.json",
+      "sha256": "7bd1291d89e64ed5e8baca5433b5b4549a24f5885dd3841cee9180ff810ba595",
+      "failure": "Error: A scheduled continuation must be in the future.\n    at settleResidentState (file:///home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk/dist/manager/resident/store.js:171:15)\n    at file:///home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk/dist/manager/resident/agenda.js:582:94\n    at file:///home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk/dist/manager/resident/agenda.js:435:28\n    at file:///home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk/dist/manager/resident/agenda.js:304:44\n    at DiskRevisionRecordStore.transact (file:///home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk/dist/store/kv/revision-record-store.js:192:26)\n    at async DiskResidentAgenda.updatePursuit (file:///home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk/dist/manager/resident/agenda.js:432:30)\n    at async file:///home/arda/workspaces/@cogitave/cogitave/namzu/research/resident/lifetime-scale.mjs:26:7"
+    },
+    {
+      "kind": "UUID alias regression before the fix",
+      "path": "/tmp/namzu-consumption-uuid-repro.log",
+      "sha256": "0173d74e64749aa671ade36221f4ecfb5e6f380d800eaa3833e14fea15c14be6",
+      "tail": "\n ❯ src/manager/resident/consumption.test.ts:117:36\n    115|  const resolve = vi.fn().mockResolvedValueOnce(lower).mockResolvedValu…\n    116|  const report = await inspectResidentConsumption(source(), {maxReadByt…\n    117|  expect(report.recorded.ownTokens).toBe(0)\n       |                                    ^\n    118|  expect(report.attempts.map(a => a.receiptStatus)).toEqual(['duplicate…\n    119| })\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  1 failed | 15 passed (16)\n   Start at  20:05:33\n   Duration  312ms (transform 37ms, setup 15ms, collect 30ms, tests 17ms, environment 0ms, prepare 48ms)\n\n/home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk:\n ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @namzu/sdk@38.2.1 test: `node ../../scripts/run-sdk-tests.mjs unit --passWithNoTests -- src/manager/resident/consumption.test.ts`\nExit status 1"
+    },
+    {
+      "kind": "finite-mean regression before the fix",
+      "path": "/tmp/namzu-resident-mean-repro.log",
+      "sha256": "00abe4976fb4c459f91b281ab0427b1d6fa616c5f0c59a172e54cae2e456e4d7",
+      "tail": "\n ❯ src/manager/resident/initiative.test.ts:171:46\n    169|   feedback = observeResidentStep(feedback, observation('two', 0.25, Nu…\n    170|   const result = createResidentSelector(policy)(agenda(pursuit(1, { st…\n    171|   expect(result.candidates[0]?.expectedCost).toBe(Number.MAX_VALUE)\n       |                                              ^\n    172|   expect(Number.isFinite(result.candidates[0]?.score)).toBe(true)\n    173|   expect(JSON.parse(JSON.stringify(result))).toEqual(result)\n\n⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯\n\n\n Test Files  1 failed (1)\n      Tests  1 failed | 57 passed (58)\n   Start at  20:17:52\n   Duration  304ms (transform 38ms, setup 15ms, collect 32ms, tests 26ms, environment 0ms, prepare 54ms)\n\n/home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk:\n ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @namzu/sdk@38.2.1 test: `node ../../scripts/run-sdk-tests.mjs unit --passWithNoTests -- src/manager/resident/initiative.test.ts`\nExit status 1"
+    },
+    {
+      "kind": "wrong root formatter configuration",
+      "path": "/tmp/namzu-consumption-uuid-lint.log",
+      "sha256": "282f6ce487d7d1951cbc09f10e864a85b50d448af1b552ded53f7f7f7e089b65",
+      "tail": "packages/sdk lint:     174 │ \t\t\t\treceived.push(event)\npackages/sdk lint:     175 │ \t\t\t},\npackages/sdk lint:   > 176 │ \t\t\t// biome-ignore lint/suspicious/noExplicitAny: branded ids are not the subject.\npackages/sdk lint:         │ \t\t\t^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\npackages/sdk lint:     177 │ \t\t} as any)\npackages/sdk lint:     178 │ \npackages/sdk lint:   \npackages/sdk lint: The number of diagnostics exceeds the number allowed by Biome.\npackages/sdk lint: Diagnostics not shown: 25.\npackages/sdk lint: Checked 1381 files in 219ms. No fixes applied.\npackages/sdk lint: Found 2 errors.\npackages/sdk lint: Found 43 warnings.\npackages/sdk lint: check ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\npackages/sdk lint:   × Some errors were emitted while running checks.\npackages/sdk lint:   \npackages/sdk lint: Failed\n/home/arda/workspaces/@cogitave/cogitave/namzu/packages/sdk:\n ERR_PNPM_RECURSIVE_RUN_FIRST_FAIL  @namzu/sdk@38.2.1 lint: `biome check src/`\nExit status 1\n ELIFECYCLE  Command failed with exit code 1."
+    },
+    {
+      "kind": "publint overlapped build output cleanup",
+      "path": "/tmp/namzu-consumption-publint.log",
+      "sha256": "ebc9377744e8a3ff1055f575501d7bebc3ccf4ef41a8350a26874bd00e6e5b56",
+      "tail": "All good!\nPackage: @namzu/evals\nRunning publint v0.3.24 for @namzu/evals...\nPacking files with `pnpm pack`...\nLinting...\nAll good!\nPackage: @namzu/files\nRunning publint v0.3.24 for @namzu/files...\nPacking files with `pnpm pack`...\nLinting...\nAll good!\nPackage: @namzu/live\nRunning publint v0.3.24 for @namzu/live...\nPacking files with `pnpm pack`...\nLinting...\nErrors:\n1. pkg.exports[\".\"].types is ./dist/index.d.ts but the file does not exist.\n2. pkg.exports[\".\"].import is ./dist/index.js but the file does not exist.\n3. pkg.main is ./dist/index.js but the file does not exist.\n4. pkg.types is ./dist/index.d.ts but the file does not exist."
+    }
+  ]
+}

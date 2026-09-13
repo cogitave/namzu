@@ -1,0 +1,121 @@
+{
+  "version": 1,
+  "rawReportSha256": "791e80d12bb3e6003a8a47bb719db5b7f303145686e3d9fa3496b25f36ee7660",
+  "root": "/tmp/namzu-resident-managed-live-a17rPN",
+  "checkout": "/tmp/namzu-resident-consumer-0a0baf25",
+  "startedAt": 1789320382050,
+  "endedAt": 1789320399989,
+  "model": "codex/gpt-5.6-luna",
+  "effort": "low",
+  "limits": {
+    "steps": 1,
+    "iterations": 8,
+    "tokens": 24000,
+    "wallMs": 120000
+  },
+  "buildBefore": {
+    "sdk/dist/manager/resident/host.js": "c7270ee34c1b8f840be82109c24698516049052ff3066e45889649dcfec1bac2",
+    "cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+    "cli/dist/integrations/resident/runner-worker.js": "3206c4a127eae89530608e90583f4f8c4e3ac63fc53221a52f425863ef7af625",
+    "cli/dist/integrations/resident/runner-launch.js": "218abff101129f72ec1201fd658756a5b2a911b011bf6786315137799eec2c27",
+    "cli/dist/integrations/resident/verification.js": "c2b32b5c226b483ffc1a84c5c4012df0619a76a27e931f428339573ec1ca6eed",
+    "cli/dist/integrations/resident/inspection.js": "992433a7232b97c99ff2a2dfd3ae40cf7f11d3463acb64b6ddbb32f67bb7c2dd"
+  },
+  "buildAfter": {
+    "sdk/dist/manager/resident/host.js": "c7270ee34c1b8f840be82109c24698516049052ff3066e45889649dcfec1bac2",
+    "cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+    "cli/dist/integrations/resident/runner-worker.js": "3206c4a127eae89530608e90583f4f8c4e3ac63fc53221a52f425863ef7af625",
+    "cli/dist/integrations/resident/runner-launch.js": "218abff101129f72ec1201fd658756a5b2a911b011bf6786315137799eec2c27",
+    "cli/dist/integrations/resident/verification.js": "c2b32b5c226b483ffc1a84c5c4012df0619a76a27e931f428339573ec1ca6eed",
+    "cli/dist/integrations/resident/inspection.js": "992433a7232b97c99ff2a2dfd3ae40cf7f11d3463acb64b6ddbb32f67bb7c2dd"
+  },
+  "buildStable": true,
+  "worker": {
+    "pid": 3815053,
+    "instanceId": "a90e123e-20bd-4e97-ab05-a419088747e5"
+  },
+  "inspection": {
+    "scope": {
+      "tenantId": "bfedf673-3571-46f3-9ef1-280c80916e79",
+      "agentKey": "default",
+      "throughRevision": 4
+    },
+    "fromRevision": 1,
+    "throughRevision": 4,
+    "nextCursor": null,
+    "historyComplete": true,
+    "unavailableRevisions": [],
+    "historyBytes": 3503,
+    "receiptBytesReserved": 196608,
+    "archivedPursuits": [],
+    "attempts": [
+      {
+        "revision": 3,
+        "pursuitRevision": 2,
+        "pursuitId": "9447a2a2-1f08-442b-aeac-13470397eedb",
+        "claimId": "0c88d58b-ec5e-4218-9010-e129c6addcfe",
+        "step": 1,
+        "objective": "Read only package.json and report its version, then complete this review. Do not modify files, run commands or start agents.",
+        "settlement": {
+          "revision": 4,
+          "pursuitId": "9447a2a2-1f08-442b-aeac-13470397eedb",
+          "claimId": "0c88d58b-ec5e-4218-9010-e129c6addcfe",
+          "outcome": "complete"
+        },
+        "receipt": {
+          "runId": "635f9b24-14ed-44fc-90ed-07cc01ef1b99",
+          "ownTokens": 9531,
+          "treeTokens": 9531,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 9531,
+          "usageFinal": true,
+          "cleanup": "confirmed",
+          "verification": "recorded"
+        },
+        "receiptStatus": "available"
+      }
+    ],
+    "recorded": {
+      "ownTokens": 9531,
+      "treeTokens": 9531,
+      "ownCostUsd": 0,
+      "unpricedOwnTokens": 9531
+    },
+    "unknown": {
+      "ownUsageAttempts": 0,
+      "treeUsageAttempts": 0,
+      "ownPriceAttempts": 1
+    },
+    "usageComplete": true
+  },
+  "requests": [
+    {
+      "at": 1789320383617,
+      "pid": 3815053
+    },
+    {
+      "at": 1789320387343,
+      "pid": 3815053
+    }
+  ],
+  "toolEvents": [
+    {
+      "type": "tool_executing",
+      "toolName": "read",
+      "input": {
+        "path": "package.json"
+      },
+      "isError": null
+    },
+    {
+      "type": "tool_completed",
+      "toolName": "read",
+      "isError": false
+    }
+  ],
+  "afterStopObservationMs": 10000,
+  "afterStopRequests": 0,
+  "sourceUnchanged": true,
+  "passed": true,
+  "failure": null
+}

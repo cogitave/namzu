@@ -320,6 +320,13 @@ comparison of intelligence. Tokens and cost were not measured.
 
 ## Activity and consumption inspection
 
+The [sustained lifecycle audit](../../research/resident/lifetime-accounting.md)
+records a two-hour controlled-provider run, restarts, cancellation, archival,
+inspection fault checks and three small Luna/low CLI supplements. The controlled
+run retained 30 admissions and two interruptions with incomplete usage; twelve
+ten-minute idle intervals produced no model calls. These results validate the
+tested lifecycle and inspection cases, not autonomous task quality in general.
+
 `DiskResidentAgenda.activity(throughRevision)` creates a read-only
 `ResidentActivitySource` bound to the tenant, agent and immutable upper revision.
 Forward pages derive admissions and settlements from adjacent authoritative

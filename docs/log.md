@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-14
+
+- **Update** Record the completed two-hour [resident consumption audit](sdk/resident-agents.md#activity-and-consumption-inspection), including abrupt and graceful interruptions, retained unknown usage, archived pursuits and bounded real CLI supplements.
+
 ## 2026-09-13
 
 - **Update** Keep [resident selection](sdk/resident-initiative.md#explainable-selection-and-abstention) cost estimates and explanations finite across the accepted numeric range, including very large and subnormal observations.

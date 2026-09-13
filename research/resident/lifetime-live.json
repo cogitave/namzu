@@ -1,0 +1,291 @@
+{
+  "version": 1,
+  "auditedAt": 1789319793698,
+  "inspectionBuild": {
+    "sdk/dist/manager/resident/activity.js": "adf2b512c2993f11a64e7de3cbca543e97fa4b487815963fee01ab3ca7a43b81",
+    "sdk/dist/manager/resident/consumption.js": "c255bce93ec7c795503d62872d0d477ae433f15f085e012de26a9cb62a615ce4",
+    "cli/dist/integrations/resident/inspection.js": "992433a7232b97c99ff2a2dfd3ae40cf7f11d3463acb64b6ddbb32f67bb7c2dd",
+    "cli/dist/commands/resident.js": "2b40473b6127d2249658ff334dad1e71832bd293f0c500876c15967dff8067f4"
+  },
+  "cases": [
+    {
+      "id": "current",
+      "root": "/tmp/namzu-claim-live-W7I4OM",
+      "sourceSha256": "4ffa2c3594c07fdac3f9b2dc50f70bb5b1419c238a04de03184696bd9908f126",
+      "model": "codex/gpt-5.6-luna",
+      "effort": "low",
+      "buildBefore": {
+        "sdk/dist/run/json-claim-verifier.js": "3440aed9ee47735cda88b9795eb0df924c940bd1c5ce2ed461e00fe9eda5e004",
+        "sdk/dist/prompt/resident-step.js": "634a9dbf88acb4b021bd48eae3be27a16b85cf36c71dade3ae5cfa0bd9906154",
+        "cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+        "cli/dist/integrations/resident/verification.js": "c2b32b5c226b483ffc1a84c5c4012df0619a76a27e931f428339573ec1ca6eed",
+        "cli/dist/commands/resident.js": "c6ba7872ee83e1770be19e512c9d3db84ff433ac23e7d3bb366771726058d8c2",
+        "cli/dist/integrations/resident/runner-launch.js": "218abff101129f72ec1201fd658756a5b2a911b011bf6786315137799eec2c27",
+        "cli/dist/integrations/resident/runner-worker.js": "3206c4a127eae89530608e90583f4f8c4e3ac63fc53221a52f425863ef7af625"
+      },
+      "buildAfter": {
+        "sdk/dist/run/json-claim-verifier.js": "3440aed9ee47735cda88b9795eb0df924c940bd1c5ce2ed461e00fe9eda5e004",
+        "sdk/dist/prompt/resident-step.js": "634a9dbf88acb4b021bd48eae3be27a16b85cf36c71dade3ae5cfa0bd9906154",
+        "cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+        "cli/dist/integrations/resident/verification.js": "c2b32b5c226b483ffc1a84c5c4012df0619a76a27e931f428339573ec1ca6eed",
+        "cli/dist/commands/resident.js": "c6ba7872ee83e1770be19e512c9d3db84ff433ac23e7d3bb366771726058d8c2",
+        "cli/dist/integrations/resident/runner-launch.js": "218abff101129f72ec1201fd658756a5b2a911b011bf6786315137799eec2c27",
+        "cli/dist/integrations/resident/runner-worker.js": "3206c4a127eae89530608e90583f4f8c4e3ac63fc53221a52f425863ef7af625"
+      },
+      "realRequests": 2,
+      "scriptedReplies": 0,
+      "modelReceivedRejection": false,
+      "phase": "complete",
+      "recordedTokens": 9561,
+      "toolEvents": [
+        {
+          "type": "tool_executing",
+          "toolName": "read",
+          "isError": null
+        },
+        {
+          "type": "tool_completed",
+          "toolName": "read",
+          "isError": false
+        }
+      ],
+      "verification": {
+        "answerSha256": "a94d1af25fece8159bad8cf1c1cd1184724bd688bf39082d6005ad4e9fe4af92",
+        "receipt": {
+          "scope": "{\"tenantId\":\"9375bf43-5954-43da-893e-c95c87ac79be\",\"projectId\":\"bc237179-4730-49ef-8927-93e04f94061e\",\"pursuitId\":\"02d5214a-84e4-400f-b128-fa420d748368\",\"claimId\":\"edc53485-bdcf-4b91-9bde-429012957401\",\"sessionId\":\"cff41280-e402-462f-9ccf-c5a81c76479c\",\"runId\":\"9b148d79-c7c8-44e0-a2fb-8061dc4a2cb7\",\"revision\":2}",
+          "runId": "9b148d79-c7c8-44e0-a2fb-8061dc4a2cb7",
+          "iteration": 2,
+          "claims": {
+            "version": "3.0.0"
+          },
+          "observations": [
+            {
+              "source": "package.json",
+              "requestId": "04bed0ee-1641-44cb-a0d7-d59c41d90844",
+              "observedAt": 1789316881836,
+              "bytes": 43,
+              "sha256": "339dae7291e49e0179379d909bd14b53fce8cc7886ccf801742faa5c88fb1092"
+            }
+          ]
+        }
+      },
+      "usage": {
+        "totalTokens": 9561,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 9561
+        }
+      },
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 9561,
+        "treeTokens": 9561,
+        "reservedTokens": 0,
+        "remainingTokens": 14439,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "inspection": {
+        "scope": {
+          "tenantId": "9375bf43-5954-43da-893e-c95c87ac79be",
+          "agentKey": "default",
+          "throughRevision": 4
+        },
+        "fromRevision": 1,
+        "throughRevision": 4,
+        "nextCursor": null,
+        "historyComplete": true,
+        "unavailableRevisions": [],
+        "historyBytes": 3693,
+        "receiptBytesReserved": 196608,
+        "archivedPursuits": [],
+        "attempts": [
+          {
+            "revision": 3,
+            "pursuitRevision": 2,
+            "pursuitId": "02d5214a-84e4-400f-b128-fa420d748368",
+            "claimId": "edc53485-bdcf-4b91-9bde-429012957401",
+            "step": 1,
+            "objective": "Report the current version from package.json, then complete the review. Only read; do not change files or run commands. If the source is missing, report blocked.",
+            "settlement": {
+              "revision": 4,
+              "pursuitId": "02d5214a-84e4-400f-b128-fa420d748368",
+              "claimId": "edc53485-bdcf-4b91-9bde-429012957401",
+              "outcome": "complete"
+            },
+            "receipt": {
+              "runId": "9b148d79-c7c8-44e0-a2fb-8061dc4a2cb7",
+              "ownTokens": 9561,
+              "treeTokens": 9561,
+              "ownCostUsd": 0,
+              "unpricedOwnTokens": 9561,
+              "usageFinal": true,
+              "cleanup": "confirmed",
+              "verification": "recorded"
+            },
+            "receiptStatus": "available"
+          }
+        ],
+        "recorded": {
+          "ownTokens": 9561,
+          "treeTokens": 9561,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 9561
+        },
+        "unknown": {
+          "ownUsageAttempts": 0,
+          "treeUsageAttempts": 0,
+          "ownPriceAttempts": 1
+        },
+        "usageComplete": true
+      },
+      "inspectionReadOnly": true,
+      "inspectedStateFiles": 18
+    },
+    {
+      "id": "repair",
+      "root": "/tmp/namzu-claim-live-SI40rh",
+      "sourceSha256": "5b7536abeebca1ef0c53ad64b82ed5e2e98e2cbd12c8d73be6ffdc3a861d3fc5",
+      "model": "codex/gpt-5.6-luna",
+      "effort": "low",
+      "buildBefore": {
+        "sdk/dist/run/json-claim-verifier.js": "3440aed9ee47735cda88b9795eb0df924c940bd1c5ce2ed461e00fe9eda5e004",
+        "sdk/dist/prompt/resident-step.js": "634a9dbf88acb4b021bd48eae3be27a16b85cf36c71dade3ae5cfa0bd9906154",
+        "cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+        "cli/dist/integrations/resident/verification.js": "c2b32b5c226b483ffc1a84c5c4012df0619a76a27e931f428339573ec1ca6eed",
+        "cli/dist/commands/resident.js": "c6ba7872ee83e1770be19e512c9d3db84ff433ac23e7d3bb366771726058d8c2",
+        "cli/dist/integrations/resident/runner-launch.js": "218abff101129f72ec1201fd658756a5b2a911b011bf6786315137799eec2c27",
+        "cli/dist/integrations/resident/runner-worker.js": "3206c4a127eae89530608e90583f4f8c4e3ac63fc53221a52f425863ef7af625"
+      },
+      "buildAfter": {
+        "sdk/dist/run/json-claim-verifier.js": "3440aed9ee47735cda88b9795eb0df924c940bd1c5ce2ed461e00fe9eda5e004",
+        "sdk/dist/prompt/resident-step.js": "634a9dbf88acb4b021bd48eae3be27a16b85cf36c71dade3ae5cfa0bd9906154",
+        "cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+        "cli/dist/integrations/resident/verification.js": "c2b32b5c226b483ffc1a84c5c4012df0619a76a27e931f428339573ec1ca6eed",
+        "cli/dist/commands/resident.js": "c6ba7872ee83e1770be19e512c9d3db84ff433ac23e7d3bb366771726058d8c2",
+        "cli/dist/integrations/resident/runner-launch.js": "218abff101129f72ec1201fd658756a5b2a911b011bf6786315137799eec2c27",
+        "cli/dist/integrations/resident/runner-worker.js": "3206c4a127eae89530608e90583f4f8c4e3ac63fc53221a52f425863ef7af625"
+      },
+      "realRequests": 2,
+      "scriptedReplies": 1,
+      "modelReceivedRejection": true,
+      "phase": "complete",
+      "recordedTokens": 9719,
+      "toolEvents": [
+        {
+          "type": "tool_executing",
+          "toolName": "read",
+          "isError": null
+        },
+        {
+          "type": "tool_completed",
+          "toolName": "read",
+          "isError": false
+        }
+      ],
+      "verification": {
+        "answerSha256": "aacb52698bad1164f1477c0a7885e596aa8f066a5208d9b9cd5d0f23489d5075",
+        "receipt": {
+          "scope": "{\"tenantId\":\"2be20d4c-a10e-4a23-8bbe-c9a0fd4249ad\",\"projectId\":\"0cfcfcc9-fa5e-423d-a09c-63e7bc6f7caf\",\"pursuitId\":\"d2169cc8-015a-4ea4-a804-5d424ae30804\",\"claimId\":\"4433be14-dabe-469a-96e4-9a08ab807189\",\"sessionId\":\"31ab9504-9710-467d-ba54-a1828d2a0824\",\"runId\":\"aa57fdd4-f1b7-4338-a16f-4c72cfe902c1\",\"revision\":2}",
+          "runId": "aa57fdd4-f1b7-4338-a16f-4c72cfe902c1",
+          "iteration": 3,
+          "claims": {
+            "version": "3.0.0"
+          },
+          "observations": [
+            {
+              "source": "package.json",
+              "requestId": "700aa3fe-7103-47ce-93a2-de63e13e4810",
+              "observedAt": 1789317022907,
+              "bytes": 43,
+              "sha256": "339dae7291e49e0179379d909bd14b53fce8cc7886ccf801742faa5c88fb1092"
+            }
+          ]
+        }
+      },
+      "usage": {
+        "totalTokens": 9719,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 9719
+        }
+      },
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 9719,
+        "treeTokens": 9719,
+        "reservedTokens": 0,
+        "remainingTokens": 14281,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "inspection": {
+        "scope": {
+          "tenantId": "2be20d4c-a10e-4a23-8bbe-c9a0fd4249ad",
+          "agentKey": "default",
+          "throughRevision": 4
+        },
+        "fromRevision": 1,
+        "throughRevision": 4,
+        "nextCursor": null,
+        "historyComplete": true,
+        "unavailableRevisions": [],
+        "historyBytes": 3691,
+        "receiptBytesReserved": 196608,
+        "archivedPursuits": [],
+        "attempts": [
+          {
+            "revision": 3,
+            "pursuitRevision": 2,
+            "pursuitId": "d2169cc8-015a-4ea4-a804-5d424ae30804",
+            "claimId": "4433be14-dabe-469a-96e4-9a08ab807189",
+            "step": 1,
+            "objective": "Report the current version from package.json, then complete the review. Only read; do not change files or run commands. If the source is missing, report blocked.",
+            "settlement": {
+              "revision": 4,
+              "pursuitId": "d2169cc8-015a-4ea4-a804-5d424ae30804",
+              "claimId": "4433be14-dabe-469a-96e4-9a08ab807189",
+              "outcome": "complete"
+            },
+            "receipt": {
+              "runId": "aa57fdd4-f1b7-4338-a16f-4c72cfe902c1",
+              "ownTokens": 9719,
+              "treeTokens": 9719,
+              "ownCostUsd": 0,
+              "unpricedOwnTokens": 9719,
+              "usageFinal": true,
+              "cleanup": "confirmed",
+              "verification": "recorded"
+            },
+            "receiptStatus": "available"
+          }
+        ],
+        "recorded": {
+          "ownTokens": 9719,
+          "treeTokens": 9719,
+          "ownCostUsd": 0,
+          "unpricedOwnTokens": 9719
+        },
+        "unknown": {
+          "ownUsageAttempts": 0,
+          "treeUsageAttempts": 0,
+          "ownPriceAttempts": 1
+        },
+        "usageComplete": true
+      },
+      "inspectionReadOnly": true,
+      "inspectedStateFiles": 19
+    }
+  ],
+  "totalRealRequests": 4,
+  "totalScriptedReplies": 1,
+  "totalRecordedTokens": 19280,
+  "note": "The repair seed is scripted, not a model error. Token usage is retained; prices are unknown. This small supplement is not a model performance benchmark.",
+  "passed": true
+}

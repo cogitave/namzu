@@ -1,0 +1,66 @@
+{
+  "root": "/tmp/namzu-lifetime-scale-HxOFkQ",
+  "scripted": true,
+  "startedAt": 1789318392774,
+  "buildBefore": {
+    "activity": "adf2b512c2993f11a64e7de3cbca543e97fa4b487815963fee01ab3ca7a43b81",
+    "consumption": "00d0bcd04db0a82315cdc8574ed438a54a69111e41db2298c7b0c09fad77a856",
+    "agenda": "00c919de8647c7f061d2ed3f31c8177a1a205aa26d2055815ee0fe965ec2b77f"
+  },
+  "rows": [
+    {
+      "steps": 128,
+      "revisions": 259,
+      "writeMs": 404.36219800000003,
+      "inspectMs": 169.774,
+      "pagedMs": 165.2585999999999,
+      "pages": 3,
+      "historyBytes": 213322,
+      "pageBytes": 213322,
+      "receiptBytesReserved": 128,
+      "defaultInspectedAttempts": 127,
+      "ownTokens": 12800,
+      "treeTokens": 19200,
+      "approximateProcessRssBytes": 116944896
+    },
+    {
+      "steps": 512,
+      "revisions": 1027,
+      "writeMs": 1951.6593930000001,
+      "inspectMs": 653.7910980000001,
+      "pagedMs": 658.5681979999999,
+      "pages": 9,
+      "historyBytes": 851827,
+      "pageBytes": 851827,
+      "receiptBytesReserved": 512,
+      "defaultInspectedAttempts": 127,
+      "ownTokens": 51200,
+      "treeTokens": 76800,
+      "approximateProcessRssBytes": 197410816
+    },
+    {
+      "steps": 1024,
+      "revisions": 2051,
+      "writeMs": 4934.073488000001,
+      "inspectMs": 1283.872299999999,
+      "pagedMs": 1278.5354000000007,
+      "pages": 17,
+      "historyBytes": 1709533,
+      "pageBytes": 1709533,
+      "receiptBytesReserved": 1024,
+      "defaultInspectedAttempts": 127,
+      "ownTokens": 102400,
+      "treeTokens": 153600,
+      "approximateProcessRssBytes": 242176000
+    }
+  ],
+  "passed": true,
+  "endedAt": 1789318404787,
+  "buildAfter": {
+    "activity": "adf2b512c2993f11a64e7de3cbca543e97fa4b487815963fee01ab3ca7a43b81",
+    "consumption": "00d0bcd04db0a82315cdc8574ed438a54a69111e41db2298c7b0c09fad77a856",
+    "agenda": "00c919de8647c7f061d2ed3f31c8177a1a205aa26d2055815ee0fe965ec2b77f"
+  },
+  "buildStable": true,
+  "rawReportSha256": "69f9f6d9535473e550c8c5a5e2894bee8eb89ba3a28535b7ea8c3e5c6ce55f4a"
+}
