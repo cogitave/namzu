@@ -12,6 +12,8 @@ const agentURL = new URL('../../packages/cli/dist/tui/agent.js', import.meta.url
 const sessionsURL = new URL('../../packages/cli/dist/integrations/sessions/store.js', import.meta.url);
 const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 const mode = process.env.NAMZU_CHECKPOINT_EVIDENCE_MODE;
+const isQueryPreparation = params => params.messages.length === 2
+  && String(params.messages[0]?.content).startsWith('Resolve a conversation-history search query.');
 
 // Only the probe children install these adapters. The parent and production
 // modules are unchanged. The resume child enters through the real CLI binary.
@@ -24,6 +26,12 @@ if (mode === 'resume') {
     const result = process.env.NAMZU_CHECKPOINT_EVIDENCE_LIVE === '1'
       ? create.apply(this, args)
       : { provider: { id:'scripted', name:'scripted', async *chatStream(params) {
+          // Preparation has no tools. Keep this deterministic probe focused on
+          // explicit recovery; the live variant delegates planning normally.
+          if (isQueryPreparation(params)) {
+            yield* new sdk.MockLLMProvider({ turns: [{ text: JSON.stringify({ mode:'none', time:'unspecified', termIds:[], basis:[] }) }] }).chatStream(params);
+            return;
+          }
           const observations=params.messages.filter(m=>m.role==='tool');
           const search=observations.find(m=>m.toolCallId==='find-receipt');
           const read=observations.find(m=>m.toolCallId==='read-receipt');
@@ -41,6 +49,12 @@ if (mode === 'resume') {
       // not replace tools, recovery decisions, persistence or provider output.
       const bounded = { ...params, effort: 'low' };
       const names=(params.tools??[]).map(t=>t.function?.name??t.name);
+      if (isQueryPreparation(params)) {
+        assert.equal(names.length, 0, 'Query preparation must remain tool-free');
+        await writeFile(join(process.env.NAMZU_CHECKPOINT_EVIDENCE_ROOT, 'preparation.json'), JSON.stringify({ toolCount: names.length, scripted: process.env.NAMZU_CHECKPOINT_EVIDENCE_LIVE !== '1' }));
+        yield* stream(bounded);
+        return;
+      }
       if(first){await writeFile(join(process.env.NAMZU_CHECKPOINT_EVIDENCE_ROOT,'offered-tools.json'),JSON.stringify(names));first=false;}
       assert.ok(names.includes('search_conversation')&&names.includes('read_conversation'),'Checkpoint resume did not mount conversation evidence tools');
       await writeFile(join(process.env.NAMZU_CHECKPOINT_EVIDENCE_ROOT, 'request.json'), JSON.stringify(bounded, null, 2));
@@ -136,6 +150,7 @@ if (mode === 'resume') {
     const result = await promisify(execFile)(process.execPath, args, { cwd, env: { ...env, NAMZU_CHECKPOINT_EVIDENCE_MODE: 'resume', NAMZU_CHECKPOINT_EVIDENCE_LIVE: live ? '1' : '0' }, timeout: 150000, maxBuffer: 500000 });
     await writeFile(join(root, 'stdout.log'), result.stdout); await writeFile(join(root, 'stderr.log'), result.stderr);
     const request = JSON.parse(await readFile(join(root, 'request.json'), 'utf8'));
+    report.preparation = JSON.parse(await readFile(join(root, 'preparation.json'), 'utf8'));
     assert.ok(request.messages.some(m => m.role === 'tool' && m.toolCallId === 'pause' && m.isError && m.content.includes('outcome is unknown')));
     report.counterAfter = Number(await readFile(join(cwd, 'counter.txt'), 'utf8'));
     assert.equal(report.counterAfter, 1);
@@ -161,6 +176,7 @@ if (mode === 'resume') {
       assert.ok(raw.includes('Synthetic checkpoint provider failure'));
       assert.equal(JSON.parse(await readFile(join(runDir,'run.json'),'utf8')).status,'failed');
       report.counterAfter=Number(await readFile(join(cwd,'counter.txt'),'utf8'));assert.equal(report.counterAfter,1);
+      report.preparation=JSON.parse(await readFile(join(root,'preparation.json'),'utf8'));
       report.after=await fingerprints();assert.deepEqual(report.after,report.before);
       report.exitCode=1;report.passed=true;delete report.error;
     }

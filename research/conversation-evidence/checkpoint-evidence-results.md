@@ -3,6 +3,11 @@
 Measured 2026-09-13. This is CLI `drain` recovery of a real `AgentSession`, not
 TUI rendering, an autonomy benchmark or an exactly-once guarantee.
 
+The [milestone audit](milestone-audit.md) reruns all three deterministic
+variants on `7579aa0c`. The fixture now distinguishes tool-free query preparation
+from main inference; its original all-requests-have-tools assertion became
+invalid when automatic planning was enabled. Production retrieval is unchanged.
+
 ## Missing composition
 
 `createAgentSession` mounted conversation tools only when its host supplied

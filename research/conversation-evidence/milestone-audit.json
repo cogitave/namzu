@@ -1,0 +1,125 @@
+{
+  "date": "2026-09-13",
+  "implementationRevision": "7579aa0c",
+  "purpose": "Close the ordinary-conversation evidence milestone against current code, process probes and retained live/TUI artifacts.",
+  "newLiveProviderTokens": 0,
+  "ordinary": {
+    "root": "/tmp/namzu-conversation-evidence-cli-p7cYxK",
+    "passed": true,
+    "calls": [
+      "search_conversation",
+      "read_conversation"
+    ],
+    "providerTokens": 0
+  },
+  "checkpoint": [
+    {
+      "root": "/tmp/namzu-checkpoint-evidence-cli-zeE8NA",
+      "variant": "retained-recovery",
+      "passed": true,
+      "originalActionCount": 1,
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "preparation": {
+        "toolCount": 0,
+        "scripted": true
+      },
+      "status": "completed",
+      "recoveredReceipt": true,
+      "buildStable": true
+    },
+    {
+      "root": "/tmp/namzu-checkpoint-evidence-cli-r95hRv",
+      "variant": "altered-artifact",
+      "passed": true,
+      "originalActionCount": 1,
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "preparation": {
+        "toolCount": 0,
+        "scripted": true
+      },
+      "status": "completed",
+      "recoveredReceipt": false,
+      "buildStable": true
+    },
+    {
+      "root": "/tmp/namzu-checkpoint-evidence-cli-HVjTnv",
+      "variant": "provider-failure",
+      "passed": true,
+      "counterBefore": 1,
+      "counterAfter": 1,
+      "preparation": {
+        "toolCount": 0,
+        "scripted": true
+      },
+      "exitCode": 1,
+      "buildStable": true
+    }
+  ],
+  "initialProbeFailure": {
+    "root": "/tmp/namzu-checkpoint-evidence-cli-Za5q05",
+    "cause": "The old research wrapper asserted that tool-free query preparation must offer conversation tools; the thrown assertion left unknown usage and stopped finite-budget admission. Production code was unchanged.",
+    "correctedResearchFile": "research/conversation-evidence/checkpoint-evidence-cli.mjs"
+  },
+  "cancellation": [
+    {
+      "root": "/tmp/namzu-capture-cancel-cli-VlaAM0",
+      "mode": "cooperative",
+      "passed": true,
+      "runId": "5f970f55-52d0-4626-aa5b-9852c06f4777",
+      "recoveredSeq": 16,
+      "firstSearchFailed": true,
+      "followingSearchSucceeded": true,
+      "originalReads": 1,
+      "stopReason": "end_turn"
+    },
+    {
+      "root": "/tmp/namzu-capture-cancel-cli-7rv1T4",
+      "mode": "uncooperative",
+      "passed": true,
+      "runId": "1fce468e-3a05-465a-a651-a2f52af80631",
+      "recoveredSeq": 16,
+      "firstSearchFailed": true,
+      "followingSearchSucceeded": true,
+      "originalReads": 1,
+      "stopReason": "end_turn"
+    }
+  ],
+  "sessionTests": {
+    "passed": 37,
+    "log": "/tmp/namzu-milestone-session.log"
+  },
+  "previousLiveAndTuiRevalidated": {
+    "researchRecord": "research/conversation-evidence/query-fallback-results.json",
+    "liveRoot": "/tmp/namzu-natural-recall-sUPusQ",
+    "liveBuildFiles": 16,
+    "originalArtifactFiles": 2,
+    "visibleOriginalCountAfterCompaction": 0,
+    "compaction": {
+      "sessionId": "bcbece68-e887-4dab-aef3-07070f4b0a58",
+      "beforeMessages": 76,
+      "afterMessages": 9,
+      "shed": 67,
+      "initialReadDistance": 74,
+      "initialReadRemoved": true,
+      "originalToolArchived": true,
+      "visibleOriginalCount": 0,
+      "usage": {
+        "promptTokens": 0,
+        "completionTokens": 0,
+        "totalTokens": 0,
+        "cachedTokens": 0,
+        "cacheWriteTokens": 0
+      }
+    },
+    "previousCandidateLiveTokens": 27707,
+    "tuiScreenSha256": "4a61e85f43f1b7ad9cf4e2d3759f5118e46a0105cda9e0899e056bd9c12cd62a",
+    "tuiExitCode": 0
+  },
+  "nextVerifiedGap": {
+    "source": "packages/cli/src/integrations/resident/session-step.ts",
+    "gap": "Separate resident admissions mount scoped explicit history/evidence tools but supply no conversationSessions; the current automatic conversation recall hook therefore does not retrieve earlier resident tool evidence."
+  },
+  "published": false
+}
