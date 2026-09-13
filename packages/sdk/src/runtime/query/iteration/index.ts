@@ -113,6 +113,11 @@ export type { ToolReviewOutcome } from './phases/index.js'
  */
 const DEFAULT_ANSWER_REVIEW_LIMIT = 3
 
+// Ending a run changes the available actions, not the strength of its evidence.
+// Use the same standard for warning closure and empty-completion recovery.
+const CLOSING_RESPONSE_GUIDANCE =
+	'Give a concise response using only what the available evidence supports. Attribute unverified statements to their source instead of presenting them as observed facts. If evidence is missing or conflicting, state what cannot be established. Do not claim unfinished work is complete. Do not request any more tool calls.'
+
 /**
  * The share of a run's REMAINING time a settle-hold may take.
  *
@@ -622,7 +627,7 @@ export class IterationOrchestrator {
 						? [
 								...runMgr.messages,
 								createRuntimeContextMessage(
-									'[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.',
+									`[SYSTEM] You are approaching your resource limits. ${CLOSING_RESPONSE_GUIDANCE}`,
 									'limit-finalization',
 								),
 							]
@@ -2577,7 +2582,7 @@ export class IterationOrchestrator {
 			const finalHistory = [
 				...this.ctx.runMgr.messages,
 				createRuntimeContextMessage(
-					`[SYSTEM] Run is ending due to ${reason}. You MUST provide a final response now summarizing all your findings and work so far. Do not use any tools.`,
+					`[SYSTEM] Run is ending due to ${reason}. ${CLOSING_RESPONSE_GUIDANCE}`,
 					'limit-finalization',
 				),
 			]

@@ -4,20 +4,27 @@
 // --natural sends all candidate calls live; --baseline disables review in that mode.
 // --originals exercises independent archive validation without a live candidate.
 // --replay=<report> replays recorded candidate outputs/usage; search tools still run.
+// --live-closing with replay sends only its last, tool-free closing request live.
+// --legacy-closing substitutes the pre-change closing instruction for comparison.
 import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const live = process.argv.includes("--live");
+const liveClosing = process.argv.includes("--live-closing");
+const legacyClosing = process.argv.includes("--legacy-closing");
+const live = process.argv.includes("--live") || liveClosing;
 const replayPath = process.argv
 	.find((arg) => arg.startsWith("--replay="))
 	?.slice(9);
 const replayReport = replayPath
 	? JSON.parse(await readFile(replayPath, "utf8"))
 	: undefined;
-assert.ok(!(live && replayReport), "Replay never makes live model calls");
+assert.ok(
+	!(live && replayReport) || liveClosing,
+	"Use --live-closing for a bounded live replay suffix",
+);
 const correct = process.argv.includes("--correct");
 const roles = process.argv.includes("--roles");
 const natural = process.argv.includes("--natural") || Boolean(replayReport);
@@ -32,6 +39,14 @@ assert.ok(
 	"Natural trials require --live or --replay, and one --case",
 );
 assert.ok(!baseline || natural, "Baseline requires --natural");
+assert.ok(
+	!liveClosing || (replayReport && baseline && selection),
+	"Live closing requires a replay, baseline and one case",
+);
+assert.ok(
+	!legacyClosing || liveClosing,
+	"Legacy closing is only a live-closing comparison",
+);
 const root = await mkdtemp(join(tmpdir(), "namzu-source-support-"));
 const home = join(root, "home");
 const cwd = join(root, "workspace");
@@ -180,6 +195,8 @@ const hashes = async () =>
 const report = {
 	root,
 	live,
+	liveClosing,
+	legacyClosing,
 	correct,
 	roles,
 	natural,
@@ -199,6 +216,7 @@ sdk.ProviderRegistry.create = (...args) => {
 	const created = originalCreate(...args);
 	const stream = created.provider.chatStream.bind(created.provider);
 	created.provider.chatStream = async function* (params) {
+		let outgoing = params;
 		const judging = params.messages[0]?.content === reviewSystem;
 		const record = {
 			kind: judging ? "judge" : "candidate",
@@ -230,12 +248,17 @@ sdk.ProviderRegistry.create = (...args) => {
 		let replayTurn;
 		if (replayReport) {
 			assert.ok(!judging, "This recorded trajectory must stop before review");
+			assert.ok(
+				record.toolResults.every((result) => !result.isError),
+				"Replay tools must succeed before any live suffix",
+			);
 			const sourceCase = replayReport.cases.find(
 				(entry) => entry.id === active.id,
 			);
-			const original = sourceCase?.requests.filter(
+			const originalRequests = sourceCase?.requests.filter(
 				(request) => request.kind === "candidate",
-			)[mainRequests - 1];
+			);
+			const original = originalRequests?.[mainRequests - 1];
 			assert.ok(original, "Replay exhausted its recorded candidate requests");
 			assert.equal(
 				replayReport.code,
@@ -260,11 +283,35 @@ sdk.ProviderRegistry.create = (...args) => {
 					"search_conversation",
 					"Only recorded conversation searches are allowed",
 				);
+				const input = JSON.parse(call.rawArguments);
 				assert.equal(
-					JSON.parse(call.rawArguments).runId,
+					input.runId,
 					undefined,
 					"Replay fixture must not embed old run addresses",
 				);
+				if (input.cursor) {
+					const oldResult = original.toolResults.find(
+						(result) =>
+							!result.isError &&
+							JSON.parse(result.text).nextCursor === input.cursor,
+					);
+					assert.ok(
+						oldResult,
+						"A replay cursor must come from a recorded search result",
+					);
+					const actualResult = record.toolResults.find(
+						(result) => result.toolCallId === oldResult.toolCallId,
+					);
+					assert.ok(actualResult && !actualResult.isError);
+					const nextCursor = JSON.parse(actualResult.text).nextCursor;
+					assert.equal(
+						typeof nextCursor,
+						"string",
+						"The fresh search must have a continuation",
+					);
+					call.rawArguments = JSON.stringify({ ...input, cursor: nextCursor });
+					record.reboundCursors = (record.reboundCursors ?? 0) + 1;
+				}
 			}
 			replayTurn = {
 				text: original.text,
@@ -273,12 +320,50 @@ sdk.ProviderRegistry.create = (...args) => {
 			};
 			assert.ok(replayTurn.usage, "Replay needs a complete usage receipt");
 			record.replayed = true;
+			if (liveClosing && mainRequests === originalRequests.length) {
+				assert.equal(
+					params.toolChoice,
+					"none",
+					"The runtime must actually be closing",
+				);
+				assert.equal(replayTurn.toolCalls.length, 0);
+				assert.equal(sourceCase.events.at(-1)?.stopReason, "token_budget");
+				const closing = params.messages.filter(
+					(message) =>
+						message.source?.type === "runtime-context" &&
+						message.source.kind === "limit-finalization",
+				);
+				assert.equal(closing.length, 1);
+				if (legacyClosing) {
+					outgoing = {
+						...params,
+						messages: params.messages.map((message) =>
+							message === closing[0]
+								? {
+										...message,
+										content:
+											"[SYSTEM] You are approaching your resource limits. Provide your final, comprehensive response now based on everything you have gathered so far. Do not request any more tool calls.",
+									}
+								: message,
+						),
+					};
+				}
+				record.closingInstruction = outgoing.messages.find(
+					(message) =>
+						message.source?.type === "runtime-context" &&
+						message.source.kind === "limit-finalization",
+				)?.content;
+				record.toolChoice = params.toolChoice;
+				record.replayed = false;
+				replayTurn = undefined;
+			}
 		}
+		record.transport = replayTurn ? "replay" : scripted ? "scripted" : "live";
 		const output = replayTurn
 			? new sdk.MockLLMProvider({ turns: [replayTurn] }).chatStream(params)
 			: scripted
 				? new sdk.MockLLMProvider({ turns: [{ text }] }).chatStream(params)
-				: stream(params);
+				: stream(outgoing);
 		for await (const chunk of output) {
 			record.text += chunk.delta.content ?? "";
 			if (chunk.usage) record.usage.push(chunk.usage);
@@ -320,7 +405,12 @@ for (const entry of chosen) {
 	mainRequests = 0;
 	report.cases.push(active);
 	const sessionId = await startConversation(sessions);
-	const sourceRun = sdk.generateRunId();
+	// Explicit search traverses run UUIDs in sorted order. Keep the synthetic
+	// archive ahead of the current run in replay controls, then validate actual
+	// continuation availability rather than reusing an old process's cursor.
+	const sourceRun = replayReport
+		? sdk.asRunId("00000000-0000-4000-8000-000000000001")
+		: sdk.generateRunId();
 	const runDir = new CliPathBuilder(sessions.root).runDir(
 		sessions.projectId,
 		sessionId,

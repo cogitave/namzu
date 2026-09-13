@@ -32,14 +32,23 @@ ProviderRegistry.create = () => {
 		const result = params.messages
 			.filter((message) => message.role === "tool")
 			.at(-1);
+		const closingInstruction = params.messages.find(
+			(message) =>
+				message.source?.type === "runtime-context" &&
+				message.source.kind === "limit-finalization",
+		)?.content;
 		if (step === 1) {
 			assert.ok(result && !result.isError);
 			assert.match(toolResultToText(result.content), /ORCHID-CLOSING-CONTROL/);
 			assert.equal(params.toolChoice, "none");
+			assert.match(
+				closingInstruction,
+				/Attribute unverified statements to their source/,
+			);
 		}
 		await appendFile(
 			trace,
-			`${JSON.stringify({ step, toolChoice: params.toolChoice, result })}\n`,
+			`${JSON.stringify({ step, toolChoice: params.toolChoice, closingInstruction, result })}\n`,
 		);
 		step++;
 		yield* stream(params);

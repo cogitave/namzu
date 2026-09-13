@@ -85,6 +85,43 @@ async function run(
 const usage = { promptTokens: 100, completionTokens: 100, totalTokens: 200 }
 const toolTurn: MockTurn = { toolCalls: [{ id: 'observe-1', name: 'observe', args: {} }], usage }
 
+it.each(['warning', 'empty'] as const)(
+	'keeps evidence-aware closing guidance request-local after %s completion',
+	async (mode) => {
+		const { result, provider } = await run(
+			[
+				mode === 'warning'
+					? { ...toolTurn, usage: { promptTokens: 475, completionTokens: 475, totalTokens: 950 } }
+					: { text: '', usage },
+				{ text: 'A partial observation is available; the task is unresolved.', usage },
+			],
+			{ tokenBudget: 1_000 },
+		)
+		expect(provider.requests).toHaveLength(2)
+		expect(provider.requests[1]?.toolChoice).toBe('none')
+		const closing = provider.requests[1]?.messages.filter(
+			(message) =>
+				message.role === 'user' &&
+				message.source?.type === 'runtime-context' &&
+				message.source.kind === 'limit-finalization',
+		)
+		expect(closing).toHaveLength(1)
+		expect(closing?.[0]?.content).toContain('Attribute unverified statements to their source')
+		expect(closing?.[0]?.content).toContain('If evidence is missing or conflicting')
+		expect(closing?.[0]?.content).toContain('Do not claim unfinished work is complete')
+		// The nudge applies to this request, not future resumed conversation history.
+		expect(
+			result.messages.some(
+				(message) =>
+					message.role === 'user' &&
+					message.source?.type === 'runtime-context' &&
+					message.source.kind === 'limit-finalization',
+			),
+		).toBe(false)
+		expect(result.stopReason).toBe(mode === 'warning' ? 'token_budget' : 'end_turn')
+	},
+)
+
 describe('a hard stop starts no closing model request', () => {
 	it('makes zero requests when no iterations were granted', async () => {
 		const { result, provider } = await run([{ text: 'should not run' }], { maxIterations: 0 })

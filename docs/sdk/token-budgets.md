@@ -43,6 +43,11 @@ allowance remains. That response preserves the triggering guard's stop reason,
 such as `token_budget`, instead of reporting normal completion. The text remains
 available, but prose answer review is bypassed on this path; it is not a verified
 answer. The warning is not proof that measured spend reached the hard ceiling.
+The closing instruction asks for supported findings, attributed unverified
+claims and unresolved evidence or work. This is model guidance, not a factual
+verifier; applications must still interpret the stop reason and their own
+acceptance checks. The same guidance applies to empty-completion recovery and
+is request-local, so it does not become a permanent instruction on resume.
 
 `beginRequest()` persists an outstanding request before contacting the provider.
 `finishRequest(id, usage)` records the response and resolves the request together.
