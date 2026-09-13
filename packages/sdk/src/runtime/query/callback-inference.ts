@@ -14,11 +14,17 @@ const requestSchema = z
 	.strict()
 
 /** The provider already owns retry, fallback, cancellation and budget admission. */
-export function createPreparationInference(ctx: IterationContext, model: string) {
+export function createCallbackInference(
+	ctx: IterationContext,
+	model: string,
+	phase: 'preparation' | 'review',
+) {
+	const label = phase === 'preparation' ? 'Preparation' : 'Review'
+	const owner = phase === 'preparation' ? 'preparation stage' : 'answer reviewer'
 	const lifetime = new AbortController()
 	let used = false
 	return {
-		close: () => lifetime.abort(new Error('The preparation stage has ended.')),
+		close: () => lifetime.abort(new Error(`The ${owner} has ended.`)),
 		async generateText(request: PreparationTextRequest): Promise<PreparationTextResult> {
 			lifetime.signal.throwIfAborted()
 			ctx.abortController.signal.throwIfAborted()
@@ -26,12 +32,15 @@ export function createPreparationInference(ctx: IterationContext, model: string)
 			const { signal: requestedSignal, ...fields } = request
 			const input = requestSchema.parse(fields)
 			if (input.system.length + input.prompt.length > 12_000)
-				throw new Error('Preparation inference input exceeds 12,000 characters.')
-			if (used) throw new Error('A preparation stage may make only one inference call.')
+				throw new Error(`${label} inference input exceeds 12,000 characters.`)
+			if (used)
+				throw new Error(
+					`${phase === 'preparation' ? 'A' : 'An'} ${owner} may make only one inference call.`,
+				)
 			used = true
 			const deadline = new AbortController()
 			const timer = setTimeout(
-				() => deadline.abort(new Error('Preparation inference timed out.')),
+				() => deadline.abort(new Error(`${label} inference timed out.`)),
 				input.timeoutMs,
 			)
 			const signal = AbortSignal.any([
@@ -64,17 +73,16 @@ export function createPreparationInference(ctx: IterationContext, model: string)
 					if (chunk.usage) usage = usage ? mergeTokenUsage(usage, chunk.usage) : { ...chunk.usage }
 					if (chunk.error) throw new Error(chunk.error)
 					signal.throwIfAborted()
-					if (chunk.delta.toolCalls?.length)
-						invalidOutput = 'Preparation inference cannot call tools.'
+					if (chunk.delta.toolCalls?.length) invalidOutput = `${label} inference cannot call tools.`
 					if (!invalidOutput) {
 						const next = chunk.delta.content ?? ''
 						if (text.length + next.length > 8192)
-							invalidOutput = 'Preparation inference output exceeds 8,192 characters.'
+							invalidOutput = `${label} inference output exceeds 8,192 characters.`
 						else text += next
 					}
 				}
 				signal.throwIfAborted()
-				if (!usage) throw new Error('Preparation inference ended without usage.')
+				if (!usage) throw new Error(`${label} inference ended without usage.`)
 				if (invalidOutput) throw new Error(invalidOutput)
 				return { text, usage, servedBy: route() }
 			} finally {

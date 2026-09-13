@@ -1,0 +1,377 @@
+{
+  "recordedAt": "2026-09-13",
+  "base": "6e14db97",
+  "trials": {
+    "scripted": {
+      "root": "/tmp/namzu-review-request-cli-3o8O00",
+      "live": false,
+      "historyOnly": false,
+      "judge": true,
+      "receipt": "RECEIPT-5a8490c0-05d9-40bf-ae2a-dba2e9d4f2d6",
+      "before": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "166f9faf2421d9647d0cc93cc21a20b2aff88b6ef8c579ff2869d4fcd19a184a"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/callback-inference.js",
+          "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "review": {
+        "live": false,
+        "historyOnly": false,
+        "judge": true,
+        "providerRequests": [
+          {
+            "index": 1,
+            "kind": "candidate",
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true
+          },
+          {
+            "index": 1,
+            "kind": "review",
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": false
+          },
+          {
+            "index": 2,
+            "kind": "candidate",
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true
+          },
+          {
+            "index": 2,
+            "kind": "review",
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": false
+          }
+        ],
+        "reviews": [
+          {
+            "answer": "RECEİPT-5a8490c0-05d9-40bf-ae2a-dba2e9d4f2d6",
+            "hasRequestReference": true,
+            "hasHistoryReference": false,
+            "sourceValidated": true,
+            "retainedPreview": false,
+            "oracleAccept": false,
+            "judgment": {
+              "text": "{\"accept\":false}",
+              "usage": {
+                "promptTokens": 0,
+                "completionTokens": 0,
+                "totalTokens": 0,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              },
+              "servedBy": {
+                "providerId": "codex",
+                "model": "gpt-5.6-luna",
+                "chainIndex": 0
+              }
+            },
+            "accept": false
+          },
+          {
+            "answer": "RECEIPT-5a8490c0-05d9-40bf-ae2a-dba2e9d4f2d6",
+            "hasRequestReference": true,
+            "hasHistoryReference": false,
+            "sourceValidated": true,
+            "retainedPreview": false,
+            "oracleAccept": true,
+            "judgment": {
+              "text": "{\"accept\":true}",
+              "usage": {
+                "promptTokens": 0,
+                "completionTokens": 0,
+                "totalTokens": 0,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              },
+              "servedBy": {
+                "providerId": "codex",
+                "model": "gpt-5.6-luna",
+                "chainIndex": 0
+              }
+            },
+            "accept": true
+          }
+        ],
+        "events": [
+          {
+            "kind": "done",
+            "text": "RECEIPT-5a8490c0-05d9-40bf-ae2a-dba2e9d4f2d6",
+            "budget": {
+              "limit": 25000,
+              "ownTokens": 0,
+              "treeTokens": 0,
+              "reservedTokens": 0,
+              "remainingTokens": 25000,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          }
+        ]
+      },
+      "sourceUnchanged": true,
+      "exactAnswer": true,
+      "stopReason": "end_turn",
+      "passed": true,
+      "after": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "166f9faf2421d9647d0cc93cc21a20b2aff88b6ef8c579ff2869d4fcd19a184a"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/callback-inference.js",
+          "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "buildStable": true
+    },
+    "live": {
+      "root": "/tmp/namzu-review-request-cli-yJcNnN",
+      "live": true,
+      "historyOnly": false,
+      "judge": true,
+      "receipt": "RECEIPT-b4c13720-da67-4f46-8568-a20eafab1215",
+      "before": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "166f9faf2421d9647d0cc93cc21a20b2aff88b6ef8c579ff2869d4fcd19a184a"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/callback-inference.js",
+          "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "review": {
+        "live": true,
+        "historyOnly": false,
+        "judge": true,
+        "providerRequests": [
+          {
+            "index": 1,
+            "kind": "candidate",
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true
+          },
+          {
+            "index": 1,
+            "kind": "review",
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": false,
+            "usage": {
+              "promptTokens": 240,
+              "completionTokens": 38,
+              "totalTokens": 278,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          },
+          {
+            "index": 2,
+            "kind": "candidate",
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true,
+            "usage": {
+              "promptTokens": 8185,
+              "completionTokens": 68,
+              "totalTokens": 8253,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          },
+          {
+            "index": 2,
+            "kind": "review",
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": false,
+            "usage": {
+              "promptTokens": 240,
+              "completionTokens": 9,
+              "totalTokens": 249,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          }
+        ],
+        "reviews": [
+          {
+            "answer": "RECEİPT-b4c13720-da67-4f46-8568-a20eafab1215",
+            "hasRequestReference": true,
+            "hasHistoryReference": false,
+            "sourceValidated": true,
+            "retainedPreview": false,
+            "oracleAccept": false,
+            "judgment": {
+              "text": "{\"accept\":false}",
+              "usage": {
+                "promptTokens": 240,
+                "completionTokens": 38,
+                "totalTokens": 278,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              },
+              "servedBy": {
+                "providerId": "codex",
+                "model": "gpt-5.6-luna",
+                "chainIndex": 0
+              }
+            },
+            "accept": false
+          },
+          {
+            "answer": "RECEIPT-b4c13720-da67-4f46-8568-a20eafab1215",
+            "hasRequestReference": true,
+            "hasHistoryReference": false,
+            "sourceValidated": true,
+            "retainedPreview": false,
+            "oracleAccept": true,
+            "judgment": {
+              "text": "{\"accept\":true}",
+              "usage": {
+                "promptTokens": 240,
+                "completionTokens": 9,
+                "totalTokens": 249,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              },
+              "servedBy": {
+                "providerId": "codex",
+                "model": "gpt-5.6-luna",
+                "chainIndex": 0
+              }
+            },
+            "accept": true
+          }
+        ],
+        "events": [
+          {
+            "kind": "done",
+            "text": "RECEIPT-b4c13720-da67-4f46-8568-a20eafab1215",
+            "budget": {
+              "limit": 25000,
+              "ownTokens": 8780,
+              "treeTokens": 8780,
+              "reservedTokens": 0,
+              "remainingTokens": 16220,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          }
+        ]
+      },
+      "sourceUnchanged": true,
+      "exactAnswer": true,
+      "stopReason": "end_turn",
+      "passed": true,
+      "after": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "166f9faf2421d9647d0cc93cc21a20b2aff88b6ef8c579ff2869d4fcd19a184a"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/callback-inference.js",
+          "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "buildStable": true
+    }
+  }
+}

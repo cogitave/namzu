@@ -1,5 +1,6 @@
 import type { RunId } from '../ids/index.js'
 import type { Message } from '../message/index.js'
+import type { PreparationTextRequest, PreparationTextResult } from './prepare-step.js'
 
 /**
  * A host's verdict on the answer a run is about to settle with.
@@ -43,6 +44,16 @@ export interface AnswerReviewContext {
 	 * as conversation history; modifying the copy cannot edit the run/request.
 	 */
 	readonly requestMessages?: readonly Message[]
+	/**
+	 * Optional run-owned, tool-free inference: at most one call per review
+	 * invocation, revoked when the callback ends. Uses the same bounded text
+	 * request/result shapes as prepareStep and the run's metered provider chain,
+	 * selected step model and effort. No history, candidate or tools are attached
+	 * implicitly. Await its result before returning a verdict; generated text
+	 * is a model judgment, not authenticated evidence. Missing in custom hosts
+	 * which do not supply this capability.
+	 */
+	readonly generateText?: (request: PreparationTextRequest) => Promise<PreparationTextResult>
 }
 
 /**

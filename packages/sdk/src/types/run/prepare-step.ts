@@ -6,7 +6,7 @@ import type { Skill } from '../skills/index.js'
 import type { StepResult } from './step.js'
 import type { StepProvenance } from './step.js'
 
-/** @experimental One bounded, tool-free inference within a preparation stage. */
+/** @experimental Bounded, tool-free inference shared by preparation and answer review. */
 export interface PreparationTextRequest {
 	readonly system: string
 	readonly prompt: string

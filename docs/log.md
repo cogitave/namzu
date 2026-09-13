@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Give prose and structured [answer reviewers](sdk/verification.md) one optional run-metered inference call per callback, sharing bounded preparation transport, preserving candidate provenance and revoking the capability on completion or cancellation.
+
 - **Update** Distinguish quoted identifiers from requested text transformations in [evidence recall](sdk/evidence-recall.md), preserving bounded context and exact archive bytes; record CLI controls for [task-aware answer verification](sdk/verification.md).
 
 - **Update** Supply the candidate request's isolated SDK message snapshot to [answer reviewers](sdk/verification.md), including [structured output review](sdk/structured-output-review.md), so transient retrieved evidence can be checked without becoming durable history.

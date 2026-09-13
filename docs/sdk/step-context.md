@@ -121,3 +121,8 @@ conversation message or a separate step. Model `maxIterations` counts loop steps
 not these additional provider requests; token budgets still cover both. A host
 using the returned text must validate and label it appropriately. In particular,
 a query interpretation is neither system policy nor independent evidence.
+
+[Answer reviewers](verification.md#run-owned-review-inference) share this bounded
+request/result shape and inference implementation. They receive their own
+invocation-scoped capability after a candidate is produced; preparation's
+capability cannot be retained for that later phase.

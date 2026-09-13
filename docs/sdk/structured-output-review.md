@@ -12,6 +12,9 @@ tags: [sdk, harness, verification]
 tool has validated its schema and before `Run.structuredOutput` is published.
 The callback receives a cloned JSON-decoded value (`unknown`) and an `AnswerReviewContext` containing
 run identity, iteration, messages and the run's cancellation signal. Its optional
+`generateText` capability provides [one metered, bounded review inference](verification.md#run-owned-review-inference)
+per callback; the parsed candidate and response schema are not implicitly sent
+to that auxiliary request. Its optional
 [`requestMessages`](verification.md) is the isolated SDK request snapshot which
 produced this candidate, including ephemeral evidence and image-recovery edits.
 It excludes the candidate and any results produced after that dispatch. Mutating

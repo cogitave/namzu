@@ -53,10 +53,10 @@ import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/in
 import { toErrorMessage } from '../../../utils/error.js'
 import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
+import { createCallbackInference } from '../callback-inference.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { projectObservationContext } from '../observation-context.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
-import { createPreparationInference } from '../preparation-inference.js'
 import {
 	type RequestContextSnapshot,
 	diffRequestContext,
@@ -833,18 +833,9 @@ export class IterationOrchestrator {
 					// request, so the member at the cursor when the stream ends is
 					// the one whose bytes are in `response`.
 					//
-					// It is taken here rather than at `recordStep` several hundred
-					// lines below, and the honest account of that is defence in
-					// depth, not a defect it currently prevents. Moving it down
-					// fails no test, because nothing between the two asks this
-					// provider for anything: compaction and working memory run
-					// BEFORE the turn, the advisory phase runs after the step is
-					// already recorded, and the only thing in between is tool
-					// execution. That is a fact about today's phase order, which a
-					// later phase inserted here would change silently — and the
-					// symptom would be a step attributed to a member that first
-					// served the turn after it, which is the class of wrongness
-					// this whole field exists to end.
+					// Capture before host review: its auxiliary inference can move
+					// the fallback cursor. Main-step usage and provenance must keep
+					// naming the provider that produced this candidate.
 					const servedBy: StepProvenance = ((): StepProvenance => {
 						const member = this.ctx.servingMember?.() ?? {
 							index: 0,
@@ -1091,7 +1082,11 @@ export class IterationOrchestrator {
 							)
 							let outcome: 'accepted' | 'retry' | 'exhausted' | 'cancelled'
 							if (candidate.success)
-								outcome = await this.reviewStructuredOutput(candidate.value, requestMessages)
+								outcome = await this.reviewStructuredOutput(
+									candidate.value,
+									requestMessages,
+									stepModel,
+								)
 							else {
 								this.nativeStructuredAttempts++
 								runMgr.pushMessage(
@@ -1240,6 +1235,7 @@ export class IterationOrchestrator {
 							const review = await this.reviewAnswer(
 								response.message.content ?? '',
 								requestMessages,
+								stepModel,
 							)
 							if (this.ctx.abortController.signal.aborted) {
 								runMgr.setStopReason('cancelled')
@@ -1401,6 +1397,7 @@ export class IterationOrchestrator {
 						reviewOutcome.results,
 						response,
 						requestMessages,
+						stepModel,
 					)
 					if (
 						structuredOutcome === 'retry' ||
@@ -1940,9 +1937,10 @@ export class IterationOrchestrator {
 		// rather than an accident of install history.
 		let result: PrepareStepResult = {}
 		for (const stage of stages) {
-			const inference = createPreparationInference(
+			const inference = createCallbackInference(
 				this.ctx,
 				result.model ?? this.ctx.runConfig.model,
+				'preparation',
 			)
 			try {
 				const decided = await stage({
@@ -2292,6 +2290,7 @@ export class IterationOrchestrator {
 		results: readonly ToolCallOutcome[],
 		response: ChatCompletionResponse,
 		requestMessages: readonly Message[] | undefined,
+		model: string,
 	): Promise<'absent' | 'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
 		if (!this.needsStructuredOutput() || this.ctx.structuredOutput?.mode === 'native')
 			return 'absent'
@@ -2319,7 +2318,7 @@ export class IterationOrchestrator {
 				)
 			parsed = hit.output
 		}
-		return this.reviewStructuredOutput(parsed, requestMessages)
+		return this.reviewStructuredOutput(parsed, requestMessages, model)
 	}
 
 	private publishStructuredOutput(): void {
@@ -2330,6 +2329,7 @@ export class IterationOrchestrator {
 	private async reviewStructuredOutput(
 		parsed: unknown,
 		requestMessages: readonly Message[] | undefined,
+		model: string,
 	): Promise<'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
 		if (this.ctx.abortController.signal.aborted) return 'cancelled'
 		const reviewer = this.ctx.structuredOutput?.review
@@ -2342,23 +2342,27 @@ export class IterationOrchestrator {
 				signal.addEventListener('abort', onAbort, { once: true })
 			})
 			let verdict: AnswerReview
+			const inference = createCallbackInference(this.ctx, model, 'review')
 			try {
 				verdict = await Promise.race([
-					Promise.resolve().then(() =>
-						reviewer(structuredClone(parsed), {
+					Promise.resolve().then(() => {
+						signal.throwIfAborted()
+						return reviewer(structuredClone(parsed), {
 							runId: this.ctx.runMgr.id,
 							iteration: this.ctx.runMgr.currentIteration,
 							signal,
 							messages: this.ctx.runMgr.messages,
 							...(requestMessages ? { requestMessages } : {}),
-						}),
-					),
+							generateText: inference.generateText,
+						})
+					}),
 					aborted,
 				])
 			} catch (error) {
 				if (signal.aborted) return 'cancelled'
 				throw error
 			} finally {
+				inference.close()
 				signal.removeEventListener('abort', onAbort)
 			}
 			if (signal.aborted) return 'cancelled'
@@ -2396,6 +2400,7 @@ export class IterationOrchestrator {
 	private async reviewAnswer(
 		answer: string,
 		requestMessages: readonly Message[] | undefined,
+		model: string,
 	): Promise<AnswerReview | undefined> {
 		const reviewer = this.ctx.reviewAnswer
 		const signal = this.ctx.abortController.signal
@@ -2405,6 +2410,7 @@ export class IterationOrchestrator {
 			onAbort = () => reject(signal.reason ?? new Error('Answer review cancelled'))
 			signal.addEventListener('abort', onAbort, { once: true })
 		})
+		const inference = createCallbackInference(this.ctx, model, 'review')
 		try {
 			const verdict = await Promise.race([
 				Promise.resolve().then(() => {
@@ -2415,6 +2421,7 @@ export class IterationOrchestrator {
 						signal,
 						messages: this.ctx.runMgr.messages,
 						...(requestMessages ? { requestMessages } : {}),
+						generateText: inference.generateText,
 					})
 				}),
 				aborted,
@@ -2429,6 +2436,7 @@ export class IterationOrchestrator {
 			if (signal.aborted) return undefined
 			throw new AnswerReviewFailure(error)
 		} finally {
+			inference.close()
 			signal.removeEventListener('abort', onAbort)
 		}
 	}

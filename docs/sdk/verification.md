@@ -50,6 +50,45 @@ checks a corrupted receipt against request-only evidence, revalidates the
 archive, and requests a bounded correction. This is a task-specific policy,
 not a default CLI factual judge or an automatic identifier normalization rule.
 
+## Run-owned review inference
+
+The built-in loop also supplies optional `AnswerReviewContext.generateText` to
+prose and structured reviewers. It shares `PreparationTextRequest` and
+`PreparationTextResult` with [bounded preparation inference](step-context.md#bounded-preparation-inference).
+It permits one tool-free call per review callback, on the run's metered
+provider/retry/fallback chain, using the selected step model and run effort.
+Supplying a reviewer alone makes no auxiliary request; the callback must call
+and await the capability. A later correction receives a fresh capability.
+
+Only the callback's explicit `system` and `prompt` strings are sent. Candidate,
+request snapshot, conversation, tools, native output schema and private reasoning
+are not attached automatically. Together the strings are limited to 12,000
+UTF-16 units. `maxTokens` defaults to 256 and is capped at 1,024; `timeoutMs`
+defaults to and cannot exceed 10,000ms. Returned visible text is limited to 8,192
+units. A local signal may shorten the run/callback lifetime. These are input,
+output and admission bounds, not a guaranteed provider billing ceiling.
+
+The callback's completion, error or cancellation revokes the capability.
+Await every admitted call before returning a verdict. Invalid tool-bearing or
+oversized output is drained for usage without executing tools; missing usage or
+cancellation can leave an unresolved receipt, which remains in the shared budget.
+Auxiliary usage and cost belong to the run, but do not alter the candidate's
+main-step usage or provenance. A review fallback may serve later requests; it
+does not relabel the candidate that was already produced. No auxiliary messages
+or invocation capability are saved as conversation history or checkpoint state.
+
+A returned model judgment is fallible and must be parsed and checked by the
+host. A reviewer exception still fails settlement; only an explicit, valid
+rejection asks for a correction. Hosts constructing review contexts themselves
+may omit this capability. This is not an automatic CLI judge, an inferred
+acceptance specification, or an expansion of which settlement paths invoke review.
+
+The [CLI Session experiment](../../research/conversation-evidence/review-inference-results.md)
+separates authenticated archive access, a bounded model judgment, the correction
+request and the run's combined budget receipt.
+
+## Verdicts and correction
+
 Verdicts must explicitly return a boolean `accept`. Rejections require nonempty
 string feedback. A thrown error or malformed verdict fails the run; it neither
 accepts an unverified answer nor consumes model calls by repeatedly retrying a
