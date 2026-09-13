@@ -205,6 +205,10 @@ export function createCallOptions(
 			break
 		}
 	}
+	// Some Responses upstreams accept only auto tool choice (observed on Muse).
+	// A no-tools turn can preserve its meaning by exposing no tools at all.
+	// Keep required/named choices explicit; never silently weaken them to auto.
+	const withoutTools = protocol === 'responses' && params.toolChoice === 'none'
 	const enforced = new Set(params.enforceToolInputSchema)
 	return {
 		prompt: toModelPrompt(params, route, service, protocol),
@@ -215,7 +219,7 @@ export function createCallOptions(
 		...(params.frequencyPenalty !== undefined ? { frequencyPenalty: params.frequencyPenalty } : {}),
 		...(params.presencePenalty !== undefined ? { presencePenalty: params.presencePenalty } : {}),
 		...(params.stop ? { stopSequences: params.stop } : {}),
-		...(params.tools
+		...(params.tools && !withoutTools
 			? {
 					tools: params.tools.map((tool) => ({
 						type: 'function' as const,
@@ -234,7 +238,7 @@ export function createCallOptions(
 					})),
 				}
 			: {}),
-		...(params.toolChoice
+		...(params.toolChoice && !withoutTools
 			? {
 					toolChoice:
 						typeof params.toolChoice === 'string'

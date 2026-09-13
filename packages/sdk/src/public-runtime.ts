@@ -1378,3 +1378,8 @@ export { classifyEvidenceSource, EVIDENCE_RECORD_GUIDANCE } from './store/eviden
 export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'
 
 export { createResidentEvidenceRecallStep } from './manager/resident/evidence-recall.js'
+
+export {
+	SqliteResidentLearningStore,
+	runStoredResidentLearningCycle,
+} from './manager/resident/learning-store.js'

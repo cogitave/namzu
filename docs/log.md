@@ -2,6 +2,12 @@
 
 ## 2026-09-14
 
+- **Update** Preserve [Zen Responses turns without tools](sdk/zen.md#turns-that-disable-tools) by omitting tool definitions and tool choice, correcting a Muse HTTP 400 observed during live finalization.
+
+- **Update** Expose existing storage and layout injection through [`runAgent`](sdk/quick-start.md#keep-execution-state-outside-working-files), so generated state can remain outside files inspected by an agent or an evaluation.
+
+- **Creation** Add [durable learning records](sdk/resident-learning-storage.md) and explicit [CLI learning experiments](cli/resident-work.md#explicit-learning-experiments), with scoped SQLite events and usage, immutable artifacts, interrupted activation inspection and real-tool comparison evidence.
+
 - **Creation** Add the optional SDK [resident learning cycle](sdk/resident-learning-cycle.md), connecting recorded failures, generated guidance, paired evaluation and fresh confirmation to exact-revision activation with explicit incomplete consumption and recovery outcomes.
 
 - **Update** Record the completed two-hour [resident consumption audit](sdk/resident-agents.md#activity-and-consumption-inspection), including abrupt and graceful interruptions, retained unknown usage, archived pursuits and bounded real CLI supplements.

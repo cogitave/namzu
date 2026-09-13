@@ -1,5 +1,5 @@
 import { ToolRegistry } from '../registry/tool/execute.js'
-import { drainQuery } from '../runtime/query/index.js'
+import { type QueryParams, drainQuery } from '../runtime/query/index.js'
 import type { ProjectInstructionContext } from '../runtime/query/project-instructions.js'
 import type { AuthorizationGateConfig } from '../types/authorization/index.js'
 import type { ProjectId, SessionId, TenantId, TopicId } from '../types/ids/index.js'
@@ -101,6 +101,13 @@ export interface RunAgentOptions extends AgentIdentity {
 
 	/** Defaults to the current working directory. */
 	workingDirectory?: string
+
+	/** Host-owned state layout, independent of the tool working directory. */
+	pathBuilder?: QueryParams['pathBuilder']
+	/** Optional evidence store; omitted uses the resolved disk layout. */
+	runStore?: QueryParams['runStore']
+	/** Optional checkpoint store; omitted uses the resolved disk layout. */
+	checkpointStore?: QueryParams['checkpointStore']
 
 	maxIterations?: number
 	tokenBudget?: number
@@ -255,6 +262,9 @@ export async function runAgent(options: RunAgentOptions): Promise<RunAgentResult
 	const run = await drainQuery(
 		{
 			provider: options.provider,
+			...(options.pathBuilder ? { pathBuilder: options.pathBuilder } : {}),
+			...(options.runStore ? { runStore: options.runStore } : {}),
+			...(options.checkpointStore ? { checkpointStore: options.checkpointStore } : {}),
 			tools: options.tools ?? new ToolRegistry(),
 			...(options.attachmentStore ? { attachmentStore: options.attachmentStore } : {}),
 			...(options.attachmentResolveTimeoutMs !== undefined

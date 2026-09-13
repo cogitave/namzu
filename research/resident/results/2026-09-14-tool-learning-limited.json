@@ -1,0 +1,179 @@
+{
+  "root": "/tmp/namzu-tool-learning-eAABv9",
+  "live": true,
+  "model": "muse-spark-1.3-contributor-free",
+  "effort": "low",
+  "producerCompleted": false,
+  "producerError": "TypeError: Cannot read properties of undefined (reading 'skills')",
+  "sourceReportSha256": "abf8c8bd42422528a74738fc1a2adb16e042f56b9c57c14393e699d6db0ab5b6",
+  "runsSha256": "a3b497575fca40268dedb07ea8c1356988fe439ede02aa0de214f60f116749d8",
+  "cycleId": "ea086a74-25af-42ac-aed2-096bf33c0ffc",
+  "status": "inconclusive",
+  "auditComplete": true,
+  "recordedUsage": {
+    "tokens": 77521,
+    "costUsd": 0,
+    "receipts": 31,
+    "unknownTokens": 17,
+    "unknownCosts": 31
+  },
+  "artifactsVerified": 35,
+  "events": 39,
+  "receiptArtifactsMissing": 0,
+  "sdkRuns": 32,
+  "sdkTokens": 191190,
+  "unpricedSdkTokens": 191190,
+  "cliTokens": 0,
+  "cliUnpricedTokens": 0,
+  "incompleteRuns": [
+    {
+      "label": "cold",
+      "reason": "error",
+      "recordedTokens": 5528
+    },
+    {
+      "label": "verification/frozen/verification-0-1",
+      "reason": "error",
+      "recordedTokens": 5462
+    },
+    {
+      "label": "verification/frozen/verification-1-0",
+      "reason": "error",
+      "recordedTokens": 5629
+    },
+    {
+      "label": "verification/frozen/verification-1-1",
+      "reason": "token_budget",
+      "recordedTokens": 7234
+    },
+    {
+      "label": "verification/frozen/verification-2-0",
+      "reason": "token_budget",
+      "recordedTokens": 6066
+    },
+    {
+      "label": "verification/frozen/verification-2-1",
+      "reason": "token_budget",
+      "recordedTokens": 7176
+    },
+    {
+      "label": "verification/frozen/verification-3-0",
+      "reason": "error",
+      "recordedTokens": 5600
+    },
+    {
+      "label": "verification/frozen/verification-3-1",
+      "reason": "error",
+      "recordedTokens": 5449
+    },
+    {
+      "label": "verification/frozen/verification-4-0",
+      "reason": "token_budget",
+      "recordedTokens": 7349
+    },
+    {
+      "label": "verification/frozen/verification-4-1",
+      "reason": "error",
+      "recordedTokens": 5591
+    },
+    {
+      "label": "verification/memory/verification-0-1",
+      "reason": "token_budget",
+      "recordedTokens": 6956
+    },
+    {
+      "label": "verification/memory/verification-1-1",
+      "reason": "token_budget",
+      "recordedTokens": 6527
+    },
+    {
+      "label": "verification/memory/verification-2-0",
+      "reason": "token_budget",
+      "recordedTokens": 6506
+    },
+    {
+      "label": "verification/memory/verification-2-1",
+      "reason": "token_budget",
+      "recordedTokens": 6588
+    },
+    {
+      "label": "verification/memory/verification-3-0",
+      "reason": "token_budget",
+      "recordedTokens": 6503
+    },
+    {
+      "label": "verification/memory/verification-3-1",
+      "reason": "token_budget",
+      "recordedTokens": 6524
+    },
+    {
+      "label": "verification/memory/verification-4-0",
+      "reason": "token_budget",
+      "recordedTokens": 6458
+    },
+    {
+      "label": "verification/memory/verification-4-1",
+      "reason": "token_budget",
+      "recordedTokens": 6523
+    }
+  ],
+  "scored": [
+    {
+      "phase": "verification",
+      "arm": "frozen",
+      "cases": 10,
+      "correct": 0,
+      "grounded": 0,
+      "ended": 1,
+      "tokens": 62515
+    },
+    {
+      "phase": "verification",
+      "arm": "memory",
+      "cases": 10,
+      "correct": 2,
+      "grounded": 2,
+      "ended": 2,
+      "tokens": 65527
+    },
+    {
+      "phase": "verification",
+      "arm": "guidance",
+      "cases": 10,
+      "correct": 10,
+      "grounded": 10,
+      "ended": 10,
+      "tokens": 56476
+    }
+  ],
+  "heldout": [],
+  "controls": [],
+  "cliObserved": null,
+  "rollback": null,
+  "generatedStateInFixtures": [
+    "seed",
+    "admission",
+    "verification-0-0",
+    "verification-0-1",
+    "verification-1-0",
+    "verification-1-1",
+    "verification-2-0",
+    "verification-2-1",
+    "verification-3-0",
+    "verification-3-1",
+    "verification-4-0",
+    "verification-4-1"
+  ],
+  "limits": {
+    "caseTokens": 6000,
+    "caseIterations": 6
+  },
+  "build": {
+    "packages/sdk/dist/manager/resident/learning-store.js": "bcaaef25e95e031d352ad2a38ad06e47f9c369b0aadca73864c7b9c3bae4ff91",
+    "packages/sdk/dist/manager/resident/learning-cycle.js": "36ce513d4ceb3385144c2a527b097f85aa0ee030e29b1bf54fd38c7e471e70a5",
+    "packages/cli/dist/commands/resident-learning.js": "5729c0106fbbe724f136e8aadd390577daf512d05f2dadaa8f57385d44531e5b",
+    "packages/providers/zen/dist/client.js": "73cb8262e814a0cd2fe0eaa044fde0a455db8e3c6b6e88d7ce6692916c4e00ce"
+  },
+  "producerHashes": null,
+  "evidenceConsistent": true
+}

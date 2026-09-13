@@ -435,3 +435,58 @@ Only the configured structured fields are checked. Arbitrary prose, overall task
 correctness and future file state are not proved. Multiple files are observed
 sequentially, not atomically. The default without `--verify` retains ordinary
 decision-shape review and any explicitly configured command gate.
+
+## Explicit learning experiments
+
+`learn` runs a deliberately selected executable host module through the SDK's
+[stored learning cycle](../sdk/resident-learning-storage.md). `learning` inspects
+its durable records without executing the module or starting a model:
+
+```bash
+namzu resident learn /absolute/path/source-check.learning.mjs --trust --cwd /absolute/path/workspace
+namzu resident learning --cwd /absolute/path/workspace --limit 20
+namzu resident learning <cycle-uuid> --events --after 0 --limit 32 --cwd /absolute/path/workspace
+```
+
+An existing unpaused resident with no running pursuits is required. `--agent`
+selects its key (default `default`). Use the same canonical workspace as that
+resident. The module must be an explicit regular `.learning.js` or `.learning.mjs`
+file with a default factory. There is no automatic module discovery or replay.
+
+The factory receives `{cwd, tenantId, projectId, agentKey, signal, store}` and
+returns `Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>`.
+It should only configure callbacks and read retained evidence: all model and
+review calls belong inside the charged `generate` and `evaluate` callbacks.
+The CLI supplies the bound agenda, cancellation and durable journal. The factory
+chooses its own installed SDK providers, exact models, effort, tools, per-run
+budgets and independent scoring. It does not inherit an interactive model or
+silently choose one. A factory can save run traces with
+`store.putArtifact(context.cycleId, name, value)` after the cycle starts.
+
+This is executable host code, like a local eval suite. `--trust` accepts that
+execution; it is **not a sandbox for the module**. The host must propagate the
+signal and enforce limits on every operation it starts. The SDK's stage resource
+policy accounts for observed usage and controls admission to later stages; it
+is not a reservation that can cap a model request already in flight.
+
+The checked-in `research/resident/tool-learning-host.mjs` and
+`tool-learning-study.mjs` form a complete isolated example with real SDK file
+tools. Run the study without `--live` for scripted inference, or explicitly with
+`--live` for bounded Zen Muse/low calls. The study creates its own temporary home,
+fixtures and host module and invokes the built CLI; it does not modify personal
+residents. Its [evidence report](../../research/resident/learning-storage.md)
+distinguishes scripted plumbing checks from live quality measurements.
+
+`learning` lists status and recorded consumption. A missing final receipt remains
+explicit; neither a `running` record nor a past `activated` event establishes
+that an executor or skill is active now. Current skill authority remains the
+resident agenda, including later rollback. Inspect a cycle for artifact hashes
+and optionally paginated events. `--before` pages the cycle list, while `--after`
+applies only to `--events` with a cycle ID. JSON output exposes `nextBefore` or
+`nextAfter` along with the records.
+
+`learn` exits 0 for acknowledged activation with a complete journal, 2 for a
+rejected or inconclusive experiment, 130 for cancellation, and 1 for other
+execution outcomes. Usage errors return 64 and a refused trust admission 77.
+A failed final journal append preserves the actual activation acknowledgement
+and asks for evidence inspection. It never automatically retries an experiment.

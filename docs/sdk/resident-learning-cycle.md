@@ -35,7 +35,8 @@ signal, a resource policy and three callbacks:
   scoring and trace attribution, then returns a `HarnessVerificationBatch` and
   `usageComplete`. Existing `runExperiment` is the intended execution mechanism.
 - `record` durably appends each `ResidentLearningCycleEvent` before acknowledging.
-  A host can use an owned JSONL file or transactional store. Events are delivered
+  A host can use an owned JSONL file or the optional
+  [SQLite learning store](resident-learning-storage.md). Events are delivered
   in sequence even when a callback records several run receipts concurrently.
 
 The host authenticates the source of the failure and the independent evaluator;

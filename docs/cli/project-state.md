@@ -55,6 +55,10 @@ Generated state lives under `~/.namzu`, or `NAMZU_HOME` when configured:
 - `state/sessions.sqlite` holds Projects, root bindings, Sessions, message records,
   delegation links and summaries. Writes use SQLite transactions; ownership
   checks and updates commit together, including across processes.
+- `state/learning.sqlite` holds explicitly invoked resident learning cycles, their
+  ordered events, ownership and receipt totals. `learning/artifacts/` holds
+  immutable JSON content referenced by SHA-256. See
+  [Durable learning records](../sdk/resident-learning-storage.md).
 - `sessions/<sessionId>/` holds conversation evidence and `runs/<runId>/`
   transcripts and artifacts. There is no parent Project directory.
 - `cli/` holds titles and desktop mappings. Desktop keys include their Project

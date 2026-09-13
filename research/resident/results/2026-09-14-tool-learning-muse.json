@@ -1,0 +1,188 @@
+{
+  "root": "/tmp/namzu-tool-learning-coGDyS",
+  "live": true,
+  "model": "muse-spark-1.3-contributor-free",
+  "effort": "low",
+  "producerCompleted": true,
+  "producerError": null,
+  "sourceReportSha256": "805f7fbb8ad6c6d16ee9fe5a405f6c8d5c81cbdbca73f64ab1b0ca574ba7e4a0",
+  "runsSha256": "e3b0a3c717bcbe9a4dee0ce7ade38b4dd57822e7a4cfc3f9f592c65d989c5ad1",
+  "cycleId": "f617041b-6bed-4301-aa6f-9f2d1b2153d9",
+  "status": "inconclusive",
+  "auditComplete": true,
+  "recordedUsage": {
+    "tokens": 240385,
+    "costUsd": 0,
+    "receipts": 31,
+    "unknownTokens": 3,
+    "unknownCosts": 31
+  },
+  "artifactsVerified": 35,
+  "events": 39,
+  "receiptArtifactsMissing": 0,
+  "sdkRuns": 47,
+  "sdkTokens": 449502,
+  "unpricedSdkTokens": 449502,
+  "cliTokens": 0,
+  "cliUnpricedTokens": 0,
+  "incompleteRuns": [
+    {
+      "label": "verification/frozen/verification-1-0",
+      "reason": "token_budget",
+      "recordedTokens": 19095
+    },
+    {
+      "label": "verification/frozen/verification-3-0",
+      "reason": "max_iterations",
+      "recordedTokens": 17532
+    },
+    {
+      "label": "verification/frozen/verification-3-1",
+      "reason": "max_iterations",
+      "recordedTokens": 17821
+    },
+    {
+      "label": "holdout/frozen/holdout-0",
+      "reason": "error",
+      "recordedTokens": 16596
+    },
+    {
+      "label": "holdout/frozen/holdout-1",
+      "reason": "max_iterations",
+      "recordedTokens": 17750
+    }
+  ],
+  "scored": [
+    {
+      "phase": "verification",
+      "arm": "frozen",
+      "cases": 10,
+      "correct": 2,
+      "grounded": 2,
+      "ended": 7,
+      "tokens": 136687
+    },
+    {
+      "phase": "verification",
+      "arm": "memory",
+      "cases": 10,
+      "correct": 10,
+      "grounded": 10,
+      "ended": 10,
+      "tokens": 99948
+    },
+    {
+      "phase": "verification",
+      "arm": "guidance",
+      "cases": 10,
+      "correct": 10,
+      "grounded": 9,
+      "ended": 10,
+      "tokens": 56796
+    }
+  ],
+  "heldout": [
+    {
+      "arm": "frozen",
+      "id": "holdout-0",
+      "correct": false
+    },
+    {
+      "arm": "memory",
+      "id": "holdout-0",
+      "correct": true
+    },
+    {
+      "arm": "guidance",
+      "id": "holdout-0",
+      "correct": true
+    },
+    {
+      "arm": "frozen",
+      "id": "holdout-1",
+      "correct": false
+    },
+    {
+      "arm": "memory",
+      "id": "holdout-1",
+      "correct": true
+    },
+    {
+      "arm": "guidance",
+      "id": "holdout-1",
+      "correct": true
+    },
+    {
+      "arm": "frozen",
+      "id": "holdout-2",
+      "correct": true
+    },
+    {
+      "arm": "memory",
+      "id": "holdout-2",
+      "correct": true
+    },
+    {
+      "arm": "guidance",
+      "id": "holdout-2",
+      "correct": true
+    },
+    {
+      "arm": "frozen",
+      "id": "holdout-3",
+      "correct": true
+    },
+    {
+      "arm": "memory",
+      "id": "holdout-3",
+      "correct": true
+    },
+    {
+      "arm": "guidance",
+      "id": "holdout-3",
+      "correct": true
+    }
+  ],
+  "controls": [
+    {
+      "arm": "current",
+      "correct": true,
+      "stopReason": "end_turn"
+    },
+    {
+      "arm": "irrelevant",
+      "correct": true,
+      "stopReason": "end_turn"
+    },
+    {
+      "arm": "stale",
+      "correct": false,
+      "stopReason": "end_turn"
+    }
+  ],
+  "cliObserved": null,
+  "rollback": {
+    "performed": false,
+    "activeSkills": 0
+  },
+  "generatedStateInFixtures": [],
+  "limits": {
+    "caseTokens": 18000,
+    "caseIterations": 8,
+    "caseTimeoutMs": 45000,
+    "cycleTokens": 800000,
+    "studyTimeoutMs": 900000
+  },
+  "build": {
+    "packages/sdk/dist/agents/runAgent.js": "e589b99297bc9a3e738cd43dace5c15ece3c098e34fcd8c15fe869757f55a8cd",
+    "packages/sdk/dist/manager/resident/learning-store.js": "bcaaef25e95e031d352ad2a38ad06e47f9c369b0aadca73864c7b9c3bae4ff91",
+    "packages/sdk/dist/manager/resident/learning-cycle.js": "36ce513d4ceb3385144c2a527b097f85aa0ee030e29b1bf54fd38c7e471e70a5",
+    "packages/cli/dist/commands/resident-learning.js": "5729c0106fbbe724f136e8aadd390577daf512d05f2dadaa8f57385d44531e5b",
+    "packages/providers/zen/dist/client.js": "73cb8262e814a0cd2fe0eaa044fde0a455db8e3c6b6e88d7ce6692916c4e00ce"
+  },
+  "producerHashes": {
+    "tool-learning-study.mjs": "2e0cf7b3870a3e91e80d16234be9ddcce9d66117b2af45b3a01441726cb907e3",
+    "tool-learning-host.mjs": "25087f6011da90ea5d4e152da54680a95e86e1ae86ad7b748a372dad13bcaab5"
+  },
+  "evidenceConsistent": true
+}

@@ -27,6 +27,7 @@ import { loadResidentVerification } from '../integrations/resident/verification.
 import { openSessions } from '../integrations/sessions/store.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { parseResidentFlags } from './resident-flags.js'
+import { residentLearningCommand } from './resident-learning.js'
 import { resolveWorkingDirectory } from './run-flags.js'
 import type { CommandDef } from './types.js'
 
@@ -127,6 +128,8 @@ export const residentCommand: CommandDef = {
 		'',
 		'  add <objective>          Save work without starting a model',
 		'  inspect                  Inspect lifetime usage and evidence (--cursor, --through-revision, --max-revisions)',
+		'  learn <file.learning.js> Run one explicitly selected executable learning experiment (--trust, --cwd, --agent)',
+		'  learning [cycle-id]      Inspect recorded experiments (--events, --after, --before, --limit)',
 		'  status                   Show saved work and unresolved claims (default action)',
 		'  run --max-steps <n>       Continue due work in this foreground process',
 		'  run/start --verify <file> Require configured JSON claims before completion (host file reads)',
@@ -170,11 +173,15 @@ export const residentCommand: CommandDef = {
 		'  130 for cancellation. A clean run does not mean every pursuit is complete.',
 	].join('\n'),
 	handler: async ({ ctx: bootstrap, rawArgs }) => {
+		if (rawArgs[0] === 'learn' || rawArgs[0] === 'learning')
+			return residentLearningCommand({ ctx: bootstrap, rawArgs })
 		let flags: ReturnType<typeof parseResidentFlags>
 		try {
 			flags = parseResidentFlags(rawArgs)
 		} catch (error) {
-			bootstrap.formatter.error({ message: String(error instanceof Error ? error.message : error) })
+			bootstrap.formatter.error({
+				message: String(error instanceof Error ? error.message : error),
+			})
 			return EXIT_USAGE
 		}
 		const resolved = resolveWorkingDirectory(flags.run.cwd)
@@ -196,7 +203,10 @@ export const residentCommand: CommandDef = {
 			if (flags.action === 'add' || flags.action === 'run' || flags.action === 'start') {
 				const target = resolveWorkingDirectory(resident?.cwd ?? resolved.cwd)
 				if ('error' in target) throw new Error(target.error)
-				const trust = decideHeadlessTrust({ cwd: target.cwd, trustFlag: flags.run.trust })
+				const trust = decideHeadlessTrust({
+					cwd: target.cwd,
+					trustFlag: flags.run.trust,
+				})
 				if (!trust.allowed) {
 					bootstrap.formatter.error({
 						message: trust.message ?? 'Resident directory is not trusted.',
@@ -437,7 +447,9 @@ export const residentCommand: CommandDef = {
 			bootstrap.formatter.print(residentStatus(resident, state, message, runner))
 			return 0
 		} catch (error) {
-			bootstrap.formatter.error({ message: error instanceof Error ? error.message : String(error) })
+			bootstrap.formatter.error({
+				message: error instanceof Error ? error.message : String(error),
+			})
 			if (resident) {
 				try {
 					const state = await resident.agenda.read()

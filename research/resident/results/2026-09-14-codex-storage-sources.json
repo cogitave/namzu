@@ -1,0 +1,15 @@
+{
+  "repository": "openai/codex",
+  "revision": "6f39a47bb3b04de4c804187bfbf55edc56939aab",
+  "files": {
+    "codex-rs/state/src/lib.rs": "a677c5705d66f9c3a6d4a30bc7389a4f087859f8eb4958492124e8bf21706d88",
+    "codex-rs/state/src/runtime.rs": "cc074712e6b22f37f12df1c1af831d97c65536de7c500797246c3c22b695f002",
+    "codex-rs/state/src/runtime/rollout_migration.rs": "9d71e06b819f37336b10a7fad0563c8ab416cc942788288d7afd684ca39b7bb4",
+    "codex-rs/state/migrations/0006_memories.sql": "1dc4424b5bd647a9c6195d8f7fc4c6a2da3f2ea35e6c105c1c8486cfbd9f98e2",
+    "codex-rs/rollout/src/recorder.rs": "6a2785d177df995069db184435365223ccdf8793f52256e1bddbf22f487031a9",
+    "codex-rs/core/src/state_db_bridge.rs": "008a81a24eecdb9fe3cf915ad002359e30287aed97059bb36ac0963d49d81584",
+    "codex-rs/state/src/sqlite.rs": "c942ecd37072975d728fdd9bb94dff36c5cc3563c9a1d9b7f60dc249b33833cc",
+    "codex-rs/state/src/runtime/memories.rs": "823ebdc61ac448cad68fbf3ce337eebaa8f08fb1c361ea2c9ffa8d2220ae9f1b",
+    "codex-rs/rollout/src/state_db.rs": "22bb1352fffb26b1ca2e2183a7521b7aa1bc458d4fa8054dfa94f385c91a6ad5"
+  }
+}

@@ -24,6 +24,7 @@ const CONFIG_TOP_LEVEL = new Set([
 	'trust.json',
 ])
 const RUNTIME_TOP_LEVEL = new Set([
+	'learning',
 	'attachments',
 	'cli.json',
 	'desktop-sessions.json',
@@ -43,6 +44,7 @@ const RUNTIME_TOP_LEVEL = new Set([
 ])
 const CONTROL_TOP_LEVEL = new Set(['.migration'])
 const PRIVATE_BOUNDARIES = [
+	'learning',
 	'attachments',
 	'goals',
 	'memory',
@@ -622,7 +624,12 @@ function emptyMeasure(): MutableMeasure {
 function categoryOf(path: string): StateCategory {
 	const top = path.split('/')[0] ?? path
 	const name = basename(path)
-	if (name.endsWith('.lock') || name.includes('.tmp.') || name.endsWith('.candidate')) {
+	if (
+		name.endsWith('.lock') ||
+		name.includes('.tmp.') ||
+		name.endsWith('.candidate') ||
+		(top === 'learning' && name.startsWith('.candidate-'))
+	) {
 		return 'transient'
 	}
 	if (AUTHORED_TOP_LEVEL.has(top)) return 'authored'

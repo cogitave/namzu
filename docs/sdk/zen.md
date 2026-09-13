@@ -285,3 +285,14 @@ the exact nonce with `end_turn`. This validates that model's public text
 and file-tool continuation path. It does not establish every public model,
 paid-account access, Go inference, or billing: the run reported 13,749
 unpriced tokens, which are not a verified charge.
+
+### Turns that disable tools
+
+On the Responses route, `toolChoice: 'none'` is represented by omitting both
+the tool definitions and the tool-choice field. This preserves a turn without
+available tools for upstream models that accept only automatic tool selection,
+including the observed Muse endpoint. It avoids HTTP 400 during the kernel's
+budget/time finalization. Existing message/tool-result history is retained.
+`required` and named choices are still sent explicitly, so an unsupported
+requirement is not silently weakened to automatic selection. Other protocol
+routes keep their existing encoding.

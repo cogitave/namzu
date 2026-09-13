@@ -591,3 +591,10 @@ export type {
 	JsonClaimVerifierOptions,
 	JsonClaimVerifier,
 } from './run/json-claim-verifier.js'
+
+export type {
+	SqliteResidentLearningStoreOptions,
+	ResidentLearningArtifact,
+	ResidentLearningRecordedUsage,
+	ResidentLearningCycleSummary,
+} from './manager/resident/learning-store.js'
