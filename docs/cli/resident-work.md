@@ -328,3 +328,55 @@ This surface does not expose model-authored subgoal admission, learning promotio
 external outbox delivery or a TUI dashboard. Those SDK capabilities remain
 separate integrations. It also does not implement OS service supervision, full
 transcript continuation, automatic recovery or physical history compaction.
+## Configured claim verification
+
+`namzu resident run --max-steps 1 --verify checks.json` enables explicit JSON
+claim checks for that invocation. `resident start` accepts the same option and
+passes the validated policy snapshot to its managed worker. `add` does not save
+this authority. Subsequent invocations require the option again. The same
+requirements apply to every pursuit admitted by that invocation; use a separate
+resident when pursuits need different completion policies.
+
+For example, an operator-owned `checks.json`:
+
+```json
+{
+  "version": 1,
+  "claims": [
+    { "id": "version", "source": "package.json", "pointer": "/version" }
+  ]
+}
+```
+
+Add `"expected": "3.0.0"` to require that version as a postcondition. Without it,
+the check verifies the reported version, not that a particular upgrade occurred.
+The model receives the required IDs, sources, pointers and expected values. A
+`complete` decision must also contain `"claims": { "version": "3.0.0" }` with
+the observed values. `wait` and `blocked` omit claims; their summaries are retained
+as model statements, without a verification badge or factual guarantee.
+
+The host validates claims through SDK `createJsonClaimVerifier` after any configured
+`--gate` command finishes. Rejected claims enter the existing answer-review repair
+loop (three rejections by default). Exhaustion or interrupted work keeps the
+resident claim unresolved. A valid blocked disposition can settle honestly without
+inventing a current value. Final completion must match the exact answer hash of
+the accepted review; a different answer or a path that bypassed review cannot settle
+as complete. `finish.json` retains the policy and successful observation receipt,
+including authorization scope, checked fields, hashes and times. This records the
+callback outcome; durable agenda settlement remains a separate fact.
+
+The option explicitly authorizes **host file reads**, as `--gate` authorizes host
+commands. These reads run outside model-tool approval and sandbox handling; they
+do not grant new tool permissions. Use a manifest you control. It must be smaller
+than 64 KiB and is snapshotted before admission. Sources must be relative workspace
+paths without traversal; resolved targets outside the workspace are refused.
+Only bounded regular files are read, under a shared 1 MiB allowance and two-second
+review deadline. File identity/size/timestamps are checked across the read; symlink
+and path checks are not OS confinement against a hostile filesystem race. Missing,
+oversized, malformed or changing sources cannot verify completion. Outstanding
+reads after cancellation retain uncertain cleanup/runner ownership.
+
+Only the configured structured fields are checked. Arbitrary prose, overall task
+correctness and future file state are not proved. Multiple files are observed
+sequentially, not atomically. The default without `--verify` retains ordinary
+decision-shape review and any explicitly configured command gate.

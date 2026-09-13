@@ -22,6 +22,7 @@ import {
 	createResident,
 	lookupResident,
 } from '../integrations/resident/storage.js'
+import { loadResidentVerification } from '../integrations/resident/verification.js'
 import { openSessions } from '../integrations/sessions/store.js'
 import { decideHeadlessTrust } from '../permissions/headless-trust.js'
 import { parseResidentFlags } from './resident-flags.js'
@@ -126,6 +127,7 @@ export const residentCommand: CommandDef = {
 		'  add <objective>          Save work without starting a model',
 		'  status                   Show saved work and unresolved claims (default action)',
 		'  run --max-steps <n>       Continue due work in this foreground process',
+		'  run/start --verify <file> Require configured JSON claims before completion (host file reads)',
 		'  start --max-steps <n>     Start a managed background runner; retain its limit while idle',
 		'  stop                     Close admission and wait briefly for runner drainage',
 		'  release <runner-id>      Release inspected stale ownership; requires --executor-stopped',
@@ -317,6 +319,9 @@ export const residentCommand: CommandDef = {
 					const { createResidentSessionStep } = await import(
 						'../integrations/resident/session-step.js'
 					)
+					const verification = flags.verification
+						? await loadResidentVerification(flags.verification, resident.cwd)
+						: undefined
 					const step = createResidentSessionStep({
 						agenda: resident.agenda,
 						ctx,
@@ -325,6 +330,7 @@ export const residentCommand: CommandDef = {
 						flags: flags.run,
 						toolLoading: flags.toolLoading,
 						contextProfile: flags.contextProfile,
+						verification,
 						artifactsRoot: resident.artifactsRoot,
 					})
 					if (flags.action === 'start') {
@@ -334,6 +340,7 @@ export const residentCommand: CommandDef = {
 							flags: flags.run,
 							toolLoading: flags.toolLoading,
 							contextProfile: flags.contextProfile,
+							verification,
 							maxSteps: flags.maxSteps,
 							maxIdleMs: flags.maxIdleMs,
 						})

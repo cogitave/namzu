@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { basename, dirname, join, relative, resolve } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
@@ -6,6 +7,7 @@ import {
 	BOOT_EVENT_NAMES,
 	type DiskResidentAgenda,
 	EVENT_NAME_ATTRIBUTE,
+	type JsonClaimReceipt,
 	type ResidentContextualStep,
 	type ResidentDecision,
 	type ResidentHistoryScope,
@@ -38,6 +40,11 @@ import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { type AttachedSessionExport, attachSessionExport } from '../telemetry/session-export.js'
 import { ResidentCleanupUnconfirmedError } from './lifecycle-errors.js'
 import { residentToolEvidence } from './tool-evidence.js'
+import {
+	type ResidentVerificationSpec,
+	residentClaimVerifier,
+	verificationInstructions,
+} from './verification.js'
 
 const MAX_DECISION_CHARS = 32_000
 const MAX_SUMMARY_CHARS = 8_000
@@ -68,11 +75,12 @@ export interface ResidentSessionStepOptions {
 	readonly toolLoading?: 'eager' | 'deferred'
 	/** Resident policy with layered snapshots by default; interactive preserves the earlier prompt. */
 	readonly contextProfile?: 'resident' | 'interactive'
+	readonly verification?: ResidentVerificationSpec
 	/** Private, host-owned directory for per-claim receipts. */
 	readonly artifactsRoot: string
 }
 
-function parseDecision(answer: string): ModelDecision {
+function parseDecision(answer: string, verification = false): ModelDecision {
 	if (answer.length > MAX_DECISION_CHARS)
 		throw new Error(`Resident decision exceeds ${MAX_DECISION_CHARS} characters.`)
 	let value: unknown
@@ -92,7 +100,12 @@ function parseDecision(answer: string): ModelDecision {
 		input.summary.trim().length > MAX_SUMMARY_CHARS
 	)
 		throw new Error('Resident decision summary must contain 1 to 8000 characters.')
-	const allowed = input.kind === 'wait' ? ['kind', 'summary', 'wakeAfterMs'] : ['kind', 'summary']
+	const allowed =
+		input.kind === 'wait'
+			? ['kind', 'summary', 'wakeAfterMs']
+			: input.kind === 'complete' && verification
+				? ['kind', 'summary', 'claims']
+				: ['kind', 'summary']
 	if (Object.keys(input).some((key) => !allowed.includes(key)))
 		throw new Error('Resident decision contains unsupported fields.')
 	const summary = input.summary.trim()
@@ -144,6 +157,7 @@ function residentContext(
 	context: ResidentStepContext,
 	skills: string | undefined,
 	history?: ResidentHistoryScope,
+	outputInstructions = DECISION_CONTRACT,
 ): string {
 	const { state } = pursuit
 	const learning = projectResidentLearning(context.learning, {
@@ -177,7 +191,7 @@ function residentContext(
 			? [`${learning.omitted} learning entries were omitted from this bounded context.`]
 			: []),
 		...(skills ? [skills] : []),
-		DECISION_CONTRACT,
+		outputInstructions,
 	].join('\n\n')
 }
 
@@ -191,6 +205,7 @@ export function createResidentSessionStep(
 ): ResidentContextualStep {
 	validateFlags(options)
 	const { ctx, cwd, sessions, flags } = options
+	const verificationSpec = options.verification ? structuredClone(options.verification) : undefined
 	const mode = resolvePermissionMode({
 		flag: flags.permissionMode ?? (flags.skipPermissions ? null : 'plan'),
 		skipPermissions: flags.skipPermissions,
@@ -214,6 +229,20 @@ export function createResidentSessionStep(
 		const sessionId = generateSessionId()
 		const runId = generateRunId()
 		const identity = { pursuitId: pursuit.id, claimId, sessionId, runId }
+		const verificationScope = JSON.stringify({
+			tenantId: sessions.tenantId,
+			projectId: sessions.projectId,
+			...identity,
+			revision: pursuit.state.revision,
+		})
+		const verifier = verificationSpec
+			? residentClaimVerifier(verificationSpec, cwd, verificationScope, runId)
+			: undefined
+		const outputInstructions = verificationSpec
+			? DECISION_CONTRACT.replace('Do not include other fields.', '') +
+				verificationInstructions(verificationSpec)
+			: DECISION_CONTRACT
+		let verification: { answerSha256: string; receipt: JsonClaimReceipt } | undefined
 		const history = options.agenda?.history(pursuit.state, context.agendaRevision)
 		const toolEvidence = history ? residentToolEvidence(history, sessions, root) : undefined
 		const startedAt = Date.now()
@@ -259,12 +288,27 @@ export function createResidentSessionStep(
 				ctx.formatter.error({ message: `permissions.${diagnostic.tool}: ${diagnostic.message}` })
 			const gate = buildGate(flags, cwd)
 			const reviewAnswer: ReviewAnswer = async (answer, reviewContext) => {
+				verification = undefined
+				let parsed: ModelDecision
 				try {
-					parseDecision(answer)
+					parsed = parseDecision(answer, !!verifier)
 				} catch (error) {
-					return { accept: false, feedback: `${errorText(error)}\n${DECISION_CONTRACT}` }
+					return { accept: false, feedback: `${errorText(error)}\n${outputInstructions}` }
 				}
-				return gate ? await gate.reviewAnswer(answer, reviewContext) : { accept: true }
+				// Commands may modify the sources; check claims after the gate completes.
+				const gated = gate
+					? await gate.reviewAnswer(answer, reviewContext)
+					: { accept: true as const }
+				if (!gated.accept) return gated
+				if (verifier && parsed.kind === 'complete') {
+					const checked = await verifier.verify(JSON.parse(answer).claims, reviewContext)
+					if (!checked.accept) return checked
+					verification = {
+						answerSha256: createHash('sha256').update(answer).digest('hex'),
+						receipt: checked.receipt,
+					}
+				}
+				return { accept: true }
 			}
 			if (ctx.config.telemetry?.sessionExport) {
 				sessionExport = await attachSessionExport({ config: ctx.config.telemetry.sessionExport })
@@ -375,7 +419,15 @@ export function createResidentSessionStep(
 					runId,
 					permissionMode: mode.mode,
 					...(options.contextProfile === 'interactive'
-						? { extraSystem: residentContext(pursuit, context, skills, history?.scope) }
+						? {
+								extraSystem: residentContext(
+									pursuit,
+									context,
+									skills,
+									history?.scope,
+									outputInstructions,
+								),
+							}
 						: {
 								residentContext: {
 									state: pursuit.state,
@@ -384,7 +436,7 @@ export function createResidentSessionStep(
 									toolEvidence: !!toolEvidence,
 									readOnly: mode.mode === 'plan',
 									skillsContext: skills,
-									outputInstructions: DECISION_CONTRACT,
+									outputInstructions,
 								},
 							}),
 					...(flags.effort !== null ? { effort: flags.effort } : {}),
@@ -408,7 +460,18 @@ export function createResidentSessionStep(
 				)
 			if (typeof done.text !== 'string')
 				throw new Error('Resident step has no settled answer; its claim remains unresolved.')
-			if (!errors.length) decision = parseDecision(done.text)
+			if (!errors.length) {
+				decision = parseDecision(done.text, !!verifier)
+				if (
+					verifier &&
+					decision.kind === 'complete' &&
+					(!verification ||
+						verification.answerSha256 !== createHash('sha256').update(done.text).digest('hex'))
+				)
+					throw new Error(
+						'Resident completion has no matching verification receipt; its claim remains unresolved.',
+					)
+			}
 		} catch (error) {
 			errors.push(error)
 			// A rejected constructor provides no session handle with which to close
@@ -428,6 +491,10 @@ export function createResidentSessionStep(
 				cleanupUnconfirmed = true
 			}
 		}
+		if (verifier && !verifier.isDrained()) {
+			cleanupUnconfirmed = true
+			errors.push(new Error('A verification observation has not drained.'))
+		}
 		if (signal.aborted && !errors.includes(signal.reason)) errors.push(signal.reason)
 		try {
 			if (!started) start()
@@ -442,6 +509,12 @@ export function createResidentSessionStep(
 				decision: errors.length ? null : (decision ?? null),
 				error: errors.length ? errors.map(errorText).join('\n').slice(0, 8_000) : null,
 				cleanup: cleanupUnconfirmed ? 'unconfirmed' : 'confirmed',
+				...(verifier
+					? {
+							verificationPolicy: verificationSpec,
+							verification: errors.length ? null : (verification ?? null),
+						}
+					: {}),
 				usage: usage ? { totalTokens: usage.totalTokens, cost: usage.cost } : null,
 				...(budget ? { budget } : {}),
 			})

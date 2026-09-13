@@ -67,6 +67,57 @@ checks a corrupted receipt against request-only evidence, revalidates the
 archive, and requests a bounded correction. This is a task-specific policy,
 not a default CLI factual judge or an automatic identifier normalization rule.
 
+## Explicit JSON claims
+
+`createJsonClaimVerifier` supplies a provider-independent check for host-defined
+fields. It accepts 1–32 `JsonClaimRequirement` entries: a unique `id`, a host-owned
+`source` identifier and an RFC 6901 `pointer`. An optional `expected` value adds
+a postcondition. Candidate/source equality alone does not prove the requested
+change occurred. Values are strings (up to 2,000 characters), booleans, null or
+safe integers; use strings for decimals or larger exact numbers. Pointers select
+own JSON properties and canonical array indices. JSON uses JavaScript's parse
+semantics, including numeric rounding and last-key-wins for duplicate object keys.
+Numeric checks apply to parsed values, not the number's original spelling; use
+string-valued quantities when lexical decimal precision matters.
+
+The host creates one verifier for a specific authorization `scope` and `runId`,
+then calls `verify(claims, reviewContext)` from its existing answer or structured
+reviewer. Claims must contain exactly the configured IDs. The host still owns
+answer parsing and decides which dispositions require these checks. Reuse the
+runtime's review budget; the helper does not start a model or manage retries.
+
+Each verification calls the trusted `observe(source, request)` adapter once per
+distinct source. The request carries the bound scope/run, review iteration, fresh
+request ID, start time, remaining byte allowance and an abort signal. The adapter
+must perform an authorized **read**, bound capture, honor cancellation, and return
+complete bytes observed during that request. A receipt marked historical,
+incomplete, from another request/scope/source, or outside the observation interval
+is rejected. Envelopes guard accidental reuse; they cannot authenticate a dishonest
+host adapter. An assistant claim, successful action receipt, hash supplied by a
+model, or archive relabelled as current is not a replacement for that observation.
+
+The verifier parses complete, valid UTF-8 JSON itself, selects fields and compares
+values. There is no success cache. It returns `{ accept: true, receipt }` only after
+all checks pass. Receipts bind checked claim values to source names, request IDs,
+observation times, byte counts and full SHA-256 hashes of the inspected bytes.
+Failure returns bounded feedback without source values. The default total source
+allowance is 1 MiB per review (maximum 8 MiB); the whole review defaults to two
+seconds (maximum 30 seconds). These limits do not bound a misbehaving adapter's
+capture or allocations; the host must enforce its side of the contract.
+
+Timeout revokes the observation and rejects. Caller cancellation propagates its
+reason. Further verification is refused while an earlier observer remains pending;
+`isDrained()` exposes this condition so a host can retain execution ownership.
+Successes and callbacks are not checkpointed. A resumed host must reconstruct its
+policy and make fresh observations. Never replay an action to recover evidence.
+
+These are observation-time receipts, not atomic multi-source snapshots, durable
+truth guarantees, or verification of arbitrary summary prose. Sources may change
+after a read. If an operation needs atomic check-and-use, implement that transaction
+in its authoritative host. Streamed candidate text is not undone by later rejection.
+See [resident CLI verification](../cli/resident-work.md#configured-claim-verification)
+for a concrete adapter and command.
+
 ## Run-owned review inference
 
 The built-in loop also supplies optional `AnswerReviewContext.generateText` to

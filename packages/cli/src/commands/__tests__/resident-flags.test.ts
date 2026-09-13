@@ -2,6 +2,14 @@ import { describe, expect, it } from 'vitest'
 import { parseResidentFlags } from '../resident-flags.js'
 
 describe('resident command argument boundaries', () => {
+	it.each(['run', 'start'])('accepts explicit verification only on %s', (action) => {
+		expect(
+			parseResidentFlags([action, '--max-steps', '1', '--verify', 'checks.json']).verification,
+		).toBe('checks.json')
+	})
+	it('does not persist verification authority on add', () => {
+		expect(() => parseResidentFlags(['add', 'work', '--verify', 'checks.json'])).toThrow('--verify')
+	})
 	it.each(['run', 'start'])(
 		'selects resident context by default and accepts explicit interactive for %s',
 		(action) => {

@@ -555,3 +555,13 @@ export type {
 } from './manager/resident/tool-evidence.js'
 
 export type { ResidentEvidenceRecallOptions } from './manager/resident/evidence-recall.js'
+export type {
+	JsonClaimValue,
+	JsonClaimRequirement,
+	JsonClaimReadRequest,
+	JsonClaimObservation,
+	JsonClaimReceipt,
+	JsonClaimVerdict,
+	JsonClaimVerifierOptions,
+	JsonClaimVerifier,
+} from './run/json-claim-verifier.js'

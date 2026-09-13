@@ -13,6 +13,7 @@ import {
 	reserveRunner,
 } from './runner-store.js'
 import type { CliResident } from './storage.js'
+import type { ResidentVerificationSpec } from './verification.js'
 
 export interface ResidentWorkerLaunch {
 	readonly version: 1
@@ -23,6 +24,7 @@ export interface ResidentWorkerLaunch {
 	readonly flags: RunFlags
 	readonly toolLoading?: 'eager' | 'deferred'
 	readonly contextProfile?: 'resident' | 'interactive'
+	readonly verification?: ResidentVerificationSpec
 	readonly maxIdleMs: number
 }
 
@@ -33,6 +35,7 @@ export async function startResidentRunner(options: {
 	readonly flags: RunFlags
 	readonly toolLoading?: 'eager' | 'deferred'
 	readonly contextProfile?: 'resident' | 'interactive'
+	readonly verification?: ResidentVerificationSpec
 	readonly maxSteps: number
 	readonly maxIdleMs: number
 }) {
@@ -61,6 +64,7 @@ export async function startResidentRunner(options: {
 		flags: options.flags,
 		toolLoading: options.toolLoading,
 		contextProfile: options.contextProfile,
+		verification: options.verification,
 		maxIdleMs: options.maxIdleMs,
 	}
 	let child: ReturnType<typeof fork>

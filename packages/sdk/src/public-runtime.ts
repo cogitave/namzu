@@ -363,6 +363,7 @@ export {
 	FINGERPRINT_TIMEOUT_MS,
 	clipOutput,
 	createCommandGate,
+	createJsonClaimVerifier,
 	fingerprintWorkspace,
 } from './run/index.js'
 export type {

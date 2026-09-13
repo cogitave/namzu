@@ -419,6 +419,78 @@ describe('normal CLI runtime reaches a resident admission', () => {
 })
 
 describe('the SDK reviewer owns decision repair and configured verification', () => {
+	it.each(['complete', 'changed-answer', 'bypass', 'blocked'] as const)(
+		'binds verification to the accepted answer: %s',
+		async (scenario) => {
+			const f = await fixture()
+			await writeFile(join(f.options.cwd, 'package.json'), '{"version":"3.0.0"}')
+			const verification = {
+				version: 1 as const,
+				claims: [{ id: 'version', source: 'package.json', pointer: '/version' }],
+			}
+			const answer = JSON.stringify({
+				kind: 'complete',
+				summary: 'The observed version is 3.0.0.',
+				claims: { version: '3.0.0' },
+			})
+			mocks.create.mockImplementation(async () =>
+				fakeAgentSession({
+					close: mocks.close,
+					send: (_messages, sendOptions) =>
+						(async function* () {
+							const review = creationOptions().reviewAnswer!
+							const context = { runId: sendOptions!.runId!, iteration: 1, messages: [], signal }
+							let text = answer
+							if (scenario !== 'bypass') {
+								expect(
+									await review(
+										JSON.stringify({
+											kind: 'complete',
+											summary: 'stale',
+											claims: { version: '1.0.0' },
+										}),
+										context,
+									),
+								).toMatchObject({ accept: false })
+								expect(await review(answer, context)).toMatchObject({ accept: true })
+							}
+							if (scenario === 'changed-answer')
+								text = answer.replace('observed version', 'current version')
+							if (scenario === 'blocked') {
+								text = JSON.stringify({ kind: 'blocked', summary: 'Cannot finish remaining work.' })
+								expect(await review(text, context)).toMatchObject({ accept: true })
+							}
+							yield { kind: 'done' as const, stopReason: 'end_turn' as const, text }
+						})(),
+				}),
+			)
+			const running = new ResidentHost(
+				f.agenda,
+				createResidentSessionStep({ ...f.options, verification }),
+			).run({ signal, maxSteps: 1 })
+			if (scenario === 'bypass' || scenario === 'changed-answer') {
+				await expect(running).rejects.toThrow('matching verification receipt')
+				expect((await f.agenda.read())!.pursuits[0].state.phase).toBe('running')
+				expect(await receipt(f.options.artifactsRoot, 'finish.json')).toMatchObject({
+					decision: null,
+					verification: null,
+				})
+			} else {
+				await running
+				const finished = await receipt(f.options.artifactsRoot, 'finish.json')
+				expect(finished.decision.kind).toBe(scenario)
+				if (scenario === 'blocked') expect(finished.verification).toBeNull()
+				else
+					expect(finished.verification.receipt).toMatchObject({
+						claims: { version: '3.0.0' },
+						observations: [
+							{ source: 'package.json', sha256: expect.stringMatching(/^[a-f0-9]{64}$/) },
+						],
+					})
+			}
+		},
+	)
+
 	it('rejects malformed answers inside the normal answer reviewer and still enforces the command gate', async () => {
 		const f = await fixture({}, [
 			'--gate',

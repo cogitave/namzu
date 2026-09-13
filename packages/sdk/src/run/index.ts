@@ -29,3 +29,14 @@ export { RUN_MEMORY_TAG, createMemoryPromoter } from './memory-promoter.js'
 export type { MemoryPromoterOptions } from './memory-promoter.js'
 export { createMemoryRecallStep } from './memory-recall.js'
 export type { MemoryRecallOptions } from './memory-recall.js'
+export { createJsonClaimVerifier } from './json-claim-verifier.js'
+export type {
+	JsonClaimValue,
+	JsonClaimRequirement,
+	JsonClaimReadRequest,
+	JsonClaimObservation,
+	JsonClaimReceipt,
+	JsonClaimVerdict,
+	JsonClaimVerifierOptions,
+	JsonClaimVerifier,
+} from './json-claim-verifier.js'

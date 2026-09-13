@@ -23,6 +23,7 @@ export interface ResidentFlags {
 	readonly maxIdleMs: number
 	readonly toolLoading: 'eager' | 'deferred'
 	readonly contextProfile: 'resident' | 'interactive'
+	readonly verification: string | null
 	readonly claim: string | null
 	readonly revision: number | null
 	readonly outcome: 'wait' | 'complete' | 'blocked' | null
@@ -65,6 +66,7 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 				'--max-idle-ms',
 				'--tool-loading',
 				'--context-profile',
+				'--verify',
 				'--claim',
 				'--revision',
 				'--outcome',
@@ -100,6 +102,8 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 	const rawIdle = own.get('--max-idle-ms')
 	const rawRevision = own.get('--revision')
 	const toolLoading = own.get('--tool-loading') ?? 'eager'
+	const verification = own.get('--verify') ?? null
+	if (!execution && verification) throw new Error('--verify applies to resident run or start.')
 	const contextProfile = own.get('--context-profile') ?? 'resident'
 	if (contextProfile !== 'resident' && contextProfile !== 'interactive')
 		throw new Error('--context-profile must be resident or interactive.')
@@ -172,6 +176,7 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		maxIdleMs,
 		toolLoading,
 		contextProfile,
+		verification,
 		claim,
 		revision,
 		outcome: outcome as ResidentFlags['outcome'],

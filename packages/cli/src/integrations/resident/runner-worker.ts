@@ -67,6 +67,7 @@ async function main(): Promise<number> {
 			flags: launch.flags,
 			toolLoading: launch.toolLoading,
 			contextProfile: launch.contextProfile,
+			verification: launch.verification,
 			artifactsRoot: resident.artifactsRoot,
 		})
 		lifecycleStarted = true
