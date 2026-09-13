@@ -20,6 +20,7 @@ import {
 	wakeResidentState,
 } from './store.js'
 
+import { type ResidentActivitySource, createResidentActivitySource } from './activity.js'
 import { readResidentHistoryRecord } from './history-disk.js'
 import { type ResidentHistorySource, createResidentHistorySource } from './history.js'
 import {
@@ -335,6 +336,21 @@ export class DiskResidentAgenda implements ResidentAgendaStore {
 				throughRevision,
 			},
 			state,
+			async (revision, budget) => {
+				const raw = await readResidentHistoryRecord(
+					this.historyRoot,
+					join(this.historyRevisions, `${revision}.json`),
+					budget,
+				)
+				return this.checked(migrate<ResidentAgendaState>(agendaRecordSchema, raw))
+			},
+		)
+	}
+
+	/** @experimental Bounded admission/settlement history, including archived pursuits. */
+	activity(throughRevision: number): ResidentActivitySource {
+		return createResidentActivitySource(
+			{ tenantId: this.tenantId, agentKey: this.agentKey, throughRevision },
 			async (revision, budget) => {
 				const raw = await readResidentHistoryRecord(
 					this.historyRoot,

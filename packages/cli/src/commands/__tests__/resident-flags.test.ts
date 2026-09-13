@@ -2,6 +2,37 @@ import { describe, expect, it } from 'vitest'
 import { parseResidentFlags } from '../resident-flags.js'
 
 describe('resident command argument boundaries', () => {
+	it('accepts bounded read-only inspection without an execution allowance', () => {
+		expect(
+			parseResidentFlags([
+				'inspect',
+				'--cursor',
+				'33',
+				'--max-revisions',
+				'64',
+				'--through-revision',
+				'96',
+			]),
+		).toMatchObject({
+			action: 'inspect',
+			inspectionCursor: 33,
+			inspectionMaxRevisions: 64,
+			inspectionThroughRevision: 96,
+			maxSteps: null,
+		})
+	})
+	it.each([
+		['inspect', '--cursor', '0'],
+		['inspect', '--max-revisions', '4097'],
+		['inspect', 'unexpected'],
+		['inspect', '--max-steps', '1'],
+		['status', '--cursor', '1'],
+		['inspect', '--through-revision', '0'],
+		['status', '--through-revision', '2'],
+		['run', '--max-steps', '1', '--max-revisions', '2'],
+	])('rejects invalid inspection bounds or execution options: %j', (...args) => {
+		expect(() => parseResidentFlags(args)).toThrow()
+	})
 	it.each(['run', 'start'])('accepts explicit verification only on %s', (action) => {
 		expect(
 			parseResidentFlags([action, '--max-steps', '1', '--verify', 'checks.json']).verification,

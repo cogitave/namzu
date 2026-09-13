@@ -36,7 +36,11 @@ function identity(value: unknown) {
 	}
 }
 
-async function receipt(root: string, path: string, signal?: AbortSignal): Promise<unknown> {
+export async function readResidentAttemptReceipt(
+	root: string,
+	path: string,
+	signal?: AbortSignal,
+): Promise<unknown> {
 	signal?.throwIfAborted()
 	const suffix = relative(root, path)
 	if (suffix === '..' || suffix.startsWith(`..${sep}`)) throw new Error('Invalid attempt path.')
@@ -90,8 +94,12 @@ export function residentToolEvidence(
 		async resolveRun(settled, signal) {
 			const claimId = settled.claimId
 			if (!isEntityId(claimId, 'run')) throw new Error('Invalid claim id.')
-			const start = identity(await receipt(root, join(root, claimId, 'start.json'), signal))
-			const finish = identity(await receipt(root, join(root, claimId, 'finish.json'), signal))
+			const start = identity(
+				await readResidentAttemptReceipt(root, join(root, claimId, 'start.json'), signal),
+			)
+			const finish = identity(
+				await readResidentAttemptReceipt(root, join(root, claimId, 'finish.json'), signal),
+			)
 			for (const record of [start, finish])
 				if (
 					record.claimId !== claimId ||

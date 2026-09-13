@@ -4,6 +4,7 @@ import { type RunFlags, parseRunFlags } from './run-flags.js'
 const actions = [
 	'add',
 	'status',
+	'inspect',
 	'run',
 	'start',
 	'stop',
@@ -17,6 +18,9 @@ const actions = [
 export type ResidentAction = (typeof actions)[number]
 
 export interface ResidentFlags {
+	readonly inspectionThroughRevision: number | undefined
+	readonly inspectionCursor: number | undefined
+	readonly inspectionMaxRevisions: number | undefined
 	readonly action: ResidentAction
 	readonly agent: string
 	readonly maxSteps: number | null
@@ -61,6 +65,9 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		const [name, ...suffix] = item.split('=')
 		if (
 			[
+				'--cursor',
+				'--through-revision',
+				'--max-revisions',
 				'--agent',
 				'--max-steps',
 				'--max-idle-ms',
@@ -78,6 +85,24 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 			own.set(name, value)
 		} else forwarded.push(item)
 	}
+	const inspectionThroughRevision = own.has('--through-revision')
+		? integer(own.get('--through-revision') ?? '', '--through-revision')
+		: undefined
+	const inspectionCursor = own.has('--cursor')
+		? integer(own.get('--cursor') ?? '', '--cursor')
+		: undefined
+	const inspectionMaxRevisions = own.has('--max-revisions')
+		? integer(own.get('--max-revisions') ?? '', '--max-revisions')
+		: undefined
+	if (
+		action !== 'inspect' &&
+		(inspectionCursor !== undefined ||
+			inspectionMaxRevisions !== undefined ||
+			inspectionThroughRevision !== undefined)
+	)
+		throw new Error('--cursor, --through-revision and --max-revisions apply to resident inspect.')
+	if (inspectionMaxRevisions !== undefined && inspectionMaxRevisions > 4096)
+		throw new Error('--max-revisions must not exceed 4096.')
 	const run = parseRunFlags(forwarded)
 	if (run.unknown.length) throw new Error(`Unknown option(s): ${run.unknown.join(', ')}.`)
 	if (run.permissionMode && !isPermissionMode(run.permissionMode))
@@ -150,7 +175,10 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		throw new Error('Claim, revision, outcome and executor confirmation apply to reconcile.')
 	if (execution && maxSteps === null)
 		throw new Error(`resident ${action} requires --max-steps <n>.`)
-	if (['status', 'run', 'start', 'stop', 'pause', 'resume'].includes(action) && run.rest.length)
+	if (
+		['status', 'inspect', 'run', 'start', 'stop', 'pause', 'resume'].includes(action) &&
+		run.rest.length
+	)
 		throw new Error(`resident ${action} does not take a prompt or pursuit ID.`)
 	if (action === 'add' && !run.rest.join(' ').trim())
 		throw new Error('resident add requires an objective.')
@@ -171,6 +199,9 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		)
 	return {
 		action: action as ResidentAction,
+		inspectionCursor,
+		inspectionThroughRevision,
+		inspectionMaxRevisions,
 		agent,
 		maxSteps,
 		maxIdleMs,

@@ -9,6 +9,7 @@ import { ResidentConflictError } from '@namzu/sdk'
 import { ConfigLoadError, ConfigValueError } from '../config/load.js'
 import { resolveTrustedProjectContext } from '../config/trusted-project-context.js'
 import { EXIT_BAD_CONFIG, EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
+import { inspectCliResident } from '../integrations/resident/inspection.js'
 import { runOwnedResident } from '../integrations/resident/owned-runner.js'
 import { queryRunner } from '../integrations/resident/runner-control.js'
 import {
@@ -125,6 +126,7 @@ export const residentCommand: CommandDef = {
 		'Usage: namzu resident <action> [options]',
 		'',
 		'  add <objective>          Save work without starting a model',
+		'  inspect                  Inspect lifetime usage and evidence (--cursor, --through-revision, --max-revisions)',
 		'  status                   Show saved work and unresolved claims (default action)',
 		'  run --max-steps <n>       Continue due work in this foreground process',
 		'  run/start --verify <file> Require configured JSON claims before completion (host file reads)',
@@ -183,7 +185,7 @@ export const residentCommand: CommandDef = {
 		let resident: CliResident | null = null
 		try {
 			resident = await lookupResident(resolved.cwd, flags.agent)
-			if (flags.action === 'status' && !resident) {
+			if (['status', 'inspect'].includes(flags.action) && !resident) {
 				bootstrap.formatter.print({
 					text: `No resident named ${flags.agent} in this project. Use namzu resident add <objective>.`,
 					agent: flags.agent,
@@ -222,6 +224,18 @@ export const residentCommand: CommandDef = {
 				}
 				case 'status':
 					break
+				case 'inspect': {
+					const throughRevision = flags.inspectionThroughRevision ?? state.revision
+					if (throughRevision > state.revision)
+						throw new Error('Inspection boundary is ahead of saved history.')
+					bootstrap.formatter.print(
+						await inspectCliResident(resident, throughRevision, {
+							cursor: flags.inspectionCursor,
+							maxRevisions: flags.inspectionMaxRevisions,
+						}),
+					)
+					return 0
+				}
 				case 'stop': {
 					// Bind this stop to the invocation observed before closing admission.
 					// A later resume/start must not become the target of an older stop.

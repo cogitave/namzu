@@ -451,6 +451,21 @@ export type {
 
 export type { ResidentDecision, ResidentState, ResidentStore } from './manager/resident/store.js'
 export type {
+	ResidentActivityScope,
+	ResidentAdmission,
+	ResidentSettlement,
+	ResidentActivityOptions,
+	ResidentActivityPage,
+	ResidentActivitySource,
+} from './manager/resident/activity.js'
+export type {
+	ResidentConsumptionReceipt,
+	ResidentConsumptionResolver,
+	ResidentConsumptionOptions,
+	ResidentConsumptionAttempt,
+	ResidentConsumptionReport,
+} from './manager/resident/consumption.js'
+export type {
 	ResidentHistoryScope,
 	ResidentHistoryAddress,
 	ResidentHistoryMatch,

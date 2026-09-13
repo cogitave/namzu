@@ -317,3 +317,76 @@ admits only one of two different pursuits.
 The live prompt explicitly prescribes the two-stage tasks. These observations
 establish continuity and control behavior, not spontaneous initiative or a
 comparison of intelligence. Tokens and cost were not measured.
+
+## Activity and consumption inspection
+
+`DiskResidentAgenda.activity(throughRevision)` creates a read-only
+`ResidentActivitySource` bound to the tenant, agent and immutable upper revision.
+Forward pages derive admissions and settlements from adjacent authoritative
+revisions, including pursuits subsequently archived. They do not enumerate
+attempt directories or trust a model's claim of execution. Each page visits at
+most 32 revisions and reads at most 8 MiB; cancellation and unavailable revisions
+are explicit. The first cursor is 1. A byte-limited page may make no progress and
+returns the same cursor; callers must stop or supply a sufficient allowance.
+
+`inspectResidentConsumption(source, resolver, options?, signal?)` combines these
+pages with host-authenticated cumulative root receipts. The host supplies a
+`ResidentConsumptionResolver` whose `maxReadBytes` is reserved before each
+resolution. Its adapter must enforce that per-resolution bound and cooperative
+cancellation. The SDK refuses duplicate admissions, excludes every copy of a run
+receipt reused for multiple claims, validates finite prices and safe token
+integers, and never counts cache buckets separately from total tokens.
+
+```ts
+import {
+  DiskResidentAgenda,
+  inspectResidentConsumption,
+  type ResidentConsumptionResolver,
+} from '@namzu/sdk'
+
+export async function inspect(
+  agenda: DiskResidentAgenda,
+  receipts: ResidentConsumptionResolver,
+  signal?: AbortSignal,
+) {
+  const state = await agenda.read()
+  if (!state) return null
+  return inspectResidentConsumption(
+    agenda.activity(state.revision),
+    receipts,
+    { maxRevisions: 256, maxHistoryBytes: 8 * 1024 * 1024 },
+    signal,
+  )
+}
+```
+
+A resolver receives only an authoritative `ResidentAdmission`. It returns null
+for missing evidence, or a `ResidentConsumptionReceipt` with explicit nullable
+own/tree tokens and own price, `usageFinal`, cleanup status and historical
+verification status. A provider failure after partial usage must retain its
+known numbers with `usageFinal: false`. Absence is not a zero-cost response.
+The SDK trusts the adapter's authentication, completeness and byte-bound claims;
+it does not independently authenticate a custom backend or price catalogue.
+
+The default whole-inspection bounds are 256 revisions, 8 MiB history and 16 MiB
+reserved receipt reads. Hosts can select up to 4096 revisions and 64 MiB receipt
+reads. Forward history continuation is `nextCursor`; no inference, automatic
+recovery or new execution is performed. A continuation starting after revision 1
+remains a partial-range report. Missing history, invalid receipts, deferred
+resolutions and provisional usage remain visible. Do not sum overlapping ranges.
+
+`recorded.ownTokens` and `recorded.treeTokens` are **separate** projections; tree
+already includes the root. `recorded.ownCostUsd` is the known root estimate,
+with compensated addition to limit floating-point drift. Unpriced own tokens,
+unknown prices and descendant prices remain distinct. This is not exact decimal
+billing and does not reconcile against a provider's account. Root retries and
+side calls are included only insofar as their cumulative root receipts recorded
+them; missing receipts cannot be reconstructed from an assistant answer.
+
+`historyComplete` requires a scan from revision 1 through the fixed upper bound
+without missing revisions. `usageComplete` additionally requires final own and
+tree usage for every inspected admission. Neither means that every pursuit is
+complete, its claims remain currently true, or a message has been delivered.
+Archive and manual reconciliation preserve prior consumption and uncertainty.
+The existing per-invocation and per-step guards remain unchanged; this API is an
+inspection projection, not an atomic lifetime reservation or spending cap.

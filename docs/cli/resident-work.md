@@ -108,7 +108,7 @@ extra round trip or establish a general performance gain.
 Iteration and token limits apply **per SDK step**, not cumulatively across a
 resident's lifetime. `--max-steps` bounds the number of admitted steps. Provider
 failures and interrupted steps can consume tokens without settling a step.
-No separate lifetime credit ledger is implemented here.
+The read-only lifetime projection below does not enforce a separate lifetime credit limit.
 
 `--max-idle-ms` bounds a single idle wait, default 60,000. A later scheduled wake
 outside that window returns control to the shell. An indefinite wait, completed
@@ -119,6 +119,61 @@ Use `--cwd <path>` to select a project and `--agent <name>` to select a resident
 within it. The default name is `default`; names contain 1–64 lowercase letters,
 digits, underscores or hyphens and start with a letter or digit. These are
 operator names, not another family of generated entity IDs.
+
+## Consumption and completion evidence
+
+Use `namzu resident inspect` to read retained execution evidence across process
+restarts, including pursuits already archived. It makes no model calls, starts
+no worker, changes no permissions and does not reconcile an unresolved claim.
+
+```bash
+namzu resident inspect
+namzu --format json resident inspect
+namzu resident inspect --max-revisions 1024
+namzu resident inspect --cursor 257 --through-revision 500 --max-revisions 256
+```
+
+`status` shows current admission/runner state; `inspect` reads immutable agenda
+history and scoped attempt/run receipts. Its result separates:
+
+- **Admitted work** from agenda settlement. A callback finish receipt alone
+  does not prove the agenda committed the result. Manual reconciliation can
+  settle a claim without manufacturing model usage or verification evidence.
+- **Own tokens** from **tree tokens** including descendants. These are separate
+  totals; adding them would count the root twice. Retry/side-call tokens already
+  included in a root's cumulative usage are counted once. Cache token buckets
+  are not added again.
+- **Recorded verification** from an unconfigured completion. Inspection checks
+  receipt identity, scope, policy and observation metadata; it does not re-read
+  the source or establish that the facts are still true today.
+- **Known own cost** from unpriced tokens and missing prices. Descendant prices
+  are not included. These estimates are not a provider bill.
+- **Partial/unknown usage** from final recorded usage. Abrupt death may leave
+  only a provisional run snapshot. Reconcile, archive and restart never turn
+  that uncertainty into zero or remove its retained admission.
+
+The text view shows at most 20 inspected attempts; JSON retains all attempts in
+the inspected range. The default scan covers up to 256 revisions, with at most
+8 MiB of history reads and 16 MiB reserved for attempt/run receipt reads. Each
+attempt reserves three bounded 64 KiB reads. `--max-revisions` accepts 1–4096;
+`--cursor` starts at the next revision returned by a prior inspection.
+Use `--through-revision` with the original upper boundary when paging an active
+resident; otherwise each invocation selects the latest saved boundary. Receipt
+reads reflect the evidence available during inspection, not a historical wall-clock snapshot. The
+returned cursor is for **history** continuation; a receipt deferred by its
+separate allowance remains deferred. SDK callers can raise that allowance to
+64 MiB or inspect smaller revision ranges.
+
+An incomplete scan is labelled partial, even when the last page reaches the
+end. Do not add overlapping page totals or interpret a page as a lifetime
+total. A complete lifetime view starts at revision 1, reaches the selected
+upper boundary and has no unavailable revisions. Missing, invalid or deferred
+receipts remain separately visible even with complete history. The SDK exposes
+the underlying [source and projection](../sdk/resident-agents.md#activity-and-consumption-inspection)
+for hosts needing their own presentation.
+
+This is accounting, not a new spending gate. Existing token/iteration limits
+still apply per step; `--max-steps` remains an invocation allowance.
 
 ## Directory and state ownership
 
