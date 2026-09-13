@@ -106,13 +106,16 @@ console.log(JSON.stringify({read,imageBytes:shed.messages[0].attachments[0].data
 	}
 })
 
-it.each(['query', 'terms', 'tokens'] as const)(
+it.each(['query', 'terms', 'tokens', 'refined'] as const)(
 	'shares an atomically published index and reads a previous process address (%s)',
 	async (mode) => {
 		const search =
 			mode === 'query'
 				? { query: 'RECEIPT' }
-				: { terms: ['absent', 'RECEIPT'], ...(mode === 'tokens' ? { matchMode: 'token' } : {}) }
+				: {
+						terms: ['absent', 'RECEIPT'],
+						...(['tokens', 'refined'].includes(mode) ? { matchMode: 'token' } : {}),
+					}
 		const root = await mkdtemp(join(tmpdir(), 'namzu-evidence-restart-'))
 		try {
 			const scope = {
@@ -176,7 +179,12 @@ it.each(['query', 'terms', 'tokens'] as const)(
 			const found = await child('search', {
 				...search,
 				cursor: first[0].nextCursor,
+				...(mode === 'refined' ? { refineTerms: ['RECEIPT'] } : {}),
 			})
+			if (mode === 'refined') {
+				const broadAgain = await child('search', { ...search, cursor: first[0].nextCursor })
+				expect(broadAgain.matches).toEqual(found.matches)
+			}
 			expect(found.matches).toHaveLength(1)
 			expect(found.matches[0].recordedAt).toBe(1_735_689_600_079)
 			const read = await child('read', { address: found.matches[0].address })

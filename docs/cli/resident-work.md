@@ -191,6 +191,11 @@ wake inputs and derived summary, then retrieves bounded original tool excerpts
 from earlier settled admissions. Historical Session/claim addresses remain intact.
 The pass has a combined 8 MiB document allowance and at most four source pages;
 explicit tools remain available for omitted text and cursor continuation.
+Long inputs contribute words from both ends. A full result page can trigger
+one search for uncovered words at the same authenticated archive position;
+its pages and bytes still count against that shared allowance. This improves
+some crowded searches without resolving ambiguous references or guaranteeing
+that every relevant historical observation is selected.
 `compaction.recallEvidence: false` disables this preparation while retaining
 explicit tools. No extra query-planning model call is made.
 

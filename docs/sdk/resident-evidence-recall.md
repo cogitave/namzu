@@ -51,8 +51,11 @@ the original archive rather than replaying a tool or rereading a mutable file.
 ## Query and provenance
 
 Preparation selects literal words from the captured objective, ordered accepted
-wake inputs and previous summary. Each field contributes at most its last 4,000
-UTF-16 units. Categories take turns contributing words so a long objective or
+wake inputs and previous summary. Fields of at most 4,000 UTF-16 units contribute
+their full text. Longer fields contribute their first and last 2,000 units,
+discarding words cut by either boundary. Word selection alternates the ends of
+each field so a late correction also has an opportunity. Categories take turns
+contributing words so a long objective or
 summary cannot occupy all slots. Within wake inputs the newest accepted input
 gets the first opportunity; `wakeIndex` preserves its original committed index.
 Case-folded duplicates share a slot and retain their first selected spelling.
@@ -65,14 +68,24 @@ summary can identify a subject without establishing that the summarized claim
 was true. Current run chat text does not replace this admission snapshot;
 resident wake inputs are admitted between steps, not mid-step steering.
 
-This initial policy is local lexical selection. It makes no query-planning model
+This policy is local lexical selection. It makes no query-planning model
 call, does not infer unnamed referents and is not a relevance guarantee. A word
-outside the bounded field tails or chosen slots may be missed. Explicit search
+in an omitted middle or outside the chosen slots may be missed. Explicit search
 and read tools remain necessary beyond automatic selection. Returned excerpts
 are historical tool records, not current facts; errors/previews remain labelled.
 A tool result may itself quote another claim. Exact repetitions are grouped,
 not counted as corroboration. Distinct corrections retain distinct text and
 addresses; ranking is not causal order or evidence that a correction is valid.
+
+When at least four matches fill a source page and some selected query words
+have not appeared in the bounded excerpts, one strict-subset scan can search
+those uncovered words. This uses `refineEvidenceRecallTerms`; words are lexical
+coverage signals, not inferred topics. Both scans spend the same four-page and
+8 MiB allowance. A source advertising `supportsTermRefinement` receives the
+original cursor plus `refineTerms`, preserving traversal progress. Other custom
+sources start a new subset search. The broad cursor remains available; finishing
+the subset resumes it when pages remain. Sparse pages do not divert the scan
+away from earlier observations of the same subject.
 
 ## Bounds, cancellation and recovery
 
@@ -102,7 +115,8 @@ path and never includes raw backend errors. A later model iteration revalidates
 the source; no recalled bytes are cached as durable facts.
 
 An incomplete scan cannot establish absence. When traversal remains, the
-context can carry `search_resident_tools({ cursor })`. Pass that opaque cursor
+context can carry separate `search_resident_tools({ cursor })` hints for the
+broad and focused scans. Pass each opaque cursor
 unchanged; the source retains token terms, filters, invocation position and
 admission scope across reopening. A continuation which cannot fit the context
 allowance is counted as omitted. Explicit archive tools can start a fresh,
@@ -120,3 +134,5 @@ this preparation callback is not installed on the checkpoint-resume path.
 
 See the [active implementation and experiment record](../../research/resident/automatic-recall.md)
 for the distinction between scripted process checks and live model observations.
+The [selection-quality record](../../research/resident/selection-quality.md)
+separates bounded SDK fixtures, actual CLI request contents and model decisions.

@@ -22,7 +22,7 @@ import {
 	stamp,
 } from './io.js'
 import { passageMatcher, passagesInWindow } from './passages.js'
-import { evidenceSearchInput, evidenceTermsSchema } from './search-input.js'
+import { evidenceSearchInput, evidenceTermRefinement, evidenceTermsSchema } from './search-input.js'
 import {
 	evidenceExclusionsKey,
 	evidenceExclusionsSchema,
@@ -116,6 +116,7 @@ export function createDiskRunEvidenceSource(options: DiskRunEvidenceOptions): Ru
 	}
 	return Object.freeze({
 		scope: source.scope,
+		supportsTermRefinement: true,
 		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			const result = await source.search(options, signal)
 			return { ...result, matches: result.matches.map(tool) }
@@ -210,6 +211,7 @@ function createSource(
 	}
 	return Object.freeze({
 		scope,
+		supportsTermRefinement: true,
 		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			const input = z
 				.object({
@@ -219,6 +221,7 @@ function createSource(
 						.optional(),
 					query: z.string().max(256).optional(),
 					terms: evidenceTermsSchema,
+					refineTerms: evidenceTermsSchema,
 					caseSensitive: z.boolean().default(true),
 					matchMode: z.enum(['literal', 'token']).default('literal'),
 					excludeSuccessfulTools: evidenceExclusionsSchema,
@@ -233,6 +236,13 @@ function createSource(
 			if (input.part !== undefined && input.seq === undefined)
 				throw new Error('Part requires an event sequence.')
 			const { query, terms, termsKey, browse } = evidenceSearchInput(input)
+			const refined = input.refineTerms
+				? evidenceSearchInput({
+						terms: evidenceTermRefinement(input, input.refineTerms),
+						matchMode: 'token',
+					})
+				: undefined
+			const selectedTerms = refined?.terms ?? terms
 			const exclusionsKey = evidenceExclusionsKey(
 				input.excludeSuccessfulTools,
 				input.excludeDerivedSummaries,
@@ -277,6 +287,9 @@ function createSource(
 						cursor.mode !== mode
 					)
 						throw new Error('Search cursor query changed.')
+					// Authenticate the original query first, then seal future cursors
+					// with the narrower key at exactly the same archive position.
+					if (refined) cursor.termsKey = refined.termsKey
 					const { page, cacheHit } = await indexPage(
 						handle,
 						size,
@@ -294,7 +307,11 @@ function createSource(
 					let entryIndex = cursor.entry
 					let chunk = cursor.chunk
 					let within = cursor.within
-					const matchPassage = passageMatcher(terms ?? query, input.caseSensitive, input.matchMode)
+					const matchPassage = passageMatcher(
+						selectedTerms ?? query,
+						input.caseSensitive,
+						input.matchMode,
+					)
 					while (entryIndex < page.entries.length && matches.length < input.limit) {
 						const entry = page.entries[entryIndex]
 						if (!entry) throw new Error('Invalid index entry.')
@@ -322,7 +339,7 @@ function createSource(
 							if (entry.truncated && !entry.spill) partial = true
 							if (
 								!entry.spill &&
-								!(terms ?? [query]).some((term) =>
+								!(selectedTerms ?? [query]).some((term) =>
 									input.matchMode === 'token'
 										? mayContainToken(entry.tokenFilter, term) &&
 											(!input.caseSensitive || mayContain(entry.filter, term))
@@ -338,7 +355,7 @@ function createSource(
 							while (chunk < source.chunks && matches.length < input.limit) {
 								signal?.throwIfAborted()
 								if (
-									(terms ?? [query]).some((term) =>
+									(selectedTerms ?? [query]).some((term) =>
 										source.mayMatch(chunk, term, input.matchMode, input.caseSensitive),
 									)
 								) {

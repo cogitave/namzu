@@ -261,6 +261,16 @@ For example, token `3` matches `3`, not `13000`; `id_1` does not match `id_100`.
 Matching mode is bound into continuations; changing it requires a new search.
 Token cursors have a distinct kind that older readers reject.
 
+Disk sources advertise `supportsTermRefinement: true`. With an existing token
+cursor and its original `terms`, supply `refineTerms` to branch a **strict,
+nonempty subset** at the same authenticated archive position. Membership uses
+the current case rule. The source validates the original cursor/query/filters
+before changing only the token-membership key. Continue the returned cursor
+with the subset as `terms`; the original cursor still continues the broad scan.
+Expansions, identical sets, phrases, missing cursors and altered scope/filters
+are refused. Read and result limits still apply. This capability is optional;
+other backends, including linked live capture, do not advertise it.
+
 New indexes and retained-output manifests include an optional Bloom filter of
 whole-token lowercase keys. Token searches can skip negative windows in either
 case mode without loading those payload chunks. Possible matches still load and
@@ -629,3 +639,12 @@ must match; the per-call byte allowance is not query identity. A page with
 `nextCursor` is incomplete even when the current invocation was searched fully.
 [Automatic resident recall](resident-evidence-recall.md) uses this path without
 a second history store or broader Session access.
+
+The resident factory also advertises `supportsTermRefinement`. Supply
+`{ cursor, refineTerms }` to branch a strict subset of that cursor's captured
+token terms; omit `refineTerms` on subsequent cursor-only calls. Original scope,
+exclusions and settlement checks remain mandatory. If the resolved invocation
+source supports refinement, it continues at its authenticated position. Otherwise
+the factory searches the subset from the beginning of that selected invocation,
+charging those rereads normally. Custom resident sources without the capability
+are not sent this option by automatic recall.

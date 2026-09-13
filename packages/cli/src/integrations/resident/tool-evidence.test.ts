@@ -268,124 +268,135 @@ it.each([
 	},
 )
 
-it('automatically retains original and corrected observations across three real resident admissions', async () => {
-	const root = await mkdtemp(join(tmpdir(), 'namzu-resident-correction-'))
-	roots.push(root)
-	const cwd = join(root, 'workspace')
-	await mkdir(cwd)
-	const sessions = await openSessions(cwd, { stateRoot: join(root, 'home') })
-	const agendaRoot = join(root, 'agenda')
-	const agenda = new DiskResidentAgenda(agendaRoot, {
-		tenantId: sessions.tenantId,
-		agentKey: 'reviewer',
-	})
-	const pursuit = await agenda.add(
-		await agenda.create('Inspect DELTA.'),
-		'Compare DELTA original and corrected observations.',
-	)
-	const execution = agenda.execution(pursuit.id)
-	const artifactsRoot = join(root, 'attempts')
-	const ctx: CommandContext = {
-		config: { sandbox: { enabled: false }, web: { search: 'off' } },
-		formatter: { name: 'text', print: vi.fn(), info: vi.fn(), error: vi.fn() },
-	}
-	const invoke = async (provider: MockLLMProvider, currentAgenda = agenda) => {
-		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
-		const claim = await execution.claim((await execution.read())!, Date.now())
-		const current = await currentAgenda.read()
-		if (!current) throw new Error('Missing agenda.')
-		const step = createResidentSessionStep({
-			ctx,
-			cwd,
-			sessions,
-			agenda: currentAgenda,
-			artifactsRoot,
-			flags: parseRunFlags(['--max-iterations', '4']),
-			toolLoading: 'deferred',
+it.each([false, true])(
+	'automatically retains original and corrected observations across three real resident admissions (long state=%s)',
+	async (longState) => {
+		const root = await mkdtemp(join(tmpdir(), 'namzu-resident-correction-'))
+		roots.push(root)
+		const cwd = join(root, 'workspace')
+		await mkdir(cwd)
+		const sessions = await openSessions(cwd, { stateRoot: join(root, 'home') })
+		const agendaRoot = join(root, 'agenda')
+		const agenda = new DiskResidentAgenda(agendaRoot, {
+			tenantId: sessions.tenantId,
+			agentKey: 'reviewer',
 		})
-		const result = await step({ ...pursuit, state: claim }, new AbortController().signal, {
-			agendaRevision: current.revision,
+		const pursuit = await agenda.add(
+			await agenda.create('Inspect DELTA.'),
+			longState
+				? `Compare DELTA original and corrected observations. Atlas deployment and Borealis routing have separate notes. ${'Keep the report clear and tie claims to original evidence. '.repeat(100)}`
+				: 'Compare DELTA original and corrected observations.',
+		)
+		const execution = agenda.execution(pursuit.id)
+		const artifactsRoot = join(root, 'attempts')
+		const ctx: CommandContext = {
+			config: { sandbox: { enabled: false }, web: { search: 'off' } },
+			formatter: { name: 'text', print: vi.fn(), info: vi.fn(), error: vi.fn() },
+		}
+		const invoke = async (provider: MockLLMProvider, currentAgenda = agenda) => {
+			vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+			const claim = await execution.claim((await execution.read())!, Date.now())
+			const current = await currentAgenda.read()
+			if (!current) throw new Error('Missing agenda.')
+			const step = createResidentSessionStep({
+				ctx,
+				cwd,
+				sessions,
+				agenda: currentAgenda,
+				artifactsRoot,
+				flags: parseRunFlags(['--max-iterations', '4']),
+				toolLoading: 'deferred',
+			})
+			const result = await step({ ...pursuit, state: claim }, new AbortController().signal, {
+				agendaRevision: current.revision,
+			})
+			await execution.settle(claim, result, Date.now())
+			return claim
+		}
+		const original = `DELTA initial observation: OLD-${generateRunId()}`
+		const corrected = `DELTA corrected observation: NEW-${generateRunId()}`
+		const observe = () =>
+			new MockLLMProvider({
+				turns: [
+					{ toolCalls: [{ id: 'observe-once', name: 'read', args: { path: 'receipt.txt' } }] },
+					{
+						text: JSON.stringify({
+							kind: 'wait',
+							summary: `DELTA derived claim: UNVERIFIED-CODE. Await confirmation. ${longState ? 'Routine operational checks were reviewed. '.repeat(150) : ''}`,
+							wakeAfterMs: null,
+						}),
+					},
+				],
+			})
+		await writeFile(join(cwd, 'receipt.txt'), original)
+		const first = await invoke(observe())
+		const firstState = await execution.read()
+		if (!firstState) throw new Error('Missing first settlement.')
+		await writeFile(join(cwd, 'receipt.txt'), corrected)
+		await agenda.wake(
+			pursuit.id,
+			firstState,
+			'DELTA source changed. Observe its current corrected contents.',
+			Date.now(),
+		)
+		const second = await invoke(observe())
+		const secondState = await execution.read()
+		if (!secondState) throw new Error('Missing second settlement.')
+		await writeFile(
+			join(cwd, 'receipt.txt'),
+			'Both observations have now been removed from the workspace.',
+		)
+		await agenda.wake(
+			pursuit.id,
+			secondState,
+			longState
+				? 'Operations reviewed delivery progress across regions and checked outstanding paperwork before the final review. Compare original and corrected DELTA.'
+				: 'Compare the initial and corrected DELTA records.',
+			Date.now(),
+		)
+		const reopened = new DiskResidentAgenda(agendaRoot, {
+			tenantId: sessions.tenantId,
+			agentKey: 'reviewer',
 		})
-		await execution.settle(claim, result, Date.now())
-		return claim
-	}
-	const original = `DELTA initial observation: OLD-${generateRunId()}`
-	const corrected = `DELTA corrected observation: NEW-${generateRunId()}`
-	const observe = () =>
-		new MockLLMProvider({
+		const provider = new MockLLMProvider({
 			turns: [
-				{ toolCalls: [{ id: 'observe-once', name: 'read', args: { path: 'receipt.txt' } }] },
 				{
-					text: '{"kind":"wait","summary":"DELTA derived claim: UNVERIFIED-CODE. Await confirmation.","wakeAfterMs":null}',
+					text: '{"kind":"complete","summary":"Both historical observations supplied to this request."}',
 				},
 			],
 		})
-	await writeFile(join(cwd, 'receipt.txt'), original)
-	const first = await invoke(observe())
-	const firstState = await execution.read()
-	if (!firstState) throw new Error('Missing first settlement.')
-	await writeFile(join(cwd, 'receipt.txt'), corrected)
-	await agenda.wake(
-		pursuit.id,
-		firstState,
-		'DELTA source changed. Observe its current corrected contents.',
-		Date.now(),
-	)
-	const second = await invoke(observe())
-	const secondState = await execution.read()
-	if (!secondState) throw new Error('Missing second settlement.')
-	await writeFile(
-		join(cwd, 'receipt.txt'),
-		'Both observations have now been removed from the workspace.',
-	)
-	await agenda.wake(
-		pursuit.id,
-		secondState,
-		'Compare the initial and corrected DELTA records.',
-		Date.now(),
-	)
-	const reopened = new DiskResidentAgenda(agendaRoot, {
-		tenantId: sessions.tenantId,
-		agentKey: 'reviewer',
-	})
-	const provider = new MockLLMProvider({
-		turns: [
-			{
-				text: '{"kind":"complete","summary":"Both historical observations supplied to this request."}',
-			},
-		],
-	})
-	const third = await invoke(provider, reopened)
-	const textValues = (value: unknown): string[] =>
-		typeof value === 'string'
-			? [value]
-			: value && typeof value === 'object'
-				? Object.values(value).flatMap(textValues)
-				: []
-	const blocks = textValues(provider.requests[0]).filter((text) =>
-		text.includes('Retrieved resident evidence'),
-	)
-	const records = blocks.flatMap((text) =>
-		text
-			.split('\n')
-			.filter((line) => line.startsWith('{"sessionId":'))
-			.map((line) => JSON.parse(line)),
-	)
-	expect(provider.requests).toHaveLength(1)
-	expect(records.map((record) => record.excerpt).join('\n')).toContain(original)
-	expect(records.map((record) => record.excerpt).join('\n')).toContain(corrected)
-	expect(records.map((record) => record.excerpt).join('\n')).not.toContain('UNVERIFIED-CODE')
-	expect(new Set(records.map((record) => record.sessionId)).size).toBe(2)
-	expect(emergencyModes).toEqual([false, false, false])
-	const ordered = [...records].sort((a, b) => a.revision - b.revision)
-	expect(ordered[0].excerpt).toContain(original)
-	expect(ordered.at(-1).excerpt).toContain(corrected)
-	const finishes = await Promise.all(
-		[first, second, third].map(async (claim) =>
-			JSON.parse(await readFile(join(artifactsRoot, claim.claimId!, 'finish.json'), 'utf8')),
-		),
-	)
-	expect(new Set(finishes.map((receipt) => receipt.sessionId)).size).toBe(3)
-	expect(finishes.every((receipt) => receipt.cleanup === 'confirmed')).toBe(true)
-	expect(await readFile(join(cwd, 'receipt.txt'), 'utf8')).toContain('removed from the workspace')
-})
+		const third = await invoke(provider, reopened)
+		const textValues = (value: unknown): string[] =>
+			typeof value === 'string'
+				? [value]
+				: value && typeof value === 'object'
+					? Object.values(value).flatMap(textValues)
+					: []
+		const blocks = textValues(provider.requests[0]).filter((text) =>
+			text.includes('Retrieved resident evidence'),
+		)
+		const records = blocks.flatMap((text) =>
+			text
+				.split('\n')
+				.filter((line) => line.startsWith('{"sessionId":'))
+				.map((line) => JSON.parse(line)),
+		)
+		expect(provider.requests).toHaveLength(1)
+		expect(records.map((record) => record.excerpt).join('\n')).toContain(original)
+		expect(records.map((record) => record.excerpt).join('\n')).toContain(corrected)
+		expect(records.map((record) => record.excerpt).join('\n')).not.toContain('UNVERIFIED-CODE')
+		expect(new Set(records.map((record) => record.sessionId)).size).toBe(2)
+		expect(emergencyModes).toEqual([false, false, false])
+		const ordered = [...records].sort((a, b) => a.revision - b.revision)
+		expect(ordered[0].excerpt).toContain(original)
+		expect(ordered.at(-1).excerpt).toContain(corrected)
+		const finishes = await Promise.all(
+			[first, second, third].map(async (claim) =>
+				JSON.parse(await readFile(join(artifactsRoot, claim.claimId!, 'finish.json'), 'utf8')),
+			),
+		)
+		expect(new Set(finishes.map((receipt) => receipt.sessionId)).size).toBe(3)
+		expect(finishes.every((receipt) => receipt.cleanup === 'confirmed')).toBe(true)
+		expect(await readFile(join(cwd, 'receipt.txt'), 'utf8')).toContain('removed from the workspace')
+	},
+)

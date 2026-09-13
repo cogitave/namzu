@@ -549,7 +549,10 @@ export function createScopedEvidenceRecallStep(
 					(!Number.isSafeInteger(batch.excludedSummaries) || batch.excludedSummaries < 0))
 			)
 				throw new Error('Evidence recall exceeded its bounded retrieval contract.')
-			const continuations = continuationHints(batch, boundary.kind === 'resident' ? 12_000 : 2048)
+			// Resident discovery can retain two independently bounded 8192-char
+			// cursors. Validation room is not output room: rendering below still
+			// shares the original context allowance and counts omitted hints.
+			const continuations = continuationHints(batch, boundary.kind === 'resident' ? 20_000 : 2048)
 			const candidates: ScopedEvidenceRecallCandidate[] = []
 			const visibleCandidates: ScopedEvidenceRecallCandidate[] = []
 			const seen = new Set<string>()

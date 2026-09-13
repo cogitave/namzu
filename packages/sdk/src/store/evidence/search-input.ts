@@ -1,5 +1,5 @@
 import { z } from 'zod'
-import { isEvidenceToken } from '../../utils/evidence-tokens.js'
+import { evidenceTokenKey, isEvidenceToken } from '../../utils/evidence-tokens.js'
 import { digest } from './format.js'
 
 export const evidenceTermsSchema = z
@@ -33,4 +33,30 @@ export function evidenceSearchInput(input: {
 		termsKey: terms ? digest(JSON.stringify(terms)) : undefined,
 		browse: !terms && !input.query,
 	}
+}
+
+/** Refinement only narrows matching; it never resets scope, filters or position. */
+export function evidenceTermRefinement(
+	input: {
+		terms?: readonly string[]
+		cursor?: string
+		matchMode?: string
+		caseSensitive?: boolean
+	},
+	refined: readonly string[],
+): string[] {
+	const terms = evidenceTermsSchema.parse(refined)
+	if (
+		!input.cursor ||
+		input.matchMode !== 'token' ||
+		!input.terms ||
+		!terms?.every(isEvidenceToken)
+	)
+		throw new Error('Term refinement requires a token cursor and its original terms.')
+	const key = (term: string) => evidenceTokenKey(term, input.caseSensitive ?? true)
+	const original = new Set(input.terms.map(key))
+	const subset = new Set(terms.map(key))
+	if (subset.size >= original.size || [...subset].some((term) => !original.has(term)))
+		throw new Error('Term refinement must be a strict nonempty subset of the original terms.')
+	return terms
 }

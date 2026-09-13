@@ -79,6 +79,71 @@ async function fixture(
 
 describe('bounded retained tool evidence', () => {
 	it.each(['tool', 'text'] as const)(
+		'branches a strict token subset at the authenticated %s cursor, preserving the broad scan',
+		async (kind) => {
+			const f = await fixture([
+				...Array.from({ length: 20 }, (_, i) => ({ text: `Atlas regional check ${i}` })),
+				...Array.from({ length: 8 }, (_, i) => ({ text: `Borealis TRACK_${i}` })),
+			])
+			const make = () => (kind === 'tool' ? f.reopen() : createDiskRunTextEvidenceSource(f))
+			const options = {
+				terms: ['Atlas', 'Borealis'],
+				matchMode: 'token' as const,
+				caseSensitive: false,
+				excludeSuccessfulTools: ['search'],
+			}
+			const first = await make().search(options)
+			if (!first.nextCursor) throw new Error('Missing broad cursor.')
+			expect(first.matches).toHaveLength(4)
+			const focused = await make().search({
+				...options,
+				cursor: first.nextCursor,
+				refineTerms: ['borealis'],
+				maxReadBytes: 1024 * 1024,
+			})
+			expect(focused.scannedBytes).toBeLessThanOrEqual(1024 * 1024)
+			expect(focused.matches.map((m) => m.excerpt)).toEqual(
+				Array.from({ length: 4 }, (_, i) => `Borealis TRACK_${i}`),
+			)
+			if (!focused.nextCursor) throw new Error('Missing focused cursor.')
+			const remainder = await make().search({
+				...options,
+				terms: ['borealis'],
+				cursor: focused.nextCursor,
+			})
+			expect(remainder.matches.map((m) => m.excerpt)).toEqual(
+				Array.from({ length: 4 }, (_, i) => `Borealis TRACK_${i + 4}`),
+			)
+			const broad = await make().search({ ...options, cursor: first.nextCursor })
+			expect(broad.matches[0]?.excerpt).toBe('Atlas regional check 4')
+			for (const refineTerms of [[], ['Foreign'], ['Atlas', 'Borealis'], ['two words']])
+				await expect(
+					make().search({ ...options, cursor: first.nextCursor, refineTerms }),
+				).rejects.toThrow()
+			await expect(make().search({ ...options, refineTerms: ['Borealis'] })).rejects.toThrow(
+				'cursor',
+			)
+			await expect(make().search({ ...options, cursor: focused.nextCursor })).rejects.toThrow(
+				'query changed',
+			)
+			await expect(
+				make().search({
+					...options,
+					cursor: first.nextCursor,
+					excludeSuccessfulTools: [],
+					refineTerms: ['Borealis'],
+				}),
+			).rejects.toThrow('query changed')
+			await expect(
+				make().search(
+					{ ...options, cursor: first.nextCursor, refineTerms: ['Borealis'] },
+					AbortSignal.abort(new Error('cancelled')),
+				),
+			).rejects.toThrow('cancelled')
+		},
+	)
+
+	it.each(['tool', 'text'] as const)(
 		'accepts a smaller per-operation budget without changing %s addresses or the source ceiling',
 		async (mode) => {
 			const mib = 1024 * 1024

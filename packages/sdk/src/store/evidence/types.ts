@@ -39,6 +39,11 @@ export interface RunEvidenceSearchOptions {
 	 * This is candidate discovery, not relevance ranking or natural-language parsing.
 	 */
 	readonly terms?: readonly string[]
+	/** With a cursor and its original token terms, continue at that position using
+	 * a strict nonempty subset. Requires supportsTermRefinement. The returned
+	 * cursor is bound to the subset; the original cursor remains usable.
+	 */
+	readonly refineTerms?: readonly string[]
 	/**
 	 * Defaults to literal substring matching. Token mode accepts only single
 	 * Unicode letter/number/underscore tokens and matches complete tokens.
@@ -118,6 +123,7 @@ export interface RunEvidenceReadResult {
 /** @experimental Retrieval only: never re-executes a tool or resumes a run. */
 export interface RunEvidenceSource {
 	readonly scope: RunEvidenceScope
+	readonly supportsTermRefinement?: boolean
 	search(options?: RunEvidenceSearchOptions, signal?: AbortSignal): Promise<RunEvidenceSearchResult>
 	read(options: RunEvidenceReadOptions, signal?: AbortSignal): Promise<RunEvidenceReadResult>
 }
@@ -162,6 +168,7 @@ export interface RunTextEvidenceReadResult
 /** @experimental Scope-bound, bounded text retrieval across an invocation's event stream. */
 export interface RunTextEvidenceSource {
 	readonly scope: RunEvidenceScope
+	readonly supportsTermRefinement?: boolean
 	search(
 		options?: RunTextEvidenceSearchOptions,
 		signal?: AbortSignal,

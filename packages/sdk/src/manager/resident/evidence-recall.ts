@@ -5,6 +5,7 @@ import {
 	type ScopedEvidenceRecallCandidate,
 	createScopedEvidenceRecallStep,
 	evidenceRecallQueryTokens,
+	refineEvidenceRecallTerms,
 } from '../../run/evidence-recall.js'
 import type { RunEvidenceScope } from '../../store/evidence/types.js'
 import type { PrepareStep } from '../../types/run/prepare-step.js'
@@ -37,6 +38,37 @@ const historicalScopeSchema = ownerSchema.omit({ sessionId: true, runId: true })
 	pursuitId: z.string().uuid(),
 	throughRevision: z.number().int().positive().safe(),
 })
+
+// Sample both ends without merging or manufacturing a word at the cut. The
+// field still contributes at most 4000 characters; its omitted middle is not
+// inspected. Alternating ends also gives late corrections a term slot.
+function residentQueryWords(text: string): string[] {
+	const words =
+		text.length <= 4000
+			? evidenceRecallQueryTokens(text)
+			: [
+					...evidenceRecallQueryTokens(
+						text
+							.slice(0, 2000)
+							.replace(/[\uD800-\uDBFF]$/u, '')
+							.replace(/[\p{L}\p{N}_]+$/u, ''),
+					),
+					...evidenceRecallQueryTokens(
+						text
+							.slice(-2000)
+							.replace(/^[\uDC00-\uDFFF]/u, '')
+							.replace(/^[\p{L}\p{N}_]+/u, ''),
+					),
+				]
+	const result: string[] = []
+	for (let left = 0, right = words.length - 1; left <= right; left++, right--) {
+		const first = words[left]
+		const last = words[right]
+		if (first) result.push(first)
+		if (left !== right && last) result.push(last)
+	}
+	return result
+}
 
 /**
  * Reuses the shared bounded ranking/rendering engine while retaining the
@@ -91,7 +123,7 @@ export function createResidentEvidenceRecallStep(
 		.map((wake, index) => ({
 			kind: 'accepted_wake' as const,
 			index,
-			words: evidenceRecallQueryTokens(wake.reason),
+			words: residentQueryWords(wake.reason),
 		}))
 		.reverse()
 	const wakeWords: { term: string; source: string; wakeIndex?: number }[] = []
@@ -102,8 +134,8 @@ export function createResidentEvidenceRecallStep(
 		}
 	const groups = [
 		wakeWords,
-		evidenceRecallQueryTokens(state.objective).map((term) => ({ term, source: 'objective' })),
-		evidenceRecallQueryTokens(state.summary ?? '').map((term) => ({
+		residentQueryWords(state.objective).map((term) => ({ term, source: 'objective' })),
+		residentQueryWords(state.summary ?? '').map((term) => ({
 			term,
 			source: 'derived_summary',
 		})),
@@ -140,7 +172,7 @@ export function createResidentEvidenceRecallStep(
 			terms: selected,
 			throughRevision: historicalScope.throughRevision,
 			guidance:
-				'Words select historical tool records only. Objective/wakes are accepted inputs; derived_summary is a prior claim, not a new observation. Selection may omit relevant words. Each field contributes at most its last 4000 characters. Query/ranking do not establish truth, freshness or completeness. Use read_resident_tool with revision/address/byteOffset for exact retained text.',
+				'Words select historical tool records only. Objective/wakes are accepted inputs; derived_summary is a prior claim, not a new observation. Selection may omit relevant words. Fields over 4000 characters contribute their first/last 2000 characters; terms alternate ends. Query/ranking do not resolve ambiguous references or establish truth, freshness or completeness. Use read_resident_tool with revision/address/byteOffset for exact retained text.',
 		},
 	}
 	const addresses = new WeakMap<ScopedEvidenceRecallCandidate, Readonly<Record<string, unknown>>>()
@@ -152,18 +184,28 @@ export function createResidentEvidenceRecallStep(
 		const candidates: ScopedEvidenceRecallCandidate[] = []
 		let scannedBytes = 0
 		let incomplete = false
-		let cursor: string | undefined
+		const scans: {
+			terms: readonly string[]
+			started: boolean
+			cursor?: string
+			refineTerms?: readonly string[]
+		}[] = [{ terms: request.terms, started: false }]
 		let excludedToolResults = 0
 		for (let pageNumber = 0; pageNumber < 4; pageNumber++) {
+			const scan = [...scans].reverse().find((entry) => !entry.started || entry.cursor)
+			if (!scan) break
 			request.signal.throwIfAborted()
 			const allowance = request.maxReadBytes - scannedBytes
 			if (allowance <= 1024 * 1024 || candidates.length >= request.maxCandidates) break
 			const page = await search(
 				{
-					...(cursor
-						? { cursor }
+					...(scan.cursor
+						? {
+								cursor: scan.cursor,
+								...(scan.refineTerms ? { refineTerms: scan.refineTerms } : {}),
+							}
 						: {
-								terms: [...request.terms],
+								terms: [...scan.terms],
 								...(exclusions?.length ? { excludeSuccessfulTools: exclusions } : {}),
 							}),
 					maxReadBytes: allowance,
@@ -253,17 +295,42 @@ export function createResidentEvidenceRecallStep(
 					candidates.push(candidate)
 				}
 			}
-			cursor = page.nextCursor ?? undefined
-			if (!cursor) break
+			scan.started = true
+			scan.cursor = page.nextCursor ?? undefined
+			scan.refineTerms = undefined
+			// One strict-subset scan spends the SAME page/byte allowance. Keep
+			// the broad cursor: finishing a subset never exhausts the full query.
+			if (
+				scans.length === 1 &&
+				scan.cursor &&
+				pageNumber < 3 &&
+				(evidence?.matches.length ?? 0) >= 4
+			) {
+				const focused = refineEvidenceRecallTerms(
+					scan.terms,
+					candidates.map((candidate) => candidate.excerpt),
+				)
+				if (focused)
+					scans.push({
+						terms: focused,
+						started: false,
+						...(source.supportsTermRefinement === true
+							? { cursor: scan.cursor, refineTerms: focused }
+							: {}),
+					})
+			}
 		}
+		const continuations = scans.flatMap((scan) =>
+			scan.started && scan.cursor
+				? [{ toolName: 'search_resident_tools', input: { cursor: scan.cursor } }]
+				: [],
+		)
 		return {
 			candidates,
 			scannedBytes,
-			incomplete: incomplete || !!cursor,
+			incomplete: incomplete || scans.some((scan) => !scan.started || !!scan.cursor),
 			excludedToolResults,
-			...(cursor
-				? { continuations: [{ toolName: 'search_resident_tools', input: { cursor } }] }
-				: {}),
+			continuations,
 		}
 	}
 	const step = createScopedEvidenceRecallStep(

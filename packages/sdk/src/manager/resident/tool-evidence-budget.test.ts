@@ -276,6 +276,70 @@ it('refuses malformed or oversized token queries before touching history', async
 	expect(f.resolveRun).not.toHaveBeenCalled()
 })
 
+it.each([true, false])(
+	'refines a resident cursor after reopening (backend support=%s)',
+	async (supportsTermRefinement) => {
+		const f = await fixture()
+		f.resolveRun.mockResolvedValue({ ...f.backend, supportsTermRefinement })
+		f.search.mockResolvedValue({ ...f.page, nextCursor: 'inner-original' })
+		const options = { ...f.options, resolutionReadBytes: 0 }
+		const first = await createResidentToolEvidenceSource(options).search({
+			terms: ['Atlas', 'Borealis'],
+			excludeSuccessfulTools: ['read_resident_tool'],
+			maxReadBytes: 2 * mib,
+		})
+		if (!first.nextCursor) throw new Error('Missing broad cursor.')
+		f.search.mockResolvedValue({ ...f.page, nextCursor: 'inner-refined' })
+		const source = createResidentToolEvidenceSource(options)
+		const narrowed = await source.search({
+			cursor: first.nextCursor,
+			refineTerms: ['Borealis'],
+			maxReadBytes: 2 * mib,
+		})
+		expect(f.search.mock.calls[1]?.[0]).toMatchObject({
+			terms: supportsTermRefinement ? ['Borealis', 'Atlas'] : ['Borealis'],
+			excludeSuccessfulTools: ['read_resident_tool'],
+			...(supportsTermRefinement ? { cursor: 'inner-original', refineTerms: ['Borealis'] } : {}),
+		})
+		if (!supportsTermRefinement) expect(f.search.mock.calls[1]?.[0]).not.toHaveProperty('cursor')
+		if (!narrowed.nextCursor) throw new Error('Missing refined cursor.')
+		await createResidentToolEvidenceSource(options).search({
+			cursor: narrowed.nextCursor,
+			maxReadBytes: 2 * mib,
+		})
+		expect(f.search.mock.calls[2]?.[0]).toMatchObject({
+			terms: ['Borealis'],
+			cursor: 'inner-refined',
+		})
+		expect(f.search.mock.calls[2]?.[0]).not.toHaveProperty('refineTerms')
+		expect(narrowed.chargedBytes).toBe(narrowed.historyBytes + 123)
+		await source.search({ cursor: first.nextCursor, maxReadBytes: 2 * mib })
+		expect(f.search.mock.calls[3]?.[0]).toMatchObject({
+			terms: ['Borealis', 'Atlas'],
+			cursor: 'inner-original',
+		})
+		const reads = f.history.read.mock.calls.length
+		for (const refineTerms of [
+			[],
+			['Foreign'],
+			['Atlas', 'Borealis'],
+			['two words'],
+			null,
+			false,
+			'',
+		])
+			await expect(
+				source.search({
+					cursor: first.nextCursor,
+					refineTerms: refineTerms as never,
+					maxReadBytes: 2 * mib,
+				}),
+			).rejects.toThrow()
+		expect(f.history.read.mock.calls).toHaveLength(reads)
+		expect(f.search).toHaveBeenCalledTimes(4)
+	},
+)
+
 it('refuses a backend continuation whose escaped encoding cannot fit the tool input bound', async () => {
 	const f = await fixture()
 	f.search.mockResolvedValue({ ...f.page, nextCursor: '\u0000'.repeat(4096), incomplete: true })

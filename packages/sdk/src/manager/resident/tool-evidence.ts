@@ -1,5 +1,9 @@
 import { z } from 'zod'
-import { evidenceSearchInput, evidenceTermsSchema } from '../../store/evidence/search-input.js'
+import {
+	evidenceSearchInput,
+	evidenceTermRefinement,
+	evidenceTermsSchema,
+} from '../../store/evidence/search-input.js'
 import { evidenceExclusionsSchema } from '../../store/evidence/selection.js'
 import type {
 	RunEvidenceReadOptions,
@@ -45,6 +49,10 @@ export interface ResidentToolEvidenceSearchOptions {
 	readonly excludeSuccessfulTools?: readonly string[]
 	/** Omit query/terms/filter to continue the exact captured search. */
 	readonly cursor?: string
+	/** With a token cursor, continue using a strict subset of its terms. Requires
+	 * supportsTermRefinement. Scope, exclusions and the original cursor stay intact.
+	 */
+	readonly refineTerms?: readonly string[]
 	readonly maxReadBytes?: number
 }
 /** @experimental Tool records from at most one settled invocation per bounded search page. */
@@ -78,6 +86,7 @@ export interface ResidentToolEvidenceReadResult extends RunEvidenceReadResult {
 /** @experimental A host must bind tool access to the executing run, not just this source. */
 export interface ResidentToolEvidenceSource {
 	readonly scope: ResidentToolEvidenceScope
+	readonly supportsTermRefinement?: boolean
 	search(
 		options?: ResidentToolEvidenceSearchOptions,
 		signal?: AbortSignal,
@@ -215,6 +224,7 @@ export function createResidentToolEvidenceSource(
 	}
 	return Object.freeze({
 		scope,
+		supportsTermRefinement: true,
 		async search(input: ResidentToolEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			signal?.throwIfAborted()
 			const budget = operationBudget(input.maxReadBytes)
@@ -244,6 +254,21 @@ export function createResidentToolEvidenceSource(
 					: previous
 			if (previous && JSON.stringify(previous) !== JSON.stringify(search))
 				throw new Error('Resident tool search query changed.')
+			const refined =
+				input.refineTerms !== undefined
+					? searchInput({
+							terms: evidenceTermRefinement(
+								{
+									terms: search.terms,
+									cursor: input.cursor,
+									matchMode: 'token',
+									caseSensitive: false,
+								},
+								input.refineTerms,
+							),
+							excludeSuccessfulTools: search.excludeSuccessfulTools,
+						})
+					: undefined
 			const cursor: z.infer<typeof cursorSchema> =
 				prior ??
 				(search.terms || search.excludeSuccessfulTools
@@ -260,6 +285,7 @@ export function createResidentToolEvidenceSource(
 							revision: scope.throughRevision,
 						})
 			let selected: ResidentSettledInvocation | null = null
+			const advancedCursor = refined ? { ...cursor, version: 2 as const, search: refined } : cursor
 			let nextRevision: number | null = null
 			let historyBytes = 0
 			const unavailable = new Set<number>()
@@ -302,11 +328,16 @@ export function createResidentToolEvidenceSource(
 				try {
 					budget?.resolve()
 					const { source, owner } = await run(selected, signal)
+					const narrowAtCursor =
+						!!refined && !!cursor.runCursor && source.supportsTermRefinement === true
 					const page = await source.search(
 						{
-							...search,
+							...(refined && !narrowAtCursor ? refined : search),
 							...(search.terms ? { matchMode: 'token' as const, caseSensitive: false } : {}),
-							...(cursor.runCursor ? { cursor: cursor.runCursor } : {}),
+							...(cursor.runCursor && (!refined || narrowAtCursor)
+								? { cursor: cursor.runCursor }
+								: {}),
+							...(narrowAtCursor ? { refineTerms: refined?.terms } : {}),
 							...(budget ? { maxReadBytes: budget.remaining } : {}),
 						},
 						signal,
@@ -324,9 +355,13 @@ export function createResidentToolEvidenceSource(
 			}
 			const nextCursor =
 				evidence?.nextCursor && selected
-					? encode({ ...cursor, revision: selected.revision, runCursor: evidence.nextCursor })
+					? encode({
+							...advancedCursor,
+							revision: selected.revision,
+							runCursor: evidence.nextCursor,
+						})
 					: nextRevision
-						? encode({ ...cursor, revision: nextRevision, runCursor: undefined })
+						? encode({ ...advancedCursor, revision: nextRevision, runCursor: undefined })
 						: null
 			return {
 				scope,

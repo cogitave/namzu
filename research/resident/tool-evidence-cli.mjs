@@ -17,6 +17,7 @@ if (process.argv[2] === '--seed') {
   const { createResidentSessionStep } = await import('../../packages/cli/dist/integrations/resident/session-step.js');
   const { parseRunFlags } = await import('../../packages/cli/dist/commands/run-flags.js');
   const cwd = process.argv[3];
+  const distractors = process.argv.includes('--distractors') ? 20 : 0;
   const resident = await lookupResident(cwd, 'default');
   assert.ok(resident);
   const sessions = await openSessions(cwd);
@@ -27,7 +28,9 @@ if (process.argv[2] === '--seed') {
     ? `DELTA original receipt. Tracking: ${tracking}. Destination: ${destination}.`
     : `Inspection row ${i}: ${'packaging unchanged; '.repeat(30)}`);
   await writeFile(join(cwd, 'manifest.txt'), lines.join('\n'));
+  for (let i=0;i<distractors;i++) await writeFile(join(cwd,`inspection-${i}.txt`),`Recipient confirmation: original packaging inspected at station ${i}. Code and destination review pending.\n`);
   const provider = new sdk.MockLLMProvider({ turns: [
+    ...(distractors ? [{toolCalls:Array.from({length:distractors},(_,i)=>({id:`inspect-${i}`,name:'read',args:{path:`inspection-${i}.txt`}}))}] : []),
     { toolCalls: [{ id: 'observe-manifest-once', name: 'read', args: { path: 'manifest.txt' } }] },
     { text: '{"kind":"wait","summary":"Manifest observed and retained. Await recipient confirmation.","wakeAfterMs":null}' },
   ] });
@@ -45,7 +48,7 @@ if (process.argv[2] === '--seed') {
   const start = JSON.parse(await readFile(join(resident.artifactsRoot, claim.claimId, 'start.json'), 'utf8'));
   const runDir = join(sessions.root, 'sessions', start.sessionId, 'runs', start.runId);
   const events = (await readFile(join(runDir, 'transcript.jsonl'), 'utf8')).trim().split('\n').map(JSON.parse);
-  const observation = events.find(event => event.type === 'tool_completed' && event.toolName === 'read');
+  const observation = events.find(event => event.type === 'tool_completed' && event.toolUseId === 'observe-manifest-once');
   assert.ok(observation && !observation.isError && observation.outputTruncated);
   assert.match(observation.outputSpillIntegrity, /^[a-f0-9]{64}$/);
   assert.ok(!observation.result.includes(tracking));
@@ -58,6 +61,9 @@ if (process.argv[2] === '--seed') {
   const fault = process.argv.includes('--missing-archive') ? 'missing' : process.argv.includes('--changed-archive') ? 'changed' : null;
   const scripted = process.argv.includes('--scripted');
   const boundedReads = process.argv.includes('--bounded-reads');
+  const distractors = process.argv.includes('--distractors');
+  const expectMiss = process.argv.includes('--expect-miss');
+  if (expectMiss && (!scripted || !automatic || fault)) throw new Error('--expect-miss is a scripted automatic selection baseline, not an archive fault.');
   if (fault && (!scripted || !automatic)) throw new Error('Archive faults require scripted automatic recovery.');
   if (live && scripted) throw new Error('Choose live or scripted recovery.');
   if (boundedReads && automatic) throw new Error('--bounded-reads tests explicit tools; automatic recall has its own aggregate allowance.');
@@ -71,7 +77,7 @@ if (process.argv[2] === '--seed') {
   await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\ncompaction:\n  recallEvidence: '+automatic+'\n');
   const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
   const env = { ...process.env, NAMZU_HOME: home };
-  const report = { root, live, scripted, automatic, fault, boundedReads, profile, provider: 'codex', model: 'gpt-5.6-luna', effort: 'low', commands: [] };
+  const report = { root, live, scripted, automatic, fault, boundedReads, distractors, expectMiss, profile, provider: 'codex', model: 'gpt-5.6-luna', effort: 'low', commands: [] };
   const preload = join(root, 'scripted-recovery.mjs');
   if (scripted || automatic) await writeFile(preload, `
 import assert from 'node:assert/strict';
@@ -103,7 +109,7 @@ if (${scripted}) ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scr
   const text=JSON.stringify(params);
   const tracking=text.match(/TRACK-[0-9a-f-]{36}/)?.[0];
   const destination=text.match(/DEPOT-[0-9a-f-]{36}/)?.[0];
-  if (${JSON.stringify(fault)}) {
+  if (${JSON.stringify(fault)} || ${expectMiss}) {
    assert.ok(!tracking&&!destination, 'Invalid original bytes must not enter context.');
    assert.ok(text.includes(JSON.stringify('"incomplete":true').slice(1,-1)) || text.includes('Resident evidence availability'));
    turn={text:JSON.stringify({kind:'blocked',summary:'Original retained tool evidence is unavailable; no identifiers were verified.'})};
@@ -129,19 +135,22 @@ ProviderRegistry.create = function(...args) {
  const chatStream = provider.chatStream;
  provider.chatStream = function(params) {
   const text = JSON.stringify(params);
+  const strings = value => typeof value==='string'?[value]:value&&typeof value==='object'?Object.values(value).flatMap(strings):[];
+  const evidenceRecords=strings(params).filter(s=>s.includes('Retrieved resident evidence')).flatMap(s=>s.split('\\n').filter(line=>line.startsWith('{')&&(line.includes('"querySelection"')||line.startsWith('{"sessionId":'))).map(JSON.parse));
   appendFileSync(${JSON.stringify(join(root,'request-observations.jsonl'))}, JSON.stringify({
    automaticEvidence: text.includes('Retrieved resident evidence'),
    tracking: text.match(/TRACK-[0-9a-f-]{36}/)?.[0],
    destination: text.match(/DEPOT-[0-9a-f-]{36}/)?.[0],
    contextChars: text.length,
    toolMessages: params.messages.filter(m=>m.role==='tool').length,
+   evidenceRecords,
   })+'\\n');
   return chatStream.call(this,params);
  };
  return result;
 };
 `);
-  const builtPaths=['packages/sdk/dist/manager/resident/evidence-recall.js','packages/sdk/dist/run/evidence-recall.js','packages/cli/dist/tui/agent.js','packages/sdk/dist/manager/resident/history.js','packages/sdk/dist/manager/resident/tool-evidence.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/cli/dist/integrations/resident/tool-evidence.js','packages/cli/dist/integrations/resident/session-step.js'];
+  const builtPaths=['packages/sdk/dist/manager/resident/evidence-recall.js','packages/sdk/dist/run/evidence-recall.js','packages/cli/dist/tui/agent.js','packages/sdk/dist/manager/resident/history.js','packages/sdk/dist/manager/resident/tool-evidence.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/search-input.js','packages/sdk/dist/store/evidence/linked.js','packages/cli/dist/integrations/resident/tool-evidence.js','packages/cli/dist/integrations/resident/session-step.js'];
   const builtHashes=async()=>Object.fromEntries(await Promise.all(builtPaths.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
   async function command(args) {
     const { stdout } = await exec(process.execPath, [...((scripted||automatic)&&args[0]==='run'?['--import',preload]:[]),cli, '--quiet', '--format', 'json', 'resident', ...args, '--cwd', cwd], { cwd, env, timeout: 180_000, maxBuffer: 3_000_000 });
@@ -151,7 +160,7 @@ ProviderRegistry.create = function(...args) {
     report.buildBefore=await builtHashes();
     const added = await command(['add', '--trust', 'Recover the exact tracking code and destination from the original DELTA receipt after the recipient confirms. The receipt was previously observed by a tool, but its workspace file can change. Use retained original tool text, reading the relevant original passage before reporting. Do not send anything, edit files, run commands, or reread the mutable workspace file. Complete only with both exact identifiers.']);
     const id = added.agenda.pursuits[0].id;
-    const seeded = await exec(process.execPath, [fileURLToPath(import.meta.url), '--seed', cwd], { cwd, env, timeout: 30_000, maxBuffer: 1_000_000 });
+    const seeded = await exec(process.execPath, [fileURLToPath(import.meta.url), '--seed', cwd,...(distractors?['--distractors']:[])], { cwd, env, timeout: 30_000, maxBuffer: 1_000_000 });
     report.seed = JSON.parse(seeded.stdout);
     if (fault) {
       const spill = join(report.seed.runDir,'tool-output',createHash('sha256').update('observe-manifest-once').digest('hex')+'.txt');
@@ -188,15 +197,16 @@ ProviderRegistry.create = function(...args) {
       report.starts = starts; report.finishes = finishes; report.toolEvents = tools;
       report.providerTokens=runs.reduce((total,run)=>total+(run.tokenUsage?.totalTokens??0),0);
       if(scripted)assert.equal(report.providerTokens,0);
-      assert.equal(state.phase, fault ? 'blocked' : 'complete');
-      assert.equal(state.summary.includes(report.seed.tracking),!fault);
-      assert.equal(state.summary.includes(report.seed.destination),!fault);
+      assert.equal(state.phase, fault || expectMiss ? 'blocked' : 'complete');
+      assert.equal(state.summary.includes(report.seed.tracking),!fault && !expectMiss);
+      assert.equal(state.summary.includes(report.seed.destination),!fault && !expectMiss);
       if (automatic) {
         report.requests=(await readFile(join(root,'request-observations.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
         report.automaticBeforeFirstResponse=report.requests[0]?.automaticEvidence&&report.requests[0]?.tracking===report.seed.tracking&&report.requests[0]?.destination===report.seed.destination&&report.requests[0]?.toolMessages===0;
-        if (fault) {
+        if (fault || expectMiss) {
           assert.equal(report.requests[0]?.tracking,undefined);assert.equal(report.requests[0]?.destination,undefined);
-          report.invalidArchiveWithheld=true;
+          if(fault)report.invalidArchiveWithheld=true;
+          if(expectMiss)report.selectionMissReproduced=true;
         } else assert.equal(report.automaticBeforeFirstResponse,true);
       }
       assert.equal(starts.length, 2);
@@ -209,7 +219,7 @@ ProviderRegistry.create = function(...args) {
       assert.ok(calls.every(name => ['search_resident_tools', 'read_resident_tool', 'search_resident_history', 'read_resident_history'].includes(name)));
       assert.ok(liveTools.filter(event => event.type === 'tool_completed').every(event => !event.isError));
       if(boundedReads){report.readCharges=liveTools.filter(event=>event.type==='tool_completed').map(event=>({tool:event.toolName,chargedBytes:JSON.parse(event.result).chargedBytes}));assert.ok(report.readCharges.every(row=>Number.isSafeInteger(row.chargedBytes)&&row.chargedBytes<=2*1024*1024));}
-      assert.equal(tools.filter(event => event.type === 'tool_executing' && event.toolName === 'read').length, 1);
+      assert.equal(tools.filter(event => event.type === 'tool_executing' && event.toolName === 'read').length, distractors ? 21 : 1);
       assert.match(await readFile(join(cwd, 'manifest.txt'), 'utf8'), /^Manually replaced/);
       const idle = await command(['run', '--trust', '--max-steps', '1']);
       assert.equal(idle.agenda.pursuits[0].state.stepsAdmitted, 2);
