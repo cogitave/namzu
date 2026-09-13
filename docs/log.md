@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Preserve bounded literal [evidence retrieval](sdk/evidence-recall.md) after optional query planning fails, keeping diagnostics and source validation while sharing context limits; compare real compacted CLI recovery and terminal behavior.
+
 - **Update** Share returned-page validation across explicit and automatic [conversation evidence](cli/conversation-evidence.md), rejecting mismatched ownership, invalid bounds, incorrect address lookup and read results returned after cancellation; verify real CLI and TUI fault handling plus bounded live recovery.
 
 - **Update** Pack internal index pages into bounded [conversation-search responses](cli/conversation-evidence.md), preserving public continuations, per-run validation, cancellation, and shared read/output allowances.

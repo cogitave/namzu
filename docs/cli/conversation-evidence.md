@@ -74,6 +74,13 @@ It stays within the existing six-excerpt allowance, keeps summary provenance
 on quoted references and still retrieves original retained evidence. See
 [query preparation](../sdk/evidence-recall.md) for source exclusions and limits.
 
+If optional query planning fails, automatic recall can still search the current
+question's unchanged tokens within its existing limits. Temporary context keeps
+the planning failure visible beside any validated result; it does not import a
+subject from the invalid plan. Exact archive tools remain available for unresolved
+references. The [failed-plan comparison](../../research/conversation-evidence/query-fallback-results.md)
+tests named historical recovery after compaction and restart.
+
 `drain` binds these tools to the persisted Session, Project and tenant passed
 to the command. It does not create a new workspace Project or choose history
 from the current folder. Retrieval uses the CLI application's conversation

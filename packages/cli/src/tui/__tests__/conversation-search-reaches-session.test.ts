@@ -1903,103 +1903,123 @@ it.each([false, true])(
 	},
 )
 
-it('reports unavailable planning and still recovers exact evidence through real Session archive tools', async () => {
-	const cwd = await mkdtemp(join(tmpdir(), 'namzu-plan-failure-recovery-'))
-	roots.push(cwd)
-	const sessions = await openSessions(cwd)
-	const sessionId = await startConversation(sessions)
-	const code = `ORIGINAL-${randomUUID()}`
-	await archive(cwd, sessions, sessionId, `DELTA original identifier: ${code}`)
-	const reopened = await openSessions(cwd)
-	const privatePlan = 'INVALID_PRIVATE_PLAN_TEXT'
-	let plans = 0
-	const provider = new MockLLMProvider({
-		nextTurn: (request) => {
-			if (
-				String(request.messages[0]?.content).startsWith(
-					'Resolve a conversation-history search query.',
-				)
-			) {
-				plans++
-				return { text: privatePlan }
-			}
-			const tool = request.messages.filter((m) => m.role === 'tool').at(-1)
-			if (!tool)
-				return {
-					toolCalls: [
-						{ id: 'history-search', name: 'search_conversation', args: { query: 'DELTA' } },
-					],
+it.each([false, true])(
+	'recovers exact evidence after failed planning through real Session tools or literal recall (automatic: %s)',
+	async (automatic) => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-plan-failure-recovery-'))
+		roots.push(cwd)
+		const sessions = await openSessions(cwd)
+		const sessionId = await startConversation(sessions)
+		const code = `ORIGINAL-${randomUUID()}`
+		await archive(cwd, sessions, sessionId, `DELTA original identifier: ${code}`)
+		const reopened = await openSessions(cwd)
+		const privatePlan = 'INVALID_PRIVATE_PLAN_TEXT'
+		let plans = 0
+		const provider = new MockLLMProvider({
+			nextTurn: (request) => {
+				if (
+					String(request.messages[0]?.content).startsWith(
+						'Resolve a conversation-history search query.',
+					)
+				) {
+					plans++
+					return { text: privatePlan }
 				}
-			const text = String(tool.content)
-			const page = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1))
-			if (tool.toolCallId === 'history-search') {
-				const match = page.matches.find(
-					(m: { toolName?: string }) => m.toolName === 'archive_observation',
-				)
-				expect(match).toBeDefined()
-				return {
-					toolCalls: [
-						{
-							id: 'history-read',
-							name: 'read_conversation',
-							args: {
-								runId: match.runId,
-								seq: match.seq,
-								part: match.part,
-								byteOffset: match.byteOffset,
+				const tool = request.messages.filter((m) => m.role === 'tool').at(-1)
+				if (automatic) {
+					const context = request.messages
+						.filter(
+							(m) =>
+								m.role === 'user' &&
+								m.source?.type === 'runtime-context' &&
+								m.source.kind === 'step-context',
+						)
+						.map((m) => m.content)
+						.join('\n')
+					expect(context).toContain('"fallback":"literal_query"')
+					expect(context).toContain(code)
+					expect(tool).toBeUndefined()
+					return { text: code }
+				}
+				if (!tool)
+					return {
+						toolCalls: [
+							{ id: 'history-search', name: 'search_conversation', args: { query: 'DELTA' } },
+						],
+					}
+				const text = String(tool.content)
+				const page = JSON.parse(text.slice(text.indexOf('{'), text.lastIndexOf('}') + 1))
+				if (tool.toolCallId === 'history-search') {
+					const match = page.matches.find(
+						(m: { toolName?: string }) => m.toolName === 'archive_observation',
+					)
+					expect(match).toBeDefined()
+					return {
+						toolCalls: [
+							{
+								id: 'history-read',
+								name: 'read_conversation',
+								args: {
+									runId: match.runId,
+									seq: match.seq,
+									part: match.part,
+									byteOffset: match.byteOffset,
+								},
 							},
-						},
-					],
+						],
+					}
 				}
-			}
-			expect(page.text).toContain(code)
-			return { text: code }
-		},
-	})
-	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
-	const session = await createAgentSession(preferences, detected, {
-		cwd,
-		stateRoot: reopened.root,
-		conversationSessions: reopened,
-		scope: {
-			sessionId,
-			topicId: reopened.topicId,
-			projectId: reopened.projectId,
-			tenantId: reopened.tenantId,
-		},
-		sandbox: { enabled: false },
-		memory: { recall: false },
-		web: { search: 'off' },
-	})
-	opened.push(session)
-	const events: AgentEvent[] = []
-	for await (const event of session.send(
-		[
-			createUserMessage('Inspect the DELTA record.'),
-			createAssistantMessage('The record has an identifier.'),
-			createUserMessage('What was its earlier identifier?'),
-		],
-		{ permissionMode: 'auto' },
-	))
-		events.push(event)
-	expect(plans).toBe(1)
-	expect(provider.requests).toHaveLength(4)
-	for (const request of provider.requests.slice(1)) {
-		const context = request.messages
-			.filter(
-				(m) =>
-					m.role === 'user' &&
-					m.source?.type === 'runtime-context' &&
-					m.source.kind === 'step-context',
-			)
-			.map((m) => m.content)
-			.join('\n')
-		expect(context).toContain('"status":"unavailable"')
-		expect(context).toContain('"stage":"query_planning"')
-		expect(JSON.stringify(request)).not.toContain(privatePlan)
-	}
-	expect(events).toContainEqual(expect.objectContaining({ kind: 'done', text: code }))
-	expect(JSON.stringify(await loadConversation(reopened, sessionId))).not.toContain(
-		'Conversation evidence availability',
-	)
-})
+				expect(page.text).toContain(code)
+				return { text: code }
+			},
+		})
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			stateRoot: reopened.root,
+			conversationSessions: reopened,
+			scope: {
+				sessionId,
+				topicId: reopened.topicId,
+				projectId: reopened.projectId,
+				tenantId: reopened.tenantId,
+			},
+			sandbox: { enabled: false },
+			memory: { recall: false },
+			web: { search: 'off' },
+		})
+		opened.push(session)
+		const events: AgentEvent[] = []
+		for await (const event of session.send(
+			[
+				createUserMessage('Inspect the DELTA record.'),
+				createAssistantMessage('The record has an identifier.'),
+				createUserMessage(
+					automatic ? 'What was its earlier DELTA identifier?' : 'What was its earlier identifier?',
+				),
+			],
+			{ permissionMode: 'auto' },
+		))
+			events.push(event)
+		expect(plans).toBe(1)
+		expect(provider.requests).toHaveLength(automatic ? 2 : 4)
+		for (const request of provider.requests.slice(1)) {
+			const context = request.messages
+				.filter(
+					(m) =>
+						m.role === 'user' &&
+						m.source?.type === 'runtime-context' &&
+						m.source.kind === 'step-context',
+				)
+				.map((m) => m.content)
+				.join('\n')
+			expect(context).toContain('"status":"unavailable"')
+			expect(context).toContain('"stage":"query_planning"')
+			expect(JSON.stringify(request)).not.toContain(privatePlan)
+		}
+		expect(events).toContainEqual(expect.objectContaining({ kind: 'done', text: code }))
+		expect(JSON.stringify(await loadConversation(reopened, sessionId))).not.toContain(
+			'Conversation evidence availability',
+		)
+	},
+)

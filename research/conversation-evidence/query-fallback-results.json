@@ -1,0 +1,428 @@
+{
+  "date": "2026-09-13",
+  "base": "3c6ef944",
+  "purpose": "Retain bounded literal retrieval after optional query-plan failure.",
+  "deliberatePlanningFault": true,
+  "provider": "codex",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "limits": {
+    "mainIterations": 4,
+    "historyTokenAdmission": 30000,
+    "currentTokenAdmission": 25000,
+    "perProcessDeadlineMs": 120000
+  },
+  "liveTokens": 45791,
+  "regressions": {
+    "baseFirstEight": {
+      "failed": 6,
+      "passed": 2
+    },
+    "newSdkTests": 9,
+    "focusedSdkPassed": 117,
+    "cliSessionPassed": 37
+  },
+  "records": [
+    {
+      "root": "/tmp/namzu-natural-recall-YFgeHc",
+      "variant": "base",
+      "passed": true,
+      "compaction": {
+        "sessionId": "02555e18-0851-47bf-940a-fbe4935632d9",
+        "beforeMessages": 76,
+        "afterMessages": 9,
+        "shed": 67,
+        "initialReadDistance": 74,
+        "initialReadRemoved": true,
+        "originalToolArchived": true,
+        "visibleOriginalCount": 0,
+        "usage": {
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      "buildStable": true,
+      "buildBefore": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "7268c60031dc546860cfb9523e97c7d3387ddb0fb4cd29f100e7043a8b290855",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+        "packages/sdk/dist/run/evidence-query.js": "d6d8fa7ccb07d6af0e9171797169bd3b6dc60149f84675c34924b22d0889b1bb",
+        "packages/sdk/dist/run/evidence-recall.js": "182161baa0d1c9da29624ebb6cc487de15e510cb517568744f8dc1a6320e6d87",
+        "packages/sdk/dist/run/preparation-context-error.js": "0ef905aac27ad8f11539d7a381d588d61ec6351384269c353609c9d2f87995f0",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+        "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+        "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+        "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "7268c60031dc546860cfb9523e97c7d3387ddb0fb4cd29f100e7043a8b290855",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+        "packages/sdk/dist/run/evidence-query.js": "d6d8fa7ccb07d6af0e9171797169bd3b6dc60149f84675c34924b22d0889b1bb",
+        "packages/sdk/dist/run/evidence-recall.js": "182161baa0d1c9da29624ebb6cc487de15e510cb517568744f8dc1a6320e6d87",
+        "packages/sdk/dist/run/preparation-context-error.js": "0ef905aac27ad8f11539d7a381d588d61ec6351384269c353609c9d2f87995f0",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+        "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+        "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+        "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+      },
+      "initialEvidenceUnchanged": true,
+      "prerequisites": {
+        "capturedBoth": true,
+        "initialStopReason": "end_turn",
+        "initialCompleted": true,
+        "visibleOriginalCount": 0,
+        "initialSourceUnchanged": true,
+        "successfulInitialRead": true,
+        "progressUpdates": 0
+      },
+      "observations": {
+        "correctOriginal": true,
+        "usedReplacement": false,
+        "allOriginalAbsentFromVisible": true,
+        "archiveSearches": 1,
+        "exactArchiveReads": 0,
+        "workspaceObservations": 0,
+        "failedTools": 0,
+        "replacementUnchanged": true
+      },
+      "turns": [
+        {
+          "phase": 1,
+          "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+          "scripted": true,
+          "tokenBudget": 25000,
+          "calls": [
+            {
+              "name": "read",
+              "input": {
+                "path": "sevkiyatlar.txt"
+              }
+            }
+          ],
+          "stopReason": "end_turn",
+          "totalTokens": 0
+        },
+        {
+          "phase": 2,
+          "prompt": "En başta incelediğin DELTA kaydının iki kimliğini aynen yazar mısın?",
+          "scripted": false,
+          "tokenBudget": 30000,
+          "calls": [
+            {
+              "name": "search_conversation",
+              "input": {
+                "query": "DELTA",
+                "limit": 10
+              }
+            }
+          ],
+          "stopReason": "end_turn",
+          "totalTokens": 18084
+        }
+      ],
+      "requests": [
+        {
+          "phase": "2",
+          "preparation": true,
+          "availability": false,
+          "contextChars": 0,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 556,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 556,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            true,
+            true
+          ]
+        }
+      ]
+    },
+    {
+      "root": "/tmp/namzu-natural-recall-sUPusQ",
+      "variant": "candidate",
+      "passed": true,
+      "compaction": {
+        "sessionId": "bcbece68-e887-4dab-aef3-07070f4b0a58",
+        "beforeMessages": 76,
+        "afterMessages": 9,
+        "shed": 67,
+        "initialReadDistance": 74,
+        "initialReadRemoved": true,
+        "originalToolArchived": true,
+        "visibleOriginalCount": 0,
+        "usage": {
+          "promptTokens": 0,
+          "completionTokens": 0,
+          "totalTokens": 0,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      "buildStable": true,
+      "buildBefore": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "7268c60031dc546860cfb9523e97c7d3387ddb0fb4cd29f100e7043a8b290855",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "b4daa869c282f2eb5ce32964d7a315693231aef714c69e615a591b580f307730",
+        "packages/sdk/dist/run/evidence-query.js": "d6d8fa7ccb07d6af0e9171797169bd3b6dc60149f84675c34924b22d0889b1bb",
+        "packages/sdk/dist/run/evidence-recall.js": "db4f1f4f246a0d3967ed1713957bb711fb31718026ff91cae8a43d803e883b2d",
+        "packages/sdk/dist/run/preparation-context-error.js": "001d727ff8e0ac58bcfacea5ee0f6af41d4acc7c02e9b5af02da9c5d16f72074",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+        "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+        "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+        "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/compaction/manual.js": "d4df51a135f4a6bb4a4459d293b4065d4e3dc46d8ee07759f4b7bc8cf6722f04",
+        "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f",
+        "packages/sdk/dist/runtime/query/tool-output-budget.js": "7268c60031dc546860cfb9523e97c7d3387ddb0fb4cd29f100e7043a8b290855",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "b4daa869c282f2eb5ce32964d7a315693231aef714c69e615a591b580f307730",
+        "packages/sdk/dist/run/evidence-query.js": "d6d8fa7ccb07d6af0e9171797169bd3b6dc60149f84675c34924b22d0889b1bb",
+        "packages/sdk/dist/run/evidence-recall.js": "db4f1f4f246a0d3967ed1713957bb711fb31718026ff91cae8a43d803e883b2d",
+        "packages/sdk/dist/run/preparation-context-error.js": "001d727ff8e0ac58bcfacea5ee0f6af41d4acc7c02e9b5af02da9c5d16f72074",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+        "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+        "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "be6d854f7b714b8031b50e8c1ded6d21822e69ff74372791bc0aceeeb06e9e16",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "f6fa4aa711bc9de3b9dd7b639327f36fbb504c21842815158a406d9f8acee277",
+        "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+      },
+      "initialEvidenceUnchanged": true,
+      "prerequisites": {
+        "capturedBoth": true,
+        "initialStopReason": "end_turn",
+        "initialCompleted": true,
+        "visibleOriginalCount": 0,
+        "initialSourceUnchanged": true,
+        "successfulInitialRead": true,
+        "progressUpdates": 0
+      },
+      "observations": {
+        "correctOriginal": true,
+        "usedReplacement": false,
+        "allOriginalAbsentFromVisible": true,
+        "archiveSearches": 0,
+        "exactArchiveReads": 0,
+        "workspaceObservations": 0,
+        "failedTools": 0,
+        "replacementUnchanged": true
+      },
+      "currentCheck": {
+        "correctReplacement": true,
+        "usedOriginal": false,
+        "workspaceObservations": 1,
+        "sourceUnchanged": true,
+        "failedTools": 0,
+        "passed": true
+      },
+      "turns": [
+        {
+          "phase": 1,
+          "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+          "scripted": true,
+          "tokenBudget": 25000,
+          "calls": [
+            {
+              "name": "read",
+              "input": {
+                "path": "sevkiyatlar.txt"
+              }
+            }
+          ],
+          "stopReason": "end_turn",
+          "totalTokens": 0
+        },
+        {
+          "phase": 2,
+          "prompt": "En başta incelediğin DELTA kaydının iki kimliğini aynen yazar mısın?",
+          "scripted": false,
+          "tokenBudget": 30000,
+          "calls": [],
+          "stopReason": "end_turn",
+          "totalTokens": 9515
+        },
+        {
+          "phase": 3,
+          "prompt": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+          "scripted": false,
+          "tokenBudget": 25000,
+          "calls": [
+            {
+              "name": "read",
+              "input": {
+                "path": "sevkiyatlar.txt"
+              }
+            }
+          ],
+          "stopReason": "end_turn",
+          "totalTokens": 18192
+        }
+      ],
+      "requests": [
+        {
+          "phase": "2",
+          "preparation": true,
+          "availability": false,
+          "contextChars": 0,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        },
+        {
+          "phase": "2",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 4448,
+          "contextOriginals": [
+            true,
+            true
+          ],
+          "ordinaryOriginals": [
+            false,
+            false
+          ]
+        },
+        {
+          "phase": "3",
+          "preparation": true,
+          "availability": false,
+          "contextChars": 0,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            true,
+            true
+          ]
+        },
+        {
+          "phase": "3",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 2327,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            true,
+            true
+          ]
+        },
+        {
+          "phase": "3",
+          "preparation": false,
+          "availability": true,
+          "contextChars": 2786,
+          "contextOriginals": [
+            false,
+            false
+          ],
+          "ordinaryOriginals": [
+            true,
+            true
+          ]
+        }
+      ]
+    }
+  ],
+  "tui": {
+    "root": "/tmp/namzu-natural-recall-YFgeHc",
+    "controlled": true,
+    "liveTokens": 0,
+    "passed": true,
+    "cols": 100,
+    "rows": 28,
+    "trace": [
+      {
+        "planner": true,
+        "messages": 2
+      },
+      {
+        "planner": false,
+        "messages": 13
+      }
+    ],
+    "eachOriginalRenderedOnce": true,
+    "idle": true,
+    "originalArtifactsUnchanged": true,
+    "currentReplacementsPresent": true,
+    "exitCode": 0,
+    "runId": "f6249d7e-d832-4dbd-a7f5-a3d9fc1c91ca",
+    "toolCalls": 0,
+    "stopReason": "end_turn",
+    "screenSha256": "4a61e85f43f1b7ad9cf4e2d3759f5118e46a0105cda9e0899e056bd9c12cd62a"
+  },
+  "checks": {
+    "typecheck": "passed",
+    "build": "passed",
+    "lint": "passed with warnings",
+    "sdkPassed": 6705,
+    "cliPassed": 3018,
+    "cliSkipped": 5,
+    "workspaceTests": "passed",
+    "docs": "passed",
+    "fences": "passed",
+    "testPresence": "passed",
+    "signatureExports": "passed",
+    "published": false
+  }
+}

@@ -9,6 +9,7 @@ import { createEvidenceRecallStep } from '../../../run/evidence-recall.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import {
 	generateProjectId,
+	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
@@ -63,6 +64,21 @@ it.each(['query_planning', 'retrieval'] as const)(
 					resolveQuery: stage === 'query_planning',
 					retrieve: async () => {
 						retrievals++
+						if (stage === 'query_planning')
+							return {
+								candidates: [
+									{
+										scope: { ...scope, runId: generateRunId() },
+										seq: 2,
+										part: 0,
+										source: 'tool_completed',
+										retained: 'full',
+										excerpt: 'DELTA earlier identifier: VERIFIED-789',
+									},
+								],
+								scannedBytes: 100,
+								incomplete: false,
+							}
 						throw new Error(privateDetail)
 					},
 				}),
@@ -81,7 +97,10 @@ it.each(['query_planning', 'retrieval'] as const)(
 		expect(context).toContain('Earlier stage context.')
 		expect(context).toContain('"status":"unavailable"')
 		expect(context).toContain(`"stage":"${stage}"`)
-		expect(context).toContain('does not establish that earlier records are absent')
+		if (stage === 'query_planning') {
+			expect(context).toContain('"fallback":"literal_query"')
+			expect(context).toContain('VERIFIED-789')
+		} else expect(context).toContain('does not establish that earlier records are absent')
 		expect(JSON.stringify(request)).not.toContain(privateDetail)
 		expect(request.messages).toContainEqual(expect.objectContaining({ content: operator.content }))
 		expect(
@@ -91,6 +110,6 @@ it.each(['query_planning', 'retrieval'] as const)(
 				.join('\n'),
 		).not.toContain('"status":"unavailable"')
 		expect(JSON.stringify(result.messages)).not.toContain('"status":"unavailable"')
-		expect(retrievals).toBe(stage === 'query_planning' ? 0 : 1)
+		expect(retrievals).toBe(1)
 	},
 )

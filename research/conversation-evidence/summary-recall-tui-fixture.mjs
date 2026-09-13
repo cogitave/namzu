@@ -7,6 +7,7 @@ import * as sdk from '../../packages/sdk/dist/index.js';
 import { openSessions, loadConversation, replaceConversation } from '../../packages/cli/dist/integrations/sessions/store.js';
 
 const root = process.env.NAMZU_SUMMARY_TUI_ROOT;
+const failPlan = process.env.NAMZU_SUMMARY_TUI_FAIL_PLAN === '1';
 assert.ok(root);
 assert.equal(process.env.NAMZU_HOME, join(root, 'home'));
 const result = JSON.parse(await readFile(join(root, 'result.json'), 'utf8'));
@@ -29,6 +30,7 @@ if (process.argv[2] === '--prepare') {
     const planner = String(request.messages[0]?.content).startsWith('Resolve a conversation-history search query.');
     if (planner) {
       const input = JSON.parse(String(request.messages[1].content));
+      if (failPlan) return { text: 'INVALID_QUERY_PLAN_CONTROL' };
       const row = input.history.find(m => m.source === 'compaction-summary');
       assert.ok(row && row.text.includes('DELTA'));
       assert.ok(originals.every(value => !JSON.stringify(input).includes(value)));
@@ -38,7 +40,8 @@ if (process.argv[2] === '--prepare') {
     const contexts = request.messages.filter(m => m.source?.type === 'runtime-context' && m.source.kind === 'step-context');
     assert.ok(originals.every(value => JSON.stringify(contexts).includes(value)));
     assert.ok(originals.every(value => !JSON.stringify(request.messages.filter(m => !contexts.includes(m))).includes(value)));
-    assert.ok(JSON.stringify(contexts).includes('compaction-summary'));
+    assert.ok(contexts.map(m => m.content).join('\n').includes(failPlan ? '"fallback":"literal_query"' : 'compaction-summary'));
+    assert.ok(!JSON.stringify(request.messages).includes('INVALID_QUERY_PLAN_CONTROL'));
     return { text: `Arşivdeki ilk kayıt: ${originals.join(' · ')}` };
   } }) });
   // Assertions live in the provider; trace the final main request without source text.

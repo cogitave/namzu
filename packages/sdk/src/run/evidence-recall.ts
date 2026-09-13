@@ -91,13 +91,16 @@ const pending = new WeakMap<EvidenceRecallOptions['retrieve'], Promise<EvidenceR
 function availabilityNote(
 	stage: 'query_planning' | 'retrieval',
 	reason: 'failed' | 'timeout' | 'pending',
+	literalFallback = false,
 ): string {
 	return `Conversation evidence availability (not retrieved evidence):\n${JSON.stringify({
 		status: 'unavailable',
 		stage,
 		reason,
-		guidance:
-			'This automatic pass supplied no evidence. This does not establish that earlier records are absent. When a past detail is needed, use available read-only conversation-history tools or disclose uncertainty if it remains unverified. Current files do not establish what was observed earlier. Never replay a state-changing action to recover its output.',
+		...(literalFallback ? { fallback: 'literal_query' } : {}),
+		guidance: literalFallback
+			? 'Query planning failed. Bounded retrieval used only words from the current query; no historical referent or temporal intent was resolved. Assess any returned records against the operator question. Missing matches do not establish absence. Use available read-only conversation-history tools for unresolved references. Current files do not establish what was observed earlier; never replay actions for old output.'
+			: 'This automatic pass supplied no evidence. This does not establish that earlier records are absent. When a past detail is needed, use available read-only conversation-history tools or disclose uncertainty if it remains unverified. Current files do not establish what was observed earlier. Never replay a state-changing action to recover its output.',
 	})}\n`
 }
 
@@ -391,11 +394,17 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				: undefined
 		}
 		let resolution: Awaited<ReturnType<typeof resolveQuery>>
+		let planningFailure: { cause: unknown; note: string } | undefined
 		try {
 			resolution = options.resolveQuery ? await resolveQuery(context, query) : undefined
 		} catch (error) {
 			signal?.throwIfAborted()
-			throw unavailable(error, 'query_planning', 'failed', charBudget)
+			const note = availabilityNote('query_planning', 'failed', true)
+			if (charBudget <= note.length + 2 + HEADER.length + 200)
+				throw unavailable(error, 'query_planning', 'failed', charBudget)
+			// A rejected optional interpretation does not invalidate the original
+			// query. Keep its literal tokens and spend the existing retrieval budget.
+			planningFailure = { cause: error, note }
 		}
 		signal?.throwIfAborted()
 		if (resolution === null) return undefined
@@ -414,6 +423,8 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 		if (resolution) terms = [...resolution.terms]
 		const focusTerms = resolution?.focusTerms
 		const focusKeys = focusTerms?.map((term) => evidenceTokenKey(term))
+		const retrievalBudget = charBudget - (planningFailure ? planningFailure.note.length + 2 : 0)
+		let evidenceContext: string | undefined
 		const controller = new AbortController()
 		const abort = () => controller.abort(signal?.reason)
 		signal?.addEventListener('abort', abort, { once: true })
@@ -680,7 +691,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				const line = passageLine(group, 0)
 				const remaining = omitted.filter((entry) => entry !== group)
 				const next = metadata(0, remaining)
-				if (used + line.length + next.length - header.length > charBudget) continue
+				if (used + line.length + next.length - header.length > retrievalBudget) continue
 				selected.push({ group, line })
 				used += line.length + next.length - header.length
 				header = next
@@ -690,7 +701,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			let includedContinuations = 0
 			for (let included = 1; included <= continuations.length; included++) {
 				const next = metadata(included, omitted)
-				if (used + next.length - header.length > charBudget) break
+				if (used + next.length - header.length > retrievalBudget) break
 				used += next.length - header.length
 				header = next
 				includedContinuations = included
@@ -700,7 +711,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			let includedAddresses = 0
 			for (let included = 1; included <= omitted.length; included++) {
 				const next = metadata(includedContinuations, omitted, included)
-				if (used + next.length - header.length > charBudget) break
+				if (used + next.length - header.length > retrievalBudget) break
 				used += next.length - header.length
 				includedAddresses = included
 				header = next
@@ -711,7 +722,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			const visibleLimit = Math.min(visibleEvidence.length, maxPassages - selected.length)
 			for (let included = 1; included <= visibleLimit; included++) {
 				const next = metadata(includedContinuations, omitted, includedAddresses, included)
-				if (used + next.length - header.length > charBudget) break
+				if (used + next.length - header.length > retrievalBudget) break
 				used += next.length - header.length
 				header = next
 			}
@@ -722,22 +733,24 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				for (let included = 1; included <= entry.group.others.length; included++) {
 					const line = passageLine(entry.group, included)
 					const delta = line.length - entry.line.length
-					if (used + delta > charBudget) break
+					if (used + delta > retrievalBudget) break
 					entry.line = line
 					used += delta
 				}
 			}
 			const block = header + selected.map(({ line }) => line).join('')
-			return (selected.length ||
-				focusTerms?.length ||
-				omitted.length ||
-				visibleEvidence.length ||
-				batch.incomplete ||
-				batch.excludedToolResults ||
-				batch.excludedSummaries) &&
-				block.length <= charBudget
-				? { context: [prepared.context, block].filter(Boolean).join('\n\n') }
-				: undefined
+			evidenceContext =
+				(planningFailure ||
+					selected.length ||
+					focusTerms?.length ||
+					omitted.length ||
+					visibleEvidence.length ||
+					batch.incomplete ||
+					batch.excludedToolResults ||
+					batch.excludedSummaries) &&
+				block.length <= retrievalBudget
+					? block
+					: undefined
 		} catch (error) {
 			signal?.throwIfAborted()
 			throw unavailable(
@@ -752,5 +765,15 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			if (rejectAbort) controller.signal.removeEventListener('abort', rejectAbort)
 			controller.abort(new Error('Evidence recall pass ended.'))
 		}
+		if (planningFailure)
+			// Preserve the failed-stage diagnostic and expose only fixed status plus
+			// fully validated fallback context through the existing runtime bridge.
+			throw new PreparationContextError(
+				planningFailure.cause,
+				[planningFailure.note, evidenceContext].filter(Boolean).join('\n\n'),
+			)
+		return evidenceContext
+			? { context: [prepared.context, evidenceContext].filter(Boolean).join('\n\n') }
+			: undefined
 	}
 }

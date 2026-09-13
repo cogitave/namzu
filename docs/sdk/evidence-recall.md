@@ -142,7 +142,7 @@ spellings, so the planner cannot inflect or translate a selected word. They are
 local to that input and grant no archive authority. Each selected word must still
 occur in the current question or a cited quote, and every quote must occur
 verbatim in the supplied history. Unavailable IDs and ungrounded quotes fail
-the optional stage; no invalid selection is silently discarded. This selects
+the optional interpretation; no invalid selection is silently discarded. This selects
 search units only, never rewrites source text or a model's final answer.
 
 The resulting `queryResolution` metadata records resolved word strings,
@@ -229,14 +229,16 @@ retrieval behavior remains.
 See the [focused-query experiment](../../research/conversation-evidence/query-focus-results.md)
 for the common-field failure, archived-history controls and live sample limits.
 
-A `none` plan skips optional recall without a note. Malformed or
-ungrounded plans reject the optional stage through its existing fail-open
-diagnostic. The kernel also carries a bounded availability note in temporary
-step context: `status: "unavailable"`, `stage: "query_planning"`, `reason: "failed"`.
-It says that this pass supplied no evidence, not that the archive lacks the
-requested detail. No plan text, exception body or source data enters the note.
-The main task and explicit archive tools remain available. The
-previous operator query is never used just because literal retrieval was empty.
+A `none` plan skips optional recall without a note. Malformed or ungrounded
+plans remain failed-stage diagnostics. With enough context room, retrieval still
+runs once using the unchanged current-query tokens and the same byte, candidate
+and deadline limits. No terms or references from the rejected plan are used.
+Temporary context identifies `status: "unavailable"`, `stage: "query_planning"`,
+`reason: "failed"` and `fallback: "literal_query"` alongside any fully validated
+retrieved records. The note does not claim a referent or temporal intent was
+resolved. No plan text, exception body or source data enters the note itself.
+The main task and explicit archive tools remain available. The previous operator
+query is never used just because literal retrieval was empty.
 
 One plan promise is cached for the same run and operator-message identity, also
 keyed by question text. New runs or steering input invalidate it. A failed plan
@@ -498,7 +500,14 @@ Availability notes share the configured context allowance. The kernel also
 checks remaining request room before appending a failure note; no room means no
 note. Prior stage decisions survive and ordinary thrown callback errors are
 still diagnostic-only. Direct callers of the recall callback still receive
-rejections for failed planning/reads; the query loop projects the safe status.
+rejections for failed planning/reads; the query loop projects the safe status
+and any fully validated literal fallback context. The note reserves space inside
+the same character allowance before selecting passages. If status plus bounded
+evidence framing cannot fit, planning failure skips retrieval as before. An empty
+fallback scan still reports its traversal metadata; it is distinct from planning
+availability and does not resolve a missing referent. A failed fallback read
+reports retrieval unavailability and contributes no candidate text. Parent
+cancellation never starts fallback work.
 Successful later passes replace the status through normal per-step preparation.
 The [failure experiment](../../research/conversation-evidence/availability-results.md)
 records actual CLI and terminal checks, including a live model that ignored this

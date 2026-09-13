@@ -2019,8 +2019,8 @@ export class IterationOrchestrator {
 					'namzu.runtime.step_number': stepNumber,
 					'exception.message': toErrorMessage(err),
 				})
-				// An SDK stage may report capability availability without exposing its
-				// error or partial data. Preserve prior decisions and the context budget;
+				// An SDK stage may report availability and validated fallback evidence
+				// without exposing its error. Preserve prior decisions and the context budget;
 				// ordinary exceptions still contribute nothing to the model request.
 				if (err instanceof PreparationContextError && !this.ctx.abortController.signal.aborted) {
 					const room = this.stepContext(stepNumber, result).contextBudget?.remainingTokens ?? 0
