@@ -2016,7 +2016,7 @@ export async function createAgentSession(
 	>()
 	const evidenceRecallFor = (sessionId: SessionId) => {
 		const sessions = options.conversationSessions
-		if (!sessions || options.compaction?.recallEvidence !== true) return []
+		if (!sessions || options.compaction?.recallEvidence === false) return []
 		let step = evidenceRecallSteps.get(sessionId)
 		if (!step) {
 			step = createConversationEvidenceRecall(

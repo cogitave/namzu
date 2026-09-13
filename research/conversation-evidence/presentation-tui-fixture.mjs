@@ -33,7 +33,8 @@ if (seeding) {
 	);
 	await writeFile(
 		join(root, "home", "config.yaml"),
-		"web:\n  search: off\nmemory:\n  recall: false\nsandbox:\n  enabled: false\n",
+		// Isolate explicit archive presentation from automatic query planning.
+		"web:\n  search: off\nmemory:\n  recall: false\nsandbox:\n  enabled: false\ncompaction:\n  recallEvidence: false\n",
 	);
 	const { openSessions, startConversation, replaceConversation } = await import(
 		"../../packages/cli/dist/integrations/sessions/store.js"

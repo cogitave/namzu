@@ -139,7 +139,7 @@ This improves candidate discovery behind frequent words without claiming global
 ranking or semantic coverage. Queries with all or none of their tokens covered
 in returned excerpts are not refined.
 
-With the existing opt-in `compaction.recallEvidence` enabled, automatic discovery
+With automatic `compaction.recallEvidence` enabled (the recorded CLI default), discovery
 skips successful outputs from `search_conversation` and `read_conversation`
 before filling the candidate allowance. It still searches original observations,
 failed retrievals and records with unknown tool name or success status. Paired

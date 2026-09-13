@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Enable bounded [historical evidence recall](cli/context-and-compaction.md) by default in recorded CLI conversations, preserve explicit opt-out and SDK host control, and measure natural follow-ups against replaced workspace files.
+
 - **Update** Preserve source, preview and page status in [conversation evidence](cli/conversation-evidence.md) terminal summaries, retain full JSON in the output viewer, and verify the actual resumed TUI with scoped archive tools.
 
 - **Update** Fill [conversation search](cli/conversation-evidence.md) pages across completely searched matching runs, reserving escaped output space before each SDK call and preserving partial-scan continuations.

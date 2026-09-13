@@ -196,6 +196,8 @@ it.each([false, true])(
 			sandbox: { enabled: false },
 			memory: { recall: false },
 			web: { search: 'off' },
+			// Isolate explicit archive recovery from automatic query planning.
+			compaction: { recallEvidence: false },
 		})
 		opened.push(session)
 		for await (const _event of session.send(messages, { permissionMode: 'auto' })) {
@@ -495,8 +497,8 @@ it.each([false, true])(
 	},
 )
 
-it.each([false, true])(
-	'recalls scoped evidence into real Session requests only when opted in (%s)',
+it.each([undefined, false, true])(
+	'recalls scoped evidence by default and honors recallEvidence=%s',
 	async (recallEvidence) => {
 		const cwd = await mkdtemp(join(tmpdir(), 'namzu-automatic-evidence-'))
 		roots.push(cwd)
@@ -525,7 +527,7 @@ it.each([false, true])(
 			conversationSessions: sessions,
 			sandbox: { enabled: false },
 			memory: { recall: false },
-			compaction: { recallEvidence },
+			...(recallEvidence === undefined ? {} : { compaction: { recallEvidence } }),
 		})
 		opened.push(session)
 		for await (const _event of session.send(
@@ -545,7 +547,7 @@ it.each([false, true])(
 				)
 				.map((message) => message.content)
 				.join('\n') ?? ''
-		if (recallEvidence) {
+		if (recallEvidence !== false) {
 			expect(recalled).toContain('ORIGINAL-471')
 			expect(recalled).toContain('historical records')
 			expect(recalled).toContain('"recordKind":"tool_result"')
@@ -1054,7 +1056,12 @@ process.stdout.write(fs.readFileSync('manifest.txt','utf8'));`,
 			conversationSessions: reopened,
 			sandbox: { enabled: false },
 			toolLoading: 'deferred',
-			compaction: { strategy: 'structured', contextWindowTokens: 32_000 },
+			// Exercise explicit search/read tools after real compaction, without automatic recall.
+			compaction: {
+				strategy: 'structured',
+				contextWindowTokens: 32_000,
+				recallEvidence: false,
+			},
 			onRunEvent(event) {
 				if (event.type === 'compaction_completed') compactions++
 			},
@@ -1612,13 +1619,14 @@ it('keeps changing inventory after history on both native provider wires', async
 	}
 })
 
-it.each(
-	[undefined, false].flatMap((resolveEvidenceQueries) =>
-		[0, 8].map((updates) => ({ resolveEvidenceQueries, updates })),
+it.each([
+	...[undefined, false].flatMap((resolveEvidenceQueries) =>
+		[0, 8].map((updates) => ({ resolveEvidenceQueries, updates, recallEvidence: undefined })),
 	),
-)(
-	'resolves a conversational reference with resolveEvidenceQueries=$resolveEvidenceQueries after $updates updates',
-	async ({ resolveEvidenceQueries, updates }) => {
+	{ resolveEvidenceQueries: undefined, updates: 0, recallEvidence: false },
+])(
+	'resolves a conversational reference with resolveEvidenceQueries=$resolveEvidenceQueries, recallEvidence=$recallEvidence after $updates updates',
+	async ({ resolveEvidenceQueries, updates, recallEvidence }) => {
 		const cwd = await mkdtemp(join(tmpdir(), 'namzu-resolved-query-'))
 		roots.push(cwd)
 		const sessions = await openSessions(cwd)
@@ -1662,10 +1670,9 @@ it.each(
 			conversationSessions: sessions,
 			sandbox: { enabled: false },
 			memory: { recall: false },
-			compaction: {
-				recallEvidence: true,
-				...(resolveEvidenceQueries === undefined ? {} : { resolveEvidenceQueries }),
-			},
+			...(resolveEvidenceQueries === undefined && recallEvidence === undefined
+				? {}
+				: { compaction: { resolveEvidenceQueries, recallEvidence } }),
 		})
 		opened.push(session)
 		const question = 'What was its exact identifier?'
@@ -1681,7 +1688,8 @@ it.each(
 		})) {
 			/* production preparation and retrieval */
 		}
-		expect(provider.requests).toHaveLength(resolveEvidenceQueries === false ? 1 : 2)
+		const resolves = resolveEvidenceQueries !== false && recallEvidence !== false
+		expect(provider.requests).toHaveLength(resolves ? 2 : 1)
 		const request = provider.requests.at(-1)!
 		const context = request.messages
 			.filter(
@@ -1692,7 +1700,7 @@ it.each(
 			)
 			.map((m) => m.content)
 			.join('\n')
-		if (resolveEvidenceQueries === false) expect(context).not.toContain('ORIGINAL-471')
+		if (!resolves) expect(context).not.toContain('ORIGINAL-471')
 		else {
 			expect(context).toContain('ORIGINAL-471')
 			expect(context).toContain('queryResolution')

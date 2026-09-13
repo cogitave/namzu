@@ -71,7 +71,7 @@ export interface RunLimitsConfig {
 
 /** See `NamzuCliConfig.compaction`. */
 export interface CompactionCliConfig {
-	/** Opt-in bounded historical evidence recall into request context. Default false. */
+	/** Bounded historical evidence recall in recorded conversations. Default true; false disables it. */
 	readonly recallEvidence?: boolean
 	/** Resolve follow-up search references with a metered model call when recall is enabled. Default true. */
 	readonly resolveEvidenceQueries?: boolean

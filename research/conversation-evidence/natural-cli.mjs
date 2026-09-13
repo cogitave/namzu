@@ -10,6 +10,9 @@ const exec = promisify(execFile);
 const live = process.argv.includes('--live');
 const checkCurrent = process.argv.includes('--check-current');
 const recallEvidence = process.argv.includes('--recall-evidence');
+const disableRecall = process.argv.includes('--disable-recall');
+if (recallEvidence && disableRecall) throw new Error('Choose either --recall-evidence or --disable-recall.');
+const recallConfiguration = disableRecall ? 'disabled' : recallEvidence ? 'enabled' : 'default';
 const referential = process.argv.includes('--referential');
 const scriptedObservation = process.argv.includes('--scripted-observation');
 const queryAblation = process.argv.includes('--query-ablation');
@@ -32,7 +35,7 @@ const originalText = Array.from({ length: 400 }, (_, i) => i === 210
 const replacementText = `Güncel revizyon; önceki dökümün yerini aldı.\nDELTA siparişi. Takip kodu: ${replacement.tracking}. Hedef deposu: ${replacement.depot}.\n`;
 await writeFile(file, originalText);
 await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'codex', model: 'gpt-5.6-luna' }], subagents: { active: [] } }));
-await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + (recallEvidence ? 'compaction:\n  recallEvidence: true\n  resolveEvidenceQueries: '+resolveEvidenceQueries+'\n' : ''));
+await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + (disableRecall ? 'compaction:\n  recallEvidence: false\n' : recallEvidence ? 'compaction:\n  recallEvidence: true\n  resolveEvidenceQueries: '+resolveEvidenceQueries+'\n' : ''));
 const sdkURL = new URL('../../packages/sdk/dist/index.js', import.meta.url);
 const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
 const preload = join(root, 'scripted-provider.mjs');
@@ -59,6 +62,17 @@ created.provider.chatStream=async function*(params){
 await writeFile(preload, `import {ProviderRegistry,MockLLMProvider} from ${JSON.stringify(sdkURL.href)};
 const parse=c=>{const s=String(c);return JSON.parse(s.slice(s.indexOf('{'),s.lastIndexOf('}')+1));};
 ProviderRegistry.create=()=>{let step=0;return {provider:{id:'scripted',name:'scripted',async *chatStream(params){
+ if(params.messages.length===2&&String(params.messages[0]?.content).startsWith('Resolve a conversation-history search query.')){
+  const input=JSON.parse(params.messages[1].content);
+  const subject=input.tokens.find(([,word])=>word==='DELTA');
+  const basis=input.history.find(entry=>entry.text.includes('DELTA'));
+  const current=process.env.NAMZU_NATURAL_PHASE==='3';
+  const contextual=!current&&${referential}&&Boolean(basis&&subject);
+  const plan=current?{mode:'direct',time:'present',termIds:[],focusIds:[],basis:[]}:
+   {mode:contextual?'contextual':'direct',time:'past',termIds:subject?[subject[0]]:[],focusIds:subject?[subject[0]]:[],basis:contextual?[{message:basis.message,quote:basis.text.slice(0,200)}]:[]};
+  yield* new MockLLMProvider({turns:[{text:JSON.stringify(plan)}]}).chatStream(params);
+  return;
+ }
  const phase=process.env.NAMZU_NATURAL_PHASE; const last=params.messages.filter(m=>m.role==='tool').at(-1); let turn;
 if(phase==='1') {
  const index=step++;
@@ -77,7 +91,7 @@ if(phase==='1') {
 
 const builtFiles=['packages/sdk/dist/runtime/query/callback-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
 const fingerprints=async()=>Object.fromEntries(await Promise.all(builtFiles.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
-const report = { root, live, checkCurrent, recallEvidence, referential, scriptedObservation, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
+const report = { root, live, checkCurrent, recallConfiguration, referential, scriptedObservation, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
 const allEvents = async () => {
   const events = [];
   for (const session of await readdir(join(home, 'sessions'), { withFileTypes: true })) {

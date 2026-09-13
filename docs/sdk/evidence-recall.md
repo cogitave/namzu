@@ -493,12 +493,15 @@ experiment](../../research/conversation-evidence/copy-intent-results.md) records
 natural-language failures and controls against falsely rejecting legitimate
 transformations; these are bounded trials, not a general fidelity guarantee.
 
-The [CLI option](../cli/context-and-compaction.md) uses this live capability for
+The [CLI option](../cli/context-and-compaction.md), enabled by default in recorded
+conversations, uses this live capability for
 up to two pages before visiting earlier invocations. It can recover original
 retained text after compaction within the same running invocation. The combined
 pass still has four pages and an 8 MiB accounted-read ceiling. Explicit tools
 remain available for later pages, longer excerpts and exact sequential reads;
 automatic recall does not claim an exhaustive search of long-running history.
+The SDK does not install this step automatically: other hosts still choose
+whether to attach it and whether to enable model-assisted query resolution.
 Within one automatic candidate page, the CLI can cross completely searched
 matching runs as well as empty runs, while respecting the shared byte and output
 limits. Partially traversed SDK pages keep their continuation boundary. This

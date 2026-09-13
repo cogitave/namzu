@@ -63,7 +63,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `contextWindowTokens` | The window the kernel measures fullness against, when the model's table entry is wrong or a project wants compaction earlier. Absent, the kernel resolves it from the model. |
 | `deduplicateObservations` | Enabled by default. Repeated identical read-only text observations share one full result in each model request. Set `false` to preserve the previous representation. Tool execution and canonical history are unchanged; see the [SDK policy and limits](../sdk/salience-working-set.md#exact-repeated-observations-in-the-active-request). |
 | `retainedToolPreviewChars` | Nonnegative safe integer; default 4,000 in recorded conversations. Limits the preview of overflow text only after full text and its integrity manifest are saved. Set `0` to keep the previous 40,000-character preview budget. The spill threshold, smaller results and independently supplied model text are unchanged. |
-| `recallEvidence` | Optional boolean, default `false`. Retrieve bounded historical passages from this recorded conversation before each model request; see the limits below. Independent of project-memory recall. |
+| `recallEvidence` | Optional boolean, default `true` in recorded conversations. Retrieve bounded historical passages from this conversation before each model request; see the limits below. Set `false` to disable automatic archive recall and its query-planning inference. Independent of project-memory recall. |
 | `resolveEvidenceQueries` | Optional boolean, default `true` when `recallEvidence` is enabled. Resolve conversational references through a bounded, metered model call per operator input; set `false` for literal retrieval without preparation inference. |
 | `consolidate` | `true` selects one consolidated `learning` entry per run instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 
@@ -85,10 +85,17 @@ boundaries. A short preview is an excerpt, not the complete output.
 
 # Automatic historical evidence
 
-Set `compaction.recallEvidence: true` to enable the experimental
-[SDK evidence recall step](../sdk/evidence-recall.md) in recorded CLI turns,
-including resume and resident turns using the conversation host. Stateless
-sessions do not gain archive access. The default remains off.
+Recorded CLI conversations enable the
+[SDK evidence recall step](../sdk/evidence-recall.md) by default, including
+resume and resident turns using the conversation host. It can supply historical
+details missing from a retained preview or compacted history without requiring
+the user to name an archive tool. Stateless sessions do not gain archive access;
+the SDK itself still requires the host to install this step.
+
+Set `compaction.recallEvidence: false` to keep the previous CLI default and avoid
+automatic archive reads and query-planning inference. Explicit
+`search_conversation` and `read_conversation` tools remain available. Project
+memory's separate `memory.recall` setting does not disable conversation evidence.
 
 When recall is enabled, `resolveEvidenceQueries` defaults to `true`. Short
 follow-ups with preceding visible conversation may make an additional tool-free
@@ -105,6 +112,12 @@ plan for that input, but revalidate the evidence. Set
 `compaction.resolveEvidenceQueries: false` to retain the previous local-only,
 literal-query behavior and avoid the additional inference cost. This setting
 has no effect when `recallEvidence` is off.
+
+Planning and retrieval are optional preparation: invalid model plans, deadlines
+or read failures are diagnosed and skipped so the main request can continue.
+This is not a guarantee that the model will recover a missing detail or select
+the right source. The [default-recall experiment](../../research/conversation-evidence/default-recall-results.md)
+records the natural CLI control, inference usage and its limits.
 
 Each request scans at most four bounded pages, accounting at most 8 MiB of
 source/metadata bytes across those pages, from this conversation only. Each
