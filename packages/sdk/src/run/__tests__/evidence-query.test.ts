@@ -68,6 +68,39 @@ describe('grounded conversation query resolution', () => {
 			basis: [{ position: 7, role: 'user', quote: plan.basis[0]!.quote }],
 		})
 	})
+	it('tokenizes a grounded filename using the same units as discovery', () => {
+		const quoted = 'Inspect sevkiyatlar.txt for DELTA.'
+		expect(
+			validateEvidenceQueryResolution(
+				JSON.stringify({
+					...plan,
+					terms: ['sevkiyatlar.txt', 'DELTA'],
+					basis: [{ message: 0, quote: quoted }],
+				}),
+				question,
+				[{ ...history[0]!, text: quoted }],
+			),
+		).toMatchObject({
+			terms: ['sevkiyatlar', 'txt', 'DELTA'],
+		})
+	})
+	it.each(['DELTA.FOREIGN', Array.from({ length: 17 }, (_, i) => `part${i}`).join('.')])(
+		'refuses ungrounded or over-limit compound tokens: %s',
+		(term) => {
+			const quoted = `DELTA ${Array.from({ length: 17 }, (_, i) => `part${i}`).join('.')}`
+			expect(() =>
+				validateEvidenceQueryResolution(
+					JSON.stringify({
+						...plan,
+						terms: [term],
+						basis: [{ message: 0, quote: quoted }],
+					}),
+					question,
+					[{ ...history[0]!, text: quoted }],
+				),
+			).toThrow()
+		},
+	)
 	it.each([
 		{ ...plan, basis: [{ message: 0, quote: 'invented record' }] },
 		{ ...plan, terms: ['FOREIGN'] },
@@ -166,6 +199,72 @@ describe('grounded conversation query resolution', () => {
 		expect(await resolver({ ...ctx, generateText: undefined }, question)).toBeUndefined()
 		expect(await resolver(ctx, 'x'.repeat(1001))).toBeUndefined()
 		expect(ctx.generateText).not.toHaveBeenCalled()
+	})
+	it.each([6, 20])(
+		'keeps the preceding operator request behind %s assistant updates',
+		async (updates) => {
+			const ctx = context(JSON.stringify({ ...plan, mode: 'direct' }))
+			await createEvidenceQueryResolver()(
+				{
+					...ctx,
+					messages: [
+						createUserMessage(
+							'Inspect DELTA; report only its recorded receipt. Do not change files.',
+						),
+						...Array.from({ length: updates }, (_, i) => createAssistantMessage(`Progress ${i}`)),
+						ctx.latestUserMessage!,
+					],
+				},
+				question,
+			)
+			expect(ctx.generateText).toHaveBeenCalledOnce()
+			const sent = JSON.parse(ctx.generateText.mock.calls[0]![0].prompt)
+			expect(sent.history).toHaveLength(6)
+			expect(sent.history[0].text).toBe(
+				'Inspect DELTA; report only its recorded receipt. Do not change files.',
+			)
+			expect(sent.history.slice(1).map((m: { text: string }) => m.text)).toEqual(
+				Array.from({ length: 5 }, (_, i) => `Progress ${updates - 5 + i}`),
+			)
+		},
+	)
+	it('does not reach outside the 64-message scan to find an earlier operator', async () => {
+		const ctx = context()
+		await createEvidenceQueryResolver()(
+			{
+				...ctx,
+				messages: [
+					createUserMessage('OUTSIDE_LIMIT'),
+					...Array.from({ length: 64 }, () => createAssistantMessage('Progress')),
+					ctx.latestUserMessage!,
+				],
+			},
+			question,
+		)
+		expect(ctx.generateText).not.toHaveBeenCalled()
+	})
+	it('does not mistake an older equal question for a detached steering input', async () => {
+		const ctx = context(JSON.stringify({ ...plan, mode: 'none' }))
+		const current = createRuntimeContextMessage(question, 'steering')
+		await createEvidenceQueryResolver()(
+			{
+				...ctx,
+				latestUserMessage: current,
+				messages: [
+					createUserMessage('Inspect ALPHA.'),
+					createUserMessage(question),
+					createAssistantMessage('ALPHA finished.'),
+					createUserMessage('Inspect DELTA.'),
+					createAssistantMessage('Inspecting DELTA.'),
+					{ role: 'tool', content: 'Observation and attached steering', toolCallId: 'observation' },
+				],
+			},
+			question,
+		)
+		const sent = JSON.parse(ctx.generateText.mock.calls[0]![0].prompt)
+		expect(sent.history.map((m: { text: string }) => m.text)).toContain('Inspect DELTA.')
+		expect(sent.history.at(-1).text).toBe('Inspecting DELTA.')
+		expect(JSON.stringify(sent)).not.toContain('Observation and attached steering')
 	})
 	it('caches the plan for an operator input, invalidating on a new run or steering message', async () => {
 		const ctx = context()

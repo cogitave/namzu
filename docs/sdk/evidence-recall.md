@@ -73,16 +73,40 @@ record two exact historical answers and one remaining current-answer spelling
 failure. This is not a guarantee that the model understands every reference.
 
 Planning receives only the current question (at most 1,000 UTF-16 units) and up
-to six preceding visible operator/assistant text messages, each truncated to its
+to six eligible visible operator/assistant text messages, each truncated to its
 last 600 units. History selection examines at most 64 entries before the current
 operator boundary; tools, private reasoning, project policy and runtime task
-context are excluded. It requires a preceding operator message. Missing inference,
+context are excluded. If the six newest eligible messages are all assistant
+updates, the same 64-entry scan continues looking for the nearest preceding
+operator request. When found, that request replaces the oldest selected update:
+the planner still receives at most six messages of at most 600 units each. This
+prevents progress commentary from disabling reference resolution while its
+operator request is still inside the scan allowance. It does not restore a
+request removed by compaction or enlarge the history scan.
+
+When the retained `latestUserMessage` is the same object as a visible message,
+that message locates the boundary. A retained input can instead live outside
+the visible array, as with tool-result steering or checkpoint hydration. In
+that case the planner considers the bounded recent visible history, without
+mistaking an older equal string for the new input. This view is not guaranteed
+to precede the original acceptance time: no missing position is invented from
+text or timestamps. Hosts without retained-input metadata keep the existing
+text boundary fallback.
+
+It requires an operator message in that selected history. Missing inference,
 missing prior context or longer questions keep literal retrieval. The planner
 cannot discover a referent that is absent from this bounded visible history.
+The [progress-heavy CLI comparison](../../research/conversation-evidence/query-history-results.md)
+records a false current-file answer, exact historical recovery after selection
+was fixed, and later query-planner failures, using separate reopened CLI processes.
 
-A contextual plan supplies at most 16 single-token terms and three exact quotes
-of at most 200 units each. Every term must occur in the current question or a
-cited quote, and each quote must occur verbatim in the supplied history. The
+A contextual plan supplies at most 16 non-whitespace search terms and three
+exact quotes of at most 200 units each. Filenames and hyphenated identifiers are
+split using the same word tokenizer as candidate discovery. The expanded set
+must still contain at most 16 tokens; no unknown token is silently discarded.
+Every resulting token must occur in the current question or a cited quote, and
+each quote must occur verbatim in the supplied history. This normalizes search
+units only, never source text or a model's final answer. The
 resulting `queryResolution` metadata records terms, temporal interpretation and
 quoted message positions within that preparation history. These are references
 to visible conversation, not authenticated archive addresses or proof of truth.

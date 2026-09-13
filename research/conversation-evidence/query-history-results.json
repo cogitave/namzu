@@ -1,0 +1,1586 @@
+{
+  "recordedAt": "2026-09-13",
+  "base": "d1be0beb",
+  "baseline": {
+    "root": "/tmp/namzu-natural-recall-iHuCNZ",
+    "live": true,
+    "checkCurrent": false,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "progressUpdates": true,
+    "queryAblation": false,
+    "resolveEvidenceQueries": true,
+    "checkTopic": false,
+    "provider": "codex",
+    "model": "gpt-5.6-luna",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-c657c1e0-1a1b-4e4b-998a-0ebe98015209",
+      "depot": "DEPO-151a192e-4129-4e1e-9dd2-28fd2acb4194"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-6a79c9ea-99ca-4854-b20f-731d461a9a23",
+      "depot": "YENI-DEPO-4446e25e-7da6-4705-acc4-16612373b3cb"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-iHuCNZ/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "12",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "Inspection completed.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 0,
+        "totalTokens": 0,
+        "auxiliaryTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-iHuCNZ/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "YENI-TAKIP-6a79c9ea-99ca-4854-b20f-731d461a9a23 ve YENI-DEPO-4446e25e-7da6-4705-acc4-16612373b3cb.",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 17512,
+            "treeTokens": 17512,
+            "reservedTokens": 0,
+            "remainingTokens": 12488,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "grep",
+            "input": {
+              "pattern": "DELTA",
+              "path": "sevkiyatlar.txt",
+              "case_sensitive": true,
+              "context_lines": 1,
+              "max_results": 10
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 8582,
+            "completionTokens": 68,
+            "totalTokens": 8650,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 8797,
+            "completionTokens": 65,
+            "totalTokens": 8862,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 17512,
+        "totalTokens": 17512,
+        "auxiliaryTokens": 0,
+        "cachedTokens": 0
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "c265e07a9fbe4a22782b42ed5b67d3584aa8f9fc33f5be58a7f2a7f6c472789f",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true,
+      "progressUpdates": 7
+    },
+    "observations": {
+      "correctOriginal": false,
+      "usedReplacement": true,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 0,
+      "exactArchiveReads": 0,
+      "workspaceObservations": 1,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": false,
+    "historicalPassed": false,
+    "buildAfter": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "c265e07a9fbe4a22782b42ed5b67d3584aa8f9fc33f5be58a7f2a7f6c472789f",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "buildStable": true,
+    "receipts": [
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8582,
+          "completionTokens": 68,
+          "totalTokens": 8650,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8797,
+          "completionTokens": 65,
+          "totalTokens": 8862,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      }
+    ],
+    "requests": [
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      }
+    ],
+    "fingerprints": {
+      "packages/sdk/src/runtime/query/callback-inference.ts": "50ba764eae1325195614677a5ffaff13ee651ed384df8d24b4e132b8a2991d97",
+      "packages/sdk/src/runtime/query/iteration/index.ts": "1549ebdc8971aa956b4747cc95aa98e048f4c1fe068fe4df21f156ca265b9153",
+      "packages/sdk/src/run/evidence-query.ts": "27fa035ec33a67eb1d60fb52f9c0b777120a53ee2de5dff3636f213651af47e2",
+      "packages/sdk/src/run/evidence-recall.ts": "be3be06942bbf1bca9992da24c0ef96cd7d35f478de0e669a94e6321c39004bb",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "2a9c6eb19627cc206465f70605b8331ba61d623c388f8e5557d85bde21e24eef",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "276fc9637c4df25a094488ee336c84ef5d856ceda2476777bb488c1cbc1e383b",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "38cfbdcaf9522c81d81cd5a94f6bf1da8a9fe47e1cca2b603eb2c77bb5bb5c17"
+    }
+  },
+  "updated": {
+    "root": "/tmp/namzu-natural-recall-1HEFus",
+    "live": true,
+    "checkCurrent": false,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "progressUpdates": true,
+    "queryAblation": false,
+    "resolveEvidenceQueries": true,
+    "checkTopic": false,
+    "provider": "codex",
+    "model": "gpt-5.6-luna",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-6ff581dd-f6a0-49d3-9522-9f7c391f414b",
+      "depot": "DEPO-33d21277-7ec0-4df0-8e1d-18f4e8e85aed"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-6e750361-6ddf-4530-8770-3ce351fc924b",
+      "depot": "YENI-DEPO-0371a8a5-44fd-4553-9d93-db5d76cb1819"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-1HEFus/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "12",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "Inspection completed.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 0,
+        "totalTokens": 0,
+        "auxiliaryTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-1HEFus/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "TAKIP-6ff581dd-f6a0-49d3-9522-9f7c391f414b  \nDEPO-33d21277-7ec0-4df0-8e1d-18f4e8e85aed",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 10203,
+            "treeTokens": 10203,
+            "reservedTokens": 0,
+            "remainingTokens": 19797,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [],
+        "requestUsage": [
+          {
+            "promptTokens": 9477,
+            "completionTokens": 84,
+            "totalTokens": 9561,
+            "cachedTokens": 3584,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 9561,
+        "totalTokens": 10203,
+        "auxiliaryTokens": 642,
+        "cachedTokens": 3584
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "e4ddab8e6f8473dd3054a8f641807132af7e63517cace85e70c0b592edbb8397",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true,
+      "progressUpdates": 7
+    },
+    "observations": {
+      "correctOriginal": true,
+      "usedReplacement": false,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 0,
+      "exactArchiveReads": 0,
+      "workspaceObservations": 0,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": true,
+    "historicalPassed": true,
+    "buildAfter": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "e4ddab8e6f8473dd3054a8f641807132af7e63517cace85e70c0b592edbb8397",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "buildStable": true,
+    "receipts": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "text": "{\"mode\":\"contextual\",\"time\":\"unspecified\",\"terms\":[\"DELTA\",\"iki\",\"kimliğini\"],\"basis\":[{\"message\":0,\"quote\":\"sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.\"}]}",
+        "usage": {
+          "promptTokens": 443,
+          "completionTokens": 199,
+          "totalTokens": 642,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 9477,
+          "completionTokens": 84,
+          "totalTokens": 9561,
+          "cachedTokens": 3584,
+          "cacheWriteTokens": 0
+        }
+      }
+    ],
+    "requests": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 3088,
+        "contextOriginals": [
+          true,
+          true
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      }
+    ],
+    "fingerprints": {
+      "packages/sdk/src/runtime/query/callback-inference.ts": "50ba764eae1325195614677a5ffaff13ee651ed384df8d24b4e132b8a2991d97",
+      "packages/sdk/src/runtime/query/iteration/index.ts": "1549ebdc8971aa956b4747cc95aa98e048f4c1fe068fe4df21f156ca265b9153",
+      "packages/sdk/src/run/evidence-query.ts": "27fa035ec33a67eb1d60fb52f9c0b777120a53ee2de5dff3636f213651af47e2",
+      "packages/sdk/src/run/evidence-recall.ts": "be3be06942bbf1bca9992da24c0ef96cd7d35f478de0e669a94e6321c39004bb",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "2a9c6eb19627cc206465f70605b8331ba61d623c388f8e5557d85bde21e24eef",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "276fc9637c4df25a094488ee336c84ef5d856ceda2476777bb488c1cbc1e383b",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "38cfbdcaf9522c81d81cd5a94f6bf1da8a9fe47e1cca2b603eb2c77bb5bb5c17"
+    }
+  },
+  "compoundTermFailure": {
+    "root": "/tmp/namzu-natural-recall-RjOcdt",
+    "live": true,
+    "checkCurrent": false,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "progressUpdates": true,
+    "queryAblation": false,
+    "resolveEvidenceQueries": true,
+    "checkTopic": false,
+    "provider": "codex",
+    "model": "gpt-5.6-luna",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-677b43e3-1015-4f0a-9c50-2050d8d76281",
+      "depot": "DEPO-44a0a459-cd7f-4f9f-acad-f312d3e35792"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-ef3f9f41-8221-4a90-b13a-2ca41693b332",
+      "depot": "YENI-DEPO-36abd7fe-5cf5-4a5e-99be-8bbad0e86a63"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-RjOcdt/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "12",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "Inspection completed.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 0,
+        "totalTokens": 0,
+        "auxiliaryTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-RjOcdt/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "Takip kodu: `YENI-TAKIP-ef3f9f41-8221-4a90-b13a-2ca41693b332`  \nHedef deposu: `YENI-DEPO-36abd7fe-5cf5-4a5e-99be-8bbad0e86a63`",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 18177,
+            "treeTokens": 18177,
+            "reservedTokens": 0,
+            "remainingTokens": 11823,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "grep",
+            "input": {
+              "pattern": "DELTA",
+              "path": "sevkiyatlar.txt",
+              "case_sensitive": true,
+              "context_lines": 2,
+              "max_results": 10
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 8583,
+            "completionTokens": 96,
+            "totalTokens": 8679,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 8829,
+            "completionTokens": 81,
+            "totalTokens": 8910,
+            "cachedTokens": 3584,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 17589,
+        "totalTokens": 18177,
+        "auxiliaryTokens": 588,
+        "cachedTokens": 3584
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "b820c13ba584ab716883fe358fde5fed61c94452376f5b1b4f7213fc4c6c5711",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true,
+      "progressUpdates": 7
+    },
+    "observations": {
+      "correctOriginal": false,
+      "usedReplacement": true,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 0,
+      "exactArchiveReads": 0,
+      "workspaceObservations": 1,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": false,
+    "historicalPassed": false,
+    "buildAfter": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "b820c13ba584ab716883fe358fde5fed61c94452376f5b1b4f7213fc4c6c5711",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "buildStable": true,
+    "receipts": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "text": "{\"mode\":\"contextual\",\"time\":\"unspecified\",\"terms\":[\"sevkiyatlar.txt\",\"DELTA\"],\"basis\":[{\"message\":0,\"quote\":\"sevkiyatlar.txt dosyasındaki DELTA kaydını incele\"}]}",
+        "usage": {
+          "promptTokens": 443,
+          "completionTokens": 145,
+          "totalTokens": 588,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8583,
+          "completionTokens": 96,
+          "totalTokens": 8679,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8829,
+          "completionTokens": 81,
+          "totalTokens": 8910,
+          "cachedTokens": 3584,
+          "cacheWriteTokens": 0
+        }
+      }
+    ],
+    "requests": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      }
+    ],
+    "fingerprints": {
+      "packages/sdk/src/runtime/query/callback-inference.ts": "50ba764eae1325195614677a5ffaff13ee651ed384df8d24b4e132b8a2991d97",
+      "packages/sdk/src/runtime/query/iteration/index.ts": "1549ebdc8971aa956b4747cc95aa98e048f4c1fe068fe4df21f156ca265b9153",
+      "packages/sdk/src/run/evidence-query.ts": "3b5ce0da46c4ff25e542c9888ffc3b523d702b66e5546a3cd9cddd162d122c3f",
+      "packages/sdk/src/run/evidence-recall.ts": "be3be06942bbf1bca9992da24c0ef96cd7d35f478de0e669a94e6321c39004bb",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "2a9c6eb19627cc206465f70605b8331ba61d623c388f8e5557d85bde21e24eef",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "276fc9637c4df25a094488ee336c84ef5d856ceda2476777bb488c1cbc1e383b",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "38cfbdcaf9522c81d81cd5a94f6bf1da8a9fe47e1cca2b603eb2c77bb5bb5c17"
+    }
+  },
+  "ungroundedTermFailure": {
+    "root": "/tmp/namzu-natural-recall-k5bP4H",
+    "live": true,
+    "checkCurrent": false,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "progressUpdates": true,
+    "queryAblation": false,
+    "resolveEvidenceQueries": true,
+    "checkTopic": false,
+    "provider": "codex",
+    "model": "gpt-5.6-luna",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-00f093ee-7cc8-4e9d-8a8f-484ef902753a",
+      "depot": "DEPO-b1215e07-fbda-4f5a-9d13-9b6b775a1bf0"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-182d8793-cf4c-4043-83c0-d96d5f0493bf",
+      "depot": "YENI-DEPO-e61aa37a-5477-4017-bf20-33c363dffef0"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-k5bP4H/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "12",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "Inspection completed.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 0,
+        "totalTokens": 0,
+        "auxiliaryTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-k5bP4H/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "YENI-TAKIP-182d8793-cf4c-4043-83c0-d96d5f0493bf ve YENI-DEPO-e61aa37a-5477-4017-bf20-33c363dffef0.",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 18222,
+            "treeTokens": 18222,
+            "reservedTokens": 0,
+            "remainingTokens": 11778,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "grep",
+            "input": {
+              "pattern": "DELTA",
+              "path": "sevkiyatlar.txt",
+              "case_sensitive": true,
+              "context_lines": 1,
+              "max_results": 10
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 8583,
+            "completionTokens": 102,
+            "totalTokens": 8685,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 8831,
+            "completionTokens": 64,
+            "totalTokens": 8895,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 17580,
+        "totalTokens": 18222,
+        "auxiliaryTokens": 642,
+        "cachedTokens": 0
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "a1c954c62b367f7e95774a03242e546cfb933d577e6f7cc968c77e9620b31a45",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true,
+      "progressUpdates": 7
+    },
+    "observations": {
+      "correctOriginal": false,
+      "usedReplacement": true,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 0,
+      "exactArchiveReads": 0,
+      "workspaceObservations": 1,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": false,
+    "historicalPassed": false,
+    "buildAfter": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "a1c954c62b367f7e95774a03242e546cfb933d577e6f7cc968c77e9620b31a45",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "buildStable": true,
+    "receipts": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "text": "{\"mode\":\"contextual\",\"time\":\"unspecified\",\"terms\":[\"sevkiyatlar.txt\",\"DELTA\",\"iki\",\"kimliği\"],\"basis\":[{\"message\":0,\"quote\":\"sevkiyatlar.txt dosyasındaki DELTA kaydını incele;\"}]}",
+        "usage": {
+          "promptTokens": 443,
+          "completionTokens": 199,
+          "totalTokens": 642,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8583,
+          "completionTokens": 102,
+          "totalTokens": 8685,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8831,
+          "completionTokens": 64,
+          "totalTokens": 8895,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      }
+    ],
+    "requests": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      }
+    ],
+    "fingerprints": {
+      "packages/sdk/src/runtime/query/callback-inference.ts": "50ba764eae1325195614677a5ffaff13ee651ed384df8d24b4e132b8a2991d97",
+      "packages/sdk/src/runtime/query/iteration/index.ts": "1549ebdc8971aa956b4747cc95aa98e048f4c1fe068fe4df21f156ca265b9153",
+      "packages/sdk/src/run/evidence-query.ts": "080eebabbb0da64811d3a5b956c633f4f2cb4578c0551810c9c9fc56cb9c129b",
+      "packages/sdk/src/run/evidence-recall.ts": "be3be06942bbf1bca9992da24c0ef96cd7d35f478de0e669a94e6321c39004bb",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "2a9c6eb19627cc206465f70605b8331ba61d623c388f8e5557d85bde21e24eef",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "276fc9637c4df25a094488ee336c84ef5d856ceda2476777bb488c1cbc1e383b",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "38cfbdcaf9522c81d81cd5a94f6bf1da8a9fe47e1cca2b603eb2c77bb5bb5c17"
+    }
+  },
+  "steeringBaseline": {
+    "workingDirectory": "/tmp/namzu-query-boundary-FuQUZ4",
+    "stopReason": "end_turn",
+    "requests": 3,
+    "tokens": 0,
+    "planning": [
+      {
+        "current": "What was its exact identifier?",
+        "history": [
+          {
+            "message": 0,
+            "role": "user",
+            "text": "Inspect the ALPHA receipt.",
+            "truncated": false
+          }
+        ]
+      }
+    ]
+  },
+  "ungroundedTermValidation": "Query resolution introduced an ungrounded token.",
+  "totalLiveTokens": 64114
+}

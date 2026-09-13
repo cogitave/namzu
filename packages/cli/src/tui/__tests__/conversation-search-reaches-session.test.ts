@@ -1611,9 +1611,13 @@ it('keeps changing inventory after history on both native provider wires', async
 	}
 })
 
-it.each([undefined, false])(
-	'resolves a conversational reference through the real Session with resolveEvidenceQueries=%s',
-	async (resolveEvidenceQueries) => {
+it.each(
+	[undefined, false].flatMap((resolveEvidenceQueries) =>
+		[0, 8].map((updates) => ({ resolveEvidenceQueries, updates })),
+	),
+)(
+	'resolves a conversational reference with resolveEvidenceQueries=$resolveEvidenceQueries after $updates updates',
+	async ({ resolveEvidenceQueries, updates }) => {
 		const cwd = await mkdtemp(join(tmpdir(), 'namzu-resolved-query-'))
 		roots.push(cwd)
 		const sessions = await openSessions(cwd)
@@ -1622,8 +1626,8 @@ it.each([undefined, false])(
 		const plan = JSON.stringify({
 			mode: 'contextual',
 			time: 'past',
-			terms: ['DELTA', 'receipt'],
-			basis: [{ message: 0, quote: 'DELTA receipt' }],
+			terms: ['DELTA', 'receipt', 'manifest.txt'],
+			basis: [{ message: 0, quote: 'DELTA receipt in manifest.txt' }],
 		})
 		const provider = new MockLLMProvider({
 			turns:
@@ -1652,8 +1656,9 @@ it.each([undefined, false])(
 		opened.push(session)
 		const question = 'What was its exact identifier?'
 		const history = [
-			createUserMessage('Inspect the DELTA receipt.'),
+			createUserMessage('Inspect the DELTA receipt in manifest.txt.'),
 			createAssistantMessage('The record has an identifier.'),
+			...Array.from({ length: updates }, (_, i) => createAssistantMessage(`Progress ${i}`)),
 			createUserMessage(question),
 		]
 		for await (const _event of session.send(history, {

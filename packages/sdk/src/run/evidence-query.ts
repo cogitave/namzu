@@ -1,7 +1,7 @@
 import { z } from 'zod'
 import type { Message } from '../types/message/index.js'
 import type { PrepareStepContext } from '../types/run/prepare-step.js'
-import { evidenceTokenKey, evidenceTokens, isEvidenceToken } from '../utils/evidence-tokens.js'
+import { evidenceTokenKey, evidenceTokens } from '../utils/evidence-tokens.js'
 
 const SYSTEM = `Resolve a conversation-history search query. Return only JSON:
 {"mode":"direct|contextual|none","time":"past|present|unspecified","terms":["exact","word","tokens"],"basis":[{"message":0,"quote":"exact substring"}]}.
@@ -15,7 +15,15 @@ const planSchema = z
 	.object({
 		mode: z.enum(['direct', 'contextual', 'none']),
 		time: z.enum(['past', 'present', 'unspecified']),
-		terms: z.array(z.string().min(1).max(256).refine(isEvidenceToken)).max(16),
+		terms: z
+			.array(
+				z
+					.string()
+					.min(1)
+					.max(256)
+					.refine((term) => !/\s/u.test(term)),
+			)
+			.max(16),
 		basis: z
 			.array(
 				z
@@ -49,7 +57,7 @@ function operator(message: Message): boolean {
 }
 
 /** Bounded visible references only. No tools, hidden reasoning or runtime policy. */
-function historyOf(messages: readonly Message[], query: string): QueryMessage[] {
+function historyOf(messages: readonly Message[], query: string, current?: Message): QueryMessage[] {
 	const history: QueryMessage[] = []
 	let boundary = messages.length
 	for (
@@ -58,28 +66,35 @@ function historyOf(messages: readonly Message[], query: string): QueryMessage[] 
 		position--
 	) {
 		const message = messages[position]
-		if (message && operator(message) && message.content === query) {
+		// A retained input can be outside history (for example tool-result
+		// steering). Equal text from an older turn is not that input's boundary.
+		if (
+			message &&
+			(current ? message === current : operator(message) && message.content === query)
+		) {
 			boundary = position
 			break
 		}
 	}
-	for (
-		let position = boundary - 1;
-		position >= Math.max(0, boundary - 64) && history.length < 6;
-		position--
-	) {
+	for (let position = boundary - 1; position >= Math.max(0, boundary - 64); position--) {
 		const message = messages[position]
 		if (!message) continue
 		if (!operator(message) && message.role !== 'assistant') continue
 		if (typeof message.content !== 'string' || !message.content.trim()) continue
+		// Tool-loop commentary must not crowd the nearest preceding operator
+		// request out of the bounded reference window. Keep five recent replies
+		// and that request if the six newest eligible messages are all replies.
+		if (history.length === 6 && !operator(message)) continue
 		let text = message.content.slice(-600)
 		if (/^[\uDC00-\uDFFF]/.test(text)) text = text.slice(1)
+		if (history.length === 6) history.pop()
 		history.push({
 			position,
 			role: message.role,
 			text,
 			truncated: text.length !== message.content.length,
 		})
+		if (history.length === 6 && history.some((entry) => entry.role === 'user')) break
 	}
 	return history.reverse()
 }
@@ -93,8 +108,13 @@ export function validateEvidenceQueryResolution(
 	const plan = planSchema.parse(JSON.parse(raw))
 	if (plan.mode === 'none') return null
 	if (plan.mode !== 'contextual' || plan.time === 'present') return undefined
-	if (!plan.basis.length || !plan.terms.length)
+	// Models may quote a filename or hyphenated identifier as one search term.
+	// Discovery indexes its word tokens, so normalize to those same units before
+	// grounding and enforcing the final term cap. Never discard an unknown token.
+	const terms = [...new Set(plan.terms.flatMap(evidenceTokens))]
+	if (!plan.basis.length || !terms.length)
 		throw new Error('Contextual query resolution needs grounded terms and references.')
+	if (terms.length > 16) throw new Error('Query resolution exceeds 16 search tokens.')
 	const basis = plan.basis.map(({ message, quote }) => {
 		const source = history[message]
 		if (!source || !source.text.includes(quote))
@@ -106,9 +126,9 @@ export function validateEvidenceQueryResolution(
 			evidenceTokenKey(token),
 		),
 	)
-	if (plan.terms.some((term) => !allowed.has(evidenceTokenKey(term))))
+	if (terms.some((term) => !allowed.has(evidenceTokenKey(term))))
 		throw new Error('Query resolution introduced an ungrounded token.')
-	return { terms: [...new Set(plan.terms)], time: plan.time, basis }
+	return { terms, time: plan.time, basis }
 }
 
 /** One cached plan for the same operator input; evidence bytes are never cached. */
@@ -143,7 +163,7 @@ export function createEvidenceQueryResolver() {
 		}
 		if (cached?.runId === context.runId && cached.query === query && cached.operator === identity)
 			return cached.plan
-		const history = historyOf(context.messages, query)
+		const history = historyOf(context.messages, query, context.latestUserMessage)
 		if (!history.some((message) => message.role === 'user')) return Promise.resolve(undefined)
 		const current = query.slice(-1000)
 		const plan = context

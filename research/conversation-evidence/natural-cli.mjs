@@ -15,6 +15,8 @@ const scriptedObservation = process.argv.includes('--scripted-observation');
 const queryAblation = process.argv.includes('--query-ablation');
 const resolveEvidenceQueries = process.argv.includes('--resolve-queries');
 const checkTopic = process.argv.includes('--check-topic');
+const progressUpdates = process.argv.includes('--progress-updates');
+if(progressUpdates && (!referential || !scriptedObservation)) throw new Error('--progress-updates requires --referential --scripted-observation.');
 if(resolveEvidenceQueries && !live) throw new Error('--resolve-queries requires --live; offline planning is covered by SDK/Session tests.');
 const root = await mkdtemp(join(tmpdir(), 'namzu-natural-recall-'));
 const home = join(root, 'home');
@@ -58,7 +60,12 @@ await writeFile(preload, `import {ProviderRegistry,MockLLMProvider} from ${JSON.
 const parse=c=>{const s=String(c);return JSON.parse(s.slice(s.indexOf('{'),s.lastIndexOf('}')+1));};
 ProviderRegistry.create=()=>{let step=0;return {provider:{id:'scripted',name:'scripted',async *chatStream(params){
  const phase=process.env.NAMZU_NATURAL_PHASE; const last=params.messages.filter(m=>m.role==='tool').at(-1); let turn;
-if(phase==='1')turn=step++===0?{toolCalls:[{id:'initial-read',name:'read',args:{path:'sevkiyatlar.txt'}}]}:{text:${JSON.stringify(referential ? 'DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.' : 'Döküm sevkiyat denetim kayıtlarını içeriyor.')}};
+if(phase==='1') {
+ const index=step++;
+ turn=index===0?{toolCalls:[{id:'initial-read',name:'read',args:{path:'sevkiyatlar.txt'}}]}:
+ ${progressUpdates} && index<=7 ? {text:'Inspection progress '+index+'.',toolCalls:[{id:'progress-'+index,name:'glob',args:{path:'.',pattern:'sevkiyatlar.txt'}}]}:
+ {text:${JSON.stringify(progressUpdates ? 'Inspection completed.' : referential ? 'DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.' : 'Döküm sevkiyat denetim kayıtlarını içeriyor.')}};
+}
  else if(phase==='3')turn=step++===0?{toolCalls:[{id:'current-read',name:'read',args:{path:'sevkiyatlar.txt'}}]}:{text:String(last.content)};
  else if(step++===0)turn={toolCalls:[{id:'history-search',name:'search_conversation',args:{query:'DELTA'}}]};
  else {const page=parse(last.content);if(last.toolCallId.startsWith('history-search')){
@@ -68,9 +75,9 @@ if(phase==='1')turn=step++===0?{toolCalls:[{id:'initial-read',name:'read',args:{
  yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
 }}};};`);
 
-const builtFiles=['packages/sdk/dist/runtime/query/preparation-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
+const builtFiles=['packages/sdk/dist/runtime/query/callback-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
 const fingerprints=async()=>Object.fromEntries(await Promise.all(builtFiles.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
-const report = { root, live, checkCurrent, recallEvidence, referential, scriptedObservation, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
+const report = { root, live, checkCurrent, recallEvidence, referential, scriptedObservation, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
 const allEvents = async () => {
   const events = [];
   for (const session of await readdir(join(home, 'sessions'), { withFileTypes: true })) {
@@ -87,7 +94,7 @@ const allEvents = async () => {
 
 async function turn(prompt, phase, tokenBudget) {
   const args = ['--quiet', 'run-stream', '--session', 'natural-recall', '--trust', '--cwd', cwd,
-    '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', referential ? '4' : '6', '--token-budget', String(tokenBudget), prompt];
+    '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--max-iterations', phase===1 && progressUpdates ? '12' : referential ? '4' : '6', '--token-budget', String(tokenBudget), prompt];
   const before = new Set((phase === 1 ? [] : await allEvents()).map(e=>e.runId));
   const scripted = !live || (phase===1 && scriptedObservation);
   const record = { phase, prompt, args, tokenBudget, scripted };
@@ -134,9 +141,11 @@ try {
     visibleOriginalCount,
     initialSourceUnchanged: await readFile(file,'utf8')===originalText,
     successfulInitialRead: outputs.some(e=>e.toolName==='read'&&!e.isError),
+    progressUpdates: first.events.filter(e=>e.type==='message_completed' && String(e.content??'').startsWith('Inspection progress ')).length,
   };
   if(!capturedBoth || !report.prerequisites.initialCompleted || !report.prerequisites.initialSourceUnchanged || !report.prerequisites.successfulInitialRead || visibleOriginalCount!==0)
     throw new Error('Initial observation is ineligible for a missing-detail recall trial.');
+  if(progressUpdates && report.prerequisites.progressUpdates!==7) throw new Error('Expected seven recorded progress messages.');
   await writeFile(file, replacementText);
   if(queryAblation){
     process.env.NAMZU_HOME=home;
@@ -211,7 +220,7 @@ finally {
   try {report.receipts=(await readFile(join(root,'receipts.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
   try {report.requests=(await readFile(join(root,'requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
   report.fingerprints={};
-  for(const path of ['packages/sdk/src/runtime/query/preparation-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
+  for(const path of ['packages/sdk/src/runtime/query/callback-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
     report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
   await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({root,live,passed:report.passed,prerequisites:report.prerequisites,observations:report.observations,currentCheck:report.currentCheck,turns:report.turns.map(t=>({phase:t.phase,calls:t.calls,totalTokens:t.totalTokens})),error:report.error}));
