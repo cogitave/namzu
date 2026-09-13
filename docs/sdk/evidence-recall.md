@@ -215,7 +215,11 @@ for the common-field failure, archived-history controls and live sample limits.
 
 A `none` plan skips optional recall without a note. Malformed or
 ungrounded plans reject the optional stage through its existing fail-open
-diagnostic; the main task and explicit archive tools remain available. The
+diagnostic. The kernel also carries a bounded availability note in temporary
+step context: `status: "unavailable"`, `stage: "query_planning"`, `reason: "failed"`.
+It says that this pass supplied no evidence, not that the archive lacks the
+requested detail. No plan text, exception body or source data enters the note.
+The main task and explicit archive tools remain available. The
 previous operator query is never used just because literal retrieval was empty.
 
 One plan promise is cached for the same run and operator-message identity, also
@@ -467,7 +471,23 @@ not fit are omitted. The default deadline is 1,000ms (`timeoutMs`, at most
 are discarded, and another hook using the same callback skips retrieval
 until the original operation settles. An uncooperative callback therefore
 cannot accumulate overlapping reads through this hook. Timeout/error uses
-the runtime's existing prepare-step diagnostic and fail-open policy.
+the runtime's existing prepare-step diagnostic and fail-open policy, with a
+temporary availability note (`stage: "retrieval"`, `reason: "timeout"` or
+`"failed"`). While an earlier uncooperative read remains unsettled, later passes
+report `reason: "pending"` without launching overlapping retrieval. The note
+never includes rejected candidates, paths, raw errors or invented evidence.
+Parent cancellation still rejects without a note and cannot revive model work.
+
+Availability notes share the configured context allowance. The kernel also
+checks remaining request room before appending a failure note; no room means no
+note. Prior stage decisions survive and ordinary thrown callback errors are
+still diagnostic-only. Direct callers of the recall callback still receive
+rejections for failed planning/reads; the query loop projects the safe status.
+Successful later passes replace the status through normal per-step preparation.
+The [failure experiment](../../research/conversation-evidence/availability-results.md)
+records actual CLI and terminal checks, including a live model that ignored this
+status and selected current data for a past-observation question. Availability
+reporting does not certify the model's recovery decision.
 
 Every request revalidates its source; recalled bytes are not cached for a
 later step. The immutable bound scope prevents changing an options object

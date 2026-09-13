@@ -1,0 +1,1050 @@
+{
+  "baseCommit": "6cd24e93",
+  "date": "2026-09-13",
+  "cases": [
+    {
+      "label": "availability-only",
+      "raw": {
+        "root": "/tmp/namzu-natural-recall-sjRXdt",
+        "live": true,
+        "failQueryPlan": true,
+        "checkCurrent": false,
+        "recallConfiguration": "default",
+        "referential": true,
+        "scriptedObservation": true,
+        "progressUpdates": false,
+        "queryAblation": false,
+        "resolveEvidenceQueries": false,
+        "checkTopic": false,
+        "provider": "codex",
+        "model": "gpt-5.6-luna",
+        "effort": "low",
+        "original": {
+          "tracking": "TAKIP-a1f32863-df3b-4cd5-9c34-deb420a7ffc7",
+          "depot": "DEPO-6b1f0036-28e6-4d59-9f90-695216132e6d"
+        },
+        "replacement": {
+          "tracking": "YENI-TAKIP-cee56828-6940-442c-b767-329d2e0c171c",
+          "depot": "YENI-DEPO-7a1b5b9f-f2ad-4b7a-8d32-d4ff46206131"
+        },
+        "turns": [
+          {
+            "phase": 1,
+            "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+            "args": [
+              "--quiet",
+              "run-stream",
+              "--session",
+              "natural-recall",
+              "--trust",
+              "--cwd",
+              "/tmp/namzu-natural-recall-sjRXdt/workspace",
+              "--provider",
+              "codex",
+              "--model",
+              "gpt-5.6-luna",
+              "--effort",
+              "low",
+              "--max-iterations",
+              "4",
+              "--token-budget",
+              "25000",
+              "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+            ],
+            "tokenBudget": 25000,
+            "scripted": true,
+            "done": {
+              "kind": "done",
+              "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+              "budget": {
+                "limit": 25000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 25000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            },
+            "errors": [],
+            "calls": [
+              {
+                "name": "read",
+                "input": {
+                  "path": "sevkiyatlar.txt"
+                }
+              }
+            ],
+            "requestUsage": [
+              {
+                "promptTokens": 0,
+                "completionTokens": 0,
+                "totalTokens": 0,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              },
+              {
+                "promptTokens": 0,
+                "completionTokens": 0,
+                "totalTokens": 0,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            ],
+            "mainMessageTokens": 0,
+            "totalTokens": 0,
+            "auxiliaryTokens": 0,
+            "cachedTokens": 0
+          },
+          {
+            "phase": 2,
+            "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+            "args": [
+              "--quiet",
+              "run-stream",
+              "--session",
+              "natural-recall",
+              "--trust",
+              "--cwd",
+              "/tmp/namzu-natural-recall-sjRXdt/workspace",
+              "--provider",
+              "codex",
+              "--model",
+              "gpt-5.6-luna",
+              "--effort",
+              "low",
+              "--max-iterations",
+              "4",
+              "--token-budget",
+              "30000",
+              "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+            ],
+            "tokenBudget": 30000,
+            "scripted": false,
+            "done": {
+              "kind": "done",
+              "text": "YENI-TAKIP-cee56828-6940-442c-b767-329d2e0c171c  \nYENI-DEPO-7a1b5b9f-f2ad-4b7a-8d32-d4ff46206131",
+              "budget": {
+                "limit": 30000,
+                "ownTokens": 17121,
+                "treeTokens": 17121,
+                "reservedTokens": 0,
+                "remainingTokens": 12879,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            },
+            "errors": [],
+            "calls": [
+              {
+                "name": "grep",
+                "input": {
+                  "pattern": "DELTA",
+                  "path": "sevkiyatlar.txt",
+                  "case_sensitive": true,
+                  "context_lines": 2,
+                  "max_results": 10
+                }
+              }
+            ],
+            "requestUsage": [
+              {
+                "promptTokens": 8397,
+                "completionTokens": 57,
+                "totalTokens": 8454,
+                "cachedTokens": 6656,
+                "cacheWriteTokens": 0
+              },
+              {
+                "promptTokens": 8602,
+                "completionTokens": 65,
+                "totalTokens": 8667,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            ],
+            "mainMessageTokens": 17121,
+            "totalTokens": 17121,
+            "auxiliaryTokens": 0,
+            "cachedTokens": 6656
+          }
+        ],
+        "buildBefore": {
+          "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+          "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+          "packages/sdk/dist/run/evidence-query.js": "d436fbf73b1d8e27d0cba7baedc8c6b4d657fbeb5109ba8a01ae276568ad2bbd",
+          "packages/sdk/dist/run/evidence-recall.js": "182161baa0d1c9da29624ebb6cc487de15e510cb517568744f8dc1a6320e6d87",
+          "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+          "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+          "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+          "packages/cli/dist/integrations/sessions/evidence-recall.js": "43ea2f2db04e1bf1cba3249337a8e78a317d60fe8cec4283178db943a79faada",
+          "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+          "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+          "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+        },
+        "prerequisites": {
+          "capturedBoth": true,
+          "initialStopReason": "end_turn",
+          "initialCompleted": true,
+          "visibleOriginalCount": 0,
+          "initialSourceUnchanged": true,
+          "successfulInitialRead": true,
+          "progressUpdates": 0
+        },
+        "observations": {
+          "correctOriginal": false,
+          "usedReplacement": true,
+          "allOriginalAbsentFromVisible": true,
+          "archiveSearches": 0,
+          "exactArchiveReads": 0,
+          "workspaceObservations": 1,
+          "failedTools": 0,
+          "replacementUnchanged": true
+        },
+        "passed": false,
+        "historicalPassed": false,
+        "buildAfter": {
+          "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+          "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+          "packages/sdk/dist/run/evidence-query.js": "d436fbf73b1d8e27d0cba7baedc8c6b4d657fbeb5109ba8a01ae276568ad2bbd",
+          "packages/sdk/dist/run/evidence-recall.js": "182161baa0d1c9da29624ebb6cc487de15e510cb517568744f8dc1a6320e6d87",
+          "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+          "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+          "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+          "packages/cli/dist/integrations/sessions/evidence-recall.js": "43ea2f2db04e1bf1cba3249337a8e78a317d60fe8cec4283178db943a79faada",
+          "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+          "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+          "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+        },
+        "buildStable": true,
+        "receipts": [
+          {
+            "phase": "2",
+            "preparation": true,
+            "text": "INVALID_QUERY_PLAN_CONTROL",
+            "usage": {
+              "promptTokens": 0,
+              "completionTokens": 0,
+              "totalTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          },
+          {
+            "phase": "2",
+            "preparation": false,
+            "usage": {
+              "promptTokens": 8397,
+              "completionTokens": 57,
+              "totalTokens": 8454,
+              "cachedTokens": 6656,
+              "cacheWriteTokens": 0
+            }
+          },
+          {
+            "phase": "2",
+            "preparation": false,
+            "usage": {
+              "promptTokens": 8602,
+              "completionTokens": 65,
+              "totalTokens": 8667,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          }
+        ],
+        "requests": [
+          {
+            "phase": "2",
+            "preparation": true,
+            "queryInput": {
+              "current": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+              "history": [
+                {
+                  "message": 0,
+                  "role": "user",
+                  "text": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+                  "truncated": false
+                },
+                {
+                  "message": 1,
+                  "role": "assistant",
+                  "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+                  "truncated": false
+                }
+              ],
+              "tokens": [
+                [
+                  0,
+                  "Az"
+                ],
+                [
+                  1,
+                  "önce"
+                ],
+                [
+                  2,
+                  "baktığın"
+                ],
+                [
+                  3,
+                  "kaydın"
+                ],
+                [
+                  4,
+                  "iki"
+                ],
+                [
+                  5,
+                  "kimliğini"
+                ],
+                [
+                  6,
+                  "aynen"
+                ],
+                [
+                  7,
+                  "yazar"
+                ],
+                [
+                  8,
+                  "mısın"
+                ],
+                [
+                  9,
+                  "sevkiyatlar"
+                ],
+                [
+                  10,
+                  "txt"
+                ],
+                [
+                  11,
+                  "dosyasındaki"
+                ],
+                [
+                  12,
+                  "DELTA"
+                ],
+                [
+                  13,
+                  "kaydını"
+                ],
+                [
+                  14,
+                  "incele"
+                ],
+                [
+                  15,
+                  "yalnızca"
+                ],
+                [
+                  16,
+                  "hangi"
+                ],
+                [
+                  17,
+                  "tür"
+                ],
+                [
+                  18,
+                  "bilgileri"
+                ],
+                [
+                  19,
+                  "içerdiğini"
+                ],
+                [
+                  20,
+                  "bir"
+                ],
+                [
+                  21,
+                  "cümleyle"
+                ],
+                [
+                  22,
+                  "söyle"
+                ],
+                [
+                  23,
+                  "kaydı"
+                ],
+                [
+                  24,
+                  "takip"
+                ],
+                [
+                  25,
+                  "kodu"
+                ],
+                [
+                  26,
+                  "ve"
+                ],
+                [
+                  27,
+                  "hedef"
+                ],
+                [
+                  28,
+                  "depo"
+                ],
+                [
+                  29,
+                  "bilgisi"
+                ],
+                [
+                  30,
+                  "içeriyor"
+                ]
+              ],
+              "omittedTokens": 0
+            },
+            "availability": false,
+            "contextChars": 0,
+            "contextOriginals": [
+              false,
+              false
+            ],
+            "ordinaryOriginals": [
+              false,
+              false
+            ]
+          },
+          {
+            "phase": "2",
+            "preparation": false,
+            "availability": true,
+            "contextChars": 556,
+            "contextOriginals": [
+              false,
+              false
+            ],
+            "ordinaryOriginals": [
+              false,
+              false
+            ]
+          },
+          {
+            "phase": "2",
+            "preparation": false,
+            "availability": true,
+            "contextChars": 556,
+            "contextOriginals": [
+              false,
+              false
+            ],
+            "ordinaryOriginals": [
+              false,
+              false
+            ]
+          }
+        ],
+        "fingerprints": {
+          "packages/sdk/src/runtime/query/callback-inference.ts": "88d2b8d13dfc584210fe68c502929fb04831131936908c0a4aa3055410bdca22",
+          "packages/sdk/src/runtime/query/iteration/index.ts": "be685b1aec97f96b9be4d173a02a33bac5881395ad7653f65802c0d4caea5e9a",
+          "packages/sdk/src/run/evidence-query.ts": "8f30bc038bb3de906cb80fac1ce8876b36ae955196a8b0eaab966370579f853f",
+          "packages/sdk/src/run/evidence-recall.ts": "b59a03a13ec549cbfad7c331cdd826ada93743a12c61fb22b567c697ba91b0b3",
+          "packages/cli/src/integrations/sessions/evidence-recall.ts": "0db760cbdf96f881ce8a5d90f816d4f6881abe6c825d6d80617115af5ae72905",
+          "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+          "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+          "packages/cli/src/integrations/sessions/conversation-search.ts": "7c70e3d890899503282c63dc937ae5aa273fea1df0523e411f980d684d6b87cf",
+          "packages/cli/src/tui/agent.ts": "659b49ea57ad71aa9fd49b47ac088af902e7209fe72a569a8953da44c399903d",
+          "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+          "research/conversation-evidence/natural-cli.mjs": "7dd11479b01c75127daf33a9a679d445ff6123fcb636b203471093ebc9da0a60"
+        }
+      }
+    },
+    {
+      "label": "experimental-tool-hints",
+      "raw": {
+        "root": "/tmp/namzu-natural-recall-l5xpAt",
+        "live": true,
+        "failQueryPlan": true,
+        "checkCurrent": false,
+        "recallConfiguration": "default",
+        "referential": true,
+        "scriptedObservation": true,
+        "progressUpdates": false,
+        "queryAblation": false,
+        "resolveEvidenceQueries": false,
+        "checkTopic": false,
+        "provider": "codex",
+        "model": "gpt-5.6-luna",
+        "effort": "low",
+        "original": {
+          "tracking": "TAKIP-96b519ff-5a0f-4fdf-98e4-15c8b4e285e2",
+          "depot": "DEPO-640d178a-24cb-4e06-9bd4-2745f1a346a7"
+        },
+        "replacement": {
+          "tracking": "YENI-TAKIP-e794c3a9-2e56-4ac8-b42a-105219979c87",
+          "depot": "YENI-DEPO-499817ab-06c2-4122-a203-56699976979c"
+        },
+        "turns": [
+          {
+            "phase": 1,
+            "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+            "args": [
+              "--quiet",
+              "run-stream",
+              "--session",
+              "natural-recall",
+              "--trust",
+              "--cwd",
+              "/tmp/namzu-natural-recall-l5xpAt/workspace",
+              "--provider",
+              "codex",
+              "--model",
+              "gpt-5.6-luna",
+              "--effort",
+              "low",
+              "--max-iterations",
+              "4",
+              "--token-budget",
+              "25000",
+              "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+            ],
+            "tokenBudget": 25000,
+            "scripted": true,
+            "done": {
+              "kind": "done",
+              "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+              "budget": {
+                "limit": 25000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 25000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            },
+            "errors": [],
+            "calls": [
+              {
+                "name": "read",
+                "input": {
+                  "path": "sevkiyatlar.txt"
+                }
+              }
+            ],
+            "requestUsage": [
+              {
+                "promptTokens": 0,
+                "completionTokens": 0,
+                "totalTokens": 0,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              },
+              {
+                "promptTokens": 0,
+                "completionTokens": 0,
+                "totalTokens": 0,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              }
+            ],
+            "mainMessageTokens": 0,
+            "totalTokens": 0,
+            "auxiliaryTokens": 0,
+            "cachedTokens": 0
+          },
+          {
+            "phase": 2,
+            "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+            "args": [
+              "--quiet",
+              "run-stream",
+              "--session",
+              "natural-recall",
+              "--trust",
+              "--cwd",
+              "/tmp/namzu-natural-recall-l5xpAt/workspace",
+              "--provider",
+              "codex",
+              "--model",
+              "gpt-5.6-luna",
+              "--effort",
+              "low",
+              "--max-iterations",
+              "4",
+              "--token-budget",
+              "30000",
+              "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+            ],
+            "tokenBudget": 30000,
+            "scripted": false,
+            "done": {
+              "kind": "done",
+              "text": "YENI-TAKIP-e794c3a9-2e56-4ac8-b42a-105219979c87; YENI-DEPO-499817ab-06c2-4122-a203-56699976979c",
+              "budget": {
+                "limit": 30000,
+                "ownTokens": 17301,
+                "treeTokens": 17301,
+                "reservedTokens": 0,
+                "remainingTokens": 12699,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            },
+            "errors": [],
+            "calls": [
+              {
+                "name": "grep",
+                "input": {
+                  "pattern": "DELTA",
+                  "path": "sevkiyatlar.txt",
+                  "case_sensitive": false,
+                  "context_lines": 2,
+                  "max_results": 10
+                }
+              }
+            ],
+            "requestUsage": [
+              {
+                "promptTokens": 8448,
+                "completionTokens": 102,
+                "totalTokens": 8550,
+                "cachedTokens": 0,
+                "cacheWriteTokens": 0
+              },
+              {
+                "promptTokens": 8692,
+                "completionTokens": 59,
+                "totalTokens": 8751,
+                "cachedTokens": 6656,
+                "cacheWriteTokens": 0
+              }
+            ],
+            "mainMessageTokens": 17301,
+            "totalTokens": 17301,
+            "auxiliaryTokens": 0,
+            "cachedTokens": 6656
+          }
+        ],
+        "buildBefore": {
+          "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+          "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+          "packages/sdk/dist/run/evidence-query.js": "d436fbf73b1d8e27d0cba7baedc8c6b4d657fbeb5109ba8a01ae276568ad2bbd",
+          "packages/sdk/dist/run/evidence-recall.js": "771dfc501e3d9b9c1a5bcac27b9202fa4107cd197318edcf3ffae2d214d5b0c8",
+          "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+          "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+          "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+          "packages/cli/dist/integrations/sessions/evidence-recall.js": "14f6f1dc6107b6d4fe0277e0a6d8e7ec4ffa98c597bbe6098e3a306d6bcb9f27",
+          "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+          "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+          "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+        },
+        "prerequisites": {
+          "capturedBoth": true,
+          "initialStopReason": "end_turn",
+          "initialCompleted": true,
+          "visibleOriginalCount": 0,
+          "initialSourceUnchanged": true,
+          "successfulInitialRead": true,
+          "progressUpdates": 0
+        },
+        "observations": {
+          "correctOriginal": false,
+          "usedReplacement": true,
+          "allOriginalAbsentFromVisible": true,
+          "archiveSearches": 0,
+          "exactArchiveReads": 0,
+          "workspaceObservations": 1,
+          "failedTools": 0,
+          "replacementUnchanged": true
+        },
+        "passed": false,
+        "historicalPassed": false,
+        "buildAfter": {
+          "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+          "packages/sdk/dist/runtime/query/iteration/index.js": "355db7f8ee07a43928add610ccda33919cb8cf928e8c4380f042757f8203a2d8",
+          "packages/sdk/dist/run/evidence-query.js": "d436fbf73b1d8e27d0cba7baedc8c6b4d657fbeb5109ba8a01ae276568ad2bbd",
+          "packages/sdk/dist/run/evidence-recall.js": "771dfc501e3d9b9c1a5bcac27b9202fa4107cd197318edcf3ffae2d214d5b0c8",
+          "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4",
+          "packages/sdk/dist/store/evidence/linked.js": "050f9201fcd35821f109eb872614729ffa69cb6462c2827a122840d45fe6e211",
+          "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+          "packages/cli/dist/integrations/sessions/evidence-recall.js": "14f6f1dc6107b6d4fe0277e0a6d8e7ec4ffa98c597bbe6098e3a306d6bcb9f27",
+          "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+          "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+          "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370"
+        },
+        "buildStable": true,
+        "receipts": [
+          {
+            "phase": "2",
+            "preparation": true,
+            "text": "INVALID_QUERY_PLAN_CONTROL",
+            "usage": {
+              "promptTokens": 0,
+              "completionTokens": 0,
+              "totalTokens": 0,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          },
+          {
+            "phase": "2",
+            "preparation": false,
+            "usage": {
+              "promptTokens": 8448,
+              "completionTokens": 102,
+              "totalTokens": 8550,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          },
+          {
+            "phase": "2",
+            "preparation": false,
+            "usage": {
+              "promptTokens": 8692,
+              "completionTokens": 59,
+              "totalTokens": 8751,
+              "cachedTokens": 6656,
+              "cacheWriteTokens": 0
+            }
+          }
+        ],
+        "requests": [
+          {
+            "phase": "2",
+            "preparation": true,
+            "queryInput": {
+              "current": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+              "history": [
+                {
+                  "message": 0,
+                  "role": "user",
+                  "text": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+                  "truncated": false
+                },
+                {
+                  "message": 1,
+                  "role": "assistant",
+                  "text": "DELTA kaydı, takip kodu ve hedef depo bilgisi içeriyor.",
+                  "truncated": false
+                }
+              ],
+              "tokens": [
+                [
+                  0,
+                  "Az"
+                ],
+                [
+                  1,
+                  "önce"
+                ],
+                [
+                  2,
+                  "baktığın"
+                ],
+                [
+                  3,
+                  "kaydın"
+                ],
+                [
+                  4,
+                  "iki"
+                ],
+                [
+                  5,
+                  "kimliğini"
+                ],
+                [
+                  6,
+                  "aynen"
+                ],
+                [
+                  7,
+                  "yazar"
+                ],
+                [
+                  8,
+                  "mısın"
+                ],
+                [
+                  9,
+                  "sevkiyatlar"
+                ],
+                [
+                  10,
+                  "txt"
+                ],
+                [
+                  11,
+                  "dosyasındaki"
+                ],
+                [
+                  12,
+                  "DELTA"
+                ],
+                [
+                  13,
+                  "kaydını"
+                ],
+                [
+                  14,
+                  "incele"
+                ],
+                [
+                  15,
+                  "yalnızca"
+                ],
+                [
+                  16,
+                  "hangi"
+                ],
+                [
+                  17,
+                  "tür"
+                ],
+                [
+                  18,
+                  "bilgileri"
+                ],
+                [
+                  19,
+                  "içerdiğini"
+                ],
+                [
+                  20,
+                  "bir"
+                ],
+                [
+                  21,
+                  "cümleyle"
+                ],
+                [
+                  22,
+                  "söyle"
+                ],
+                [
+                  23,
+                  "kaydı"
+                ],
+                [
+                  24,
+                  "takip"
+                ],
+                [
+                  25,
+                  "kodu"
+                ],
+                [
+                  26,
+                  "ve"
+                ],
+                [
+                  27,
+                  "hedef"
+                ],
+                [
+                  28,
+                  "depo"
+                ],
+                [
+                  29,
+                  "bilgisi"
+                ],
+                [
+                  30,
+                  "içeriyor"
+                ]
+              ],
+              "omittedTokens": 0
+            },
+            "availability": false,
+            "contextChars": 0,
+            "contextOriginals": [
+              false,
+              false
+            ],
+            "ordinaryOriginals": [
+              false,
+              false
+            ]
+          },
+          {
+            "phase": "2",
+            "preparation": false,
+            "availability": true,
+            "contextChars": 819,
+            "contextOriginals": [
+              false,
+              false
+            ],
+            "ordinaryOriginals": [
+              false,
+              false
+            ]
+          },
+          {
+            "phase": "2",
+            "preparation": false,
+            "availability": true,
+            "contextChars": 819,
+            "contextOriginals": [
+              false,
+              false
+            ],
+            "ordinaryOriginals": [
+              false,
+              false
+            ]
+          }
+        ],
+        "fingerprints": {
+          "packages/sdk/src/runtime/query/callback-inference.ts": "88d2b8d13dfc584210fe68c502929fb04831131936908c0a4aa3055410bdca22",
+          "packages/sdk/src/runtime/query/iteration/index.ts": "be685b1aec97f96b9be4d173a02a33bac5881395ad7653f65802c0d4caea5e9a",
+          "packages/sdk/src/run/evidence-query.ts": "8f30bc038bb3de906cb80fac1ce8876b36ae955196a8b0eaab966370579f853f",
+          "packages/sdk/src/run/evidence-recall.ts": "119d177b5c28d96f267344c0df5c22dfaf9f77c74dbffbd1114854adf345939e",
+          "packages/cli/src/integrations/sessions/evidence-recall.ts": "d991a53762174d1f546e0f3b8db9fdc4d9a1836cc6553286229b9cab162874e2",
+          "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+          "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+          "packages/cli/src/integrations/sessions/conversation-search.ts": "7c70e3d890899503282c63dc937ae5aa273fea1df0523e411f980d684d6b87cf",
+          "packages/cli/src/tui/agent.ts": "659b49ea57ad71aa9fd49b47ac088af902e7209fe72a569a8953da44c399903d",
+          "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+          "research/conversation-evidence/natural-cli.mjs": "7dd11479b01c75127daf33a9a679d445ff6123fcb636b203471093ebc9da0a60"
+        }
+      }
+    }
+  ],
+  "finalBuildMatchesAvailabilityOnly": true,
+  "internalBridgeSha256": "0ef905aac27ad8f11539d7a381d588d61ec6351384269c353609c9d2f87995f0",
+  "tui": {
+    "root": "/tmp/namzu-default-recall-tui-Y0GP7s",
+    "columns": 100,
+    "rows": 28,
+    "liveTokens": 0,
+    "seed": {
+      "root": "/tmp/namzu-default-recall-tui-Y0GP7s",
+      "sessionId": "5cda3bed-3185-4a09-bc61-9baec4f53885",
+      "runId": "d692531c-fc57-4218-9c33-9f56bc2d0ed5",
+      "runDir": "/tmp/namzu-default-recall-tui-Y0GP7s/home/sessions/5cda3bed-3185-4a09-bc61-9baec4f53885/runs/d692531c-fc57-4218-9c33-9f56bc2d0ed5",
+      "original": [
+        "TAKIP-76d7a86b-0411-4e42-bba2-97e72feea6a6",
+        "DEPO-9fa6acd1-6de1-40fc-b152-2f958281e763"
+      ],
+      "current": [
+        "YENI-TAKIP-00ee08c9-75e0-4fa3-8ad4-5ca5dc994040",
+        "YENI-DEPO-9f272212-92fb-4326-926f-4fbb53939cb7"
+      ],
+      "currentText": "DELTA current identifiers: YENI-TAKIP-00ee08c9-75e0-4fa3-8ad4-5ca5dc994040 YENI-DEPO-9f272212-92fb-4326-926f-4fbb53939cb7\n",
+      "sourceHashes": {
+        "run.json": "c867cf3369d46231cf0b3cc4b72dada4524aa8549b076e5555a10dff7995ec56",
+        "transcript.jsonl": "fafa94867610b6ddcc6cc0f58bfc427904838ac1fa4af5743cd6c792a8d76ced"
+      }
+    },
+    "trace": [
+      {
+        "planner": true,
+        "contexts": [],
+        "turn": {
+          "text": "INVALID_QUERY_PLAN_CONTROL"
+        },
+        "sourceHashes": {
+          "run.json": "c867cf3369d46231cf0b3cc4b72dada4524aa8549b076e5555a10dff7995ec56",
+          "transcript.jsonl": "fafa94867610b6ddcc6cc0f58bfc427904838ac1fa4af5743cd6c792a8d76ced"
+        }
+      },
+      {
+        "planner": false,
+        "contexts": [
+          {
+            "role": "user",
+            "content": "Current step context (runtime-generated; not a new user request):\nConversation evidence availability (not retrieved evidence):\n{\"status\":\"unavailable\",\"stage\":\"query_planning\",\"reason\":\"failed\",\"guidance\":\"This automatic pass supplied no evidence. This does not establish that earlier records are absent. When a past detail is needed, use available read-only conversation-history tools or disclose uncertainty if it remains unverified. Current files do not establish what was observed earlier. Never replay a state-changing action to recover its output.\"}\n",
+            "timestamp": 1789292098971,
+            "source": {
+              "type": "runtime-context",
+              "kind": "step-context"
+            }
+          }
+        ],
+        "turn": {
+          "toolCalls": [
+            {
+              "id": "history-search",
+              "name": "search_conversation",
+              "args": {
+                "query": "DELTA"
+              }
+            }
+          ]
+        },
+        "sourceHashes": {
+          "run.json": "c867cf3369d46231cf0b3cc4b72dada4524aa8549b076e5555a10dff7995ec56",
+          "transcript.jsonl": "fafa94867610b6ddcc6cc0f58bfc427904838ac1fa4af5743cd6c792a8d76ced"
+        }
+      },
+      {
+        "planner": false,
+        "contexts": [
+          {
+            "role": "user",
+            "content": "Current step context (runtime-generated; not a new user request):\nConversation evidence availability (not retrieved evidence):\n{\"status\":\"unavailable\",\"stage\":\"query_planning\",\"reason\":\"failed\",\"guidance\":\"This automatic pass supplied no evidence. This does not establish that earlier records are absent. When a past detail is needed, use available read-only conversation-history tools or disclose uncertainty if it remains unverified. Current files do not establish what was observed earlier. Never replay a state-changing action to recover its output.\"}\n",
+            "timestamp": 1789292099026,
+            "source": {
+              "type": "runtime-context",
+              "kind": "step-context"
+            }
+          }
+        ],
+        "turn": {
+          "toolCalls": [
+            {
+              "id": "history-read",
+              "name": "read_conversation",
+              "args": {
+                "runId": "d692531c-fc57-4218-9c33-9f56bc2d0ed5",
+                "seq": 2,
+                "part": 0,
+                "byteOffset": 0
+              }
+            }
+          ]
+        },
+        "sourceHashes": {
+          "run.json": "c867cf3369d46231cf0b3cc4b72dada4524aa8549b076e5555a10dff7995ec56",
+          "transcript.jsonl": "fafa94867610b6ddcc6cc0f58bfc427904838ac1fa4af5743cd6c792a8d76ced"
+        }
+      },
+      {
+        "planner": false,
+        "contexts": [
+          {
+            "role": "user",
+            "content": "Current step context (runtime-generated; not a new user request):\nConversation evidence availability (not retrieved evidence):\n{\"status\":\"unavailable\",\"stage\":\"query_planning\",\"reason\":\"failed\",\"guidance\":\"This automatic pass supplied no evidence. This does not establish that earlier records are absent. When a past detail is needed, use available read-only conversation-history tools or disclose uncertainty if it remains unverified. Current files do not establish what was observed earlier. Never replay a state-changing action to recover its output.\"}\n",
+            "timestamp": 1789292099058,
+            "source": {
+              "type": "runtime-context",
+              "kind": "step-context"
+            }
+          }
+        ],
+        "turn": {
+          "text": "Arşivden doğrulandı: TAKIP-76d7a86b-0411-4e42-bba2-97e72feea6a6 · DEPO-9fa6acd1-6de1-40fc-b152-2f958281e763"
+        },
+        "sourceHashes": {
+          "run.json": "c867cf3369d46231cf0b3cc4b72dada4524aa8549b076e5555a10dff7995ec56",
+          "transcript.jsonl": "fafa94867610b6ddcc6cc0f58bfc427904838ac1fa4af5743cd6c792a8d76ced"
+        }
+      }
+    ],
+    "screen": "\n█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n█ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v24.0.0\n\n⚠ Auto-approve tools — tools run without asking. Use /permissions to change this.\n\n› Inspect the DELTA record in sevkiyatlar.txt.\n\n∴ DELTA has tracking and depot identifiers.\n\n› Az önce baktığın kaydın iki kimliğini aynen yazar mısın?\n\n✓ Conversation search · 1 matches on this page\n  Traversal finished within selected sources\n  Tool result (read): DELTA original identifiers: TAKIP-76d7a86b-0411-4e42-bba2-97e72feea6a6 \n  DEPO-9fa6acd1-6de1-40fc-… · ctrl+o details\n\n✓ Conversation read · Tool result (read)\n  Selected retained part returned\n  Original tool reported no error\n  Excerpt: DELTA original identifiers: TAKIP-76d7a86b-0411-4e42-bba2-97e72feea6a6 \n  DEPO-9fa6acd1-6de1-40fc-b152-2f958281e763 · ctrl+o details\n\n ∴ Arşivden doğrulandı: TAKIP-76d7a86b-0411-4e42-bba2-97e72feea6a6 · \n   DEPO-9fa6acd1-6de1-40fc-b152-2f958281e763\n\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ ⏵⏵ Auto-approve tools (shift+tab to cycle)                                                     │\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n\n gpt-5.6-luna default · /tmp/namzu-default-recall-tui-Y0GP7s/workspace\nTo resume this conversation, run: /home/arda/.local/node/bin/node /home/arda/workspaces/@cogitave/co\ngitave/namzu/packages/cli/dist/bin.js resume 5cda3bed-3185-4a09-bc61-9baec4f53885\n\nScript done on 2026-09-13 12:35:53+03:00 [COMMAND_EXIT_CODE=\"0\"]\n",
+    "exitCode": 0
+  }
+}

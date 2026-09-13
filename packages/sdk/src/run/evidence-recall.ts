@@ -9,6 +9,7 @@ import { evidenceRecordedAt } from '../utils/evidence-time.js'
 import { evidenceTokenKey, evidenceTokens, isEvidenceToken } from '../utils/evidence-tokens.js'
 import { isEntityId } from '../utils/id.js'
 import { createEvidenceQueryResolver } from './evidence-query.js'
+import { PreparationContextError } from './preparation-context-error.js'
 
 /** @experimental An authenticated historical passage, never a current-state assertion. */
 export interface EvidenceRecallCandidate {
@@ -84,6 +85,31 @@ const GLUE = new Set(
 	),
 )
 const pending = new WeakMap<EvidenceRecallOptions['retrieve'], Promise<EvidenceRecallBatch>>()
+
+// Only fixed capability status enters model context. Error bodies, rejected
+// candidates, source paths and malformed plans remain outside this note.
+function availabilityNote(
+	stage: 'query_planning' | 'retrieval',
+	reason: 'failed' | 'timeout' | 'pending',
+): string {
+	return `Conversation evidence availability (not retrieved evidence):\n${JSON.stringify({
+		status: 'unavailable',
+		stage,
+		reason,
+		guidance:
+			'This automatic pass supplied no evidence. This does not establish that earlier records are absent. When a past detail is needed, use available read-only conversation-history tools or disclose uncertainty if it remains unverified. Current files do not establish what was observed earlier. Never replay a state-changing action to recover its output.',
+	})}\n`
+}
+
+function unavailable(
+	cause: unknown,
+	stage: 'query_planning' | 'retrieval',
+	reason: 'failed' | 'timeout',
+	charBudget: number,
+): unknown {
+	const note = availabilityNote(stage, reason)
+	return note.length <= charBudget ? new PreparationContextError(cause, note) : cause
+}
 
 /**
  * @experimental Suggest a strict query subset not yet covered by bounded excerpts.
@@ -318,7 +344,8 @@ function continuationHints(batch: EvidenceRecallBatch): EvidenceRecallContinuati
 /**
  * Recall scoped evidence into ephemeral trailing request context. No historical
  * messages or system guidance are changed. Every step revalidates its source;
- * timeout/error reaches the runtime's prepareStep diagnostic, never a cached fact.
+ * timeout/error reaches the runtime's diagnostic and bounded availability context,
+ * never a cached fact or raw error body in model input.
  */
 export function createEvidenceRecallStep(options: EvidenceRecallOptions): PrepareStep {
 	if (options.resolveQuery !== undefined && typeof options.resolveQuery !== 'boolean')
@@ -356,9 +383,20 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 		let terms = [...new Set(evidenceTokens(query.slice(-4_000)))]
 			.filter((term) => term.length <= 256 && !GLUE.has(term.toLowerCase()))
 			.slice(0, 16)
-		if (!terms.length || charBudget <= HEADER.length + 200 || pending.has(retrieve))
-			return undefined
-		const resolution = options.resolveQuery ? await resolveQuery(context, query) : undefined
+		if (!terms.length || charBudget <= HEADER.length + 200) return undefined
+		if (pending.has(retrieve)) {
+			const note = availabilityNote('retrieval', 'pending')
+			return note.length <= charBudget
+				? { context: [prepared.context, note].filter(Boolean).join('\n\n') }
+				: undefined
+		}
+		let resolution: Awaited<ReturnType<typeof resolveQuery>>
+		try {
+			resolution = options.resolveQuery ? await resolveQuery(context, query) : undefined
+		} catch (error) {
+			signal?.throwIfAborted()
+			throw unavailable(error, 'query_planning', 'failed', charBudget)
+		}
 		signal?.throwIfAborted()
 		if (resolution === null) return undefined
 		if (resolution && 'kind' in resolution) {
@@ -700,6 +738,14 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				block.length <= charBudget
 				? { context: [prepared.context, block].filter(Boolean).join('\n\n') }
 				: undefined
+		} catch (error) {
+			signal?.throwIfAborted()
+			throw unavailable(
+				error,
+				'retrieval',
+				controller.signal.aborted ? 'timeout' : 'failed',
+				charBudget,
+			)
 		} finally {
 			clearTimeout(timer)
 			signal?.removeEventListener('abort', abort)

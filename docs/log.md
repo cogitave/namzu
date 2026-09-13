@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Carry bounded availability status for failed [evidence recall](sdk/evidence-recall.md) into temporary request context, preserving diagnostics, cancellation and explicit archive recovery without exposing raw errors or rejected data.
+
 - **Update** Enable bounded [historical evidence recall](cli/context-and-compaction.md) by default in recorded CLI conversations, preserve explicit opt-out and SDK host control, and measure natural follow-ups against replaced workspace files.
 
 - **Update** Preserve source, preview and page status in [conversation evidence](cli/conversation-evidence.md) terminal summaries, retain full JSON in the output viewer, and verify the actual resumed TUI with scoped archive tools.

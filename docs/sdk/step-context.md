@@ -36,6 +36,15 @@ replace it, or clear it with an empty string. An omitted field preserves the
 preceding stage's decision. Every new step starts without the previous step's
 context. Preparation keeps its existing fail-open semantics.
 
+An SDK evidence-recall failure can contribute a bounded availability note while
+remaining an error in diagnostics. This tells the model that automatic recall
+was unavailable rather than implying a successful empty search. Only a fixed
+status note crosses this internal boundary: raw exception text and rejected
+evidence do not. The kernel preserves earlier stage decisions, checks remaining
+request room, and adds nothing after cancellation. Other callback exceptions
+retain their diagnostic-only behavior. See [evidence recall](evidence-recall.md)
+for query-planning, retrieval, timeout and pending-read states.
+
 The message is projected into the request, not appended to the run's conversation
 history. It therefore does not accumulate, enter a later compaction as an
 operator message, or persist as conversation input on resume. A host can record

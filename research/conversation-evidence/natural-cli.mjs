@@ -8,6 +8,8 @@ import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
 const live = process.argv.includes('--live');
+const failQueryPlan = process.argv.includes('--fail-query-plan');
+if (failQueryPlan && !live) throw new Error('--fail-query-plan requires --live; only preparation is replaced, main requests remain live.');
 const checkCurrent = process.argv.includes('--check-current');
 const recallEvidence = process.argv.includes('--recall-evidence');
 const disableRecall = process.argv.includes('--disable-recall');
@@ -40,7 +42,7 @@ const sdkURL = new URL('../../packages/sdk/dist/index.js', import.meta.url);
 const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
 const preload = join(root, 'scripted-provider.mjs');
 const observer = join(root, 'observe-provider.mjs');
-await writeFile(observer, `import {ProviderRegistry} from ${JSON.stringify(sdkURL.href)};
+await writeFile(observer, `import {ProviderRegistry,MockLLMProvider} from ${JSON.stringify(sdkURL.href)};
 import {appendFile} from 'node:fs/promises';
 const create=ProviderRegistry.create.bind(ProviderRegistry);
 ProviderRegistry.create=(...args)=>{const created=create(...args);const stream=created.provider.chatStream.bind(created.provider);
@@ -50,8 +52,9 @@ created.provider.chatStream=async function*(params){
  const codes=${JSON.stringify(Object.values(original))};
  let preparationText='';
  const preparation=params.messages.length===2&&String(params.messages[0]?.content).startsWith('Resolve a conversation-history search query.');
- await appendFile(${JSON.stringify(join(root, 'requests.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,preparation,...(preparation?{queryInput:JSON.parse(String(params.messages[1]?.content))}:{}),contextChars:context.reduce((n,m)=>n+String(m.content).length,0),contextOriginals:codes.map(code=>context.some(m=>String(m.content).includes(code))),ordinaryOriginals:codes.map(code=>ordinary.some(m=>JSON.stringify(m).includes(code)))})+'\\n');
- for await(const chunk of stream(params)){
+ await appendFile(${JSON.stringify(join(root, 'requests.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,preparation,...(preparation?{queryInput:JSON.parse(String(params.messages[1]?.content))}:{}),availability:context.some(m=>String(m.content).includes('"status":"unavailable"')),contextChars:context.reduce((n,m)=>n+String(m.content).length,0),contextOriginals:codes.map(code=>context.some(m=>String(m.content).includes(code))),ordinaryOriginals:codes.map(code=>ordinary.some(m=>JSON.stringify(m).includes(code)))})+'\\n');
+ const response=preparation&&${failQueryPlan}?new MockLLMProvider({turns:[{text:'INVALID_QUERY_PLAN_CONTROL'}]}).chatStream(params):stream(params);
+ for await(const chunk of response){
   if(preparation) preparationText+=(chunk.delta.content??'');
   if(chunk.usage) await appendFile(${JSON.stringify(join(root, 'receipts.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,preparation,...(preparation?{text:preparationText}:{}),usage:chunk.usage})+'\\n');
   yield chunk;
@@ -89,9 +92,9 @@ if(phase==='1') {
  yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
 }}};};`);
 
-const builtFiles=['packages/sdk/dist/runtime/query/callback-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
+const builtFiles=['packages/sdk/dist/runtime/query/callback-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/run/preparation-context-error.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
 const fingerprints=async()=>Object.fromEntries(await Promise.all(builtFiles.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
-const report = { root, live, checkCurrent, recallConfiguration, referential, scriptedObservation, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
+const report = { root, live, failQueryPlan, checkCurrent, recallConfiguration, referential, scriptedObservation, progressUpdates, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
 const allEvents = async () => {
   const events = [];
   for (const session of await readdir(join(home, 'sessions'), { withFileTypes: true })) {
@@ -234,7 +237,7 @@ finally {
   try {report.receipts=(await readFile(join(root,'receipts.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
   try {report.requests=(await readFile(join(root,'requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
   report.fingerprints={};
-  for(const path of ['packages/sdk/src/runtime/query/callback-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
+  for(const path of ['packages/sdk/src/runtime/query/callback-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/sdk/src/run/preparation-context-error.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
     report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
   await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({root,live,passed:report.passed,prerequisites:report.prerequisites,observations:report.observations,currentCheck:report.currentCheck,turns:report.turns.map(t=>({phase:t.phase,calls:t.calls,totalTokens:t.totalTokens})),error:report.error}));

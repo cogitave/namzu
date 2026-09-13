@@ -861,7 +861,7 @@ describe('ephemeral scoped evidence recall', () => {
 		await vi.advanceTimersByTimeAsync(11)
 		await rejected
 		expect(readSignal?.aborted).toBe(true)
-		expect(await recall(context())).toBeUndefined()
+		expect((await recall(context()))?.context).toContain('"reason":"pending"')
 		expect(retrieve).toHaveBeenCalledTimes(1)
 		settle(batch(candidate('DELTA STALE')))
 		await vi.advanceTimersByTimeAsync(0)
@@ -878,4 +878,18 @@ describe('ephemeral scoped evidence recall', () => {
 		)
 		expect(retrieve).not.toHaveBeenCalled()
 	})
+})
+
+it('does not attach a failure note to parent cancellation during retrieval', async () => {
+	const controller = new AbortController()
+	const stopped = new Error('operator stop')
+	const recall = createEvidenceRecallStep({
+		scope,
+		retrieve: async () => {
+			controller.abort(stopped)
+			return batch(candidate('DELTA LATE_PRIVATE_DATA'))
+		},
+	})
+	await expect(recall({ ...context(), signal: controller.signal })).rejects.toBe(stopped)
+	expect(stopped).not.toHaveProperty('context')
 })

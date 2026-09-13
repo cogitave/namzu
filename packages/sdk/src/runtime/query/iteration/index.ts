@@ -14,6 +14,7 @@ import { renderSkillsSection } from '../../../persona/assembler.js'
 import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
+import { PreparationContextError } from '../../../run/preparation-context-error.js'
 import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
 import {
 	GENAI,
@@ -2018,6 +2019,21 @@ export class IterationOrchestrator {
 					'namzu.runtime.step_number': stepNumber,
 					'exception.message': toErrorMessage(err),
 				})
+				// An SDK stage may report capability availability without exposing its
+				// error or partial data. Preserve prior decisions and the context budget;
+				// ordinary exceptions still contribute nothing to the model request.
+				if (err instanceof PreparationContextError && !this.ctx.abortController.signal.aborted) {
+					const room = this.stepContext(stepNumber, result).contextBudget?.remainingTokens ?? 0
+					if (
+						typeof err.context === 'string' &&
+						err.context.length > 0 &&
+						err.context.length + (result.context ? 2 : 0) <= Math.min(12_000, Math.floor(room))
+					)
+						result = {
+							...result,
+							context: [result.context, err.context].filter(Boolean).join('\n\n'),
+						}
+				}
 			} finally {
 				inference.close()
 			}

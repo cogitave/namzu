@@ -13,6 +13,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 
 const seeding = process.argv[2] === "--seed";
+const failQueryPlan = process.env.NAMZU_RECALL_FAIL_PLAN === "1";
 const root = seeding
 	? await mkdtemp(join(tmpdir(), "namzu-default-recall-tui-"))
 	: process.env.NAMZU_DEFAULT_RECALL_ROOT;
@@ -155,6 +156,7 @@ if (seeding) {
 									},
 						),
 					};
+					if (failQueryPlan) turn = { text: "INVALID_QUERY_PLAN_CONTROL" };
 				} else {
 					const operator = params.messages
 						.filter((m) => m.role === "user" && !m.source)
@@ -179,6 +181,52 @@ if (seeding) {
 									},
 								],
 							};
+					} else if (failQueryPlan) {
+						assert.ok(text.includes('"status":"unavailable"'));
+						assert.ok(!text.includes("INVALID_QUERY_PLAN_CONTROL"));
+						const result = params.messages
+							.filter((m) => m.role === "tool")
+							.at(-1);
+						if (!result)
+							turn = {
+								toolCalls: [
+									{
+										id: "history-search",
+										name: "search_conversation",
+										args: { query: "DELTA" },
+									},
+								],
+							};
+						else {
+							const raw = sdk.toolResultToText(result.content);
+							const page = JSON.parse(
+								raw.slice(raw.indexOf("{"), raw.lastIndexOf("}") + 1),
+							);
+							if (result.toolCallId === "history-search") {
+								const match = page.matches.find((m) => m.toolName === "read");
+								assert.ok(match);
+								turn = {
+									toolCalls: [
+										{
+											id: "history-read",
+											name: "read_conversation",
+											args: {
+												runId: match.runId,
+												seq: match.seq,
+												part: match.part,
+												byteOffset: match.byteOffset,
+											},
+										},
+									],
+								};
+							} else {
+								for (const value of seed.original)
+									assert.ok(page.text.includes(value));
+								turn = {
+									text: `Arşivden doğrulandı: ${seed.original.join(" · ")}`,
+								};
+							}
+						}
 					} else {
 						const ordinary = JSON.stringify(
 							params.messages.filter((m) => !contexts.includes(m)),

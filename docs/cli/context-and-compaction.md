@@ -114,7 +114,11 @@ literal-query behavior and avoid the additional inference cost. This setting
 has no effect when `recallEvidence` is off.
 
 Planning and retrieval are optional preparation: invalid model plans, deadlines
-or read failures are diagnosed and skipped so the main request can continue.
+or read failures are diagnosed so the main request can continue. When room
+permits, a temporary availability note tells the model that the automatic pass
+failed and supplied no evidence. It does not claim that history is absent or
+copy raw error text into the conversation. Explicit archive tools remain usable;
+an unavailable planner does not spend another planning call every iteration.
 This is not a guarantee that the model will recover a missing detail or select
 the right source. The [default-recall experiment](../../research/conversation-evidence/default-recall-results.md)
 records the natural CLI control, inference usage and its limits.
