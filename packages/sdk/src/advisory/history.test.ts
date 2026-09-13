@@ -182,4 +182,23 @@ describe('advisory public history', () => {
 		)
 		expect(renderAdvisoryHistory([])).toBe('')
 	})
+
+	it('budgets request and subsequent records together without duplicating canonical history', () => {
+		const canonical: Message[] = [{ role: 'user', content: 'Undispatched canonical input.' }]
+		const turn = {
+			iteration: 3,
+			requestMessages: [{ role: 'user' as const, content: 'Temporary reference.' }],
+			subsequentMessages: [{ role: 'assistant' as const, content: 'Answer.' }],
+		}
+		const text = renderAdvisoryHistory(canonical, undefined, turn)
+		expect(text).not.toContain('Undispatched canonical input.')
+		const all = records(text)
+		expect(all.map((row) => JSON.parse(row).stage)).toEqual(['request', 'subsequent'])
+		const budget = (all[1] as string).length / 4
+		const limited = renderAdvisoryHistory(canonical, budget, turn)
+		expect(records(limited)).toEqual([all[1]])
+		expect(limited).toContain('1 earlier message(s) omitted')
+		expect(limited).toContain('Iteration 3')
+		expect(records(renderAdvisoryHistory(canonical, budget - 0.25, turn))).toHaveLength(0)
+	})
 })

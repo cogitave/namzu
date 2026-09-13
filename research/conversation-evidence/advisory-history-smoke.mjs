@@ -7,6 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const live = process.argv.includes("--live");
+const transition = process.argv.includes("--transition");
 const root = await mkdtemp(join(tmpdir(), "namzu-advisory-observation-"));
 const home = join(root, "home");
 const cwd = join(root, "workspace");
@@ -30,6 +31,8 @@ const fingerprints = async () =>
 				"packages/sdk/dist/advisory/history.js",
 				"packages/sdk/dist/advisory/executor.js",
 				"packages/sdk/dist/runtime/query/iteration/phases/advisory.js",
+				"packages/sdk/dist/runtime/query/iteration/index.js",
+				"packages/sdk/dist/runtime/query/iteration/stream-turn.js",
 				"packages/providers/openai/dist/codex.js",
 			].map(async (path) => [
 				path,
@@ -39,21 +42,38 @@ const fingerprints = async () =>
 			]),
 		),
 	);
-const report = { live, root, buildBefore: await fingerprints(), requests: [] };
+const report = {
+	live,
+	transition,
+	root,
+	buildBefore: await fingerprints(),
+	requests: [],
+};
 const observed = `OBSERVED-${randomUUID()}`;
 const original = `receipt code: ${observed}\n`;
+const changed = `CHANGED-${randomUUID()}`;
+const expectedFinal = transition ? `receipt code: ${changed}\n` : original;
+const toolName = transition ? "replace_receipt" : "observe_receipt";
 await writeFile(join(cwd, "receipt.txt"), original);
 const tools = new sdk.ToolRegistry();
 let reads = 0;
+let writes = 0;
+let preparationReads = 0;
 tools.register({
-	name: "observe_receipt",
-	description: "Read the fixture receipt.",
+	name: toolName,
+	description: transition
+		? "Replace the isolated fixture receipt and return its new contents."
+		: "Read the fixture receipt.",
 	inputSchema: sdk.mcpJsonSchemaToZod({
 		type: "object",
 		properties: {},
 		additionalProperties: false,
 	}),
 	execute: async () => {
+		if (transition) {
+			writes++;
+			await writeFile(join(cwd, "receipt.txt"), expectedFinal);
+		}
 		reads++;
 		const text = await readFile(join(cwd, "receipt.txt"), "utf8");
 		return {
@@ -74,9 +94,7 @@ const main = new sdk.MockLLMProvider({
 	turns: [
 		{
 			text: "My guess is receipt code CLAIM-ONLY.",
-			toolCalls: [
-				{ id: "receipt-observation", name: "observe_receipt", args: {} },
-			],
+			toolCalls: [{ id: "receipt-observation", name: toolName, args: {} }],
 		},
 		{
 			text: "Scripted transport control ended; inspect the advisor response in result.json.",
@@ -111,13 +129,20 @@ advisor.chatStream = async function* (params) {
 		(row) => row.role === "tool" && row.toolCallId === "receipt-observation",
 	);
 	assert.equal(observation.isError, false);
-	assert.equal(observation.content[0].text, original);
+	assert.equal(observation.content[0].text, expectedFinal);
 	assert.equal(observation.content[1].contentOmitted, true);
+	if (transition) {
+		assert.equal(observation.stage, "subsequent");
+		const reference = rows.find((row) => row.source?.kind === "step-context");
+		assert.equal(reference.stage, "request");
+		assert.ok(reference.content.includes(original));
+		assert.ok(!reference.content.includes(changed));
+		assert.ok(!observation.content[0].text.includes(observed));
+	}
 	assert.ok(
 		rows.some((row) =>
 			row.toolCalls?.some(
-				(call) =>
-					call.id === "receipt-observation" && call.name === "observe_receipt",
+				(call) => call.id === "receipt-observation" && call.name === toolName,
 			),
 		),
 	);
@@ -142,6 +167,17 @@ const result = await sdk.drainQuery({
 	tools,
 	workingDirectory: cwd,
 	retry: false,
+	...(transition
+		? {
+				prepareStep: async () => {
+					preparationReads++;
+					const text = await readFile(join(cwd, "receipt.txt"), "utf8");
+					return {
+						context: `The host read receipt.txt immediately before this request:\n${text}`,
+					};
+				},
+			}
+		: {}),
 	tenantId: sdk.generateTenantId(),
 	projectId: sdk.generateProjectId(),
 	sessionId: sdk.generateSessionId(),
@@ -175,8 +211,9 @@ const result = await sdk.drainQuery({
 			{
 				id: "after-observation",
 				condition: { type: "on_iteration", everyN: 1 },
-				questionTemplate:
-					"Which receipt code is supported by the actual file observation? Distinguish the assistant guess. State whether this text projection contains image pixels. Keep the advice brief.",
+				questionTemplate: transition
+					? "Report the receipt code before this tool action and after it, using the staged observations. Distinguish the assistant guess. State whether this text projection contains image pixels. Keep the advice brief."
+					: "Which receipt code is supported by the actual file observation? Distinguish the assistant guess. State whether this text projection contains image pixels. Keep the advice brief.",
 			},
 		],
 	},
@@ -184,21 +221,35 @@ const result = await sdk.drainQuery({
 report.stopReason = result.stopReason;
 report.usage = result.tokenUsage;
 report.reads = reads;
+report.writes = writes;
+report.preparationReads = preparationReads;
 report.observed = observed;
+report.changed = changed;
 report.adviceReachedMain = main.requests
 	.at(-1)
 	.messages.some((m) => m.role === "user" && m.source?.kind === "advisory");
 report.fileUnchanged =
 	(await readFile(join(cwd, "receipt.txt"), "utf8")) === original;
+report.fileMatchesExpected =
+	(await readFile(join(cwd, "receipt.txt"), "utf8")) === expectedFinal;
+report.transientPersisted = JSON.stringify(result.messages).includes(
+	"The host read receipt.txt immediately before this request:",
+);
 report.buildAfter = await fingerprints();
 await writeFile(
 	join(root, "result.json"),
 	`${JSON.stringify(report, null, 2)}\n`,
 );
 assert.equal(reads, 1);
+assert.equal(writes, transition ? 1 : 0);
+assert.equal(preparationReads, transition ? 2 : 0);
 assert.equal(report.requests.length, 1);
 assert.equal(result.stopReason, "end_turn");
-assert.ok(report.adviceReachedMain && report.fileUnchanged);
+assert.ok(
+	report.adviceReachedMain &&
+		report.fileMatchesExpected &&
+		!report.transientPersisted,
+);
 assert.deepEqual(report.buildAfter, report.buildBefore);
 console.log(
 	JSON.stringify({

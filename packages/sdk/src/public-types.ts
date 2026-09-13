@@ -111,6 +111,7 @@ export type {
 
 export type {
 	AdvisoryCallContext,
+	AdvisoryTurnContext,
 	AdvisoryExecutionResult,
 } from './advisory/index.js'
 

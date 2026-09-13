@@ -177,6 +177,28 @@ export function settleGraceMs(remainingBeforeFinalizeMs: number): number {
 
 export class IterationOrchestrator {
 	private ctx: IterationContext
+	private advisoryTurn:
+		| {
+				readonly iteration: number
+				readonly requestMessages: readonly Message[]
+				readonly response: Message
+		  }
+		| undefined
+
+	/** Live only within its iteration; never joined by a guessed array offset. */
+	getAdvisoryTurnContext():
+		| import('../../../advisory/executor.js').AdvisoryTurnContext
+		| undefined {
+		const turn = this.advisoryTurn
+		if (!turn || turn.iteration !== this.ctx.runMgr.currentIteration) return undefined
+		const start = this.ctx.runMgr.messages.indexOf(turn.response)
+		if (start < 0) return undefined
+		return {
+			iteration: turn.iteration,
+			requestMessages: turn.requestMessages,
+			subsequentMessages: this.ctx.runMgr.messages.slice(start),
+		}
+	}
 	/** Rejections so far. See {@link DEFAULT_ANSWER_REVIEW_LIMIT}. */
 	private answerReviewAttempts = 0
 	/**
@@ -829,7 +851,9 @@ export class IterationOrchestrator {
 						{
 							onAccepted: (identity) => this.acceptProviderRejectedImage(identity),
 						},
-						Boolean(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review),
+						Boolean(
+							this.ctx.reviewAnswer || this.ctx.structuredOutput?.review || this.ctx.advisoryCtx,
+						),
 					)
 					stepResponse = response
 					const reviewRequest: ReviewRequest = {
@@ -969,6 +993,9 @@ export class IterationOrchestrator {
 						response.message.textParts,
 					)
 					runMgr.pushMessage(assistantMsg)
+					if (this.ctx.advisoryCtx && requestMessages) {
+						this.advisoryTurn = { iteration: iterationNum, requestMessages, response: assistantMsg }
+					}
 
 					if (this.ctx.workingStateManager && this.ctx.compactionConfig && assistantMsg.content) {
 						extractFromAssistantMessage(
@@ -1580,7 +1607,7 @@ export class IterationOrchestrator {
 					// in the history the next request is built from.
 					this.deliverInbound()
 
-					await runAdvisoryPhase(this.ctx, iterationNum, response)
+					await runAdvisoryPhase(this.ctx, iterationNum, response, this.getAdvisoryTurnContext())
 
 					if (this.ctx.pluginManager) {
 						const hookResults = await this.ctx.pluginManager.executeHooks(
@@ -1729,6 +1756,7 @@ export class IterationOrchestrator {
 					iterSpan.recordException(err instanceof Error ? err : new Error(String(err)))
 					throw err
 				} finally {
+					this.advisoryTurn = undefined
 					// The only place the iteration span ends. It used to be ended at each of
 					// seventeen exits, which is a rule every future edit has to
 					// remember; a generator abandoned by its consumer never reached

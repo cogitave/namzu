@@ -1957,6 +1957,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					: undefined
 			return {
 				messages: ctx.runMgr.messages,
+				turn: iterationOrchestrator.getAdvisoryTurnContext(),
 				...(summary !== undefined ? { workingStateSummary: summary } : {}),
 				...(advisoryConfig.includeToolCatalog
 					? { toolCatalog: params.tools.toLLMTools(effectiveAllowedTools) }

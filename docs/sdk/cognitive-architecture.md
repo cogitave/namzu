@@ -258,6 +258,10 @@ follow-up and one correction trial succeeded. These are small controls, not
 evidence for enabling a universal judge. The [advisory context](advisory-context.md)
 projection also preserves public calls and rich result text instead of generic
 stubs, with explicit source attribution and a serialized-record budget.
+Configured advisors also receive the dispatched request snapshot, including
+transient evidence, followed by committed records from that response onward.
+Stage labels distinguish what the model saw from what arrived afterward; the
+snapshot is released on iteration exit and rebuilt after resume.
 
 The advisory-input audit identified two concrete distinctions to preserve:
 context fullness measures the pending request against its context window,

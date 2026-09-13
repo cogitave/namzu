@@ -55,11 +55,35 @@ metadata are correctly charged; increase the configured window if needed.
 
 ## Context and lifecycle limits
 
-Automatic and tool-initiated consultations receive the live canonical run
-messages. Request-only step context is not automatically included unless it is
-in the supplied messages. This differs from the candidate request snapshot
-available to [answer review](verification.md). The projection does not recover
-compacted originals or replay tools; use scoped evidence access for that work.
+Automatic and tool-initiated consultations use a snapshot of the successfully
+dispatched SDK request when available. That includes request-only step context
+and prepared system guidance. The request is captured before driver mutation;
+image-recovery retries replace it with the successfully repaired request. This
+is the SDK message shape, not a promise about provider-native wire formatting.
+
+`AdvisoryCallContext.turn` carries an `AdvisoryTurnContext`: the iteration,
+`requestMessages`, and `subsequentMessages` starting with that response. The
+projection labels records `request` or `subsequent` and applies one shared
+conversation window. It does not append a duplicate of canonical history.
+Later committed tool results, inbound messages and task notices retain their
+position after the request. They do not become something the earlier model
+call had already seen. A tool-initiated consultation during a batch cannot see
+sibling results that have not yet been appended to the conversation.
+
+The trajectory is bound to the current iteration and the exact response object
+in the live history. If that anchor is unavailable, the executor uses canonical
+history and labels the request snapshot unavailable. `messages` still carries
+the canonical history for callers supplying their own context. An explicit
+`turn` takes precedence for the advisor projection; `includeContext: false`
+omits both. This does not reinterpret edits to earlier canonical records as
+later appended observations or establish current workspace state.
+
+The snapshot is transient: it is released at every iteration exit, including
+cancellation, retry and early settlement. It is not checkpointed; a resumed
+run captures its newly dispatched request. The projection itself does not
+recover compacted originals or replay tools. Scoped evidence retrieval must
+supply those originals before dispatch, as it does for
+[answer review](verification.md).
 
 Advice is not an execution permission. The advisor has no executable tools in
 this request. Existing run cancellation, response ceilings and shared usage
@@ -69,3 +93,7 @@ does not add concurrent judges or background evaluations.
 The [source-support experiment](../../research/conversation-evidence/source-support-results.md)
 records bounded live CLI review controls and their limitations. Its correction
 callback is a research host configuration, not an enabled product default.
+
+The [request-snapshot controls](../../research/conversation-evidence/advisory-turn-results.md)
+cover changed evidence, late input, image repair, resume and cancellation, plus
+a bounded live SDK transition and a separate interactive CLI recall check.

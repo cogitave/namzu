@@ -1,3 +1,4 @@
+import type { AdvisoryTurnContext } from '../../../../advisory/executor.js'
 import { serializeState } from '../../../../compaction/serializer.js'
 import { NAMZU } from '../../../../constants/telemetry/index.js'
 import type { AdvisoryRequest, TriggerEvaluationState } from '../../../../types/advisory/index.js'
@@ -47,6 +48,7 @@ export async function runAdvisoryPhase(
 	ctx: IterationContext,
 	iterationNum: number,
 	response: ChatCompletionResponse,
+	turn?: AdvisoryTurnContext,
 ): Promise<void> {
 	const advisoryCtx = ctx.advisoryCtx
 	if (!advisoryCtx) return
@@ -105,6 +107,7 @@ export async function runAdvisoryPhase(
 	try {
 		const executionResult = await advisoryCtx.executor.consult(advisor, request, {
 			messages: ctx.runMgr.messages,
+			...(turn ? { turn } : {}),
 			workingStateSummary,
 			toolCatalog: ctx.tools.toLLMTools(ctx.allowedTools),
 			iteration: iterationNum,

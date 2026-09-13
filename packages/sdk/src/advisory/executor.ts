@@ -28,8 +28,19 @@ const URGENCY_DIRECTION: Record<'low' | 'normal' | 'high', string | undefined> =
 	low: 'This request is marked low urgency. There is room to note secondary considerations and alternatives worth weighing.',
 }
 
+/** One successfully dispatched SDK request and the records appended after it. */
+export interface AdvisoryTurnContext {
+	readonly iteration: number
+	/** Isolated at dispatch, including request-only evidence; not provider wire bytes. */
+	readonly requestMessages: readonly Message[]
+	/** Starts with that request's assistant response; may include tools and newer input. */
+	readonly subsequentMessages: readonly Message[]
+}
+
 export interface AdvisoryCallContext {
 	readonly messages: Message[]
+	/** Optional exact-turn trajectory, preferred over the canonical history projection. */
+	readonly turn?: AdvisoryTurnContext
 	readonly workingStateSummary?: string
 	readonly toolCatalog?: LLMToolSchema[]
 	readonly iteration: number
@@ -190,7 +201,7 @@ export class AdvisoryExecutor {
 			)
 		}
 
-		const history = renderAdvisoryHistory(callCtx.messages, advisor.maxContextTokens)
+		const history = renderAdvisoryHistory(callCtx.messages, advisor.maxContextTokens, callCtx.turn)
 		if (history) contextParts.push(history)
 
 		if (contextParts.length === 0) {
