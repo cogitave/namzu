@@ -7,6 +7,7 @@ import type {
 } from './activity.js'
 
 const count = z.number().int().nonnegative().safe()
+const uuidKey = (id: string) => id.toLowerCase()
 const admissionSchema = z.object({
 	revision: count.positive(),
 	pursuitRevision: count.positive(),
@@ -154,7 +155,7 @@ export async function inspectResidentConsumption(
 	const admissions = new Map<string, ResidentAdmission>()
 	const settlements = new Map<string, ResidentSettlement>()
 	const unavailable = new Set<number>()
-	const archived = new Set<string>()
+	const archived = new Map<string, string>()
 	let cursor: number | null = from
 	let through = from - 1
 	let historyBytes = 0
@@ -201,17 +202,19 @@ export async function inspectResidentConsumption(
 			const admission = Object.freeze(admissionSchema.parse(raw))
 			if (admission.revision < cursor || admission.revision > page.throughRevision)
 				throw new Error('Resident admission is outside its history page.')
-			if (admissions.has(admission.claimId)) throw new Error('Duplicate resident admission.')
-			admissions.set(admission.claimId, admission)
+			if (admissions.has(uuidKey(admission.claimId)))
+				throw new Error('Duplicate resident admission.')
+			admissions.set(uuidKey(admission.claimId), admission)
 		}
 		for (const raw of page.settlements) {
 			const settlement = Object.freeze(settlementSchema.parse(raw))
 			if (settlement.revision < cursor || settlement.revision > page.throughRevision)
 				throw new Error('Resident settlement is outside its history page.')
-			if (settlements.has(settlement.claimId)) throw new Error('Duplicate resident settlement.')
-			settlements.set(settlement.claimId, settlement)
+			if (settlements.has(uuidKey(settlement.claimId)))
+				throw new Error('Duplicate resident settlement.')
+			settlements.set(uuidKey(settlement.claimId), settlement)
 		}
-		for (const id of page.archivedPursuits) archived.add(z.string().uuid().parse(id))
+		for (const id of page.archivedPursuits) archived.set(uuidKey(z.string().uuid().parse(id)), id)
 		historyBytes += page.scannedBytes
 		through = page.throughRevision
 		if (page.nextCursor === cursor) break
@@ -221,10 +224,11 @@ export async function inspectResidentConsumption(
 	let receiptBytesReserved = 0
 	for (const admission of admissions.values()) {
 		signal?.throwIfAborted()
-		const settlement = settlements.get(admission.claimId)
+		const settlement = settlements.get(uuidKey(admission.claimId))
 		if (
 			settlement &&
-			(settlement.pursuitId !== admission.pursuitId || settlement.revision <= admission.revision)
+			(uuidKey(settlement.pursuitId) !== uuidKey(admission.pursuitId) ||
+				settlement.revision <= admission.revision)
 		)
 			throw new Error('Resident settlement does not follow its admitted claim.')
 		let receipt: ResidentConsumptionReceipt | null = null
@@ -243,7 +247,7 @@ export async function inspectResidentConsumption(
 		}
 		attempts.push({
 			...admission,
-			settlement: settlements.get(admission.claimId) ?? null,
+			settlement: settlements.get(uuidKey(admission.claimId)) ?? null,
 			receipt,
 			receiptStatus,
 		})
@@ -251,9 +255,10 @@ export async function inspectResidentConsumption(
 	// A copied root receipt must not authenticate two claims. Exclude BOTH records.
 	const runCounts = new Map<string, number>()
 	for (const { receipt } of attempts)
-		if (receipt) runCounts.set(receipt.runId, (runCounts.get(receipt.runId) ?? 0) + 1)
+		if (receipt)
+			runCounts.set(uuidKey(receipt.runId), (runCounts.get(uuidKey(receipt.runId)) ?? 0) + 1)
 	const checked = attempts.map((attempt) =>
-		attempt.receipt && (runCounts.get(attempt.receipt.runId) ?? 0) > 1
+		attempt.receipt && (runCounts.get(uuidKey(attempt.receipt.runId)) ?? 0) > 1
 			? { ...attempt, receipt: null, receiptStatus: 'duplicate-run' as const }
 			: attempt,
 	)
@@ -296,7 +301,7 @@ export async function inspectResidentConsumption(
 		unavailableRevisions: [...unavailable],
 		historyBytes,
 		receiptBytesReserved,
-		archivedPursuits: [...archived],
+		archivedPursuits: [...archived.values()],
 		attempts: checked,
 		recorded,
 		unknown,

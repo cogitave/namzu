@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Compare UUID identity aliases consistently in [resident consumption inspection](sdk/resident-agents.md#activity-and-consumption-inspection), retaining original lookup identifiers and clarifying the scope of per-inspection deduplication.
+
 - **Update** Add bounded [resident consumption inspection](sdk/resident-agents.md#activity-and-consumption-inspection) and the [CLI inspection command](cli/resident-work.md#consumption-and-completion-evidence), preserving missing receipts, archived admissions and the distinction between root and descendant usage.
 
 - **Update** Add scoped, bounded [JSON claim verification](sdk/verification.md#explicit-json-claims) and opt-in [resident completion checks](cli/resident-work.md#configured-claim-verification), including observation receipts, repair, cancellation and managed-worker policy snapshots.

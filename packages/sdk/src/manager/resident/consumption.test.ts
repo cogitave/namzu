@@ -110,6 +110,56 @@ it('a copied run receipt invalidates both claims instead of double-counting or c
 	expect(report.unknown.ownUsageAttempts).toBe(2)
 })
 
+it('does not count different hexadecimal spellings of the same run UUID twice', async () => {
+	const lower = receipt({ runId: 'aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa' })
+	const resolve = vi
+		.fn()
+		.mockResolvedValueOnce(lower)
+		.mockResolvedValueOnce({ ...lower, runId: lower.runId.toUpperCase() })
+	const report = await inspectResidentConsumption(source(), {
+		maxReadBytes: 100,
+		resolve,
+	})
+	expect(report.recorded.ownTokens).toBe(0)
+	expect(report.attempts.map((a) => a.receiptStatus)).toEqual(['duplicate-run', 'duplicate-run'])
+})
+
+it('joins UUID aliases without rewriting host lookup identifiers or accepting duplicate admissions', async () => {
+	const changed = { ...first, claimId: 'AAAAAAAA-2222-4222-8222-AAAAAAAAAAAA' }
+	const withSettlement = page({
+		admissions: [changed],
+		settlements: [
+			{
+				revision: 4,
+				pursuitId: first.pursuitId.toUpperCase(),
+				claimId: changed.claimId.toLowerCase(),
+				outcome: 'complete',
+			},
+		],
+	})
+	const report = await inspectResidentConsumption(source(withSettlement), {
+		maxReadBytes: 100,
+		resolve: async (admission) => {
+			expect(admission.claimId).toBe(changed.claimId)
+			return receipt()
+		},
+	})
+	expect(report.attempts[0]?.settlement?.outcome).toBe('complete')
+	await expect(
+		inspectResidentConsumption(
+			source(
+				page({
+					admissions: [
+						changed,
+						{ ...changed, revision: 3, claimId: changed.claimId.toLowerCase() },
+					],
+				}),
+			),
+			{ maxReadBytes: 100, resolve: async () => receipt() },
+		),
+	).rejects.toThrow('Duplicate resident admission')
+})
+
 it('reserves receipt read bounds before resolving and does not call deferred adapters', async () => {
 	const resolve = vi.fn(async () => receipt())
 	const report = await inspectResidentConsumption(
