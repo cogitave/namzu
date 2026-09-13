@@ -3,7 +3,8 @@ import { lstat, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { RunEvent } from '../../types/run/events.js'
-import { type CompactedToolMetadata, compactedToolMetadata } from './compaction-provenance.js'
+import type { CompactedToolMetadata } from './compaction-provenance.js'
+import { compactedTexts } from './compaction-text.js'
 import { digest, spillManifest } from './format.js'
 import { RECORD_BYTES, decode, noLinks, openEvidence, stamp } from './io.js'
 
@@ -54,13 +55,7 @@ export async function retainCompactionRecord(
 	const messageCount = removed.length
 	const original = Buffer.from(JSON.stringify(event.messages), 'utf8')
 	if (original.length <= 3 * 1024 * 1024) return event
-	const texts: ({ role: z.infer<typeof role>; text: string } & CompactedToolMetadata)[] = []
-	const metadata = compactedToolMetadata(event.messages)
-	for (const [index, message] of event.messages.entries()) {
-		const validatedRole = role.parse(message.role)
-		if (typeof message.content === 'string')
-			texts.push({ role: validatedRole, text: message.content, ...metadata[index] })
-	}
+	const texts = compactedTexts(event.messages)
 	if (texts.length > 8192) throw new Error('Compaction archive exceeds 8192 textual parts.')
 	// The same 4096-chunk ceiling the reader enforces for retained tool text.
 	if (texts.some((part) => Buffer.byteLength(part.text, 'utf8') > 256 * 1024 * 1024))

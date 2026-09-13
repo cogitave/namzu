@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Recover exact text blocks from compacted rich tool results in [SDK retained evidence](sdk/retained-tool-evidence.md) and [CLI conversation retrieval](cli/conversation-evidence.md), preserving existing plain-text addresses and excluding binary payloads from search.
+
 - **Update** Add authenticated token-key negative filters to [retained SDK evidence](sdk/retained-tool-evidence.md), reducing payload reads in automatic [CLI recall](cli/conversation-evidence.md) while preserving exact-match verification, Unicode boundaries and existing I/O/retention limits.
 
 - **Update** Keep successful archive-search copies out of automatic [conversation evidence](cli/conversation-evidence.md) candidate discovery, preserve unambiguous compacted tool provenance in [SDK evidence](sdk/retained-tool-evidence.md), and report deliberate exclusions separately from traversal and presentation omissions in [recall context](sdk/evidence-recall.md).

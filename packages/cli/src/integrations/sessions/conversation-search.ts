@@ -541,6 +541,9 @@ function textEvents(
 			for (const message of event.messages) {
 				if (!record(message) || typeof message.role !== 'string')
 					throw new Error('Invalid shed message.')
+				// Rich text requires the scoped SDK index. This legacy projection
+				// must not claim that ignoring a block array was a complete scan.
+				if (Array.isArray(message.content)) incomplete = true
 				if (typeof message.content === 'string')
 					result.push({
 						seq,

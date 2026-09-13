@@ -4,7 +4,8 @@ import type { FileHandle } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import { compactionArchiveSchema } from './compaction-archive.js'
-import { type CompactedToolMetadata, compactedToolMetadata } from './compaction-provenance.js'
+import type { CompactedToolMetadata } from './compaction-provenance.js'
+import { compactedTexts } from './compaction-text.js'
 import { digest, textFilter, tokenFilter } from './format.js'
 import {
 	type EvidenceBudget,
@@ -175,25 +176,10 @@ export function eventTexts(
 		return [{ source: 'message_completed', text: event.content }]
 	}
 	if (event.type !== 'compaction_shed') return []
-	if (!Array.isArray(event.messages)) throw new Error('Invalid shed messages.')
-	const parts: ReturnType<typeof eventTexts> = []
-	const metadata = compactedToolMetadata(event.messages)
-	for (const [index, message] of event.messages.entries()) {
-		if (
-			!message ||
-			typeof message !== 'object' ||
-			typeof message.role !== 'string' ||
-			!['system', 'user', 'assistant', 'tool'].includes(message.role)
-		)
-			throw new Error('Invalid shed message.')
-		if (typeof message.content === 'string')
-			parts.push({
-				source: `compaction_shed:${message.role}`,
-				text: message.content,
-				...metadata[index],
-			})
-	}
-	return parts
+	return compactedTexts(event.messages).map(({ role, ...part }) => ({
+		source: `compaction_shed:${role}`,
+		...part,
+	}))
 }
 
 /** Each cache page indexes at most 64 records, 64 textual parts and 4 MiB of input. */
@@ -208,7 +194,7 @@ export async function indexPage(
 ): Promise<{ page: IndexPage; cacheHit: boolean }> {
 	const path = join(
 		seal.dir,
-		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}:token-filter-v1:${process.version}:${process.versions.v8}:${process.versions.unicode}`)}.page`,
+		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}:text-blocks-v1:${process.version}:${process.versions.v8}:${process.versions.unicode}`)}.page`,
 	)
 	try {
 		const cached = await readSmall(path, budget, 512 * 1024)

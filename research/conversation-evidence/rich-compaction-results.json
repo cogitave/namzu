@@ -1,0 +1,263 @@
+[
+  {
+    "root": "/tmp/namzu-rich-compaction-cli-7EV3a0",
+    "live": false,
+    "expectMissing": true,
+    "source": {
+      "runId": "9a150f7d-ad3e-4b1a-9261-a929597186ed",
+      "seq": 2,
+      "code": "RECEIPT-077caa97-661e-4c44-9078-7c4fad05f447",
+      "messageBytes": 4194933
+    },
+    "passed": true,
+    "originalSelected": false,
+    "toolCalls": [],
+    "before": {
+      "packages/sdk/dist/store/evidence/compaction-text.js": null,
+      "packages/sdk/dist/store/evidence/compaction-archive.js": "bf5cb627acb777b4ca0a08a3863415dd94fce2bca9b5c7922f4843cff7361041",
+      "packages/sdk/dist/store/evidence/index-page.js": "468a73004a500c9e61999f88edb6192898c10443e6f654e3d1a00c08ecbbf76e",
+      "packages/sdk/dist/store/evidence/source-text.js": "fdcdeb2e597d5f43b86c128489cd94ad030ac6b4efa1c413ffca2147a5de82e9",
+      "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+    },
+    "after": {
+      "packages/sdk/dist/store/evidence/compaction-text.js": null,
+      "packages/sdk/dist/store/evidence/compaction-archive.js": "bf5cb627acb777b4ca0a08a3863415dd94fce2bca9b5c7922f4843cff7361041",
+      "packages/sdk/dist/store/evidence/index-page.js": "468a73004a500c9e61999f88edb6192898c10443e6f654e3d1a00c08ecbbf76e",
+      "packages/sdk/dist/store/evidence/source-text.js": "fdcdeb2e597d5f43b86c128489cd94ad030ac6b4efa1c413ffca2147a5de82e9",
+      "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+    },
+    "modelRequests": 1,
+    "modelResult": {
+      "text": "No observation was selected.",
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 25000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    "firstRequest": {
+      "ordinaryHasCode": false,
+      "hasBinary": false,
+      "passages": [
+        {
+          "runId": "9a150f7d-ad3e-4b1a-9261-a929597186ed",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1789260073695,
+          "source": "compaction_shed:user",
+          "retained": "full",
+          "excerpt": "Record the receipt."
+        }
+      ]
+    }
+  },
+  {
+    "root": "/tmp/namzu-rich-compaction-cli-IAOjZk",
+    "live": false,
+    "expectMissing": false,
+    "source": {
+      "runId": "046dec1f-596a-4023-80a6-42b2b4fc7899",
+      "seq": 2,
+      "code": "RECEIPT-8cb7aa0a-ea7d-4666-80d6-acc0329dde49",
+      "messageBytes": 4194933
+    },
+    "passed": true,
+    "originalSelected": true,
+    "toolCalls": [],
+    "before": {
+      "packages/sdk/dist/store/evidence/compaction-text.js": "4bfbd085f6ef29bb524f9fe0ea2ff2ddf617629e8d16ec0a1e30d6ea54bf8a6c",
+      "packages/sdk/dist/store/evidence/compaction-archive.js": "52ba4bfefc9d4be25fa818e03f43ccc34bd2f2e7adcee9ec204f28fb93342088",
+      "packages/sdk/dist/store/evidence/index-page.js": "9c6caf0c25e88051b4cb4ad77588bc08c464757f53e0e15c8e2c1307fa43f002",
+      "packages/sdk/dist/store/evidence/source-text.js": "fdcdeb2e597d5f43b86c128489cd94ad030ac6b4efa1c413ffca2147a5de82e9",
+      "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "e43e0ce4693a66382b926cb0b92a8d6a6c1f9d581380c7bf120070127065f28d",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+    },
+    "after": {
+      "packages/sdk/dist/store/evidence/compaction-text.js": "4bfbd085f6ef29bb524f9fe0ea2ff2ddf617629e8d16ec0a1e30d6ea54bf8a6c",
+      "packages/sdk/dist/store/evidence/compaction-archive.js": "52ba4bfefc9d4be25fa818e03f43ccc34bd2f2e7adcee9ec204f28fb93342088",
+      "packages/sdk/dist/store/evidence/index-page.js": "9c6caf0c25e88051b4cb4ad77588bc08c464757f53e0e15c8e2c1307fa43f002",
+      "packages/sdk/dist/store/evidence/source-text.js": "fdcdeb2e597d5f43b86c128489cd94ad030ac6b4efa1c413ffca2147a5de82e9",
+      "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "e43e0ce4693a66382b926cb0b92a8d6a6c1f9d581380c7bf120070127065f28d",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+    },
+    "modelRequests": 1,
+    "modelResult": {
+      "text": "ORCHID original receipt code RECEIPT-8cb7aa0a-ea7d-4666-80d6-acc0329dde49\r\nVerified text: İ 😀",
+      "usage": {
+        "totalTokens": 0,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 0
+        }
+      },
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 25000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    "firstRequest": {
+      "ordinaryHasCode": false,
+      "hasBinary": false,
+      "passages": [
+        {
+          "runId": "046dec1f-596a-4023-80a6-42b2b4fc7899",
+          "seq": 2,
+          "part": 3,
+          "byteOffset": 0,
+          "recordedAt": 1789260428081,
+          "source": "compaction_shed:tool",
+          "toolName": "observe_receipt",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID original receipt code RECEIPT-8cb7aa0a-ea7d-4666-80d6-acc0329dde49\r\nVerified text: İ 😀\n"
+        },
+        {
+          "runId": "046dec1f-596a-4023-80a6-42b2b4fc7899",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1789260428081,
+          "source": "compaction_shed:user",
+          "retained": "full",
+          "excerpt": "Record the receipt."
+        },
+        {
+          "runId": "046dec1f-596a-4023-80a6-42b2b4fc7899",
+          "seq": 2,
+          "part": 2,
+          "byteOffset": 0,
+          "recordedAt": 1789260428081,
+          "source": "compaction_shed:tool",
+          "toolName": "observe_receipt",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "Receipt observation follows."
+        }
+      ]
+    }
+  },
+  {
+    "root": "/tmp/namzu-rich-compaction-cli-wIHfYw",
+    "live": true,
+    "expectMissing": false,
+    "source": {
+      "runId": "0a1ce57f-29c4-4493-9faa-5f8efc884290",
+      "seq": 2,
+      "code": "RECEIPT-94191719-3f9c-4517-ae53-7738aeb77d1d",
+      "messageBytes": 4194933
+    },
+    "passed": true,
+    "originalSelected": true,
+    "toolCalls": [],
+    "before": {
+      "packages/sdk/dist/store/evidence/compaction-text.js": "4bfbd085f6ef29bb524f9fe0ea2ff2ddf617629e8d16ec0a1e30d6ea54bf8a6c",
+      "packages/sdk/dist/store/evidence/compaction-archive.js": "52ba4bfefc9d4be25fa818e03f43ccc34bd2f2e7adcee9ec204f28fb93342088",
+      "packages/sdk/dist/store/evidence/index-page.js": "9c6caf0c25e88051b4cb4ad77588bc08c464757f53e0e15c8e2c1307fa43f002",
+      "packages/sdk/dist/store/evidence/source-text.js": "fdcdeb2e597d5f43b86c128489cd94ad030ac6b4efa1c413ffca2147a5de82e9",
+      "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "e43e0ce4693a66382b926cb0b92a8d6a6c1f9d581380c7bf120070127065f28d",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+    },
+    "after": {
+      "packages/sdk/dist/store/evidence/compaction-text.js": "4bfbd085f6ef29bb524f9fe0ea2ff2ddf617629e8d16ec0a1e30d6ea54bf8a6c",
+      "packages/sdk/dist/store/evidence/compaction-archive.js": "52ba4bfefc9d4be25fa818e03f43ccc34bd2f2e7adcee9ec204f28fb93342088",
+      "packages/sdk/dist/store/evidence/index-page.js": "9c6caf0c25e88051b4cb4ad77588bc08c464757f53e0e15c8e2c1307fa43f002",
+      "packages/sdk/dist/store/evidence/source-text.js": "fdcdeb2e597d5f43b86c128489cd94ad030ac6b4efa1c413ffca2147a5de82e9",
+      "packages/cli/dist/integrations/sessions/compaction-evidence.js": "9c17721842c8b5e382b5658c730586c296f12f32b001b51be6156d1d8def9e83",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "e43e0ce4693a66382b926cb0b92a8d6a6c1f9d581380c7bf120070127065f28d",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+    },
+    "modelRequests": 1,
+    "modelResult": {
+      "text": "The original ORCHID receipt code was `RECEIPT-94191719-3f9c-4517-ae53-7738aeb77d1d`.",
+      "usage": {
+        "totalTokens": 7285,
+        "cost": {
+          "totalCost": 0,
+          "cacheDiscount": 0,
+          "unpricedTokens": 7285
+        }
+      },
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 7285,
+        "treeTokens": 7285,
+        "reservedTokens": 0,
+        "remainingTokens": 17715,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    "firstRequest": {
+      "ordinaryHasCode": false,
+      "hasBinary": false,
+      "passages": [
+        {
+          "runId": "0a1ce57f-29c4-4493-9faa-5f8efc884290",
+          "seq": 2,
+          "part": 3,
+          "byteOffset": 0,
+          "recordedAt": 1789260462903,
+          "source": "compaction_shed:tool",
+          "toolName": "observe_receipt",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID original receipt code RECEIPT-94191719-3f9c-4517-ae53-7738aeb77d1d\r\nVerified text: İ 😀\n"
+        },
+        {
+          "runId": "0a1ce57f-29c4-4493-9faa-5f8efc884290",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1789260462903,
+          "source": "compaction_shed:user",
+          "retained": "full",
+          "excerpt": "Record the receipt."
+        },
+        {
+          "runId": "0a1ce57f-29c4-4493-9faa-5f8efc884290",
+          "seq": 2,
+          "part": 2,
+          "byteOffset": 0,
+          "recordedAt": 1789260462903,
+          "source": "compaction_shed:tool",
+          "toolName": "observe_receipt",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "Receipt observation follows."
+        }
+      ]
+    }
+  }
+]

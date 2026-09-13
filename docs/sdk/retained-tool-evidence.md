@@ -28,7 +28,7 @@ message body. Preserve the run's `compaction-output/` files with its transcript.
 Existing inline records still work; old oversized records are not rewritten.
 
 Live and closed text indexes resolve the retained text directly. They preserve
-`compaction_shed:<role>` source labels and textual part order, use the same
+`compaction_shed:<role>` source labels and stable textual part addresses, use the same
 authenticated chunks and UTF-8 read positions as retained tool output, and keep
 the 4 MiB record / 8 MiB operation limits. Binary bytes do not enter the text index.
 Changed or missing text/manifest files refuse that read. Full message restoration
@@ -52,9 +52,35 @@ immediately following its assistant call. Missing, ambiguous, malformed or
 misordered pairs keep an unknown name; text mentioning a tool name is never
 parsed as provenance. Existing archives without this metadata remain unknown.
 These are still `compaction_shed:tool` copies, with the copy event's time and
-address, not newly observed facts. Original messages and textual part positions
+address, not newly observed facts. Original messages and existing plain-text part positions
 are unchanged. Disposable index pages are rebuilt for this metadata; the source
 binding of existing exact-read addresses does not change.
+
+Compacted tool content can be a string or an array of text, image and document
+blocks. Each text block is now a separately searchable and readable part,
+including empty blocks. Its original text is retained exactly: no joined
+separators, binary placeholders, media types or document names are added to it.
+Binary data stays in the whole-message archive and never becomes searchable
+text. All blocks of a paired tool result share that message's tool provenance.
+Malformed or unknown tool content blocks refuse indexed retrieval rather than
+silently returning a complete empty scan.
+
+The `part` number is an address ordinal, not a message or block index. Plain
+string messages keep their existing ordinals in message order. Text blocks are
+appended after that prefix, in message/block order. For example, user text,
+a two-text-block tool result, and assistant text have plain parts `0` and `1`,
+then tool parts `2` and `3`. This prevents a saved plain-text address from
+resolving to different content after an upgrade. The original message array
+keeps its original order and boundaries. Disposable indexes are rebuilt for
+block extraction without changing exact-address authentication.
+
+New archives retain these text copies. Previously written archives enumerate
+only the parts captured at their creation; they are not rewritten or expanded
+by searching. Fresh closed/snapshot scans can index rich blocks in inline
+records. A live chain captured by an older writer may have skipped rich-only
+records; it is not retroactively rebuilt. Use a fresh scoped disk scan for old
+inline history. Binary interpretation and private reasoning are outside this
+text retrieval contract.
 
 ## Closed invocation evidence
 

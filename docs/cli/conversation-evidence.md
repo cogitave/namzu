@@ -33,6 +33,16 @@ archived before replacement in a separate zero-model maintenance record. User
 text is not inferred from an assistant's summary. Manual archives use the same
 scoped search/read paths, with `compaction_shed:user` identifying user messages.
 
+Scoped retrieval also reads text blocks from compacted rich tool results. Each
+block remains exact text with its own `part`; images and documents are not
+stringified into the search corpus. Plain-string message parts keep their old
+addresses, followed by block-text parts in original message/block order. Thus
+`part` is an address ordinal, not a message index. This works with newly written
+large compaction archives and inline records, after reopening the conversation.
+Older archives retain only the parts captured when written. The unindexed
+legacy scanner reports a skipped block array as incomplete; it does not claim
+that no matching rich text exists. See [SDK retention boundaries](../sdk/retained-tool-evidence.md#large-compaction-records).
+
 When these tools are mounted, ordinary, resumed and resident CLI turns receive
 stable guidance to recover an earlier observation if its detail is missing or
 clipped. Recovery is useful before compaction too. The SDK's general evidence

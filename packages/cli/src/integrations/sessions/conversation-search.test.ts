@@ -18,6 +18,7 @@ import {
 } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
+import { retainManualCompaction } from './compaction-evidence.js'
 import {
 	readConversationEvidence,
 	releaseConversationEvidence,
@@ -197,6 +198,86 @@ it.each(['legacy', 'index', 'live'] as const)(
 		).rejects.toThrow('scope or query')
 	},
 )
+
+it.each([false, true])(
+	'recovers exact rich tool text after manual compaction and reopen (archive=%s)',
+	async (archived) => {
+		const { cwd, sessions, sessionId } = await fixture()
+		const text = 'ORCHID original receipt İ 😀\r\nno inserted separators'
+		await retainManualCompaction(sessions, sessionId, [
+			createUserMessage('Before observation'),
+			{
+				role: 'tool',
+				toolCallId: 'observation',
+				timestamp: 1,
+				isError: false,
+				content: [
+					{ type: 'text', text },
+					{
+						type: 'image',
+						data: archived ? 'A'.repeat(4 * 1024 * 1024) : 'ONLY_BINARY',
+						mediaType: 'image/png',
+					},
+					{ type: 'text', text: 'ORCHID second independent block' },
+				],
+			},
+			createUserMessage('After observation'),
+		])
+		await replaceConversation(sessions, sessionId, [createUserMessage('History compacted.')])
+		const first = await searchConversation(sessions, sessionId, { query: 'ORCHID', limit: 1 })
+		expect(first.matches).toHaveLength(1)
+		expect(first.matches[0]).toMatchObject({
+			source: 'compaction_shed:tool',
+			part: 2,
+			isError: false,
+		})
+		const { runId, seq, part } = first.matches[0]!
+		await releaseConversationEvidence(sessions, sessionId)
+		const reopened = await openSessions(cwd)
+		evidenceOwners.push({ sessions: reopened, sessionId })
+		const exact = await readConversationEvidence(reopened, sessionId, { runId, seq, part })
+		expect(exact).toMatchObject({ text, complete: true, retainedPreview: false })
+		const oldPlainAddress = await readConversationEvidence(reopened, sessionId, {
+			runId,
+			seq,
+			part: 1,
+		})
+		expect(oldPlainAddress.text).toBe('After observation')
+		expect(
+			(await searchConversation(reopened, sessionId, { query: 'ONLY_BINARY' })).matches,
+		).toEqual([])
+		const foreign = await startConversation(reopened)
+		await expect(
+			readConversationEvidence(reopened, foreign, { runId, seq, part }),
+		).rejects.toThrow()
+	},
+)
+
+it('marks unindexed rich compaction text incomplete without renumbering existing plain parts', async () => {
+	const { sessions, sessionId } = await fixture()
+	const { path, runId } = await transcript(sessions, sessionId, 'seed')
+	await writeFile(
+		join(path, 'transcript.jsonl'),
+		`${[
+			{ type: 'run_started', runId, seq: 1 },
+			{
+				type: 'compaction_shed',
+				runId,
+				seq: 2,
+				messages: [
+					{ role: 'tool', content: [{ type: 'text', text: 'ORCHID hidden' }] },
+					{ role: 'user', content: 'ORCHID retained plain part' },
+				],
+			},
+		]
+			.map((event) => JSON.stringify(event))
+			.join('\n')}\n`,
+	)
+	const result = await searchConversation(sessions, sessionId, { query: 'ORCHID' })
+	expect(result.incomplete).toBe(true)
+	expect(result.matches).toHaveLength(1)
+	expect(result.matches[0]).toMatchObject({ text: 'ORCHID retained plain part', part: 0 })
+})
 
 it('refuses retained compaction references on the unscoped legacy scanner', async () => {
 	const { sessions, sessionId } = await fixture()
