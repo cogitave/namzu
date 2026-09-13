@@ -1,6 +1,11 @@
 /** The lexical units shared by evidence discovery and bounded relevance scoring. */
 export function evidenceTokens(text: string): string[] {
-	return text.match(/[\p{L}\p{N}_]+/gu) ?? []
+	return Array.from(evidenceTokenEntries(text), (match) => match[0])
+}
+
+/** Iterate large stored text without materializing a token array. */
+export function evidenceTokenEntries(text: string): IterableIterator<RegExpExecArray> {
+	return text.matchAll(/[\p{L}\p{N}_]+/gu)
 }
 
 /** No stemming, locale-sensitive folding or accent normalization. */

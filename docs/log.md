@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Add authenticated token-key negative filters to [retained SDK evidence](sdk/retained-tool-evidence.md), reducing payload reads in automatic [CLI recall](cli/conversation-evidence.md) while preserving exact-match verification, Unicode boundaries and existing I/O/retention limits.
+
 - **Update** Keep successful archive-search copies out of automatic [conversation evidence](cli/conversation-evidence.md) candidate discovery, preserve unambiguous compacted tool provenance in [SDK evidence](sdk/retained-tool-evidence.md), and report deliberate exclusions separately from traversal and presentation omissions in [recall context](sdk/evidence-recall.md).
 
 - **Update** Bind [tool evidence capture](sdk/retained-tool-evidence.md) to tool deadlines and nested cancellation, forward [CLI conversation retrieval](cli/conversation-evidence.md) cancellation into stores, and stop caller waits while preserving pending writer serialization.

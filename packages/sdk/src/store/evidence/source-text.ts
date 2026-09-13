@@ -4,7 +4,13 @@ import { join } from 'node:path'
 import { z } from 'zod'
 import { evidenceRecordedAt } from '../../utils/evidence-time.js'
 import { compactionArchiveSchema, compactionPartPath } from './compaction-archive.js'
-import { EVIDENCE_CHUNK_BYTES, SEARCH_OVERLAP_BYTES, digest, mayContain } from './format.js'
+import {
+	EVIDENCE_CHUNK_BYTES,
+	SEARCH_OVERLAP_BYTES,
+	digest,
+	mayContain,
+	mayContainToken,
+} from './format.js'
 import { type IndexEntry, entrySchema, eventTexts } from './index-page.js'
 import {
 	type EvidenceBudget,
@@ -35,6 +41,7 @@ const manifestSchema = z.object({
 			z.object({
 				sha256: z.string().regex(/^[a-f0-9]{64}$/),
 				filter: z.string().max(1400),
+				tokenFilter: z.string().max(1400).optional(),
 				characterOffset: integer.optional(),
 			}),
 		)
@@ -48,7 +55,12 @@ export interface TextSource {
 	chars?: number
 	retained: 'full' | 'preview'
 	chunks: number
-	mayMatch(chunk: number, query: string): boolean
+	mayMatch(
+		chunk: number,
+		query: string,
+		matchMode?: 'literal' | 'token',
+		caseSensitive?: boolean,
+	): boolean
 	window(
 		chunk: number,
 		preceding?: boolean,
@@ -163,8 +175,16 @@ async function sourceText(
 		chars: manifest.chars,
 		retained: 'full',
 		chunks: Math.max(1, manifest.chunks.length),
-		mayMatch: (chunk, query) =>
-			manifest.chunks[chunk] ? mayContain(manifest.chunks[chunk].filter, query) : query === '',
+		mayMatch: (chunk, query, matchMode = 'literal', caseSensitive = true) => {
+			const part = manifest.chunks[chunk]
+			if (!part) return query === ''
+			if (matchMode === 'token')
+				return (
+					mayContainToken(part.tokenFilter, query) &&
+					(!caseSensitive || mayContain(part.filter, query))
+				)
+			return !caseSensitive || mayContain(part.filter, query)
+		},
 		async window(chunk, preceding = false) {
 			const file = await openEvidence(path)
 			try {

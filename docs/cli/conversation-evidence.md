@@ -112,6 +112,15 @@ focused scans, not unique historical records. Exclusion guidance distinguishes
 this selection from complete historical coverage. No larger page, context or
 I/O allowance is introduced.
 
+Automatic token recall can skip nonmatching retained-output chunks using the
+SDK's authenticated token-key filters. Potential matches are still read and
+verified against original text. This reduces I/O for sparse matches without
+increasing the automatic page or byte allowance. New manifests pay extra storage
+for the filter; old or oversized manifests without it use the existing scan.
+Literal `search_conversation` semantics are unchanged. The
+[large-output CLI experiment](../../research/conversation-evidence/token-filter-results.md)
+separates candidate recovery, I/O cost and the live model's answer.
+
 The temporary recall context also distinguishes complete traversal from complete
 presentation. `omittedPassages` counts eligible distinct candidates withheld by
 the passage or character limit. Their `additionalEvidence` addresses can be
@@ -179,7 +188,7 @@ model round trip on each small irrelevant run. A matching or partial index page
 returns control; partial empty pages still require continuation. Known omissions
 stay incomplete even when scanning advances, and failed operations with unknown
 read cost still charge the remaining ceiling and yield. The index also pages within large
-compaction records. Case-insensitive search bypasses case-sensitive index
+compaction records. Literal case-insensitive search bypasses case-sensitive index
 filters and verifies the original text; it can need more I/O or pages while
 keeping the same ceilings.
 The 48-character handle binds the host scope, query, case sensitivity and file snapshot. It expires

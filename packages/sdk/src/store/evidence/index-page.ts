@@ -5,7 +5,7 @@ import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import { compactionArchiveSchema } from './compaction-archive.js'
 import { type CompactedToolMetadata, compactedToolMetadata } from './compaction-provenance.js'
-import { digest, textFilter } from './format.js'
+import { digest, textFilter, tokenFilter } from './format.js'
 import {
 	type EvidenceBudget,
 	EvidencePageLimit,
@@ -40,6 +40,7 @@ export const entrySchema = z.object({
 		.regex(/^[a-f0-9]{64}$/)
 		.optional(),
 	filter: z.string().max(1400),
+	tokenFilter: z.string().max(1400).optional(),
 })
 export type IndexEntry = z.infer<typeof entrySchema>
 export const positionSchema = z.object({
@@ -149,6 +150,7 @@ export function toolEntry(
 			? { spill: event.outputSpillIntegrity }
 			: {}),
 		filter: textFilter(event.result),
+		tokenFilter: tokenFilter(event.result),
 	})
 }
 
@@ -206,7 +208,7 @@ export async function indexPage(
 ): Promise<{ page: IndexPage; cacheHit: boolean }> {
 	const path = join(
 		seal.dir,
-		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}:tool-provenance-v1`)}.page`,
+		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}:token-filter-v1:${process.version}:${process.versions.v8}:${process.versions.unicode}`)}.page`,
 	)
 	try {
 		const cached = await readSmall(path, budget, 512 * 1024)
@@ -278,6 +280,7 @@ export async function indexPage(
 						truncated: false,
 						...(archivedPart ? { spill: archivedPart.manifest } : {}),
 						filter: textFilter(part.text),
+						tokenFilter: archivedPart ? undefined : tokenFilter(part.text),
 					}),
 			)
 			textIndex++

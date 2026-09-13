@@ -2,7 +2,7 @@ import { lstat } from 'node:fs/promises'
 import type { FileHandle } from 'node:fs/promises'
 import { join, resolve } from 'node:path'
 import { z } from 'zod'
-import { EVIDENCE_CHUNK_BYTES, digest, mayContain } from './format.js'
+import { EVIDENCE_CHUNK_BYTES, digest, mayContain, mayContainToken } from './format.js'
 import {
 	type EvidenceSeal,
 	entrySchema,
@@ -301,9 +301,13 @@ function createSource(
 						}
 						if (entry.truncated && !entry.spill) partial = true
 						if (
-							input.caseSensitive &&
 							!entry.spill &&
-							!(terms ?? [query]).some((term) => mayContain(entry.filter, term))
+							!(terms ?? [query]).some((term) =>
+								input.matchMode === 'token'
+									? mayContainToken(entry.tokenFilter, term) &&
+										(!input.caseSensitive || mayContain(entry.filter, term))
+									: !input.caseSensitive || mayContain(entry.filter, term),
+							)
 						) {
 							entryIndex++
 							chunk = 0
@@ -314,8 +318,9 @@ function createSource(
 						while (chunk < source.chunks && matches.length < input.limit) {
 							signal?.throwIfAborted()
 							if (
-								!input.caseSensitive ||
-								(terms ?? [query]).some((term) => source.mayMatch(chunk, term))
+								(terms ?? [query]).some((term) =>
+									source.mayMatch(chunk, term, input.matchMode, input.caseSensitive),
+								)
 							) {
 								const window = await source.window(chunk, input.matchMode === 'token')
 								const text = decode(window.bytes)

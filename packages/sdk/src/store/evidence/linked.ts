@@ -250,8 +250,9 @@ export function createLinkedRunTextEvidenceSource(
 								signal?.throwIfAborted()
 								chunks++
 								if (
-									!input.caseSensitive ||
-									(terms ?? [query]).some((term) => source.mayMatch(cursor.chunk, term))
+									(terms ?? [query]).some((term) =>
+										source.mayMatch(cursor.chunk, term, input.matchMode, input.caseSensitive),
+									)
 								) {
 									const window = await source.window(cursor.chunk, input.matchMode === 'token')
 									const text = decode(window.bytes)

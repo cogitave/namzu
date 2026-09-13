@@ -154,9 +154,9 @@ is substring-based and regex metacharacters remain literal. It does not split
 a natural-language question, rank relevance or require all terms to match.
 
 All terms share the same authenticated window read, four-match result limit
-and per-call I/O ceiling. Case-sensitive negative filters skip a window only
-when none of the terms may match; case-insensitive matching still checks the
-original text. Mixed-length matches fully covered by an excerpt are grouped,
+and per-call I/O ceiling. Negative filters skip a window only when none of the
+terms may match. Literal case-insensitive search checks original text; token
+search can also use the token-key filter described below. Mixed-length matches fully covered by an excerpt are grouped,
 while a match crossing its end remains discoverable on continuation. The cursor
 binds term membership and case sensitivity; changing membership, switching to
 `query`, or changing case sensitivity requires a new search. Reordering the
@@ -173,6 +173,32 @@ source text, normalizes accents or supplies language-specific word segmentation.
 For example, token `3` matches `3`, not `13000`; `id_1` does not match `id_100`.
 Matching mode is bound into continuations; changing it requires a new search.
 Token cursors have a distinct kind that older readers reject.
+
+New indexes and retained-output manifests include an optional Bloom filter of
+whole-token lowercase keys. Token searches can skip negative windows in either
+case mode without loading those payload chunks. Possible matches still load and
+authenticate original bytes and run the exact token matcher; a positive filter
+bit does not become a passage. Literal case-insensitive matching has different
+Unicode semantics and does not use this token filter.
+
+Filter construction iterates tokens without materializing a corpus-wide token
+array. It uses 128, 512 or 1,024 bytes for windows of at most 1,024, at most 8,192,
+or more UTF-16 units respectively, then base64-encodes that signature with an algorithm/runtime tag. This adds
+storage/write work and has false positives; dense varied text can saturate it.
+The filter shares discovery's token boundaries and locale-independent lowercase
+keys, including Unicode expansions. The 1 KiB overlap covers bounded queries
+crossing UTF-8 chunk boundaries. The original character/byte offsets are unchanged.
+
+The tag binds the writer's Node, V8 and Unicode versions. An unknown tag uses
+exact scanning, so a runtime upgrade cannot reuse incompatible token negatives.
+The manifest digest authenticates these optional filters. If adding them would
+exceed the existing 4 MiB manifest ceiling, the writer omits token filters and
+retains the earlier manifest encoding. Missing filters likewise use exact reads;
+absence of this optimization never means absence of the query. Existing manifests
+are not rewritten. Disposable index pages are regenerated without changing the
+source binding of read addresses or cursors. Negative filtering saves payload
+reads, not a whole-file integrity audit of unvisited chunks; exact reads still
+verify the requested chunk. All existing page, byte and cancellation limits apply.
 
 Token searches authenticate the preceding UTF-8 code point at spill chunk
 boundaries. The preceding chunk is read and hash-checked under the same I/O
@@ -326,13 +352,14 @@ before returning its result.
 Alongside `tool-output/<sha256(toolUseId)>.txt`, retention writes a private,
 exclusive `.txt.manifest.json` sidecar. Its SHA-256 is recorded in the additive
 `tool_completed.outputSpillIntegrity` field. The version-one manifest contains
-the UTF-8 byte length, 64 KiB chunk hashes and literal-search filters. New
+the UTF-8 byte length, 64 KiB chunk hashes, literal-search filters and optional
+whole-token filters. New
 manifests also retain the total UTF-16 length and per-chunk character positions. Reading a
 selected window verifies the manifest and each selected chunk, without hashing
 the entire large output again. Search filters include a 1 KiB overlap for
 queries spanning chunk boundaries. Filters can have false positives; matching
-text is always checked against verified bytes. These filters encode exact case:
-case-insensitive searches bypass their negative decisions and verify the text
+text is always checked against verified bytes. Literal filters encode exact case:
+literal case-insensitive searches bypass their negative decisions and verify the text
 chunks instead. This can read more bytes or need more pages under the same
 per-call I/O ceiling. This is literal retrieval, not
 semantic ranking or an embedding memory.
@@ -346,8 +373,8 @@ fail the tool: it still returns its bounded preview, with degraded recovery.
 
 ## Durable index and work bounds
 
-Index pages retain event offsets, lengths, sequence numbers, record hashes and
-literal-search filters. They validate consecutive transcript sequence numbers,
+Index pages retain event offsets, lengths, sequence numbers, record hashes,
+literal-search filters and optional token-key filters. They validate consecutive transcript sequence numbers,
 run identity and the initial `run_started` event. Each page indexes at most 64
 records, 64 textual parts and 4 MiB of transcript input. A compaction record
 with more parts resumes within that same record without renumbering its parts. The first search builds needed pages;
