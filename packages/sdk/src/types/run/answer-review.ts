@@ -33,6 +33,16 @@ export interface AnswerReviewContext {
 	readonly signal?: AbortSignal
 	/** The full history, so a reviewer can see how the answer was reached. */
 	readonly messages: readonly Message[]
+	/**
+	 * Isolated copy of the SDK messages dispatched for this candidate's model
+	 * request, after context projection and any image-recovery retry. Includes
+	 * request-only evidence absent from durable history; excludes this candidate
+	 * and subsequently delivered messages/results. This is the provider-chain
+	 * input, not a vendor-wire capture or proof of truth/freshness. Optional for
+	 * hosts constructing their own review context. Not checkpointed or retained
+	 * as conversation history; modifying the copy cannot edit the run/request.
+	 */
+	readonly requestMessages?: readonly Message[]
 }
 
 /**

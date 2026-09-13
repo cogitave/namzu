@@ -40,7 +40,10 @@ The message is projected into the request, not appended to the run's conversatio
 history. It therefore does not accumulate, enter a later compaction as an
 operator message, or persist as conversation input on resume. A host can record
 provider requests separately; request-context digests can still describe its
-presence. The runtime provenance must not be presented as text the operator typed.
+presence. A host answer reviewer can inspect the candidate request's transient
+context through [`AnswerReviewContext.requestMessages`](verification.md), without
+adding it to durable history. The runtime provenance must not be presented as
+text the operator typed.
 
 ## Capturing the active invocation
 

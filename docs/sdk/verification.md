@@ -20,6 +20,36 @@ context, not a new operator instruction. `maxAnswerReviews` bounds the permitted
 rejections; exhaustion stops with `answer_rejected`. `AnswerReviewContext.signal`
 carries run cancellation and should be forwarded to verification operations.
 
+`AnswerReviewContext.requestMessages` optionally supplies an isolated copy of the
+SDK messages dispatched for the candidate being reviewed. The built-in loop
+supplies it to prose, tool-output and native structured-output reviewers. This
+includes request-only step context, such as automatically recalled passages,
+which is absent from durable `messages`. The candidate answer and later tool
+results or arriving messages are not appended to this snapshot. Earlier answers
+already in the dispatched history remain present.
+
+Capture happens after request projection and follows the last dispatch when an
+image-recovery retry changes the request. It describes the SDK provider-chain
+input, not the vendor wire: provider/fallback transformations, native tools and
+private reasoning replay can still change what the remote model receives. The
+snapshot does not authenticate its contents, authorize archive access, or prove
+file freshness. A verifier of retained evidence must revalidate the quoted
+source's scope, address and bytes before accepting its own task-specific claim.
+
+Only runs with a prose or structured reviewer make this copy; it adds no model
+call or archive read by itself. Its memory cost is another copy of that projected
+request, including its rich content. A reviewer may retain its received copy,
+but the kernel keeps no cross-turn archive of these snapshots. Mutating nested
+objects in the copy cannot edit the dispatched request or canonical history.
+It is not checkpointed or restored; resumed model turns capture a fresh request.
+Existing `messages` keeps its canonical-history meaning. A custom host omitting
+`requestMessages` must not be assumed to have supplied the transient evidence.
+
+The [recorded CLI Session probe](../../research/conversation-evidence/review-request-results.md)
+checks a corrupted receipt against request-only evidence, revalidates the
+archive, and requests a bounded correction. This is a task-specific policy,
+not a default CLI factual judge or an automatic identifier normalization rule.
+
 Verdicts must explicitly return a boolean `accept`. Rejections require nonempty
 string feedback. A thrown error or malformed verdict fails the run; it neither
 accepts an unverified answer nor consumes model calls by repeatedly retrying a

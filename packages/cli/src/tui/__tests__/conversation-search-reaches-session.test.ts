@@ -1685,3 +1685,101 @@ it.each([undefined, false])(
 		)
 	},
 )
+
+it.each([false, true])(
+	'reviews request-only recalled evidence with fresh source validation (ownership changed: %s)',
+	async (changedOwnership) => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-request-evidence-review-'))
+		roots.push(cwd)
+		const sessions = await openSessions(cwd)
+		const sessionId = await startConversation(sessions)
+		const code = `RECEIPT-${randomUUID()}`
+		const sourceRun = await archive(cwd, sessions, sessionId, `DELTA recorded receipt: ${code}`)
+		const provider = new MockLLMProvider({ turns: [{ text: 'RECEIPT-wrong' }, { text: code }] })
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		let reviews = 0
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			stateRoot: sessions.root,
+			conversationSessions: sessions,
+			scope: {
+				sessionId,
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				tenantId: sessions.tenantId,
+			},
+			sandbox: { enabled: false },
+			memory: { recall: false },
+			compaction: { recallEvidence: true, resolveEvidenceQueries: false },
+			maxAnswerReviews: 1,
+			reviewAnswer: async (answer, context) => {
+				reviews++
+				const text =
+					context.requestMessages
+						?.filter(
+							(m) =>
+								m.role === 'user' &&
+								m.source?.type === 'runtime-context' &&
+								m.source.kind === 'step-context',
+						)
+						.map((m) => m.content)
+						.join('\n') ?? ''
+				const passages = text
+					.split('\n')
+					.filter((line) => line.startsWith('{"runId":'))
+					.map((line) => JSON.parse(line))
+				const passage = passages.find((p) => p.excerpt?.includes('DELTA recorded receipt:'))
+				if (!passage) throw new Error('No source reference in the reviewed request')
+				if (reviews === 1) expect(JSON.stringify(context.messages)).not.toContain(code)
+				expect(context.requestMessages).toEqual(provider.requests.at(-1)?.messages)
+				if (changedOwnership) {
+					const path = join(sessions.root, 'sessions', sessionId, 'runs', sourceRun, 'run.json')
+					const metadata = JSON.parse(await readFile(path, 'utf8'))
+					metadata.metadata.scope.sessionId = randomUUID()
+					await writeFile(path, JSON.stringify(metadata))
+				}
+				const page = await readConversationEvidence(
+					sessions,
+					sessionId,
+					{
+						runId: passage.runId,
+						seq: passage.seq,
+						part: passage.part,
+						byteOffset: passage.byteOffset,
+					},
+					context.signal,
+				)
+				if (!page.complete || page.retainedPreview || !page.text.includes(passage.excerpt))
+					throw new Error('Source is incomplete or changed')
+				const expected = /DELTA recorded receipt: (RECEIPT-[\w-]+)/.exec(page.text)?.[1]
+				if (!expected) throw new Error('No recorded receipt')
+				return answer === expected
+					? { accept: true }
+					: {
+							accept: false,
+							feedback:
+								'The identifier differs from the recalled source. Copy the recorded receipt exactly.',
+						}
+			},
+		})
+		opened.push(session)
+		const events: AgentEvent[] = []
+		for await (const event of session.send(
+			[createUserMessage('Return only the previous DELTA recorded receipt.')],
+			{ permissionMode: 'auto' },
+		))
+			events.push(event)
+		if (changedOwnership) {
+			expect(reviews).toBe(1)
+			expect(provider.requests).toHaveLength(1)
+			expect(events.some((e) => e.kind === 'done')).toBe(false)
+			expect(events).toContainEqual(
+				expect.objectContaining({ kind: 'error', message: expect.stringMatching(/ownership/) }),
+			)
+		} else {
+			expect(reviews).toBe(2)
+			expect(provider.requests).toHaveLength(2)
+			expect(events).toContainEqual(expect.objectContaining({ kind: 'done', text: code }))
+		}
+	},
+)

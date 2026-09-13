@@ -769,7 +769,7 @@ export class IterationOrchestrator {
 						model: requestedMember.model ?? stepModel,
 						chainIndex: requestedMember.index,
 					}
-					const { response, messageId } = yield* streamProviderTurn(
+					const { response, messageId, requestMessages } = yield* streamProviderTurn(
 						this.ctx.provider,
 						{
 							model: stepModel,
@@ -822,6 +822,7 @@ export class IterationOrchestrator {
 						{
 							onAccepted: (identity) => this.acceptProviderRejectedImage(identity),
 						},
+						Boolean(this.ctx.reviewAnswer || this.ctx.structuredOutput?.review),
 					)
 					stepResponse = response
 
@@ -1089,7 +1090,8 @@ export class IterationOrchestrator {
 								this.ctx.abortController.signal,
 							)
 							let outcome: 'accepted' | 'retry' | 'exhausted' | 'cancelled'
-							if (candidate.success) outcome = await this.reviewStructuredOutput(candidate.value)
+							if (candidate.success)
+								outcome = await this.reviewStructuredOutput(candidate.value, requestMessages)
 							else {
 								this.nativeStructuredAttempts++
 								runMgr.pushMessage(
@@ -1235,7 +1237,10 @@ export class IterationOrchestrator {
 						// judge: bounded attempts, feedback as a user message, and
 						// a loud stop rather than a loop.
 						if (!forceFinalize && this.ctx.reviewAnswer) {
-							const review = await this.reviewAnswer(response.message.content ?? '')
+							const review = await this.reviewAnswer(
+								response.message.content ?? '',
+								requestMessages,
+							)
 							if (this.ctx.abortController.signal.aborted) {
 								runMgr.setStopReason('cancelled')
 								runMgr.markCancelled()
@@ -1395,6 +1400,7 @@ export class IterationOrchestrator {
 					const structuredOutcome = await this.captureStructuredOutput(
 						reviewOutcome.results,
 						response,
+						requestMessages,
 					)
 					if (
 						structuredOutcome === 'retry' ||
@@ -2285,6 +2291,7 @@ export class IterationOrchestrator {
 	private async captureStructuredOutput(
 		results: readonly ToolCallOutcome[],
 		response: ChatCompletionResponse,
+		requestMessages: readonly Message[] | undefined,
 	): Promise<'absent' | 'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
 		if (!this.needsStructuredOutput() || this.ctx.structuredOutput?.mode === 'native')
 			return 'absent'
@@ -2312,7 +2319,7 @@ export class IterationOrchestrator {
 				)
 			parsed = hit.output
 		}
-		return this.reviewStructuredOutput(parsed)
+		return this.reviewStructuredOutput(parsed, requestMessages)
 	}
 
 	private publishStructuredOutput(): void {
@@ -2322,6 +2329,7 @@ export class IterationOrchestrator {
 
 	private async reviewStructuredOutput(
 		parsed: unknown,
+		requestMessages: readonly Message[] | undefined,
 	): Promise<'accepted' | 'retry' | 'exhausted' | 'cancelled'> {
 		if (this.ctx.abortController.signal.aborted) return 'cancelled'
 		const reviewer = this.ctx.structuredOutput?.review
@@ -2342,6 +2350,7 @@ export class IterationOrchestrator {
 							iteration: this.ctx.runMgr.currentIteration,
 							signal,
 							messages: this.ctx.runMgr.messages,
+							...(requestMessages ? { requestMessages } : {}),
 						}),
 					),
 					aborted,
@@ -2384,7 +2393,10 @@ export class IterationOrchestrator {
 	}
 
 	/** A reviewer failure aborts settlement; only an explicit rejection requests correction. */
-	private async reviewAnswer(answer: string): Promise<AnswerReview | undefined> {
+	private async reviewAnswer(
+		answer: string,
+		requestMessages: readonly Message[] | undefined,
+	): Promise<AnswerReview | undefined> {
 		const reviewer = this.ctx.reviewAnswer
 		const signal = this.ctx.abortController.signal
 		if (!reviewer || signal.aborted) return undefined
@@ -2402,6 +2414,7 @@ export class IterationOrchestrator {
 						iteration: this.ctx.runMgr.currentIteration,
 						signal,
 						messages: this.ctx.runMgr.messages,
+						...(requestMessages ? { requestMessages } : {}),
 					})
 				}),
 				aborted,

@@ -11,7 +11,10 @@ tags: [sdk, harness, verification]
 `QueryParams.structuredOutput.review` checks the parsed result after the output
 tool has validated its schema and before `Run.structuredOutput` is published.
 The callback receives a cloned JSON-decoded value (`unknown`) and an `AnswerReviewContext` containing
-run identity, iteration, messages and the run's cancellation signal. Mutating
+run identity, iteration, messages and the run's cancellation signal. Its optional
+[`requestMessages`](verification.md) is the isolated SDK request snapshot which
+produced this candidate, including ephemeral evidence and image-recovery edits.
+It excludes the candidate and any results produced after that dispatch. Mutating
 that clone does not change the published result. Narrow or validate the value
 before use: tool-result processing and JSON serialization do not preserve every
 possible Zod output type. Native mode rejects transformations that produce

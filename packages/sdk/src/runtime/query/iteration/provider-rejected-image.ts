@@ -1,4 +1,5 @@
 import { isProviderRequestError } from '../../../provider/errors.js'
+import type { Message } from '../../../types/message/index.js'
 import type {
 	ChatCompletionParams,
 	LLMProvider,
@@ -62,8 +63,10 @@ export async function* streamWithProviderRejectedImageRecovery(
 	provider: LLMProvider,
 	params: ChatCompletionParams,
 	onAccepted: (identity: RequestImageIdentity) => Promise<void>,
+	onRequest?: (messages: readonly Message[]) => void,
 ): AsyncIterable<StreamChunk> {
 	const candidate = findSingleRequestImage(params.messages)
+	onRequest?.(params.messages)
 	if (candidate === null) {
 		yield* provider.chatStream(params)
 		return
@@ -90,6 +93,7 @@ export async function* streamWithProviderRejectedImageRecovery(
 	}
 	let accepted = false
 	let retryReportedError = false
+	onRequest?.(retryParams.messages)
 	for await (const chunk of provider.chatStream(retryParams)) {
 		if (chunk.error !== undefined) retryReportedError = true
 		if (!accepted && isAcceptedChunk(chunk)) {

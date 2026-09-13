@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Supply the candidate request's isolated SDK message snapshot to [answer reviewers](sdk/verification.md), including [structured output review](sdk/structured-output-review.md), so transient retrieved evidence can be checked without becoming durable history.
+
 - **Update** Add run-metered [preparation inference](sdk/step-context.md#bounded-preparation-inference) and grounded conversational query resolution for [automatic evidence recall](sdk/evidence-recall.md), with a [CLI opt-out](cli/context-and-compaction.md) for the new preparation cost.
 
 - **Update** Record an unresolved referential follow-up failure in [automatic evidence recall](sdk/evidence-recall.md), with real reopened CLI turns, an exact-read control and a query ablation separating missing context resolution from retained-byte recovery.

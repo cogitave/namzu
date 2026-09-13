@@ -14,7 +14,7 @@ import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
-import type { Citation, ReasoningBlock } from '../../../types/message/index.js'
+import type { Citation, Message, ReasoningBlock } from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type {
 	ChatCompletionResponse,
@@ -54,6 +54,8 @@ function synthesizeMessageStopReason(
 export interface StreamingTurnResult {
 	response: ChatCompletionResponse
 	messageId: import('../../../types/ids/index.js').MessageId
+	/** Captured only for host review, at the provider-chain dispatch boundary. */
+	requestMessages?: readonly Message[]
 }
 
 /**
@@ -156,6 +158,7 @@ export async function* streamProviderTurn(
 	imageRecovery?: {
 		readonly onAccepted: (identity: RequestImageIdentity) => Promise<void>
 	},
+	captureRequest = false,
 ): AsyncGenerator<RunEvent, StreamingTurnResult> {
 	assertNativeStructuredOutputSupported(provider, params)
 	assertHostedWebSearchSupported(provider, params)
@@ -239,9 +242,21 @@ export async function* streamProviderTurn(
 		...params,
 		stream: true,
 	} satisfies import('../../../types/provider/index.js').ChatCompletionParams
+	let requestMessages: readonly Message[] | undefined
+	const observeRequest = captureRequest
+		? (messages: readonly Message[]) => {
+				requestMessages = structuredClone(messages)
+			}
+		: undefined
+	if (!imageRecovery) observeRequest?.(streamParams.messages)
 	const stream = (
 		imageRecovery
-			? streamWithProviderRejectedImageRecovery(provider, streamParams, imageRecovery.onAccepted)
+			? streamWithProviderRejectedImageRecovery(
+					provider,
+					streamParams,
+					imageRecovery.onAccepted,
+					observeRequest,
+				)
 			: provider.chatStream(streamParams)
 	) as AsyncIterable<StreamChunk>
 
@@ -746,5 +761,5 @@ export async function* streamProviderTurn(
 	chatSpan.setStatus({ code: SpanStatusCode.OK })
 	chatSpan.end()
 
-	return { response, messageId }
+	return { response, messageId, ...(requestMessages ? { requestMessages } : {}) }
 }

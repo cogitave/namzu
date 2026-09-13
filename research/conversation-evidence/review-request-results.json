@@ -1,0 +1,353 @@
+{
+  "recordedAt": "2026-09-13",
+  "base": "f49a4b83",
+  "trials": [
+    {
+      "root": "/tmp/namzu-review-request-cli-K5Rsbo",
+      "live": false,
+      "historyOnly": true,
+      "receipt": "RECEIPT-21e316b7-6e1f-4df8-b2d9-92b21dffd709",
+      "before": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "84d60ccd0c8cdf25838dda4f8a91c196749f6915bc5131ac00c69d04be79867c"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "4e9387c50abb890748b7566b22598b6a0451d40a3ff92fc25d786a77747233c3"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "review": {
+        "live": false,
+        "historyOnly": true,
+        "providerRequests": [
+          {
+            "index": 1,
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true
+          }
+        ],
+        "reviews": [
+          {
+            "answer": "RECEİPT-21e316b7-6e1f-4df8-b2d9-92b21dffd709",
+            "hasRequestReference": true,
+            "hasHistoryReference": false
+          }
+        ],
+        "events": [
+          {
+            "kind": "error",
+            "budget": {
+              "limit": 25000,
+              "ownTokens": 0,
+              "treeTokens": 0,
+              "reservedTokens": 0,
+              "remainingTokens": 25000,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "message": "Answer review failed: The reviewer cannot find the source in its supplied messages.",
+            "failure": {
+              "code": "unknown",
+              "message": "Answer review failed: The reviewer cannot find the source in its supplied messages.",
+              "details": {
+                "phase": "answer-review"
+              },
+              "retryable": false
+            }
+          }
+        ]
+      },
+      "sourceUnchanged": true,
+      "exactAnswer": false,
+      "passed": true,
+      "after": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "84d60ccd0c8cdf25838dda4f8a91c196749f6915bc5131ac00c69d04be79867c"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "4e9387c50abb890748b7566b22598b6a0451d40a3ff92fc25d786a77747233c3"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "buildStable": true
+    },
+    {
+      "root": "/tmp/namzu-review-request-cli-ppQ1L9",
+      "live": false,
+      "historyOnly": false,
+      "receipt": "RECEIPT-506899de-ba1a-4de8-996d-445a9bf6b915",
+      "before": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "84d60ccd0c8cdf25838dda4f8a91c196749f6915bc5131ac00c69d04be79867c"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "4e9387c50abb890748b7566b22598b6a0451d40a3ff92fc25d786a77747233c3"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "review": {
+        "live": false,
+        "historyOnly": false,
+        "providerRequests": [
+          {
+            "index": 1,
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true
+          },
+          {
+            "index": 2,
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true
+          }
+        ],
+        "reviews": [
+          {
+            "answer": "RECEİPT-506899de-ba1a-4de8-996d-445a9bf6b915",
+            "hasRequestReference": true,
+            "hasHistoryReference": false,
+            "sourceValidated": true,
+            "retainedPreview": false,
+            "accept": false
+          },
+          {
+            "answer": "RECEIPT-506899de-ba1a-4de8-996d-445a9bf6b915",
+            "hasRequestReference": true,
+            "hasHistoryReference": false,
+            "sourceValidated": true,
+            "retainedPreview": false,
+            "accept": true
+          }
+        ],
+        "events": [
+          {
+            "kind": "done",
+            "text": "RECEIPT-506899de-ba1a-4de8-996d-445a9bf6b915",
+            "budget": {
+              "limit": 25000,
+              "ownTokens": 0,
+              "treeTokens": 0,
+              "reservedTokens": 0,
+              "remainingTokens": 25000,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          }
+        ]
+      },
+      "sourceUnchanged": true,
+      "exactAnswer": true,
+      "stopReason": "end_turn",
+      "passed": true,
+      "after": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "84d60ccd0c8cdf25838dda4f8a91c196749f6915bc5131ac00c69d04be79867c"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "4e9387c50abb890748b7566b22598b6a0451d40a3ff92fc25d786a77747233c3"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "buildStable": true
+    },
+    {
+      "root": "/tmp/namzu-review-request-cli-0levpi",
+      "live": true,
+      "historyOnly": false,
+      "receipt": "RECEIPT-f227088b-c0ea-4872-a8bc-406023043bf2",
+      "before": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "84d60ccd0c8cdf25838dda4f8a91c196749f6915bc5131ac00c69d04be79867c"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "4e9387c50abb890748b7566b22598b6a0451d40a3ff92fc25d786a77747233c3"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "review": {
+        "live": true,
+        "historyOnly": false,
+        "providerRequests": [
+          {
+            "index": 1,
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true
+          },
+          {
+            "index": 2,
+            "model": "gpt-5.6-luna",
+            "effort": "low",
+            "hasRequestEvidence": true,
+            "usage": {
+              "promptTokens": 8185,
+              "completionTokens": 61,
+              "totalTokens": 8246,
+              "cachedTokens": 0,
+              "cacheWriteTokens": 0
+            }
+          }
+        ],
+        "reviews": [
+          {
+            "answer": "RECEİPT-f227088b-c0ea-4872-a8bc-406023043bf2",
+            "hasRequestReference": true,
+            "hasHistoryReference": false,
+            "sourceValidated": true,
+            "retainedPreview": false,
+            "accept": false
+          },
+          {
+            "answer": "RECEIPT-f227088b-c0ea-4872-a8bc-406023043bf2",
+            "hasRequestReference": true,
+            "hasHistoryReference": false,
+            "sourceValidated": true,
+            "retainedPreview": false,
+            "accept": true
+          }
+        ],
+        "events": [
+          {
+            "kind": "done",
+            "text": "RECEIPT-f227088b-c0ea-4872-a8bc-406023043bf2",
+            "budget": {
+              "limit": 25000,
+              "ownTokens": 8246,
+              "treeTokens": 8246,
+              "reservedTokens": 0,
+              "remainingTokens": 16754,
+              "inFlightRequests": 0,
+              "unsettledChildren": 0,
+              "poisoned": false,
+              "unresolvedRequests": 0
+            },
+            "stopReason": "end_turn"
+          }
+        ]
+      },
+      "sourceUnchanged": true,
+      "exactAnswer": true,
+      "stopReason": "end_turn",
+      "passed": true,
+      "after": [
+        [
+          "packages/sdk/dist/runtime/query/iteration/index.js",
+          "84d60ccd0c8cdf25838dda4f8a91c196749f6915bc5131ac00c69d04be79867c"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/stream-turn.js",
+          "5f7ad27fedb89b299a0bc9bc757eeb650193a4b8d4a3500e946c06a55a9c86bd"
+        ],
+        [
+          "packages/sdk/dist/runtime/query/iteration/provider-rejected-image.js",
+          "7495282f534df8580b8fea15383abdff10a016a2a79fe03a217f9ab86cada82f"
+        ],
+        [
+          "packages/sdk/dist/run/evidence-recall.js",
+          "4e9387c50abb890748b7566b22598b6a0451d40a3ff92fc25d786a77747233c3"
+        ],
+        [
+          "packages/cli/dist/tui/agent.js",
+          "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+        ],
+        [
+          "packages/cli/dist/integrations/sessions/conversation-search.js",
+          "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1"
+        ]
+      ],
+      "buildStable": true
+    }
+  ]
+}
