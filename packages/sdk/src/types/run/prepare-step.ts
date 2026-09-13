@@ -1,8 +1,28 @@
+import type { TokenUsage } from '../common/index.js'
 import type { RunId } from '../ids/index.js'
 import type { Message, UserMessage } from '../message/index.js'
 import type { ToolChoice } from '../provider/chat.js'
 import type { Skill } from '../skills/index.js'
 import type { StepResult } from './step.js'
+import type { StepProvenance } from './step.js'
+
+/** @experimental One bounded, tool-free inference within a preparation stage. */
+export interface PreparationTextRequest {
+	readonly system: string
+	readonly prompt: string
+	/** Default 256; maximum 1,024. A provider limit, not a hard billing ceiling. */
+	readonly maxTokens?: number
+	/** Default and maximum 10,000ms, shortened by stage/run cancellation. */
+	readonly timeoutMs?: number
+	readonly signal?: AbortSignal
+}
+
+/** @experimental Side-call usage also contributes to the owning run's totals. */
+export interface PreparationTextResult {
+	readonly text: string
+	readonly usage: TokenUsage
+	readonly servedBy: StepProvenance
+}
 
 /**
  * What the loop knows before it calls the model again.
@@ -17,6 +37,15 @@ import type { StepResult } from './step.js'
  */
 export interface PrepareStepContext {
 	readonly runId: RunId
+	/**
+	 * Optional run-owned inference for context preparation. At most one call per
+	 * stage invocation; cannot be called after that stage returns. Uses the run's
+	 * metered provider/fallback chain and the model selected by preceding stages.
+	 * Only supplied text is sent (12,000 characters total); no tools or history
+	 * are implicitly attached. Returned text is bounded to 8,192 characters.
+	 * Absent in beforeStep and in hosts which do not supply this capability.
+	 */
+	readonly generateText?: (request: PreparationTextRequest) => Promise<PreparationTextResult>
 	/**
 	 * Optional writer-bound snapshot of this invocation's completed events.
 	 * Never discovers other runs or repeats tools. Unsupported stores return

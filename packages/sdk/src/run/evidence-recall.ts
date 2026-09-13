@@ -4,6 +4,7 @@ import type { PrepareStep } from '../types/run/prepare-step.js'
 import { evidenceRecordedAt } from '../utils/evidence-time.js'
 import { evidenceTokenKey, evidenceTokens, isEvidenceToken } from '../utils/evidence-tokens.js'
 import { isEntityId } from '../utils/id.js'
+import { createEvidenceQueryResolver } from './evidence-query.js'
 
 /** @experimental An authenticated historical passage, never a current-state assertion. */
 export interface EvidenceRecallCandidate {
@@ -52,7 +53,7 @@ export interface EvidenceRecallContinuation {
 	readonly input: Readonly<Record<string, string | number | boolean | null>>
 }
 
-/** @experimental Optional, local retrieval; it makes no model calls. */
+/** @experimental Local retrieval with optional run-metered query resolution. */
 export interface EvidenceRecallOptions {
 	readonly scope: Omit<RunEvidenceScope, 'runId'>
 	readonly retrieve: (request: EvidenceRecallRequest) => Promise<EvidenceRecallBatch>
@@ -64,6 +65,8 @@ export interface EvidenceRecallOptions {
 	readonly timeoutMs?: number
 	/** Host fallback only when latestUserMessage is absent. */
 	readonly query?: string
+	/** Resolve references through one run-metered preparation call per operator input. Default false. */
+	readonly resolveQuery?: boolean
 }
 
 const HEADER =
@@ -297,6 +300,8 @@ function continuationHints(batch: EvidenceRecallBatch): EvidenceRecallContinuati
  * timeout/error reaches the runtime's prepareStep diagnostic, never a cached fact.
  */
 export function createEvidenceRecallStep(options: EvidenceRecallOptions): PrepareStep {
+	if (options.resolveQuery !== undefined && typeof options.resolveQuery !== 'boolean')
+		throw new Error('resolveQuery must be a boolean.')
 	const scope = Object.freeze({ ...options.scope })
 	if (
 		!isEntityId(scope.tenantId, 'tenant') ||
@@ -309,15 +314,17 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 	const maxPassages = bounded(options.maxPassages ?? 4, 8, 'maxPassages')
 	const timeoutMs = bounded(options.timeoutMs ?? 1_000, 10_000, 'timeoutMs')
 	const fallbackQuery = options.query
-	return async ({
-		runId,
-		messages,
-		prepared,
-		latestUserMessage,
-		contextBudget,
-		signal,
-		captureRunEvidence,
-	}) => {
+	const resolveQuery = createEvidenceQueryResolver()
+	return async (context) => {
+		const {
+			runId,
+			messages,
+			prepared,
+			latestUserMessage,
+			contextBudget,
+			signal,
+			captureRunEvidence,
+		} = context
 		signal?.throwIfAborted()
 		const charBudget = Math.min(
 			maxChars,
@@ -325,11 +332,15 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 		)
 		const query = latestUserMessage?.content ?? fallbackQuery ?? queryFrom(messages)
 		// Keep source spelling for literal discovery (e.g. Turkish İ); fold only scores.
-		const terms = [...new Set(evidenceTokens(query.slice(-4_000)))]
+		let terms = [...new Set(evidenceTokens(query.slice(-4_000)))]
 			.filter((term) => term.length <= 256 && !GLUE.has(term.toLowerCase()))
 			.slice(0, 16)
 		if (!terms.length || charBudget <= HEADER.length + 200 || pending.has(retrieve))
 			return undefined
+		const resolution = options.resolveQuery ? await resolveQuery(context, query) : undefined
+		signal?.throwIfAborted()
+		if (resolution === null) return undefined
+		if (resolution) terms = [...resolution.terms]
 		const controller = new AbortController()
 		const abort = () => controller.abort(signal?.reason)
 		signal?.addEventListener('abort', abort, { once: true })
@@ -477,6 +488,13 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			) =>
 				`${HEADER}${JSON.stringify({
 					incomplete: batch.incomplete,
+					...(resolution
+						? {
+								queryResolution: resolution,
+								queryResolutionGuidance:
+									'Search terms were resolved from visible conversation references. This is a query interpretation, not proof of relevance, truth or current state; the operator question is unchanged.',
+							}
+						: {}),
 					...(batch.excludedSummaries
 						? {
 								excludedSummaries: batch.excludedSummaries,

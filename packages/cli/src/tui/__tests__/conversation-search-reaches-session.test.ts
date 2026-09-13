@@ -1456,6 +1456,7 @@ it.each([false, true])(
 				strategy: 'structured',
 				contextWindowTokens: 32_000,
 				recallEvidence: automatic,
+				resolveEvidenceQueries: false,
 			},
 			onRunEvent(event) {
 				if (event.type === 'tool_completed' && event.toolName === 'read') observed = true
@@ -1609,3 +1610,78 @@ it('keeps changing inventory after history on both native provider wires', async
 		}
 	}
 })
+
+it.each([undefined, false])(
+	'resolves a conversational reference through the real Session with resolveEvidenceQueries=%s',
+	async (resolveEvidenceQueries) => {
+		const cwd = await mkdtemp(join(tmpdir(), 'namzu-resolved-query-'))
+		roots.push(cwd)
+		const sessions = await openSessions(cwd)
+		const sessionId = await startConversation(sessions)
+		await archive(cwd, sessions, sessionId, 'DELTA retained receipt: ORIGINAL-471')
+		const plan = JSON.stringify({
+			mode: 'contextual',
+			time: 'past',
+			terms: ['DELTA', 'receipt'],
+			basis: [{ message: 0, quote: 'DELTA receipt' }],
+		})
+		const provider = new MockLLMProvider({
+			turns:
+				resolveEvidenceQueries === false
+					? [{ text: 'answer' }]
+					: [{ text: plan }, { text: 'answer' }],
+		})
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const session = await createAgentSession(preferences, detected, {
+			cwd,
+			scope: {
+				sessionId,
+				topicId: sessions.topicId,
+				projectId: sessions.projectId,
+				tenantId: sessions.tenantId,
+			},
+			stateRoot: sessions.root,
+			conversationSessions: sessions,
+			sandbox: { enabled: false },
+			memory: { recall: false },
+			compaction: {
+				recallEvidence: true,
+				...(resolveEvidenceQueries === undefined ? {} : { resolveEvidenceQueries }),
+			},
+		})
+		opened.push(session)
+		const question = 'What was its exact identifier?'
+		const history = [
+			createUserMessage('Inspect the DELTA receipt.'),
+			createAssistantMessage('The record has an identifier.'),
+			createUserMessage(question),
+		]
+		for await (const _event of session.send(history, {
+			runId: generateRunId(),
+			permissionMode: 'auto',
+		})) {
+			/* production preparation and retrieval */
+		}
+		expect(provider.requests).toHaveLength(resolveEvidenceQueries === false ? 1 : 2)
+		const request = provider.requests.at(-1)!
+		const context = request.messages
+			.filter(
+				(m) =>
+					m.role === 'user' &&
+					m.source?.type === 'runtime-context' &&
+					m.source.kind === 'step-context',
+			)
+			.map((m) => m.content)
+			.join('\n')
+		if (resolveEvidenceQueries === false) expect(context).not.toContain('ORIGINAL-471')
+		else {
+			expect(context).toContain('ORIGINAL-471')
+			expect(context).toContain('queryResolution')
+			expect(provider.requests[0]!.tools).toBeUndefined()
+			expect(provider.requests[0]!.messages).toHaveLength(2)
+		}
+		expect(request.messages).toContainEqual(
+			expect.objectContaining({ role: 'user', content: question }),
+		)
+	},
+)

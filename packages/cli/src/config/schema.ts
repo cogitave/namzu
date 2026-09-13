@@ -73,6 +73,8 @@ export interface RunLimitsConfig {
 export interface CompactionCliConfig {
 	/** Opt-in bounded historical evidence recall into request context. Default false. */
 	readonly recallEvidence?: boolean
+	/** Resolve follow-up search references with a metered model call when recall is enabled. Default true. */
+	readonly resolveEvidenceQueries?: boolean
 	/** Retained overflow preview in recorded conversations; default 4,000 chars. 0 keeps the ordinary 40,000-char budget. */
 	readonly retainedToolPreviewChars?: number
 	/** Mask exact repeated read-only observations in model requests; enabled unless false. */

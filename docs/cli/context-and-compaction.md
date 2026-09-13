@@ -64,6 +64,7 @@ In `namzu.config.json` (project) or `~/.namzu/config.yaml` (user), never from th
 | `deduplicateObservations` | Enabled by default. Repeated identical read-only text observations share one full result in each model request. Set `false` to preserve the previous representation. Tool execution and canonical history are unchanged; see the [SDK policy and limits](../sdk/salience-working-set.md#exact-repeated-observations-in-the-active-request). |
 | `retainedToolPreviewChars` | Nonnegative safe integer; default 4,000 in recorded conversations. Limits the preview of overflow text only after full text and its integrity manifest are saved. Set `0` to keep the previous 40,000-character preview budget. The spill threshold, smaller results and independently supplied model text are unchanged. |
 | `recallEvidence` | Optional boolean, default `false`. Retrieve bounded historical passages from this recorded conversation before each model request; see the limits below. Independent of project-memory recall. |
+| `resolveEvidenceQueries` | Optional boolean, default `true` when `recallEvidence` is enabled. Resolve conversational references through a bounded, metered model call per operator input; set `false` for literal retrieval without preparation inference. |
 | `consolidate` | `true` selects one consolidated `learning` entry per run instead of the default extracted-claim promoter. Both write to the project's structured memory store. Omitted or `false` uses promotion; it does not disable durable memory. |
 
 The CLI uses one of these writers per run, including resumed runs. Retrieval is
@@ -88,6 +89,22 @@ Set `compaction.recallEvidence: true` to enable the experimental
 [SDK evidence recall step](../sdk/evidence-recall.md) in recorded CLI turns,
 including resume and resident turns using the conversation host. Stateless
 sessions do not gain archive access. The default remains off.
+
+When recall is enabled, `resolveEvidenceQueries` defaults to `true`. Short
+follow-ups with preceding visible conversation may make an additional tool-free
+model call to identify the subject of a historical question. Its terms must be
+grounded in exact quoted conversation text. Self-contained/new-topic queries
+keep their own terms; present-state questions are not expanded with historical
+terms. This interpretation does not prove the final answer or file freshness.
+See the [SDK planning bounds](../sdk/evidence-recall.md#selection-and-limits).
+
+The preparation call shares the run's model/provider chain, effort, token budget
+and cancellation, with at most 512 output tokens and a ten-second deadline.
+It is separate from the retrieval deadline below. Repeated iterations reuse the
+plan for that input, but revalidate the evidence. Set
+`compaction.resolveEvidenceQueries: false` to retain the previous local-only,
+literal-query behavior and avoid the additional inference cost. This setting
+has no effect when `recallEvidence` is off.
 
 Each request scans at most four bounded pages, accounting at most 8 MiB of
 source/metadata bytes across those pages, from this conversation only. Each

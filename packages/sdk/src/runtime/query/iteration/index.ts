@@ -56,6 +56,7 @@ import { generateMessageId } from '../../../utils/id.js'
 import type { ToolCallOutcome } from '../executor.js'
 import { projectObservationContext } from '../observation-context.js'
 import { applyLifecycleHookResults } from '../plugin-hooks.js'
+import { createPreparationInference } from '../preparation-inference.js'
 import {
 	type RequestContextSnapshot,
 	diffRequestContext,
@@ -559,14 +560,15 @@ export class IterationOrchestrator {
 					// Snapshot the cumulative counters so the step can report ITS
 					// own usage rather than the run total.
 					stepStartedAt = Date.now()
-					usageBefore = { ...runMgr.tokenUsage }
-					costBefore = { ...runMgr.costInfo }
 
 					// Shape this step before calling the model. `stopWhen` decides
 					// whether to keep going; this decides HOW. No-op when the host
 					// supplied no hook.
 					const contextModelBeforePreparation = this.ctx.contextModel ?? model
 					const step = await this.prepareStep(iterationNum)
+					// Preparation inference belongs to the run, not the main-model step.
+					usageBefore = { ...runMgr.tokenUsage }
+					costBefore = { ...runMgr.costInfo }
 					stepModel = step.model ?? model
 					await this.selectContextModel(stepModel)
 					// Preserve post-compaction preparation/recall semantics. A changed
@@ -1932,8 +1934,15 @@ export class IterationOrchestrator {
 		// rather than an accident of install history.
 		let result: PrepareStepResult = {}
 		for (const stage of stages) {
+			const inference = createPreparationInference(
+				this.ctx,
+				result.model ?? this.ctx.runConfig.model,
+			)
 			try {
-				const decided = await stage(this.stepContext(stepNumber, result))
+				const decided = await stage({
+					...this.stepContext(stepNumber, result),
+					generateText: inference.generateText,
+				})
 				if (decided) result = { ...result, ...decided }
 				await this.selectContextModel(result.model ?? this.ctx.runConfig.model)
 			} catch (err) {
@@ -1944,6 +1953,8 @@ export class IterationOrchestrator {
 					'namzu.runtime.step_number': stepNumber,
 					'exception.message': toErrorMessage(err),
 				})
+			} finally {
+				inference.close()
 			}
 		}
 

@@ -13,6 +13,9 @@ const recallEvidence = process.argv.includes('--recall-evidence');
 const referential = process.argv.includes('--referential');
 const scriptedObservation = process.argv.includes('--scripted-observation');
 const queryAblation = process.argv.includes('--query-ablation');
+const resolveEvidenceQueries = process.argv.includes('--resolve-queries');
+const checkTopic = process.argv.includes('--check-topic');
+if(resolveEvidenceQueries && !live) throw new Error('--resolve-queries requires --live; offline planning is covered by SDK/Session tests.');
 const root = await mkdtemp(join(tmpdir(), 'namzu-natural-recall-'));
 const home = join(root, 'home');
 const cwd = join(root, 'workspace');
@@ -27,7 +30,7 @@ const originalText = Array.from({ length: 400 }, (_, i) => i === 210
 const replacementText = `Güncel revizyon; önceki dökümün yerini aldı.\nDELTA siparişi. Takip kodu: ${replacement.tracking}. Hedef deposu: ${replacement.depot}.\n`;
 await writeFile(file, originalText);
 await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'codex', model: 'gpt-5.6-luna' }], subagents: { active: [] } }));
-await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + (recallEvidence ? 'compaction:\n  recallEvidence: true\n' : ''));
+await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\nmemory:\n  recall: false\n' + (recallEvidence ? 'compaction:\n  recallEvidence: true\n  resolveEvidenceQueries: '+resolveEvidenceQueries+'\n' : ''));
 const sdkURL = new URL('../../packages/sdk/dist/index.js', import.meta.url);
 const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
 const preload = join(root, 'scripted-provider.mjs');
@@ -40,8 +43,14 @@ created.provider.chatStream=async function*(params){
  const context=params.messages.filter(m=>m.source?.type==='runtime-context'&&m.source.kind==='step-context');
  const ordinary=params.messages.filter(m=>!context.includes(m));
  const codes=${JSON.stringify(Object.values(original))};
- await appendFile(${JSON.stringify(join(root, 'requests.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,contextChars:context.reduce((n,m)=>n+String(m.content).length,0),contextOriginals:codes.map(code=>context.some(m=>String(m.content).includes(code))),ordinaryOriginals:codes.map(code=>ordinary.some(m=>JSON.stringify(m).includes(code)))})+'\\n');
- yield* stream(params);
+ let preparationText='';
+ const preparation=params.messages.length===2&&String(params.messages[0]?.content).startsWith('Resolve a conversation-history search query.');
+ await appendFile(${JSON.stringify(join(root, 'requests.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,preparation,contextChars:context.reduce((n,m)=>n+String(m.content).length,0),contextOriginals:codes.map(code=>context.some(m=>String(m.content).includes(code))),ordinaryOriginals:codes.map(code=>ordinary.some(m=>JSON.stringify(m).includes(code)))})+'\\n');
+ for await(const chunk of stream(params)){
+  if(preparation) preparationText+=(chunk.delta.content??'');
+  if(chunk.usage) await appendFile(${JSON.stringify(join(root, 'receipts.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,preparation,...(preparation?{text:preparationText}:{}),usage:chunk.usage})+'\\n');
+  yield chunk;
+ }
 };return created;};`);
 // Offline controls, and the optional initial observation, script only model
 // decisions. All file tools and persistence remain production implementations.
@@ -59,9 +68,9 @@ if(phase==='1')turn=step++===0?{toolCalls:[{id:'initial-read',name:'read',args:{
  yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
 }}};};`);
 
-const builtFiles=['packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
+const builtFiles=['packages/sdk/dist/runtime/query/preparation-inference.js','packages/sdk/dist/runtime/query/iteration/index.js','packages/sdk/dist/run/evidence-query.js','packages/sdk/dist/run/evidence-recall.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/sdk/dist/store/evidence/selection.js','packages/cli/dist/integrations/sessions/evidence-recall.js','packages/cli/dist/integrations/sessions/conversation-search.js','packages/cli/dist/commands/run-stream.js','packages/cli/dist/tui/agent.js'];
 const fingerprints=async()=>Object.fromEntries(await Promise.all(builtFiles.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
-const report = { root, live, checkCurrent, recallEvidence, referential, scriptedObservation, queryAblation, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
+const report = { root, live, checkCurrent, recallEvidence, referential, scriptedObservation, queryAblation, resolveEvidenceQueries, checkTopic, provider: live ? 'codex' : 'scripted', model: live ? 'gpt-5.6-luna' : 'scripted', effort: 'low', original, replacement, turns: [], buildBefore:await fingerprints() };
 const allEvents = async () => {
   const events = [];
   for (const session of await readdir(join(home, 'sessions'), { withFileTypes: true })) {
@@ -99,7 +108,9 @@ async function turn(prompt, phase, tokenBudget) {
   const events = (await allEvents()).filter(e=>!before.has(e.runId));
   record.calls = events.filter(e=>e.type==='tool_executing').map(e=>({name:e.toolName,input:e.input}));
   record.requestUsage = events.filter(e=>e.type==='message_completed'&&e.usage).map(e=>e.usage);
-  record.totalTokens = record.requestUsage.reduce((n,u)=>n+u.totalTokens,0);
+  record.mainMessageTokens = record.requestUsage.reduce((n,u)=>n+u.totalTokens,0);
+  record.totalTokens = record.done?.budget?.ownTokens;
+  record.auxiliaryTokens = record.totalTokens === undefined ? undefined : record.totalTokens-record.mainMessageTokens;
   record.cachedTokens = record.requestUsage.reduce((n,u)=>n+(u.cachedTokens??0),0);
   return {record, events};
 }
@@ -182,15 +193,25 @@ try {
       && report.currentCheck.sourceUnchanged && !current.record.processError && current.record.errors.length===0
       && current.record.done?.stopReason==='end_turn';
   }
-  if(!report.passed || report.currentCheck?.passed===false)process.exitCode=1;
+  if(checkTopic){
+    const topic=await turn('Akdeniz ikliminin özelliklerini bir cümleyle anlat.',4,15_000);
+    const topicText=topic.record.done?.text??'';
+    const unrelated=Object.values(original).concat(Object.values(replacement));
+    report.topicCheck={answer:topicText,sourceUnchanged:await readFile(file,'utf8')===replacementText,containsShippingIds:unrelated.some(id=>topicText.includes(id)),stopReason:topic.record.done?.stopReason};
+    report.topicCheck.passed=!report.topicCheck.containsShippingIds&&report.topicCheck.sourceUnchanged&&!topic.record.processError&&topic.record.errors.length===0&&topic.record.done?.stopReason==='end_turn';
+  }
+  report.historicalPassed=report.passed;
+  report.passed=report.passed&&report.currentCheck?.passed!==false&&report.topicCheck?.passed!==false;
+  if(!report.passed)process.exitCode=1;
 } catch(error) {report.passed=false;report.error=String(error.message);process.exitCode=1;}
 finally {
   report.buildAfter=await fingerprints();
   report.buildStable=JSON.stringify(report.buildBefore)===JSON.stringify(report.buildAfter);
   if(!report.buildStable){report.passed=false;report.error='Built modules changed during the experiment.';process.exitCode=1;}
+  try {report.receipts=(await readFile(join(root,'receipts.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
   try {report.requests=(await readFile(join(root,'requests.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(JSON.parse);} catch(error){if(error.code!=='ENOENT')throw error;}
   report.fingerprints={};
-  for(const path of ['packages/sdk/src/run/evidence-recall.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
+  for(const path of ['packages/sdk/src/runtime/query/preparation-inference.ts','packages/sdk/src/runtime/query/iteration/index.ts','packages/sdk/src/run/evidence-query.ts','packages/sdk/src/run/evidence-recall.ts','packages/cli/src/integrations/sessions/evidence-recall.ts','packages/sdk/src/prompt/coding-agent-doctrine.ts','packages/sdk/src/runtime/query/tool-output-budget.ts','packages/cli/src/integrations/sessions/conversation-search.ts','packages/cli/src/tui/agent.ts','packages/cli/src/commands/run-stream.ts','research/conversation-evidence/natural-cli.mjs'])
     report.fingerprints[path]=createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex');
   await writeFile(join(root,'result.json'),JSON.stringify(report,null,2)+'\n');
   console.log(JSON.stringify({root,live,passed:report.passed,prerequisites:report.prerequisites,observations:report.observations,currentCheck:report.currentCheck,turns:report.turns.map(t=>({phase:t.phase,calls:t.calls,totalTokens:t.totalTokens})),error:report.error}));

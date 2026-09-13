@@ -79,10 +79,42 @@ reduce total input tokens by itself. Other system contributions, tool schemas,
 model routing, history projection and server behavior still affect caching.
 Context text consumes tokens and is included in preparation's estimate. The
 host must bound its contribution; the field has no independent size cap. No
-automatic summarization, output eviction or additional model call is introduced.
+automatic summarization or output eviction is introduced by the context field.
 
 The CLI uses this field for its bounded context inventory. It composes preceding
 context contributions and leaves system contributions untouched. SDK tests check
 stage composition, token estimates, freshness and retained operator intent;
 the CLI Session test checks actual OpenAI and Anthropic request bodies with
 network transport replaced by a recording fixture.
+
+## Bounded preparation inference
+
+`PrepareStepContext.generateText` is an optional experimental capability supplied
+by the kernel to each `prepareStep` stage, absent from `beforeStep`. A stage may
+await one tool-free inference call; its capability is revoked when that stage
+returns. This lets context preparation use the owning run's provider, retry and
+fallback chain, token admission and cancellation rather than an unmetered client.
+The model is the one selected by preceding stages, with the run's effort setting.
+
+`PreparationTextRequest` contains only `system`, `prompt`, optional `maxTokens`,
+`timeoutMs` and `signal`. No conversation, tool definitions, private reasoning or
+other request state is implicitly attached. The two input strings together may
+contain at most 12,000 UTF-16 units. The output limit defaults to 256 tokens and
+cannot exceed 1,024; the deadline defaults to and cannot exceed 10,000ms. A caller
+signal can shorten the stage/run lifetime. These limits do not guarantee a
+provider billing ceiling.
+
+`PreparationTextResult` returns `text` (at most 8,192 units), `usage` and
+`servedBy`. Only visible text is collected. Tool calls are rejected without
+execution. Oversized or tool-bearing output is discarded while draining the
+bounded stream for its usage receipt. Missing usage, invalid inputs and errors
+reject; optional-stage failures retain the existing diagnostic and fail-open
+behavior. Cancellation with an unresolved receipt remains visible in the token
+ledger and can prevent further spending.
+
+Measured auxiliary usage and cost contribute to the owning run and budget. They
+are excluded from the main-model `StepResult` counters and do not create a
+conversation message or a separate step. Model `maxIterations` counts loop steps,
+not these additional provider requests; token budgets still cover both. A host
+using the returned text must validate and label it appropriately. In particular,
+a query interpretation is neither system policy nor independent evidence.

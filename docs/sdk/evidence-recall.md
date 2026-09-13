@@ -14,8 +14,9 @@ binds a tenant, project and conversation, and supplies a read-only `retrieve`
 callback returning authenticated passages. The step ranks the returned pool
 and adds selected text to [request-only step context](step-context.md), after
 history. It preserves earlier stages' context and leaves system policy and
-durable messages unchanged. It makes no model calls and never executes an
-action to recreate its output.
+durable messages unchanged. By default it makes no model calls. Optional query
+resolution uses run-metered inference; retrieval never executes an action to
+recreate its output.
 
 The callback receives the invoking `runId`, up to 16 literal terms, an
 `AbortSignal`, `maxReadBytes: 8388608` and `maxCandidates: 24`. It must enforce
@@ -61,14 +62,48 @@ filter. Literal spelling is preserved for search. There is no stemming,
 translation, synonym expansion or embedding model. Other languages may need a
 host retrieval strategy that suits their text.
 
-The step does not resolve references such as “the record you just inspected”
-against earlier operator turns. A [restarted CLI experiment](../../research/conversation-evidence/referential-results.md)
-found no original identifiers for such a query, while an explicit query naming
-the record retrieved both. The live low-effort model then answered from a changed
-workspace file. That historical/current source-selection failure remains open;
-retention and exact archive-read tests do not establish referential understanding.
-An unrelated new-topic query also returned no evidence, so absence of matches
-alone is insufficient to justify using the previous operator's topic.
+Set `resolveQuery: true` to resolve conversational references before retrieval.
+The default remains `false`. With the kernel's optional
+[`generateText` preparation capability](step-context.md#bounded-preparation-inference),
+a tool-free call asks the selected model whether the current question is
+self-contained, refers to previous text, or needs no search. This addresses the
+[observed referential failure](../../research/conversation-evidence/referential-results.md);
+the [follow-up CLI trials](../../research/conversation-evidence/resolved-query-results.md)
+record two exact historical answers and one remaining current-answer spelling
+failure. This is not a guarantee that the model understands every reference.
+
+Planning receives only the current question (at most 1,000 UTF-16 units) and up
+to six preceding visible operator/assistant text messages, each truncated to its
+last 600 units. History selection examines at most 64 entries before the current
+operator boundary; tools, private reasoning, project policy and runtime task
+context are excluded. It requires a preceding operator message. Missing inference,
+missing prior context or longer questions keep literal retrieval. The planner
+cannot discover a referent that is absent from this bounded visible history.
+
+A contextual plan supplies at most 16 single-token terms and three exact quotes
+of at most 200 units each. Every term must occur in the current question or a
+cited quote, and each quote must occur verbatim in the supplied history. The
+resulting `queryResolution` metadata records terms, temporal interpretation and
+quoted message positions within that preparation history. These are references
+to visible conversation, not authenticated archive addresses or proof of truth.
+They share the existing added-context character allowance. Grounding validates
+spelling and source inclusion, not semantic relevance.
+
+Self-contained or new-topic plans keep the current literal query. Present-state
+plans never expand with historical terms; fresh source observations remain the
+main model's responsibility. A `none` plan skips optional recall. Malformed or
+ungrounded plans reject the optional stage through its existing fail-open
+diagnostic; the main task and explicit archive tools remain available. The
+previous operator query is never used just because literal retrieval was empty.
+
+One plan promise is cached for the same run and operator-message identity, also
+keyed by question text. New runs or steering input invalidate it. A failed plan
+is not retried on every iteration. Evidence bytes are still retrieved and
+revalidated on every pass. This cache is local to the hook, not durable memory.
+The planning call permits at most 512 output tokens and ten seconds, sharing the
+run's provider chain, token ledger and cancellation. Those tokens count toward
+the run; the subsequent retrieval deadline is separate. These are bounded
+preparation costs, not free retrieval or a hard provider billing ceiling.
 
 Duplicate source/excerpt addresses with equal metadata are omitted. Exact passages
 already visible in history or an earlier stage's `prepared.system`/`prepared.context`
@@ -152,8 +187,8 @@ can therefore be omitted even if characters remain. `omittedVisibleEvidence`
 counts references from this bounded pool that did not fit, not total historical
 occurrences. Source time, error and retention remain distinct; missing metadata
 is not filled in from visible text. References are revalidated each pass, even
-when similar metadata was previously visible. No semantic temporal-intent
-classifier or current-state assertion is added.
+when similar metadata was previously visible. Quoted references themselves add no current-state assertion; optional query
+resolution labels an interpretation separately.
 Quoted references do not validate a model's final free-form answer. The
 [visible-source CLI experiment](../../research/conversation-evidence/visible-evidence-results.md)
 records both the improvement over unquoted references and an unresolved exact-code

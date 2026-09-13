@@ -2018,16 +2018,21 @@ export async function createAgentSession(
 		if (!sessions || options.compaction?.recallEvidence !== true) return []
 		let step = evidenceRecallSteps.get(sessionId)
 		if (!step) {
-			step = createConversationEvidenceRecall(sessions, sessionId, (runId) => {
-				const owner = delegationScopes.get(asRunId(runId))
-				if (
-					!owner ||
-					owner.sessionId !== sessionId ||
-					owner.tenantId !== sessions.tenantId ||
-					owner.projectId !== sessions.projectId
-				)
-					throw new Error('The requesting run no longer owns this conversation.')
-			})
+			step = createConversationEvidenceRecall(
+				sessions,
+				sessionId,
+				(runId) => {
+					const owner = delegationScopes.get(asRunId(runId))
+					if (
+						!owner ||
+						owner.sessionId !== sessionId ||
+						owner.tenantId !== sessions.tenantId ||
+						owner.projectId !== sessions.projectId
+					)
+						throw new Error('The requesting run no longer owns this conversation.')
+				},
+				options.compaction?.resolveEvidenceQueries !== false,
+			)
 			evidenceRecallSteps.set(sessionId, step)
 		}
 		return [step]

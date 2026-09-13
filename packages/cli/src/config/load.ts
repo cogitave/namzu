@@ -549,6 +549,7 @@ const CONFIG_READERS: ConfigReaders = {
 		const raw = v as {
 			strategy?: unknown
 			recallEvidence?: unknown
+			resolveEvidenceQueries?: unknown
 			retainedToolPreviewChars?: unknown
 			deduplicateObservations?: unknown
 			contextWindowTokens?: unknown
@@ -560,6 +561,7 @@ const CONFIG_READERS: ConfigReaders = {
 				key !== 'contextWindowTokens' &&
 				key !== 'consolidate' &&
 				key !== 'recallEvidence' &&
+				key !== 'resolveEvidenceQueries' &&
 				key !== 'retainedToolPreviewChars' &&
 				key !== 'deduplicateObservations'
 			) {
@@ -574,6 +576,8 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		if (raw.recallEvidence !== undefined && typeof raw.recallEvidence !== 'boolean')
 			return invalidConfigValue(context, ['recallEvidence'], 'must be true or false')
+		if (raw.resolveEvidenceQueries !== undefined && typeof raw.resolveEvidenceQueries !== 'boolean')
+			return invalidConfigValue(context, ['resolveEvidenceQueries'], 'must be true or false')
 		if (raw.consolidate !== undefined && typeof raw.consolidate !== 'boolean') {
 			return invalidConfigValue(context, ['consolidate'], 'must be true or false')
 		}
@@ -611,6 +615,9 @@ const CONFIG_READERS: ConfigReaders = {
 				: {}),
 			...(raw.consolidate !== undefined ? { consolidate: raw.consolidate } : {}),
 			...(raw.recallEvidence !== undefined ? { recallEvidence: raw.recallEvidence } : {}),
+			...(raw.resolveEvidenceQueries !== undefined
+				? { resolveEvidenceQueries: raw.resolveEvidenceQueries }
+				: {}),
 			...(raw.retainedToolPreviewChars !== undefined
 				? { retainedToolPreviewChars: raw.retainedToolPreviewChars }
 				: {}),
