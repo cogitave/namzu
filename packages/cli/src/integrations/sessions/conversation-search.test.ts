@@ -710,31 +710,71 @@ describe('bounded original conversation evidence', () => {
 		}
 	})
 
-	it('bounds escaped multi-run candidate pages and resumes without dropping matches', async () => {
+	it.each(['literal', 'terms'] as const)(
+		'bounds escaped multi-run %s pages and resumes without dropping matches',
+		async (mode) => {
+			const { sessions, sessionId } = await fixture()
+			for (let i = 1; i <= 8; i++)
+				await closedTranscript(sessions, sessionId, i, `ORCHID ${i} ${'\u0000'.repeat(480)}`)
+			const request = {
+				terms: ['ORCHID'],
+				excludeRunId: generateRunId(),
+				maxReadBytes: 8 * 1024 * 1024,
+			}
+			let cursor: string | undefined
+			const runs: string[] = []
+			let pages = 0
+			do {
+				const page =
+					mode === 'terms'
+						? await searchConversationTerms(sessions, sessionId, { ...request, cursor })
+						: await searchConversation(
+								sessions,
+								sessionId,
+								cursor ? { cursor } : { query: 'ORCHID' },
+							)
+				expect(Buffer.byteLength(JSON.stringify(page.matches))).toBeLessThanOrEqual(12_000)
+				expect(page.scannedBytes).toBeLessThanOrEqual(request.maxReadBytes)
+				expect(page.unavailableRuns).toBe(0)
+				runs.push(...page.matches.map((m) => m.runId))
+				cursor = page.nextCursor
+				if (!cursor) expect(page.incomplete).toBe(false)
+				expect(++pages).toBeLessThan(12)
+			} while (cursor)
+			expect(runs).toHaveLength(8)
+			expect(new Set(runs).size).toBe(8)
+			expect(pages).toBeGreaterThan(1)
+		},
+	)
+
+	it('fills one explicit page across small matching runs and preserves limit continuation', async () => {
 		const { sessions, sessionId } = await fixture()
-		for (let i = 1; i <= 8; i++)
-			await closedTranscript(sessions, sessionId, i, `ORCHID ${i} ${'\u0000'.repeat(480)}`)
-		const request = {
-			terms: ['ORCHID'],
-			excludeRunId: generateRunId(),
-			maxReadBytes: 8 * 1024 * 1024,
-		}
-		let cursor: string | undefined
-		const runs: string[] = []
-		let pages = 0
-		do {
-			const page = await searchConversationTerms(sessions, sessionId, { ...request, cursor })
+		const sources = []
+		for (let i = 1; i <= 7; i++)
+			sources.push(await closedTranscript(sessions, sessionId, i, `ORCHID original ${i}`))
+		const first = await searchConversation(sessions, sessionId, { query: 'ORCHID', limit: 5 })
+		expect(first.matches.map((match) => match.runId)).toEqual(
+			sources.slice(0, 5).map((source) => source.runId),
+		)
+		expect(first.scannedRuns).toBe(5)
+		expect(first.incomplete).toBe(true)
+		expect(first.nextCursor).toBeDefined()
+		const second = await searchConversation(sessions, sessionId, { cursor: first.nextCursor })
+		expect(second.matches.map((match) => match.runId)).toEqual(
+			sources.slice(5).map((source) => source.runId),
+		)
+		expect(second.incomplete).toBe(false)
+		expect(second.nextCursor).toBeUndefined()
+		for (const page of [first, second]) {
+			expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
 			expect(Buffer.byteLength(JSON.stringify(page.matches))).toBeLessThanOrEqual(12_000)
-			expect(page.scannedBytes).toBeLessThanOrEqual(request.maxReadBytes)
 			expect(page.unavailableRuns).toBe(0)
-			runs.push(...page.matches.map((m) => m.runId))
-			cursor = page.nextCursor
-			if (!cursor) expect(page.incomplete).toBe(false)
-			expect(++pages).toBeLessThan(12)
-		} while (cursor)
-		expect(runs).toHaveLength(8)
-		expect(new Set(runs).size).toBe(8)
-		expect(pages).toBeGreaterThan(1)
+		}
+		const read = await readConversationEvidence(sessions, sessionId, {
+			runId: second.matches[1]!.runId,
+			seq: 2,
+		})
+		expect(read.text).toBe('ORCHID original 7')
 	})
 
 	it.each(['string', 'blocks'] as const)(
@@ -857,10 +897,12 @@ describe('bounded original conversation evidence', () => {
 		expect(first.incomplete).toBe(true)
 		expect(first.nextCursor).toBeDefined()
 		const second = await searchConversation(sessions, sessionId, { cursor: first.nextCursor })
-		expect(second.matches).toEqual([expect.objectContaining({ runId: partial.runId, seq: 71 })])
-		const third = await searchConversation(sessions, sessionId, { cursor: second.nextCursor })
-		expect(third.matches).toEqual([expect.objectContaining({ runId: later.runId })])
-		expect(third.incomplete).toBe(false)
+		expect(second.matches).toEqual([
+			expect.objectContaining({ runId: partial.runId, seq: 71 }),
+			expect.objectContaining({ runId: later.runId }),
+		])
+		expect(second.incomplete).toBe(false)
+		expect(second.nextCursor).toBeUndefined()
 	})
 
 	it('preserves unavailable ownership while crossing an exhausted empty index', async () => {

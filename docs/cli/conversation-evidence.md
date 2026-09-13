@@ -244,16 +244,17 @@ the original single-run ID. A recall cursor may represent a multi-term host
 query, so use cursor alone for those continuations. Closed, explicitly scoped runs use the SDK
 text index: one bounded index page per visited run, at most three indexed matches
 from each such page, may require continuation even when `limit` is larger. When an indexed
-run is completely searched with no matches, the call advances to the next run
-within the same shared read and directory-discovery limits. It does not spend a
-model round trip on each small irrelevant run. A new literal search returns on
-a matching page. Automatic multi-term candidate discovery can continue through
-completely searched matching runs too, filling the same public page within its
-12,000-byte serialized match allowance and shared read/discovery limits. This
-prevents a few small runs from consuming every automatic page before a missing
-observation is visited. It reserves room before each SDK call and charges all
-returned matches, including JSON escaping. Automatic continuations keep that
-multi-term behavior. A partial SDK page still returns control immediately;
+run is completely searched, literal search and automatic multi-term discovery
+both advance to the next run within the shared read and directory-discovery
+limits. This includes matching runs: a small matching record does not require
+another model round trip merely to visit the next run. The requested `limit`
+still caps matches across the public page. Before each SDK call, the host
+reserves 4,000 serialized bytes per requested match for its 512-character
+excerpt, JSON escaping and bounded metadata. It requests at most three matches
+and reduces that count when less room remains in the 12,000-byte allowance.
+Actual returned sizes are charged, and no consumed matches are discarded to
+make a page fit. Cursor-only continuations keep their original search mode.
+A partial SDK page still returns control immediately;
 partial empty pages require continuation. Known omissions
 stay incomplete even when scanning advances, and failed operations with unknown
 read cost still charge the remaining ceiling and yield. The index also pages within large

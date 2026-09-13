@@ -33,6 +33,10 @@ For what a file contained earlier, recover its earlier observation; reading or s
 const RECORD_BYTES = 4 * 1024 * 1024
 const SCAN_BYTES = 8 * 1024 * 1024
 const OUTPUT_BYTES = 12_000
+// An indexed excerpt has at most 512 UTF-16 units (at most 3072 bytes after
+// JSON escaping). This also reserves its bounded identity/tool metadata and
+// array separators, before asking the SDK to consume any matches.
+const INDEXED_MATCH_RESERVE_BYTES = 4_000
 // Bound cold address lookup work as well as bytes, including tiny index pages.
 const READ_LOOKUP_PAGES = 8
 
@@ -826,11 +830,14 @@ async function searchConversationCore(
 			if (source) {
 				if (maxReadBytes - result.scannedBytes < 6 * 1024 * 1024) break
 				usingIndex = true
-				// At most one SDK page per run. Automatic candidate discovery can
-				// cross exhausted matching runs inside the shared output/I/O caps;
-				// an unfinished run still returns its continuation immediately.
-				// Reserve three 512-character excerpts even under JSON escaping.
-				if (OUTPUT_BYTES - outputBytes < 11_000) break
+				// At most one SDK page per run. Cross exhausted runs within the
+				// same public page; partial SDK pages still yield immediately.
+				const matchSlots = Math.min(
+					3,
+					limit - result.matches.length,
+					Math.floor((OUTPUT_BYTES - outputBytes) / INDEXED_MATCH_RESERVE_BYTES),
+				)
+				if (matchSlots < 1) break
 				const page = await source.search(
 					{
 						...(input.terms ? { terms } : { query: input.query }),
@@ -839,7 +846,7 @@ async function searchConversationCore(
 						excludeSuccessfulTools,
 						excludeDerivedSummaries,
 						cursor: cursor.indexCursor,
-						limit: Math.min(3, limit - result.matches.length),
+						limit: matchSlots,
 					},
 					signal,
 				)
@@ -876,7 +883,7 @@ async function searchConversationCore(
 				cursor.indexCursor = page.nextCursor ?? undefined
 				if (!page.nextCursor) {
 					nextRun(cursor)
-					if (page.matches.length === 0 || input.terms !== undefined) continue
+					continue
 				}
 				break
 			}

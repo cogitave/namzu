@@ -1,0 +1,1233 @@
+{
+	"date": "2026-09-13",
+	"baseCommit": "b1e3bc5b",
+	"baseline": {
+		"root": "/tmp/namzu-matching-runs-1tpuCC",
+		"baseline": true,
+		"live": false,
+		"matchingAnnouncements": 6,
+		"passes": [
+			{
+				"temperature": "cold",
+				"pages": [
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000001",
+								"seq": 2,
+								"recordedAt": 1789288461594,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 1: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 2088,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "0b46945c4a542db24471d231814a264fb73704137594cf85"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000002",
+								"seq": 2,
+								"recordedAt": 1789288461597,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 2: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 2088,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "815431c8bfeec682b84a334e1a5b8a533c50bf7d5076b2b6"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000003",
+								"seq": 2,
+								"recordedAt": 1789288461600,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 3: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 2088,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "ad7237c6ac570fae094d07a869faa35d410a2413fbfe5372"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000004",
+								"seq": 2,
+								"recordedAt": 1789288461602,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 4: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 2088,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "8e65a6efa1bbae04b80c7b6fd3ab01fedfd463743f2b5c18"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000005",
+								"seq": 2,
+								"recordedAt": 1789288461604,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 5: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 2088,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "27bf889932125f2e71da4934785427e9839563f68654f791"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000006",
+								"seq": 2,
+								"recordedAt": 1789288461606,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 6: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 2088,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "7284c1e3f18f83df9d029010ac84e387c33e35877da6da09"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.",
+						"matches": [
+							{
+								"runId": "ff817a7f-4821-4d52-9dd4-3b26dd0697fa",
+								"seq": 16,
+								"recordedAt": 1789288461553,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-93fab51c-b934-41c0-9a42-b78e910ee544.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 181304
+							},
+							{
+								"runId": "ff817a7f-4821-4d52-9dd4-3b26dd0697fa",
+								"seq": 16,
+								"recordedAt": 1789288461553,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-6c32eff9-e23f-422b-8063-dc9945f39e36.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 183138
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 698772,
+						"incomplete": false,
+						"unavailableRuns": 0
+					}
+				]
+			},
+			{
+				"temperature": "warm",
+				"pages": [
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000001",
+								"seq": 2,
+								"recordedAt": 1789288461594,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 1: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 3591,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "b8a37cd948341ef9317d4dcd499766d49e1270b06194ba1d"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000002",
+								"seq": 2,
+								"recordedAt": 1789288461597,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 2: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 3591,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "d1f331cbbe4f9c5be72bf1062b6bfa3d9193235975c3cd45"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000003",
+								"seq": 2,
+								"recordedAt": 1789288461600,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 3: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 3591,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "0168054806bfdc39a201ab5a4ecddc7f27045b126b35b6e0"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000004",
+								"seq": 2,
+								"recordedAt": 1789288461602,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 4: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 3591,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "44c182834302146edbaec8d50e77758a9d29b99e1121fa3c"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000005",
+								"seq": 2,
+								"recordedAt": 1789288461604,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 5: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 3591,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "cd259ac05487aa0631bdb6d15be17e26970380efd06484f9"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000006",
+								"seq": 2,
+								"recordedAt": 1789288461606,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 6: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 3591,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "afbaf68c1bcaac6e23b4969b648757177a2c56592cf39458"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.",
+						"matches": [
+							{
+								"runId": "ff817a7f-4821-4d52-9dd4-3b26dd0697fa",
+								"seq": 16,
+								"recordedAt": 1789288461553,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-93fab51c-b934-41c0-9a42-b78e910ee544.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 181304
+							},
+							{
+								"runId": "ff817a7f-4821-4d52-9dd4-3b26dd0697fa",
+								"seq": 16,
+								"recordedAt": 1789288461553,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-6c32eff9-e23f-422b-8063-dc9945f39e36.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 183138
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 1,
+						"scannedBytes": 655080,
+						"incomplete": false,
+						"unavailableRuns": 0
+					}
+				]
+			}
+		],
+		"buildBefore": {
+			"packages/cli/dist/integrations/sessions/conversation-search.js": "8b8d89821a0b6ffcd06ba06b02bf0216ce2738739e105a7b002d858b4a7f1e9c",
+			"packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+			"packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+		},
+		"seed": {
+			"sessionId": "de4c3c79-9103-4b26-a0bf-f3c8848ea7c9",
+			"runId": "ff817a7f-4821-4d52-9dd4-3b26dd0697fa",
+			"runDir": "/tmp/namzu-matching-runs-1tpuCC/home/sessions/de4c3c79-9103-4b26-a0bf-f3c8848ea7c9/runs/ff817a7f-4821-4d52-9dd4-3b26dd0697fa",
+			"tracking": "TRACK-93fab51c-b934-41c0-9a42-b78e910ee544",
+			"destination": "DEPOT-6c32eff9-e23f-422b-8063-dc9945f39e36",
+			"seq": 16,
+			"originalNotInPreview": true,
+			"originalNotInProjection": true,
+			"seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+		},
+		"passed": true,
+		"buildAfter": {
+			"packages/cli/dist/integrations/sessions/conversation-search.js": "8b8d89821a0b6ffcd06ba06b02bf0216ce2738739e105a7b002d858b4a7f1e9c",
+			"packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+			"packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+		}
+	},
+	"packedPages": {
+		"root": "/tmp/namzu-matching-runs-ozzxUB",
+		"baseline": false,
+		"live": false,
+		"matchingAnnouncements": 6,
+		"passes": [
+			{
+				"temperature": "cold",
+				"pages": [
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000001",
+								"seq": 2,
+								"recordedAt": 1789288532867,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 1: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000002",
+								"seq": 2,
+								"recordedAt": 1789288532869,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 2: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000003",
+								"seq": 2,
+								"recordedAt": 1789288532872,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 3: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000004",
+								"seq": 2,
+								"recordedAt": 1789288532874,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 4: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000005",
+								"seq": 2,
+								"recordedAt": 1789288532876,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 5: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 5,
+						"scannedBytes": 10440,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "acefbfca21051205a973d0b208a266cfe08a3596d057f4d1"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000006",
+								"seq": 2,
+								"recordedAt": 1789288532878,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 6: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "328654b1-29d8-42e8-9e22-af8783aebcd1",
+								"seq": 16,
+								"recordedAt": 1789288532825,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-934981f8-bae9-4516-a53b-894d6f038be6.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 181304
+							},
+							{
+								"runId": "328654b1-29d8-42e8-9e22-af8783aebcd1",
+								"seq": 16,
+								"recordedAt": 1789288532825,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-bfe24626-1b86-48dd-accb-542c0f34da82.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 183138
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 2,
+						"scannedBytes": 470553,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "f25854e56f9991bd2a47928eb707f34907e08866c185c746"
+					}
+				]
+			},
+			{
+				"temperature": "warm",
+				"pages": [
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000001",
+								"seq": 2,
+								"recordedAt": 1789288532867,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 1: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000002",
+								"seq": 2,
+								"recordedAt": 1789288532869,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 2: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000003",
+								"seq": 2,
+								"recordedAt": 1789288532872,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 3: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000004",
+								"seq": 2,
+								"recordedAt": 1789288532874,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 4: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000005",
+								"seq": 2,
+								"recordedAt": 1789288532876,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 5: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 5,
+						"scannedBytes": 17955,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "6d204ba3817793b174d52ab487c522c80d0f539a999d8554"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000006",
+								"seq": 2,
+								"recordedAt": 1789288532878,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 6: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "328654b1-29d8-42e8-9e22-af8783aebcd1",
+								"seq": 16,
+								"recordedAt": 1789288532825,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-934981f8-bae9-4516-a53b-894d6f038be6.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 181304
+							},
+							{
+								"runId": "328654b1-29d8-42e8-9e22-af8783aebcd1",
+								"seq": 16,
+								"recordedAt": 1789288532825,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-bfe24626-1b86-48dd-accb-542c0f34da82.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 183138
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 2,
+						"scannedBytes": 428364,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "55314c001173fc1e1e991bdc96814d27e145fc60e873e91d"
+					}
+				]
+			}
+		],
+		"buildBefore": {
+			"packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+			"packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+			"packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+		},
+		"seed": {
+			"sessionId": "fcb817dd-5009-4053-8619-2a9b4cb162bf",
+			"runId": "328654b1-29d8-42e8-9e22-af8783aebcd1",
+			"runDir": "/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1",
+			"tracking": "TRACK-934981f8-bae9-4516-a53b-894d6f038be6",
+			"destination": "DEPOT-bfe24626-1b86-48dd-accb-542c0f34da82",
+			"seq": 16,
+			"originalNotInPreview": true,
+			"originalNotInProjection": true,
+			"seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+		},
+		"passed": true,
+		"buildAfter": {
+			"packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+			"packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+			"packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+		}
+	},
+	"live": {
+		"root": "/tmp/namzu-matching-runs-vsUym9",
+		"baseline": false,
+		"live": true,
+		"matchingAnnouncements": 6,
+		"passes": [
+			{
+				"temperature": "cold",
+				"pages": [
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000001",
+								"seq": 2,
+								"recordedAt": 1789288596709,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 1: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000002",
+								"seq": 2,
+								"recordedAt": 1789288596712,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 2: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000003",
+								"seq": 2,
+								"recordedAt": 1789288596714,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 3: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000004",
+								"seq": 2,
+								"recordedAt": 1789288596717,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 4: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000005",
+								"seq": 2,
+								"recordedAt": 1789288596719,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 5: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 5,
+						"scannedBytes": 10440,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "df3592e5fab510070cf28512b0aaba60426db14969b196f2"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000006",
+								"seq": 2,
+								"recordedAt": 1789288596721,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 6: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "1a4057d5-3ead-4afc-a551-16bd38689d8c",
+								"seq": 16,
+								"recordedAt": 1789288596667,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 181304
+							},
+							{
+								"runId": "1a4057d5-3ead-4afc-a551-16bd38689d8c",
+								"seq": 16,
+								"recordedAt": 1789288596667,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 183138
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 2,
+						"scannedBytes": 470553,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "cb66eccc9e800773578a11d562b3addb2d2c6c58480d9089"
+					}
+				]
+			},
+			{
+				"temperature": "warm",
+				"pages": [
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000001",
+								"seq": 2,
+								"recordedAt": 1789288596709,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 1: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000002",
+								"seq": 2,
+								"recordedAt": 1789288596712,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 2: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000003",
+								"seq": 2,
+								"recordedAt": 1789288596714,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 3: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000004",
+								"seq": 2,
+								"recordedAt": 1789288596717,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 4: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "00000000-0000-4000-8000-000000000005",
+								"seq": 2,
+								"recordedAt": 1789288596719,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 5: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 5,
+						"scannedBytes": 17955,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "957d703f2560acc165821333e42440968f07a952f331ec91"
+					},
+					{
+						"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+						"matches": [
+							{
+								"runId": "00000000-0000-4000-8000-000000000006",
+								"seq": 2,
+								"recordedAt": 1789288596721,
+								"part": 0,
+								"source": "message_completed",
+								"recordKind": "assistant_message",
+								"text": "DELTA inspection 6: I intend to locate the receipt; no original code is recorded in this statement.",
+								"retained": "full",
+								"excerptComplete": true,
+								"byteOffset": 0
+							},
+							{
+								"runId": "1a4057d5-3ead-4afc-a551-16bd38689d8c",
+								"seq": 16,
+								"recordedAt": 1789288596667,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 181304
+							},
+							{
+								"runId": "1a4057d5-3ead-4afc-a551-16bd38689d8c",
+								"seq": 16,
+								"recordedAt": 1789288596667,
+								"part": 0,
+								"source": "tool_completed",
+								"recordKind": "tool_result",
+								"text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+								"retained": "full",
+								"excerptComplete": false,
+								"toolName": "read",
+								"isError": false,
+								"byteOffset": 183138
+							}
+						],
+						"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+						"scannedRuns": 2,
+						"scannedBytes": 428364,
+						"incomplete": true,
+						"unavailableRuns": 0,
+						"nextCursor": "cf75e81e653476296081d80f542d2319bbb6a479678861b3"
+					}
+				]
+			}
+		],
+		"buildBefore": {
+			"packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+			"packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+			"packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+		},
+		"seed": {
+			"sessionId": "404bd0f6-800a-41ee-b9b6-8b0e1e76106c",
+			"runId": "1a4057d5-3ead-4afc-a551-16bd38689d8c",
+			"runDir": "/tmp/namzu-matching-runs-vsUym9/home/sessions/404bd0f6-800a-41ee-b9b6-8b0e1e76106c/runs/1a4057d5-3ead-4afc-a551-16bd38689d8c",
+			"tracking": "TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef",
+			"destination": "DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a",
+			"seq": 16,
+			"originalNotInPreview": true,
+			"originalNotInProjection": true,
+			"seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+		},
+		"command": [
+			"--quiet",
+			"--format",
+			"json",
+			"run",
+			"--trust",
+			"--cwd",
+			"/tmp/namzu-matching-runs-vsUym9/workspace",
+			"--resume",
+			"404bd0f6-800a-41ee-b9b6-8b0e1e76106c",
+			"--provider",
+			"codex",
+			"--model",
+			"gpt-5.6-luna",
+			"--effort",
+			"low",
+			"--max-iterations",
+			"6",
+			"--token-budget",
+			"40000",
+			"Recover the exact tracking code and destination from the original DELTA receipt we observed earlier. The current manifest was replaced. Use the recorded conversation to recover the original identifiers, then read the exact retained passage. Earlier announcements about looking for the receipt are not observations. Do not use workspace files, shell commands, edits or external services."
+		],
+		"stdout": "{\n  \"text\": \"Recovered from the original DELTA receipt:\\n\\n- **Tracking code:** `TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef`\\n- **Destination:** `DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a`\\n\\nExact retained passage:\\n\\n> `211\\tDELTA original receipt. Tracking: TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef.`\\n>\\n> `214\\tDestination of the DELTA receipt: DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a.`\",\n  \"usage\": {\n    \"totalTokens\": 28402,\n    \"cost\": {\n      \"totalCost\": 0,\n      \"cacheDiscount\": 0,\n      \"unpricedTokens\": 28402\n    }\n  },\n  \"budget\": {\n    \"limit\": 40000,\n    \"ownTokens\": 28402,\n    \"treeTokens\": 28402,\n    \"reservedTokens\": 0,\n    \"remainingTokens\": 11598,\n    \"inFlightRequests\": 0,\n    \"unsettledChildren\": 0,\n    \"poisoned\": false,\n    \"unresolvedRequests\": 0\n  }\n}\n",
+		"stderr": "     +0ms  sandbox     ! Sandbox off by configuration: commands run in this process, with this shell's environment, against the real working directory. Remove `sandbox.enabled: false` to turn it back on.\n",
+		"calls": [
+			{
+				"name": "search_conversation",
+				"input": {
+					"query": "DELTA",
+					"limit": 20
+				}
+			},
+			{
+				"name": "read_conversation",
+				"input": {
+					"runId": "1a4057d5-3ead-4afc-a551-16bd38689d8c",
+					"seq": 16,
+					"part": 0,
+					"byteOffset": 181304
+				}
+			},
+			{
+				"name": "read_conversation",
+				"input": {
+					"runId": "1a4057d5-3ead-4afc-a551-16bd38689d8c",
+					"seq": 16,
+					"part": 0,
+					"byteOffset": 183138
+				}
+			}
+		],
+		"outputs": [
+			{
+				"name": "search_conversation",
+				"isError": false,
+				"result": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"00000000-0000-4000-8000-000000000001\",\"seq\":2,\"recordedAt\":1789288596709,\"part\":0,\"source\":\"message_completed\",\"recordKind\":\"assistant_message\",\"text\":\"DELTA inspection 1: I intend to locate the receipt; no original code is recorded in this statement.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0},{\"runId\":\"00000000-0000-4000-8000-000000000002\",\"seq\":2,\"recordedAt\":1789288596712,\"part\":0,\"source\":\"message_completed\",\"recordKind\":\"assistant_message\",\"text\":\"DELTA inspection 2: I intend to locate the receipt; no original code is recorded in this statement.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0},{\"runId\":\"00000000-0000-4000-8000-000000000003\",\"seq\":2,\"recordedAt\":1789288596714,\"part\":0,\"source\":\"message_completed\",\"recordKind\":\"assistant_message\",\"text\":\"DELTA inspection 3: I intend to locate the receipt; no original code is recorded in this statement.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0},{\"runId\":\"00000000-0000-4000-8000-000000000004\",\"seq\":2,\"recordedAt\":1789288596717,\"part\":0,\"source\":\"message_completed\",\"recordKind\":\"assistant_message\",\"text\":\"DELTA inspection 4: I intend to locate the receipt; no original code is recorded in this statement.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0},{\"runId\":\"00000000-0000-4000-8000-000000000005\",\"seq\":2,\"recordedAt\":1789288596719,\"part\":0,\"source\":\"message_completed\",\"recordKind\":\"assistant_message\",\"text\":\"DELTA inspection 5: I intend to locate the receipt; no original code is recorded in this statement.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0},{\"runId\":\"00000000-0000-4000-8000-000000000006\",\"seq\":2,\"recordedAt\":1789288596721,\"part\":0,\"source\":\"message_completed\",\"recordKind\":\"assistant_message\",\"text\":\"DELTA inspection 6: I intend to locate the receipt; no original code is recorded in this statement.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0},{\"runId\":\"1a4057d5-3ead-4afc-a551-16bd38689d8c\",\"seq\":16,\"recordedAt\":1789288596667,\"part\":0,\"source\":\"tool_completed\",\"recordKind\":\"tool_result\",\"text\":\"ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n211\\tDELTA original receipt. Tracking: TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef.\\n212\\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u\",\"retained\":\"full\",\"excerptComplete\":false,\"toolName\":\"read\",\"isError\":false,\"byteOffset\":181304},{\"runId\":\"1a4057d5-3ead-4afc-a551-16bd38689d8c\",\"seq\":16,\"recordedAt\":1789288596667,\"part\":0,\"source\":\"tool_completed\",\"recordKind\":\"tool_result\",\"text\":\"packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n214\\tDestination of the DELTA receipt: DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a.\\n215\\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa\",\"retained\":\"full\",\"excerptComplete\":false,\"toolName\":\"read\",\"isError\":false,\"byteOffset\":183138}],\"recordKindGuidance\":\"Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.\",\"scannedRuns\":7,\"scannedBytes\":446319,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"3afd890f2345e58c7dd34843b63058780dc451ad2d1dfa5a\"}"
+			},
+			{
+				"name": "read_conversation",
+				"isError": false,
+				"result": "{\"runId\":\"1a4057d5-3ead-4afc-a551-16bd38689d8c\",\"seq\":16,\"part\":0,\"text\":\"ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n211\\tDELTA original receipt. Tracking: TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef.\\n212\\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n213\\tInspection row 212: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n214\\tDestination of the DELTA receipt: DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a.\\n215\\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n216\\tInspection row 215: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n217\\tInspection row 216: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n218\\tInspection row 217: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n219\\tInspection row 218: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n220\\tInspection row 219: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchang\",\"offset\":162416,\"scannedBytes\":156893,\"complete\":false,\"retainedPreview\":false,\"source\":\"tool_completed\",\"recordKind\":\"tool_result\",\"recordKindGuidance\":\"Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.\",\"toolName\":\"read\",\"isError\":false,\"recordedAt\":1789288596667,\"totalChars\":308395,\"nextCursor\":\"4fde5be71d9fa7dadb6dd42a7fb284a086f5bafa692d7971\"}"
+			},
+			{
+				"name": "read_conversation",
+				"isError": false,
+				"result": "{\"runId\":\"1a4057d5-3ead-4afc-a551-16bd38689d8c\",\"seq\":16,\"part\":0,\"text\":\"packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n214\\tDestination of the DELTA receipt: DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a.\\n215\\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n216\\tInspection row 215: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n217\\tInspection row 216: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n218\\tInspection row 217: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n219\\tInspection row 218: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n220\\tInspection row 219: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n221\\tInspection row 220: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n222\\tInspection row 221: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchange\",\"offset\":164067,\"scannedBytes\":156893,\"complete\":false,\"retainedPreview\":false,\"source\":\"tool_completed\",\"recordKind\":\"tool_result\",\"recordKindGuidance\":\"Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.\",\"toolName\":\"read\",\"isError\":false,\"recordedAt\":1789288596667,\"totalChars\":308395,\"nextCursor\":\"4a1fee637be559ae7581afae9a73f2604f5fd2834d1230ba\"}"
+			}
+		],
+		"result": {
+			"text": "Recovered from the original DELTA receipt:\n\n- **Tracking code:** `TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef`\n- **Destination:** `DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a`\n\nExact retained passage:\n\n> `211\tDELTA original receipt. Tracking: TRACK-d6195446-608f-41ca-ace1-1a89122bf9ef.`\n>\n> `214\tDestination of the DELTA receipt: DEPOT-d75c20f7-e5c6-4806-a1bd-e8601374f76a.`",
+			"usage": {
+				"totalTokens": 28402,
+				"cost": {
+					"totalCost": 0,
+					"cacheDiscount": 0,
+					"unpricedTokens": 28402
+				}
+			},
+			"budget": {
+				"limit": 40000,
+				"ownTokens": 28402,
+				"treeTokens": 28402,
+				"reservedTokens": 0,
+				"remainingTokens": 11598,
+				"inFlightRequests": 0,
+				"unsettledChildren": 0,
+				"poisoned": false,
+				"unresolvedRequests": 0
+			}
+		},
+		"passed": true,
+		"buildAfter": {
+			"packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+			"packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+			"packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+		}
+	},
+	"liveReadAddressesVerified": true,
+	"tui": {
+		"root": "/tmp/namzu-matching-runs-ozzxUB",
+		"columns": 100,
+		"rows": 28,
+		"transport": "scripted provider with actual interactive CLI and archive tools",
+		"liveTokens": 0,
+		"trace": [
+			{
+				"requests": 2,
+				"toolCallId": "search-1",
+				"page": {
+					"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+					"matches": [
+						{
+							"runId": "00000000-0000-4000-8000-000000000001",
+							"seq": 2,
+							"recordedAt": 1789288532867,
+							"part": 0,
+							"source": "message_completed",
+							"recordKind": "assistant_message",
+							"text": "DELTA inspection 1: I intend to locate the receipt; no original code is recorded in this statement.",
+							"retained": "full",
+							"excerptComplete": true,
+							"byteOffset": 0
+						},
+						{
+							"runId": "00000000-0000-4000-8000-000000000002",
+							"seq": 2,
+							"recordedAt": 1789288532869,
+							"part": 0,
+							"source": "message_completed",
+							"recordKind": "assistant_message",
+							"text": "DELTA inspection 2: I intend to locate the receipt; no original code is recorded in this statement.",
+							"retained": "full",
+							"excerptComplete": true,
+							"byteOffset": 0
+						},
+						{
+							"runId": "00000000-0000-4000-8000-000000000003",
+							"seq": 2,
+							"recordedAt": 1789288532872,
+							"part": 0,
+							"source": "message_completed",
+							"recordKind": "assistant_message",
+							"text": "DELTA inspection 3: I intend to locate the receipt; no original code is recorded in this statement.",
+							"retained": "full",
+							"excerptComplete": true,
+							"byteOffset": 0
+						},
+						{
+							"runId": "00000000-0000-4000-8000-000000000004",
+							"seq": 2,
+							"recordedAt": 1789288532874,
+							"part": 0,
+							"source": "message_completed",
+							"recordKind": "assistant_message",
+							"text": "DELTA inspection 4: I intend to locate the receipt; no original code is recorded in this statement.",
+							"retained": "full",
+							"excerptComplete": true,
+							"byteOffset": 0
+						},
+						{
+							"runId": "00000000-0000-4000-8000-000000000005",
+							"seq": 2,
+							"recordedAt": 1789288532876,
+							"part": 0,
+							"source": "message_completed",
+							"recordKind": "assistant_message",
+							"text": "DELTA inspection 5: I intend to locate the receipt; no original code is recorded in this statement.",
+							"retained": "full",
+							"excerptComplete": true,
+							"byteOffset": 0
+						}
+					],
+					"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+					"scannedRuns": 5,
+					"scannedBytes": 17955,
+					"incomplete": true,
+					"unavailableRuns": 0,
+					"nextCursor": "85b6e1177582f42d21e92a739afea68b599056201d458cf0"
+				}
+			},
+			{
+				"requests": 3,
+				"toolCallId": "search-2",
+				"page": {
+					"guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+					"matches": [
+						{
+							"runId": "00000000-0000-4000-8000-000000000006",
+							"seq": 2,
+							"recordedAt": 1789288532878,
+							"part": 0,
+							"source": "message_completed",
+							"recordKind": "assistant_message",
+							"text": "DELTA inspection 6: I intend to locate the receipt; no original code is recorded in this statement.",
+							"retained": "full",
+							"excerptComplete": true,
+							"byteOffset": 0
+						},
+						{
+							"runId": "328654b1-29d8-42e8-9e22-af8783aebcd1",
+							"seq": 16,
+							"recordedAt": 1789288532825,
+							"part": 0,
+							"source": "tool_completed",
+							"recordKind": "tool_result",
+							"text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-934981f8-bae9-4516-a53b-894d6f038be6.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+							"retained": "full",
+							"excerptComplete": false,
+							"toolName": "read",
+							"isError": false,
+							"byteOffset": 181304
+						},
+						{
+							"runId": "328654b1-29d8-42e8-9e22-af8783aebcd1",
+							"seq": 16,
+							"recordedAt": 1789288532825,
+							"part": 0,
+							"source": "tool_completed",
+							"recordKind": "tool_result",
+							"text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-bfe24626-1b86-48dd-accb-542c0f34da82.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+							"retained": "full",
+							"excerptComplete": false,
+							"toolName": "read",
+							"isError": false,
+							"byteOffset": 183138
+						}
+					],
+					"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+					"scannedRuns": 2,
+					"scannedBytes": 428364,
+					"incomplete": true,
+					"unavailableRuns": 0,
+					"nextCursor": "fa11d167e4fa6f03b4ad1529ec03d608f9938022d0a1f1da"
+				}
+			},
+			{
+				"requests": 4,
+				"toolCallId": "read-original",
+				"page": {
+					"runId": "328654b1-29d8-42e8-9e22-af8783aebcd1",
+					"seq": 16,
+					"part": 0,
+					"text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-934981f8-bae9-4516-a53b-894d6f038be6.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n213\tInspection row 212: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-bfe24626-1b86-48dd-accb-542c0f34da82.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n216\tInspection row 215: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n217\tInspection row 216: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n218\tInspection row 217: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n219\tInspection row 218: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n220\tInspection row 219: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchang",
+					"offset": 162416,
+					"scannedBytes": 156893,
+					"complete": false,
+					"retainedPreview": false,
+					"source": "tool_completed",
+					"recordKind": "tool_result",
+					"recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+					"toolName": "read",
+					"isError": false,
+					"recordedAt": 1789288532825,
+					"totalChars": 308395,
+					"nextCursor": "53e047acba9eb66cd9bb1ebeb3a959079cf11b5aefe70dc6"
+				}
+			}
+		],
+		"sourceFilesUnchanged": {
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/report.md": "bc30b5093c07483c989dcc6c329acc1e574be56f386ba459270fc67095064269",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/messages.json": "c9f2025469293eea716283b75483bca2bb3d1774ef9c9c7f82b9d4abe5cf1996",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/run.json": "a8dafb8fd0c7bf98a4dc9c86adb9bef5bd90aa3882d619e489ac6786d0187fdf",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/token-budget.json": "eda8405a843bc7d2e6cfdb338a4bc6a14eed07612f8ae9282af600852dbffb64",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/audit.jsonl": "94d61a9439d0b3eeee74c65a461eecdacb35b9c6e7b936add61013e37a344982",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/transcript.jsonl": "614bfb2fa42b8ad72524415e2233e124436014ab548f306e7d7d43bd50eec030",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt.manifest.json": "feefc169071e57cfc72c5b073db288a251cc0c5256702c7f3790fa16019cc840",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt": "fbb5232370b49b62078b2d18153771de4a78c623ff13e5ffbd1f6b650fef4e70",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/checkpoints/3f2fdbc5-a1cb-4c63-aabc-aedb3d3bbb98.json": "1d48604e5b6ef1dc528eaef5210dbeba6008aa2039bc1fa665076cfd4b30e459",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/evidence-index/472d1bab709af28183cf9488cd433f4b7517e8f2626a9e79f7386d39564b17d5/91aa75c01317df661dcf1ba3e5494ddaf501287fd0cbc51cd8e4f57f642da4a7.page": "9617bde042519149431a7c6df750b2cf6d61c43b20fa5dcd83f6558df5f05217",
+			"/tmp/namzu-matching-runs-ozzxUB/home/sessions/fcb817dd-5009-4053-8619-2a9b4cb162bf/runs/328654b1-29d8-42e8-9e22-af8783aebcd1/evidence-index/472d1bab709af28183cf9488cd433f4b7517e8f2626a9e79f7386d39564b17d5/key": "d0c6d07e0c79bda4c0641ba956a7b244f397bfa76bf3b96f1cc8fd7c54aa94eb",
+			"/tmp/namzu-matching-runs-ozzxUB/workspace/manifest.txt": "b152d0d2ac48f049561d1bd520f075b094907445c9298d1ea574b80c291d04fa"
+		},
+		"screen": "   unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉\n   packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u…\n ▏ 213     Inspection row 212: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging\n   unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉\n   packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u…\n ▏ … 4 lines omitted · ctrl+o · shortened preview\n ▏ 218     Inspection row 217: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging\n   unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉\n   packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u…\n ▏ 219     Inspection row 218: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging\n   unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉\n   packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u…\n ▏ 220     Inspection row 219: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging\n   unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉\n   packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u…\n\n ∴ Original identifiers recovered through two search pages and one exact read:\n   TRACK-934981f8-bae9-4516-a53b-894d6f038be6; DEPOT-bfe24626-1b86-48dd-accb-542c0f34da82.\n\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n\n gpt-5.6-luna default · /tmp/namzu-matching-runs-ozzxUB/workspace\n\n\n\n",
+		"exitCode": 0
+	},
+	"limits": "Fixture-level discovery cost; no whole-archive coverage or general model accuracy claim."
+}

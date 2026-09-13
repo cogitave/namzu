@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Fill [conversation search](cli/conversation-evidence.md) pages across completely searched matching runs, reserving escaped output space before each SDK call and preserving partial-scan continuations.
+
 - **Update** Make [closing guidance](sdk/token-budgets.md) preserve source attribution and unresolved work; compare a live closing request with replayed search prefixes without billing synthetic usage as live spend.
 
 - **Update** Share producer classification across [SDK evidence](sdk/retained-tool-evidence.md), automatic recall and [CLI archive tools](cli/conversation-evidence.md); preserve recorded tool name/error status on exact reads without treating a source label as proof.
