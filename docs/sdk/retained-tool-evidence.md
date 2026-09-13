@@ -613,3 +613,19 @@ separate deterministic execution tests from the live small-model experiment.
 
 Ordinary CLI conversations use the [conversation text view](../cli/conversation-evidence.md)
 with their own Session authorization; they do not acquire resident pursuit access.
+
+### Resident token discovery and cursor recovery
+
+Resident source searches accept either a case-sensitive literal `query` or
+1–16 `terms` for case-insensitive whole-token discovery. An optional
+`excludeSuccessfulTools` omits successful copies from exact named tools before
+selection. Terms and filters together must fit 512 UTF-8 bytes as JSON; invalid
+inputs are refused before history I/O. Ordinary query-only search retains its
+previous 256-character limit and literal semantics.
+
+Passing only `cursor` resumes its captured query and filters, including token
+searches, after reopening the same source. Explicit replacement search inputs
+must match; the per-call byte allowance is not query identity. A page with
+`nextCursor` is incomplete even when the current invocation was searched fully.
+[Automatic resident recall](resident-evidence-recall.md) uses this path without
+a second history store or broader Session access.

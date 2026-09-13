@@ -1,0 +1,696 @@
+{
+  "description": "Actual CLI processes with isolated state. Seed observations use a scripted model and real read tool. Only live=true uses the provider. No transcript fabrication or original-action replay.",
+  "runs": [
+    {
+      "root": "/tmp/namzu-tool-evidence-cli-xUSUbv",
+      "live": false,
+      "scripted": true,
+      "automatic": true,
+      "profile": "resident",
+      "passed": true,
+      "providerTokens": 0,
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "bf53e47761fd935d279ec491025a40dfcbb069138803a2c27649d48eeb9f9de6",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "f6614f4f4d2885103689d8f8777773876335e2301dfa3f469f4478449b7f7719",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "eb3bd1460336c59f7d86ee41aa9ae55c65e15881ec9726b9f902e06e6a078d3a",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "7500cf80813c3757a0d06911840874f32a24fc3f1893a72fdc6951f45ad28a16"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "bf53e47761fd935d279ec491025a40dfcbb069138803a2c27649d48eeb9f9de6",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "f6614f4f4d2885103689d8f8777773876335e2301dfa3f469f4478449b7f7719",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "eb3bd1460336c59f7d86ee41aa9ae55c65e15881ec9726b9f902e06e6a078d3a",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "7500cf80813c3757a0d06911840874f32a24fc3f1893a72fdc6951f45ad28a16"
+      },
+      "automaticBeforeFirstResponse": true,
+      "requests": [
+        {
+          "automaticEvidence": true,
+          "tracking": "TRACK-7a41d370-b8ee-4fba-bc13-8f8805cde9b9",
+          "destination": "DEPOT-9caf79fc-52dd-4fe7-9f68-934e760420f1",
+          "contextChars": 28564,
+          "toolMessages": 0
+        }
+      ],
+      "finalRunLedgers": [
+        {
+          "runId": "9ea926c8-290b-42cc-b102-3a96ccea614d",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "runId": "58f78077-3c90-4829-874d-ffee6a7fed9b",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        }
+      ],
+      "tools": [],
+      "phase": "complete",
+      "sessions": 2,
+      "terminalReopenAdmittedNoStep": true,
+      "finishUsage": [
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        },
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        }
+      ],
+      "cleanupConfirmed": true,
+      "stage": "initial adapter build before signal/cursor hardening",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "root": "/tmp/namzu-tool-evidence-cli-ojrmMo",
+      "live": false,
+      "scripted": true,
+      "automatic": true,
+      "profile": "interactive",
+      "passed": true,
+      "providerTokens": 0,
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "bf53e47761fd935d279ec491025a40dfcbb069138803a2c27649d48eeb9f9de6",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "f6614f4f4d2885103689d8f8777773876335e2301dfa3f469f4478449b7f7719",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "eb3bd1460336c59f7d86ee41aa9ae55c65e15881ec9726b9f902e06e6a078d3a",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "7500cf80813c3757a0d06911840874f32a24fc3f1893a72fdc6951f45ad28a16"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "bf53e47761fd935d279ec491025a40dfcbb069138803a2c27649d48eeb9f9de6",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "f6614f4f4d2885103689d8f8777773876335e2301dfa3f469f4478449b7f7719",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "eb3bd1460336c59f7d86ee41aa9ae55c65e15881ec9726b9f902e06e6a078d3a",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "7500cf80813c3757a0d06911840874f32a24fc3f1893a72fdc6951f45ad28a16"
+      },
+      "automaticBeforeFirstResponse": true,
+      "requests": [
+        {
+          "automaticEvidence": true,
+          "tracking": "TRACK-42d8e477-b916-48b5-84bb-cd53060760b3",
+          "destination": "DEPOT-5dffbde5-f795-47ef-b7c8-71d576c9678e",
+          "contextChars": 33831,
+          "toolMessages": 0
+        }
+      ],
+      "finalRunLedgers": [
+        {
+          "runId": "d4db7d20-fae3-41a0-b827-a9646986642c",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "runId": "0a5687b5-73d3-4944-816b-6015dd549914",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        }
+      ],
+      "tools": [],
+      "phase": "complete",
+      "sessions": 2,
+      "terminalReopenAdmittedNoStep": true,
+      "finishUsage": [
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        },
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        }
+      ],
+      "cleanupConfirmed": true,
+      "stage": "initial adapter build before signal/cursor hardening",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "root": "/tmp/namzu-tool-evidence-cli-MOVNat",
+      "live": true,
+      "scripted": false,
+      "automatic": true,
+      "profile": "resident",
+      "passed": true,
+      "providerTokens": 12835,
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "bf53e47761fd935d279ec491025a40dfcbb069138803a2c27649d48eeb9f9de6",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "f6614f4f4d2885103689d8f8777773876335e2301dfa3f469f4478449b7f7719",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "eb3bd1460336c59f7d86ee41aa9ae55c65e15881ec9726b9f902e06e6a078d3a",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "7500cf80813c3757a0d06911840874f32a24fc3f1893a72fdc6951f45ad28a16"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "bf53e47761fd935d279ec491025a40dfcbb069138803a2c27649d48eeb9f9de6",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "f6614f4f4d2885103689d8f8777773876335e2301dfa3f469f4478449b7f7719",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "eb3bd1460336c59f7d86ee41aa9ae55c65e15881ec9726b9f902e06e6a078d3a",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "7500cf80813c3757a0d06911840874f32a24fc3f1893a72fdc6951f45ad28a16"
+      },
+      "automaticBeforeFirstResponse": true,
+      "requests": [
+        {
+          "automaticEvidence": true,
+          "tracking": "TRACK-e11c8de3-ea38-4cc2-a433-6d3937fc8063",
+          "destination": "DEPOT-c4cb3b6d-9b9f-4e69-8aef-958f866307f0",
+          "contextChars": 28561,
+          "toolMessages": 0
+        },
+        {
+          "automaticEvidence": true,
+          "tracking": "TRACK-e11c8de3-ea38-4cc2-a433-6d3937fc8063",
+          "destination": "DEPOT-c4cb3b6d-9b9f-4e69-8aef-958f866307f0",
+          "contextChars": 38989,
+          "toolMessages": 1
+        }
+      ],
+      "finalRunLedgers": [
+        {
+          "runId": "ba69a2a9-6f78-43cc-b746-d51f69dbc57e",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 12521,
+            "completionTokens": 314,
+            "totalTokens": 12835,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "runId": "b51174e3-f62d-4a69-8cd9-637bf6069581",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        }
+      ],
+      "tools": [
+        "read_resident_tool"
+      ],
+      "phase": "complete",
+      "sessions": 2,
+      "terminalReopenAdmittedNoStep": true,
+      "finishUsage": [
+        {
+          "totalTokens": 12835,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 12835
+          }
+        },
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        }
+      ],
+      "cleanupConfirmed": true,
+      "stage": "initial adapter build before signal/cursor hardening",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "invocationSelection": {
+        "sessionId": "0552cc09-bbcd-4c6c-bdc8-9ba89a78b163",
+        "runId": "ba69a2a9-6f78-43cc-b746-d51f69dbc57e",
+        "provider": "OpenAI (Codex subscription)",
+        "model": "gpt-5.6-luna"
+      },
+      "requestedEffort": "low",
+      "recordedRequestModels": [
+        "gpt-5.6-luna"
+      ]
+    },
+    {
+      "root": "/tmp/namzu-tool-evidence-cli-6kmwz2",
+      "live": true,
+      "scripted": false,
+      "automatic": true,
+      "profile": "resident",
+      "passed": true,
+      "providerTokens": 12893,
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "e3de86a8d9013eafcb926f0bd3a9e6d653dcf23ed061bb6cacc421354c8f7ad0",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "59a34d6146ce58d4b5b3459722908eba806402f158805a71a91b217c711c4ac2",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "0aa06f39e761b39264534a84e7559edcdc502e3be55355d53309fefe71c42308"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "e3de86a8d9013eafcb926f0bd3a9e6d653dcf23ed061bb6cacc421354c8f7ad0",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "59a34d6146ce58d4b5b3459722908eba806402f158805a71a91b217c711c4ac2",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "0aa06f39e761b39264534a84e7559edcdc502e3be55355d53309fefe71c42308"
+      },
+      "fault": null,
+      "automaticBeforeFirstResponse": true,
+      "requests": [
+        {
+          "automaticEvidence": true,
+          "tracking": "TRACK-85458796-8c8a-4f39-9133-5831ee4e14db",
+          "destination": "DEPOT-dd8f1a52-03fa-447a-8bae-4ee593cc9de0",
+          "contextChars": 28572,
+          "toolMessages": 0
+        },
+        {
+          "automaticEvidence": true,
+          "tracking": "TRACK-85458796-8c8a-4f39-9133-5831ee4e14db",
+          "destination": "DEPOT-dd8f1a52-03fa-447a-8bae-4ee593cc9de0",
+          "contextChars": 39124,
+          "toolMessages": 1
+        }
+      ],
+      "finalRunLedgers": [
+        {
+          "runId": "65ea6945-05ed-4b73-b054-0dead20bacfc",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 12555,
+            "completionTokens": 338,
+            "totalTokens": 12893,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "runId": "5e9e9c0a-c83d-4f37-bf1f-9b99e8eb43d4",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        }
+      ],
+      "tools": [
+        "read_resident_tool"
+      ],
+      "phase": "complete",
+      "sessions": 2,
+      "terminalReopenAdmittedNoStep": true,
+      "finishUsage": [
+        {
+          "totalTokens": 12893,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 12893
+          }
+        },
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        }
+      ],
+      "cleanupConfirmed": true,
+      "stage": "final build",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low",
+      "invocationSelection": {
+        "sessionId": "bb4b333d-9cac-45b9-9e0a-905ec358215a",
+        "runId": "65ea6945-05ed-4b73-b054-0dead20bacfc",
+        "provider": "OpenAI (Codex subscription)",
+        "model": "gpt-5.6-luna"
+      },
+      "requestedEffort": "low",
+      "recordedRequestModels": [
+        "gpt-5.6-luna"
+      ]
+    },
+    {
+      "root": "/tmp/namzu-tool-evidence-cli-PmB8KH",
+      "live": false,
+      "scripted": true,
+      "automatic": true,
+      "profile": "resident",
+      "passed": true,
+      "providerTokens": 0,
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "e3de86a8d9013eafcb926f0bd3a9e6d653dcf23ed061bb6cacc421354c8f7ad0",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "59a34d6146ce58d4b5b3459722908eba806402f158805a71a91b217c711c4ac2",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "0aa06f39e761b39264534a84e7559edcdc502e3be55355d53309fefe71c42308"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "e3de86a8d9013eafcb926f0bd3a9e6d653dcf23ed061bb6cacc421354c8f7ad0",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "59a34d6146ce58d4b5b3459722908eba806402f158805a71a91b217c711c4ac2",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "0aa06f39e761b39264534a84e7559edcdc502e3be55355d53309fefe71c42308"
+      },
+      "fault": "changed",
+      "automaticBeforeFirstResponse": false,
+      "invalidArchiveWithheld": true,
+      "requests": [
+        {
+          "automaticEvidence": true,
+          "contextChars": 27087,
+          "toolMessages": 0
+        }
+      ],
+      "finalRunLedgers": [
+        {
+          "runId": "3d7e0009-ca6e-439d-9e7f-2c5737f5e613",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "runId": "30b5d365-ddbf-4c7f-9d60-b8dd1e27ae99",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        }
+      ],
+      "tools": [],
+      "phase": "blocked",
+      "sessions": 2,
+      "terminalReopenAdmittedNoStep": true,
+      "finishUsage": [
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        },
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        }
+      ],
+      "cleanupConfirmed": true,
+      "stage": "final build",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    },
+    {
+      "root": "/tmp/namzu-tool-evidence-cli-zzpiLG",
+      "live": false,
+      "scripted": true,
+      "automatic": true,
+      "profile": "resident",
+      "passed": true,
+      "providerTokens": 0,
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "e3de86a8d9013eafcb926f0bd3a9e6d653dcf23ed061bb6cacc421354c8f7ad0",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "59a34d6146ce58d4b5b3459722908eba806402f158805a71a91b217c711c4ac2",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "0aa06f39e761b39264534a84e7559edcdc502e3be55355d53309fefe71c42308"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "e3de86a8d9013eafcb926f0bd3a9e6d653dcf23ed061bb6cacc421354c8f7ad0",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "59a34d6146ce58d4b5b3459722908eba806402f158805a71a91b217c711c4ac2",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "0aa06f39e761b39264534a84e7559edcdc502e3be55355d53309fefe71c42308"
+      },
+      "fault": "missing",
+      "automaticBeforeFirstResponse": false,
+      "invalidArchiveWithheld": true,
+      "requests": [
+        {
+          "automaticEvidence": true,
+          "contextChars": 27087,
+          "toolMessages": 0
+        }
+      ],
+      "finalRunLedgers": [
+        {
+          "runId": "6c066a89-3360-47b7-9fbf-e5a55e4b6371",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        },
+        {
+          "runId": "e398d3e3-49cf-4da3-bb82-63b16e99341a",
+          "status": "completed",
+          "tokenUsage": {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        }
+      ],
+      "tools": [],
+      "phase": "blocked",
+      "sessions": 2,
+      "terminalReopenAdmittedNoStep": true,
+      "finishUsage": [
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        },
+        {
+          "totalTokens": 0,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 0
+          }
+        }
+      ],
+      "cleanupConfirmed": true,
+      "stage": "final build",
+      "provider": "codex",
+      "model": "gpt-5.6-luna",
+      "effort": "low"
+    }
+  ],
+  "cancellation": {
+    "before": {
+      "root": "/tmp/namzu-tool-evidence-cli-V4s3la",
+      "scenario": "SIGTERM while automatic resident history preparation is pending; scripted delayed source, actual CLI lifecycle",
+      "seedOnly": true,
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "f6614f4f4d2885103689d8f8777773876335e2301dfa3f469f4478449b7f7719",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "eb3bd1460336c59f7d86ee41aa9ae55c65e15881ec9726b9f902e06e6a078d3a",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "7500cf80813c3757a0d06911840874f32a24fc3f1893a72fdc6951f45ad28a16"
+      },
+      "sent": true,
+      "exit": {
+        "code": 143,
+        "signal": null
+      },
+      "passed": false,
+      "error": "Expected values to be strictly equal:\n\n143 !== 130\n",
+      "observedAfterExit": {
+        "providerCalled": false,
+        "startReceipts": 2,
+        "finishReceipts": 1,
+        "runLedgerTokens": 0
+      }
+    },
+    "after": {
+      "root": "/tmp/namzu-tool-evidence-cli-0LxIDP",
+      "scenario": "SIGTERM while automatic resident history preparation is pending; scripted delayed source, actual CLI lifecycle",
+      "seedOnly": true,
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "e3de86a8d9013eafcb926f0bd3a9e6d653dcf23ed061bb6cacc421354c8f7ad0",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "59a34d6146ce58d4b5b3459722908eba806402f158805a71a91b217c711c4ac2",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "0aa06f39e761b39264534a84e7559edcdc502e3be55355d53309fefe71c42308"
+      },
+      "sent": true,
+      "exit": {
+        "code": 130,
+        "signal": null
+      },
+      "unresolvedClaim": "8adec03a-041b-453c-82cb-b7deec35f649",
+      "reopen": {
+        "code": 1
+      },
+      "modelCalls": 0,
+      "providerTokens": 0,
+      "cleanup": [
+        {
+          "claimId": "8adec03a-041b-453c-82cb-b7deec35f649",
+          "cleanup": "confirmed",
+          "stopReason": null
+        },
+        {
+          "claimId": "998c1d67-c2a4-44c0-81bb-76def31c5697",
+          "cleanup": "confirmed",
+          "stopReason": "end_turn"
+        }
+      ],
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/evidence-recall.js": "31c684f59090362c401774013e5c722fc871dd12af855e55caa1dc742c052ac9",
+        "packages/sdk/dist/run/evidence-recall.js": "3bdfee1d71d3ded5508a51c875badfd77597562f3962d717429b37f3e5929cf4",
+        "packages/cli/dist/tui/agent.js": "e3de86a8d9013eafcb926f0bd3a9e6d653dcf23ed061bb6cacc421354c8f7ad0",
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "59a34d6146ce58d4b5b3459722908eba806402f158805a71a91b217c711c4ac2",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "0aa06f39e761b39264534a84e7559edcdc502e3be55355d53309fefe71c42308"
+      },
+      "passed": true
+    }
+  },
+  "liveTotalTokens": 25728,
+  "pricing": "All live tokens are unpriced in the owning run receipts; no monetary saving or zero-cost claim.",
+  "checks": {
+    "workspaceTypecheck": true,
+    "workspaceBuild": true,
+    "workspaceLint": "passed with existing warnings",
+    "sdkTests": 6748,
+    "cliTests": 3021,
+    "cliExistingSkips": 5,
+    "sdkProcessTests": 264,
+    "docsConformance": true,
+    "docsFences": true,
+    "workflowGateParity": true,
+    "projectReferences": true,
+    "signatureExports": true,
+    "testPresence": true,
+    "allReleaseGates": false
+  }
+}

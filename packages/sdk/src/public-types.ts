@@ -553,3 +553,5 @@ export type {
 	ResidentToolEvidenceReadResult,
 	ResidentToolEvidenceSource,
 } from './manager/resident/tool-evidence.js'
+
+export type { ResidentEvidenceRecallOptions } from './manager/resident/evidence-recall.js'

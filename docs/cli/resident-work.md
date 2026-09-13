@@ -143,8 +143,8 @@ Each admitted step uses a fresh isolated CLI session. Its context receives the
 immutable objective, identity, last saved summary, all pending wake inputs and an approved
 [learning snapshot](../sdk/resident-learning.md) bound to the admission revision.
 Learning projection has a 12,000-character cap and selects currently active
-host-approved skills. Oversized entries are reported as omitted. This is summary
-continuation, not a resumed chat transcript or restored in-flight tool process.
+host-approved skills. Oversized entries are reported as omitted. Continuation uses this snapshot and bounded historical evidence retrieval; it
+does not restore an in-flight process or resume an old chat transcript.
 
 Both context profiles also mount `search_resident_history` and
 `read_resident_history` over the SDK's [resident evidence source](../sdk/resident-recall.md).
@@ -183,6 +183,16 @@ mutable workspace file, restore a process or re-execute the original action.
 Older runs without explicit scope or matching receipts are not guessed into
 this feature. The [tool-evidence experiment](../../research/resident/tool-evidence.md)
 records real CLI execution separately from its scripted provider seed.
+
+Both context profiles also attach SDK
+[automatic original-tool recall](../sdk/resident-evidence-recall.md) before each
+model request. It selects literal terms from the admitted objective, accepted
+wake inputs and derived summary, then retrieves bounded original tool excerpts
+from earlier settled admissions. Historical Session/claim addresses remain intact.
+The pass has a combined 8 MiB document allowance and at most four source pages;
+explicit tools remain available for omitted text and cursor continuation.
+`compaction.recallEvidence: false` disables this preparation while retaining
+explicit tools. No extra query-planning model call is made.
 
 The model proposes a final JSON decision: `complete`, `blocked` or `wait`, with
 a nonempty summary of at most 8,000 characters. A wait names `wakeAfterMs: null`
@@ -227,7 +237,10 @@ cancellation. Callbacks that ignore their abort signal may still be running.
 `wake` appends evidence to a waiting pursuit without launching a process; an
 already-authorized idle background runner can then act on it. It does not revive
 terminal work or reopen a paused agenda. `Ctrl+C`/`SIGTERM` ends
-the foreground invocation, with any admitted unfinished claim retained.
+the foreground invocation, with any admitted unfinished claim retained. Resident
+Sessions disable the SDK emergency exit handlers because the enclosing resident
+host owns these signals and must drain the Session and write its finish/runner
+receipts first. Ordinary interactive chat keeps its existing emergency policy.
 
 Several wakes before the next step are retained in order, including after
 restarting Namzu. `status` shows the pending input count; JSON status includes

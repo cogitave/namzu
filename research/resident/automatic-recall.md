@@ -1,8 +1,9 @@
 # Automatic original-evidence recall across resident admissions
 
-Started 2026-09-13 at `ce27604e`. This milestone is active. The existing explicit
-resident evidence tools work, but automatic resident preparation is not yet
-implemented or live-verified here.
+Started 2026-09-13 at `ce27604e`. The SDK preparation adapter is now wired into
+both CLI resident profiles and verified with actual CLI processes. The sections
+below retain the prerequisite findings; the implementation audit and measurements
+at the end describe the resulting change.
 
 ## Composition and reference inspection
 
@@ -111,8 +112,9 @@ selection or model quality. Two different Session IDs and confirmed cleanup are
 required; after completion, another CLI command must admit no extra step.
 Production module hashes must remain stable. No live provider credit is spent.
 
-Automatic preparation, query selection, shared ranking across original Session
-addresses and the bounded live comparison remain required work for this goal.
+At that prerequisite stage, automatic preparation, query selection, shared
+ranking across original Session addresses and the live comparison still
+remained. The implementation and verification follow below.
 
 Both scripted process probes passed: two admissions in distinct Sessions, only
 archive search/read on recovery, and no extra step after terminal reopening.
@@ -122,3 +124,119 @@ remained unchanged during each probe. See [the compact results](operation-budget
 Workspace typecheck, build, lint and all package tests passed, along with
 docs conformance/fences, signature exports, test presence and project references.
 These are development checks, not all release gates.
+
+
+## SDK adapter and CLI result
+
+`createResidentEvidenceRecallStep` now reuses the conversation selection engine
+through an internal authority boundary. It keeps historical Session/run IDs and
+settled pursuit/revision/claim addresses, rather than pretending those records
+belong to the current conversation. Ordinary conversation scope checks remain.
+Each original tool address also retains its within-run sequence and byte offset.
+Visible quotes, omitted passages and repeated occurrences use the same resident
+address projection; no text part number is invented for tool-only evidence.
+
+Query words are selected locally from the admitted objective, accepted wakes and
+derived last summary. Categories take turns, and newer wake inputs have the first
+opportunity within that category while retaining their committed indices. Each
+field contributes its last 4,000 UTF-16 units; at most 16 words fit the source's
+512-byte query/filter bound. These are search hints, not verified new facts.
+There is no extra query-planning inference. This bounded lexical policy may miss
+relevant words, unnamed referents and records outside its traversal allowance.
+It is not a general retrieval-quality benchmark or a claim of perfect memory.
+
+The SDK source retains token terms and exact successful-tool exclusions in its
+opaque continuation. A cursor-only call resumes the same query after reopening;
+changing a query or filter is refused. Search results report remaining traversal
+as incomplete. Escaped cursor output is also bounded before exposing it to the
+model, so a custom backend cannot produce an unusable oversized continuation.
+The adapter allows four source pages and a combined 8 MiB charged-document budget.
+All metadata, source addresses and excerpts share the context character ceiling.
+Explicit archive tools remain available when automatic selection is incomplete.
+
+Both resident context profiles mount this preparation on fresh sends. Configuring
+`compaction.recallEvidence: false` retains explicit tools without this automatic
+pass. The CLI supplies the four resident retrieval tool names as successful-copy
+exclusions. No ordinary conversation/delegated child authority is widened, no
+second history store is created, and no historical action is replayed.
+
+### Measurements
+
+[Compact results](automatic-recall-results.json) retain actual module hashes,
+request observations, reported usage and cleanup outcomes. Each process driver
+uses an isolated home/workspace. The original observation is a real CLI `read`
+with authenticated spilled output and two random identifiers beyond its preview.
+The scripted seed omits those identifiers from the settled summary, and the
+workspace document is replaced before another process enters the next admission.
+
+- Scripted automatic recovery passed under both context profiles. The original
+  identifiers reached the first model request; the scripted response made no
+  archive tool call. This proves wiring/data availability, not model quality.
+- Two Luna/low probes passed. Each made two model requests and one
+  `read_resident_tool` call, using the address supplied by automatic preparation.
+  Neither called search or reread the workspace. Reported tokens were 12,835 on
+  the initial adapter build and 12,893 on the final build: 25,728 total, all
+  unpriced. Scripted seeds used zero provider tokens. These trials do not establish
+  a general success rate or measured savings against another harness.
+- Final-build scripted probes with changed archive bytes or a removed archive
+  withheld both identifiers and settled `blocked`; neither substituted current
+  workspace contents or replayed the observation. These are controlled response
+  decisions, not live-model refusal guarantees.
+- A real Session integration test spans three admissions and reopens the agenda:
+  original and corrected observations remain separately addressed after both are
+  removed from the workspace. An unverified summary claim is not promoted into
+  a retrieved tool passage. The response itself is scripted.
+
+```sh
+node research/resident/tool-evidence-cli.mjs --scripted --automatic
+node research/resident/tool-evidence-cli.mjs --scripted --automatic --interactive
+node research/resident/tool-evidence-cli.mjs --live --automatic
+node research/resident/tool-evidence-cli.mjs --scripted --automatic --changed-archive
+node research/resident/tool-evidence-cli.mjs --scripted --automatic --missing-archive
+node research/resident/automatic-recall-cancel.mjs
+```
+
+### Signal ownership defect found by the process test
+
+The first SIGTERM probe failed: exit 143, two start receipts but only the seed's
+finish receipt, and no model call. The resident host installed a cooperative
+abort handler, but `AgentSession` also unconditionally enabled the SDK emergency
+handler, which called `process.exit()` before resident cleanup finished. Relaxing
+the expected exit status would have hidden missing drainage evidence.
+
+Resident Sessions now disable SDK emergency process handlers through an explicit
+host composition option. The foreground/managed resident host owns cancellation
+and must drain before writing its finish/runner receipt. The final process test
+interrupts a deliberately pending history source inside actual preparation:
+exit 130, zero model calls/tokens, confirmed cleanup and a retained unresolved
+claim. Another `resident run` refuses that claim without admitting a new step.
+An interrupted callback may have no settled model stop reason; the test does not
+invent one from the host exit code. Ordinary interactive emergency policy stays
+at its prior default.
+
+### Requirement audit
+
+| Requirement | Inspected evidence |
+| --- | --- |
+| Current composition and pinned primary comparison | Source inspection above; Pydantic Harness checkout `c897c4e8bcb7f0e5a8968aaccdb0f8edf42fe504`; shared SDK engine and CLI session-step wiring |
+| Settled tenant/project/resident/pursuit and captured revision authority | `tool-evidence.test.ts`, `tool-evidence-budget.test.ts`, `evidence-recall.test.ts`; existing history tests; returned page scope and current executor checks |
+| Original versus derived claims and corrected observations | Query-source metadata; three-admission real Session test in CLI `tool-evidence.test.ts`; original archive addresses in selected/visible/omitted/duplicate records |
+| Exact integrity-checked reads and unavailable artifacts | Final-build changed/missing archive process probes and existing disk/linked evidence reader regressions |
+| Bounded I/O, candidates, context and query work | Combined byte receipt/reservation tests; term/filter/cursor output bounds; shared character/passages/deadline regressions |
+| Cancellation and no overlapping late retrieval | SDK deadline/abort tests plus final actual SIGTERM process probe, cleanup receipt and unresolved reentry refusal |
+| Cursor recovery across reopening | Resident query/filter continuation tests and real CLI-source token continuation; explicit tool input remains cursor-only capable |
+| Real execution across separate admissions/process restart | Scripted and Luna CLI probes with distinct Sessions; terminal reopening admits no further step; nine module hashes unchanged within each probe |
+| Bounded live inference and honest usage | Two Luna/low runs, one-step limit and per-run iteration/token bounds; request observations and complete recorded usage above |
+| Public documentation, release intent and local coherent change | SDK/CLI pages, docs log and `.changeset/prepare-original-resident-evidence.md`; CLI major intent names the changed automatic-recall default and opt-out |
+
+Final development checks passed: workspace typecheck/build/lint and all package
+tests (6,748 SDK; 3,021 CLI plus five existing skips), all 264 SDK process tests,
+docs conformance/fences, workflow parity, project references, signature exports
+and test presence. Existing lint warnings remain. This is not an assertion that
+all publishing gates ran; no push or publication was performed.
+
+Remaining research concerns are retrieval quality outside the bounded lexical
+window, end-to-end efficiency on natural long-running pursuits, and host policy
+for unreadable or ambiguous evidence. Explicit incompleteness and safe data
+availability do not guarantee that every model makes a correct final judgement.
+These remain part of Namzu's broader autonomous-kernel vision.

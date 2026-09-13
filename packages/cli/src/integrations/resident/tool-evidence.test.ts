@@ -19,12 +19,14 @@ import { createResidentSessionStep } from './session-step.js'
 import { residentToolEvidence } from './tool-evidence.js'
 
 const registries = new Map<string, ToolRegistryContract>()
+const emergencyModes: (boolean | undefined)[] = []
 vi.mock('@namzu/sdk', async (original) => {
 	const actual = await original<typeof import('@namzu/sdk')>()
 	return {
 		...actual,
 		query: (params: Parameters<typeof actual.query>[0]) => {
 			if (params.runId) registries.set(params.runId, params.tools)
+			emergencyModes.push(params.emergencySave)
 			return actual.query(params)
 		},
 	}
@@ -54,12 +56,18 @@ const roots: string[] = []
 afterEach(() => {
 	vi.restoreAllMocks()
 	registries.clear()
+	emergencyModes.length = 0
 	for (const root of roots.splice(0)) removeTempDir(root)
 })
 
-it.each(['resident', 'interactive'] as const)(
-	'recalls original tool output through isolated real CLI sessions with the %s profile',
-	async (contextProfile) => {
+it.each([
+	['resident', false],
+	['interactive', false],
+	['resident', true],
+	['interactive', true],
+] as const)(
+	'recalls original tool output through isolated real CLI sessions with the %s profile (automatic=%s)',
+	async (contextProfile, automatic) => {
 		const root = await mkdtemp(join(tmpdir(), 'namzu-resident-tool-cli-'))
 		roots.push(root)
 		const cwd = join(root, 'workspace')
@@ -90,7 +98,11 @@ it.each(['resident', 'interactive'] as const)(
 		})
 		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 		const ctx: CommandContext = {
-			config: { sandbox: { enabled: false }, web: { search: 'off' } },
+			config: {
+				sandbox: { enabled: false },
+				web: { search: 'off' },
+				compaction: { recallEvidence: automatic },
+			},
 			formatter: { name: 'text', print: vi.fn(), info: vi.fn(), error: vi.fn() },
 		}
 		const step = createResidentSessionStep({
@@ -125,8 +137,20 @@ it.each(['resident', 'interactive'] as const)(
 		let page = await source.search({ query: 'DELTA' })
 		while (!page.evidence?.matches.length && page.nextCursor)
 			page = await source.search({ query: 'DELTA', cursor: page.nextCursor })
-		expect(page.incomplete).toBe(false)
+		expect(page.incomplete).toBe(page.nextCursor !== null)
 		expect(page.evidence?.matches[0]?.excerpt).toContain(receipt)
+		const tokenPage = await source.search({ terms: ['delta'] })
+		const tokenMatch = tokenPage.evidence?.matches.find((entry) => entry.excerpt.includes(receipt))
+		expect(tokenMatch).toBeDefined()
+		if (!tokenPage.nextCursor) throw new Error('Expected remaining history.')
+		const reopenedSource = residentToolEvidence(
+			agenda.history((await execution.read())!, firstRevision),
+			sessions,
+			artifactsRoot,
+		)
+		const continued = await reopenedSource.search({ cursor: tokenPage.nextCursor })
+		expect(continued.nextCursor).toBeNull()
+		expect(continued.evidence).toBeNull()
 		const match = page.evidence!.matches[0]!
 		const bounded = await source.search({ query: 'DELTA', maxReadBytes: 2 * 1024 * 1024 })
 		expect(bounded.evidence?.matches[0]?.excerpt).toContain(receipt)
@@ -143,27 +167,29 @@ it.each(['resident', 'interactive'] as const)(
 		expect(boundedRead.text).toContain(receipt)
 		expect(boundedRead.chargedBytes).toBeLessThanOrEqual(2 * 1024 * 1024)
 		const reader = new MockLLMProvider({
-			turns: [
-				{
-					toolCalls: [
-						{ id: 'search-recorded', name: 'search_resident_tools', args: { query: 'DELTA' } },
-					],
-				},
-				{
-					toolCalls: [
+			turns: automatic
+				? [{ text: JSON.stringify({ kind: 'complete', summary: receipt }) }]
+				: [
 						{
-							id: 'read-recorded',
-							name: 'read_resident_tool',
-							args: {
-								revision: firstRevision,
-								address: match.address,
-								byteOffset: match.byteOffset,
-							},
+							toolCalls: [
+								{ id: 'search-recorded', name: 'search_resident_tools', args: { query: 'DELTA' } },
+							],
 						},
+						{
+							toolCalls: [
+								{
+									id: 'read-recorded',
+									name: 'read_resident_tool',
+									args: {
+										revision: firstRevision,
+										address: match.address,
+										byteOffset: match.byteOffset,
+									},
+								},
+							],
+						},
+						{ text: JSON.stringify({ kind: 'complete', summary: receipt }) },
 					],
-				},
-				{ text: JSON.stringify({ kind: 'complete', summary: receipt }) },
-			],
 		})
 		vi.mocked(ProviderRegistry.create).mockReturnValue({ provider: reader } as never)
 		await agenda.wake(
@@ -173,11 +199,22 @@ it.each(['resident', 'interactive'] as const)(
 			Date.now(),
 		)
 		const secondClaim = await invoke()
-		expect(reader.requests).toHaveLength(3)
-		expect(JSON.stringify(reader.requests[0]?.messages)).not.toContain(receipt)
-		expect(
-			JSON.stringify(reader.requests[2]?.messages.filter((message) => message.role === 'tool')),
-		).toContain(receipt)
+		if (automatic) {
+			expect(reader.requests).toHaveLength(1)
+			const first = JSON.stringify(reader.requests[0])
+			expect(first).toContain(receipt)
+			expect(first).toContain('Retrieved resident evidence')
+			expect(first).toContain('derived_summary')
+			expect(first).not.toContain('Manually replaced:')
+			expect(first).toContain('read_resident_tool')
+		} else {
+			expect(reader.requests).toHaveLength(3)
+			expect(JSON.stringify(reader.requests[0]?.messages)).not.toContain(receipt)
+			expect(
+				JSON.stringify(reader.requests[2]?.messages.filter((message) => message.role === 'tool')),
+			).toContain(receipt)
+		}
+		expect(emergencyModes.every((enabled) => enabled === false)).toBe(true)
 		expect(reader.requests[0]?.tools?.map((tool) => tool.function.name)).toContain(
 			'search_resident_tools',
 		)
@@ -230,3 +267,125 @@ it.each(['resident', 'interactive'] as const)(
 		)
 	},
 )
+
+it('automatically retains original and corrected observations across three real resident admissions', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-resident-correction-'))
+	roots.push(root)
+	const cwd = join(root, 'workspace')
+	await mkdir(cwd)
+	const sessions = await openSessions(cwd, { stateRoot: join(root, 'home') })
+	const agendaRoot = join(root, 'agenda')
+	const agenda = new DiskResidentAgenda(agendaRoot, {
+		tenantId: sessions.tenantId,
+		agentKey: 'reviewer',
+	})
+	const pursuit = await agenda.add(
+		await agenda.create('Inspect DELTA.'),
+		'Compare DELTA original and corrected observations.',
+	)
+	const execution = agenda.execution(pursuit.id)
+	const artifactsRoot = join(root, 'attempts')
+	const ctx: CommandContext = {
+		config: { sandbox: { enabled: false }, web: { search: 'off' } },
+		formatter: { name: 'text', print: vi.fn(), info: vi.fn(), error: vi.fn() },
+	}
+	const invoke = async (provider: MockLLMProvider, currentAgenda = agenda) => {
+		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+		const claim = await execution.claim((await execution.read())!, Date.now())
+		const current = await currentAgenda.read()
+		if (!current) throw new Error('Missing agenda.')
+		const step = createResidentSessionStep({
+			ctx,
+			cwd,
+			sessions,
+			agenda: currentAgenda,
+			artifactsRoot,
+			flags: parseRunFlags(['--max-iterations', '4']),
+			toolLoading: 'deferred',
+		})
+		const result = await step({ ...pursuit, state: claim }, new AbortController().signal, {
+			agendaRevision: current.revision,
+		})
+		await execution.settle(claim, result, Date.now())
+		return claim
+	}
+	const original = `DELTA initial observation: OLD-${generateRunId()}`
+	const corrected = `DELTA corrected observation: NEW-${generateRunId()}`
+	const observe = () =>
+		new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ id: 'observe-once', name: 'read', args: { path: 'receipt.txt' } }] },
+				{
+					text: '{"kind":"wait","summary":"DELTA derived claim: UNVERIFIED-CODE. Await confirmation.","wakeAfterMs":null}',
+				},
+			],
+		})
+	await writeFile(join(cwd, 'receipt.txt'), original)
+	const first = await invoke(observe())
+	const firstState = await execution.read()
+	if (!firstState) throw new Error('Missing first settlement.')
+	await writeFile(join(cwd, 'receipt.txt'), corrected)
+	await agenda.wake(
+		pursuit.id,
+		firstState,
+		'DELTA source changed. Observe its current corrected contents.',
+		Date.now(),
+	)
+	const second = await invoke(observe())
+	const secondState = await execution.read()
+	if (!secondState) throw new Error('Missing second settlement.')
+	await writeFile(
+		join(cwd, 'receipt.txt'),
+		'Both observations have now been removed from the workspace.',
+	)
+	await agenda.wake(
+		pursuit.id,
+		secondState,
+		'Compare the initial and corrected DELTA records.',
+		Date.now(),
+	)
+	const reopened = new DiskResidentAgenda(agendaRoot, {
+		tenantId: sessions.tenantId,
+		agentKey: 'reviewer',
+	})
+	const provider = new MockLLMProvider({
+		turns: [
+			{
+				text: '{"kind":"complete","summary":"Both historical observations supplied to this request."}',
+			},
+		],
+	})
+	const third = await invoke(provider, reopened)
+	const textValues = (value: unknown): string[] =>
+		typeof value === 'string'
+			? [value]
+			: value && typeof value === 'object'
+				? Object.values(value).flatMap(textValues)
+				: []
+	const blocks = textValues(provider.requests[0]).filter((text) =>
+		text.includes('Retrieved resident evidence'),
+	)
+	const records = blocks.flatMap((text) =>
+		text
+			.split('\n')
+			.filter((line) => line.startsWith('{"sessionId":'))
+			.map((line) => JSON.parse(line)),
+	)
+	expect(provider.requests).toHaveLength(1)
+	expect(records.map((record) => record.excerpt).join('\n')).toContain(original)
+	expect(records.map((record) => record.excerpt).join('\n')).toContain(corrected)
+	expect(records.map((record) => record.excerpt).join('\n')).not.toContain('UNVERIFIED-CODE')
+	expect(new Set(records.map((record) => record.sessionId)).size).toBe(2)
+	expect(emergencyModes).toEqual([false, false, false])
+	const ordered = [...records].sort((a, b) => a.revision - b.revision)
+	expect(ordered[0].excerpt).toContain(original)
+	expect(ordered.at(-1).excerpt).toContain(corrected)
+	const finishes = await Promise.all(
+		[first, second, third].map(async (claim) =>
+			JSON.parse(await readFile(join(artifactsRoot, claim.claimId!, 'finish.json'), 'utf8')),
+		),
+	)
+	expect(new Set(finishes.map((receipt) => receipt.sessionId)).size).toBe(3)
+	expect(finishes.every((receipt) => receipt.cleanup === 'confirmed')).toBe(true)
+	expect(await readFile(join(cwd, 'receipt.txt'), 'utf8')).toContain('removed from the workspace')
+})

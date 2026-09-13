@@ -1373,3 +1373,5 @@ export {
 } from './store/evidence/disk.js'
 export { classifyEvidenceSource, EVIDENCE_RECORD_GUIDANCE } from './store/evidence/source-kind.js'
 export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'
+
+export { createResidentEvidenceRecallStep } from './manager/resident/evidence-recall.js'

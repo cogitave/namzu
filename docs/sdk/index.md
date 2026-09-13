@@ -62,3 +62,5 @@ The kernel.
 
 * [Retained tool evidence](retained-tool-evidence.md) - Durable bounded indexing, authenticated output pages and scoped recall across resident invocations.
 * [Assistant text phases](assistant-text.md) - Preserve public progress items while selecting settled answers and native replay.
+
+* [Automatic resident tool evidence recall](resident-evidence-recall.md) - Bounded historical tool retrieval across settled resident admissions.

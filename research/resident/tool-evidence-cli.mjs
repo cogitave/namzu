@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { execFile } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rename, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,9 +54,13 @@ if (process.argv[2] === '--seed') {
   console.log(JSON.stringify({ tracking, destination, revision: (await resident.agenda.read()).revision, claimId: claim.claimId, start, runDir, originalNotInPreview: true, seededWith: 'scripted provider, real CLI resident callback and read tool' }));
 } else {
   const live = process.argv.includes('--live');
+  const automatic = process.argv.includes('--automatic');
+  const fault = process.argv.includes('--missing-archive') ? 'missing' : process.argv.includes('--changed-archive') ? 'changed' : null;
   const scripted = process.argv.includes('--scripted');
   const boundedReads = process.argv.includes('--bounded-reads');
+  if (fault && (!scripted || !automatic)) throw new Error('Archive faults require scripted automatic recovery.');
   if (live && scripted) throw new Error('Choose live or scripted recovery.');
+  if (boundedReads && automatic) throw new Error('--bounded-reads tests explicit tools; automatic recall has its own aggregate allowance.');
   if (boundedReads && !scripted) throw new Error('--bounded-reads requires --scripted.');
   const profile = process.argv.includes('--interactive') ? 'interactive' : 'resident';
   const exec = promisify(execFile);
@@ -64,13 +68,14 @@ if (process.argv[2] === '--seed') {
   const home = join(root, 'home'); const cwd = join(root, 'workspace');
   await mkdir(home); await mkdir(cwd);
   await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'codex', model: 'gpt-5.6-luna' }], subagents: { active: [] } }));
-  await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\n');
+  await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\ncompaction:\n  recallEvidence: '+automatic+'\n');
   const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
   const env = { ...process.env, NAMZU_HOME: home };
-  const report = { root, live, scripted, boundedReads, profile, provider: 'codex', model: 'gpt-5.6-luna', effort: 'low', commands: [] };
+  const report = { root, live, scripted, automatic, fault, boundedReads, profile, provider: 'codex', model: 'gpt-5.6-luna', effort: 'low', commands: [] };
   const preload = join(root, 'scripted-recovery.mjs');
-  if (scripted) await writeFile(preload, `
+  if (scripted || automatic) await writeFile(preload, `
 import assert from 'node:assert/strict';
+import { appendFileSync } from 'node:fs';
 import { ProviderRegistry, MockLLMProvider, ToolRegistry } from ${JSON.stringify(new URL('../../packages/sdk/dist/index.js', import.meta.url).href)};
 const parse = value => { const text=String(value); return JSON.parse(text.slice(text.indexOf('{'),text.lastIndexOf('}')+1)); };
 if (${boundedReads}) {
@@ -92,9 +97,21 @@ if (${boundedReads}) {
   return register.call(this,wrap(first),second);
  };
 }
-ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *chatStream(params){
+if (${scripted}) ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *chatStream(params){
  const last=params.messages.filter(m=>m.role==='tool').at(-1);let turn;
- if(!last)turn={toolCalls:[{id:'search',name:'search_resident_tools',args:{query:'DELTA'}}]};
+ if(${automatic}) {
+  const text=JSON.stringify(params);
+  const tracking=text.match(/TRACK-[0-9a-f-]{36}/)?.[0];
+  const destination=text.match(/DEPOT-[0-9a-f-]{36}/)?.[0];
+  if (${JSON.stringify(fault)}) {
+   assert.ok(!tracking&&!destination, 'Invalid original bytes must not enter context.');
+   assert.ok(text.includes(JSON.stringify('"incomplete":true').slice(1,-1)) || text.includes('Resident evidence availability'));
+   turn={text:JSON.stringify({kind:'blocked',summary:'Original retained tool evidence is unavailable; no identifiers were verified.'})};
+  } else {
+   assert.ok(tracking&&destination, 'Automatic preparation must supply both original identifiers before the scripted response.');
+   turn={text:JSON.stringify({kind:'complete',summary:tracking+' '+destination})};
+  }
+ } else if(!last)turn={toolCalls:[{id:'search',name:'search_resident_tools',args:{query:'DELTA'}}]};
  else {
   const page=parse(last.content);
   if(last.toolCallId.startsWith('search')) {
@@ -105,11 +122,29 @@ ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *cha
  }
  yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
 }}});
+const create = ProviderRegistry.create;
+ProviderRegistry.create = function(...args) {
+ const result = create.apply(this,args);
+ const provider = result.provider;
+ const chatStream = provider.chatStream;
+ provider.chatStream = function(params) {
+  const text = JSON.stringify(params);
+  appendFileSync(${JSON.stringify(join(root,'request-observations.jsonl'))}, JSON.stringify({
+   automaticEvidence: text.includes('Retrieved resident evidence'),
+   tracking: text.match(/TRACK-[0-9a-f-]{36}/)?.[0],
+   destination: text.match(/DEPOT-[0-9a-f-]{36}/)?.[0],
+   contextChars: text.length,
+   toolMessages: params.messages.filter(m=>m.role==='tool').length,
+  })+'\\n');
+  return chatStream.call(this,params);
+ };
+ return result;
+};
 `);
-  const builtPaths=['packages/sdk/dist/manager/resident/history.js','packages/sdk/dist/manager/resident/tool-evidence.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/cli/dist/integrations/resident/tool-evidence.js','packages/cli/dist/integrations/resident/session-step.js'];
+  const builtPaths=['packages/sdk/dist/manager/resident/evidence-recall.js','packages/sdk/dist/run/evidence-recall.js','packages/cli/dist/tui/agent.js','packages/sdk/dist/manager/resident/history.js','packages/sdk/dist/manager/resident/tool-evidence.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/cli/dist/integrations/resident/tool-evidence.js','packages/cli/dist/integrations/resident/session-step.js'];
   const builtHashes=async()=>Object.fromEntries(await Promise.all(builtPaths.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
   async function command(args) {
-    const { stdout } = await exec(process.execPath, [...(scripted&&args[0]==='run'?['--import',preload]:[]),cli, '--quiet', '--format', 'json', 'resident', ...args, '--cwd', cwd], { cwd, env, timeout: 180_000, maxBuffer: 3_000_000 });
+    const { stdout } = await exec(process.execPath, [...((scripted||automatic)&&args[0]==='run'?['--import',preload]:[]),cli, '--quiet', '--format', 'json', 'resident', ...args, '--cwd', cwd], { cwd, env, timeout: 180_000, maxBuffer: 3_000_000 });
     const result = JSON.parse(stdout); report.commands.push({ args, result }); return result;
   }
   try {
@@ -118,6 +153,15 @@ ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *cha
     const id = added.agenda.pursuits[0].id;
     const seeded = await exec(process.execPath, [fileURLToPath(import.meta.url), '--seed', cwd], { cwd, env, timeout: 30_000, maxBuffer: 1_000_000 });
     report.seed = JSON.parse(seeded.stdout);
+    if (fault) {
+      const spill = join(report.seed.runDir,'tool-output',createHash('sha256').update('observe-manifest-once').digest('hex')+'.txt');
+      assert.ok(spill.startsWith(home+'/sessions/'));
+      if (fault==='missing') await rename(spill,spill+'.fixture-removed');
+      else {
+        const bytes=await readFile(spill);const where=bytes.indexOf(report.seed.tracking);assert.ok(where>=0);
+        bytes[where]=bytes[where]===84?88:84;await writeFile(spill,bytes);
+      }
+    }
     const status = await command(['status']);
     assert.ok(!JSON.stringify(status.agenda.pursuits[0].state).includes(report.seed.tracking));
     await command(['wake', id, 'The recipient confirms DELTA. Recover the original recorded tool receipt and report its exact tracking code and destination now.']);
@@ -125,9 +169,6 @@ ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *cha
       const finished = await command(['run', '--trust', '--max-steps', '1', '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--context-profile', profile, '--tool-loading', 'deferred', '--max-iterations', '8', '--token-budget', '40000']);
       const state = finished.agenda.pursuits[0].state;
       report.observed = { phase: state.phase, summary: state.summary };
-      assert.equal(state.phase, 'complete');
-      assert.ok(state.summary.includes(report.seed.tracking));
-      assert.ok(state.summary.includes(report.seed.destination));
       const starts = []; const finishes = []; const tools = []; const runs=[];
       async function collect(directory) {
         for (const entry of await readdir(directory, { withFileTypes: true })) {
@@ -147,14 +188,24 @@ ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *cha
       report.starts = starts; report.finishes = finishes; report.toolEvents = tools;
       report.providerTokens=runs.reduce((total,run)=>total+(run.tokenUsage?.totalTokens??0),0);
       if(scripted)assert.equal(report.providerTokens,0);
+      assert.equal(state.phase, fault ? 'blocked' : 'complete');
+      assert.equal(state.summary.includes(report.seed.tracking),!fault);
+      assert.equal(state.summary.includes(report.seed.destination),!fault);
+      if (automatic) {
+        report.requests=(await readFile(join(root,'request-observations.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
+        report.automaticBeforeFirstResponse=report.requests[0]?.automaticEvidence&&report.requests[0]?.tracking===report.seed.tracking&&report.requests[0]?.destination===report.seed.destination&&report.requests[0]?.toolMessages===0;
+        if (fault) {
+          assert.equal(report.requests[0]?.tracking,undefined);assert.equal(report.requests[0]?.destination,undefined);
+          report.invalidArchiveWithheld=true;
+        } else assert.equal(report.automaticBeforeFirstResponse,true);
+      }
       assert.equal(starts.length, 2);
       assert.equal(new Set(starts.map(start => start.sessionId)).size, 2);
       assert.ok(finishes.every(finish => finish.cleanup === 'confirmed' && finish.stopReason === 'end_turn'));
       const liveTools = tools.filter(event => event.runId !== report.seed.start.runId);
       const calls = liveTools.filter(event => event.type === 'tool_executing').map(event => event.toolName);
       report.observed.tools = calls;
-      assert.ok(calls.includes('search_resident_tools'));
-      assert.ok(calls.includes('read_resident_tool'));
+      if(!automatic) { assert.ok(calls.includes('search_resident_tools')); assert.ok(calls.includes('read_resident_tool')); }
       assert.ok(calls.every(name => ['search_resident_tools', 'read_resident_tool', 'search_resident_history', 'read_resident_history'].includes(name)));
       assert.ok(liveTools.filter(event => event.type === 'tool_completed').every(event => !event.isError));
       if(boundedReads){report.readCharges=liveTools.filter(event=>event.type==='tool_completed').map(event=>({tool:event.toolName,chargedBytes:JSON.parse(event.result).chargedBytes}));assert.ok(report.readCharges.every(row=>Number.isSafeInteger(row.chargedBytes)&&row.chargedBytes<=2*1024*1024));}
@@ -169,10 +220,18 @@ ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *cha
   } catch (error) {
     report.passed = false; report.error = error instanceof Error ? error.message : String(error); process.exitCode = 1;
   } finally {
+    // Collect usage even when a model/process assertion failed before normal collection.
+    report.finalRunLedgers=[];
+    async function ledgers(directory) {
+      let entries;try{entries=await readdir(directory,{withFileTypes:true});}catch(error){if(error.code==='ENOENT')return;throw error;}
+      for(const entry of entries){const path=join(directory,entry.name);if(entry.isDirectory())await ledgers(path);else if(entry.name==='run.json'){const run=JSON.parse(await readFile(path,'utf8'));report.finalRunLedgers.push({runId:run.id??run.runId,status:run.status,tokenUsage:run.tokenUsage,cost:run.cost});}}
+    }
+    await ledgers(join(home,'sessions'));
+    report.providerTokens=report.finalRunLedgers.reduce((sum,run)=>sum+(run.tokenUsage?.totalTokens??0),0);
     report.fingerprints = {};
     for (const path of ['packages/sdk/src/store/evidence/disk.ts', 'packages/sdk/src/store/evidence/index-page.ts', 'packages/sdk/src/store/evidence/format.ts', 'packages/sdk/src/manager/resident/tool-evidence.ts', 'packages/sdk/src/runtime/query/index.ts', 'packages/cli/src/integrations/resident/tool-evidence.ts', 'packages/cli/src/integrations/resident/session-step.ts', 'research/resident/tool-evidence-cli.mjs'])
       report.fingerprints[path] = createHash('sha256').update(await readFile(new URL(`../../${path}`, import.meta.url))).digest('hex');
     await writeFile(join(root, 'result.json'), JSON.stringify(report, null, 2) + '\n');
-    console.log(JSON.stringify({ root, live, profile, passed: report.passed, observed: report.observed, error: report.error }));
+    console.log(JSON.stringify({ root, live, automatic, fault, profile, passed: report.passed, providerTokens: report.providerTokens, automaticBeforeFirstResponse: report.automaticBeforeFirstResponse, tools:report.observed?.tools, error: report.error }));
   }
 }

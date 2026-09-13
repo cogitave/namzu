@@ -232,3 +232,53 @@ it('rejects late source results after cancellation even when the backend ignores
 		await expect(pending).rejects.toThrow('cancelled read')
 	}
 })
+
+it('resumes token queries and exclusions from a cursor after reopening without reconstructing them', async () => {
+	const f = await fixture()
+	f.search.mockResolvedValue({ ...f.page, nextCursor: 'inner-cursor', incomplete: true })
+	const source = createResidentToolEvidenceSource({ ...f.options, resolutionReadBytes: 0 })
+	const first = await source.search({
+		terms: ['DELTA', 'İZMİR', 'DELTA'],
+		excludeSuccessfulTools: ['read_resident_tool'],
+		maxReadBytes: 2 * mib,
+	})
+	if (!first.nextCursor) throw new Error('Expected a continuation.')
+	const reopened = createResidentToolEvidenceSource({ ...f.options, resolutionReadBytes: 0 })
+	await reopened.search({ cursor: first.nextCursor, maxReadBytes: 3 * mib })
+	expect(f.search.mock.calls[1]?.[0]).toMatchObject({
+		terms: ['DELTA', 'İZMİR'],
+		excludeSuccessfulTools: ['read_resident_tool'],
+		matchMode: 'token',
+		caseSensitive: false,
+		cursor: 'inner-cursor',
+	})
+	await expect(reopened.search({ cursor: first.nextCursor, query: 'different' })).rejects.toThrow(
+		'query changed',
+	)
+	await expect(
+		reopened.search({ cursor: first.nextCursor, terms: ['DELTA', 'İZMİR'] }),
+	).rejects.toThrow('query changed')
+	expect(f.search).toHaveBeenCalledTimes(2)
+})
+
+it('refuses malformed or oversized token queries before touching history', async () => {
+	const f = await fixture()
+	const source = createResidentToolEvidenceSource(f.options)
+	for (const input of [
+		{ terms: ['two words'] },
+		{ terms: [] },
+		{ query: '', terms: ['DELTA'] },
+		{ terms: ['語'.repeat(256)] },
+		{ terms: ['DELTA'], excludeSuccessfulTools: ['tool'.repeat(100)] },
+	])
+		await expect(source.search(input)).rejects.toThrow()
+	expect(f.history.search).not.toHaveBeenCalled()
+	expect(f.resolveRun).not.toHaveBeenCalled()
+})
+
+it('refuses a backend continuation whose escaped encoding cannot fit the tool input bound', async () => {
+	const f = await fixture()
+	f.search.mockResolvedValue({ ...f.page, nextCursor: '\u0000'.repeat(4096), incomplete: true })
+	const source = createResidentToolEvidenceSource(f.options)
+	await expect(source.search({ terms: ['DELTA'] })).rejects.toThrow('encoded bound')
+})

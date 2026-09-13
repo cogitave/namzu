@@ -53,6 +53,7 @@ import {
 	type Message,
 	type ModelInfo,
 	type PluginLifecycleManager,
+	type PrepareStep,
 	type PrepareStepChain,
 	type ProjectId,
 	type ProjectInstructionContext,
@@ -1310,6 +1311,10 @@ export interface AgentSessionOptions {
 	/** Earlier settled steps of one resident pursuit, bound before this session starts. */
 	readonly residentHistory?: ResidentHistorySource
 	readonly residentToolEvidence?: ResidentToolEvidenceSource
+	/** Host-bound to this resident admission; fresh sends only, never checkpoint resume. */
+	readonly residentEvidenceRecall?: PrepareStep
+	/** False when an enclosing host owns signals and must drain before exiting. */
+	readonly emergencySave?: boolean
 	/**
 	 * Operator-authored tool rules, already compiled to the kernel's vocabulary.
 	 *
@@ -3040,6 +3045,7 @@ export async function createAgentSession(
 											]),
 									...(options.conversationSessions ? [createContextInventoryStep()] : []),
 									...evidenceRecallFor(turnScope.sessionId),
+									...(options.residentEvidenceRecall ? [options.residentEvidenceRecall] : []),
 								],
 								taskStore: runTaskStore,
 								systemPrompt,
@@ -3059,6 +3065,7 @@ export async function createAgentSession(
 									task_update: options.toolLoading === 'deferred' ? 'deferred' : 'active',
 									task_list: options.toolLoading === 'deferred' ? 'deferred' : 'active',
 								},
+								emergencySave: options.emergencySave ?? true,
 								onRunEvent: options.onRunEvent,
 								...(sandbox.provider ? { sandboxProvider: sandbox.provider } : {}),
 								...(options.sandbox?.teardownTimeoutMs !== undefined
@@ -3627,6 +3634,7 @@ function compactionConfigFor(compaction: CompactionCliConfig | undefined): Compa
  * to each other with nothing but call order to keep them apart.
  */
 interface RunTurnParams {
+	readonly emergencySave: boolean
 	readonly retainedToolPreviewChars?: number
 	readonly provider: LLMProvider
 	/** The kernel's compaction configuration for this session, strategy included. */
@@ -3700,6 +3708,7 @@ interface RunTurnParams {
 }
 
 async function* runTurn({
+	emergencySave,
 	retainedToolPreviewChars,
 	fileReadTracker,
 	provider,
@@ -3778,11 +3787,9 @@ async function* runTurn({
 			compactionConfig,
 			...(consolidateInto ? { consolidateInto } : {}),
 			...(backgroundJobs ? { backgroundJobs, backgroundJobOwner } : {}),
-			// The CLI owns its process end to end, so it can safely hand the
-			// termination path to the kernel: a Ctrl-C mid-run now leaves a
-			// dump under the injected hierarchy's emergency partition instead of
-			// losing the turn.
-			emergencySave: true,
+			// Interactive chat may own process exit. An enclosing resident host
+			// instead drains the run and writes its finish/runner receipts first.
+			emergencySave,
 			runConfig: {
 				model,
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),

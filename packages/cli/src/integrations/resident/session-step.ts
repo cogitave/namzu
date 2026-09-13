@@ -12,6 +12,7 @@ import {
 	type ResidentPursuit,
 	type ResidentStepContext,
 	type ReviewAnswer,
+	createResidentEvidenceRecallStep,
 	generateRunId,
 	generateSessionId,
 	projectResidentLearning,
@@ -282,6 +283,9 @@ export function createResidentSessionStep(
 			session = await createAgentSession(prefs, probe.detected, {
 				cwd,
 				toolLoading: options.toolLoading,
+				// Foreground and managed resident hosts already own signal cancellation
+				// and must confirm drainage before releasing durable ownership.
+				emergencySave: false,
 				scope: {
 					sessionId,
 					topicId: sessions.topicId,
@@ -291,6 +295,26 @@ export function createResidentSessionStep(
 				stateRoot: sessions.root,
 				...(history ? { residentHistory: history } : {}),
 				...(toolEvidence ? { residentToolEvidence: toolEvidence } : {}),
+				...(toolEvidence && ctx.config.compaction?.recallEvidence !== false
+					? {
+							residentEvidenceRecall: createResidentEvidenceRecallStep({
+								source: toolEvidence,
+								state: pursuit.state,
+								scope: {
+									tenantId: sessions.tenantId,
+									projectId: sessions.projectId,
+									sessionId,
+									runId,
+								},
+								excludeSuccessfulTools: [
+									'search_resident_tools',
+									'read_resident_tool',
+									'search_resident_history',
+									'read_resident_history',
+								],
+							}),
+						}
+					: {}),
 				rules: permissions.rules,
 				permissionMode: mode.mode,
 				reviewAnswer,

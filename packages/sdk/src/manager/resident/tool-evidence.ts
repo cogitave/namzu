@@ -1,4 +1,6 @@
 import { z } from 'zod'
+import { evidenceSearchInput, evidenceTermsSchema } from '../../store/evidence/search-input.js'
+import { evidenceExclusionsSchema } from '../../store/evidence/selection.js'
 import type {
 	RunEvidenceReadOptions,
 	RunEvidenceReadResult,
@@ -37,6 +39,11 @@ export interface ResidentToolEvidenceOptions {
 /** @experimental An optional shared ceiling covers history, resolution and run evidence. */
 export interface ResidentToolEvidenceSearchOptions {
 	readonly query?: string
+	/** Token discovery: 1–16 terms, matched case-insensitively. Combined query/filter JSON ≤512 UTF-8 bytes. */
+	readonly terms?: readonly string[]
+	/** Omit successful retrieval copies before they consume candidate slots. */
+	readonly excludeSuccessfulTools?: readonly string[]
+	/** Omit query/terms/filter to continue the exact captured search. */
 	readonly cursor?: string
 	readonly maxReadBytes?: number
 }
@@ -138,17 +145,46 @@ export function createResidentToolEvidenceSource(
 		projectId: z.string().uuid().parse(options.projectId),
 	})
 	const revision = z.number().int().min(1).max(scope.throughRevision).safe()
-	const cursorSchema = z
+	const searchSchema = z
 		.object({
-			version: z.literal(1),
-			scope: z.literal(JSON.stringify(scope)),
-			query: z.string().max(256),
-			revision,
-			runCursor: z.string().max(4096).optional(),
+			query: z.string().max(256).optional(),
+			terms: evidenceTermsSchema,
+			excludeSuccessfulTools: evidenceExclusionsSchema.optional(),
 		})
 		.strict()
-	const encode = (value: z.infer<typeof cursorSchema>) =>
-		Buffer.from(JSON.stringify(value)).toString('base64url')
+	function searchInput(value: unknown) {
+		const parsed = searchSchema.parse(value)
+		const search = evidenceSearchInput({
+			...parsed,
+			...(parsed.terms ? { matchMode: 'token' as const } : {}),
+		})
+		const result: z.infer<typeof searchSchema> = {
+			...(search.terms ? { terms: search.terms } : { query: search.query }),
+			...(parsed.excludeSuccessfulTools?.length
+				? { excludeSuccessfulTools: [...new Set(parsed.excludeSuccessfulTools)].sort() }
+				: {}),
+		}
+		if (
+			(search.terms || result.excludeSuccessfulTools) &&
+			Buffer.byteLength(JSON.stringify(result)) > 512
+		)
+			throw new Error('Resident search terms and filters exceed 512 UTF-8 bytes.')
+		return result
+	}
+	const cursorBase = {
+		scope: z.literal(JSON.stringify(scope)),
+		revision,
+		runCursor: z.string().max(4096).optional(),
+	}
+	const cursorSchema = z.discriminatedUnion('version', [
+		z.object({ ...cursorBase, version: z.literal(1), query: z.string().max(256) }).strict(),
+		z.object({ ...cursorBase, version: z.literal(2), search: searchSchema }).strict(),
+	])
+	const encode = (value: z.infer<typeof cursorSchema>) => {
+		const encoded = Buffer.from(JSON.stringify(cursorSchema.parse(value))).toString('base64url')
+		if (encoded.length > 8192) throw new Error('Resident continuation exceeds its encoded bound.')
+		return encoded
+	}
 	async function run(entry: ResidentSettledInvocation, signal?: AbortSignal) {
 		signal?.throwIfAborted()
 		const source = await resolveRun(entry, signal)
@@ -182,23 +218,47 @@ export function createResidentToolEvidenceSource(
 		async search(input: ResidentToolEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			signal?.throwIfAborted()
 			const budget = operationBudget(input.maxReadBytes)
-			const query = z
-				.string()
-				.max(256)
-				.parse(input.query ?? '')
-			const cursor = input.cursor
+			const prior = input.cursor
 				? cursorSchema.parse(
 						JSON.parse(
 							Buffer.from(z.string().max(8192).parse(input.cursor), 'base64url').toString('utf8'),
 						),
 					)
-				: {
-						version: 1 as const,
-						scope: JSON.stringify(scope),
-						query,
-						revision: scope.throughRevision,
-					}
-			if (cursor.query !== query) throw new Error('Resident tool search query changed.')
+				: undefined
+			const supplied =
+				input.query !== undefined ||
+				input.terms !== undefined ||
+				input.excludeSuccessfulTools !== undefined
+			const previous = prior
+				? searchInput(prior.version === 1 ? { query: prior.query } : prior.search)
+				: undefined
+			const search =
+				supplied || !previous
+					? searchInput({
+							...(input.query !== undefined ? { query: input.query } : {}),
+							...(input.terms !== undefined ? { terms: input.terms } : {}),
+							...(input.excludeSuccessfulTools !== undefined
+								? { excludeSuccessfulTools: input.excludeSuccessfulTools }
+								: {}),
+						})
+					: previous
+			if (previous && JSON.stringify(previous) !== JSON.stringify(search))
+				throw new Error('Resident tool search query changed.')
+			const cursor: z.infer<typeof cursorSchema> =
+				prior ??
+				(search.terms || search.excludeSuccessfulTools
+					? {
+							version: 2 as const,
+							scope: JSON.stringify(scope),
+							search,
+							revision: scope.throughRevision,
+						}
+					: {
+							version: 1 as const,
+							scope: JSON.stringify(scope),
+							query: search.query ?? '',
+							revision: scope.throughRevision,
+						})
 			let selected: ResidentSettledInvocation | null = null
 			let nextRevision: number | null = null
 			let historyBytes = 0
@@ -244,7 +304,8 @@ export function createResidentToolEvidenceSource(
 					const { source, owner } = await run(selected, signal)
 					const page = await source.search(
 						{
-							query,
+							...search,
+							...(search.terms ? { matchMode: 'token' as const, caseSensitive: false } : {}),
 							...(cursor.runCursor ? { cursor: cursor.runCursor } : {}),
 							...(budget ? { maxReadBytes: budget.remaining } : {}),
 						},
@@ -265,7 +326,7 @@ export function createResidentToolEvidenceSource(
 				evidence?.nextCursor && selected
 					? encode({ ...cursor, revision: selected.revision, runCursor: evidence.nextCursor })
 					: nextRevision
-						? encode({ version: 1, scope: JSON.stringify(scope), query, revision: nextRevision })
+						? encode({ ...cursor, revision: nextRevision, runCursor: undefined })
 						: null
 			return {
 				scope,
@@ -273,7 +334,7 @@ export function createResidentToolEvidenceSource(
 				claimId: selected?.claimId ?? null,
 				evidence,
 				nextCursor,
-				incomplete: unavailable.size > 0 || !!evidence?.incomplete,
+				incomplete: unavailable.size > 0 || !!evidence?.incomplete || nextCursor !== null,
 				unavailableRevisions: [...unavailable],
 				historyBytes,
 				...(budget ? { chargedBytes: budget.chargedBytes } : {}),
