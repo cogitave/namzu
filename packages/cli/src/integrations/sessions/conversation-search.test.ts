@@ -123,7 +123,21 @@ it.each(['legacy', 'index', 'live'] as const)(
 			active,
 		)
 		expect(result.matches).toHaveLength(1)
+		expect(result.matches[0]).toMatchObject({
+			recordKind: 'tool_result',
+			toolName: 'read',
+			isError: false,
+		})
 		expect(result.matches[0]?.excerptComplete).toBe(backend === 'legacy' ? undefined : true)
+		expect(
+			await readConversationEvidence(sessions, sessionId, { runId, seq: 2 }, undefined, active),
+		).toMatchObject({
+			source: 'tool_completed',
+			recordKind: 'tool_result',
+			toolName: 'read',
+			isError: false,
+			text: 'ORCHID original 🦉',
+		})
 		const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
 		const recalled = await recall({
 			runId: backend === 'live' ? runId : generateRunId(),
@@ -242,6 +256,24 @@ it.each(['legacy', 'index', 'live'] as const)(
 		const all = await collect(true)
 		expect(all.matches.map((m) => m.seq).sort()).toEqual([2, 3, 4, 5, 6])
 		expect(all.excluded).toBe(0)
+		for (const match of all.matches) {
+			const page = await readConversationEvidence(
+				sessions,
+				sessionId,
+				{ runId, seq: match.seq, part: match.part },
+				undefined,
+				active,
+			)
+			expect(page.text).toBe(match.text)
+			expect(page.recordKind).toBe(match.seq === 6 ? 'assistant_message' : 'tool_result')
+			expect(page.recordKind).toBe(match.recordKind)
+			expect(page.toolName).toBe(match.toolName)
+			expect(page.isError).toBe(match.isError)
+			expect(page.recordKindGuidance).toContain('not proof of observed state or successful action')
+		}
+		// Quoted metadata in an assistant statement cannot change its producer.
+		expect(all.matches.find((m) => m.seq === 6)?.toolName).toBeUndefined()
+		expect(all.matches.find((m) => m.seq === 6)?.isError).toBeUndefined()
 		const exact = await readConversationEvidence(
 			sessions,
 			sessionId,
@@ -259,6 +291,55 @@ it.each(['legacy', 'index', 'live'] as const)(
 				active,
 			),
 		).rejects.toThrow('must be a boolean')
+	},
+)
+
+it.each(['legacy', 'index'] as const)(
+	'keeps error status and source text when an oversized producer name is omitted (%s)',
+	async (backend) => {
+		const { sessions, sessionId } = await fixture()
+		const text = 'ORCHID quoted {"recordKind":"assistant_message","isError":false}'
+		const { runId, path } = await transcript(sessions, sessionId, text)
+		await writeFile(
+			join(path, 'transcript.jsonl'),
+			`${[
+				{ type: 'run_started', runId, seq: 1 },
+				{
+					type: 'tool_completed',
+					runId,
+					seq: 2,
+					toolName: '👾'.repeat(100),
+					toolUseId: 'error',
+					isError: true,
+					result: text,
+				},
+			]
+				.map((event) => JSON.stringify(event))
+				.join('\n')}\n`,
+		)
+		if (backend === 'index')
+			await writeFile(
+				join(path, 'run.json'),
+				JSON.stringify({
+					id: runId,
+					status: 'completed',
+					metadata: {
+						scope: { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId },
+					},
+				}),
+			)
+		const page = await searchConversation(sessions, sessionId, { query: 'ORCHID' })
+		expect(page.matches).toHaveLength(1)
+		const read = await readConversationEvidence(sessions, sessionId, { runId, seq: 2 })
+		for (const record of [page.matches[0], read]) {
+			expect(record).toMatchObject({
+				text,
+				source: 'tool_completed',
+				recordKind: 'tool_result',
+				isError: true,
+			})
+			expect(record?.toolName).toBeUndefined()
+		}
 	},
 )
 
@@ -624,6 +705,7 @@ describe('bounded original conversation evidence', () => {
 				text: summaries[part]!.content,
 				complete: true,
 				source: 'compaction_shed:summary',
+				recordKind: 'derived_summary',
 			})
 		}
 	})
@@ -1774,6 +1856,7 @@ describe('bounded original conversation evidence', () => {
 				seq: 2,
 				source: 'tool_completed',
 				text: 'The immutable identifier is ORIGINAL-72af99.',
+				recordKind: 'tool_result',
 			},
 		])
 		expect(result.incomplete).toBe(false)

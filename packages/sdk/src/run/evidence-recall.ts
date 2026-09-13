@@ -1,3 +1,7 @@
+import {
+	EVIDENCE_RECORD_GUIDANCE,
+	classifyEvidenceSource as recordKind,
+} from '../store/evidence/source-kind.js'
 import type { RunEvidenceScope, RunTextEvidenceSource } from '../store/evidence/types.js'
 import type { Message } from '../types/message/index.js'
 import type { PrepareStep } from '../types/run/prepare-step.js'
@@ -188,27 +192,6 @@ function ranked(groups: readonly Passage[], terms: readonly string[]) {
 		})
 		.filter(({ score }) => score > 0)
 		.sort((a, b) => b.score - a.score || a.index - b.index)
-}
-
-// Interpret only host-authenticated source tags. Never infer a producer or
-// successful observation from the words of a passage or an unknown host label.
-function recordKind(source: string) {
-	switch (source) {
-		case 'message_completed':
-		case 'compaction_shed:assistant':
-			return 'assistant_message'
-		case 'tool_completed':
-		case 'compaction_shed:tool':
-			return 'tool_result'
-		case 'compaction_shed:user':
-			return 'user_message'
-		case 'compaction_shed:summary':
-			return 'derived_summary'
-		case 'compaction_shed:system':
-			return 'system_message'
-		default:
-			return 'unknown'
-	}
 }
 
 // Keep the best lexical match first, then one positive match per other producer
@@ -586,8 +569,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 						: {}),
 					...(hasAssistantRecords
 						? {
-								recordKindGuidance:
-									'Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.',
+								recordKindGuidance: EVIDENCE_RECORD_GUIDANCE,
 							}
 						: {}),
 					...(focusTerms

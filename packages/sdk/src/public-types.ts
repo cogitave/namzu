@@ -542,6 +542,7 @@ export type {
 	RunTextEvidenceReadResult,
 	RunTextEvidenceSource,
 } from './store/evidence/types.js'
+export type { EvidenceRecordKind } from './store/evidence/source-kind.js'
 export type {
 	ResidentToolEvidenceScope,
 	ResidentSettledInvocation,

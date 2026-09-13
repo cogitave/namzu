@@ -1371,4 +1371,5 @@ export {
 	createDiskRunEvidenceSource,
 	createDiskRunTextEvidenceSource,
 } from './store/evidence/disk.js'
+export { classifyEvidenceSource, EVIDENCE_RECORD_GUIDANCE } from './store/evidence/source-kind.js'
 export { createResidentToolEvidenceSource } from './manager/resident/tool-evidence.js'

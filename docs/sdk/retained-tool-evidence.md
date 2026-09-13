@@ -9,6 +9,20 @@ status: draft
 
 # Retained tool evidence
 
+Hosts rendering text evidence can use `classifyEvidenceSource(source)` and
+`EVIDENCE_RECORD_GUIDANCE`, also used by automatic recall and the CLI archive
+tools. The helper returns `EvidenceRecordKind` from known event/compaction-role
+tags; custom or unknown labels remain `unknown`. It does not authenticate an
+input, inspect passage prose, infer successful execution or establish freshness.
+Only supply source metadata already validated by the host's evidence reader.
+
+```ts
+import { classifyEvidenceSource, EVIDENCE_RECORD_GUIDANCE } from '@namzu/sdk'
+
+const recordKind = classifyEvidenceSource('compaction_shed:assistant')
+const metadata = { recordKind, recordKindGuidance: EVIDENCE_RECORD_GUIDANCE }
+```
+
 ## Large compaction records
 
 `RunDiskStore` retains a `compaction_shed` message array larger than 3 MiB outside

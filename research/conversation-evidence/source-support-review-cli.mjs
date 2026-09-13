@@ -158,6 +158,7 @@ assert.ok(
 	"Select one known case for correction trials",
 );
 const pathsToHash = [
+	"packages/sdk/dist/store/evidence/source-kind.js",
 	"packages/sdk/dist/run/evidence-recall.js",
 	"packages/sdk/dist/runtime/query/iteration/index.js",
 	"packages/sdk/dist/runtime/query/callback-inference.js",

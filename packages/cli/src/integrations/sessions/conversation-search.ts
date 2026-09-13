@@ -3,12 +3,15 @@ import { constants } from 'node:fs'
 import { lstat, open } from 'node:fs/promises'
 import { join, relative, resolve, sep } from 'node:path'
 import {
+	EVIDENCE_RECORD_GUIDANCE,
+	type EvidenceRecordKind,
 	type RunEvidenceScope,
 	type RunTextEvidenceSource,
 	type SessionId,
 	type ToolContext,
 	type ToolDefinition,
 	asRunId,
+	classifyEvidenceSource,
 	createDiskRunTextEvidenceSource,
 	defineTool,
 	mcpJsonSchemaToZod,
@@ -33,12 +36,18 @@ const OUTPUT_BYTES = 12_000
 // Bound cold address lookup work as well as bytes, including tiny index pages.
 const READ_LOOKUP_PAGES = 8
 
+function boundedToolName(name: string | undefined): string | undefined {
+	return name !== undefined && Buffer.byteLength(JSON.stringify(name)) <= 256 ? name : undefined
+}
+
 interface EvidenceMatch {
 	/** Stored event wall-clock Unix milliseconds; not original fact time. */
 	recordedAt?: number
 	runId: string
 	seq: number
 	source: string
+	/** Producer classification only, not a truth or successful-action verdict. */
+	recordKind: EvidenceRecordKind
 	text: string
 	/** Zero-based textual part within this event (not a character offset). */
 	part: number
@@ -91,6 +100,7 @@ function queryIdentity(
 export interface ConversationSearchResult {
 	/** How to read excerpts and interpret an empty literal search. */
 	guidance: string
+	recordKindGuidance: string
 	matches: EvidenceMatch[]
 	scannedRuns: number
 	scannedBytes: number
@@ -729,6 +739,7 @@ async function searchConversationCore(
 	const result: ConversationSearchResult = {
 		guidance: `Search is ${caseSensitive ? 'case-sensitive' : 'case-insensitive'}. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence.`,
 		matches: [],
+		recordKindGuidance: EVIDENCE_RECORD_GUIDANCE,
 		scannedRuns: 0,
 		scannedBytes: 0,
 		incomplete: false,
@@ -844,13 +855,11 @@ async function searchConversationCore(
 					recordedAt: match.recordedAt,
 					part: match.part,
 					source: match.source,
+					recordKind: classifyEvidenceSource(match.source),
 					text: match.excerpt,
 					retained: match.retained,
 					excerptComplete: match.excerptComplete,
-					toolName:
-						match.toolName !== undefined && Buffer.byteLength(JSON.stringify(match.toolName)) <= 256
-							? match.toolName
-							: undefined,
+					toolName: boundedToolName(match.toolName),
 					isError: match.isError,
 					...(match.characterOffset === undefined ? {} : { byteOffset: match.byteOffset }),
 				}))
@@ -905,10 +914,11 @@ async function searchConversationCore(
 						runId,
 						seq: event.seq,
 						source: event.source,
+						recordKind: classifyEvidenceSource(event.source),
 						part: event.part,
 						text,
 						recordedAt: event.recordedAt,
-						toolName: event.toolName,
+						toolName: boundedToolName(event.toolName),
 						isError: event.isError,
 					}
 					const bytes = Buffer.byteLength(JSON.stringify(match))
@@ -1040,6 +1050,12 @@ export interface ConversationEvidencePage {
 	offset: number
 	totalChars?: number
 	source?: string
+	/** Present only after this page locates its authenticated text part. */
+	recordKind?: EvidenceRecordKind
+	recordKindGuidance?: string
+	/** Recorded metadata when known; a successful tool may still quote a claim. */
+	toolName?: string
+	isError?: boolean
 	scannedBytes: number
 	/** False until the selected text is fully delivered; never a whole-archive claim. */
 	complete: boolean
@@ -1154,6 +1170,10 @@ export async function readConversationEvidence(
 		result.scannedBytes += page.scannedBytes
 		result.text = page.text
 		result.source = page.source
+		result.recordKind = classifyEvidenceSource(page.source)
+		result.recordKindGuidance = EVIDENCE_RECORD_GUIDANCE
+		result.toolName = boundedToolName(page.toolName)
+		result.isError = page.isError
 		result.recordedAt = page.recordedAt
 		result.offset = page.characterOffset ?? cursor.readOffset ?? 0
 		result.totalChars = page.totalChars
@@ -1166,7 +1186,7 @@ export async function readConversationEvidence(
 	}
 	if (input.byteOffset)
 		throw new Error('Byte offsets require an indexed record; omit byteOffset for this transcript.')
-	let found: { text: string; source: string; recordedAt?: number } | undefined
+	let found: TranscriptText | undefined
 	let passed = false
 	const page = await scanTranscript(
 		sessions.root,
@@ -1199,6 +1219,10 @@ export async function readConversationEvidence(
 		result.text = found.text.slice(result.offset, end)
 		result.totalChars = found.text.length
 		result.source = found.source
+		result.recordKind = classifyEvidenceSource(found.source)
+		result.recordKindGuidance = EVIDENCE_RECORD_GUIDANCE
+		result.toolName = boundedToolName(found.toolName)
+		result.isError = found.isError
 		result.recordedAt = found.recordedAt
 		result.complete = end === found.text.length
 		cursor.readOffset = end

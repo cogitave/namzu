@@ -100,6 +100,21 @@ observation. Within a run, sequence remains authoritative even if a clock regres
 Across runs, clocks may differ, so these stamps alone do not prove causal order
 or when a fact became true. Retrieval continues to rank by lexical relevance.
 
+Search matches and located read pages also carry `recordKind`, using the same
+SDK classification as automatic recall: `assistant_message`, `user_message`,
+`system_message`, `tool_result`, `derived_summary`, or `unknown`. The raw
+`source` tag remains available. Classification uses the recorded event/role,
+never prose that claims another producer. `recordKindGuidance` explains that
+an assistant claim is not proof of observed state and even a tool result can
+quote a claim. These labels do not authenticate or verify the text by themselves.
+
+Exact reads preserve optional `toolName` and `isError` as well as text and
+source identity. Missing status stays unknown, not successful. Tool names whose
+JSON encoding exceeds 256 UTF-8 bytes are omitted on both search and read; text
+is not changed. An empty scanning page has no source classification until its
+requested record is found. These fields do not change source addresses, scope,
+continuations, preview flags or the integrity checks on the original text.
+
 Start a new search with `query`, a literal string of 1–256 characters. Continue
 with `cursor` alone to restore the original query, case setting, excluded
 invocation and any automatic source filter from host-owned state. This also accepts cursors supplied by automatic
