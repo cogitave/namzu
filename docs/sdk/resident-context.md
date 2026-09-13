@@ -86,6 +86,25 @@ change within an invocation.
 The saved summary is identified as a report of previous work. Guidance asks the
 model to retain useful evidence and unfinished work, check mutable state when
 needed, and recover missing evidence with reads rather than replaying effects.
+Follow-up interpretation separates the requested subject from the requested
+time: an accepted correction may identify a subject without replacing its
+original observation. When an unnamed reference has multiple plausible subjects,
+the model is instructed to present labelled alternatives or request clarification,
+rather than choose from retrieval order or a summary's mere mention.
+Current-state questions, including short continuations, require a fresh permitted
+observation. The latest archived record remains **last observed**, not verified
+current state. If fresh evidence is unavailable, guidance asks for an explicit
+limitation and a non-complete disposition for the unfinished current-state task.
+These are model instructions, not a semantic verifier or an additional query
+planner; the host's answer validation remains responsible for enforced outcomes.
+
+The [resident interpretation experiment](../../research/resident/interpretation.md)
+separately captures historical evidence in actual provider requests and the
+model's answers across three isolated CLI admissions. It reproduces mistaken
+subject selection and stale current-state answers before comparing the updated
+guidance on the same fixtures. Retrieval authority and byte/context bounds are
+unchanged. No claim of universal ambiguity resolution follows from these trials.
+
 A bounded step can leave useful work for the next admission; completion refers
 to the whole authorized objective. The host supplies its own response format
 and owns answer validation and durable settlement.

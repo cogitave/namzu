@@ -49,6 +49,13 @@ are captured for each admitted invocation and remain present on every model
 iteration, including after compaction.
 
 Project instructions and tool permission enforcement use their existing paths.
+The resident profile also distinguishes historical answers from current-state
+questions and asks for labelled alternatives or clarification when a reference
+is ambiguous. A current-state answer needs fresh permitted evidence; unavailable
+evidence must remain explicit. This is SDK model guidance, not host-enforced
+semantic validation. The [CLI interpretation study](../../research/resident/interpretation.md)
+records actual request evidence and live answers separately.
+
 The default read-only mode still forbids mutations, while allowing a read-only
 objective to finish. It no longer tells a resident to produce an interactive
 coding plan and wait for the user to leave plan mode. The host retains its

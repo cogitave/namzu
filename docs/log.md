@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Clarify subject ambiguity, accepted reference corrections and historical versus current answers in [resident step context](sdk/resident-context.md); compare separate CLI admissions with bounded Luna/low trials and explicit unavailable-evidence handling.
+
 - **Update** Improve [resident evidence selection](sdk/resident-evidence-recall.md) with bounded field-end sampling and one uncovered-term scan; add authenticated strict-subset cursor branching to [disk and resident sources](sdk/retained-tool-evidence.md), preserving broad continuations and shared limits.
 
 - **Creation** Added [automatic resident tool evidence recall](sdk/resident-evidence-recall.md), sharing SDK selection while preserving settled pursuit and historical Session/claim authority; both CLI resident profiles now attach it unless `compaction.recallEvidence` is false.
