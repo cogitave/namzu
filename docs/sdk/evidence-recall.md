@@ -323,6 +323,15 @@ Current facts still require sufficiently fresh evidence. Missing, bounded or
 unavailable history is not proof of absence; explicit archive search/read
 tools remain necessary for details outside the automatic pass.
 
+When reporting a source identifier, its spelling must remain exact. A requested
+text transformation produces a derived value instead: lowercasing a recorded ID
+for display does not change the archived ID or establish new workspace state.
+Recall guidance distinguishes these operations without rewriting retained text
+or installing a generic answer-rejection policy. The [CLI copy/transform
+experiment](../../research/conversation-evidence/copy-intent-results.md) records
+natural-language failures and controls against falsely rejecting legitimate
+transformations; these are bounded trials, not a general fidelity guarantee.
+
 The [CLI option](../cli/context-and-compaction.md) uses this live capability for
 up to two pages before visiting earlier invocations. It can recover original
 retained text after compaction within the same running invocation. The combined

@@ -139,3 +139,10 @@ exceptions in [advanced tool behavior](https://pydantic.dev/docs/ai/tools-toolse
 This does not supply an automatic factual judge. Quote containment, correct
 source selection, semantic support and complete answers are separate checks;
 the host must define which claims its verifier can establish.
+
+The [CLI copy/transform controls](../../research/conversation-evidence/copy-intent-results.md)
+also distinguish source identity from the requested result. Requiring every
+answer to equal a recalled identifier rejects legitimate lowercase, prefix and
+example-generation requests. Normalizing a value before comparison can instead
+hide a spelling error. A verifier needs the task's claim or transformation
+contract; source visibility by itself supplies neither.
