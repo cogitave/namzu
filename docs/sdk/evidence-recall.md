@@ -100,18 +100,41 @@ The [progress-heavy CLI comparison](../../research/conversation-evidence/query-h
 records a false current-file answer, exact historical recovery after selection
 was fixed, and later query-planner failures, using separate reopened CLI processes.
 
-A contextual plan supplies at most 16 non-whitespace search terms and three
-exact quotes of at most 200 units each. Filenames and hyphenated identifiers are
-split using the same word tokenizer as candidate discovery. The expanded set
-must still contain at most 16 tokens; no unknown token is silently discarded.
-Every resulting token must occur in the current question or a cited quote, and
-each quote must occur verbatim in the supplied history. This normalizes search
-units only, never source text or a model's final answer. The
-resulting `queryResolution` metadata records terms, temporal interpretation and
+The planner receives up to 256 numbered word spellings from the supplied text,
+using the same tokenizer as candidate discovery. Current-question words come
+first, followed by recent operator messages, then recent assistant messages.
+Exact spellings are deduplicated; punctuation-separated filenames and identifiers
+have separate word entries. Words longer than 256 units are not offered.
+
+Vocabulary rows share the preparation capability's existing 12,000-character
+system-plus-prompt allowance, including JSON escaping. The host omits rows that
+do not fit, and skips inference if the history payload alone is too large.
+`omittedTokens` in the planner input counts distinct visible spellings not
+offered because of length, count or character limits. It is not an archive
+coverage count. A plan can only select offered IDs; missing entries are not
+invented. This does not increase the history or archive scan allowance.
+
+A contextual plan selects at most 16 integer word IDs and provides three or
+fewer exact quotes of at most 200 units each. IDs resolve to host-held source
+spellings, so the planner cannot inflect or translate a selected word. They are
+local to that input and grant no archive authority. Each selected word must still
+occur in the current question or a cited quote, and every quote must occur
+verbatim in the supplied history. Unavailable IDs and ungrounded quotes fail
+the optional stage; no invalid selection is silently discarded. This selects
+search units only, never rewrites source text or a model's final answer.
+
+The resulting `queryResolution` metadata records resolved word strings,
+positive `omittedTokens` when applicable, temporal interpretation and
 quoted message positions within that preparation history. These are references
 to visible conversation, not authenticated archive addresses or proof of truth.
 They share the existing added-context character allowance. Grounding validates
 spelling and source inclusion, not semantic relevance.
+
+The [indexed-query CLI trial](../../research/conversation-evidence/indexed-query-results.md)
+compares the observed spelling failure with selection from numbered source words
+and exercises historical, current-state and new-topic requests. It draws on
+query resolution by term selection, without reproducing a trained research model
+or establishing a general retrieval success rate.
 
 Self-contained or new-topic plans keep the current literal query. Present-state
 plans never expand with historical terms; fresh source observations remain the

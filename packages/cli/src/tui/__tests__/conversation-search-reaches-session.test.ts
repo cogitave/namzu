@@ -1623,17 +1623,30 @@ it.each(
 		const sessions = await openSessions(cwd)
 		const sessionId = await startConversation(sessions)
 		await archive(cwd, sessions, sessionId, 'DELTA retained receipt: ORIGINAL-471')
-		const plan = JSON.stringify({
-			mode: 'contextual',
-			time: 'past',
-			terms: ['DELTA', 'receipt', 'manifest.txt'],
-			basis: [{ message: 0, quote: 'DELTA receipt in manifest.txt' }],
-		})
 		const provider = new MockLLMProvider({
-			turns:
-				resolveEvidenceQueries === false
-					? [{ text: 'answer' }]
-					: [{ text: plan }, { text: 'answer' }],
+			nextTurn: (request) => {
+				if (
+					!String(request.messages[0]?.content).startsWith(
+						'Resolve a conversation-history search query.',
+					)
+				)
+					return { text: 'answer' }
+				const input = JSON.parse(String(request.messages[1]?.content)) as {
+					tokens: [number, string][]
+				}
+				return {
+					text: JSON.stringify({
+						mode: 'contextual',
+						time: 'past',
+						termIds: ['DELTA', 'receipt', 'manifest', 'txt'].map((word) => {
+							const row = input.tokens.find(([, value]) => value === word)
+							expect(row).toBeDefined()
+							return row![0]
+						}),
+						basis: [{ message: 0, quote: 'DELTA receipt in manifest.txt' }],
+					}),
+				}
+			},
 		})
 		vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
 		const session = await createAgentSession(preferences, detected, {

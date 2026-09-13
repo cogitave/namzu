@@ -12,7 +12,11 @@ import {
 	generateSessionId,
 	generateTenantId,
 } from '../../utils/id.js'
-import { createEvidenceQueryResolver, validateEvidenceQueryResolution } from '../evidence-query.js'
+import {
+	buildEvidenceQueryInput,
+	createEvidenceQueryResolver,
+	validateEvidenceQueryResolution,
+} from '../evidence-query.js'
 import { type EvidenceRecallRequest, createEvidenceRecallStep } from '../evidence-recall.js'
 
 const question = 'Az önce baktığın kaydın iki kimliğini aynen yazar mısın?'
@@ -24,10 +28,19 @@ const history = [
 		truncated: false,
 	},
 ]
+const wantedTerms = ['DELTA', 'takip', 'depo']
+const ids = (current: string, supplied: typeof history, terms: string[]) => {
+	const vocabulary = buildEvidenceQueryInput(current, supplied)!.tokens
+	return terms.map((term) => {
+		const id = vocabulary.indexOf(term)
+		expect(id, `Missing test token: ${term}`).toBeGreaterThanOrEqual(0)
+		return id
+	})
+}
 const plan = {
 	mode: 'contextual',
 	time: 'past',
-	terms: ['DELTA', 'takip', 'depo'],
+	termIds: ids(question, history, wantedTerms),
 	basis: [{ message: 0, quote: 'DELTA takip kodu ve hedef depo' }],
 }
 const usage = {
@@ -63,7 +76,7 @@ function context(
 describe('grounded conversation query resolution', () => {
 	it('binds exact quoted text to its visible message position without treating it as evidence', () => {
 		expect(validateEvidenceQueryResolution(JSON.stringify(plan), question, history)).toEqual({
-			terms: plan.terms,
+			terms: wantedTerms,
 			time: 'past',
 			basis: [{ position: 7, role: 'user', quote: plan.basis[0]!.quote }],
 		})
@@ -74,7 +87,11 @@ describe('grounded conversation query resolution', () => {
 			validateEvidenceQueryResolution(
 				JSON.stringify({
 					...plan,
-					terms: ['sevkiyatlar.txt', 'DELTA'],
+					termIds: ids(
+						question,
+						[{ ...history[0]!, text: quoted }],
+						['sevkiyatlar', 'txt', 'DELTA'],
+					),
 					basis: [{ message: 0, quote: quoted }],
 				}),
 				question,
@@ -84,31 +101,47 @@ describe('grounded conversation query resolution', () => {
 			terms: ['sevkiyatlar', 'txt', 'DELTA'],
 		})
 	})
-	it.each(['DELTA.FOREIGN', Array.from({ length: 17 }, (_, i) => `part${i}`).join('.')])(
-		'refuses ungrounded or over-limit compound tokens: %s',
-		(term) => {
-			const quoted = `DELTA ${Array.from({ length: 17 }, (_, i) => `part${i}`).join('.')}`
-			expect(() =>
-				validateEvidenceQueryResolution(
-					JSON.stringify({
-						...plan,
-						terms: [term],
-						basis: [{ message: 0, quote: quoted }],
-					}),
-					question,
-					[{ ...history[0]!, text: quoted }],
-				),
-			).toThrow()
-		},
-	)
+	it('rejects a supplied word from history the plan did not cite', () => {
+		const supplied = [
+			...history,
+			{ position: 8, role: 'assistant', text: 'FOREIGN', truncated: false },
+		]
+		expect(() =>
+			validateEvidenceQueryResolution(
+				JSON.stringify({
+					...plan,
+					termIds: ids(question, supplied, ['FOREIGN']),
+				}),
+				question,
+				supplied,
+			),
+		).toThrow('ungrounded token')
+	})
+	it('preserves Turkish spelling by resolving IDs back to source words', () => {
+		const current = 'iki kimliğini aynen yaz'
+		const selected = ['DELTA', 'kimliğini']
+		expect(
+			validateEvidenceQueryResolution(
+				JSON.stringify({
+					...plan,
+					termIds: ids(current, history, selected),
+				}),
+				current,
+				history,
+			)?.terms,
+		).toEqual(selected)
+		expect(buildEvidenceQueryInput(current, history)!.tokens).not.toContain('kimliği')
+	})
 	it.each([
 		{ ...plan, basis: [{ message: 0, quote: 'invented record' }] },
-		{ ...plan, terms: ['FOREIGN'] },
-		{ ...plan, terms: ['two words'] },
-		{ ...plan, terms: [] },
+		{ ...plan, termIds: [255] },
+		{ ...plan, termIds: ['kimliği'] },
+		{ ...plan, termIds: [] },
+		{ ...plan, termIds: [-1] },
+		{ ...plan, termIds: [1.5] },
 		{ ...plan, basis: [] },
 		{ ...plan, basis: [{ message: 5, quote: 'DELTA' }] },
-		{ ...plan, terms: Array(17).fill('DELTA') },
+		{ ...plan, termIds: Array(17).fill(0) },
 		{ ...plan, unexpected: true },
 	])('rejects unsupported query plans (%j)', (invalid) => {
 		expect(() =>
@@ -198,6 +231,64 @@ describe('grounded conversation query resolution', () => {
 		const resolver = createEvidenceQueryResolver()
 		expect(await resolver({ ...ctx, generateText: undefined }, question)).toBeUndefined()
 		expect(await resolver(ctx, 'x'.repeat(1001))).toBeUndefined()
+		expect(ctx.generateText).not.toHaveBeenCalled()
+	})
+	it('caps the offered vocabulary and reports words left out', () => {
+		const supplied = Array.from({ length: 6 }, (_, position) => ({
+			position,
+			role: position % 2 ? 'user' : 'assistant',
+			truncated: false,
+			text: Array.from({ length: 80 }, (_, i) => `w${position}_${i}`).join(' '),
+		}))
+		const input = buildEvidenceQueryInput('current', supplied)!
+		expect(input.tokens).toHaveLength(256)
+		expect(input.omittedTokens).toBe(225)
+		expect(input.tokens.indexOf('w5_0')).toBeLessThan(input.tokens.indexOf('w1_0'))
+		const raw = {
+			mode: 'contextual',
+			time: 'past',
+			termIds: [input.tokens.indexOf('w5_0')],
+			basis: [{ message: 5, quote: 'w5_0' }],
+		}
+		expect(
+			validateEvidenceQueryResolution(JSON.stringify(raw), 'current', supplied)?.omittedTokens,
+		).toBe(225)
+	})
+	it('fits JSON escaping and vocabulary rows inside the inference input allowance', async () => {
+		const ctx = context(
+			JSON.stringify({ mode: 'none', time: 'unspecified', termIds: [], basis: [] }),
+		)
+		const previous = Array.from({ length: 6 }, (_, position) =>
+			createUserMessage(
+				'\u0001'.repeat(150) +
+					Array.from({ length: 60 }, (_, i) => `word${position}_${i}`)
+						.join(' ')
+						.slice(0, 450),
+			),
+		)
+		await createEvidenceQueryResolver()(
+			{ ...ctx, messages: [...previous, ctx.latestUserMessage!] },
+			question,
+		)
+		const request = ctx.generateText.mock.calls[0]![0]
+		const sent = JSON.parse(request.prompt)
+		expect(request.system.length + request.prompt.length).toBeLessThanOrEqual(12000)
+		expect(sent.tokens.length).toBeGreaterThan(0)
+		expect(sent.tokens.length).toBeLessThan(256)
+		expect(sent.omittedTokens).toBeGreaterThan(0)
+	})
+	it('does not spend a planner call when serialized history alone exceeds the allowance', async () => {
+		const ctx = context()
+		await createEvidenceQueryResolver()(
+			{
+				...ctx,
+				messages: [
+					...Array.from({ length: 6 }, () => createUserMessage('\u0001'.repeat(600))),
+					ctx.latestUserMessage!,
+				],
+			},
+			question,
+		)
 		expect(ctx.generateText).not.toHaveBeenCalled()
 	})
 	it.each([6, 20])(
@@ -320,7 +411,7 @@ describe('grounded conversation query resolution', () => {
 			expect(result?.context?.length).toBeLessThanOrEqual(6000)
 		}
 		expect(retrieve).toHaveBeenCalledTimes(2)
-		expect(retrieve.mock.calls[0]![0].terms).toEqual(plan.terms)
+		expect(retrieve.mock.calls[0]![0].terms).toEqual(wantedTerms)
 		expect(ctx.generateText).toHaveBeenCalledTimes(1)
 		expect(ctx.messages).toEqual(messages)
 		const other = createEvidenceRecallStep({

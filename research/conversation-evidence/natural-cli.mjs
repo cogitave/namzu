@@ -47,7 +47,7 @@ created.provider.chatStream=async function*(params){
  const codes=${JSON.stringify(Object.values(original))};
  let preparationText='';
  const preparation=params.messages.length===2&&String(params.messages[0]?.content).startsWith('Resolve a conversation-history search query.');
- await appendFile(${JSON.stringify(join(root, 'requests.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,preparation,contextChars:context.reduce((n,m)=>n+String(m.content).length,0),contextOriginals:codes.map(code=>context.some(m=>String(m.content).includes(code))),ordinaryOriginals:codes.map(code=>ordinary.some(m=>JSON.stringify(m).includes(code)))})+'\\n');
+ await appendFile(${JSON.stringify(join(root, 'requests.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,preparation,...(preparation?{queryInput:JSON.parse(String(params.messages[1]?.content))}:{}),contextChars:context.reduce((n,m)=>n+String(m.content).length,0),contextOriginals:codes.map(code=>context.some(m=>String(m.content).includes(code))),ordinaryOriginals:codes.map(code=>ordinary.some(m=>JSON.stringify(m).includes(code)))})+'\\n');
  for await(const chunk of stream(params)){
   if(preparation) preparationText+=(chunk.delta.content??'');
   if(chunk.usage) await appendFile(${JSON.stringify(join(root, 'receipts.jsonl'))},JSON.stringify({phase:process.env.NAMZU_NATURAL_PHASE,preparation,...(preparation?{text:preparationText}:{}),usage:chunk.usage})+'\\n');

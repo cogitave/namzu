@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Resolve [evidence query](sdk/evidence-recall.md) terms through a bounded vocabulary of source spellings, retaining quote validation and temporal guards; record real CLI historical/current/topic controls.
+
 - **Update** Preserve operator context behind progress, stop matching new steering to an older identical question, and align grounded filename terms with [evidence query](sdk/evidence-recall.md) discovery tokens; record failed controls and corrected CLI/kernel execution.
 
 - **Update** Supply retained operator input at candidate dispatch to [answer reviewers](sdk/verification.md), preserve newly arriving messages before [tool-mode structured settlement](sdk/structured-output-review.md), and record task-conditioned CLI review controls.

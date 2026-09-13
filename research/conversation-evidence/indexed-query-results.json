@@ -1,0 +1,1645 @@
+{
+  "recordedAt": "2026-09-13",
+  "base": "45c82920",
+  "baseline": {
+    "root": "/tmp/namzu-natural-recall-k5bP4H",
+    "live": true,
+    "checkCurrent": false,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "progressUpdates": true,
+    "queryAblation": false,
+    "resolveEvidenceQueries": true,
+    "checkTopic": false,
+    "provider": "codex",
+    "model": "gpt-5.6-luna",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-00f093ee-7cc8-4e9d-8a8f-484ef902753a",
+      "depot": "DEPO-b1215e07-fbda-4f5a-9d13-9b6b775a1bf0"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-182d8793-cf4c-4043-83c0-d96d5f0493bf",
+      "depot": "YENI-DEPO-e61aa37a-5477-4017-bf20-33c363dffef0"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-k5bP4H/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "12",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "Inspection completed.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 0,
+        "totalTokens": 0,
+        "auxiliaryTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-k5bP4H/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "YENI-TAKIP-182d8793-cf4c-4043-83c0-d96d5f0493bf ve YENI-DEPO-e61aa37a-5477-4017-bf20-33c363dffef0.",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 18222,
+            "treeTokens": 18222,
+            "reservedTokens": 0,
+            "remainingTokens": 11778,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "grep",
+            "input": {
+              "pattern": "DELTA",
+              "path": "sevkiyatlar.txt",
+              "case_sensitive": true,
+              "context_lines": 1,
+              "max_results": 10
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 8583,
+            "completionTokens": 102,
+            "totalTokens": 8685,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 8831,
+            "completionTokens": 64,
+            "totalTokens": 8895,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 17580,
+        "totalTokens": 18222,
+        "auxiliaryTokens": 642,
+        "cachedTokens": 0
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "a1c954c62b367f7e95774a03242e546cfb933d577e6f7cc968c77e9620b31a45",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true,
+      "progressUpdates": 7
+    },
+    "observations": {
+      "correctOriginal": false,
+      "usedReplacement": true,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 0,
+      "exactArchiveReads": 0,
+      "workspaceObservations": 1,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": false,
+    "historicalPassed": false,
+    "buildAfter": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "a1c954c62b367f7e95774a03242e546cfb933d577e6f7cc968c77e9620b31a45",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "buildStable": true,
+    "receipts": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "text": "{\"mode\":\"contextual\",\"time\":\"unspecified\",\"terms\":[\"sevkiyatlar.txt\",\"DELTA\",\"iki\",\"kimliği\"],\"basis\":[{\"message\":0,\"quote\":\"sevkiyatlar.txt dosyasındaki DELTA kaydını incele;\"}]}",
+        "usage": {
+          "promptTokens": 443,
+          "completionTokens": 199,
+          "totalTokens": 642,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8583,
+          "completionTokens": 102,
+          "totalTokens": 8685,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8831,
+          "completionTokens": 64,
+          "totalTokens": 8895,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      }
+    ],
+    "requests": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      }
+    ],
+    "fingerprints": {
+      "packages/sdk/src/runtime/query/callback-inference.ts": "50ba764eae1325195614677a5ffaff13ee651ed384df8d24b4e132b8a2991d97",
+      "packages/sdk/src/runtime/query/iteration/index.ts": "1549ebdc8971aa956b4747cc95aa98e048f4c1fe068fe4df21f156ca265b9153",
+      "packages/sdk/src/run/evidence-query.ts": "080eebabbb0da64811d3a5b956c633f4f2cb4578c0551810c9c9fc56cb9c129b",
+      "packages/sdk/src/run/evidence-recall.ts": "be3be06942bbf1bca9992da24c0ef96cd7d35f478de0e669a94e6321c39004bb",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "2a9c6eb19627cc206465f70605b8331ba61d623c388f8e5557d85bde21e24eef",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "276fc9637c4df25a094488ee336c84ef5d856ceda2476777bb488c1cbc1e383b",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "38cfbdcaf9522c81d81cd5a94f6bf1da8a9fe47e1cca2b603eb2c77bb5bb5c17"
+    }
+  },
+  "indexed": {
+    "root": "/tmp/namzu-natural-recall-dW3agw",
+    "live": true,
+    "checkCurrent": true,
+    "recallEvidence": true,
+    "referential": true,
+    "scriptedObservation": true,
+    "progressUpdates": true,
+    "queryAblation": false,
+    "resolveEvidenceQueries": true,
+    "checkTopic": true,
+    "provider": "codex",
+    "model": "gpt-5.6-luna",
+    "effort": "low",
+    "original": {
+      "tracking": "TAKIP-9a759a11-0a5c-4f9b-803e-c355ed52ee08",
+      "depot": "DEPO-f42480e6-8c95-4b05-acf6-f20cd474196f"
+    },
+    "replacement": {
+      "tracking": "YENI-TAKIP-eb2c71d9-3c38-4057-9a44-1673015bbd4d",
+      "depot": "YENI-DEPO-5cd570b1-e7a5-4d04-b507-e22446f99031"
+    },
+    "turns": [
+      {
+        "phase": 1,
+        "prompt": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-dW3agw/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "12",
+          "--token-budget",
+          "25000",
+          "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": true,
+        "done": {
+          "kind": "done",
+          "text": "Inspection completed.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 0,
+            "treeTokens": 0,
+            "reservedTokens": 0,
+            "remainingTokens": 25000,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "read",
+            "input": {
+              "path": "sevkiyatlar.txt"
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          },
+          {
+            "name": "glob",
+            "input": {
+              "pattern": "sevkiyatlar.txt",
+              "path": "."
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 0,
+            "completionTokens": 0,
+            "totalTokens": 0,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 0,
+        "totalTokens": 0,
+        "auxiliaryTokens": 0,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 2,
+        "prompt": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-dW3agw/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "30000",
+          "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?"
+        ],
+        "tokenBudget": 30000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "TAKIP-9a759a11-0a5c-4f9b-803e-c355ed52ee08 ve DEPO-f42480e6-8c95-4b05-acf6-f20cd474196f.",
+          "budget": {
+            "limit": 30000,
+            "ownTokens": 10640,
+            "treeTokens": 10640,
+            "reservedTokens": 0,
+            "remainingTokens": 19360,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [],
+        "requestUsage": [
+          {
+            "promptTokens": 9680,
+            "completionTokens": 98,
+            "totalTokens": 9778,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 9778,
+        "totalTokens": 10640,
+        "auxiliaryTokens": 862,
+        "cachedTokens": 0
+      },
+      {
+        "phase": 3,
+        "prompt": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-dW3agw/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "25000",
+          "Şimdi aynı dosyadaki güncel iki kimliği söyle."
+        ],
+        "tokenBudget": 25000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "YENI-TAKIP-eb2c71d9-3c38-4057-9a44-1673015bbd4d ve YENI-DEPO-5cd570b1-e7a5-4d04-b507-e22446f99031.",
+          "budget": {
+            "limit": 25000,
+            "ownTokens": 19391,
+            "treeTokens": 19391,
+            "reservedTokens": 0,
+            "remainingTokens": 5609,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [
+          {
+            "name": "grep",
+            "input": {
+              "pattern": "DELTA",
+              "path": "sevkiyatlar.txt",
+              "case_sensitive": true,
+              "context_lines": 2,
+              "max_results": 5
+            }
+          }
+        ],
+        "requestUsage": [
+          {
+            "promptTokens": 8706,
+            "completionTokens": 88,
+            "totalTokens": 8794,
+            "cachedTokens": 6656,
+            "cacheWriteTokens": 0
+          },
+          {
+            "promptTokens": 9471,
+            "completionTokens": 79,
+            "totalTokens": 9550,
+            "cachedTokens": 3584,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 18344,
+        "totalTokens": 19391,
+        "auxiliaryTokens": 1047,
+        "cachedTokens": 10240
+      },
+      {
+        "phase": 4,
+        "prompt": "Akdeniz ikliminin özelliklerini bir cümleyle anlat.",
+        "args": [
+          "--quiet",
+          "run-stream",
+          "--session",
+          "natural-recall",
+          "--trust",
+          "--cwd",
+          "/tmp/namzu-natural-recall-dW3agw/workspace",
+          "--provider",
+          "codex",
+          "--model",
+          "gpt-5.6-luna",
+          "--effort",
+          "low",
+          "--max-iterations",
+          "4",
+          "--token-budget",
+          "15000",
+          "Akdeniz ikliminin özelliklerini bir cümleyle anlat."
+        ],
+        "tokenBudget": 15000,
+        "scripted": false,
+        "done": {
+          "kind": "done",
+          "text": "Akdeniz ikliminde yazlar sıcak ve kurak, kışlar ılık ve yağışlı geçer.",
+          "budget": {
+            "limit": 15000,
+            "ownTokens": 10087,
+            "treeTokens": 10087,
+            "reservedTokens": 0,
+            "remainingTokens": 4913,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "stopReason": "end_turn"
+        },
+        "errors": [],
+        "calls": [],
+        "requestUsage": [
+          {
+            "promptTokens": 9041,
+            "completionTokens": 29,
+            "totalTokens": 9070,
+            "cachedTokens": 0,
+            "cacheWriteTokens": 0
+          }
+        ],
+        "mainMessageTokens": 9070,
+        "totalTokens": 10087,
+        "auxiliaryTokens": 1017,
+        "cachedTokens": 0
+      }
+    ],
+    "buildBefore": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "5223dda21d750b9141ff284fe73fe600c0d3cb477cbddc3a7e6ad57896b100ba",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "prerequisites": {
+      "capturedBoth": true,
+      "initialStopReason": "end_turn",
+      "initialCompleted": true,
+      "visibleOriginalCount": 0,
+      "initialSourceUnchanged": true,
+      "successfulInitialRead": true,
+      "progressUpdates": 7
+    },
+    "observations": {
+      "correctOriginal": true,
+      "usedReplacement": false,
+      "allOriginalAbsentFromVisible": true,
+      "archiveSearches": 0,
+      "exactArchiveReads": 0,
+      "workspaceObservations": 0,
+      "failedTools": 0,
+      "replacementUnchanged": true
+    },
+    "passed": true,
+    "currentCheck": {
+      "correctReplacement": true,
+      "usedOriginal": false,
+      "workspaceObservations": 1,
+      "sourceUnchanged": true,
+      "failedTools": 0,
+      "passed": true
+    },
+    "topicCheck": {
+      "answer": "Akdeniz ikliminde yazlar sıcak ve kurak, kışlar ılık ve yağışlı geçer.",
+      "sourceUnchanged": true,
+      "containsShippingIds": false,
+      "stopReason": "end_turn",
+      "passed": true
+    },
+    "historicalPassed": true,
+    "buildAfter": {
+      "packages/sdk/dist/runtime/query/callback-inference.js": "928bf744e334c70db511c805be195d6c229478e144a205708bb40fd761e754ea",
+      "packages/sdk/dist/runtime/query/iteration/index.js": "bfa19c7fcaaa4e300e841930884b0a516d60f76ab14aa1d72f0de1ac44ec39cb",
+      "packages/sdk/dist/run/evidence-query.js": "5223dda21d750b9141ff284fe73fe600c0d3cb477cbddc3a7e6ad57896b100ba",
+      "packages/sdk/dist/run/evidence-recall.js": "716aa0654eed733c7941798b08fdc5a89fefc6e07b7e2b3f8e46bc24891a1f67",
+      "packages/sdk/dist/store/evidence/disk.js": "9df82fe81948401bea6e99e7e8408298e6a7ba9c9648e0ba95098d9d66d50040",
+      "packages/sdk/dist/store/evidence/linked.js": "75419409690b4877d08e39441dbbfa3e244d04197fddf422296d4e9b1fdfc972",
+      "packages/sdk/dist/store/evidence/selection.js": "9ae7916bee9c3beddeebfa5ca9b8c7a473b60d75066c37145f42f23a19bb94e9",
+      "packages/cli/dist/integrations/sessions/evidence-recall.js": "524262369c7d0263a909e1991b06a89ce0bda91184bea22c6134ea90deb41b4b",
+      "packages/cli/dist/integrations/sessions/conversation-search.js": "38ac3069a9895b50ee899edb90a4084252d4a904372224c677c6c45710071ad1",
+      "packages/cli/dist/commands/run-stream.js": "df91afddf5e6ed92bdabc7e5383947747d24a95e7fe6cfc1f9f58a4d1b0353ea",
+      "packages/cli/dist/tui/agent.js": "673ecc82a5b573cf0e9537924084a5bd3fb90697e9f2737bb9a1bbe828777d68"
+    },
+    "buildStable": true,
+    "receipts": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "text": "{\"mode\":\"contextual\",\"time\":\"unspecified\",\"termIds\":[9,10,12],\"basis\":[{\"message\":0,\"quote\":\"sevkiyatlar.txt dosyasındaki DELTA kaydını incele\"}]}",
+        "usage": {
+          "promptTokens": 703,
+          "completionTokens": 159,
+          "totalTokens": 862,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 9680,
+          "completionTokens": 98,
+          "totalTokens": 9778,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "3",
+        "preparation": true,
+        "text": "{\"mode\":\"contextual\",\"time\":\"present\",\"termIds\":[15,16,17,18,19,20,22,23,24,25,26,27],\"basis\":[{\"message\":5,\"quote\":\"TAKIP-9a759a11-0a5c-4f9b-803e-c355ed52ee08 ve DEPO-f42480e6-8c95-4b05-acf6-f20cd474196f.\"}]}",
+        "usage": {
+          "promptTokens": 774,
+          "completionTokens": 273,
+          "totalTokens": 1047,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "3",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 8706,
+          "completionTokens": 88,
+          "totalTokens": 8794,
+          "cachedTokens": 6656,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "3",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 9471,
+          "completionTokens": 79,
+          "totalTokens": 9550,
+          "cachedTokens": 3584,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "4",
+        "preparation": true,
+        "text": "{\"mode\":\"direct\",\"time\":\"unspecified\",\"termIds\":[],\"basis\":[]}",
+        "usage": {
+          "promptTokens": 996,
+          "completionTokens": 21,
+          "totalTokens": 1017,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      },
+      {
+        "phase": "4",
+        "preparation": false,
+        "usage": {
+          "promptTokens": 9041,
+          "completionTokens": 29,
+          "totalTokens": 9070,
+          "cachedTokens": 0,
+          "cacheWriteTokens": 0
+        }
+      }
+    ],
+    "requests": [
+      {
+        "phase": "2",
+        "preparation": true,
+        "queryInput": {
+          "current": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+          "history": [
+            {
+              "message": 0,
+              "role": "user",
+              "text": "sevkiyatlar.txt dosyasındaki DELTA kaydını incele; yalnızca hangi tür bilgileri içerdiğini bir cümleyle söyle.",
+              "truncated": false
+            },
+            {
+              "message": 1,
+              "role": "assistant",
+              "text": "Inspection progress 4.",
+              "truncated": false
+            },
+            {
+              "message": 2,
+              "role": "assistant",
+              "text": "Inspection progress 5.",
+              "truncated": false
+            },
+            {
+              "message": 3,
+              "role": "assistant",
+              "text": "Inspection progress 6.",
+              "truncated": false
+            },
+            {
+              "message": 4,
+              "role": "assistant",
+              "text": "Inspection progress 7.",
+              "truncated": false
+            },
+            {
+              "message": 5,
+              "role": "assistant",
+              "text": "Inspection completed.",
+              "truncated": false
+            }
+          ],
+          "tokens": [
+            [
+              0,
+              "Az"
+            ],
+            [
+              1,
+              "önce"
+            ],
+            [
+              2,
+              "baktığın"
+            ],
+            [
+              3,
+              "kaydın"
+            ],
+            [
+              4,
+              "iki"
+            ],
+            [
+              5,
+              "kimliğini"
+            ],
+            [
+              6,
+              "aynen"
+            ],
+            [
+              7,
+              "yazar"
+            ],
+            [
+              8,
+              "mısın"
+            ],
+            [
+              9,
+              "sevkiyatlar"
+            ],
+            [
+              10,
+              "txt"
+            ],
+            [
+              11,
+              "dosyasındaki"
+            ],
+            [
+              12,
+              "DELTA"
+            ],
+            [
+              13,
+              "kaydını"
+            ],
+            [
+              14,
+              "incele"
+            ],
+            [
+              15,
+              "yalnızca"
+            ],
+            [
+              16,
+              "hangi"
+            ],
+            [
+              17,
+              "tür"
+            ],
+            [
+              18,
+              "bilgileri"
+            ],
+            [
+              19,
+              "içerdiğini"
+            ],
+            [
+              20,
+              "bir"
+            ],
+            [
+              21,
+              "cümleyle"
+            ],
+            [
+              22,
+              "söyle"
+            ],
+            [
+              23,
+              "Inspection"
+            ],
+            [
+              24,
+              "completed"
+            ],
+            [
+              25,
+              "progress"
+            ],
+            [
+              26,
+              "7"
+            ],
+            [
+              27,
+              "6"
+            ],
+            [
+              28,
+              "5"
+            ],
+            [
+              29,
+              "4"
+            ]
+          ],
+          "omittedTokens": 0
+        },
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "2",
+        "preparation": false,
+        "contextChars": 3737,
+        "contextOriginals": [
+          true,
+          true
+        ],
+        "ordinaryOriginals": [
+          false,
+          false
+        ]
+      },
+      {
+        "phase": "3",
+        "preparation": true,
+        "queryInput": {
+          "current": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+          "history": [
+            {
+              "message": 0,
+              "role": "assistant",
+              "text": "Inspection progress 5.",
+              "truncated": false
+            },
+            {
+              "message": 1,
+              "role": "assistant",
+              "text": "Inspection progress 6.",
+              "truncated": false
+            },
+            {
+              "message": 2,
+              "role": "assistant",
+              "text": "Inspection progress 7.",
+              "truncated": false
+            },
+            {
+              "message": 3,
+              "role": "assistant",
+              "text": "Inspection completed.",
+              "truncated": false
+            },
+            {
+              "message": 4,
+              "role": "user",
+              "text": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+              "truncated": false
+            },
+            {
+              "message": 5,
+              "role": "assistant",
+              "text": "TAKIP-9a759a11-0a5c-4f9b-803e-c355ed52ee08 ve DEPO-f42480e6-8c95-4b05-acf6-f20cd474196f.",
+              "truncated": false
+            }
+          ],
+          "tokens": [
+            [
+              0,
+              "Şimdi"
+            ],
+            [
+              1,
+              "aynı"
+            ],
+            [
+              2,
+              "dosyadaki"
+            ],
+            [
+              3,
+              "güncel"
+            ],
+            [
+              4,
+              "iki"
+            ],
+            [
+              5,
+              "kimliği"
+            ],
+            [
+              6,
+              "söyle"
+            ],
+            [
+              7,
+              "Az"
+            ],
+            [
+              8,
+              "önce"
+            ],
+            [
+              9,
+              "baktığın"
+            ],
+            [
+              10,
+              "kaydın"
+            ],
+            [
+              11,
+              "kimliğini"
+            ],
+            [
+              12,
+              "aynen"
+            ],
+            [
+              13,
+              "yazar"
+            ],
+            [
+              14,
+              "mısın"
+            ],
+            [
+              15,
+              "TAKIP"
+            ],
+            [
+              16,
+              "9a759a11"
+            ],
+            [
+              17,
+              "0a5c"
+            ],
+            [
+              18,
+              "4f9b"
+            ],
+            [
+              19,
+              "803e"
+            ],
+            [
+              20,
+              "c355ed52ee08"
+            ],
+            [
+              21,
+              "ve"
+            ],
+            [
+              22,
+              "DEPO"
+            ],
+            [
+              23,
+              "f42480e6"
+            ],
+            [
+              24,
+              "8c95"
+            ],
+            [
+              25,
+              "4b05"
+            ],
+            [
+              26,
+              "acf6"
+            ],
+            [
+              27,
+              "f20cd474196f"
+            ],
+            [
+              28,
+              "Inspection"
+            ],
+            [
+              29,
+              "completed"
+            ],
+            [
+              30,
+              "progress"
+            ],
+            [
+              31,
+              "7"
+            ],
+            [
+              32,
+              "6"
+            ],
+            [
+              33,
+              "5"
+            ]
+          ],
+          "omittedTokens": 0
+        },
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          true,
+          true
+        ]
+      },
+      {
+        "phase": "3",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          true,
+          true
+        ]
+      },
+      {
+        "phase": "3",
+        "preparation": false,
+        "contextChars": 1938,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          true,
+          true
+        ]
+      },
+      {
+        "phase": "4",
+        "preparation": true,
+        "queryInput": {
+          "current": "Akdeniz ikliminin özelliklerini bir cümleyle anlat.",
+          "history": [
+            {
+              "message": 0,
+              "role": "assistant",
+              "text": "Inspection completed.",
+              "truncated": false
+            },
+            {
+              "message": 1,
+              "role": "user",
+              "text": "Az önce baktığın kaydın iki kimliğini aynen yazar mısın?",
+              "truncated": false
+            },
+            {
+              "message": 2,
+              "role": "assistant",
+              "text": "TAKIP-9a759a11-0a5c-4f9b-803e-c355ed52ee08 ve DEPO-f42480e6-8c95-4b05-acf6-f20cd474196f.",
+              "truncated": false
+            },
+            {
+              "message": 3,
+              "role": "user",
+              "text": "Şimdi aynı dosyadaki güncel iki kimliği söyle.",
+              "truncated": false
+            },
+            {
+              "message": 4,
+              "role": "assistant",
+              "text": "Dosyadaki DELTA kaydını yeniden kontrol ediyorum.",
+              "truncated": false
+            },
+            {
+              "message": 5,
+              "role": "assistant",
+              "text": "YENI-TAKIP-eb2c71d9-3c38-4057-9a44-1673015bbd4d ve YENI-DEPO-5cd570b1-e7a5-4d04-b507-e22446f99031.",
+              "truncated": false
+            }
+          ],
+          "tokens": [
+            [
+              0,
+              "Akdeniz"
+            ],
+            [
+              1,
+              "ikliminin"
+            ],
+            [
+              2,
+              "özelliklerini"
+            ],
+            [
+              3,
+              "bir"
+            ],
+            [
+              4,
+              "cümleyle"
+            ],
+            [
+              5,
+              "anlat"
+            ],
+            [
+              6,
+              "Şimdi"
+            ],
+            [
+              7,
+              "aynı"
+            ],
+            [
+              8,
+              "dosyadaki"
+            ],
+            [
+              9,
+              "güncel"
+            ],
+            [
+              10,
+              "iki"
+            ],
+            [
+              11,
+              "kimliği"
+            ],
+            [
+              12,
+              "söyle"
+            ],
+            [
+              13,
+              "Az"
+            ],
+            [
+              14,
+              "önce"
+            ],
+            [
+              15,
+              "baktığın"
+            ],
+            [
+              16,
+              "kaydın"
+            ],
+            [
+              17,
+              "kimliğini"
+            ],
+            [
+              18,
+              "aynen"
+            ],
+            [
+              19,
+              "yazar"
+            ],
+            [
+              20,
+              "mısın"
+            ],
+            [
+              21,
+              "YENI"
+            ],
+            [
+              22,
+              "TAKIP"
+            ],
+            [
+              23,
+              "eb2c71d9"
+            ],
+            [
+              24,
+              "3c38"
+            ],
+            [
+              25,
+              "4057"
+            ],
+            [
+              26,
+              "9a44"
+            ],
+            [
+              27,
+              "1673015bbd4d"
+            ],
+            [
+              28,
+              "ve"
+            ],
+            [
+              29,
+              "DEPO"
+            ],
+            [
+              30,
+              "5cd570b1"
+            ],
+            [
+              31,
+              "e7a5"
+            ],
+            [
+              32,
+              "4d04"
+            ],
+            [
+              33,
+              "b507"
+            ],
+            [
+              34,
+              "e22446f99031"
+            ],
+            [
+              35,
+              "Dosyadaki"
+            ],
+            [
+              36,
+              "DELTA"
+            ],
+            [
+              37,
+              "kaydını"
+            ],
+            [
+              38,
+              "yeniden"
+            ],
+            [
+              39,
+              "kontrol"
+            ],
+            [
+              40,
+              "ediyorum"
+            ],
+            [
+              41,
+              "9a759a11"
+            ],
+            [
+              42,
+              "0a5c"
+            ],
+            [
+              43,
+              "4f9b"
+            ],
+            [
+              44,
+              "803e"
+            ],
+            [
+              45,
+              "c355ed52ee08"
+            ],
+            [
+              46,
+              "f42480e6"
+            ],
+            [
+              47,
+              "8c95"
+            ],
+            [
+              48,
+              "4b05"
+            ],
+            [
+              49,
+              "acf6"
+            ],
+            [
+              50,
+              "f20cd474196f"
+            ],
+            [
+              51,
+              "Inspection"
+            ],
+            [
+              52,
+              "completed"
+            ]
+          ],
+          "omittedTokens": 0
+        },
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          true,
+          true
+        ]
+      },
+      {
+        "phase": "4",
+        "preparation": false,
+        "contextChars": 0,
+        "contextOriginals": [
+          false,
+          false
+        ],
+        "ordinaryOriginals": [
+          true,
+          true
+        ]
+      }
+    ],
+    "fingerprints": {
+      "packages/sdk/src/runtime/query/callback-inference.ts": "50ba764eae1325195614677a5ffaff13ee651ed384df8d24b4e132b8a2991d97",
+      "packages/sdk/src/runtime/query/iteration/index.ts": "1549ebdc8971aa956b4747cc95aa98e048f4c1fe068fe4df21f156ca265b9153",
+      "packages/sdk/src/run/evidence-query.ts": "998e81eeef77ca5d6b3a2c06a9bbbd3dc5818eba27498f4840aeee19bcdc84f4",
+      "packages/sdk/src/run/evidence-recall.ts": "be3be06942bbf1bca9992da24c0ef96cd7d35f478de0e669a94e6321c39004bb",
+      "packages/cli/src/integrations/sessions/evidence-recall.ts": "2a9c6eb19627cc206465f70605b8331ba61d623c388f8e5557d85bde21e24eef",
+      "packages/sdk/src/prompt/coding-agent-doctrine.ts": "9beab14be625c388bd10beae46df96540802ab51be697cbe6db7653670c68929",
+      "packages/sdk/src/runtime/query/tool-output-budget.ts": "42d805ea08de36b0427562dd2bb4215bc1b1bced42f2d92f2604a95cfeaf8c36",
+      "packages/cli/src/integrations/sessions/conversation-search.ts": "8096028fcb4cd581b21f56839bb9925d2a7f6d0c08f71fa4091006a5a1da207c",
+      "packages/cli/src/tui/agent.ts": "276fc9637c4df25a094488ee336c84ef5d856ceda2476777bb488c1cbc1e383b",
+      "packages/cli/src/commands/run-stream.ts": "3bb16232ed4c343c77cf444967b2a45b238238b6108cc6cfefaa738d4bdba00f",
+      "research/conversation-evidence/natural-cli.mjs": "afad19e3a4bdbf263dc65b226b7461905f79199f1d8c143e97cd34665a3bfe47"
+    }
+  }
+}

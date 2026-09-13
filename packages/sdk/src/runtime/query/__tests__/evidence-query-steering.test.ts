@@ -39,7 +39,9 @@ it('keeps the current subject when tool-result steering repeats an older questio
 				)
 			) {
 				plans.push(JSON.parse(String(params.messages[1]?.content)))
-				return { text: JSON.stringify({ mode: 'none', time: 'unspecified', terms: [], basis: [] }) }
+				return {
+					text: JSON.stringify({ mode: 'none', time: 'unspecified', termIds: [], basis: [] }),
+				}
 			}
 			if (index === 0) {
 				steering.steer(question)
