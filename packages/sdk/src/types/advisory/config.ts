@@ -11,6 +11,13 @@ export interface AdvisorDefinition {
 	readonly domains?: string[]
 	readonly persona?: AgentPersona
 	readonly systemPrompt?: string
+	/**
+	 * Conversation-record window, estimated at four serialized characters per
+	 * token. Keeps a contiguous suffix of whole public records; roles, tool
+	 * calls/results, escaping and separators count toward this window.
+	 * Fixed framing, working state, tool catalogue, system prompt and question
+	 * are separate. Omitted or zero leaves the record window unbounded.
+	 */
 	readonly maxContextTokens?: number
 	readonly useCompactedContext?: boolean
 	readonly maxResponseTokens?: number

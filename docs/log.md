@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Preserve public calls, rich tool text and host provenance in [advisory context](sdk/advisory-context.md), count serialized records against its window, and record bounded CLI source-support review controls including a failed speaker-attribution case.
+
 - **Update** Make new [CLI conversation searches](cli/conversation-evidence.md) omit successful retrieval copies by default, add explicit retrieval-result inspection, and preserve source filters through continuation.
 
 - **Update** Distinguish fully displayed text parts from retained previews and partial excerpts in [SDK search](sdk/retained-tool-evidence.md), [automatic recall](sdk/evidence-recall.md) and [CLI conversation evidence](cli/conversation-evidence.md), using validated UTF-8 source bounds without treating completeness as truth.

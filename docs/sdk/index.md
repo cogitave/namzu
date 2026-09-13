@@ -29,6 +29,7 @@ The kernel.
 * [Zen and Zen Go](zen.md) - Native model protocol routing, conversation attribution, validated reasoning replay and catalogue limits.
 * [Bounded file discovery](file-discovery.md) - Explicit glob scope, incremental sandbox enumeration and recoverable incomplete results.
 * [Bounded code execution](code-execution.md) - Opt-in tool batching, structured results and interpreter resource limits.
+* [Advisory context](advisory-context.md) - Public trajectory records, source attribution, bounded text and consultation limits.
 * [Answer verification](verification.md) - Command-backed review, cancellation, interrupted checks and honest completion boundaries.
 * [Pinned facts](pinned-facts.md) - How a tool puts a fact into the run's working memory by key, so it stays in front of the model across compaction.
 * [Structured memory](memory.md) - Store isolation, cross-process coordination, lexical search, lifecycle tools and bounded optional recall.

@@ -1,4 +1,4 @@
-import { CHARS_PER_TOKEN, ZERO_COST } from '../constants/limits.js'
+import { ZERO_COST } from '../constants/limits.js'
 import { assembleSystemPrompt } from '../persona/assembler.js'
 import { resolveModelPricing } from '../pricing/index.js'
 import { collectChatCompletion } from '../provider/collect-chat-completion.js'
@@ -12,6 +12,7 @@ import { type Message, createSystemMessage, createUserMessage } from '../types/m
 import type { LLMToolSchema } from '../types/tool/index.js'
 import { accumulateUnpricedCost, calculateCost } from '../utils/cost.js'
 import { type Logger, resolveLogger } from '../utils/logger.js'
+import { renderAdvisoryHistory } from './history.js'
 import { ADVISORY_RESPONSE_CONTRACT, parseAdvisoryResponse } from './parse.js'
 
 /**
@@ -189,41 +190,14 @@ export class AdvisoryExecutor {
 			)
 		}
 
-		const messagesToInclude = this.truncateMessages(callCtx.messages, advisor.maxContextTokens)
-
-		if (messagesToInclude.length > 0) {
-			const conversationSummary = messagesToInclude
-				.map((m) => `[${m.role}]: ${m.content ?? '(tool calls)'}`)
-				.join('\n')
-			contextParts.push(`## Conversation Context\n${conversationSummary}`)
-		}
+		const history = renderAdvisoryHistory(callCtx.messages, advisor.maxContextTokens)
+		if (history) contextParts.push(history)
 
 		if (contextParts.length === 0) {
 			return []
 		}
 
 		return [createUserMessage(contextParts.join('\n\n'))]
-	}
-
-	private truncateMessages(messages: Message[], maxTokens: number | undefined): Message[] {
-		if (!maxTokens) {
-			return messages
-		}
-
-		const charBudget = maxTokens * CHARS_PER_TOKEN
-		let totalChars = 0
-		const result: Message[] = []
-
-		// Walk from most recent to oldest, accumulate until budget exhausted
-		for (let i = messages.length - 1; i >= 0; i--) {
-			const msg = messages[i] as Message
-			const msgChars = (msg.content ?? '').length
-			if (totalChars + msgChars > charBudget) break
-			totalChars += msgChars
-			result.unshift(msg)
-		}
-
-		return result
 	}
 
 	/**

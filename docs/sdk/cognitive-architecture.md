@@ -251,6 +251,14 @@ the answer-review callback. Integration must preserve the existing executor,
 permission policy, cancellation and budget accounting. Proposed privileged
 state updates are host-enforced operations, not instructions placed in memory.
 
+The [source-support CLI controls](../../research/conversation-evidence/source-support-results.md)
+measured eight scripted candidate judgments with live Luna low inference: seven
+matched expectations and one misattributed the speaker. A separately framed
+follow-up and one correction trial succeeded. These are small controls, not
+evidence for enabling a universal judge. The [advisory context](advisory-context.md)
+projection also preserves public calls and rich result text instead of generic
+stubs, with explicit source attribution and a serialized-record budget.
+
 The advisory-input audit identified two concrete distinctions to preserve:
 context fullness measures the pending request against its context window,
 whereas cumulative token spend measures run cost; an error-triggered review

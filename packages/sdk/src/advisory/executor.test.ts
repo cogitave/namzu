@@ -1,39 +1,4 @@
-/**
- * Current-code invariants asserted (2026-04-21, ses_006 Phase 6):
- *
- *   - `AdvisoryExecutor.consult(advisor, request, callCtx)`:
- *     - Builds a system prompt (see buildSystemPrompt tests).
- *     - Builds a context message block (see buildContext tests).
- *     - Concatenates `[system, ...context, user(question)]` and calls
- *       `advisor.provider.chat(...)` with `toolChoice: 'none'`.
- *     - Parses the response with `parseAdvisoryResponse`, lifting any
- *       `<warnings>` / `<decisions>` blocks out of the prose.
- *     - Returns `{result, usage, cost, durationMs}`. `cost` is computed
- *       from `advisor.pricing` when present, and zero-valued when the
- *       advisor carries none.
- *
- *   - `buildSystemPrompt` priority:
- *     1. `advisor.systemPrompt`.
- *     2. `advisor.persona` (via `assembleSystemPrompt`).
- *     3. Fallback: "You are <name>, an advisory agent." + optional
- *        domains line + "Provide concise, actionable advice..."
- *     Every branch is followed by the response contract, so an advisor
- *     with its own prompt is still told how its answer is read back.
- *
- *   - `buildContext`:
- *     - Returns [] when `request.includeContext === false`.
- *     - Includes workingStateSummary when present.
- *     - Includes a runtime tool summary when a toolCatalog is present
- *       + non-empty; executable schemas remain runtime-owned.
- *     - Includes truncated conversation context (most-recent-first
- *       walk, bounded by `advisor.maxContextTokens * CHARS_PER_TOKEN`).
- *     - Returns [] when no context parts were assembled.
- *
- *   - `truncateMessages(msgs, maxTokens)` walks right-to-left and
- *     includes messages until the char budget is exhausted (in token
- *     terms). Returns the included subset preserving original order.
- *     No limit when `maxTokens` is undefined.
- */
+// Exercise the actual tool-free provider request, not only string helpers.
 
 import { describe, expect, it, vi } from 'vitest'
 
@@ -258,8 +223,8 @@ describe('AdvisoryExecutor — buildContext', () => {
 		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const contextMsg = call.messages[1]?.content ?? ''
 		expect(contextMsg).toContain('Conversation Context')
-		expect(contextMsg).toContain('[user]: hi')
-		expect(contextMsg).toContain('[assistant]: hello')
+		expect(contextMsg).toContain(JSON.stringify({ role: 'user', content: 'hi' }))
+		expect(contextMsg).toContain(JSON.stringify({ role: 'assistant', content: 'hello' }))
 	})
 
 	it('truncates conversation from the back when maxContextTokens is set', async () => {
@@ -269,8 +234,8 @@ describe('AdvisoryExecutor — buildContext', () => {
 			{ role: 'user', content: 'recent' },
 		]
 		const e = new AdvisoryExecutor()
-		// maxContextTokens=5 → 5*4=20 char budget; only 'recent' (6 chars) fits.
-		await e.consult(advisor({ provider, maxContextTokens: 5 }), req, ctx({ messages }))
+		// 20*4=80 serialized characters: only the recent whole record fits.
+		await e.consult(advisor({ provider, maxContextTokens: 20 }), req, ctx({ messages }))
 		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const contextMsg = call.messages[1]?.content ?? ''
 		expect(contextMsg).toContain('recent')
@@ -287,7 +252,7 @@ describe('AdvisoryExecutor — buildContext', () => {
 })
 
 describe('AdvisoryExecutor — tool calls in context', () => {
-	it('represents assistant messages with tool calls as "(tool calls)" stub', async () => {
+	it('preserves the tool call ID, name and arguments in the provider request', async () => {
 		const provider = mockProvider()
 		const e = new AdvisoryExecutor()
 		await e.consult(
@@ -305,6 +270,6 @@ describe('AdvisoryExecutor — tool calls in context', () => {
 		)
 		const call = vi.mocked(provider.chatStream).mock.calls[0]?.[0] as ChatCompletionParams
 		const contextMsg = call.messages[1]?.content ?? ''
-		expect(contextMsg).toContain('[assistant]: (tool calls)')
+		expect(contextMsg).toContain(JSON.stringify({ id: 't1', name: 'x', arguments: '{}' }))
 	})
 })
