@@ -15,6 +15,7 @@ const EXCLUDE_RETRIEVAL_RESULTS = ['read_conversation', 'search_conversation'] a
 
 interface RecallScan {
 	terms: readonly string[]
+	excludeDerivedSummaries?: boolean
 	cursor?: string
 	started: boolean
 	omitted: boolean
@@ -31,11 +32,18 @@ function advanceScan(
 	scan: RecallScan,
 	nextCursor: string | undefined,
 	excerpts: readonly string[],
+	hasDerivedSummaries: boolean,
 	canRefine: boolean,
 ): void {
 	scan.started = true
 	scan.cursor = nextCursor
 	if (!canRefine || scans.length !== 1 || !nextCursor) return
+	// Spend the existing refinement page on source records when derived text
+	// fills discovery. Preserve the general cursor and its summary candidates.
+	if (hasDerivedSummaries) {
+		scans.push({ ...newScan(scan.terms), excludeDerivedSummaries: true })
+		return
+	}
 	const focused = refineEvidenceRecallTerms(scan.terms, excerpts)
 	if (focused) scans.push(newScan(focused))
 }
@@ -55,6 +63,7 @@ export function createConversationEvidenceRecall(
 			let scannedBytes = 0
 			let incomplete = false
 			let excludedToolResults = 0
+			let excludedSummaries = 0
 			let pages = 0
 			// Reserve at least two of the four pages for earlier invocations. The
 			// current writer is visited directly, never rediscovered as a disk run.
@@ -89,6 +98,7 @@ export function createConversationEvidenceRecall(
 							terms: scan.terms,
 							matchMode: 'token',
 							excludeSuccessfulTools: EXCLUDE_RETRIEVAL_RESULTS,
+							excludeDerivedSummaries: scan.excludeDerivedSummaries,
 							caseSensitive: false,
 							cursor: scan.cursor,
 							limit: 4,
@@ -112,6 +122,7 @@ export function createConversationEvidenceRecall(
 					pages++
 					scannedBytes += page.scannedBytes
 					excludedToolResults += page.excludedToolResults ?? 0
+					excludedSummaries += page.excludedSummaries ?? 0
 					scan.omitted ||= page.incomplete || page.unavailable.length > 0
 					for (const match of page.matches)
 						candidates.push({
@@ -131,6 +142,7 @@ export function createConversationEvidenceRecall(
 						scan,
 						page.nextCursor ?? undefined,
 						page.matches.map((match) => match.excerpt),
+						page.matches.some((match) => match.source === 'compaction_shed:summary'),
 						livePage < 1,
 					)
 				}
@@ -153,6 +165,7 @@ export function createConversationEvidenceRecall(
 						terms: scan.terms,
 						matchMode: 'token',
 						excludeSuccessfulTools: EXCLUDE_RETRIEVAL_RESULTS,
+						excludeDerivedSummaries: scan.excludeDerivedSummaries,
 						excludeRunId: runId,
 						maxReadBytes: remaining,
 						cursor: scan.cursor,
@@ -162,6 +175,7 @@ export function createConversationEvidenceRecall(
 				assertOwner(runId)
 				scannedBytes += page.scannedBytes
 				excludedToolResults += page.excludedToolResults ?? 0
+				excludedSummaries += page.excludedSummaries ?? 0
 				// Continuation alone is not permanent incompleteness; unavailable
 				// source data stays incomplete even after all bounded pages are read.
 				incomplete ||= page.unavailableRuns > 0 || (page.incomplete && !page.nextCursor)
@@ -188,6 +202,7 @@ export function createConversationEvidenceRecall(
 					scan,
 					page.nextCursor,
 					page.matches.map((match) => match.text),
+					page.matches.some((match) => match.source === 'compaction_shed:summary'),
 					pages < 3,
 				)
 				if (candidates.length >= maxCandidates) break
@@ -209,6 +224,7 @@ export function createConversationEvidenceRecall(
 							scan.omitted,
 							'token',
 							EXCLUDE_RETRIEVAL_RESULTS,
+							scan.excludeDerivedSummaries,
 						),
 					},
 				})
@@ -222,6 +238,7 @@ export function createConversationEvidenceRecall(
 				incomplete: incomplete || historyScans.some((s) => s.cursor !== undefined),
 				continuations,
 				...(excludedToolResults ? { excludedToolResults } : {}),
+				...(excludedSummaries ? { excludedSummaries } : {}),
 			}
 		},
 	})

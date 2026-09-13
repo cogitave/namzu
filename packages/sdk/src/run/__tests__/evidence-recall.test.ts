@@ -67,6 +67,24 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('reports intentionally excluded summaries even when the selected corpus is empty', async () => {
+		const { recall } = fixture([], {
+			retrieve: async () => ({ ...batch(), excludedSummaries: 17 }),
+		})
+		const result = await recall(context())
+		expect(JSON.parse(result!.context!.split('\n')[1]!)).toMatchObject({
+			incomplete: false,
+			excludedSummaries: 17,
+		})
+		expect(result?.context).toContain('General archive search can include them')
+		for (const invalid of [-1, 0.5, Number.NaN, '17'])
+			await expect(
+				fixture([], {
+					retrieve: async () => ({ ...batch(), excludedSummaries: invalid as number }),
+				}).recall(context()),
+			).rejects.toThrow('bounded retrieval contract')
+	})
+
 	it('prioritizes source records without discarding derived summaries or their read addresses', async () => {
 		const summaries = Array.from({ length: 4 }, (_, i) =>
 			candidate(`DELTA tracking code pending ${i}`, {

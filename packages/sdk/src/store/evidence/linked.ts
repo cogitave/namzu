@@ -130,6 +130,7 @@ export function createLinkedRunTextEvidenceSource(
 					caseSensitive: z.boolean().default(true),
 					matchMode: z.enum(['literal', 'token']).default('literal'),
 					excludeSuccessfulTools: evidenceExclusionsSchema,
+					excludeDerivedSummaries: z.boolean().default(false),
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
 					part: integer.optional(),
@@ -140,7 +141,10 @@ export function createLinkedRunTextEvidenceSource(
 			if (input.part !== undefined && input.seq === undefined)
 				throw new Error('Part requires an event sequence.')
 			const { query, terms, termsKey, browse } = evidenceSearchInput(input)
-			const exclusionsKey = evidenceExclusionsKey(input.excludeSuccessfulTools)
+			const exclusionsKey = evidenceExclusionsKey(
+				input.excludeSuccessfulTools,
+				input.excludeDerivedSummaries,
+			)
 			const kind =
 				input.matchMode === 'token'
 					? ('linked-search-tokens' as const)
@@ -184,6 +188,7 @@ export function createLinkedRunTextEvidenceSource(
 				let chunks = 0
 				let incomplete = false
 				let excludedToolResults = 0
+				let excludedSummaries = 0
 				while (
 					cursor.next &&
 					records < 64 &&
@@ -230,7 +235,10 @@ export function createLinkedRunTextEvidenceSource(
 						}
 						parts++
 						try {
+							const derived =
+								input.excludeDerivedSummaries && texts[part]?.source === 'compaction_shed:summary'
 							if (
+								derived ||
 								excludesSuccessfulTool(
 									event.type === 'tool_completed' && typeof event.toolUseId === 'string'
 										? event
@@ -238,7 +246,8 @@ export function createLinkedRunTextEvidenceSource(
 									input.excludeSuccessfulTools,
 								)
 							) {
-								excludedToolResults++
+								if (derived) excludedSummaries++
+								else excludedToolResults++
 								cursor.textIndex++
 								cursor.chunk = 0
 								cursor.within = 0
@@ -317,6 +326,7 @@ export function createLinkedRunTextEvidenceSource(
 					incomplete: incomplete || unavailable.length > 0,
 					unavailable,
 					...(excludedToolResults ? { excludedToolResults } : {}),
+					...(excludedSummaries ? { excludedSummaries } : {}),
 				}
 			})
 		},

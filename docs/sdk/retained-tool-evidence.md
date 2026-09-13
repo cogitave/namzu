@@ -89,6 +89,24 @@ does not infer or retrofit derivation from their text. Disposable index pages
 are rebuilt for this metadata without changing exact-address authentication.
 The marker describes provenance, not authority, factual accuracy or freshness.
 
+Text-source searches additionally accept `excludeDerivedSummaries: true` to skip
+these explicitly marked parts during discovery. The default is `false`. Skipped
+part metadata still comes from the scoped, validated record or authenticated
+index, but the summary body and its text manifest need not be opened. Page and
+I/O bounds still apply: an empty page can carry a continuation past many skipped
+parts. Exact reads and new unfiltered searches remain available. A damaged
+excluded body does not make a filtered source scan unavailable; explicitly
+reading that body still verifies its integrity and refuses changed bytes.
+
+Positive `excludedSummaries` counts skipped derived-summary part visits, including
+ones whose text was not inspected for a query match. It is not a count of unique
+facts, matched passages or all summaries in the archive. Exclusion itself does
+not set `incomplete`; traversal, snapshot and unavailable-source rules still do.
+A completed filtered scan cannot prove absence in its excluded sources. The
+flag is bound into cursors alongside tool exclusions: changing or dropping it
+requires a new search. Existing cursors with no summary filter retain their
+previous identity, and exact read addresses do not depend on the filter.
+
 New archives retain these text copies. Previously written archives enumerate
 only the parts captured at their creation; they are not rewritten or expanded
 by searching. Fresh closed/snapshot scans can index rich blocks in inline

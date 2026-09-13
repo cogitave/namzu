@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Add opt-in derived-summary exclusion to [SDK text evidence](sdk/retained-tool-evidence.md) and use the existing [CLI recall refinement](sdk/evidence-recall.md) allowance to find originals behind repeated summaries while preserving general continuation and exact reads.
+
 - **Update** Preserve explicit provenance on generated [compaction summaries](sdk/manual-compaction.md), expose it in [retained evidence](sdk/retained-tool-evidence.md), and prioritize source records over derived summaries in bounded [automatic recall](sdk/evidence-recall.md).
 
 - **Update** Give tool text blocks and earlier preparation context the same [automatic recall](sdk/evidence-recall.md) visibility rules as plain messages, and let bounded [CLI candidate pages](cli/conversation-evidence.md) cross exhausted matching runs so repeated visible text does not displace missing evidence.

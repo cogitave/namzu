@@ -113,6 +113,8 @@ export interface RunEvidenceSource {
 
 /** @experimental Textual event parts, including assistant output and shed conversation messages. */
 export interface RunTextEvidenceSearchOptions extends RunEvidenceSearchOptions {
+	/** Omit explicitly marked derived summaries. Default false; bound into cursors. Exact reads remain available. */
+	readonly excludeDerivedSummaries?: boolean
 	readonly seq?: number
 	readonly part?: number
 	readonly limit?: number
@@ -131,6 +133,8 @@ export interface RunTextEvidenceMatch extends Omit<RunEvidenceMatch, 'toolName' 
 /** @experimental Search includes messages and tool text, never binary or private reasoning blocks. */
 export interface RunTextEvidenceSearchResult extends Omit<RunEvidenceSearchResult, 'matches'> {
 	readonly matches: readonly RunTextEvidenceMatch[]
+	/** Derived-summary part visits deliberately skipped, not unique facts or matched passages. */
+	readonly excludedSummaries?: number
 }
 
 /** @experimental Character counts are UTF-16 units; absent counts must not be inferred from bytes. */

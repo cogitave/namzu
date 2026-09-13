@@ -41,6 +41,16 @@ Summaries remain available for explicit search and reads, including after
 reopening. This is source selection, not a guarantee of truth. Older unmarked
 archives retain their existing labels; no heading-based classification is added.
 
+A partial automatic page containing known summaries can trigger a focused scan
+of the same terms that excludes derived summaries. It consumes the existing
+refinement allowance instead of adding pages, and preserves the general cursor
+and retrieved summary candidates. Remaining pages return to the general scan
+after the focused one ends. Positive `excludedSummaries` reports skipped part
+visits, not matched passages or unique facts. Explicit cursor continuation
+restores that selection and explains it in tool guidance; a new literal search
+includes summaries. Older inline records can also carry an explicit system
+summary marker; the bounded legacy scanner honors that marker, never prose.
+
 Scoped retrieval also reads text blocks from compacted rich tool results. Each
 block remains exact text with its own `part`; images and documents are not
 stringified into the search corpus. Plain-string message parts keep their old

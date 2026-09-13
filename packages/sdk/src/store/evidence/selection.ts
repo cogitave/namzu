@@ -8,7 +8,12 @@ export const evidenceExclusionsSchema = z
 	.default([])
 	.transform((names) => [...new Set(names)].sort())
 
-export function evidenceExclusionsKey(names: readonly string[]): string | undefined {
+export function evidenceExclusionsKey(
+	names: readonly string[],
+	excludeDerivedSummaries = false,
+): string | undefined {
+	if (excludeDerivedSummaries)
+		return digest(JSON.stringify({ tools: names, derivedSummaries: true }))
 	return names.length ? digest(JSON.stringify(names)) : undefined
 }
 

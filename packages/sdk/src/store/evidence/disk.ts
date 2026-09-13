@@ -213,6 +213,7 @@ function createSource(
 					caseSensitive: z.boolean().default(true),
 					matchMode: z.enum(['literal', 'token']).default('literal'),
 					excludeSuccessfulTools: evidenceExclusionsSchema,
+					excludeDerivedSummaries: z.boolean().default(false),
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
 					part: integer.optional(),
@@ -223,7 +224,10 @@ function createSource(
 			if (input.part !== undefined && input.seq === undefined)
 				throw new Error('Part requires an event sequence.')
 			const { query, terms, termsKey, browse } = evidenceSearchInput(input)
-			const exclusionsKey = evidenceExclusionsKey(input.excludeSuccessfulTools)
+			const exclusionsKey = evidenceExclusionsKey(
+				input.excludeSuccessfulTools,
+				input.excludeDerivedSummaries,
+			)
 			const kind =
 				input.matchMode === 'token'
 					? ('search-tokens' as const)
@@ -274,6 +278,7 @@ function createSource(
 				const unavailable: string[] = []
 				let partial = false
 				let excludedToolResults = 0
+				let excludedSummaries = 0
 				let entryIndex = cursor.entry
 				let chunk = cursor.chunk
 				let within = cursor.within
@@ -292,8 +297,11 @@ function createSource(
 						continue
 					}
 					try {
-						if (excludesSuccessfulTool(entry, input.excludeSuccessfulTools)) {
-							excludedToolResults++
+						const derived =
+							input.excludeDerivedSummaries && entry.source === 'compaction_shed:summary'
+						if (derived || excludesSuccessfulTool(entry, input.excludeSuccessfulTools)) {
+							if (derived) excludedSummaries++
+							else excludedToolResults++
 							entryIndex++
 							chunk = 0
 							within = 0
@@ -385,6 +393,7 @@ function createSource(
 					incomplete: nonterminal || unavailable.length > 0 || partial,
 					unavailable,
 					...(excludedToolResults ? { excludedToolResults } : {}),
+					...(excludedSummaries ? { excludedSummaries } : {}),
 				}
 			})
 		},

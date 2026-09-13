@@ -84,6 +84,68 @@ async function all(source: RunTextEvidenceSource, query: string) {
 }
 
 it.each(['live', 'closed', 'snapshot'] as const)(
+	'pages past derived summaries without reading their bodies, changing addresses or filtering lookalikes (%s)',
+	async (mode) => {
+		for (const archived of [false, true]) {
+			const removed: Message[] = [
+				...Array.from({ length: 70 }, (_, i) => buildCompactionMessage(`ORCHID summary ${i}`)),
+				{ role: 'system', content: 'ORCHID unmarked system source' },
+				{ role: 'tool', toolCallId: 'original', content: 'ORCHID original A17', isError: false },
+				...messages([
+					{
+						type: 'image',
+						mediaType: 'image/png',
+						data: archived ? 'A'.repeat(4 * 1024 * 1024) : 'A',
+					},
+				]),
+			]
+			const f = await fixture(mode, removed)
+			const known = (await f.source.search({ seq: 2, part: 0 })).matches[0]!
+			if (archived) {
+				const raw = JSON.parse(
+					(await readFile(join(f.runDir, 'transcript.jsonl'), 'utf8')).trim().split('\n')[1]!,
+				)
+				await writeFile(compactionPartPath(f.runDir, raw.archive.id, 0), 'modified summary body')
+			}
+			let cursor: string | undefined
+			let excluded = 0
+			let pages = 0
+			const found: RunTextEvidenceMatch[] = []
+			do {
+				const page = await f.source.search({
+					query: 'ORCHID',
+					excludeDerivedSummaries: true,
+					cursor,
+					limit: 1,
+				})
+				expect(page.scannedBytes).toBeLessThanOrEqual(8 * 1024 * 1024)
+				expect(page.unavailable).toEqual([])
+				expect(page.incomplete).toBe(mode === 'snapshot')
+				excluded += page.excludedSummaries ?? 0
+				found.push(...page.matches)
+				cursor = page.nextCursor ?? undefined
+				if (++pages === 1) {
+					expect(page.matches).toEqual([])
+					expect(page.excludedSummaries).toBe(64)
+					expect(cursor).toBeDefined()
+					for (const excludeDerivedSummaries of [undefined, false])
+						await expect(
+							f.source.search({ query: 'ORCHID', cursor, excludeDerivedSummaries }),
+						).rejects.toThrow('Search cursor query changed')
+				}
+				expect(pages).toBeLessThan(12)
+			} while (cursor)
+			expect(excluded).toBe(70)
+			expect(found.map((m) => m.part)).toEqual([70, 71, 72, 73])
+			expect((await f.source.read({ address: found[1]!.address })).text).toBe('ORCHID original A17')
+			if (archived) await expect(f.source.read({ address: known.address })).rejects.toThrow()
+			else
+				expect((await f.source.read({ address: known.address })).text).toContain('ORCHID summary 0')
+		}
+	},
+)
+
+it.each(['live', 'closed', 'snapshot'] as const)(
 	'preserves summary provenance and addresses without classifying lookalike prose (%s)',
 	async (mode) => {
 		for (const archived of [false, true]) {

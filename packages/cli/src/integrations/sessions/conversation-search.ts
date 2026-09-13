@@ -72,8 +72,15 @@ function queryIdentity(
 	terms: readonly string[],
 	excluded: string | undefined,
 	tools: readonly string[],
+	excludeDerivedSummaries = false,
 ) {
-	return JSON.stringify([kind, terms, excluded, ...(tools.length ? [tools] : [])])
+	return JSON.stringify([
+		kind,
+		terms,
+		excluded,
+		...(tools.length || excludeDerivedSummaries ? [tools] : []),
+		...(excludeDerivedSummaries ? [true] : []),
+	])
 }
 
 export interface ConversationSearchResult {
@@ -87,6 +94,8 @@ export interface ConversationSearchResult {
 	unavailableRuns: number
 	/** Successful tool outputs omitted by the host's source filter in this page. */
 	excludedToolResults?: number
+	/** Known derived-summary visits omitted by a focused scan. */
+	excludedSummaries?: number
 	/** Opaque continuation, valid for this process and query for ten minutes. */
 	nextCursor?: string
 }
@@ -229,6 +238,7 @@ export function retainLiveConversationSearch(
 	omitted = false,
 	matchMode: 'literal' | 'token' = 'literal',
 	excludeSuccessfulTools?: readonly string[],
+	excludeDerivedSummaries = false,
 ): string {
 	if (typeof indexCursor !== 'string' || !indexCursor.length || indexCursor.length > 4096)
 		throw new Error('Invalid live evidence continuation.')
@@ -239,6 +249,7 @@ export function retainLiveConversationSearch(
 			[...new Set(terms)].sort(),
 			undefined,
 			excludedTools(excludeSuccessfulTools),
+			excludeDerivedSummaries,
 		),
 		caseSensitive: false,
 		matchMode,
@@ -539,7 +550,11 @@ function textEvents(
 		} else if (event.type === 'compaction_shed') {
 			if (!Array.isArray(event.messages)) throw new Error('Invalid shed messages.')
 			for (const message of event.messages) {
-				if (!record(message) || typeof message.role !== 'string')
+				if (
+					!record(message) ||
+					typeof message.role !== 'string' ||
+					!['system', 'user', 'assistant', 'tool'].includes(message.role)
+				)
 					throw new Error('Invalid shed message.')
 				// Rich text requires the scoped SDK index. This legacy projection
 				// must not claim that ignoring a block array was a complete scan.
@@ -547,7 +562,7 @@ function textEvents(
 				if (typeof message.content === 'string')
 					result.push({
 						seq,
-						source: `compaction_shed:${message.role}`,
+						source: `compaction_shed:${message.role === 'system' && record(message.source) && message.source.type === 'compaction-summary' ? 'summary' : message.role}`,
 						recordedAt,
 						text: message.content,
 					})
@@ -586,6 +601,7 @@ export async function searchConversationTerms(
 		cursor?: string
 		matchMode?: 'literal' | 'token'
 		excludeSuccessfulTools?: readonly string[]
+		excludeDerivedSummaries?: boolean
 	},
 	signal?: AbortSignal,
 ): Promise<ConversationSearchResult> {
@@ -604,6 +620,7 @@ async function searchConversationCore(
 		caseSensitive?: boolean
 		matchMode?: 'literal' | 'token'
 		excludeSuccessfulTools?: readonly string[]
+		excludeDerivedSummaries?: boolean
 		runId?: string
 		limit?: number
 		cursor?: string
@@ -617,7 +634,7 @@ async function searchConversationCore(
 	// multi-term scan. A model need not reconstruct it or restart the first page.
 	if (input.cursor && input.query === undefined && input.terms === undefined) {
 		const stored = decodeCursor(input.cursor, conversationScope(sessions, sessionId))
-		const [kind, terms, excluded, tools] = JSON.parse(stored.query)
+		const [kind, terms, excluded, tools, summaries] = JSON.parse(stored.query)
 		if (!['literal', 'terms'].includes(kind) || !Array.isArray(terms))
 			throw new Error('This is not a conversation search cursor.')
 		input = {
@@ -625,6 +642,7 @@ async function searchConversationCore(
 			...(kind === 'terms' ? { terms } : { query: terms[0] }),
 			excludeRunId: input.excludeRunId ?? excluded ?? undefined,
 			excludeSuccessfulTools: input.excludeSuccessfulTools ?? tools,
+			excludeDerivedSummaries: input.excludeDerivedSummaries ?? summaries,
 			caseSensitive: input.caseSensitive ?? stored.caseSensitive,
 			matchMode: input.matchMode ?? stored.matchMode,
 		}
@@ -644,11 +662,15 @@ async function searchConversationCore(
 		throw new Error('Invalid evidence read ceiling.')
 	const excluded = input.excludeRunId === undefined ? undefined : asRunId(input.excludeRunId)
 	const excludeSuccessfulTools = excludedTools(input.excludeSuccessfulTools)
+	const excludeDerivedSummaries = input.excludeDerivedSummaries ?? false
+	if (typeof excludeDerivedSummaries !== 'boolean')
+		throw new Error('excludeDerivedSummaries must be a boolean.')
 	const queryKey = queryIdentity(
 		input.terms ? 'terms' : 'literal',
 		terms,
 		excluded,
 		excludeSuccessfulTools,
+		excludeDerivedSummaries,
 	)
 	const caseSensitive = input.caseSensitive ?? false
 	if (typeof caseSensitive !== 'boolean') throw new Error('caseSensitive must be a boolean.')
@@ -690,6 +712,9 @@ async function searchConversationCore(
 			' This recall scan matches complete Unicode letter/number/underscore tokens, using lowercase keys when case-insensitive.'
 	if (excludeSuccessfulTools.length)
 		result.guidance += ` Successful results from ${JSON.stringify(excludeSuccessfulTools)} are excluded from this scan; errors and unknown sources remain. A new literal search without this cursor can inspect excluded results.`
+	if (excludeDerivedSummaries)
+		result.guidance +=
+			' This focused scan excludes known derived summaries. A new literal search without this cursor includes them; this scan cannot establish their absence.'
 	const scope = conversationScope(sessions, sessionId)
 	let cursor: SearchCursor
 	if (input.cursor) {
@@ -774,6 +799,7 @@ async function searchConversationCore(
 						caseSensitive,
 						matchMode,
 						excludeSuccessfulTools,
+						excludeDerivedSummaries,
 						cursor: cursor.indexCursor,
 						limit: Math.min(3, limit - result.matches.length),
 					},
@@ -782,6 +808,8 @@ async function searchConversationCore(
 				result.scannedBytes += page.scannedBytes
 				if (page.excludedToolResults)
 					result.excludedToolResults = (result.excludedToolResults ?? 0) + page.excludedToolResults
+				if (page.excludedSummaries)
+					result.excludedSummaries = (result.excludedSummaries ?? 0) + page.excludedSummaries
 				result.scannedRuns++
 				const indexedMatches = page.matches.map((match) => ({
 					runId,
@@ -825,6 +853,10 @@ async function searchConversationCore(
 					result.scannedBytes += bytes
 				},
 				(event) => {
+					if (excludeDerivedSummaries && event.source === 'compaction_shed:summary') {
+						result.excludedSummaries = (result.excludedSummaries ?? 0) + 1
+						return true
+					}
 					if (
 						event.isError === false &&
 						event.toolName !== undefined &&

@@ -94,6 +94,24 @@ search remains unfiltered. Older unmarked summaries are not guessed from prose.
 The [CLI comparison](../../research/conversation-evidence/summary-evidence-results.md)
 records the case where four derived summaries displaced a retrieved original.
 
+If a partial CLI discovery page includes known summaries, the host may spend
+its existing refinement page on the same terms with
+`excludeDerivedSummaries: true`. This changes source selection before passage
+slots are consumed, allowing retrieval to traverse repeated summary records.
+It retains the general cursor and already returned summaries, so a summary-only
+archive can still contribute evidence. When the focused scan finishes, any
+remaining pages resume the general cursor. This takes the place of lexical
+term refinement for that source class; it does not add another scan or page.
+The combined four-page and 8 MiB limits remain. Large excluded spans can still
+exhaust discovery; the focused and general continuations remain distinct.
+
+Optional `EvidenceRecallBatch.excludedSummaries` carries nonnegative safe-integer
+scan-visit counts into bounded context with source-selection guidance, even when
+no passage is returned. It is not a unique-fact count or proof of absence. The
+[CLI discovery experiment](../../research/conversation-evidence/summary-discovery-results.md)
+compares the previous twenty-summary failure and verifies recovery past seventy
+summaries, including an empty filtered index page.
+
 `recordedAt` is optional recorder wall-clock Unix milliseconds, not fact time.
 Explicit callback values must be positive integer milliseconds within the JavaScript
 Date range; omit unknown times rather than returning a zero sentinel. Invalid
