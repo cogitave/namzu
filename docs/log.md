@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Add a shared [resident evidence read budget](sdk/retained-tool-evidence.md#optional-shared-resident-read-budget), preserving declared resolution costs, scope agreement and late-result cancellation; verify separate CLI admissions with bounded search and exact reads.
+
 - **Update** Add per-call read allowances to [resident history](sdk/resident-recall.md) and [retained evidence](sdk/retained-tool-evidence.md), preserving source ceilings, continuation identity and live ownership checks as foundations for composed resident recall.
 
 - **Update** Preserve bounded literal [evidence retrieval](sdk/evidence-recall.md) after optional query planning fails, keeping diagnostics and source validation while sharing context limits; compare real compacted CLI recovery and terminal behavior.

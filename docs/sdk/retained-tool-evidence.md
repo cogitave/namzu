@@ -487,8 +487,8 @@ the same source, query and ownership checks still apply. A page can stop before
 the next record fits, or a read can fail because a required record exceeds the
 remaining allowance. Neither means that the requested text is absent. Callers
 must account for failed reads conservatively when no byte receipt is returned.
-These low-level ceilings do not yet combine the separate resident history,
-attempt-resolution and run-source reads into one resident operation budget.
+The resident wrapper can additionally combine history, attempt resolution and
+run-source allowances through the explicit operation budget described below.
 
 `run.json` is limited to 512 KiB; one transcript record and one spill manifest
 are each limited to 4 MiB. Manifests accept at most 4,096 chunks; the encoded
@@ -529,6 +529,52 @@ resident continuation cursor. History scanning has its own 32-revision/8 MiB
 bound, reported as `historyBytes`; this is in addition to the run-source bound.
 Missing attempt bindings mark the revision unavailable and allow traversal of
 earlier history. Reads reauthorize the settlement and attempt on every call.
+
+Returned search/read pages must agree with all four fields of the resolved
+invocation's owner: tenant, project, Session and run. A matching source object
+does not excuse a page identifying another invocation. Cancellation is checked
+again after resolution and after backend reads, including when a custom backend
+returns despite its signal. Matching identity fields alone do not authenticate
+arbitrary text supplied by trusted host code.
+
+### Optional shared resident read budget
+
+`ResidentToolEvidenceSearchOptions.maxReadBytes` and
+`ResidentToolEvidenceReadOptions.maxReadBytes` cap the combined operation rather
+than just the underlying run read. A bounded call requires the source factory's
+`resolutionReadBytes`: the host-enforced maximum encoded document bytes read by
+`resolveRun`. Zero asserts that resolution reads no documents. The declaration
+is charged in full, not presented as measured bytes. A custom resolver must
+enforce its bound; the SDK cannot inspect arbitrary callback I/O.
+
+The operation's allowance is a positive integer no greater than 8 MiB, with
+enough room for the declared resolution allowance, at least 1 MiB for the run
+reader and at least one byte for history. Invalid or insufficient allowances,
+and absent resolution declarations, are refused before history I/O. History
+receives the remainder after these reservations. Its actual returned read count
+is charged, resolution's declared allowance is charged if an invocation is
+selected, and the run reader receives the still-available budget. The source's
+own run-read ceiling can lower that value further.
+
+Bounded results carry `chargedBytes`, including these three stages. Existing
+`historyBytes` and run `scannedBytes` remain their measured component counts.
+When source resolution or run search throws without a valid byte receipt, the
+search charges the whole remaining allowance, marks the revision unavailable
+and returns no evidence from it. A thrown history operation or exact read returns
+no total receipt: a composing caller must conservatively charge its entire
+admitted allowance. Returned invalid costs are refused, not subtracted.
+
+This accounts encoded history, resolution documents and archive/index reads.
+It does not measure physical filesystem blocks, SQLite index/page traffic,
+metadata syscalls, parsing heap expansion or index writes. In the CLI,
+resolution reserves two 64 KiB attempt documents, whose sizes are checked before
+allocation/read; the existing Session ownership lookup is also preserved.
+An incomplete page or continuation does not prove absence. Changing an allowance
+does not change cursor scope. Calls omitting the operation budget retain their
+separate existing limits and omit `chargedBytes`.
+
+These are host-side controls. The model-facing resident tool schemas do not add
+a budget parameter. Automatic resident preparation is a separate integration.
 
 `buildResidentToolEvidenceTools(resolveSource)` mounts `search_resident_tools`
 and `read_resident_tool`. The host must validate the executing `ToolContext`

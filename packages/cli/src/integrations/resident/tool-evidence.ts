@@ -12,6 +12,8 @@ import {
 import { CliPathBuilder } from '../sessions/paths.js'
 import type { CliSessions } from '../sessions/store.js'
 
+const ATTEMPT_DOCUMENT_BYTES = 65_536
+
 function identity(value: unknown) {
 	if (!value || typeof value !== 'object') throw new Error('Invalid attempt receipt.')
 	const v = value as Record<string, unknown>
@@ -46,7 +48,8 @@ async function receipt(root: string, path: string, signal?: AbortSignal): Promis
 	const file = await open(path, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
 	try {
 		const before = await file.stat()
-		if (!before.isFile() || before.size > 65_536) throw new Error('Invalid attempt receipt size.')
+		if (!before.isFile() || before.size > ATTEMPT_DOCUMENT_BYTES)
+			throw new Error('Invalid attempt receipt size.')
 		const bytes = Buffer.alloc(before.size)
 		let offset = 0
 		while (offset < bytes.length) {
@@ -81,6 +84,9 @@ export function residentToolEvidence(
 	return createResidentToolEvidenceSource({
 		history,
 		projectId: sessions.projectId,
+		// Start and finish documents are size-checked before reading. Reserve
+		// their upper bound, not a fabricated measurement of database/stat I/O.
+		resolutionReadBytes: 2 * ATTEMPT_DOCUMENT_BYTES,
 		async resolveRun(settled, signal) {
 			const claimId = settled.claimId
 			if (!isEntityId(claimId, 'run')) throw new Error('Invalid claim id.')

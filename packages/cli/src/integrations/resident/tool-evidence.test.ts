@@ -128,6 +128,20 @@ it.each(['resident', 'interactive'] as const)(
 		expect(page.incomplete).toBe(false)
 		expect(page.evidence?.matches[0]?.excerpt).toContain(receipt)
 		const match = page.evidence!.matches[0]!
+		const bounded = await source.search({ query: 'DELTA', maxReadBytes: 2 * 1024 * 1024 })
+		expect(bounded.evidence?.matches[0]?.excerpt).toContain(receipt)
+		expect(bounded.chargedBytes).toBe(
+			bounded.historyBytes + 2 * 65_536 + (bounded.evidence?.scannedBytes ?? 0),
+		)
+		expect(bounded.chargedBytes).toBeLessThanOrEqual(2 * 1024 * 1024)
+		const boundedRead = await source.read({
+			revision: firstRevision,
+			address: match.address,
+			byteOffset: match.byteOffset,
+			maxReadBytes: 2 * 1024 * 1024,
+		})
+		expect(boundedRead.text).toContain(receipt)
+		expect(boundedRead.chargedBytes).toBeLessThanOrEqual(2 * 1024 * 1024)
 		const reader = new MockLLMProvider({
 			turns: [
 				{

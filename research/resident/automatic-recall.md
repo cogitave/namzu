@@ -67,3 +67,58 @@ passed (6,709 SDK tests; 3,018 CLI tests and five existing skips). Documentation
 conformance/fences, signature exports, test presence and project references also
 passed. Lint retains existing warnings. These are development checks, not a
 complete release-gate run; no publication or live-model recall claim is made.
+
+## Combined resident operation allowance
+
+The next increment adds an explicit resident operation ceiling. Before history
+I/O it reserves the host-declared resolution document bound and at least 1 MiB
+for the archive reader. History receives the rest; its actual byte receipt then
+determines the archive's remaining allowance. The returned `chargedBytes` counts
+actual history/archive reads plus the declared resolution ceiling. The latter
+is conservative accounting, not a measurement. CLI resolution declares the two
+64 KiB start/finish document limits already enforced before reading. Existing
+Session ownership checks remain; SQLite page traffic and metadata syscalls are
+not a physical-disk measurement within these encoded-document counts.
+
+Missing resolution declarations are refused before I/O. A failed resolution or
+archive search without a reliable receipt consumes the remaining allowance;
+failed history/exact reads still throw, requiring the caller to charge their
+whole admission. A budget stop in history retains its continuation. Returned
+page ownership is checked against the resolved invocation, and late results are
+rejected after cancellation even if the backend ignores the signal. These
+scope/cancellation checks also cover calls without the new budget option.
+
+The initial 11 regressions failed on the previous implementation. The expanded
+suite covers all four owner fields with and without a budget, invalid costs and
+limits, conservative failure charging, no-I/O refusal and resuming after a
+history budget stop. Real CLI Session tests cover both resident and interactive
+profiles with a 2 MiB combined allowance and a replaced workspace file.
+
+The existing process driver now has a fully scripted recovery mode:
+
+```sh
+node research/resident/tool-evidence-cli.mjs --scripted --bounded-reads
+node research/resident/tool-evidence-cli.mjs --scripted --bounded-reads --interactive
+```
+
+It creates an isolated home, executes an actual original read through the CLI
+resident callback, settles that admission, replaces the workspace document and
+wakes the pursuit. Another process enters through `resident run`. A test-only
+tool wrapper supplies the 2 MiB host option after model-input validation; the
+production resolver, source, readers and accounting execute normally. Scripted
+model decisions call search/read explicitly. They do not test automatic query
+selection or model quality. Two different Session IDs and confirmed cleanup are
+required; after completion, another CLI command must admit no extra step.
+Production module hashes must remain stable. No live provider credit is spent.
+
+Automatic preparation, query selection, shared ranking across original Session
+addresses and the bounded live comparison remain required work for this goal.
+
+Both scripted process probes passed: two admissions in distinct Sessions, only
+archive search/read on recovery, and no extra step after terminal reopening.
+Each search charged 435,118 bytes and each exact read 318,228 bytes under
+its 2 MiB allowance; provider usage was zero. All six production module hashes
+remained unchanged during each probe. See [the compact results](operation-budget-results.json).
+Workspace typecheck, build, lint and all package tests passed, along with
+docs conformance/fences, signature exports, test presence and project references.
+These are development checks, not all release gates.

@@ -54,6 +54,10 @@ if (process.argv[2] === '--seed') {
   console.log(JSON.stringify({ tracking, destination, revision: (await resident.agenda.read()).revision, claimId: claim.claimId, start, runDir, originalNotInPreview: true, seededWith: 'scripted provider, real CLI resident callback and read tool' }));
 } else {
   const live = process.argv.includes('--live');
+  const scripted = process.argv.includes('--scripted');
+  const boundedReads = process.argv.includes('--bounded-reads');
+  if (live && scripted) throw new Error('Choose live or scripted recovery.');
+  if (boundedReads && !scripted) throw new Error('--bounded-reads requires --scripted.');
   const profile = process.argv.includes('--interactive') ? 'interactive' : 'resident';
   const exec = promisify(execFile);
   const root = await mkdtemp(join(tmpdir(), 'namzu-tool-evidence-cli-'));
@@ -63,12 +67,53 @@ if (process.argv[2] === '--seed') {
   await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\n');
   const cli = fileURLToPath(new URL('../../packages/cli/dist/bin.js', import.meta.url));
   const env = { ...process.env, NAMZU_HOME: home };
-  const report = { root, live, profile, provider: 'codex', model: 'gpt-5.6-luna', effort: 'low', commands: [] };
+  const report = { root, live, scripted, boundedReads, profile, provider: 'codex', model: 'gpt-5.6-luna', effort: 'low', commands: [] };
+  const preload = join(root, 'scripted-recovery.mjs');
+  if (scripted) await writeFile(preload, `
+import assert from 'node:assert/strict';
+import { ProviderRegistry, MockLLMProvider, ToolRegistry } from ${JSON.stringify(new URL('../../packages/sdk/dist/index.js', import.meta.url).href)};
+const parse = value => { const text=String(value); return JSON.parse(text.slice(text.indexOf('{'),text.lastIndexOf('}')+1)); };
+if (${boundedReads}) {
+ const register=ToolRegistry.prototype.register;
+ const wrap=tool=>{
+  if(!['search_resident_tools','read_resident_tool'].includes(tool?.name))return tool;
+  const execute=tool.execute;
+  return {...tool,execute:async(input,context)=>{
+   const result=await execute({...input,maxReadBytes:2*1024*1024},context);
+   assert.equal(result.success,true);
+   const page=JSON.parse(result.output);
+   assert.ok(Number.isSafeInteger(page.chargedBytes)&&page.chargedBytes>=0&&page.chargedBytes<=2*1024*1024);
+   return result;
+  }};
+ };
+ ToolRegistry.prototype.register=function(first,second){
+  if(Array.isArray(first))return register.call(this,first.map(wrap),second);
+  if(typeof first==='string')return register.call(this,first,wrap(second));
+  return register.call(this,wrap(first),second);
+ };
+}
+ProviderRegistry.create=()=>({provider:{id:'scripted',name:'scripted',async *chatStream(params){
+ const last=params.messages.filter(m=>m.role==='tool').at(-1);let turn;
+ if(!last)turn={toolCalls:[{id:'search',name:'search_resident_tools',args:{query:'DELTA'}}]};
+ else {
+  const page=parse(last.content);
+  if(last.toolCallId.startsWith('search')) {
+   const match=page.evidence?.matches[0];
+   if(match)turn={toolCalls:[{id:'read-original',name:'read_resident_tool',args:{revision:page.revision,address:match.address,byteOffset:match.byteOffset}}]};
+   else {assert.ok(page.nextCursor);turn={toolCalls:[{id:'search-'+params.messages.length,name:'search_resident_tools',args:{query:'DELTA',cursor:page.nextCursor}}]};}
+  } else turn={text:JSON.stringify({kind:'complete',summary:page.text})};
+ }
+ yield* new MockLLMProvider({turns:[turn]}).chatStream(params);
+}}});
+`);
+  const builtPaths=['packages/sdk/dist/manager/resident/history.js','packages/sdk/dist/manager/resident/tool-evidence.js','packages/sdk/dist/store/evidence/disk.js','packages/sdk/dist/store/evidence/linked.js','packages/cli/dist/integrations/resident/tool-evidence.js','packages/cli/dist/integrations/resident/session-step.js'];
+  const builtHashes=async()=>Object.fromEntries(await Promise.all(builtPaths.map(async path=>[path,createHash('sha256').update(await readFile(new URL('../../'+path,import.meta.url))).digest('hex')])));
   async function command(args) {
-    const { stdout } = await exec(process.execPath, [cli, '--quiet', '--format', 'json', 'resident', ...args, '--cwd', cwd], { cwd, env, timeout: 180_000, maxBuffer: 3_000_000 });
+    const { stdout } = await exec(process.execPath, [...(scripted&&args[0]==='run'?['--import',preload]:[]),cli, '--quiet', '--format', 'json', 'resident', ...args, '--cwd', cwd], { cwd, env, timeout: 180_000, maxBuffer: 3_000_000 });
     const result = JSON.parse(stdout); report.commands.push({ args, result }); return result;
   }
   try {
+    report.buildBefore=await builtHashes();
     const added = await command(['add', '--trust', 'Recover the exact tracking code and destination from the original DELTA receipt after the recipient confirms. The receipt was previously observed by a tool, but its workspace file can change. Use retained original tool text, reading the relevant original passage before reporting. Do not send anything, edit files, run commands, or reread the mutable workspace file. Complete only with both exact identifiers.']);
     const id = added.agenda.pursuits[0].id;
     const seeded = await exec(process.execPath, [fileURLToPath(import.meta.url), '--seed', cwd], { cwd, env, timeout: 30_000, maxBuffer: 1_000_000 });
@@ -76,20 +121,21 @@ if (process.argv[2] === '--seed') {
     const status = await command(['status']);
     assert.ok(!JSON.stringify(status.agenda.pursuits[0].state).includes(report.seed.tracking));
     await command(['wake', id, 'The recipient confirms DELTA. Recover the original recorded tool receipt and report its exact tracking code and destination now.']);
-    if (live) {
+    if (live || scripted) {
       const finished = await command(['run', '--trust', '--max-steps', '1', '--provider', 'codex', '--model', 'gpt-5.6-luna', '--effort', 'low', '--context-profile', profile, '--tool-loading', 'deferred', '--max-iterations', '8', '--token-budget', '40000']);
       const state = finished.agenda.pursuits[0].state;
       report.observed = { phase: state.phase, summary: state.summary };
       assert.equal(state.phase, 'complete');
       assert.ok(state.summary.includes(report.seed.tracking));
       assert.ok(state.summary.includes(report.seed.destination));
-      const starts = []; const finishes = []; const tools = [];
+      const starts = []; const finishes = []; const tools = []; const runs=[];
       async function collect(directory) {
         for (const entry of await readdir(directory, { withFileTypes: true })) {
           const path = join(directory, entry.name);
           if (entry.isDirectory()) await collect(path);
           else if (entry.name === 'start.json') starts.push(JSON.parse(await readFile(path, 'utf8')));
           else if (entry.name === 'finish.json') finishes.push(JSON.parse(await readFile(path, 'utf8')));
+          else if (entry.name === 'run.json') runs.push(JSON.parse(await readFile(path,'utf8')));
           else if (entry.name === 'transcript.jsonl')
             for (const line of (await readFile(path, 'utf8')).trim().split('\n')) {
               const event = JSON.parse(line);
@@ -99,6 +145,8 @@ if (process.argv[2] === '--seed') {
       }
       await collect(join(home, 'sessions')); await collect(join(home, 'residents'));
       report.starts = starts; report.finishes = finishes; report.toolEvents = tools;
+      report.providerTokens=runs.reduce((total,run)=>total+(run.tokenUsage?.totalTokens??0),0);
+      if(scripted)assert.equal(report.providerTokens,0);
       assert.equal(starts.length, 2);
       assert.equal(new Set(starts.map(start => start.sessionId)).size, 2);
       assert.ok(finishes.every(finish => finish.cleanup === 'confirmed' && finish.stopReason === 'end_turn'));
@@ -109,12 +157,14 @@ if (process.argv[2] === '--seed') {
       assert.ok(calls.includes('read_resident_tool'));
       assert.ok(calls.every(name => ['search_resident_tools', 'read_resident_tool', 'search_resident_history', 'read_resident_history'].includes(name)));
       assert.ok(liveTools.filter(event => event.type === 'tool_completed').every(event => !event.isError));
+      if(boundedReads){report.readCharges=liveTools.filter(event=>event.type==='tool_completed').map(event=>({tool:event.toolName,chargedBytes:JSON.parse(event.result).chargedBytes}));assert.ok(report.readCharges.every(row=>Number.isSafeInteger(row.chargedBytes)&&row.chargedBytes<=2*1024*1024));}
       assert.equal(tools.filter(event => event.type === 'tool_executing' && event.toolName === 'read').length, 1);
       assert.match(await readFile(join(cwd, 'manifest.txt'), 'utf8'), /^Manually replaced/);
       const idle = await command(['run', '--trust', '--max-steps', '1']);
       assert.equal(idle.agenda.pursuits[0].state.stepsAdmitted, 2);
       report.observed.terminalReopenAdmittedNoStep = true;
     }
+    report.buildAfter=await builtHashes();assert.deepEqual(report.buildAfter,report.buildBefore);
     report.passed = true;
   } catch (error) {
     report.passed = false; report.error = error instanceof Error ? error.message : String(error); process.exitCode = 1;

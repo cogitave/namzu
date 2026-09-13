@@ -547,6 +547,7 @@ export type {
 	ResidentToolEvidenceScope,
 	ResidentSettledInvocation,
 	ResidentToolEvidenceOptions,
+	ResidentToolEvidenceSearchOptions,
 	ResidentToolEvidenceSearchResult,
 	ResidentToolEvidenceReadOptions,
 	ResidentToolEvidenceReadResult,

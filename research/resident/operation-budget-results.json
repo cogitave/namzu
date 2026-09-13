@@ -1,0 +1,85 @@
+{
+  "description": "Scripted actual CLI process recovery; no automatic selection or live inference.",
+  "runs": [
+    {
+      "root": "/tmp/namzu-tool-evidence-cli-9OrN4X",
+      "scripted": true,
+      "boundedReads": true,
+      "profile": "resident",
+      "passed": true,
+      "providerTokens": 0,
+      "readCharges": [
+        {
+          "tool": "search_resident_tools",
+          "chargedBytes": 435118
+        },
+        {
+          "tool": "read_resident_tool",
+          "chargedBytes": 318228
+        }
+      ],
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "34ccd7add08fd13f21bd59d2f4747f370afed37362603f48b604c86b4551231d",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "9567ae522680083e5213949509526cca7d9e3cb4281dc6b7187e121cc654432c"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "34ccd7add08fd13f21bd59d2f4747f370afed37362603f48b604c86b4551231d",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "9567ae522680083e5213949509526cca7d9e3cb4281dc6b7187e121cc654432c"
+      },
+      "tools": [
+        "search_resident_tools",
+        "read_resident_tool"
+      ],
+      "terminalReopenAdmittedNoStep": true,
+      "sessions": 2
+    },
+    {
+      "root": "/tmp/namzu-tool-evidence-cli-8gzB75",
+      "scripted": true,
+      "boundedReads": true,
+      "profile": "interactive",
+      "passed": true,
+      "providerTokens": 0,
+      "readCharges": [
+        {
+          "tool": "search_resident_tools",
+          "chargedBytes": 435118
+        },
+        {
+          "tool": "read_resident_tool",
+          "chargedBytes": 318228
+        }
+      ],
+      "buildBefore": {
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "34ccd7add08fd13f21bd59d2f4747f370afed37362603f48b604c86b4551231d",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "9567ae522680083e5213949509526cca7d9e3cb4281dc6b7187e121cc654432c"
+      },
+      "buildAfter": {
+        "packages/sdk/dist/manager/resident/history.js": "52b7b2d8750ddc8b6238acdcaa417f45dbbb2c4ef86aa4d36d1fac92451f3d34",
+        "packages/sdk/dist/manager/resident/tool-evidence.js": "34ccd7add08fd13f21bd59d2f4747f370afed37362603f48b604c86b4551231d",
+        "packages/sdk/dist/store/evidence/disk.js": "3465382e6ee775640f8d017cddddf9e55ed332725758c74dde17b5083daae439",
+        "packages/sdk/dist/store/evidence/linked.js": "e49234d79a5e6b78917110948370d8f3851fafe917b6684d7608ea9ebda07dfc",
+        "packages/cli/dist/integrations/resident/tool-evidence.js": "2b4860e36c15e305320b1d7d1a157e614c4218a4fa64c157788d56a9f8f60526",
+        "packages/cli/dist/integrations/resident/session-step.js": "9567ae522680083e5213949509526cca7d9e3cb4281dc6b7187e121cc654432c"
+      },
+      "tools": [
+        "search_resident_tools",
+        "read_resident_tool"
+      ],
+      "terminalReopenAdmittedNoStep": true,
+      "sessions": 2
+    }
+  ]
+}

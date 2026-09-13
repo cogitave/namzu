@@ -24,10 +24,21 @@ export type ResidentSettledInvocation = Pick<
 export interface ResidentToolEvidenceOptions {
 	readonly history: ResidentHistorySource
 	readonly projectId: string
+	/** Host-enforced upper bound for resolveRun's document reads, charged in full.
+	 * Required only when an operation supplies maxReadBytes. Zero asserts no
+	 * document reads. This is a declared bound, not a measured receipt.
+	 */
+	readonly resolutionReadBytes?: number
 	readonly resolveRun: (
 		settled: ResidentSettledInvocation,
 		signal?: AbortSignal,
 	) => Promise<RunEvidenceSource>
+}
+/** @experimental An optional shared ceiling covers history, resolution and run evidence. */
+export interface ResidentToolEvidenceSearchOptions {
+	readonly query?: string
+	readonly cursor?: string
+	readonly maxReadBytes?: number
 }
 /** @experimental Tool records from at most one settled invocation per bounded search page. */
 export interface ResidentToolEvidenceSearchResult {
@@ -39,22 +50,29 @@ export interface ResidentToolEvidenceSearchResult {
 	readonly incomplete: boolean
 	readonly unavailableRevisions: readonly number[]
 	readonly historyBytes: number
+	/** Present for bounded calls: history + declared resolution + run reads.
+	 * Failed source reads without a receipt conservatively consume the remainder.
+	 */
+	readonly chargedBytes?: number
 }
 /** @experimental The revision is authorized anew on every read, including after restart. */
 export interface ResidentToolEvidenceReadOptions
 	extends Omit<RunEvidenceReadOptions, 'maxReadBytes'> {
 	readonly revision: number
+	/** Shared operation ceiling, at most 8 MiB; reserves at least 1 MiB for run reads. */
+	readonly maxReadBytes?: number
 }
 /** @experimental Exact invocation text plus the settled claim that authorized access. */
 export interface ResidentToolEvidenceReadResult extends RunEvidenceReadResult {
 	readonly revision: number
 	readonly claimId: string
+	readonly chargedBytes?: number
 }
 /** @experimental A host must bind tool access to the executing run, not just this source. */
 export interface ResidentToolEvidenceSource {
 	readonly scope: ResidentToolEvidenceScope
 	search(
-		options?: { query?: string; cursor?: string },
+		options?: ResidentToolEvidenceSearchOptions,
 		signal?: AbortSignal,
 	): Promise<ResidentToolEvidenceSearchResult>
 	read(
@@ -68,6 +86,53 @@ export function createResidentToolEvidenceSource(
 	options: ResidentToolEvidenceOptions,
 ): ResidentToolEvidenceSource {
 	const { history, resolveRun } = options
+	const resolutionReadBytes = z
+		.number()
+		.int()
+		.min(0)
+		.max(8 * 1024 * 1024)
+		.optional()
+		.parse(options.resolutionReadBytes)
+	function operationBudget(maxReadBytes: number | undefined) {
+		if (maxReadBytes === undefined) return undefined
+		if (resolutionReadBytes === undefined)
+			throw new Error('Bounded resident retrieval requires a declared resolution read bound.')
+		const limit = z
+			.number()
+			.int()
+			.positive()
+			.max(8 * 1024 * 1024)
+			.parse(maxReadBytes)
+		const historyLimit = limit - resolutionReadBytes - 1024 * 1024
+		if (historyLimit < 1)
+			throw new Error('Resident read budget cannot fit history, resolution and run reads.')
+		let charged = 0
+		return {
+			historyLimit,
+			get remaining() {
+				return limit - charged
+			},
+			get chargedBytes() {
+				return charged
+			},
+			charge(bytes: number, allowance: number) {
+				if (
+					!Number.isSafeInteger(bytes) ||
+					bytes < 0 ||
+					bytes > allowance ||
+					charged + bytes > limit
+				)
+					throw new Error('Resident evidence returned an invalid read budget receipt.')
+				charged += bytes
+			},
+			resolve() {
+				charged += resolutionReadBytes
+			},
+			exhaust() {
+				charged = limit
+			},
+		}
+	}
 	const scope = Object.freeze({
 		...history.scope,
 		projectId: z.string().uuid().parse(options.projectId),
@@ -87,13 +152,36 @@ export function createResidentToolEvidenceSource(
 	async function run(entry: ResidentSettledInvocation, signal?: AbortSignal) {
 		signal?.throwIfAborted()
 		const source = await resolveRun(entry, signal)
+		signal?.throwIfAborted()
 		if (source.scope.tenantId !== scope.tenantId || source.scope.projectId !== scope.projectId)
 			throw new Error('Historical invocation belongs to a different owner.')
-		return source
+		const owner = z
+			.object({
+				tenantId: z.string().uuid(),
+				projectId: z.string().uuid(),
+				sessionId: z.string().uuid(),
+				runId: z.string().uuid(),
+			})
+			.parse(source.scope)
+		return { source, owner }
+	}
+	function assertOwner(
+		page: { scope: RunEvidenceSource['scope'] },
+		owner: RunEvidenceSource['scope'],
+		signal?: AbortSignal,
+	) {
+		signal?.throwIfAborted()
+		if (
+			!page?.scope ||
+			Object.entries(owner).some(([key, value]) => page.scope[key as keyof typeof owner] !== value)
+		)
+			throw new Error('Historical evidence result belongs to a different owner.')
 	}
 	return Object.freeze({
 		scope,
-		async search(input: { query?: string; cursor?: string } = {}, signal?: AbortSignal) {
+		async search(input: ResidentToolEvidenceSearchOptions = {}, signal?: AbortSignal) {
+			signal?.throwIfAborted()
+			const budget = operationBudget(input.maxReadBytes)
 			const query = z
 				.string()
 				.max(256)
@@ -116,13 +204,31 @@ export function createResidentToolEvidenceSource(
 			let historyBytes = 0
 			const unavailable = new Set<number>()
 			if (cursor.runCursor) {
-				const page = await history.read({ revision: cursor.revision, part: 0 }, signal)
+				const page = await history.read(
+					{
+						revision: cursor.revision,
+						part: 0,
+						...(budget ? { maxReadBytes: budget.historyLimit } : {}),
+					},
+					signal,
+				)
+				signal?.throwIfAborted()
+				budget?.charge(page.scannedBytes, budget.historyLimit)
 				selected = page.entry
 				historyBytes += page.scannedBytes
 				for (const missing of page.unavailableRevisions) unavailable.add(missing)
 				nextRevision = cursor.revision > 2 ? cursor.revision - 1 : null
 			} else {
-				const page = await history.search({ cursor: cursor.revision, limit: 1 }, signal)
+				const page = await history.search(
+					{
+						cursor: cursor.revision,
+						limit: 1,
+						...(budget ? { maxReadBytes: budget.historyLimit } : {}),
+					},
+					signal,
+				)
+				signal?.throwIfAborted()
+				budget?.charge(page.scannedBytes, budget.historyLimit)
 				historyBytes += page.scannedBytes
 				for (const missing of page.unavailableRevisions) unavailable.add(missing)
 				nextRevision = page.nextCursor
@@ -134,12 +240,24 @@ export function createResidentToolEvidenceSource(
 			let evidence: RunEvidenceSearchResult | null = null
 			if (selected) {
 				try {
-					evidence = await (await run(selected, signal)).search(
-						{ query, ...(cursor.runCursor ? { cursor: cursor.runCursor } : {}) },
+					budget?.resolve()
+					const { source, owner } = await run(selected, signal)
+					const page = await source.search(
+						{
+							query,
+							...(cursor.runCursor ? { cursor: cursor.runCursor } : {}),
+							...(budget ? { maxReadBytes: budget.remaining } : {}),
+						},
 						signal,
 					)
+					assertOwner(page, owner, signal)
+					budget?.charge(page.scannedBytes, budget.remaining)
+					evidence = page
 				} catch {
 					signal?.throwIfAborted()
+					// A throwing host/source returned no reliable byte receipt. The
+					// caller must not reuse that allowance for another automatic page.
+					budget?.exhaust()
 					unavailable.add(selected.revision)
 				}
 			}
@@ -158,19 +276,41 @@ export function createResidentToolEvidenceSource(
 				incomplete: unavailable.size > 0 || !!evidence?.incomplete,
 				unavailableRevisions: [...unavailable],
 				historyBytes,
+				...(budget ? { chargedBytes: budget.chargedBytes } : {}),
 			}
 		},
 		async read(input: ResidentToolEvidenceReadOptions, signal?: AbortSignal) {
-			const page = await history.read({ revision: revision.parse(input.revision), part: 0 }, signal)
-			if (!page.entry) throw new Error('The requested settled claim is unavailable.')
-			const result = await (await run(page.entry, signal)).read(
+			signal?.throwIfAborted()
+			const budget = operationBudget(input.maxReadBytes)
+			const page = await history.read(
 				{
-					address: input.address,
-					...(input.byteOffset !== undefined ? { byteOffset: input.byteOffset } : {}),
+					revision: revision.parse(input.revision),
+					part: 0,
+					...(budget ? { maxReadBytes: budget.historyLimit } : {}),
 				},
 				signal,
 			)
-			return { ...result, revision: page.entry.revision, claimId: page.entry.claimId }
+			signal?.throwIfAborted()
+			budget?.charge(page.scannedBytes, budget.historyLimit)
+			if (!page.entry) throw new Error('The requested settled claim is unavailable.')
+			budget?.resolve()
+			const { source, owner } = await run(page.entry, signal)
+			const result = await source.read(
+				{
+					address: input.address,
+					...(input.byteOffset !== undefined ? { byteOffset: input.byteOffset } : {}),
+					...(budget ? { maxReadBytes: budget.remaining } : {}),
+				},
+				signal,
+			)
+			assertOwner(result, owner, signal)
+			budget?.charge(result.scannedBytes, budget.remaining)
+			return {
+				...result,
+				revision: page.entry.revision,
+				claimId: page.entry.claimId,
+				...(budget ? { chargedBytes: budget.chargedBytes } : {}),
+			}
 		},
 	})
 }
