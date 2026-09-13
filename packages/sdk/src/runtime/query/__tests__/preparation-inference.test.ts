@@ -64,6 +64,38 @@ async function run(
 	return { result, provider }
 }
 
+it('selects final structured text without mixing in commentary and retains all usage', async () => {
+	let calls = 0
+	const provider = new MockLLMProvider()
+	provider.chatStream = async function* () {
+		if (calls++ === 0) {
+			yield { id: 'plan', delta: { content: 'I will resolve this.' } }
+			yield { id: 'plan', delta: { content: '{"mode":"none"}' } }
+			yield {
+				id: 'plan',
+				delta: {},
+				usage: usage(100),
+				textParts: [
+					{ id: 'p', phase: 'commentary', text: 'I will resolve this.' },
+					{ id: 'f', phase: 'final_answer', text: '{"mode":"none"}' },
+				],
+			}
+		} else
+			yield { id: 'main', delta: { content: 'answer' }, usage: usage(20), finishReason: 'stop' }
+	}
+	const { result } = await run(
+		async ({ generateText }) => {
+			const completion = await generateText!(input)
+			expect(JSON.parse(completion.text)).toEqual({ mode: 'none' })
+			return undefined
+		},
+		[],
+		{ provider },
+	)
+	expect(result.tokenUsage.totalTokens).toBe(120)
+	expect(JSON.stringify(result.messages)).not.toContain('I will resolve this.')
+})
+
 it('meters auxiliary inference, follows preceding model selection, and leaves history untouched', async () => {
 	const { result, provider } = await run(
 		[

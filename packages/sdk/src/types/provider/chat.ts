@@ -182,6 +182,8 @@ export interface ChatCompletionResponse {
 	message: {
 		role: 'assistant'
 		content: string | null
+		/** Ordered public text items; content selects explicit final answers when present. */
+		textParts?: readonly import('../message/index.js').AssistantTextPart[]
 		toolCalls?: ToolCall[]
 		/** Reasoning blocks the model emitted, in original block order. */
 		reasoning?: readonly ReasoningBlock[]

@@ -1,4 +1,5 @@
 import type { ChatCompletionParams, StreamChunk } from '@namzu/sdk'
+import { selectAssistantText } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
 import { CodexProvider, toCodexInput } from '../codex.js'
@@ -74,7 +75,10 @@ function assistant(
 ): Extract<ChatCompletionParams['messages'][number], { role: 'assistant' }> {
 	return {
 		role: 'assistant',
-		content: chunks.map((c) => c.delta.content ?? '').join('') || null,
+		content: chunks.at(-1)?.textParts
+			? selectAssistantText(chunks.at(-1)!.textParts!)
+			: chunks.map((c) => c.delta.content ?? '').join('') || null,
+		...(chunks.at(-1)?.textParts ? { textParts: chunks.at(-1)!.textParts } : {}),
 		toolCalls: [
 			{
 				id: call.call_id,
@@ -104,6 +108,35 @@ const toolEvents = [
 ]
 
 describe('Codex finalized output retention', () => {
+	it('separates identical commentary and final items and replays both after persistence', async () => {
+		const progress = {
+			...message,
+			id: 'progress',
+			content: [{ type: 'output_text', text: 'Which record?', annotations: [] }],
+		}
+		const answer = { ...progress, id: 'answer', phase: 'final_answer' }
+		const chunks = await collect(
+			providerFor([
+				{ type: 'response.output_item.added', output_index: 0, item: progress },
+				{ type: 'response.output_text.delta', item_id: progress.id, delta: 'Which record?' },
+				{ type: 'response.output_item.added', output_index: 1, item: answer },
+				{ type: 'response.output_text.delta', item_id: answer.id, delta: 'Which record?' },
+				completed([progress, answer]),
+			]),
+		)
+		expect(chunks.filter((c) => c.delta.content).map((c) => c.delta.textPart?.phase)).toEqual([
+			'commentary',
+			'final_answer',
+		])
+		const saved = { ...assistant(chunks), toolCalls: [] }
+		expect(saved.content).toBe('Which record?')
+		expect(toCodexInput(JSON.parse(JSON.stringify([saved])), route)).toEqual([progress, answer])
+		const modified = {
+			...saved,
+			textParts: saved.textParts!.map((part) => ({ ...part, text: 'Changed' })),
+		}
+		expect(toCodexInput([modified], route)).not.toEqual([progress, answer])
+	})
 	it.each([[], undefined])(
 		'replays completed items when the terminal output is %j',
 		async (output) => {

@@ -377,9 +377,24 @@ export interface ReasoningBlock {
 	readonly encrypted?: string
 }
 
+/** Ordered public assistant text items; these are not private reasoning blocks. */
+export interface AssistantTextPart {
+	readonly id: string
+	readonly text: string
+	readonly phase?: 'commentary' | 'final_answer'
+}
+
+/** Select explicit final answers, retaining unphased behavior when none is identified. */
+export function selectAssistantText(parts: readonly AssistantTextPart[]): string {
+	const final = parts.filter((part) => part.phase === 'final_answer')
+	return (final.length ? final : parts).map((part) => part.text).join('\n\n')
+}
+
 export interface AssistantMessage extends BaseMessage {
 	role: 'assistant'
 	content: string | null
+	/** Original ordered text items, including commentary excluded from the selected answer. */
+	textParts?: readonly AssistantTextPart[]
 	toolCalls?: ToolCall[]
 	/** Which configured model route produced this turn. */
 	source?: AssistantMessageSource
@@ -504,6 +519,7 @@ export function createAssistantMessage(
 	reasoning?: readonly ReasoningBlock[],
 	citations?: readonly Citation[],
 	source?: AssistantMessageSource,
+	textParts?: readonly AssistantTextPart[],
 ): AssistantMessage {
 	return {
 		role: 'assistant',
@@ -512,6 +528,7 @@ export function createAssistantMessage(
 		...(reasoning && reasoning.length > 0 ? { reasoning } : {}),
 		...(citations && citations.length > 0 ? { citations } : {}),
 		...(source ? { source } : {}),
+		...(textParts ? { textParts } : {}),
 		timestamp: Date.now(),
 	}
 }

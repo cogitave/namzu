@@ -464,6 +464,7 @@ type StreamState = {
 	assistantId: string | null
 	/** Provider message boundary, independent of the parent run. */
 	sourceMessageId?: string
+	sourceTextPartId?: string
 	text: string
 	/** Exact provider-visible conversation state returned by the settled kernel run. */
 	conversationMessages?: readonly Message[]
@@ -4009,9 +4010,14 @@ export function App({
 			}
 			switch (event.kind) {
 				case 'delta': {
-					if (event.messageId && st.sourceMessageId !== event.messageId) {
+					if (
+						event.messageId &&
+						(st.sourceMessageId !== event.messageId ||
+							(event.textPart && st.sourceTextPartId !== event.textPart.id))
+					) {
 						if (st.sourceMessageId !== undefined) closeAssistant()
 						st.sourceMessageId = event.messageId
+						st.sourceTextPartId = event.textPart?.id
 					}
 					setState('thinking')
 					if (event.messageId && event.runId && st.sessionId) {
@@ -4292,6 +4298,9 @@ export function App({
 					pushMessage('system', `History warning (${event.source}): ${event.text}`, false, '!')
 					break
 				case 'done': {
+					// Persistence and memory use the settled answer, not concatenated
+					// commentary deltas. The transcript keeps each visible part above.
+					if (event.text !== undefined) st.text = event.text
 					// `run_completed` is not synonymous with success: budgets,
 					// cancellation and output guardrails arrive through this event too.
 					// Missing remains a normal end for older producers, matching the
@@ -4751,6 +4760,7 @@ export function App({
 							applyEvent(event, st)
 							markHumanAbnormal()
 						} else if (event.kind === 'delta') st.text += event.text
+						else if (event.kind === 'done' && event.text !== undefined) st.text = event.text
 					}
 				} else {
 					st.outcome = 'cancelled'

@@ -4,6 +4,7 @@ import {
 	assertNativeStructuredOutputSupported,
 } from '../../../provider/capabilities.js'
 import { isProviderRequestError } from '../../../provider/errors.js'
+import { StreamTextAccumulator } from '../../../provider/stream-text.js'
 import { GENAI, NAMZU, chatSpanName, parentContext } from '../../../telemetry/attributes.js'
 import {
 	recordModelDuration,
@@ -14,7 +15,12 @@ import { getTracer } from '../../../telemetry/runtime-accessors.js'
 import { mergeTokenUsage } from '../../../types/common/index.js'
 import { NamzuError } from '../../../types/errors/index.js'
 import type { ToolUseId } from '../../../types/ids/index.js'
-import type { Citation, Message, ReasoningBlock } from '../../../types/message/index.js'
+import type {
+	AssistantTextPart,
+	Citation,
+	Message,
+	ReasoningBlock,
+} from '../../../types/message/index.js'
 import { ProviderError } from '../../../types/provider/errors.js'
 import type {
 	ChatCompletionResponse,
@@ -102,6 +108,7 @@ async function settleCancelledTurn(args: {
 	messageId: import('../../../types/ids/index.js').MessageId
 	usage: ChatCompletionResponse['usage']
 	text: string
+	textParts?: readonly AssistantTextPart[]
 	model: string
 	startedAt: number
 	span: Span
@@ -126,6 +133,7 @@ async function settleCancelledTurn(args: {
 			stopReason: 'cancelled',
 			usage: args.usage,
 			content: args.text || undefined,
+			...(args.textParts ? { textParts: args.textParts } : {}),
 		})
 	} catch {
 		// Best effort. The cancellation is the news.
@@ -184,7 +192,7 @@ export async function* streamProviderTurn(
 
 	let id = ''
 	const model = ''
-	let textBuf = ''
+	const text = new StreamTextAccumulator()
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
 	let usage: ChatCompletionResponse['usage'] = {
 		promptTokens: 0,
@@ -343,6 +351,7 @@ export async function* streamProviderTurn(
 			}
 			if (!id && chunk.id) id = chunk.id
 			if (chunk.replayState !== undefined) replayState = chunk.replayState
+			text.push(chunk)
 
 			// The first delta of the turn, of ANY kind — text, reasoning or a
 			// tool call. namzu streams, so perceived latency is dominated by
@@ -416,13 +425,13 @@ export async function* streamProviderTurn(
 			}
 
 			if (chunk.delta.content) {
-				textBuf += chunk.delta.content
 				await emitEvent({
 					type: 'text_delta',
 					runId,
 					iteration,
 					messageId,
 					text: chunk.delta.content,
+					...(chunk.delta.textPart ? { textPart: chunk.delta.textPart } : {}),
 				})
 				yield* drainPending()
 			}
@@ -533,7 +542,8 @@ export async function* streamProviderTurn(
 				iteration,
 				messageId,
 				usage,
-				text: textBuf,
+				text: text.text,
+				textParts: text.textParts,
 				model: params.model,
 				startedAt: callStartedAt,
 				span: chatSpan,
@@ -676,7 +686,8 @@ export async function* streamProviderTurn(
 		messageId,
 		stopReason,
 		usage,
-		content: textBuf || undefined,
+		content: text.text || undefined,
+		...(text.textParts ? { textParts: text.textParts } : {}),
 	})
 	yield* drainPending()
 
@@ -729,7 +740,8 @@ export async function* streamProviderTurn(
 		model: model || params.model,
 		message: {
 			role: 'assistant',
-			content: textBuf.length > 0 ? textBuf : null,
+			content: text.text || null,
+			...(text.textParts ? { textParts: text.textParts } : {}),
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
 			...(reasoningBlocks.length > 0 ? { reasoning: reasoningBlocks } : {}),
 			...(replayState !== undefined ? { replayState } : {}),

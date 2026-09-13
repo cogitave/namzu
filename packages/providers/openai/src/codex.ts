@@ -1,4 +1,5 @@
 import type {
+	AssistantTextPart,
 	ChatCompletionParams,
 	LLMProvider,
 	ModelInfo,
@@ -14,6 +15,7 @@ import {
 	isCallerAbortError,
 	isProviderRequestError,
 	providerVendorError,
+	selectAssistantText,
 	toToolResultBlocks,
 } from '@namzu/sdk'
 import OpenAI from 'openai'
@@ -88,6 +90,7 @@ interface CodexReplayState {
 	readonly version: 1
 	readonly route: ProviderRoute
 	readonly content: string | null
+	readonly textParts?: readonly AssistantTextPart[]
 	readonly toolCalls: readonly {
 		readonly id: string
 		readonly name: string
@@ -161,6 +164,11 @@ function replayItems(
 	const state = source.replayState
 	if (!isCodexReplayState(state) || !sameRoute(state.route, source)) return null
 	if (state.content !== message.content) return null
+	if (
+		state.textParts !== undefined &&
+		JSON.stringify(state.textParts) !== JSON.stringify(message.textParts)
+	)
+		return null
 	if (JSON.stringify(state.toolCalls) !== JSON.stringify(durableToolCalls(message))) return null
 	return state.items
 }
@@ -468,6 +476,7 @@ export class CodexProvider implements LLMProvider {
 		// Retain finalized items, including opaque reasoning, at their output index;
 		// added items and deltas are not a complete native replay record.
 		const completedItems = new Map<number, ResponseOutputItem>()
+		const textItems = new Map<string, Omit<AssistantTextPart, 'text'>>()
 		let nextCallIndex = 0
 		let responseId = 'codex-response'
 		try {
@@ -477,9 +486,17 @@ export class CodexProvider implements LLMProvider {
 					case 'response.created':
 						responseId = event.response.id
 						break
-					case 'response.output_text.delta':
-						yield { id: responseId, delta: { content: event.delta } }
+					case 'response.output_text.delta': {
+						const textPart = textItems.get(event.item_id)
+						yield {
+							id: responseId,
+							delta: {
+								content: event.delta,
+								...(textPart ? { textPart } : {}),
+							},
+						}
 						break
+					}
 					case 'response.reasoning_summary_text.delta':
 						yield {
 							id: responseId,
@@ -505,6 +522,11 @@ export class CodexProvider implements LLMProvider {
 						}
 						break
 					case 'response.output_item.added':
+						if (
+							event.item.type === 'message' &&
+							(event.item.phase === 'commentary' || event.item.phase === 'final_answer')
+						)
+							textItems.set(event.item.id, { id: event.item.id, phase: event.item.phase })
 						if (event.item.type === 'web_search_call') {
 							yield {
 								id: responseId,
@@ -588,12 +610,22 @@ export class CodexProvider implements LLMProvider {
 								name: item.name,
 								arguments: item.arguments,
 							}))
-						let content = output
+						const textParts: AssistantTextPart[] = output
 							.filter((item) => item.type === 'message')
-							.flatMap((item) => item.content)
-							.filter((item) => item.type === 'output_text')
-							.map((item) => item.text)
-							.join('')
+							.map((item) => ({
+								id: item.id,
+								...(item.phase === 'commentary' || item.phase === 'final_answer'
+									? { phase: item.phase }
+									: {}),
+								text: item.content
+									.filter((part) => part.type === 'output_text')
+									.map((part) => part.text)
+									.join(''),
+							}))
+						const phased = textParts.some((part) => part.phase !== undefined)
+						let content = phased
+							? selectAssistantText(textParts)
+							: textParts.map((part) => part.text).join('')
 						const sources = new Map<string, string>()
 						for (const item of output) {
 							if (item.type !== 'message') continue
@@ -619,6 +651,15 @@ export class CodexProvider implements LLMProvider {
 								.join(' · ')
 							const suffix = `\n\nSources: ${links}`
 							content += suffix
+							let partIndex = textParts.length - 1
+							for (let i = textParts.length - 1; i >= 0; i--) {
+								if (textParts[i]?.phase === 'final_answer') {
+									partIndex = i
+									break
+								}
+							}
+							const part = textParts[partIndex]
+							if (part) textParts[partIndex] = { ...part, text: part.text + suffix }
 							yield { id: responseId, delta: { content: suffix } }
 						}
 						const replayState: CodexReplayState = {
@@ -626,12 +667,14 @@ export class CodexProvider implements LLMProvider {
 							version: 1,
 							route: targetRoute,
 							content: content || null,
+							...(phased ? { textParts } : {}),
 							toolCalls: calls,
 							items: output,
 						}
 						yield {
 							id: event.response.id,
 							delta: {},
+							...(phased ? { textParts } : {}),
 							finishReason: calls.length > 0 ? 'tool_calls' : 'stop',
 							usage: responseUsage(event.response.usage ?? {}),
 							replayState,

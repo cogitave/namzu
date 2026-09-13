@@ -8,6 +8,8 @@ export interface StreamChunk {
 	 * retain the last defined value and the query stores it in message source.
 	 */
 	replayState?: unknown
+	/** Complete ordered text snapshot, emitted at settlement; replaces accumulated text items. */
+	textParts?: readonly import('../message/index.js').AssistantTextPart[]
 	delta: {
 		/** Activity executed by the provider, never a local function-call request. */
 		hostedTool?: {
@@ -17,6 +19,8 @@ export interface StreamChunk {
 		}
 
 		content?: string
+		/** Identity and phase of this content fragment, when the provider supplies them. */
+		textPart?: Omit<import('../message/index.js').AssistantTextPart, 'text'>
 		toolCalls?: Array<{
 			index: number
 			id?: string

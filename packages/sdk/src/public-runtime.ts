@@ -1010,6 +1010,7 @@ export { deriveChildState } from './types/invocation/index.js'
 export { assertMemoryStatus } from './types/memory/index.js'
 export {
 	createAssistantMessage,
+	selectAssistantText,
 	createProjectInstructionMessage,
 	createRuntimeContextMessage,
 	createSystemMessage,

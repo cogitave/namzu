@@ -43,7 +43,8 @@ function isAcceptedChunk(chunk: StreamChunk): boolean {
 			chunk.delta.citation ||
 			chunk.finishReason !== undefined ||
 			chunk.usage !== undefined ||
-			chunk.replayState !== undefined,
+			chunk.replayState !== undefined ||
+			chunk.textParts !== undefined,
 	)
 }
 

@@ -221,6 +221,7 @@ export type AgentEvent =
 	| {
 			readonly kind: 'delta'
 			readonly text: string
+			readonly textPart?: Omit<import('@namzu/sdk').AssistantTextPart, 'text'>
 			/**
 			 * The assistant message this text belongs to.
 			 *
@@ -3943,6 +3944,7 @@ export function toAgentEvent(event: RunEvent, presenter: ToolPresenter): AgentEv
 			return {
 				kind: 'delta',
 				text: event.text,
+				...(event.textPart ? { textPart: event.textPart } : {}),
 				...(event.messageId ? { messageId: event.messageId } : {}),
 				...(event.runId ? { runId: event.runId } : {}),
 			}

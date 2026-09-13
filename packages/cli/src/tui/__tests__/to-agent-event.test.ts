@@ -22,6 +22,24 @@ const presenter = createToolPresenter(new ToolRegistry())
 const runId = '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as RunId
 
 describe('toAgentEvent carries the stop reason across', () => {
+	it('preserves the provider text item boundary for streaming presentation', () => {
+		const mapped = toAgentEvent(
+			{
+				type: 'text_delta',
+				runId,
+				iteration: 1,
+				messageId: 'message' as never,
+				text: 'Answer',
+				textPart: { id: 'answer', phase: 'final_answer' },
+			},
+			presenter,
+		)
+		expect(mapped).toMatchObject({
+			kind: 'delta',
+			text: 'Answer',
+			textPart: { id: 'answer', phase: 'final_answer' },
+		})
+	})
 	it.each(['tools', 'vision', 'documents'] as const)(
 		'carries a %s capability warning without turning it into a terminal error',
 		(capability) => {

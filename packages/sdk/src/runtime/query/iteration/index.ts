@@ -966,6 +966,7 @@ export class IterationOrchestrator {
 								? { replayState: response.message.replayState }
 								: {}),
 						},
+						response.message.textParts,
 					)
 					runMgr.pushMessage(assistantMsg)
 
@@ -2615,6 +2616,7 @@ export class IterationOrchestrator {
 						? { replayState: response.message.replayState }
 						: {}),
 				},
+				response.message.textParts,
 			)
 			this.ctx.runMgr.pushMessage(assistantMsg)
 
@@ -2633,6 +2635,7 @@ export class IterationOrchestrator {
 				stopReason: 'forced_finalize',
 				usage: response.usage,
 				content: response.message.content ?? undefined,
+				...(response.message.textParts ? { textParts: response.message.textParts } : {}),
 			})
 		} catch (err) {
 			this.ctx.log.error('Failed to get final response', {

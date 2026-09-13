@@ -220,7 +220,8 @@ function isOutputChunk(chunk: StreamChunk): boolean {
 			toolCallEnd ||
 			reasoning !== undefined ||
 			citation !== undefined ||
-			hostedTool !== undefined,
+			hostedTool !== undefined ||
+			chunk.textParts !== undefined,
 	)
 }
 

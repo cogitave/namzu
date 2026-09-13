@@ -40,8 +40,14 @@ const cases = [
 		expected: 'Explain that the requested SIGMA observation cannot be verified in this conversation. Do not substitute DELTA, OMEGA or current values. Read-only archive search is allowed; no mutation or replay.',
 	},
 ]
+const requestedCase = process.argv.find((arg) => arg.startsWith('--case='))?.slice(7)
+const selectedCases = requestedCase ? cases.filter((entry) => entry.id === requestedCase) : cases
+assert.ok(selectedCases.length, 'Unknown --case name')
 const root = await mkdtemp(join(tmpdir(), 'namzu-reference-context-'))
 const fingerprintPaths = [
+	'packages/providers/openai/dist/codex.js',
+	'packages/sdk/dist/provider/stream-text.js',
+	'packages/sdk/dist/runtime/query/iteration/stream-turn.js',
 	'packages/sdk/dist/run/evidence-query.js',
 	'packages/sdk/dist/run/evidence-recall.js',
 	'packages/sdk/dist/runtime/query/callback-inference.js',
@@ -54,8 +60,8 @@ const fingerprintPaths = [
 	'research/conversation-evidence/reference-context-cli.mjs',
 ]
 const hashes = async () => Object.fromEntries(await Promise.all(fingerprintPaths.map(async (path) => [path, createHash('sha256').update(await readFile(new URL(path, rootURL))).digest('hex')])))
-const report = { root, live, provider: 'codex', model: 'gpt-5.6-luna', effort: 'low', buildBefore: await hashes(), cases: [] }
-console.log(JSON.stringify({ root, live, cases: cases.map(({ id, expected }) => ({ id, expected })) }))
+const report = { root, live, requestedCase, provider: 'codex', model: 'gpt-5.6-luna', effort: 'low', buildBefore: await hashes(), cases: [] }
+console.log(JSON.stringify({ root, live, cases: selectedCases.map(({ id, expected }) => ({ id, expected })) }))
 
 async function events(home) {
 	const all = []
@@ -78,7 +84,7 @@ async function events(home) {
 }
 
 try {
-	for (const spec of cases) {
+	for (const spec of selectedCases) {
 		const dir = join(root, spec.id)
 		const home = join(dir, 'home')
 		const cwd = join(dir, 'workspace')
@@ -111,7 +117,7 @@ result.provider.chatStream=async function*(params){
  const ordinary=params.messages.filter(m=>!context.includes(m));
  const codes=${JSON.stringify(codes)};
  const record={planner,...(planner?{input:JSON.parse(String(params.messages[1]?.content))}:{}),context:context.map(m=>m.content),ordinaryCodes:codes.filter(code=>ordinary.some(m=>JSON.stringify(m).includes(code))),text:'',usage:[]};
- try {for await(const chunk of stream(params)){record.text+=chunk.delta.content??'';if(chunk.usage)record.usage.push(chunk.usage);yield chunk;}}
+ try {for await(const chunk of stream(params)){record.text+=chunk.delta.content??'';if(chunk.textParts)record.textParts=chunk.textParts;if(chunk.usage)record.usage.push(chunk.usage);yield chunk;}}
  finally {await appendFile(${JSON.stringify(requestsPath)},JSON.stringify(record)+'\\n');}
 };return result;};`)
 		const record = { id: spec.id, prompt: spec.prompt, expected: spec.expected, original, replacement, turns: [] }

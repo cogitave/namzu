@@ -71,6 +71,26 @@ async function drain(stream: AsyncIterable<StreamChunk>): Promise<string> {
 const noSleep = async () => {}
 
 describe('withProviderFallback', () => {
+	it('does not fail over after a completed public text snapshot', async () => {
+		const primary = member('primary', [
+			async function* () {
+				yield {
+					id: 'c',
+					delta: {},
+					textParts: [{ id: 'answer', phase: 'final_answer' as const, text: 'Observed.' }],
+				}
+				throw httpError(503)
+			},
+		])
+		const fallback = member('fallback', [
+			async function* () {
+				yield chunk('Different answer.')
+			},
+		])
+		const provider = withProviderFallback([{ provider: primary }, { provider: fallback }])
+		await expect(collectChunks(provider.chatStream(PARAMS))).rejects.toThrow('HTTP 503')
+		expect(fallback.calls).toBe(0)
+	})
 	it('publishes only reasoning-effort levels every reachable member accepts', () => {
 		const asked: string[] = []
 		const primary = {

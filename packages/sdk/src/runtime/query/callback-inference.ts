@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { StreamTextAccumulator } from '../../provider/stream-text.js'
 import { type TokenUsage, mergeTokenUsage } from '../../types/common/index.js'
 import { createSystemMessage, createUserMessage } from '../../types/message/index.js'
 import type { PreparationTextRequest, PreparationTextResult } from '../../types/run/prepare-step.js'
@@ -58,7 +59,7 @@ export function createCallbackInference(
 					chainIndex: member.index,
 				}
 			}
-			let text = ''
+			const text = new StreamTextAccumulator()
 			let invalidOutput: string | undefined
 			let usage: TokenUsage | undefined
 			try {
@@ -75,16 +76,15 @@ export function createCallbackInference(
 					signal.throwIfAborted()
 					if (chunk.delta.toolCalls?.length) invalidOutput = `${label} inference cannot call tools.`
 					if (!invalidOutput) {
-						const next = chunk.delta.content ?? ''
-						if (text.length + next.length > 8192)
+						text.push(chunk)
+						if (text.characters > 8192)
 							invalidOutput = `${label} inference output exceeds 8,192 characters.`
-						else text += next
 					}
 				}
 				signal.throwIfAborted()
 				if (!usage) throw new Error(`${label} inference ended without usage.`)
 				if (invalidOutput) throw new Error(invalidOutput)
-				return { text, usage, servedBy: route() }
+				return { text: text.text, usage, servedBy: route() }
 			} finally {
 				clearTimeout(timer)
 				if (usage) ctx.runMgr.accumulateUsage(usage, route())

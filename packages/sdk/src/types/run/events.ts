@@ -949,6 +949,7 @@ type CoreRunEvent =
 			iteration: number
 			messageId: MessageId
 			text: string
+			textPart?: Omit<import('../message/index.js').AssistantTextPart, 'text'>
 	  }
 	| {
 			type: 'message_completed'
@@ -958,14 +959,16 @@ type CoreRunEvent =
 			stopReason: MessageStopReason
 			usage?: TokenUsage
 			/**
-			 * Aggregated assistant text accumulated from `text_delta`
-			 * events for this message. Optional so consumers that
-			 * already concatenate deltas themselves don't have to pay
-			 * the duplication; consumers that only care about the
-			 * completed message (telemetry, A2A bridge, postmortem
-			 * tooling) can read this field directly.
+			 * Settled assistant text. When the provider supplies public text
+			 * phases, this selects explicit final-answer items; concatenating
+			 * raw deltas would also include intermediate commentary. All items
+			 * remain available in textParts. Without phases, ordinary delta
+			 * concatenation is unchanged. Stop reason still determines whether
+			 * this message finished, was cancelled or hit an output limit.
 			 */
 			content?: string
+			/** Ordered original items; content selects explicit final answers if supplied. */
+			textParts?: readonly import('../message/index.js').AssistantTextPart[]
 	  }
 	| {
 			type: 'tool_input_started'

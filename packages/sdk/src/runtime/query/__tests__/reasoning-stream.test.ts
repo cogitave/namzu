@@ -77,6 +77,61 @@ const finish = (): StreamChunk => ({
 })
 
 describe('reasoning blocks survive the stream', () => {
+	it('retains received public phases when a streamed answer is cancelled', async () => {
+		const caller = new AbortController()
+		const events: RunEvent[] = []
+		const part = { id: 'progress', phase: 'commentary' as const }
+		const provider = {
+			...providerOf([]),
+			chatStream: async function* () {
+				yield { id: 'c', delta: { content: 'Inspecting.', textPart: part } }
+				caller.abort(new Error('operator interrupted'))
+				throw caller.signal.reason
+			},
+		}
+		const stream = streamProviderTurn(
+			provider,
+			{ model: 'm', messages: [], signal: caller.signal },
+			async (event) => {
+				events.push(event)
+			},
+			function* () {},
+			RUN_ID,
+			1,
+			false,
+			makeLogger(),
+		)
+		await expect(
+			(async () => {
+				for await (const _ of stream) {
+				}
+			})(),
+		).rejects.toThrow('operator interrupted')
+		expect(events.find((event) => event.type === 'message_completed')).toMatchObject({
+			stopReason: 'cancelled',
+			content: 'Inspecting.',
+			textParts: [{ ...part, text: 'Inspecting.' }],
+		})
+	})
+	it('preserves commentary boundaries while settling only explicit final text', async () => {
+		const parts = [
+			{ id: 'progress', phase: 'commentary' as const, text: 'Inspecting.' },
+			{ id: 'answer', phase: 'final_answer' as const, text: 'Complete.' },
+		]
+		const { result, events } = await run([
+			...parts.map(({ text, ...textPart }) => ({ id: 'c', delta: { content: text, textPart } })),
+			{ ...finish(), textParts: parts },
+		])
+		expect(result.response.message).toMatchObject({ content: 'Complete.', textParts: parts })
+		expect(events.filter((e) => e.type === 'text_delta').map((e) => e.textPart?.phase)).toEqual([
+			'commentary',
+			'final_answer',
+		])
+		expect(events.find((e) => e.type === 'message_completed')).toMatchObject({
+			content: 'Complete.',
+			textParts: parts,
+		})
+	})
 	it('retains the exact adapter-private replay envelope', async () => {
 		const replayState = { kind: 'fixture', version: 1, blocks: [{ signature: 'opaque' }] }
 		const { result } = await run([

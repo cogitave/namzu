@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Creation** Document [assistant text phases](sdk/assistant-text.md), shared answer selection, partial cancellation records, native Codex replay and CLI item boundaries.
+
 - **Update** Carry quoted ambiguity interpretations from [conversation query planning](sdk/evidence-recall.md) into bounded temporary context, preserving cancellation and separating planning notes from archived evidence.
 
 - **Update** Resolve [evidence query](sdk/evidence-recall.md) terms through a bounded vocabulary of source spellings, retaining quote validation and temporal guards; record real CLI historical/current/topic controls.

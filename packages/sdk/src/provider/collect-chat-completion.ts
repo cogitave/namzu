@@ -2,6 +2,7 @@ import { mergeTokenUsage } from '../types/common/index.js'
 import type { ReasoningBlock } from '../types/message/index.js'
 import type { ChatCompletionResponse } from '../types/provider/chat.js'
 import type { StreamChunk } from '../types/provider/stream.js'
+import { StreamTextAccumulator } from './stream-text.js'
 
 /**
  * Drains a {@link StreamChunk} async iterable into the equivalent
@@ -14,7 +15,8 @@ import type { StreamChunk } from '../types/provider/stream.js'
  * `collectChatCompletion(provider.chatStream(p))`.
  *
  * Behaviour matches the pre-removal `chat()` contract:
- * - text content is concatenated in delta order;
+ * - ordinary text is concatenated in delta order; identified public text
+ *   items are preserved and explicit final-answer items select the settled text;
  * - tool calls are bucketed by `index` into the existing
  *   `Array<{ id, function: { name, arguments } }>` shape;
  * - reasoning blocks are bucketed by `index` the same way, because the
@@ -36,7 +38,7 @@ export async function collectChatCompletion(
 ): Promise<ChatCompletionResponse> {
 	let id = ''
 	const model = ''
-	let content = ''
+	const text = new StreamTextAccumulator()
 	let replayState: unknown
 	let finishReason: ChatCompletionResponse['finishReason'] = 'stop'
 	let usage: ChatCompletionResponse['usage'] = {
@@ -63,9 +65,7 @@ export async function collectChatCompletion(
 		if (!id && chunk.id) id = chunk.id
 		if (chunk.replayState !== undefined) replayState = chunk.replayState
 
-		if (chunk.delta.content) {
-			content += chunk.delta.content
-		}
+		text.push(chunk)
 
 		const reasoning = chunk.delta.reasoning
 		if (reasoning) {
@@ -115,7 +115,8 @@ export async function collectChatCompletion(
 		model,
 		message: {
 			role: 'assistant',
-			content: content.length > 0 ? content : null,
+			content: text.text || null,
+			...(text.textParts ? { textParts: text.textParts } : {}),
 			toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
 			...(reasoningBlocks.length > 0 ? { reasoning: reasoningBlocks } : {}),
 			...(replayState !== undefined ? { replayState } : {}),
