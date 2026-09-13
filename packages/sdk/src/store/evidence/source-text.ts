@@ -125,7 +125,7 @@ async function sourceText(
 					isError: z.boolean().parse(event.isError),
 					spill: event.outputSpillIntegrity,
 				}
-			: {}),
+			: { toolName: part.toolName, isError: part.isError }),
 		truncated: tool && event.outputTruncated === true,
 		...(archivedPart ? { spill: archivedPart.manifest } : {}),
 		filter: '',

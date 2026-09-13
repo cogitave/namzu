@@ -45,6 +45,17 @@ One archive supports up to 8,192 textual parts, up to 256 MiB per text part, and
 at most 4 MiB per text manifest. Exceeding any limit refuses retention rather than
 publishing an unreadable reference. The manifest size can be the tighter limit.
 
+Inline compaction text and newly retained archives preserve optional `toolName`
+and explicit `isError` for tool messages. A name requires a unique call ID and
+unique result in the same removed-message array, in the contiguous result batch
+immediately following its assistant call. Missing, ambiguous, malformed or
+misordered pairs keep an unknown name; text mentioning a tool name is never
+parsed as provenance. Existing archives without this metadata remain unknown.
+These are still `compaction_shed:tool` copies, with the copy event's time and
+address, not newly observed facts. Original messages and textual part positions
+are unchanged. Disposable index pages are rebuilt for this metadata; the source
+binding of existing exact-read addresses does not change.
+
 ## Closed invocation evidence
 
 Each search operation reuses at most one authenticated, parsed transcript record
@@ -102,6 +113,23 @@ match limit, the cursor resumes within that window. Chunk overlap finds boundary
 matches without emitting the same starting position twice. This is a passage
 search, not an exhaustive list of occurrences. Cursors bind query and case
 sensitivity; changing either requires a new search.
+
+Optional `excludeSuccessfulTools` selects up to 16 exact, case-sensitive tool
+names of 1–256 UTF-16 units each. It applies to tool-only and general text
+sources, including live captures and snapshots. The default excludes nothing.
+Only named results with `isError: false` are skipped; errors and unknown name or
+status remain. This is source selection, not authorization or truth assessment.
+Names are deduplicated and sorted; search cursors bind the selected set. Changing
+or dropping a nonempty set requires a new search. Exact reads are independent of
+this filter and retain their usual scope and integrity checks.
+
+A filtered page reports optional `excludedToolResults` when positive: the number
+of successful tool-result visits skipped in that page, not unique facts. Source
+record validation and page/I/O limits still apply, but an intentionally excluded
+body or manifest need not be opened. Such an exclusion does not by itself set
+`incomplete`, which continues to describe traversal/data availability for the
+selected sources. A complete filtered scan cannot prove absence in the omitted
+sources. A new unfiltered search can inspect those records.
 
 Search matches and exact read pages optionally include `recordedAt`: the stored
 event recorder's wall-clock time in Unix milliseconds. It is extracted from the

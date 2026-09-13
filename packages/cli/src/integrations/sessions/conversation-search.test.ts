@@ -71,6 +71,133 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 	return { runId, path }
 }
 
+it.each(['legacy', 'index', 'live'] as const)(
+	'keeps automatic source exclusions across explicit cursor continuation (%s)',
+	async (backend) => {
+		const { sessions, sessionId } = await fixture()
+		const runId = generateRunId()
+		const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+		const store = new RunDiskStore({ baseDir: dirname(path) })
+		await store.initRun(runId)
+		const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+		if (backend !== 'legacy')
+			await writeFile(
+				join(path, 'run.json'),
+				JSON.stringify({
+					id: runId,
+					status: backend === 'live' ? 'running' : 'completed',
+					metadata: { scope },
+				}),
+			)
+		const events = [
+			{ type: 'run_started' },
+			...Array.from({ length: 5 }, (_, i) => ({
+				type: 'tool_completed',
+				toolName: 'search_conversation',
+				toolUseId: `copy-${i}`,
+				isError: false,
+				result: 'ORCHID copied A17',
+			})),
+			{
+				type: 'tool_completed',
+				toolName: 'search_conversation',
+				toolUseId: 'failed',
+				isError: true,
+				result: 'ORCHID search failed',
+			},
+			{
+				type: 'message_completed',
+				content:
+					'{"toolName":"search_conversation","isError":false,"text":"ORCHID unknown origin"}',
+			},
+			...Array.from({ length: 4 }, (_, i) => ({
+				type: 'tool_completed',
+				toolName: 'read',
+				toolUseId: `original-${i}`,
+				isError: false,
+				result: `ORCHID original B${i}`,
+			})),
+		]
+		for (const [i, event] of events.entries())
+			await store.appendEvent({ ...event, runId, seq: i + 1 } as RunEvent)
+		const runtime = {
+			runId,
+			captureRunEvidence: (maxReadBytes?: number, signal?: AbortSignal) =>
+				store.captureTextEvidence(scope, maxReadBytes, signal),
+		}
+		const request = {
+			terms: ['ORCHID'],
+			excludeRunId: generateRunId(),
+			maxReadBytes: 8 * 1024 * 1024,
+			excludeSuccessfulTools: ['search_conversation'],
+		}
+		let first: Awaited<ReturnType<typeof searchConversation>>
+		if (backend === 'live') {
+			const page = await (await runtime.captureRunEvidence())!.search({
+				terms: request.terms,
+				caseSensitive: false,
+				excludeSuccessfulTools: request.excludeSuccessfulTools,
+				limit: 1,
+			})
+			const cursor = retainLiveConversationSearch(
+				sessions,
+				sessionId,
+				runId,
+				request.terms,
+				page.nextCursor!,
+				false,
+				'literal',
+				request.excludeSuccessfulTools,
+			)
+			first = await searchConversation(sessions, sessionId, { cursor }, undefined, runtime)
+		} else first = await searchConversationTerms(sessions, sessionId, request)
+		expect(first.nextCursor).toBeDefined()
+		const matches = [...first.matches]
+		let excluded = first.excludedToolResults ?? 0
+		let cursor = first.nextCursor
+		let pages = 0
+		while (cursor) {
+			const page = await searchConversation(
+				sessions,
+				sessionId,
+				{ cursor },
+				undefined,
+				backend === 'live' ? runtime : undefined,
+			)
+			matches.push(...page.matches)
+			excluded += page.excludedToolResults ?? 0
+			cursor = page.nextCursor
+			expect(++pages).toBeLessThan(5)
+		}
+		expect(matches.some((m) => m.text.includes('copied'))).toBe(false)
+		expect(matches.some((m) => m.isError === true && m.toolName === 'search_conversation')).toBe(
+			true,
+		)
+		expect(matches.some((m) => m.text.includes('unknown origin'))).toBe(true)
+		expect(excluded).toBe(5)
+		const explicit = await searchConversation(
+			sessions,
+			sessionId,
+			{ query: 'ORCHID copied', runId },
+			undefined,
+			backend === 'live' ? runtime : undefined,
+		)
+		expect(explicit.matches.length).toBeGreaterThan(0)
+		if (backend !== 'live')
+			await expect(
+				searchConversationTerms(sessions, sessionId, {
+					...request,
+					cursor: first.nextCursor,
+					excludeSuccessfulTools: [],
+				}),
+			).rejects.toThrow('scope or query')
+		const foreign = await startConversation(sessions)
+		await expect(
+			searchConversation(sessions, foreign, { cursor: first.nextCursor }),
+		).rejects.toThrow('scope or query')
+	},
+)
+
 it('refuses retained compaction references on the unscoped legacy scanner', async () => {
 	const { sessions, sessionId } = await fixture()
 	const { path, runId } = await transcript(sessions, sessionId, 'Unrelated earlier text')

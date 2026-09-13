@@ -38,6 +38,8 @@ export interface EvidenceRecallBatch {
 	readonly candidates: readonly EvidenceRecallCandidate[]
 	readonly scannedBytes: number
 	readonly incomplete: boolean
+	/** Successful tool-result visits excluded during this scan; not a count of unique facts. */
+	readonly excludedToolResults?: number
 	/** Optional host-mounted read-only calls continuing this incomplete scan. At most four. */
 	readonly continuations?: readonly EvidenceRecallContinuation[]
 }
@@ -343,7 +345,9 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				!Number.isSafeInteger(batch.scannedBytes) ||
 				batch.scannedBytes < 0 ||
 				batch.scannedBytes > 8 * 1024 * 1024 ||
-				typeof batch.incomplete !== 'boolean'
+				typeof batch.incomplete !== 'boolean' ||
+				(batch.excludedToolResults !== undefined &&
+					(!Number.isSafeInteger(batch.excludedToolResults) || batch.excludedToolResults < 0))
 			)
 				throw new Error('Evidence recall exceeded its bounded retrieval contract.')
 			const continuations = continuationHints(batch)
@@ -437,6 +441,13 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			) =>
 				`${HEADER}${JSON.stringify({
 					incomplete: batch.incomplete,
+					...(batch.excludedToolResults
+						? {
+								excludedToolResults: batch.excludedToolResults,
+								exclusionGuidance:
+									'Successful tool outputs were deliberately excluded from candidate discovery. Counts are scan visits, not unique facts. Explicit archive search may include them; this selection does not establish their absence.',
+							}
+						: {}),
 					scannedBytes: batch.scannedBytes,
 					omittedPassages: omitted.length,
 					...(visibleEvidence.length
@@ -521,7 +532,11 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 				}
 			}
 			const block = header + selected.map(({ line }) => line).join('')
-			return (selected.length || omitted.length || visibleEvidence.length || batch.incomplete) &&
+			return (selected.length ||
+				omitted.length ||
+				visibleEvidence.length ||
+				batch.incomplete ||
+				batch.excludedToolResults) &&
 				block.length <= charBudget
 				? { context: [prepared.context, block].filter(Boolean).join('\n\n') }
 				: undefined

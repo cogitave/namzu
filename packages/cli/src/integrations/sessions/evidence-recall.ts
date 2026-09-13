@@ -9,6 +9,10 @@ import {
 import { retainLiveConversationSearch, searchConversationTerms } from './conversation-search.js'
 import type { ConversationContext } from './store.js'
 
+// These host-owned tools quote archived observations; successful results are
+// not new observations for automatic discovery. New explicit searches remain unfiltered.
+const EXCLUDE_RETRIEVAL_RESULTS = ['read_conversation', 'search_conversation'] as const
+
 interface RecallScan {
 	terms: readonly string[]
 	cursor?: string
@@ -50,6 +54,7 @@ export function createConversationEvidenceRecall(
 			const candidates: EvidenceRecallCandidate[] = []
 			let scannedBytes = 0
 			let incomplete = false
+			let excludedToolResults = 0
 			let pages = 0
 			// Reserve at least two of the four pages for earlier invocations. The
 			// current writer is visited directly, never rediscovered as a disk run.
@@ -83,6 +88,7 @@ export function createConversationEvidenceRecall(
 						{
 							terms: scan.terms,
 							matchMode: 'token',
+							excludeSuccessfulTools: EXCLUDE_RETRIEVAL_RESULTS,
 							caseSensitive: false,
 							cursor: scan.cursor,
 							limit: 4,
@@ -105,6 +111,7 @@ export function createConversationEvidenceRecall(
 						throw new Error('The active evidence page has a different owner.')
 					pages++
 					scannedBytes += page.scannedBytes
+					excludedToolResults += page.excludedToolResults ?? 0
 					scan.omitted ||= page.incomplete || page.unavailable.length > 0
 					for (const match of page.matches)
 						candidates.push({
@@ -145,6 +152,7 @@ export function createConversationEvidenceRecall(
 					{
 						terms: scan.terms,
 						matchMode: 'token',
+						excludeSuccessfulTools: EXCLUDE_RETRIEVAL_RESULTS,
 						excludeRunId: runId,
 						maxReadBytes: remaining,
 						cursor: scan.cursor,
@@ -153,6 +161,7 @@ export function createConversationEvidenceRecall(
 				)
 				assertOwner(runId)
 				scannedBytes += page.scannedBytes
+				excludedToolResults += page.excludedToolResults ?? 0
 				// Continuation alone is not permanent incompleteness; unavailable
 				// source data stays incomplete even after all bounded pages are read.
 				incomplete ||= page.unavailableRuns > 0 || (page.incomplete && !page.nextCursor)
@@ -199,6 +208,7 @@ export function createConversationEvidenceRecall(
 							scan.cursor,
 							scan.omitted,
 							'token',
+							EXCLUDE_RETRIEVAL_RESULTS,
 						),
 					},
 				})
@@ -211,6 +221,7 @@ export function createConversationEvidenceRecall(
 				scannedBytes,
 				incomplete: incomplete || historyScans.some((s) => s.cursor !== undefined),
 				continuations,
+				...(excludedToolResults ? { excludedToolResults } : {}),
 			}
 		},
 	})

@@ -1,0 +1,509 @@
+{
+  "date": "2026-09-13",
+  "baselineCommit": "656e79df",
+  "provider": "codex",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "cases": [
+    {
+      "case": "direct-baseline",
+      "fixtureDirectory": "/tmp/namzu-retrieval-echo-cli-mm1vp8",
+      "live": false,
+      "compactedEchoes": false,
+      "expectedBaselineMiss": true,
+      "passed": true,
+      "firstRequestOrdinaryHistoryHasCode": false,
+      "correctedObservationSelected": false,
+      "derivedPassagesSelected": 1,
+      "contextChars": 1946,
+      "scannedBytes": 225398,
+      "excludedToolResultVisits": 0,
+      "incomplete": true,
+      "omittedPassages": 0,
+      "requestCount": 1,
+      "source": {
+        "runId": "5b80349d-0559-4502-a5f8-a435272d436c",
+        "oldSeq": 2,
+        "correctedSeq": 35,
+        "oldCode": "RECEIPT-5edbda8a-87df-4bd8-ac19-02de703cd46c",
+        "correctedCode": "RECEIPT-1a594c51-81d8-4fd0-94c1-a0ede63b8b77",
+        "echoCount": 64
+      },
+      "selectedPassages": [
+        {
+          "runId": "5b80349d-0559-4502-a5f8-a435272d436c",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220802000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-5edbda8a-87df-4bd8-ac19-02de703cd46c"
+        },
+        {
+          "runId": "5b80349d-0559-4502-a5f8-a435272d436c",
+          "seq": 3,
+          "part": 0,
+          "byteOffset": 45,
+          "recordedAt": 1788220803000,
+          "source": "tool_completed",
+          "toolName": "search_conversation",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "-a435272d436c\",\"seq\":2,\"recordedAt\":1788220802000,\"source\":\"tool_completed\",\"toolName\":\"read\",\"retained\":\"full\",\"text\":\"ORCHID receipt code RECEIPT-5edbda8a-87df-4bd8-ac19-02de703cd46c\"}],\"guidance\":\"Recorded conversation search: this quotes an earlier observation.\"}",
+          "otherOccurrences": [
+            {
+              "runId": "5b80349d-0559-4502-a5f8-a435272d436c",
+              "seq": 4,
+              "part": 0,
+              "byteOffset": 45,
+              "recordedAt": 1788220804000
+            }
+          ],
+          "omittedOccurrences": 0
+        }
+      ],
+      "answer": "ORCHID receipt code RECEIPT-5edbda8a-87df-4bd8-ac19-02de703cd46c",
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 25000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "builtModulesBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "33306d134c628b28b4a83e776ebaee5757a457edf9adabdc38962f1a17cf1c83",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "64c3069b7b983e09e96c9a134b987a57efc76646657bbaad2445408e7e7f7f32",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      },
+      "builtModulesAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "33306d134c628b28b4a83e776ebaee5757a457edf9adabdc38962f1a17cf1c83",
+        "packages/sdk/dist/store/evidence/linked.js": "c2f0a6eca1c080d1dc5ac5abd70b95c15dd914d04cfcf2c9b985771c412f0f6f",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "64c3069b7b983e09e96c9a134b987a57efc76646657bbaad2445408e7e7f7f32",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "e2ce3a045d574e14cf4b9a94ce007d28731b21aff57d803b3615d10e34d547b8"
+      }
+    },
+    {
+      "case": "direct-filter-scripted",
+      "fixtureDirectory": "/tmp/namzu-retrieval-echo-cli-U7cA83",
+      "live": false,
+      "compactedEchoes": false,
+      "expectedBaselineMiss": false,
+      "passed": true,
+      "firstRequestOrdinaryHistoryHasCode": false,
+      "correctedObservationSelected": true,
+      "derivedPassagesSelected": 0,
+      "contextChars": 1808,
+      "scannedBytes": 190478,
+      "excludedToolResultVisits": 125,
+      "incomplete": true,
+      "omittedPassages": 0,
+      "requestCount": 1,
+      "source": {
+        "runId": "ecd67207-2ea7-42e3-87af-77311906c948",
+        "oldSeq": 2,
+        "correctedSeq": 35,
+        "oldCode": "RECEIPT-020f4eb8-0705-4fb1-8cdb-c74d3f476abe",
+        "correctedCode": "RECEIPT-2d8baf31-fbe8-41e5-afd4-54d3d691a2ea",
+        "echoCount": 64
+      },
+      "selectedPassages": [
+        {
+          "runId": "ecd67207-2ea7-42e3-87af-77311906c948",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220802000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-020f4eb8-0705-4fb1-8cdb-c74d3f476abe"
+        },
+        {
+          "runId": "ecd67207-2ea7-42e3-87af-77311906c948",
+          "seq": 35,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220835000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-2d8baf31-fbe8-41e5-afd4-54d3d691a2ea"
+        }
+      ],
+      "answer": "ORCHID receipt code RECEIPT-2d8baf31-fbe8-41e5-afd4-54d3d691a2ea",
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 25000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "builtModulesBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "2b85e49e57084e976cf241b3ea9a68ace491ee0b655787ffa89982ba1d3d1dec",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "ba59769a1152721101b911674c7b8ddb636fe883cb641dbad3edd12a0f47f86b"
+      },
+      "builtModulesAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "2b85e49e57084e976cf241b3ea9a68ace491ee0b655787ffa89982ba1d3d1dec",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "ba59769a1152721101b911674c7b8ddb636fe883cb641dbad3edd12a0f47f86b"
+      }
+    },
+    {
+      "case": "direct-filter-live",
+      "fixtureDirectory": "/tmp/namzu-retrieval-echo-cli-C9jVdO",
+      "live": true,
+      "compactedEchoes": false,
+      "expectedBaselineMiss": false,
+      "passed": true,
+      "firstRequestOrdinaryHistoryHasCode": false,
+      "correctedObservationSelected": true,
+      "derivedPassagesSelected": 0,
+      "contextChars": 1808,
+      "scannedBytes": 190478,
+      "excludedToolResultVisits": 125,
+      "incomplete": true,
+      "omittedPassages": 0,
+      "requestCount": 1,
+      "source": {
+        "runId": "26278fb6-d008-4494-ba87-e73d57043e49",
+        "oldSeq": 2,
+        "correctedSeq": 35,
+        "oldCode": "RECEIPT-22e8fa07-c4c4-4cc5-bff1-47621b634dfc",
+        "correctedCode": "RECEIPT-ca35f555-5f47-406d-8592-8534e82500d7",
+        "echoCount": 64
+      },
+      "selectedPassages": [
+        {
+          "runId": "26278fb6-d008-4494-ba87-e73d57043e49",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220802000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-22e8fa07-c4c4-4cc5-bff1-47621b634dfc"
+        },
+        {
+          "runId": "26278fb6-d008-4494-ba87-e73d57043e49",
+          "seq": 35,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220835000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-ca35f555-5f47-406d-8592-8534e82500d7"
+        }
+      ],
+      "answer": "The last observed ORCHID receipt code was:\n\n`RECEIPT-ca35f555-5f47-406d-8592-8534e82500d7`",
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 7338,
+        "treeTokens": 7338,
+        "reservedTokens": 0,
+        "remainingTokens": 17662,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "builtModulesBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "2b85e49e57084e976cf241b3ea9a68ace491ee0b655787ffa89982ba1d3d1dec",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "ba59769a1152721101b911674c7b8ddb636fe883cb641dbad3edd12a0f47f86b"
+      },
+      "builtModulesAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "2b85e49e57084e976cf241b3ea9a68ace491ee0b655787ffa89982ba1d3d1dec",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "ba59769a1152721101b911674c7b8ddb636fe883cb641dbad3edd12a0f47f86b"
+      }
+    },
+    {
+      "case": "compacted-before-provenance",
+      "fixtureDirectory": "/tmp/namzu-retrieval-echo-cli-WK6IhE",
+      "live": false,
+      "compactedEchoes": true,
+      "expectedBaselineMiss": true,
+      "passed": true,
+      "firstRequestOrdinaryHistoryHasCode": false,
+      "correctedObservationSelected": false,
+      "derivedPassagesSelected": 1,
+      "contextChars": 1903,
+      "scannedBytes": 249491,
+      "excludedToolResultVisits": 0,
+      "incomplete": true,
+      "omittedPassages": 0,
+      "requestCount": 1,
+      "source": {
+        "runId": "aef6394d-74e0-449c-87cc-eaf2dc0cecd5",
+        "oldSeq": 2,
+        "correctedSeq": 35,
+        "oldCode": "RECEIPT-114a1a44-811b-4267-838e-0bb339a29738",
+        "correctedCode": "RECEIPT-9117a577-a70a-4f8f-b15e-d26042eab6be",
+        "echoCount": 64
+      },
+      "selectedPassages": [
+        {
+          "runId": "aef6394d-74e0-449c-87cc-eaf2dc0cecd5",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220802000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-114a1a44-811b-4267-838e-0bb339a29738"
+        },
+        {
+          "runId": "aef6394d-74e0-449c-87cc-eaf2dc0cecd5",
+          "seq": 3,
+          "part": 0,
+          "byteOffset": 45,
+          "recordedAt": 1788220803000,
+          "source": "compaction_shed:tool",
+          "retained": "full",
+          "excerpt": "-eaf2dc0cecd5\",\"seq\":2,\"recordedAt\":1788220802000,\"source\":\"tool_completed\",\"toolName\":\"read\",\"retained\":\"full\",\"text\":\"ORCHID receipt code RECEIPT-114a1a44-811b-4267-838e-0bb339a29738\"}],\"guidance\":\"Recorded conversation search: this quotes an earlier observation.\"}",
+          "otherOccurrences": [
+            {
+              "runId": "aef6394d-74e0-449c-87cc-eaf2dc0cecd5",
+              "seq": 4,
+              "part": 0,
+              "byteOffset": 45,
+              "recordedAt": 1788220804000
+            }
+          ],
+          "omittedOccurrences": 0
+        }
+      ],
+      "answer": "ORCHID receipt code RECEIPT-114a1a44-811b-4267-838e-0bb339a29738",
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 25000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "builtModulesBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "2b85e49e57084e976cf241b3ea9a68ace491ee0b655787ffa89982ba1d3d1dec",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "ba59769a1152721101b911674c7b8ddb636fe883cb641dbad3edd12a0f47f86b"
+      },
+      "builtModulesAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "2b85e49e57084e976cf241b3ea9a68ace491ee0b655787ffa89982ba1d3d1dec",
+        "packages/sdk/dist/store/evidence/source-text.js": "85fc64691165b306a42826c92db971af6ea86abc21cd7e4c5af5b719b1084b49",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "ba59769a1152721101b911674c7b8ddb636fe883cb641dbad3edd12a0f47f86b"
+      }
+    },
+    {
+      "case": "compacted-filter-scripted",
+      "fixtureDirectory": "/tmp/namzu-retrieval-echo-cli-3lnL2y",
+      "live": false,
+      "compactedEchoes": true,
+      "expectedBaselineMiss": false,
+      "passed": true,
+      "firstRequestOrdinaryHistoryHasCode": false,
+      "correctedObservationSelected": true,
+      "derivedPassagesSelected": 0,
+      "contextChars": 1808,
+      "scannedBytes": 203988,
+      "excludedToolResultVisits": 125,
+      "incomplete": true,
+      "omittedPassages": 0,
+      "requestCount": 1,
+      "source": {
+        "runId": "c1861992-f81d-41f1-bfaa-3e3adc2c4503",
+        "oldSeq": 2,
+        "correctedSeq": 35,
+        "oldCode": "RECEIPT-7de8c8f3-01a5-4ccd-a4a2-ae4dc9180daf",
+        "correctedCode": "RECEIPT-883f8ae0-d491-4f9d-bfac-7970c2061f02",
+        "echoCount": 64
+      },
+      "selectedPassages": [
+        {
+          "runId": "c1861992-f81d-41f1-bfaa-3e3adc2c4503",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220802000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-7de8c8f3-01a5-4ccd-a4a2-ae4dc9180daf"
+        },
+        {
+          "runId": "c1861992-f81d-41f1-bfaa-3e3adc2c4503",
+          "seq": 35,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220835000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-883f8ae0-d491-4f9d-bfac-7970c2061f02"
+        }
+      ],
+      "answer": "ORCHID receipt code RECEIPT-883f8ae0-d491-4f9d-bfac-7970c2061f02",
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 25000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "builtModulesBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "5485d20689e2a8415528b16faeb1505d4456cfd401219bbbd6c2c0d0d146fe09",
+        "packages/sdk/dist/store/evidence/disk.js": "c060a94dc073dd9798ca9639f286023fe235c1a1bdc4a94ebf80c9ed00d9a58d",
+        "packages/sdk/dist/store/evidence/selection.js": "a45662ec4adcaea26043df43631e9d30d12de770ac815db164c48f58e6eb22b0",
+        "packages/sdk/dist/store/evidence/index-page.js": "6139dd1fb0af5e971de3b2acb553e6d47c364bad3e1a7841d88fe3176dc095f0",
+        "packages/sdk/dist/store/evidence/compaction-provenance.js": "07ee76759acb9619e892b2183ee353c66559554cfe36391bd81b5fd97a7dda5d",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "bf5cb627acb777b4ca0a08a3863415dd94fce2bca9b5c7922f4843cff7361041",
+        "packages/sdk/dist/store/evidence/source-text.js": "4c1fd7cb62583be3c6af76ee9e4c17962ffd78817a58505d6976fedfb018dd75",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+      },
+      "builtModulesAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "5485d20689e2a8415528b16faeb1505d4456cfd401219bbbd6c2c0d0d146fe09",
+        "packages/sdk/dist/store/evidence/disk.js": "c060a94dc073dd9798ca9639f286023fe235c1a1bdc4a94ebf80c9ed00d9a58d",
+        "packages/sdk/dist/store/evidence/selection.js": "a45662ec4adcaea26043df43631e9d30d12de770ac815db164c48f58e6eb22b0",
+        "packages/sdk/dist/store/evidence/index-page.js": "6139dd1fb0af5e971de3b2acb553e6d47c364bad3e1a7841d88fe3176dc095f0",
+        "packages/sdk/dist/store/evidence/compaction-provenance.js": "07ee76759acb9619e892b2183ee353c66559554cfe36391bd81b5fd97a7dda5d",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "bf5cb627acb777b4ca0a08a3863415dd94fce2bca9b5c7922f4843cff7361041",
+        "packages/sdk/dist/store/evidence/source-text.js": "4c1fd7cb62583be3c6af76ee9e4c17962ffd78817a58505d6976fedfb018dd75",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+      }
+    },
+    {
+      "case": "compacted-filter-live",
+      "fixtureDirectory": "/tmp/namzu-retrieval-echo-cli-OmfUpP",
+      "live": true,
+      "compactedEchoes": true,
+      "expectedBaselineMiss": false,
+      "passed": true,
+      "firstRequestOrdinaryHistoryHasCode": false,
+      "correctedObservationSelected": true,
+      "derivedPassagesSelected": 0,
+      "contextChars": 1808,
+      "scannedBytes": 203988,
+      "excludedToolResultVisits": 125,
+      "incomplete": true,
+      "omittedPassages": 0,
+      "requestCount": 1,
+      "source": {
+        "runId": "732b30cf-a218-4a9b-acc2-1bd6648af3d4",
+        "oldSeq": 2,
+        "correctedSeq": 35,
+        "oldCode": "RECEIPT-3eacb543-7f07-46ed-8dbd-53c059ad1a23",
+        "correctedCode": "RECEIPT-11aac605-0abe-4791-a171-0d16c691d2ef",
+        "echoCount": 64
+      },
+      "selectedPassages": [
+        {
+          "runId": "732b30cf-a218-4a9b-acc2-1bd6648af3d4",
+          "seq": 2,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220802000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-3eacb543-7f07-46ed-8dbd-53c059ad1a23"
+        },
+        {
+          "runId": "732b30cf-a218-4a9b-acc2-1bd6648af3d4",
+          "seq": 35,
+          "part": 0,
+          "byteOffset": 0,
+          "recordedAt": 1788220835000,
+          "source": "tool_completed",
+          "toolName": "read",
+          "isError": false,
+          "retained": "full",
+          "excerpt": "ORCHID receipt code RECEIPT-11aac605-0abe-4791-a171-0d16c691d2ef"
+        }
+      ],
+      "answer": "The last observed ORCHID receipt code was:\n\n`RECEIPT-11aac605-0abe-4791-a171-0d16c691d2ef`",
+      "budget": {
+        "limit": 25000,
+        "ownTokens": 7345,
+        "treeTokens": 7345,
+        "reservedTokens": 0,
+        "remainingTokens": 17655,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "builtModulesBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "5485d20689e2a8415528b16faeb1505d4456cfd401219bbbd6c2c0d0d146fe09",
+        "packages/sdk/dist/store/evidence/disk.js": "c060a94dc073dd9798ca9639f286023fe235c1a1bdc4a94ebf80c9ed00d9a58d",
+        "packages/sdk/dist/store/evidence/selection.js": "a45662ec4adcaea26043df43631e9d30d12de770ac815db164c48f58e6eb22b0",
+        "packages/sdk/dist/store/evidence/index-page.js": "6139dd1fb0af5e971de3b2acb553e6d47c364bad3e1a7841d88fe3176dc095f0",
+        "packages/sdk/dist/store/evidence/compaction-provenance.js": "fcc43cf8d1b7bce1ce220747fc6900fc2be58748a480c0b8b65374a621576cb8",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "bf5cb627acb777b4ca0a08a3863415dd94fce2bca9b5c7922f4843cff7361041",
+        "packages/sdk/dist/store/evidence/source-text.js": "4c1fd7cb62583be3c6af76ee9e4c17962ffd78817a58505d6976fedfb018dd75",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+      },
+      "builtModulesAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "31901fc1e63c372e05340dc536972d2ba5c99f3842aaf65c6af9e320abf253c4",
+        "packages/sdk/dist/store/evidence/linked.js": "5485d20689e2a8415528b16faeb1505d4456cfd401219bbbd6c2c0d0d146fe09",
+        "packages/sdk/dist/store/evidence/disk.js": "c060a94dc073dd9798ca9639f286023fe235c1a1bdc4a94ebf80c9ed00d9a58d",
+        "packages/sdk/dist/store/evidence/selection.js": "a45662ec4adcaea26043df43631e9d30d12de770ac815db164c48f58e6eb22b0",
+        "packages/sdk/dist/store/evidence/index-page.js": "6139dd1fb0af5e971de3b2acb553e6d47c364bad3e1a7841d88fe3176dc095f0",
+        "packages/sdk/dist/store/evidence/compaction-provenance.js": "fcc43cf8d1b7bce1ce220747fc6900fc2be58748a480c0b8b65374a621576cb8",
+        "packages/sdk/dist/store/evidence/compaction-archive.js": "bf5cb627acb777b4ca0a08a3863415dd94fce2bca9b5c7922f4843cff7361041",
+        "packages/sdk/dist/store/evidence/source-text.js": "4c1fd7cb62583be3c6af76ee9e4c17962ffd78817a58505d6976fedfb018dd75",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "45922919ec7d4bb55d43454896d5640d6f450ad450785bbed3db788459fa8f08",
+        "packages/cli/dist/integrations/sessions/evidence-recall.js": "6ff7c00030e15575cf315eea10c34bf7f2d9b3a8933d33eae98a6874d487a156"
+      }
+    }
+  ]
+}

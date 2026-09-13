@@ -16,6 +16,11 @@ import {
 import { passageMatcher, passagesInWindow } from './passages.js'
 import { type RecordPointer, recordPointerSchema, recordPredecessors } from './record-chain.js'
 import { evidenceSearchInput, evidenceTermsSchema } from './search-input.js'
+import {
+	evidenceExclusionsKey,
+	evidenceExclusionsSchema,
+	excludesSuccessfulTool,
+} from './selection.js'
 import { createTextSourceReader, readTextPage, textPointerSchema } from './source-text.js'
 import type {
 	DiskRunEvidenceOptions,
@@ -43,6 +48,10 @@ const cursorSchema = z.object({
 		.optional(),
 	caseSensitive: z.boolean().default(true),
 	matchMode: z.enum(['literal', 'token']).default('literal'),
+	exclusionsKey: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.optional(),
 	seq: integer.optional(),
 	part: integer.optional(),
 	next: recordPointerSchema.nullable(),
@@ -120,6 +129,7 @@ export function createLinkedRunTextEvidenceSource(
 					terms: evidenceTermsSchema,
 					caseSensitive: z.boolean().default(true),
 					matchMode: z.enum(['literal', 'token']).default('literal'),
+					excludeSuccessfulTools: evidenceExclusionsSchema,
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
 					part: integer.optional(),
@@ -130,6 +140,7 @@ export function createLinkedRunTextEvidenceSource(
 			if (input.part !== undefined && input.seq === undefined)
 				throw new Error('Part requires an event sequence.')
 			const { query, terms, termsKey, browse } = evidenceSearchInput(input)
+			const exclusionsKey = evidenceExclusionsKey(input.excludeSuccessfulTools)
 			const kind =
 				input.matchMode === 'token'
 					? ('linked-search-tokens' as const)
@@ -144,6 +155,7 @@ export function createLinkedRunTextEvidenceSource(
 							kind,
 							query,
 							termsKey,
+							exclusionsKey,
 							seq: input.seq,
 							part: input.part,
 							next: tip as RecordPointer | null,
@@ -157,6 +169,7 @@ export function createLinkedRunTextEvidenceSource(
 					cursor.kind !== kind ||
 					cursor.query !== query ||
 					cursor.termsKey !== termsKey ||
+					cursor.exclusionsKey !== exclusionsKey ||
 					cursor.caseSensitive !== input.caseSensitive ||
 					cursor.matchMode !== input.matchMode ||
 					cursor.seq !== input.seq ||
@@ -170,6 +183,7 @@ export function createLinkedRunTextEvidenceSource(
 				let parts = 0
 				let chunks = 0
 				let incomplete = false
+				let excludedToolResults = 0
 				while (
 					cursor.next &&
 					records < 64 &&
@@ -216,6 +230,20 @@ export function createLinkedRunTextEvidenceSource(
 						}
 						parts++
 						try {
+							if (
+								excludesSuccessfulTool(
+									event.type === 'tool_completed' && typeof event.toolUseId === 'string'
+										? event
+										: (texts[part] ?? {}),
+									input.excludeSuccessfulTools,
+								)
+							) {
+								excludedToolResults++
+								cursor.textIndex++
+								cursor.chunk = 0
+								cursor.within = 0
+								continue
+							}
 							const source = await readSource({ ...pointer, part }, raw)
 							if (source.retained === 'preview') incomplete = true
 							while (cursor.chunk < source.chunks && chunks < 64 && matches.length < input.limit) {
@@ -287,6 +315,7 @@ export function createLinkedRunTextEvidenceSource(
 					cacheHit: false,
 					incomplete: incomplete || unavailable.length > 0,
 					unavailable,
+					...(excludedToolResults ? { excludedToolResults } : {}),
 				}
 			})
 		},

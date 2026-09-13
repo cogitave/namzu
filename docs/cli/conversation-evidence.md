@@ -73,8 +73,8 @@ Across runs, clocks may differ, so these stamps alone do not prove causal order
 or when a fact became true. Retrieval continues to rank by lexical relevance.
 
 Start a new search with `query`, a literal string of 1–256 characters. Continue
-with `cursor` alone to restore the original query, case setting and excluded
-invocation from host-owned state. This also accepts cursors supplied by automatic
+with `cursor` alone to restore the original query, case setting, excluded
+invocation and any automatic source filter from host-owned state. This also accepts cursors supplied by automatic
 evidence recall, whose multi-term query does not need to be reconstructed by the
 model. An empty request with neither query nor cursor is invalid.
 
@@ -95,6 +95,22 @@ query never establishes complete coverage. Each cursor restores its own terms.
 This improves candidate discovery behind frequent words without claiming global
 ranking or semantic coverage. Queries with all or none of their tokens covered
 in returned excerpts are not refined.
+
+With the existing opt-in `compaction.recallEvidence` enabled, automatic discovery
+skips successful outputs from `search_conversation` and `read_conversation`
+before filling the candidate allowance. It still searches original observations,
+failed retrievals and records with unknown tool name or success status. Paired
+compaction tool results in scoped indexes retain their tool name and explicit
+error status; copies keep their compaction source/time. Legacy unindexed
+compaction messages and archives without this metadata remain unknown.
+
+The automatic continuation preserves that filter, while a new explicit
+`search_conversation({query: ...})` can inspect the omitted outputs. Exact
+`read_conversation` access is unchanged. `excludedToolResults` in filtered search
+results and recall context counts skipped visits, possibly repeated across
+focused scans, not unique historical records. Exclusion guidance distinguishes
+this selection from complete historical coverage. No larger page, context or
+I/O allowance is introduced.
 
 The temporary recall context also distinguishes complete traversal from complete
 presentation. `omittedPassages` counts eligible distinct candidates withheld by

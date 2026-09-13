@@ -44,6 +44,12 @@ export interface RunEvidenceSearchOptions {
 	readonly matchMode?: 'literal' | 'token'
 	/** Defaults to true. False uses the selected mode's case rules (see matchMode). */
 	readonly caseSensitive?: boolean
+	/**
+	 * Omit successful results from these exact tool names during search. At most
+	 * 16 names, each 1–256 UTF-16 units. Errors and unknown provenance remain.
+	 * Bound into cursors; exact reads are unchanged. Default: exclude nothing.
+	 */
+	readonly excludeSuccessfulTools?: readonly string[]
 	readonly cursor?: string
 }
 
@@ -72,6 +78,8 @@ export interface RunEvidenceSearchResult {
 	readonly cacheHit: boolean
 	readonly incomplete: boolean
 	readonly unavailable: readonly string[]
+	/** Successful tool-result visits omitted by this page's filter; not unique facts. */
+	readonly excludedToolResults?: number
 }
 
 /** @experimental Byte offsets refer to UTF-8 retained text, not the current workspace file. */

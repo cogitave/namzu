@@ -20,7 +20,8 @@ action to recreate its output.
 The callback receives the invoking `runId`, up to 16 literal terms, an
 `AbortSignal`, `maxReadBytes: 8388608` and `maxCandidates: 24`. It must enforce
 these limits, verify invocation ownership and source integrity, and return
-`EvidenceRecallBatch`: `candidates`, accounted `scannedBytes` and `incomplete`.
+`EvidenceRecallBatch`: `candidates`, accounted `scannedBytes` and `incomplete`,
+with optional `excludedToolResults`.
 The SDK checks the returned bounds and every candidate's conversation scope;
 it cannot enforce the callback's internal I/O or authenticate invented bytes.
 Use [retained evidence sources](retained-tool-evidence.md) for authenticated local
@@ -129,6 +130,28 @@ records the original limitation and alternatives. Token alignment addresses
 substring pollution, not arbitrary candidate ordering or global relevance.
 Explicit literal search still supports substrings.
 
+The CLI's automatic discovery excludes successful `search_conversation` and
+`read_conversation` outputs before they occupy candidate slots. These tools quote
+archived observations; repeated successful retrieval is not another observation
+of the original state. This host policy uses the SDK's generic
+`excludeSuccessfulTools` source option; the SDK does not hardcode CLI tool names.
+Errors and unknown source/status remain. Compacted results are identified only
+when the SDK can pair the call and response unambiguously in that same record;
+older archives without paired metadata and legacy unindexed compaction text
+remain unknown. This is not semantic deduplication: unknown or differently
+rendered quotes can still occupy candidate slots.
+
+A retrieval callback may report nonnegative safe-integer `excludedToolResults`.
+The step validates it and, when positive, includes the count and explanatory
+guidance in its bounded context. Counts are scan visits, so a focused pass may
+count the same record again. They are not unique facts or errors, and do not
+replace `incomplete` or `omittedPassages`. An exclusion-only block can be returned
+without passage text, within the same character ceiling. New explicit archive
+searches remain unfiltered; automatic continuations retain their source filter.
+The [CLI comparison](../../research/conversation-evidence/retrieval-echo-results.md)
+measures a correction initially hidden behind retrieval copies, including the
+compaction case, without claiming a general memory benchmark improvement.
+
 `refineEvidenceRecallTerms(terms, excerpts)` is an optional, pure SDK helper
 for host discovery. It compares the same lowercase token keys in a bounded
 excerpt pool with the original query terms and returns only uncovered terms,
@@ -184,7 +207,7 @@ Distinct text takes priority over traversal hints, then omitted-passage
 addresses, visible-text source references, and extra addresses of selected exact duplicates. All share the
 original character ceiling. An omission-only block is retained even if no whole
 excerpt fits and source traversal was complete. A complete scan with no new text can still add visible-source references or their
-omission counts. A scan with no eligible text or references adds no context; a context budget too small for the framing skips
+omission counts. A scan with no eligible text, references, exclusions or traversal omissions adds no context; a context budget too small for the framing skips
 recall altogether.
 
 Defaults are four distinct passages and 6,000 added characters, including framing and

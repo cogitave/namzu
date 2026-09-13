@@ -47,6 +47,35 @@ interface EvidenceMatch {
 	isError?: boolean
 }
 
+interface TranscriptText {
+	seq: number
+	source: string
+	text: string
+	recordedAt?: number
+	toolName?: string
+	isError?: boolean
+}
+
+function excludedTools(names?: readonly string[]): string[] {
+	if (names === undefined) return []
+	if (
+		!Array.isArray(names) ||
+		names.length > 16 ||
+		names.some((name) => typeof name !== 'string' || !name.length || name.length > 256)
+	)
+		throw new Error('Evidence search excludes at most 16 exact tool names of 1–256 characters.')
+	return [...new Set(names)].sort()
+}
+
+function queryIdentity(
+	kind: string,
+	terms: readonly string[],
+	excluded: string | undefined,
+	tools: readonly string[],
+) {
+	return JSON.stringify([kind, terms, excluded, ...(tools.length ? [tools] : [])])
+}
+
 export interface ConversationSearchResult {
 	/** How to read excerpts and interpret an empty literal search. */
 	guidance: string
@@ -56,6 +85,8 @@ export interface ConversationSearchResult {
 	/** True means the search cannot establish that absent evidence does not exist. */
 	incomplete: boolean
 	unavailableRuns: number
+	/** Successful tool outputs omitted by the host's source filter in this page. */
+	excludedToolResults?: number
 	/** Opaque continuation, valid for this process and query for ten minutes. */
 	nextCursor?: string
 }
@@ -197,12 +228,18 @@ export function retainLiveConversationSearch(
 	indexCursor: string,
 	omitted = false,
 	matchMode: 'literal' | 'token' = 'literal',
+	excludeSuccessfulTools?: readonly string[],
 ): string {
 	if (typeof indexCursor !== 'string' || !indexCursor.length || indexCursor.length > 4096)
 		throw new Error('Invalid live evidence continuation.')
 	return encodeCursor({
 		scope: conversationScope(sessions, sessionId),
-		query: JSON.stringify(['terms', [...new Set(terms)].sort(), undefined]),
+		query: queryIdentity(
+			'terms',
+			[...new Set(terms)].sort(),
+			undefined,
+			excludedTools(excludeSuccessfulTools),
+		),
 		caseSensitive: false,
 		matchMode,
 		runIds: [asRunId(runId)],
@@ -354,13 +391,7 @@ async function scanTranscript(
 	cursor: SearchCursor,
 	budget: number,
 	consume: (bytes: number) => void,
-	accept: (event: {
-		seq: number
-		source: string
-		text: string
-		part: number
-		recordedAt?: number
-	}) => boolean,
+	accept: (event: TranscriptText & { part: number }) => boolean,
 	signal?: AbortSignal,
 ): Promise<{ done: boolean; incomplete: boolean }> {
 	await checkedPath(root, path)
@@ -422,12 +453,7 @@ async function scanTranscript(
 					// Validate the whole record before exposing any text. A saved text index
 					// lets several shed messages resume without repeating earlier matches.
 					for (let index = cursor.textIndex ?? 0; index < parsed.events.length; index++) {
-						const event = parsed.events[index] as {
-							seq: number
-							source: string
-							text: string
-							recordedAt?: number
-						}
+						const event = parsed.events[index] as TranscriptText
 						if (!accept({ ...event, part: index })) {
 							cursor.textIndex = index
 							stopped = true
@@ -462,11 +488,11 @@ function textEvents(
 	runId: string,
 	initialSeq = 0,
 ): {
-	events: Array<{ seq: number; source: string; text: string; recordedAt?: number }>
+	events: TranscriptText[]
 	incomplete: boolean
 } {
 	if (!raw.endsWith('\n')) throw new Error('Incomplete transcript record.')
-	const result: Array<{ seq: number; source: string; text: string; recordedAt?: number }> = []
+	const result: TranscriptText[] = []
 	let seq = initialSeq
 	let incomplete = false
 	for (const line of raw.split('\n')) {
@@ -496,7 +522,18 @@ function textEvents(
 			// Tool-only and cancelled assistant turns legitimately have no text.
 			if (event.type === 'message_completed' && text === undefined) continue
 			if (typeof text !== 'string') throw new Error('Invalid transcript text.')
-			result.push({ seq, source: event.type, text, recordedAt })
+			result.push({
+				seq,
+				source: event.type,
+				text,
+				recordedAt,
+				...(event.type === 'tool_completed'
+					? {
+							toolName: typeof event.toolName === 'string' ? event.toolName : undefined,
+							isError: typeof event.isError === 'boolean' ? event.isError : undefined,
+						}
+					: {}),
+			})
 		} else if (event.type === 'compaction_archive') {
 			throw new Error('Retained compaction requires scoped indexed evidence.')
 		} else if (event.type === 'compaction_shed') {
@@ -545,6 +582,7 @@ export async function searchConversationTerms(
 		maxReadBytes: number
 		cursor?: string
 		matchMode?: 'literal' | 'token'
+		excludeSuccessfulTools?: readonly string[]
 	},
 	signal?: AbortSignal,
 ): Promise<ConversationSearchResult> {
@@ -562,6 +600,7 @@ async function searchConversationCore(
 		maxReadBytes?: number
 		caseSensitive?: boolean
 		matchMode?: 'literal' | 'token'
+		excludeSuccessfulTools?: readonly string[]
 		runId?: string
 		limit?: number
 		cursor?: string
@@ -575,13 +614,14 @@ async function searchConversationCore(
 	// multi-term scan. A model need not reconstruct it or restart the first page.
 	if (input.cursor && input.query === undefined && input.terms === undefined) {
 		const stored = decodeCursor(input.cursor, conversationScope(sessions, sessionId))
-		const [kind, terms, excluded] = JSON.parse(stored.query)
+		const [kind, terms, excluded, tools] = JSON.parse(stored.query)
 		if (!['literal', 'terms'].includes(kind) || !Array.isArray(terms))
 			throw new Error('This is not a conversation search cursor.')
 		input = {
 			...input,
 			...(kind === 'terms' ? { terms } : { query: terms[0] }),
 			excludeRunId: input.excludeRunId ?? excluded ?? undefined,
+			excludeSuccessfulTools: input.excludeSuccessfulTools ?? tools,
 			caseSensitive: input.caseSensitive ?? stored.caseSensitive,
 			matchMode: input.matchMode ?? stored.matchMode,
 		}
@@ -600,7 +640,13 @@ async function searchConversationCore(
 	if (!Number.isSafeInteger(maxReadBytes) || maxReadBytes < 1 || maxReadBytes > SCAN_BYTES)
 		throw new Error('Invalid evidence read ceiling.')
 	const excluded = input.excludeRunId === undefined ? undefined : asRunId(input.excludeRunId)
-	const queryKey = JSON.stringify([input.terms ? 'terms' : 'literal', terms, excluded])
+	const excludeSuccessfulTools = excludedTools(input.excludeSuccessfulTools)
+	const queryKey = queryIdentity(
+		input.terms ? 'terms' : 'literal',
+		terms,
+		excluded,
+		excludeSuccessfulTools,
+	)
 	const caseSensitive = input.caseSensitive ?? false
 	if (typeof caseSensitive !== 'boolean') throw new Error('caseSensitive must be a boolean.')
 	const matchMode = input.matchMode ?? 'literal'
@@ -639,6 +685,8 @@ async function searchConversationCore(
 	if (matchMode === 'token')
 		result.guidance +=
 			' This recall scan matches complete Unicode letter/number/underscore tokens, using lowercase keys when case-insensitive.'
+	if (excludeSuccessfulTools.length)
+		result.guidance += ` Successful results from ${JSON.stringify(excludeSuccessfulTools)} are excluded from this scan; errors and unknown sources remain. A new literal search without this cursor can inspect excluded results.`
 	const scope = conversationScope(sessions, sessionId)
 	let cursor: SearchCursor
 	if (input.cursor) {
@@ -721,12 +769,15 @@ async function searchConversationCore(
 						...(input.terms ? { terms } : { query: input.query }),
 						caseSensitive,
 						matchMode,
+						excludeSuccessfulTools,
 						cursor: cursor.indexCursor,
 						limit: Math.min(3, limit - result.matches.length),
 					},
 					signal,
 				)
 				result.scannedBytes += page.scannedBytes
+				if (page.excludedToolResults)
+					result.excludedToolResults = (result.excludedToolResults ?? 0) + page.excludedToolResults
 				result.scannedRuns++
 				result.matches.push(
 					...page.matches.map((match) => ({
@@ -768,6 +819,14 @@ async function searchConversationCore(
 					result.scannedBytes += bytes
 				},
 				(event) => {
+					if (
+						event.isError === false &&
+						event.toolName !== undefined &&
+						excludeSuccessfulTools.includes(event.toolName)
+					) {
+						result.excludedToolResults = (result.excludedToolResults ?? 0) + 1
+						return true
+					}
 					const offset = matchOffset(event.text)
 					if (offset < 0) return true
 					const text = event.text.slice(
@@ -783,6 +842,8 @@ async function searchConversationCore(
 						part: event.part,
 						text,
 						recordedAt: event.recordedAt,
+						toolName: event.toolName,
+						isError: event.isError,
 					}
 					const bytes = Buffer.byteLength(JSON.stringify(match))
 					if (

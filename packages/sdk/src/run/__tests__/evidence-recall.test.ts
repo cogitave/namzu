@@ -66,6 +66,28 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('reports deliberate source exclusions even when no passage is selected', async () => {
+		const recall = createEvidenceRecallStep({
+			scope,
+			retrieve: async () => ({ ...batch(), excludedToolResults: 12 }),
+		})
+		const result = await recall(context())
+		expect(result?.context).toContain('"excludedToolResults":12')
+		expect(result?.context).toContain('Explicit archive search may include them')
+		expect(result?.context).toContain('"incomplete":false')
+		expect(result!.context!.length).toBeLessThanOrEqual(6000)
+	})
+
+	it.each([-1, 0.5, Number.NaN, Number.POSITIVE_INFINITY])(
+		'rejects invalid exclusion counts (%s)',
+		async (excludedToolResults) => {
+			const recall = createEvidenceRecallStep({
+				scope,
+				retrieve: async () => ({ ...batch(), excludedToolResults }),
+			})
+			await expect(recall(context())).rejects.toThrow('bounded retrieval contract')
+		},
+	)
 	it('binds visible quotes to source metadata while preserving status and original history', async () => {
 		const text = 'DELTA receipt "SAME" <untrusted>'
 		const entries = [

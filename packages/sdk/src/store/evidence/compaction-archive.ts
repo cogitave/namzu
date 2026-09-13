@@ -3,6 +3,7 @@ import { lstat, mkdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { z } from 'zod'
 import type { RunEvent } from '../../types/run/events.js'
+import { type CompactedToolMetadata, compactedToolMetadata } from './compaction-provenance.js'
 import { digest, spillManifest } from './format.js'
 import { RECORD_BYTES, decode, noLinks, openEvidence, stamp } from './io.js'
 
@@ -21,7 +22,16 @@ export const compactionArchiveSchema = z.object({
 		bytes: integer,
 		sha256: hash,
 		messageCount: integer,
-		parts: z.array(z.object({ role, manifest: hash })).max(8192),
+		parts: z
+			.array(
+				z.object({
+					role,
+					manifest: hash,
+					toolName: z.string().min(1).max(1024).optional(),
+					isError: z.boolean().optional(),
+				}),
+			)
+			.max(8192),
 	}),
 })
 
@@ -44,11 +54,12 @@ export async function retainCompactionRecord(
 	const messageCount = removed.length
 	const original = Buffer.from(JSON.stringify(event.messages), 'utf8')
 	if (original.length <= 3 * 1024 * 1024) return event
-	const texts: { role: z.infer<typeof role>; text: string }[] = []
-	for (const message of event.messages) {
+	const texts: ({ role: z.infer<typeof role>; text: string } & CompactedToolMetadata)[] = []
+	const metadata = compactedToolMetadata(event.messages)
+	for (const [index, message] of event.messages.entries()) {
 		const validatedRole = role.parse(message.role)
 		if (typeof message.content === 'string')
-			texts.push({ role: validatedRole, text: message.content })
+			texts.push({ role: validatedRole, text: message.content, ...metadata[index] })
 	}
 	if (texts.length > 8192) throw new Error('Compaction archive exceeds 8192 textual parts.')
 	// The same 4096-chunk ceiling the reader enforces for retained tool text.
@@ -61,7 +72,7 @@ export async function retainCompactionRecord(
 	await noLinks(join(runDir, 'compaction-output'))
 	await mkdir(dir, { mode: 0o700 })
 	await writeFile(join(dir, 'messages.json'), original, { flag: 'wx', mode: 0o600 })
-	const parts: { role: z.infer<typeof role>; manifest: string }[] = []
+	const parts: ({ role: z.infer<typeof role>; manifest: string } & CompactedToolMetadata)[] = []
 	for (const [part, value] of texts.entries()) {
 		const bytes = Buffer.from(value.text, 'utf8')
 		const manifest = spillManifest(bytes)
@@ -70,7 +81,12 @@ export async function retainCompactionRecord(
 		const path = compactionPartPath(runDir, id, part)
 		await writeFile(path, bytes, { flag: 'wx', mode: 0o600 })
 		await writeFile(`${path}.manifest.json`, manifest, { flag: 'wx', mode: 0o600 })
-		parts.push({ role: value.role, manifest: digest(manifest) })
+		parts.push({
+			role: value.role,
+			manifest: digest(manifest),
+			toolName: value.toolName,
+			isError: value.isError,
+		})
 	}
 	return {
 		...envelope,

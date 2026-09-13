@@ -4,6 +4,7 @@ import type { FileHandle } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { z } from 'zod'
 import { compactionArchiveSchema } from './compaction-archive.js'
+import { type CompactedToolMetadata, compactedToolMetadata } from './compaction-provenance.js'
 import { digest, textFilter } from './format.js'
 import {
 	type EvidenceBudget,
@@ -152,11 +153,14 @@ export function toolEntry(
 }
 
 /** Validate all textual parts before publishing any part of a record. */
-export function eventTexts(event: Record<string, unknown>): { source: string; text: string }[] {
+export function eventTexts(
+	event: Record<string, unknown>,
+): ({ source: string; text: string } & CompactedToolMetadata)[] {
 	if (event.type === 'compaction_archive') {
 		return compactionArchiveSchema.parse(event).archive.parts.map((part) => ({
 			source: `compaction_shed:${part.role}`,
 			text: '',
+			...(part.role === 'tool' ? { toolName: part.toolName, isError: part.isError } : {}),
 		}))
 	}
 	if (event.type === 'tool_completed') {
@@ -170,8 +174,9 @@ export function eventTexts(event: Record<string, unknown>): { source: string; te
 	}
 	if (event.type !== 'compaction_shed') return []
 	if (!Array.isArray(event.messages)) throw new Error('Invalid shed messages.')
-	const parts: { source: string; text: string }[] = []
-	for (const message of event.messages) {
+	const parts: ReturnType<typeof eventTexts> = []
+	const metadata = compactedToolMetadata(event.messages)
+	for (const [index, message] of event.messages.entries()) {
 		if (
 			!message ||
 			typeof message !== 'object' ||
@@ -180,7 +185,11 @@ export function eventTexts(event: Record<string, unknown>): { source: string; te
 		)
 			throw new Error('Invalid shed message.')
 		if (typeof message.content === 'string')
-			parts.push({ source: `compaction_shed:${message.role}`, text: message.content })
+			parts.push({
+				source: `compaction_shed:${message.role}`,
+				text: message.content,
+				...metadata[index],
+			})
 	}
 	return parts
 }
@@ -197,7 +206,7 @@ export async function indexPage(
 ): Promise<{ page: IndexPage; cacheHit: boolean }> {
 	const path = join(
 		seal.dir,
-		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}`)}.page`,
+		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}:tool-provenance-v1`)}.page`,
 	)
 	try {
 		const cached = await readSmall(path, budget, 512 * 1024)
@@ -263,6 +272,8 @@ export async function indexPage(
 						sha256: hash,
 						seq: event.seq,
 						source: part.source,
+						toolName: part.toolName,
+						isError: part.isError,
 						part: textIndex,
 						truncated: false,
 						...(archivedPart ? { spill: archivedPart.manifest } : {}),

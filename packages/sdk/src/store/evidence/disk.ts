@@ -23,6 +23,11 @@ import {
 } from './io.js'
 import { passageMatcher, passagesInWindow } from './passages.js'
 import { evidenceSearchInput, evidenceTermsSchema } from './search-input.js'
+import {
+	evidenceExclusionsKey,
+	evidenceExclusionsSchema,
+	excludesSuccessfulTool,
+} from './selection.js'
 import { createTextSourceReader, readTextPage } from './source-text.js'
 import type {
 	DiskRunEvidenceOptions,
@@ -53,6 +58,10 @@ const cursorSchema = z.object({
 		.optional(),
 	caseSensitive: z.boolean().default(true),
 	matchMode: z.enum(['literal', 'token']).default('literal'),
+	exclusionsKey: z
+		.string()
+		.regex(/^[a-f0-9]{64}$/)
+		.optional(),
 	seq: integer.optional(),
 	part: integer.optional(),
 	mode: z.enum(['tools', 'text']).default('tools'),
@@ -203,6 +212,7 @@ function createSource(
 					terms: evidenceTermsSchema,
 					caseSensitive: z.boolean().default(true),
 					matchMode: z.enum(['literal', 'token']).default('literal'),
+					excludeSuccessfulTools: evidenceExclusionsSchema,
 					cursor: z.string().max(4096).optional(),
 					seq: integer.positive().optional(),
 					part: integer.optional(),
@@ -213,6 +223,7 @@ function createSource(
 			if (input.part !== undefined && input.seq === undefined)
 				throw new Error('Part requires an event sequence.')
 			const { query, terms, termsKey, browse } = evidenceSearchInput(input)
+			const exclusionsKey = evidenceExclusionsKey(input.excludeSuccessfulTools)
 			const kind =
 				input.matchMode === 'token'
 					? ('search-tokens' as const)
@@ -227,6 +238,7 @@ function createSource(
 							kind,
 							query,
 							termsKey,
+							exclusionsKey,
 							seq: input.seq,
 							part: input.part,
 							mode,
@@ -241,6 +253,7 @@ function createSource(
 					cursor.kind !== kind ||
 					cursor.query !== query ||
 					cursor.termsKey !== termsKey ||
+					cursor.exclusionsKey !== exclusionsKey ||
 					cursor.caseSensitive !== input.caseSensitive ||
 					cursor.matchMode !== input.matchMode ||
 					cursor.seq !== input.seq ||
@@ -260,6 +273,7 @@ function createSource(
 				const matches: RunTextEvidenceMatch[] = []
 				const unavailable: string[] = []
 				let partial = false
+				let excludedToolResults = 0
 				let entryIndex = cursor.entry
 				let chunk = cursor.chunk
 				let within = cursor.within
@@ -278,6 +292,13 @@ function createSource(
 						continue
 					}
 					try {
+						if (excludesSuccessfulTool(entry, input.excludeSuccessfulTools)) {
+							excludedToolResults++
+							entryIndex++
+							chunk = 0
+							within = 0
+							continue
+						}
 						if (entry.truncated && !entry.spill) partial = true
 						if (
 							input.caseSensitive &&
@@ -358,6 +379,7 @@ function createSource(
 					cacheHit,
 					incomplete: nonterminal || unavailable.length > 0 || partial,
 					unavailable,
+					...(excludedToolResults ? { excludedToolResults } : {}),
 				}
 			})
 		},
