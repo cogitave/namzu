@@ -1,0 +1,42 @@
+{
+  "date": "2026-09-13",
+  "base": "43124f06",
+  "liveProviderTokens": 0,
+  "fixtureOnly": true,
+  "focusedTests": 33,
+  "nativeTui": {
+    "session": "7fc62efa-37f1-46dd-9544-68ab367993ca",
+    "ansi": "/tmp/namzu-text-phases-fkoLSD/resume-public-parts.ansi",
+    "normalized": "/tmp/namzu-resume-phases-screen.txt",
+    "restoredPublicParts": [
+      "Inspecting record.",
+      "Which record?",
+      "Which record?"
+    ],
+    "exactPriorNativeParts": true,
+    "exactPriorToolOutputs": true,
+    "continuation": "RESUMED",
+    "exitCode": 0
+  },
+  "recallTui": {
+    "session": "5f10f564-294d-4398-b6de-ade872500851",
+    "ansi": "/tmp/namzu-reference-context-X17QgF/resume-focus-tui.ansi",
+    "trace": "/tmp/namzu-reference-context-X17QgF/resume-focus-tui.jsonl",
+    "normalized": "/tmp/namzu-resume-after-screen.txt",
+    "plannerCalls": 1,
+    "answerCalls": 1,
+    "unrelatedCodesInAutomaticContext": false,
+    "exitCode": 0
+  },
+  "fingerprints": {
+    "packages/cli/src/tui/App.tsx": "46660b6f2cac6937621b5c8b0cfa3d30d2867156fe0d872b3d89f3b0446ade26",
+    "packages/cli/src/tui/conversation-history.ts": "40cea575ad248f444ae5765376beb0ff2ff73d42de826961fe3de7e5a7701dc1"
+  },
+  "limitations": [
+    "Offline transport fixtures test actual CLI execution and native request conversion; they do not measure live model quality.",
+    "Equal public commentary and final items remain separate; there is no string deduplication.",
+    "Historical tool cards are not reconstructed by the text projection; model history still includes tool calls/results.",
+    "Selected-content equality prevents obviously superseded parts from replacing edited content; it is not independent verification of assistant claims.",
+    "This milestone does not resolve absent-subject extra searches or commentary indexing."
+  ]
+}

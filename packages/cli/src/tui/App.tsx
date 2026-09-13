@@ -173,7 +173,7 @@ import {
 } from './choice-selection.js'
 import { keepRecentRows } from './compact-transcript.js'
 import { approvalIsDeliberate } from './consent-timing.js'
-import { planTurnPublication } from './conversation-history.js'
+import { assistantTranscriptTexts, planTurnPublication } from './conversation-history.js'
 import { type CopyResponseTarget, copyTargetsForResponse } from './copy-targets.js'
 import { type EditablePrompt, editablePrompts } from './edit-prompts.js'
 import type { TuiExitSummary } from './exit-summary.js'
@@ -566,13 +566,11 @@ export function projectConversation(
 			]
 		}
 		if (message.role === 'assistant') {
-			return [
-				{
-					id: nextId(),
-					role: 'assistant',
-					content: typeof message.content === 'string' ? message.content : '',
-				},
-			]
+			return assistantTranscriptTexts(message).map<TranscriptMessage>((content) => ({
+				id: nextId(),
+				role: 'assistant',
+				content,
+			}))
 		}
 		if (message.role === 'system' && isCompactionMessage(message.content)) {
 			return [

@@ -241,6 +241,14 @@ names are preserved. On terminals at least 20 rows high, the selected row shows
 the last authored prompt, saved message count and full conversation UUID. Short
 terminals retain the compact list so navigation remains visible.
 
+Opening saved history restores nonempty public assistant text in its original
+item order, including retained commentary and final-answer parts. Tool-only or
+private-reasoning-only messages do not create empty assistant rows. This is a
+text projection: it does not reconstruct historical tool cards or remove tool
+calls, results or provider replay state from the next model request. If stored
+parts no longer agree with the current selected content, only that content is
+shown, so edited or compacted text is not replaced by stale parts.
+
 When an active or paused goal is present after opening a saved conversation,
 Namzu offers **Resume goal** or **Not now**. Opening history alone does not arm
 automatic work. Choosing Resume uses the existing `/goal resume` path and its

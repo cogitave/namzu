@@ -241,6 +241,11 @@ handling, which cannot reconstruct a paste boundary the terminal does not send.
 Separate provider message IDs create separate assistant transcript entries,
 including completion follow-ups inside one parent run. Pending text is flushed
 at that boundary so the last status sentence cannot merge with the next answer.
+Saved public item boundaries are also restored when resuming or forking earlier
+history, provided the parts still agree with its current selected content.
+Empty assistant text produces no transcript row. Equal nonempty public items
+remain distinct; this projection does not deduplicate what the model said or
+alter the durable messages sent on continuation.
 
 
 The agent browser owns its viewport rather than sharing it with an inactive

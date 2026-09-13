@@ -1,5 +1,32 @@
 import { isDeepStrictEqual } from 'node:util'
-import { type Message, isCompactionMessage } from '@namzu/sdk'
+import {
+	type AssistantMessage,
+	type AssistantTextPart,
+	type Message,
+	isCompactionMessage,
+	selectAssistantText,
+} from '@namzu/sdk'
+
+/** Public display text only. Never rewrite durable history or inspect private replay state. */
+export function assistantTranscriptTexts(message: AssistantMessage): readonly string[] {
+	const content = typeof message.content === 'string' ? message.content : ''
+	const parts = message.textParts
+	const valid =
+		Array.isArray(parts) &&
+		parts.every(
+			(part): part is AssistantTextPart =>
+				part !== null &&
+				typeof part === 'object' &&
+				typeof part.id === 'string' &&
+				typeof part.text === 'string' &&
+				(part.phase === undefined || part.phase === 'commentary' || part.phase === 'final_answer'),
+		)
+	// Compaction or editing may have changed content without keeping the old
+	// public parts aligned. Do not bring superseded text back onto the screen.
+	const texts =
+		valid && selectAssistantText(parts) === content ? parts.map((part) => part.text) : [content]
+	return texts.filter((text) => text.trim().length > 0)
+}
 
 /**
  * The part of a settled SDK run that belongs to the host-owned conversation.

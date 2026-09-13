@@ -89,7 +89,9 @@ of unrelated synthetic identifiers before emitting its test acknowledgement.
 The composer returned idle and `/exit` exited successfully. This used zero live
 tokens and tests host wiring, not a model's reasoning or TUI aesthetics. The
 trace is included in the observation JSON. Resume also showed empty assistant
-markers for earlier tool-only messages; that presentation defect is still open.
+markers for earlier tool-only messages; that presentation defect was open at
+the end of this experiment. The subsequent [resume projection check](resume-projection-results.md)
+records its fix, including actual TUI continuation and native replay controls.
 
 Workspace typecheck, build, lint and package tests passed, including 6,645 SDK
 tests and 2,935 CLI tests (five skipped). After the defensive copy, typecheck

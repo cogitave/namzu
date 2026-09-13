@@ -61,8 +61,12 @@ content.
 
 The CLI starts a separate transcript bubble for a new streamed item ID and
 uses the settled answer for turn completion. It does not hide text merely
-because the provider repeated it. Other drivers continue producing ordinary
-unphased text until they explicitly map their native protocol. A custom driver
+because the provider repeated it. Resume and earlier-prompt fork projections
+restore retained public parts in order when `selectAssistantText(parts)` still
+matches the saved `content`; otherwise they display the current content only.
+Empty text-only projections are omitted without deleting tool or replay history.
+Other drivers continue producing ordinary unphased text until they explicitly
+map their native protocol. A custom driver
 that supplies phases only at settlement gets correct SDK answer selection;
 the live TUI cannot retroactively split its already streamed untagged bubble.
 

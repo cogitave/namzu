@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Restore public assistant item boundaries in [resumed CLI conversations](cli/slash-commands.md#resuming-a-conversation), omit empty assistant rows, and preserve original tool and provider replay history.
+
 - **Update** Preserve grounded subject words during [automatic evidence discovery](sdk/evidence-recall.md#grounded-subject-focus), retaining scoped validation, explicit archive access and bounded empty-scan diagnostics.
 
 - **Creation** Document [assistant text phases](sdk/assistant-text.md), shared answer selection, partial cancellation records, native Codex replay and CLI item boundaries.

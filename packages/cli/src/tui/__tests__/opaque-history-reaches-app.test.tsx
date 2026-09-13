@@ -8,6 +8,7 @@ import {
 	createAssistantMessage,
 	createSystemMessage,
 	createToolMessage,
+	createUserMessage,
 	type Message,
 	type SessionGoalStore,
 } from '@namzu/sdk'
@@ -131,7 +132,9 @@ vi.mock('../agent.js', async (importOriginal) => {
 })
 
 const { App } = await import('../App.js')
-const { loadConversation, openSessions } = await import('../../integrations/sessions/store.js')
+const { appendMessages, loadConversation, openSessions, startConversation } = await import(
+	'../../integrations/sessions/store.js'
+)
 const roots: string[] = []
 const mounted: Array<{ unmount: () => void }> = []
 const tick = (ms = 25) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -159,6 +162,71 @@ async function submit(
 	harness.stdin.write('\r')
 	await tick(50)
 }
+
+it('resumes public message parts without blank rows and sends the original tool/replay history', async () => {
+	const root = await mkdtemp(join(tmpdir(), 'namzu-resume-public-parts-'))
+	roots.push(root)
+	const sessions = await openSessions(root)
+	const sessionId = await startConversation(sessions)
+	const call = createAssistantMessage(null, [
+		{
+			id: 'seed-call',
+			type: 'function',
+			function: { name: 'read', arguments: '{"path":"notes.txt"}' },
+		},
+	])
+	const answer = createAssistantMessage('SAVED FINAL', undefined, [
+		{
+			type: 'thinking',
+			text: HIDDEN_REASONING,
+			signature: HIDDEN_SIGNATURE,
+			encrypted: HIDDEN_ENCRYPTED,
+		},
+	])
+	answer.textParts = [
+		{ id: 'progress', phase: 'commentary', text: 'SAVED PROGRESS' },
+		{ id: 'final', phase: 'final_answer', text: 'SAVED FINAL' },
+	]
+	const history = [
+		createUserMessage('saved question'),
+		call,
+		createToolMessage('original tool result', 'seed-call'),
+		answer,
+	]
+	await appendMessages(sessions, sessionId, history)
+	const durable = await loadConversation(sessions, sessionId)
+	const harness = render(
+		<App
+			ctx={{ cwd: root, version: '0.0.0-test', initialConversationId: sessionId } as TuiContext}
+		/>,
+	)
+	mounted.push(harness)
+	await until(
+		() =>
+			harness.frames.join('\n').includes('SAVED FINAL') &&
+			(harness.lastFrame() ?? '').includes('Type a message'),
+		'the resumed conversation did not become ready',
+	)
+	const rendered = harness.frames.join('\n')
+	expect(rendered).toContain('SAVED PROGRESS')
+	expect(rendered).not.toMatch(/^\s*∴\s*$/m)
+	expect(rendered).not.toContain(HIDDEN_REASONING)
+	expect(rendered).not.toContain(HIDDEN_SIGNATURE)
+	expect(rendered).not.toContain(HIDDEN_ENCRYPTED)
+	await submit(harness, 'continue the saved conversation')
+	await until(() => sent.length === 1, 'the continuation did not reach the session')
+	expect(sent[0]?.slice(0, durable.length)).toEqual(durable)
+	// Wait for the actual publication before unmounting; a late write must not
+	// spill into the following test's store spies or race directory cleanup.
+	await vi.waitFor(
+		async () => {
+			const continued = await loadConversation(sessions, sessionId)
+			expect(continued).toHaveLength(durable.length + 4)
+			expect(continued.slice(0, durable.length)).toEqual(durable)
+		},
+		{ timeout: 5_000 },
+	)
+})
 
 it('reopens the exact tool/reasoning history and sends it next turn', async () => {
 	const replacements = vi.spyOn(SqliteSessionStore.prototype, 'replaceMessages')
