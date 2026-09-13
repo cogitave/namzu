@@ -177,9 +177,14 @@ async function untilAsync(check: () => Promise<boolean>, why: string): Promise<v
 }
 
 async function submit(
-	harness: { stdin: { write: (value: string) => void } },
+	harness: { stdin: { write: (value: string) => void }; lastFrame: () => string | undefined },
 	text: string,
 ): Promise<void> {
+	// Durable scope/goal updates can precede the render that enables input.
+	await until(
+		() => harness.lastFrame()?.includes('Type a message') === true,
+		'the composer is not ready for input',
+	)
 	harness.stdin.write(text)
 	await tick()
 	harness.stdin.write('\r')

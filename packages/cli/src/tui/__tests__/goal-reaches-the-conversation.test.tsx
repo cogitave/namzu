@@ -138,7 +138,18 @@ async function until(check: () => boolean, why: string): Promise<void> {
 	)
 }
 
-async function submit(harness: Awaited<ReturnType<typeof renderApp>>, text: string): Promise<void> {
+async function submit(
+	harness: Awaited<ReturnType<typeof renderApp>>,
+	text: string,
+	surface: 'composer' | 'overlay' = 'composer',
+): Promise<void> {
+	// A scope is assigned before startup/conversation replacement enables input.
+	// Drive the UI the operator can actually see, not an earlier session side effect.
+	if (surface === 'composer')
+		await until(
+			() => harness.lastFrame().includes('Type a message'),
+			'the composer is not ready for input',
+		)
 	harness.stdin.write(text)
 	await harness.screen.waitForRender()
 	harness.stdin.write('\r')
@@ -210,7 +221,7 @@ it('inspects status without creating a goal, then starts only after an objective
 		'objective editor did not open',
 	)
 	expect(sends).toBe(0)
-	await submit(harness, 'finish the menu flow')
+	await submit(harness, 'finish the menu flow', 'overlay')
 	await vi.waitFor(
 		async () => {
 			expect(await sessions.goals.getGoal(sessionId, sessions.tenantId)).toMatchObject({
@@ -235,6 +246,7 @@ it('returns to help when an asynchronous goal menu is cancelled and ignores its 
 		'initial read did not finish',
 	)
 	await submit(harness, '/help')
+	await until(() => harness.lastFrame().includes('/settings'), 'help menu did not open')
 	const entered = deferred()
 	const release = deferred()
 	const read = vi
@@ -244,7 +256,7 @@ it('returns to help when an asynchronous goal menu is cancelled and ignores its 
 			await release.promise
 			return null
 		})
-	await submit(harness, '/goal')
+	await submit(harness, '/goal', 'overlay')
 	await entered.promise
 	await until(
 		() => harness.lastFrame()?.includes('Loading goal') ?? false,
