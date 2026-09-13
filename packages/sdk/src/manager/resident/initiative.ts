@@ -103,6 +103,18 @@ export interface ResidentSelection {
 /** @experimental Pure local selection; perform inference inside budgeted steps, not here. */
 export type ResidentSelector = (agenda: ResidentAgendaState, now: number) => ResidentSelection
 
+function meanObservedCost(observations: readonly ResidentObservation[]): number {
+	// Null costs are rejected before this function. Scale by the largest finite
+	// observation: the intermediate sum is at most eight, even near MAX_VALUE.
+	const scale = Math.max(...observations.map((item) => item.costUnits ?? 0))
+	if (scale === 0) return 0
+	return (
+		(observations.reduce((total, item) => total + (item.costUnits ?? 0) / scale, 0) /
+			observations.length) *
+		scale
+	)
+}
+
 /**
  * @experimental Cost-aware continuation with an explicit abstention choice.
  * This is a measured-progress heuristic, not Bayesian value of computation.
@@ -162,9 +174,7 @@ export function createResidentSelector(config: ResidentSelectionConfig): Residen
 					? policy.initialExpectedProgress
 					: (totalGain + policy.initialExpectedProgress) / (recent.length + 1)
 			const expectedCost =
-				recent.length === 0
-					? policy.initialExpectedCost
-					: recent.reduce((total, item) => total + (item.costUnits ?? 0), 0) / recent.length
+				recent.length === 0 ? policy.initialExpectedCost : meanObservedCost(recent)
 			const score = policy.progressValue * expectedGain - expectedCost
 			return {
 				pursuitId: p.id,

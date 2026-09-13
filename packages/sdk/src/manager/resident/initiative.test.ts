@@ -164,6 +164,42 @@ describe('resident observations', () => {
 })
 
 describe('resident initiative selection', () => {
+	it('keeps a finite mean and serializable explanation for large finite resource observations', () => {
+		let feedback = observeResidentStep(undefined, observation('one', 0.125, Number.MAX_VALUE), 1)
+		feedback = observeResidentStep(feedback, observation('two', 0.25, Number.MAX_VALUE), 2)
+		const result = createResidentSelector(policy)(
+			agenda(pursuit(1, { stepsAdmitted: 2 }, feedback)),
+			0,
+		)
+		expect(result.candidates[0]?.expectedCost).toBe(Number.MAX_VALUE)
+		expect(Number.isFinite(result.candidates[0]?.score)).toBe(true)
+		expect(JSON.parse(JSON.stringify(result))).toEqual(result)
+	})
+
+	it.each([
+		{ costs: [Number.MAX_VALUE, Number.MAX_VALUE, 0, 0], expected: Number.MAX_VALUE / 2 },
+		{ costs: [Number.MIN_VALUE, Number.MIN_VALUE], expected: Number.MIN_VALUE },
+		{ costs: [0, Number.MIN_VALUE], expected: 0 },
+		{ costs: [0, 0], expected: 0 },
+	])(
+		'averages finite costs without overflowing or losing every subnormal: $costs',
+		({ costs, expected }) => {
+			let feedback: ResidentFeedback | undefined
+			for (const [index, cost] of costs.entries())
+				feedback = observeResidentStep(
+					feedback,
+					observation(`receipt-${index}`, (index + 1) / 16, cost),
+					index + 1,
+				)
+			const result = createResidentSelector(policy)(
+				agenda(pursuit(1, { stepsAdmitted: costs.length }, feedback)),
+				0,
+			)
+			expect(result.candidates[0]?.expectedCost).toBe(expected)
+			expect(JSON.parse(JSON.stringify(result))).toEqual(result)
+		},
+	)
+
 	it('stops changing evidence with no progress after the finite default bootstrap allowance', () => {
 		const select = createResidentSelector(policy)
 		let feedback: ResidentFeedback | undefined

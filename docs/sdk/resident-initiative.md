@@ -118,6 +118,9 @@ score = progressValue * estimated gain - estimated cost
 
 The extra prior observation smooths sparse measurements. It is an engineering
 regularizer, not a Bayesian posterior. A score must be strictly positive.
+Mean cost scales finite observations before summing, so an intermediate sum
+cannot overflow even though the mean is representable. Calculations still use
+JavaScript floating-point numbers; this is not exact decimal billing.
 Score ties use fewer admitted steps, earlier wake time and then UUID. This
 policy provides no starvation bound. Every `ResidentCandidate` exposes its
 estimate, score and rejection reason; `ResidentSelection` identifies the chosen
