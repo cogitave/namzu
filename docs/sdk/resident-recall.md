@@ -72,6 +72,18 @@ output bounds. `scannedRevisions` and `scannedBytes` report work on this page;
 `unavailableRevisions` identifies missing, invalid or refused records. Oversized
 or corrupt records are reported as unavailable rather than silently accepted.
 
+`ResidentHistorySearchOptions.maxReadBytes` and
+`ResidentHistoryReadOptions.maxReadBytes` can lower the allowance for one call
+to a positive integer from 1 byte through 8 MiB. The default is still 8 MiB.
+This lets a composing host reserve part of a shared budget for later retrieval.
+A search that cannot read the next required revision leaves it in `nextCursor`
+and reports incomplete; it does not classify that budget stop as corrupt or
+missing history. An exact read that cannot fit fails. A later call may use a
+larger allowance at the same revision without changing the captured scope.
+Failures without a byte receipt need conservative accounting by the host.
+This option limits history only; it does not impose a combined budget on the
+separate resident tool-evidence wrapper or an arbitrary custom backend.
+
 Cancellation is checked around I/O and between read chunks. The disk reader
 refuses observed symbolic links and detects size/timestamp changes during a
 read. As with the resident store, the hierarchy must be on a private, trusted

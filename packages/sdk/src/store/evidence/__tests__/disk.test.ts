@@ -78,6 +78,43 @@ async function fixture(
 }
 
 describe('bounded retained tool evidence', () => {
+	it.each(['tool', 'text'] as const)(
+		'accepts a smaller per-operation budget without changing %s addresses or the source ceiling',
+		async (mode) => {
+			const mib = 1024 * 1024
+			const f = await fixture([{ text: `DELTA ${'ordinary '.repeat(150_000)}` }])
+			const make = (maxReadBytes?: number) =>
+				mode === 'tool'
+					? createDiskRunEvidenceSource({ ...f, maxReadBytes })
+					: createDiskRunTextEvidenceSource({ ...f, maxReadBytes })
+			const source = make()
+			const full = await source.search({ query: 'DELTA' })
+			const match = full.matches[0]!
+			expect(match.excerpt).toContain('DELTA')
+			for (const [reader, maxReadBytes] of [
+				[source, mib],
+				[make(mib), 8 * mib],
+			] as const) {
+				const partial = await reader.search({ query: 'DELTA', maxReadBytes })
+				expect(partial.scannedBytes).toBeLessThanOrEqual(mib)
+				expect(partial.matches).toEqual([])
+				expect(partial.nextCursor).not.toBeNull()
+				await expect(reader.read({ address: match.address, maxReadBytes })).rejects.toThrow()
+				const resumed = await make().search({
+					query: 'DELTA',
+					cursor: partial.nextCursor!,
+					maxReadBytes: 8 * mib,
+				})
+				expect(resumed.matches[0]?.address).toBe(match.address)
+			}
+			expect((await source.read({ address: match.address })).text).toContain('DELTA')
+			for (const maxReadBytes of [0, mib - 1, mib + 0.5, Number.NaN, 8 * mib + 1]) {
+				await expect(source.search({ maxReadBytes })).rejects.toThrow()
+				await expect(source.read({ address: match.address, maxReadBytes })).rejects.toThrow()
+			}
+		},
+	)
+
 	it.each(['tool', 'text', 'snapshot'] as const)(
 		'proves whole text-part coverage from UTF-8 bounds, not excerpt length (%s)',
 		async (mode) => {

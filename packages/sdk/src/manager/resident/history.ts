@@ -32,6 +32,8 @@ export interface ResidentHistoryMatch extends ResidentHistoryAddress {
 
 /** @experimental Empty query browses recent steps; cursor is the next inclusive revision. */
 export interface ResidentHistorySearchOptions {
+	/** Optional per-call ceiling, 1 byte–8 MiB. Defaults to 8 MiB. */
+	readonly maxReadBytes?: number
 	readonly query?: string
 	readonly cursor?: number
 	readonly limit?: number
@@ -50,6 +52,8 @@ export interface ResidentHistorySearchResult {
 /** @experimental Use the returned nextOffset to continue exact Unicode-safe text. */
 export interface ResidentHistoryReadOptions extends ResidentHistoryAddress {
 	readonly offset?: number
+	/** Optional per-call ceiling, 1 byte–8 MiB. Defaults to 8 MiB. */
+	readonly maxReadBytes?: number
 }
 
 /** @experimental A recorded claim remains historical evidence, not proof of current validity. */
@@ -159,8 +163,14 @@ export function createResidentHistorySource(
 	const scope = Object.freeze({ ...scopeInput })
 	const expected = { ...identity }
 	const revisionSchema = z.number().int().min(1).max(scope.throughRevision).safe()
-	function page(signal?: AbortSignal) {
-		const budget: ResidentHistoryReadBudget = { remaining: SCAN_BYTES, bytesRead: 0, signal }
+	function page(signal: AbortSignal | undefined, requestedBytes: number | undefined) {
+		const limit = z
+			.number()
+			.int()
+			.min(1)
+			.max(SCAN_BYTES)
+			.parse(requestedBytes ?? SCAN_BYTES)
+		const budget: ResidentHistoryReadBudget = { remaining: limit, bytesRead: 0, signal }
 		const unavailable = new Set<number>()
 		let scanned = 0
 		const cache = new Map<number, ResidentAgendaState | null>()
@@ -218,7 +228,7 @@ export function createResidentHistorySource(
 				.max(8)
 				.parse(options.limit ?? 5)
 			let revision = revisionSchema.parse(options.cursor ?? scope.throughRevision)
-			const reader = page(signal)
+			const reader = page(signal, options.maxReadBytes)
 			const matches: ResidentHistoryMatch[] = []
 			while (revision >= 2 && matches.length < limit) {
 				let found: Episode | null
@@ -271,7 +281,7 @@ export function createResidentHistorySource(
 				.nonnegative()
 				.safe()
 				.parse(options.offset ?? 0)
-			const reader = page(signal)
+			const reader = page(signal, options.maxReadBytes)
 			const after = await reader.load(revision)
 			const before = revision >= 2 ? await reader.load(revision - 1) : null
 			const found = episode(before, after, scope.pursuitId)

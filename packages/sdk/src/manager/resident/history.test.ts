@@ -60,6 +60,29 @@ async function all(source: ResidentHistorySource, query: string) {
 	throw new Error('History pagination did not make progress.')
 }
 
+it('shares a caller-sized history allowance without losing the first unvisited settlement', async () => {
+	const f = await fixture()
+	const revision = await f.step(`DELTA ${'retained '.repeat(700)}`)
+	const source = await f.history()
+	const full = await source.search({ limit: 1 })
+	const allowance = Math.floor(full.scannedBytes / 2)
+	const small = await source.search({ limit: 1, maxReadBytes: allowance })
+	expect(small.matches).toEqual([])
+	expect(small.scannedBytes).toBeLessThanOrEqual(allowance)
+	expect(small.nextCursor).toBe(revision)
+	expect(small.incomplete).toBe(true)
+	expect(small.unavailableRevisions).toEqual([])
+	if (small.nextCursor === null) throw new Error('Budget stop lost its continuation.')
+	const resumed = await (await f.history()).search({ cursor: small.nextCursor })
+	expect(resumed.matches[0]?.revision).toBe(revision)
+	await expect(source.read({ revision, part: 0, maxReadBytes: 1 })).rejects.toThrow()
+	expect((await source.read({ revision, part: 0 })).entry?.text).toContain('DELTA')
+	for (const maxReadBytes of [0, -1, 1.5, Number.NaN, 8 * 1024 * 1024 + 1]) {
+		await expect(source.search({ maxReadBytes })).rejects.toThrow()
+		await expect(source.read({ revision, part: 0, maxReadBytes })).rejects.toThrow()
+	}
+})
+
 it('recovers an exact earlier decision and consumed wake evidence after the last summary forgets them', async () => {
 	const f = await fixture()
 	const first = await f.step('DELTA delivery code TOKEN-ALPHA; destination old depot.', [

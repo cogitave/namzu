@@ -41,7 +41,8 @@ export interface ResidentToolEvidenceSearchResult {
 	readonly historyBytes: number
 }
 /** @experimental The revision is authorized anew on every read, including after restart. */
-export interface ResidentToolEvidenceReadOptions extends RunEvidenceReadOptions {
+export interface ResidentToolEvidenceReadOptions
+	extends Omit<RunEvidenceReadOptions, 'maxReadBytes'> {
 	readonly revision: number
 }
 /** @experimental Exact invocation text plus the settled claim that authorized access. */

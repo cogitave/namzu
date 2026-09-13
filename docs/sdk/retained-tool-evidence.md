@@ -473,6 +473,23 @@ One run-source call reads at most 8 MiB, including metadata and index files.
 `DiskRunEvidenceOptions.maxReadBytes` can lower that ceiling (1–8 MiB) so a host
 can reserve I/O for its own authorization checks. A ceiling too small for a
 record can prevent progress; it never permits exceeding the bound.
+`RunEvidenceSearchOptions.maxReadBytes` and `RunEvidenceReadOptions.maxReadBytes`
+add an optional per-call ceiling in the same 1–8 MiB range. The effective ceiling
+is the smaller of the call's allowance and the source's configured ceiling.
+This also applies to text and captured live-boundary sources; the final live
+ownership check remains inside that allowance. Omitting it preserves the existing
+source ceiling. It neither changes the source object nor grants a larger future
+allowance. Custom source implementations must honor the option when supplied.
+
+The allowance is a resource limit, not search identity. A returned continuation
+or address may be used with a different per-call allowance after reopening, while
+the same source, query and ownership checks still apply. A page can stop before
+the next record fits, or a read can fail because a required record exceeds the
+remaining allowance. Neither means that the requested text is absent. Callers
+must account for failed reads conservatively when no byte receipt is returned.
+These low-level ceilings do not yet combine the separate resident history,
+attempt-resolution and run-source reads into one resident operation budget.
+
 `run.json` is limited to 512 KiB; one transcript record and one spill manifest
 are each limited to 4 MiB. Manifests accept at most 4,096 chunks; the encoded
 manifest limit can be reached earlier. Oversized/torn records are refused.

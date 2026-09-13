@@ -146,6 +146,7 @@ function createSource(
 	const scopeKey = digest(JSON.stringify(scope))
 	async function access<T>(
 		signal: AbortSignal | undefined,
+		requestedBytes: number | undefined,
 		action: (
 			handle: FileHandle,
 			size: number,
@@ -155,7 +156,11 @@ function createSource(
 			nonterminal: boolean,
 		) => Promise<T>,
 	): Promise<T> {
-		const budget: EvidenceBudget = { bytes: 0, limit: maxReadBytes, signal }
+		const budget: EvidenceBudget = {
+			bytes: 0,
+			limit: Math.min(maxReadBytes, requestedBytes ?? maxReadBytes),
+			signal,
+		}
 		signal?.throwIfAborted()
 		const metaPath = join(runDir, 'run.json')
 		const metaStamp = stamp(await lstat(metaPath))
@@ -208,6 +213,10 @@ function createSource(
 		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			const input = z
 				.object({
+					maxReadBytes: integer
+						.min(1024 * 1024)
+						.max(PAGE_BYTES)
+						.optional(),
 					query: z.string().max(256).optional(),
 					terms: evidenceTermsSchema,
 					caseSensitive: z.boolean().default(true),
@@ -234,184 +243,195 @@ function createSource(
 					: terms
 						? ('search-terms' as const)
 						: ('search' as const)
-			return access(signal, async (handle, size, seal, sourceKey, budget, nonterminal) => {
-				const readSource = createTextSourceReader(handle, runDir, scope.runId, budget)
-				const cursor = input.cursor
-					? cursorSchema.parse(seal.unpack(input.cursor))
-					: {
-							kind,
-							query,
-							termsKey,
-							exclusionsKey,
-							seq: input.seq,
-							part: input.part,
-							mode,
-							position: { offset: 0, seq: 0, textIndex: 0 },
-							entry: 0,
-							chunk: 0,
-							within: 0,
-							caseSensitive: input.caseSensitive,
-							matchMode: input.matchMode,
-						}
-				if (
-					cursor.kind !== kind ||
-					cursor.query !== query ||
-					cursor.termsKey !== termsKey ||
-					cursor.exclusionsKey !== exclusionsKey ||
-					cursor.caseSensitive !== input.caseSensitive ||
-					cursor.matchMode !== input.matchMode ||
-					cursor.seq !== input.seq ||
-					cursor.part !== input.part ||
-					cursor.mode !== mode
-				)
-					throw new Error('Search cursor query changed.')
-				const { page, cacheHit } = await indexPage(
-					handle,
-					size,
-					scope.runId,
-					cursor.position,
-					seal,
-					sourceKey,
-					budget,
-				)
-				const matches: RunTextEvidenceMatch[] = []
-				const unavailable: string[] = []
-				let partial = false
-				let excludedToolResults = 0
-				let excludedSummaries = 0
-				let entryIndex = cursor.entry
-				let chunk = cursor.chunk
-				let within = cursor.within
-				const matchPassage = passageMatcher(terms ?? query, input.caseSensitive, input.matchMode)
-				while (entryIndex < page.entries.length && matches.length < input.limit) {
-					const entry = page.entries[entryIndex]
-					if (!entry) throw new Error('Invalid index entry.')
+			return access(
+				signal,
+				input.maxReadBytes,
+				async (handle, size, seal, sourceKey, budget, nonterminal) => {
+					const readSource = createTextSourceReader(handle, runDir, scope.runId, budget)
+					const cursor = input.cursor
+						? cursorSchema.parse(seal.unpack(input.cursor))
+						: {
+								kind,
+								query,
+								termsKey,
+								exclusionsKey,
+								seq: input.seq,
+								part: input.part,
+								mode,
+								position: { offset: 0, seq: 0, textIndex: 0 },
+								entry: 0,
+								chunk: 0,
+								within: 0,
+								caseSensitive: input.caseSensitive,
+								matchMode: input.matchMode,
+							}
 					if (
-						(mode === 'tools' && entry.source !== 'tool_completed') ||
-						(input.seq !== undefined && entry.seq !== input.seq) ||
-						(input.part !== undefined && entry.part !== input.part)
-					) {
-						entryIndex++
-						chunk = 0
-						within = 0
-						continue
-					}
-					try {
-						const derived =
-							input.excludeDerivedSummaries && entry.source === 'compaction_shed:summary'
-						if (derived || excludesSuccessfulTool(entry, input.excludeSuccessfulTools)) {
-							if (derived) excludedSummaries++
-							else excludedToolResults++
-							entryIndex++
-							chunk = 0
-							within = 0
-							continue
-						}
-						if (entry.truncated && !entry.spill) partial = true
+						cursor.kind !== kind ||
+						cursor.query !== query ||
+						cursor.termsKey !== termsKey ||
+						cursor.exclusionsKey !== exclusionsKey ||
+						cursor.caseSensitive !== input.caseSensitive ||
+						cursor.matchMode !== input.matchMode ||
+						cursor.seq !== input.seq ||
+						cursor.part !== input.part ||
+						cursor.mode !== mode
+					)
+						throw new Error('Search cursor query changed.')
+					const { page, cacheHit } = await indexPage(
+						handle,
+						size,
+						scope.runId,
+						cursor.position,
+						seal,
+						sourceKey,
+						budget,
+					)
+					const matches: RunTextEvidenceMatch[] = []
+					const unavailable: string[] = []
+					let partial = false
+					let excludedToolResults = 0
+					let excludedSummaries = 0
+					let entryIndex = cursor.entry
+					let chunk = cursor.chunk
+					let within = cursor.within
+					const matchPassage = passageMatcher(terms ?? query, input.caseSensitive, input.matchMode)
+					while (entryIndex < page.entries.length && matches.length < input.limit) {
+						const entry = page.entries[entryIndex]
+						if (!entry) throw new Error('Invalid index entry.')
 						if (
-							!entry.spill &&
-							!(terms ?? [query]).some((term) =>
-								input.matchMode === 'token'
-									? mayContainToken(entry.tokenFilter, term) &&
-										(!input.caseSensitive || mayContain(entry.filter, term))
-									: !input.caseSensitive || mayContain(entry.filter, term),
-							)
+							(mode === 'tools' && entry.source !== 'tool_completed') ||
+							(input.seq !== undefined && entry.seq !== input.seq) ||
+							(input.part !== undefined && entry.part !== input.part)
 						) {
 							entryIndex++
 							chunk = 0
 							within = 0
 							continue
 						}
-						const source = await readSource(entry)
-						while (chunk < source.chunks && matches.length < input.limit) {
-							signal?.throwIfAborted()
+						try {
+							const derived =
+								input.excludeDerivedSummaries && entry.source === 'compaction_shed:summary'
+							if (derived || excludesSuccessfulTool(entry, input.excludeSuccessfulTools)) {
+								if (derived) excludedSummaries++
+								else excludedToolResults++
+								entryIndex++
+								chunk = 0
+								within = 0
+								continue
+							}
+							if (entry.truncated && !entry.spill) partial = true
 							if (
-								(terms ?? [query]).some((term) =>
-									source.mayMatch(chunk, term, input.matchMode, input.caseSensitive),
+								!entry.spill &&
+								!(terms ?? [query]).some((term) =>
+									input.matchMode === 'token'
+										? mayContainToken(entry.tokenFilter, term) &&
+											(!input.caseSensitive || mayContain(entry.filter, term))
+										: !input.caseSensitive || mayContain(entry.filter, term),
 								)
 							) {
-								const window = await source.window(chunk, input.matchMode === 'token')
-								const text = decode(window.bytes)
-								const page = passagesInWindow(
-									text,
-									Math.max(within, window.searchFrom ?? 0),
-									matchPassage,
-									input.limit - matches.length,
-									entry.spill ? (chunk + 1) * EVIDENCE_CHUNK_BYTES - window.offset : undefined,
-								)
-								within = page.next
-								for (const { start, end } of page.passages) {
-									const excerpt = text.slice(start, end)
-									const byteOffset = window.offset + Buffer.byteLength(text.slice(0, start))
-									matches.push({
-										address: seal.pack({ kind: 'text', entry: pointerSchema.parse(entry) }),
-										seq: entry.seq,
-										recordedAt: source.recordedAt,
-										source: entry.source,
-										part: entry.part,
-										characterOffset:
-											window.characterOffset === undefined
-												? undefined
-												: window.characterOffset + start,
-										toolName: entry.toolName,
-										isError: entry.isError,
-										retained: source.retained,
-										excerpt,
-										excerptComplete:
-											source.retained === 'full' &&
-											byteOffset === 0 &&
-											Buffer.byteLength(excerpt) === source.bytes,
-										byteOffset,
-									})
+								entryIndex++
+								chunk = 0
+								within = 0
+								continue
+							}
+							const source = await readSource(entry)
+							while (chunk < source.chunks && matches.length < input.limit) {
+								signal?.throwIfAborted()
+								if (
+									(terms ?? [query]).some((term) =>
+										source.mayMatch(chunk, term, input.matchMode, input.caseSensitive),
+									)
+								) {
+									const window = await source.window(chunk, input.matchMode === 'token')
+									const text = decode(window.bytes)
+									const page = passagesInWindow(
+										text,
+										Math.max(within, window.searchFrom ?? 0),
+										matchPassage,
+										input.limit - matches.length,
+										entry.spill ? (chunk + 1) * EVIDENCE_CHUNK_BYTES - window.offset : undefined,
+									)
+									within = page.next
+									for (const { start, end } of page.passages) {
+										const excerpt = text.slice(start, end)
+										const byteOffset = window.offset + Buffer.byteLength(text.slice(0, start))
+										matches.push({
+											address: seal.pack({ kind: 'text', entry: pointerSchema.parse(entry) }),
+											seq: entry.seq,
+											recordedAt: source.recordedAt,
+											source: entry.source,
+											part: entry.part,
+											characterOffset:
+												window.characterOffset === undefined
+													? undefined
+													: window.characterOffset + start,
+											toolName: entry.toolName,
+											isError: entry.isError,
+											retained: source.retained,
+											excerpt,
+											excerptComplete:
+												source.retained === 'full' &&
+												byteOffset === 0 &&
+												Buffer.byteLength(excerpt) === source.bytes,
+											byteOffset,
+										})
+									}
+									if (within < text.length) break
 								}
-								if (within < text.length) break
+								within = 0
+								chunk++
+								if (browse) {
+									chunk = source.chunks
+									break
+								}
 							}
-							within = 0
-							chunk++
-							if (browse) {
-								chunk = source.chunks
-								break
-							}
+							if (chunk < source.chunks) break
+						} catch (error) {
+							signal?.throwIfAborted()
+							if (error instanceof EvidencePageLimit) break
+							unavailable.push(`Text record ${entry.seq}/${entry.part} is unavailable or changed.`)
 						}
-						if (chunk < source.chunks) break
-					} catch (error) {
-						signal?.throwIfAborted()
-						if (error instanceof EvidencePageLimit) break
-						unavailable.push(`Text record ${entry.seq}/${entry.part} is unavailable or changed.`)
+						entryIndex++
+						chunk = 0
+						within = 0
 					}
-					entryIndex++
-					chunk = 0
-					within = 0
-				}
-				const nextCursor =
-					entryIndex < page.entries.length
-						? seal.pack({ ...cursor, entry: entryIndex, chunk, within })
-						: page.next && (input.seq === undefined || page.next.seq < input.seq)
-							? seal.pack({ ...cursor, position: page.next, entry: 0, chunk: 0, within: 0 })
-							: null
-				return {
-					scope,
-					matches,
-					nextCursor,
-					scannedBytes: budget.bytes,
-					indexedRecords: cacheHit ? 0 : page.records,
-					cacheHit,
-					incomplete: nonterminal || unavailable.length > 0 || partial,
-					unavailable,
-					...(excludedToolResults ? { excludedToolResults } : {}),
-					...(excludedSummaries ? { excludedSummaries } : {}),
-				}
-			})
+					const nextCursor =
+						entryIndex < page.entries.length
+							? seal.pack({ ...cursor, entry: entryIndex, chunk, within })
+							: page.next && (input.seq === undefined || page.next.seq < input.seq)
+								? seal.pack({ ...cursor, position: page.next, entry: 0, chunk: 0, within: 0 })
+								: null
+					return {
+						scope,
+						matches,
+						nextCursor,
+						scannedBytes: budget.bytes,
+						indexedRecords: cacheHit ? 0 : page.records,
+						cacheHit,
+						incomplete: nonterminal || unavailable.length > 0 || partial,
+						unavailable,
+						...(excludedToolResults ? { excludedToolResults } : {}),
+						...(excludedSummaries ? { excludedSummaries } : {}),
+					}
+				},
+			)
 		},
 		async read(
 			options: RunEvidenceReadOptions,
 			signal?: AbortSignal,
 		): Promise<RunTextEvidenceReadResult> {
 			const input = z
-				.object({ address: z.string().max(8192), byteOffset: integer.optional() })
+				.object({
+					address: z.string().max(8192),
+					byteOffset: integer.optional(),
+					maxReadBytes: integer
+						.min(1024 * 1024)
+						.max(PAGE_BYTES)
+						.optional(),
+				})
 				.strict()
 				.parse(options)
-			return access(signal, async (handle, _size, seal, _sourceKey, budget) => {
+			return access(signal, input.maxReadBytes, async (handle, _size, seal, _sourceKey, budget) => {
 				const pointer = addressSchema.parse(seal.unpack(input.address)).entry
 				const source = await createTextSourceReader(handle, runDir, scope.runId, budget)(pointer)
 				const entry = source.entry

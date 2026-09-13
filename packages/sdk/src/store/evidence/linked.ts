@@ -82,9 +82,11 @@ export function createLinkedRunTextEvidenceSource(
 	}
 	async function access<T extends { scannedBytes: number }>(
 		signal: AbortSignal | undefined,
+		requestedBytes: number | undefined,
 		action: (handle: FileHandle, seal: EvidenceSeal, budget: EvidenceBudget) => Promise<T>,
 	): Promise<T> {
-		const budget: EvidenceBudget = { bytes: 0, limit: maxReadBytes, signal }
+		const limit = Math.min(maxReadBytes, requestedBytes ?? maxReadBytes)
+		const budget: EvidenceBudget = { bytes: 0, limit, signal }
 		signal?.throwIfAborted()
 		const verifyOwner = async () => {
 			const metadata = JSON.parse(
@@ -98,7 +100,7 @@ export function createLinkedRunTextEvidenceSource(
 		}
 		await verifyOwner()
 		// Reserve a final ownership check; counters/status may change while this run works.
-		budget.limit = maxReadBytes - 512 * 1024
+		budget.limit = limit - 512 * 1024
 
 		const path = join(options.runDir, 'transcript.jsonl')
 		const handle = await openEvidence(path)
@@ -113,7 +115,7 @@ export function createLinkedRunTextEvidenceSource(
 			signal?.throwIfAborted()
 			check(await handle.stat())
 			check(await lstat(path))
-			budget.limit = maxReadBytes
+			budget.limit = limit
 			await verifyOwner()
 			return { ...result, scannedBytes: budget.bytes }
 		} finally {
@@ -125,6 +127,10 @@ export function createLinkedRunTextEvidenceSource(
 		async search(options: RunTextEvidenceSearchOptions = {}, signal?: AbortSignal) {
 			const input = z
 				.object({
+					maxReadBytes: integer
+						.min(1024 * 1024)
+						.max(PAGE_BYTES)
+						.optional(),
 					query: z.string().max(256).optional(),
 					terms: evidenceTermsSchema,
 					caseSensitive: z.boolean().default(true),
@@ -151,7 +157,7 @@ export function createLinkedRunTextEvidenceSource(
 					: terms
 						? ('linked-search-terms' as const)
 						: ('linked-search' as const)
-			return access(signal, async (handle, seal, budget) => {
+			return access(signal, input.maxReadBytes, async (handle, seal, budget) => {
 				const readSource = createTextSourceReader(handle, runDir, scope.runId, budget)
 				const cursor = input.cursor
 					? cursorSchema.parse(seal.unpack(input.cursor))
@@ -338,10 +344,17 @@ export function createLinkedRunTextEvidenceSource(
 		},
 		async read(options: RunEvidenceReadOptions, signal?: AbortSignal) {
 			const input = z
-				.object({ address: z.string().max(8192), byteOffset: integer.default(0) })
+				.object({
+					address: z.string().max(8192),
+					byteOffset: integer.default(0),
+					maxReadBytes: integer
+						.min(1024 * 1024)
+						.max(PAGE_BYTES)
+						.optional(),
+				})
 				.strict()
 				.parse(options)
-			return access(signal, async (handle, seal, budget) => {
+			return access(signal, input.maxReadBytes, async (handle, seal, budget) => {
 				const pointer = addressSchema.parse(seal.unpack(input.address)).entry
 				inBoundary(pointer)
 				const source = await createTextSourceReader(handle, runDir, scope.runId, budget)(pointer)

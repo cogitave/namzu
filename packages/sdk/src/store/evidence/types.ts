@@ -27,6 +27,10 @@ export interface DiskRunEvidenceOptions {
 
 /** @experimental Literal search; empty query browses tool records. */
 export interface RunEvidenceSearchOptions {
+	/** Optional per-call ceiling, 1–8 MiB. Cannot raise the source's own ceiling.
+	 * Not part of search identity; a continuation may use a different allowance.
+	 */
+	readonly maxReadBytes?: number
 	readonly query?: string
 	/**
 	 * Find passages matching any of 1–16 nonblank literal terms (up to 256 UTF-16
@@ -91,6 +95,8 @@ export interface RunEvidenceSearchResult {
 export interface RunEvidenceReadOptions {
 	readonly address: string
 	readonly byteOffset?: number
+	/** Optional per-call ceiling, 1–8 MiB, capped by the source's own ceiling. */
+	readonly maxReadBytes?: number
 }
 
 /** @experimental Full means retained text, not binary blocks or proof an action succeeded. */

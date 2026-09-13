@@ -43,6 +43,30 @@ async function fixture() {
 	return { root, runDir, scope, store, append, source, meta }
 }
 
+it('limits each captured-boundary read while retaining the original owner check and address', async () => {
+	const f = await fixture()
+	await f.append({
+		type: 'tool_completed',
+		toolUseId: 'large',
+		toolName: 'read',
+		isError: false,
+		result: `DELTA ${'ordinary '.repeat(150_000)}`,
+	})
+	const source = await f.source()
+	const full = await source.search({ query: 'DELTA' })
+	const match = full.matches[0]!
+	expect(match.excerpt).toContain('DELTA')
+	await expect(source.search({ query: 'DELTA', maxReadBytes: 1024 * 1024 })).rejects.toThrow()
+	await expect(source.read({ address: match.address, maxReadBytes: 1024 * 1024 })).rejects.toThrow()
+	expect(
+		(await source.read({ address: match.address, maxReadBytes: 8 * 1024 * 1024 })).text,
+	).toContain('DELTA')
+	await f.meta({ ...f.scope, sessionId: randomUUID() })
+	await expect(
+		source.read({ address: match.address, maxReadBytes: 8 * 1024 * 1024 }),
+	).rejects.toThrow('authorized scope')
+})
+
 it('refuses a cancelled disk capture and leaves the writer available to other reads', async () => {
 	const f = await fixture()
 	const controller = new AbortController()
