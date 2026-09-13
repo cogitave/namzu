@@ -67,6 +67,56 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('keeps whole, partial and unknown excerpts distinct at the same address', async () => {
+		const text = 'DELTA tracking code A17'
+		const entries = [true, false, undefined].map((excerptComplete) =>
+			candidate(text, { byteOffset: 0, excerptComplete }),
+		)
+		const { recall } = fixture(entries)
+		const result = await recall(context())
+		expect(rendered(result?.context).map((p) => p.excerptComplete)).toEqual([
+			true,
+			false,
+			undefined,
+		])
+		expect(rendered(result?.context).every((p) => p.otherOccurrences === undefined)).toBe(true)
+		expect(result?.context).toContain(
+			'Completeness does not prove source claims or exhaust history',
+		)
+		const visible = await recall({
+			...context(),
+			messages: [createUserMessage('DELTA'), createAssistantMessage(text)],
+		})
+		expect(rendered(visible?.context)).toHaveLength(0)
+		expect(
+			JSON.parse(visible!.context!.split('\n')[1]!).visibleEvidence.map(
+				(p: { excerptComplete?: boolean }) => p.excerptComplete,
+			),
+		).toEqual([true, false, undefined])
+	})
+
+	it.each([
+		{ excerptComplete: 'true' },
+		{ excerptComplete: true, retained: 'preview' },
+		{ excerptComplete: true, byteOffset: 1 },
+	])('refuses inconsistent whole-excerpt claims before selection: %j', async (invalid) => {
+		const entry = candidate('unrelated', {
+			byteOffset: 0,
+			...invalid,
+		} as Partial<EvidenceRecallCandidate>)
+		await expect(fixture([candidate(), entry]).recall(context())).rejects.toThrow('invalid passage')
+	})
+
+	it('counts coverage metadata inside the shared context allowance', async () => {
+		const entries = Array.from({ length: 10 }, (_, i) =>
+			candidate(`DELTA receipt ${i}`, { seq: i + 2, byteOffset: 0, excerptComplete: true }),
+		)
+		const result = await fixture(entries, { maxChars: 1400 }).recall(context())
+		expect(result!.context!.length).toBeLessThanOrEqual(1400)
+		expect(rendered(result?.context).length).toBeGreaterThan(0)
+		expect(JSON.parse(result!.context!.split('\n')[1]!).omittedPassages).toBeGreaterThan(0)
+	})
+
 	it('keeps an original tool record alongside repeated model claims without deciding which is true', async () => {
 		const claims = Array.from({ length: 4 }, (_, i) =>
 			candidate(`DELTA tracking code CLAIMED; report ${i}.`, {

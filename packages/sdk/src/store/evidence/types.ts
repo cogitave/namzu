@@ -65,6 +65,11 @@ export interface RunEvidenceMatch {
 	readonly isError: boolean
 	readonly retained: 'full' | 'preview'
 	readonly excerpt: string
+	/** True only when the excerpt contains the whole full-retained text part.
+	 * False includes partial text and retained previews; absent is unknown.
+	 * This says nothing about other parts, scan completeness or source truth.
+	 */
+	readonly excerptComplete?: boolean
 	readonly byteOffset: number
 }
 

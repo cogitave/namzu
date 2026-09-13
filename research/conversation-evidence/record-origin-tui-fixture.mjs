@@ -14,8 +14,10 @@ ProviderRegistry.create = () => {
 		assert.ok(records.some(record => record.recordKind === 'tool_result' && record.source === 'tool_completed'))
 		assert.ok(records.some(record => record.recordKind === 'assistant_message' && record.source === 'message_completed'))
 		assert.match(context, /not proof of observed state or successful action/)
+		assert.ok(records.every(record => record.excerptComplete === true))
+		assert.match(context, /Reading that unchanged part adds no text or independent support/)
 		await appendFile(process.env.NAMZU_ORIGIN_TRACE, JSON.stringify({ context, records }) + '\n')
-		yield { id: 'origin-fixture', delta: { content: 'Source kinds verified: assistant claims and tool results remain separate.' } }
+		yield { id: 'origin-fixture', delta: { content: 'Whole-part coverage verified: assistant claims and tool results remain separate.' } }
 		yield { id: 'origin-fixture', delta: {}, finishReason: 'stop', usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0, cachedTokens: 0, cacheWriteTokens: 0 } }
 	}
 	return { provider }

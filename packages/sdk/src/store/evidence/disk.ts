@@ -341,6 +341,8 @@ function createSource(
 								)
 								within = page.next
 								for (const { start, end } of page.passages) {
+									const excerpt = text.slice(start, end)
+									const byteOffset = window.offset + Buffer.byteLength(text.slice(0, start))
 									matches.push({
 										address: seal.pack({ kind: 'text', entry: pointerSchema.parse(entry) }),
 										seq: entry.seq,
@@ -354,8 +356,12 @@ function createSource(
 										toolName: entry.toolName,
 										isError: entry.isError,
 										retained: source.retained,
-										excerpt: text.slice(start, end),
-										byteOffset: window.offset + Buffer.byteLength(text.slice(0, start)),
+										excerpt,
+										excerptComplete:
+											source.retained === 'full' &&
+											byteOffset === 0 &&
+											Buffer.byteLength(excerpt) === source.bytes,
+										byteOffset,
 									})
 								}
 								if (within < text.length) break

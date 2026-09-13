@@ -180,8 +180,15 @@ grouped. The legacy transcript scanner returns the first occurrence per textual
 part. Indexed matches also report `retained`
 (`full` or `preview`), optional originating `toolName`/`isError`, and, when character positions are known, a `byteOffset`
 for reading near the match. A long result may match several windows. `runId`, `seq`, and `part` form a durable read address.
-`guidance` states that matches are excerpts, points to `read_conversation` for
-nearby details, and states the selected case sensitivity.
+Indexed matches also carry `excerptComplete`: true means the entire full-retained
+text part is shown, false means partial text or a retained preview. The legacy
+scanner omits this flag because it cannot prove the original part's coverage;
+absence means unknown. The same metadata reaches automatic recall before the
+model answers. Coverage of one part is not proof of a claim, file contents or
+an exhaustive conversation search.
+`guidance` states the selected case sensitivity and points to `read_conversation`
+when more text is needed. Re-reading an unchanged whole part adds no text or
+independent evidence.
 When a continuation exists, it explicitly directs another search with that
 cursor if the excerpts do not answer the question, including empty pages and
 pages matching only an announcement. Omitted/unavailable evidence without a

@@ -18,6 +18,8 @@ export interface EvidenceRecallCandidate {
 	readonly isError?: boolean
 	readonly retained: 'full' | 'preview'
 	readonly excerpt: string
+	/** Whole full-retained text part; false is partial/preview, absent is unknown. */
+	readonly excerptComplete?: boolean
 	readonly byteOffset?: number
 }
 
@@ -152,6 +154,7 @@ function passages(candidates: readonly EvidenceRecallCandidate[]): Passage[] {
 			candidate.toolName,
 			candidate.isError,
 			candidate.retained,
+			candidate.excerptComplete,
 		])
 		const group = groups.get(key)
 		if (group) group.others.push(candidate)
@@ -252,6 +255,7 @@ function passageLine({ candidate, others }: Passage, included: number): string {
 		toolName: candidate.toolName,
 		isError: candidate.isError,
 		retained: candidate.retained,
+		excerptComplete: candidate.excerptComplete,
 		excerpt: candidate.excerpt,
 		...(others.length
 			? {
@@ -471,6 +475,11 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 					typeof candidate.excerpt !== 'string' ||
 					candidate.excerpt.length > 512 ||
 					!['full', 'preview'].includes(candidate.retained) ||
+					(candidate.excerptComplete !== undefined &&
+						typeof candidate.excerptComplete !== 'boolean') ||
+					(candidate.excerptComplete === true &&
+						(candidate.retained !== 'full' ||
+							(candidate.byteOffset !== undefined && candidate.byteOffset !== 0))) ||
 					(candidate.toolName !== undefined &&
 						(typeof candidate.toolName !== 'string' || candidate.toolName.length > 256)) ||
 					(candidate.isError !== undefined && typeof candidate.isError !== 'boolean') ||
@@ -490,6 +499,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 					candidate.toolName,
 					candidate.isError,
 					candidate.retained,
+					candidate.excerptComplete,
 					candidate.recordedAt,
 				])
 				if (!candidate.excerpt || seen.has(key)) continue
@@ -547,6 +557,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 							toolName: candidate.toolName,
 							isError: candidate.isError,
 							retained: candidate.retained,
+							excerptComplete: candidate.excerptComplete,
 						}
 						return [JSON.stringify(reference), reference] as const
 					}),
@@ -554,6 +565,9 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			]
 			const hasAssistantRecords = [...rankedGroups, ...visibleGroups].some(
 				(group) => recordKind(group.candidate.source) === 'assistant_message',
+			)
+			const hasExcerptCoverage = [...rankedGroups, ...visibleGroups].some(
+				(group) => group.candidate.excerptComplete !== undefined,
 			)
 			const selected: { group: Passage; line: string }[] = []
 			const metadata = (
@@ -564,6 +578,12 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			) =>
 				`${HEADER}${JSON.stringify({
 					incomplete: batch.incomplete,
+					...(hasExcerptCoverage
+						? {
+								excerptGuidance:
+									'excerptComplete=true covers an entire full-retained text part. Reading that unchanged part adds no text or independent support; false/absent is partial/unknown. Completeness does not prove source claims or exhaust history.',
+							}
+						: {}),
 					...(hasAssistantRecords
 						? {
 								recordKindGuidance:

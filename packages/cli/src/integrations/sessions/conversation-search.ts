@@ -19,7 +19,7 @@ import type { ConversationContext } from './store.js'
 
 /** Stable capability guidance; include only when this host mounts both tools. */
 export const CONVERSATION_EVIDENCE_GUIDANCE = `## Conversation evidence
-When a question asks about an earlier observation, use the evidence already in context. If the detail is missing or clipped, use search_conversation to locate the original recorded output, then read_conversation for exact text beyond an excerpt. Pass a supplied recall continuation's cursor to search_conversation to continue from the scan's existing position. This works before compaction as well as after compaction or restart, within this conversation only.
+When a question asks about an earlier observation, use the evidence already in context. If the detail is missing or clipped, use search_conversation to locate the original recorded output, then read_conversation for exact text beyond an excerpt. Pass a supplied recall continuation's cursor to search_conversation to continue from the scan's existing position. This works before compaction as well as after compaction or restart, within this conversation only. excerptComplete=true means the entire full-retained text part is already shown: reading the same unchanged part adds no text or independent evidence. False or absent means partial or unknown. This does not establish the truth of a prior claim or exhaust the conversation.
 A path following "The full output was written to:" identifies an internal backing file, not a workspace file. Recover its contents through search_conversation and read_conversation, which verify ownership and retained-byte integrity. Do not use bash, read or grep to bypass a workspace-path refusal when recovering archived output.
 recordedAt is the event recorder’s wall-clock time in Unix milliseconds, not the time its text became true. For compaction_shed it dates the copy, not the original observation. compaction_shed:summary identifies derived summary text, not an independent observation. Missing stamps stay unknown; clocks can move backwards or differ. Event seq orders one run only; UUIDs, file order and mtime do not establish cross-run chronology.
 For what a file contained earlier, recover its earlier observation; reading or searching the current file cannot establish its past contents. For what is true now, inspect the current source when freshness matters. Do not substitute one time for the other. Report unavailable historical evidence honestly and never repeat a state-changing action to recover its output.`
@@ -42,6 +42,8 @@ interface EvidenceMatch {
 	/** Optional UTF-8 position to begin reading near this indexed match. */
 	byteOffset?: number
 	retained?: 'full' | 'preview'
+	/** True only when this excerpt covers the entire full-retained text part. */
+	excerptComplete?: boolean
 	/** Originating tool, when the authenticated event provides it. */
 	toolName?: string
 	isError?: boolean
@@ -700,7 +702,7 @@ async function searchConversationCore(
 	if (!session || session.projectId !== sessions.projectId)
 		throw new Error('Conversation is outside the current scope.')
 	const result: ConversationSearchResult = {
-		guidance: `Search is ${caseSensitive ? 'case-sensitive' : 'case-insensitive'}. Matches are excerpts: use read_conversation with runId, seq, part and byteOffset for the original passage and nearby details. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence.`,
+		guidance: `Search is ${caseSensitive ? 'case-sensitive' : 'case-insensitive'}. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence.`,
 		matches: [],
 		scannedRuns: 0,
 		scannedBytes: 0,
@@ -819,6 +821,7 @@ async function searchConversationCore(
 					source: match.source,
 					text: match.excerpt,
 					retained: match.retained,
+					excerptComplete: match.excerptComplete,
 					toolName:
 						match.toolName !== undefined && Buffer.byteLength(JSON.stringify(match.toolName)) <= 256
 							? match.toolName

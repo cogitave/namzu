@@ -73,6 +73,73 @@ async function transcript(sessions: CliSessions, sessionId: SessionId, text: str
 }
 
 it.each(['legacy', 'index', 'live'] as const)(
+	'preserves proven text-part coverage through search and recall (%s)',
+	async (backend) => {
+		const { sessions, sessionId } = await fixture()
+		const { runId, path } = await transcript(sessions, sessionId, 'ORCHID original 🦉')
+		await writeFile(
+			join(path, 'transcript.jsonl'),
+			[
+				{ type: 'run_started', runId, seq: 1 },
+				{
+					type: 'tool_completed',
+					runId,
+					seq: 2,
+					toolName: 'read',
+					toolUseId: 'original',
+					isError: false,
+					result: 'ORCHID original 🦉',
+				},
+			]
+				.map((event) => JSON.stringify(event))
+				.join('\n') + '\n',
+		)
+		const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+		let captureRunEvidence:
+			| ((maxReadBytes?: number) => Promise<RunTextEvidenceSource | undefined>)
+			| undefined
+		if (backend !== 'legacy') {
+			await writeFile(
+				join(path, 'run.json'),
+				JSON.stringify({
+					id: runId,
+					status: backend === 'live' ? 'running' : 'completed',
+					metadata: { scope },
+				}),
+			)
+			if (backend === 'live') {
+				const store = new RunDiskStore({ baseDir: dirname(path) })
+				await store.initRun(runId)
+				captureRunEvidence = (maxReadBytes?: number) =>
+					store.captureTextEvidence(scope, maxReadBytes)
+			}
+		}
+		const active = captureRunEvidence ? { runId, captureRunEvidence } : undefined
+		const result = await searchConversation(
+			sessions,
+			sessionId,
+			{ query: 'ORCHID' },
+			undefined,
+			active,
+		)
+		expect(result.matches).toHaveLength(1)
+		expect(result.matches[0]?.excerptComplete).toBe(backend === 'legacy' ? undefined : true)
+		const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+		const recalled = await recall({
+			runId: backend === 'live' ? runId : generateRunId(),
+			captureRunEvidence,
+			messages: [createUserMessage('ORCHID original')],
+			stepNumber: 1,
+			steps: [],
+			prepared: {},
+		})
+		expect(recalled?.context).toContain('ORCHID original 🦉')
+		if (backend !== 'legacy') expect(recalled?.context).toContain('"excerptComplete":true')
+		else expect(recalled?.context).not.toContain('"excerptComplete"')
+	},
+)
+
+it.each(['legacy', 'index', 'live'] as const)(
 	'keeps automatic source exclusions across explicit cursor continuation (%s)',
 	async (backend) => {
 		const { sessions, sessionId } = await fixture()
@@ -1238,6 +1305,7 @@ describe('bounded original conversation evidence', () => {
 		})
 		expect(context?.context).toContain('ORIGINAL-471')
 		expect(context?.context).toContain('"retained":"full"')
+		expect(context?.context).toContain('"excerptComplete":true')
 		expect(captureRunEvidence).toHaveBeenCalledTimes(1)
 		expect((await store.readEvents()).filter((e) => e.type === 'tool_completed')).toHaveLength(1)
 	})

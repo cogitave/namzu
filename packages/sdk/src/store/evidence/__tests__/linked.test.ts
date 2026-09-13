@@ -117,6 +117,7 @@ it.each(['image', 'text', 'compound'] as const)(
 			expect(cursor).toBeUndefined()
 			expect(matches).toHaveLength(1)
 			expect(matches[0]?.source).toBe('compaction_shed:user')
+			expect(matches[0]?.excerptComplete).toBe(kind === 'image')
 			const read = await source.read({
 				address: matches[0]!.address,
 				byteOffset: matches[0]!.byteOffset,

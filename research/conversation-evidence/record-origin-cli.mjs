@@ -42,7 +42,7 @@ await store.appendEvent({ type: 'run_started', runId, seq: seq++ })
 if (caseName === 'conflict') await store.appendEvent({ type: 'tool_completed', runId, seq: seq++, toolName: 'read', toolUseId: 'original', isError: false, result: `ORCHID original receipt code: ${observedCode}.\n${'Export accompanying notes. '.repeat(12)}` })
 for (let i = 0; i < (caseName === 'conflict' ? 4 : 1); i++) await store.appendEvent({ type: 'message_completed', runId, seq: seq++, content: `ORCHID original receipt code: ${claimedCode}. I confirmed the original ORCHID receipt code earlier. Report ${i + 1}.` })
 const archived = await readFile(join(dir, 'transcript.jsonl'), 'utf8')
-const files = ['packages/sdk/dist/run/evidence-recall.js', 'packages/sdk/dist/run/evidence-query.js', 'packages/cli/dist/integrations/sessions/evidence-recall.js', 'packages/cli/dist/integrations/sessions/conversation-search.js', 'packages/providers/openai/dist/codex.js']
+const files = ['packages/sdk/dist/store/evidence/disk.js', 'packages/sdk/dist/store/evidence/linked.js', 'packages/sdk/dist/run/evidence-recall.js', 'packages/sdk/dist/run/evidence-query.js', 'packages/cli/dist/integrations/sessions/evidence-recall.js', 'packages/cli/dist/integrations/sessions/conversation-search.js', 'packages/providers/openai/dist/codex.js']
 const hashes = async () => Object.fromEntries(await Promise.all(files.map(async path => [path, createHash('sha256').update(await readFile(new URL(path, repo))).digest('hex')])))
 const prompt = caseName === 'said'
  ? 'What ORCHID receipt code did you tell me earlier? I am asking what you said, not what the file actually contained.'

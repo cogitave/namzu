@@ -44,12 +44,26 @@ not authorize discovery of another run or extend an expired invocation.
 
 Each `EvidenceRecallCandidate` carries `scope`, event `seq`, textual `part`,
 `source`, `retained`, `excerpt`, optional `toolName`, `isError`, stored-event `recordedAt` and UTF-8
-`byteOffset`. Excerpts are at most 512 UTF-16 units and are emitted without
+`byteOffset`, plus optional `excerptComplete`. Excerpts are at most 512 UTF-16 units and are emitted without
 rewriting identifiers or silently clipping their text. `full` describes what
 the archive retained, not the completeness of the excerpt or success of the
 original action. Every rendered passage retains its origin and preview/error
 state. Invalid candidates, including irrelevant candidates from another
 conversation, reject the entire pass.
+
+`excerptComplete: true` attests that the excerpt covers an entire full-retained
+text part. `false` means partial text or a retained preview; absence means
+unknown. The built-in sources derive this from validated UTF-8 source bounds.
+Custom retrieval callbacks must supply accurate coverage; the step cannot
+independently inspect their source. A true value with preview retention or a
+nonzero supplied byte offset rejects the batch, as does a non-boolean value.
+
+Selected passages and already-visible source references preserve the flag.
+Whole, partial and unknown copies remain separate even when their text and
+address match. Bounded context guidance explains that re-reading an unchanged
+whole part adds no text or independent support; completeness does not prove
+claims or exhaust history. The flag and guidance share the existing context
+character allowance, and make no additional inference or archive read.
 
 ## Selection and limits
 
@@ -231,7 +245,7 @@ because its message uses the block form. The [CLI comparison](../../research/con
 records missing evidence displaced by that representation mismatch.
 
 Remaining candidates with exactly equal text,
-`source`, `toolName`, `isError` and `retained` share one passage. Missing status
+`source`, `toolName`, `isError`, `retained` and `excerptComplete` share one passage. Missing status
 is distinct from explicit success. Letter case, whitespace and changed identifiers
 are preserved; this is not semantic similarity or automatic conflict resolution.
 
@@ -314,7 +328,7 @@ extra ranking votes. Time metadata shares the existing character allowance.
 Already visible exact text is suppressed from new passage text, but its validated
 sources appear separately in `visibleEvidence`. Each entry binds its exact bounded
 `textQuote` (at most 512 UTF-16 units) to a directly readable `address` (`runId`, `seq`, `part`, optional `byteOffset`), optional
-`recordedAt`, `source`, optional `toolName`/`isError`, and `retained`. The quote
+`recordedAt`, `source`, optional `toolName`/`isError`/`excerptComplete`, and `retained`. The quote
 repeats only the authenticated candidate excerpt needed to make the association
 explicit; it does not reload the full source or establish that a
 preview is complete. Matching text may occur in several visible messages, so the

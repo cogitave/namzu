@@ -78,6 +78,50 @@ async function fixture(
 }
 
 describe('bounded retained tool evidence', () => {
+	it.each(['tool', 'text', 'snapshot'] as const)(
+		'proves whole text-part coverage from UTF-8 bounds, not excerpt length (%s)',
+		async (mode) => {
+			const short = 'ORCHID 🦉 İzmir'
+			const exact = `ORCHID ${'ç'.repeat(505)}`
+			const f = await fixture([
+				{ text: short },
+				{ text: exact },
+				{ text: `${exact}x` },
+				{ text: `${'padding '.repeat(1000)}ORCHID 🦉`, spill: true },
+				{ text: short, truncated: true },
+			])
+			if (mode === 'snapshot')
+				await writeFile(
+					join(f.runDir, 'run.json'),
+					JSON.stringify({ id: f.scope.runId, metadata: { scope: f.scope }, status: 'running' }),
+				)
+			for (let reopen = 0; reopen < 2; reopen++) {
+				const source =
+					mode === 'tool'
+						? f.reopen()
+						: createDiskRunTextEvidenceSource({
+								...f,
+								...(mode === 'snapshot' ? { consistency: 'snapshot' as const } : {}),
+							})
+				const first = await source.search({ query: 'ORCHID' })
+				const next = await source.search({ query: 'ORCHID', cursor: first.nextCursor! })
+				const result = { ...next, matches: [...first.matches, ...next.matches] }
+				expect(result.matches.map((m) => m.excerptComplete)).toEqual([
+					true,
+					true,
+					false,
+					false,
+					false,
+				])
+				expect(result.matches[0]?.excerpt).toBe(short)
+				expect(result.matches[1]?.excerpt).toBe(exact)
+				expect(result.matches[3]?.excerpt.length).toBeLessThan(512)
+				expect(result.matches[3]?.byteOffset).toBeGreaterThan(0)
+				expect(result.incomplete).toBe(true) // The retained preview prevents an exhaustive claim.
+			}
+		},
+	)
+
 	it.each(['idle', 'pending', 'running'])(
 		'reads a scoped %s snapshot without closing or replaying the run',
 		async (status) => {

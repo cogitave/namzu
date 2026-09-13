@@ -137,6 +137,7 @@ export function createConversationEvidenceRecall(
 							isError: match.isError,
 							retained: match.retained,
 							excerpt: match.excerpt,
+							excerptComplete: match.excerptComplete,
 							...(match.characterOffset === undefined ? {} : { byteOffset: match.byteOffset }),
 						})
 					advanceScan(
@@ -196,6 +197,7 @@ export function createConversationEvidenceRecall(
 						isError: match.isError,
 						retained: match.retained ?? 'preview',
 						excerpt: match.text,
+						excerptComplete: match.excerptComplete,
 						byteOffset: match.byteOffset,
 					})
 				}

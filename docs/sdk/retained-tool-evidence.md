@@ -173,6 +173,20 @@ matches without emitting the same starting position twice. This is a passage
 search, not an exhaustive list of occurrences. Cursors bind query and case
 sensitivity; changing either requires a new search.
 
+Search matches also expose optional `excerptComplete`. The built-in disk and live
+sources set it to `true` only when a validated full-retained text part starts at
+byte zero and its complete UTF-8 byte length equals the excerpt's byte length.
+`false` means the displayed passage is partial or only a retained preview;
+absence in a custom source means unknown. Short passages near a large record's
+end are not complete. The same rule applies to inline and spilled text, closed
+runs, live captures and running snapshots, without another file read.
+
+This is coverage of **one text part**, not the whole event, original file or
+conversation. A whole part can be shown while the search batch is incomplete.
+It does not verify a source's claims. Reading an unchanged whole part again
+adds no text or independent support. Address ownership, source integrity and
+cancellation are still checked on every subsequent operation.
+
 Optional `excludeSuccessfulTools` selects up to 16 exact, case-sensitive tool
 names of 1–256 UTF-16 units each. It applies to tool-only and general text
 sources, including live captures and snapshots. The default excludes nothing.

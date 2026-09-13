@@ -276,6 +276,8 @@ export function createLinkedRunTextEvidenceSource(
 									)
 									cursor.within = page.next
 									for (const { start, end } of page.passages) {
+										const excerpt = text.slice(start, end)
+										const byteOffset = window.offset + Buffer.byteLength(text.slice(0, start))
 										matches.push({
 											address: seal.pack({ kind: 'linked-text', entry: { ...pointer, part } }),
 											seq: pointer.seq,
@@ -285,8 +287,12 @@ export function createLinkedRunTextEvidenceSource(
 											toolName: source.entry.toolName,
 											isError: source.entry.isError,
 											retained: source.retained,
-											excerpt: text.slice(start, end),
-											byteOffset: window.offset + Buffer.byteLength(text.slice(0, start)),
+											excerpt,
+											excerptComplete:
+												source.retained === 'full' &&
+												byteOffset === 0 &&
+												Buffer.byteLength(excerpt) === source.bytes,
+											byteOffset,
 											characterOffset:
 												window.characterOffset === undefined
 													? undefined
