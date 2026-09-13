@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Label producers in [automatic evidence recall](sdk/evidence-recall.md), keep matching record kinds represented before repeated same-kind passages, and distinguish prior model claims from observed state without granting source authority.
+
 - **Update** Restore public assistant item boundaries in [resumed CLI conversations](cli/slash-commands.md#resuming-a-conversation), omit empty assistant rows, and preserve original tool and provider replay history.
 
 - **Update** Preserve grounded subject words during [automatic evidence discovery](sdk/evidence-recall.md#grounded-subject-focus), retaining scoped validation, explicit archive access and bounded empty-scan diagnostics.

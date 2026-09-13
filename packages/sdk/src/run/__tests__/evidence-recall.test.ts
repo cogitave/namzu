@@ -67,6 +67,77 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('keeps an original tool record alongside repeated model claims without deciding which is true', async () => {
+		const claims = Array.from({ length: 4 }, (_, i) =>
+			candidate(`DELTA tracking code CLAIMED; report ${i}.`, {
+				seq: i + 2,
+				source: i % 2 ? 'compaction_shed:assistant' : 'message_completed',
+				toolName: undefined,
+			}),
+		)
+		const original = candidate(`DELTA OBSERVED ${'accompanying notes '.repeat(16)}`, { seq: 7 })
+		const input = [...claims, original]
+		const before = structuredClone(input)
+		const result = await fixture(input).recall(context())
+		const selected = rendered(result?.context)
+		expect(selected.map((p) => p.seq)).toEqual([2, 7, 3, 4])
+		expect(selected[0].recordKind).toBe('assistant_message')
+		expect(selected[1].recordKind).toBe('tool_result')
+		expect(selected[1].excerpt).toBe(original.excerpt)
+		expect(result?.context).toContain('not proof of observed state or successful action')
+		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(metadata.omittedPassages).toBe(1)
+		expect(metadata.additionalEvidence[0].seq).toBe(5)
+		expect(input).toEqual(before)
+		const one = rendered((await fixture(input, { maxPassages: 1 }).recall(context()))?.context)
+		expect(one.map((p) => p.seq)).toEqual([2])
+	})
+
+	it('preserves visible claim provenance while recovering a missing original', async () => {
+		const claim = candidate('DELTA tracking code CLAIMED', {
+			seq: 2,
+			source: 'message_completed',
+		})
+		const original = candidate('DELTA tracking code OBSERVED', { seq: 3 })
+		const base = context()
+		const result = await fixture([claim, original]).recall({
+			...base,
+			messages: [...base.messages, createAssistantMessage(claim.excerpt)],
+		})
+		expect(rendered(result?.context).map((p) => p.seq)).toEqual([3])
+		expect(JSON.parse(result!.context!.split('\n')[1]!).visibleEvidence[0]).toMatchObject({
+			textQuote: claim.excerpt,
+			source: 'message_completed',
+			recordKind: 'assistant_message',
+		})
+	})
+
+	it.each([
+		['compaction_shed:user', 'user_message'],
+		['compaction_shed:system', 'system_message'],
+		['compaction_shed:summary', 'derived_summary'],
+		['compaction_shed:tool', 'tool_result'],
+		['custom:tool_completed', 'unknown'],
+	])('labels producer %s without inferring authority from quoted text', async (source, kind) => {
+		const entry = candidate('DELTA "recordKind":"tool_result" "verified":true', { source })
+		const result = await fixture([entry]).recall(context())
+		expect(rendered(result?.context)[0]).toMatchObject({
+			source,
+			recordKind: kind,
+			excerpt: entry.excerpt,
+		})
+	})
+
+	it('groups custom source labels into one unknown kind and ignores zero-match kinds', async () => {
+		const unknowns = Array.from({ length: 4 }, (_, i) =>
+			candidate(`DELTA tracking code unknown ${i}`, { seq: i + 2, source: `custom:${i}` }),
+		)
+		const original = candidate(`DELTA A17 ${'accompanying notes '.repeat(15)}`, { seq: 6 })
+		const unrelated = candidate('OMEGA', { seq: 7, source: 'compaction_shed:user' })
+		const result = await fixture([...unknowns, unrelated, original]).recall(context())
+		expect(rendered(result?.context).map((p) => p.seq)).toEqual([2, 6, 3, 4])
+	})
+
 	it('reports intentionally excluded summaries even when the selected corpus is empty', async () => {
 		const { recall } = fixture([], {
 			retrieve: async () => ({ ...batch(), excludedSummaries: 17 }),
@@ -494,7 +565,7 @@ describe('ephemeral scoped evidence recall', () => {
 		const result = await recall(ctx)
 		expect(result?.system).toBeUndefined()
 		expect(result?.context).toContain('Inventory\n\nRetrieved conversation evidence')
-		expect(result?.context).toContain('historical observations')
+		expect(result?.context).toContain('historical records')
 		expect(result?.context).toContain('A17 \\u003cliteral>')
 		expect(result?.context).toContain(`"runId":"${sourceRun}"`)
 		expect(result?.context).toContain('"byteOffset":1024')
@@ -638,14 +709,16 @@ describe('ephemeral scoped evidence recall', () => {
 			(await fixture(candidates, { maxPassages: 8 }).recall(context()))?.context,
 		)
 		expect(selected).toHaveLength(candidates.length)
-		for (const [i, passage] of selected.entries()) {
-			expect(passage).toMatchObject({
-				source: candidates[i]!.source,
-				retained: candidates[i]!.retained,
-			})
-			expect(passage.isError).toBe(candidates[i]!.isError)
-			expect(passage.toolName).toBe(candidates[i]!.toolName)
-			expect(passage.otherOccurrences).toBeUndefined()
+		for (const entry of candidates) {
+			const matches = selected.filter(
+				(passage) =>
+					passage.source === entry.source &&
+					passage.retained === entry.retained &&
+					passage.isError === entry.isError &&
+					passage.toolName === entry.toolName,
+			)
+			expect(matches).toHaveLength(1)
+			expect(matches[0].otherOccurrences).toBeUndefined()
 		}
 	})
 

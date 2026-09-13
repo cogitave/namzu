@@ -547,7 +547,8 @@ it.each([false, true])(
 				.join('\n') ?? ''
 		if (recallEvidence) {
 			expect(recalled).toContain('ORIGINAL-471')
-			expect(recalled).toContain('historical observations')
+			expect(recalled).toContain('historical records')
+			expect(recalled).toContain('"recordKind":"tool_result"')
 		} else expect(recalled).not.toContain('ORIGINAL-471')
 		for (const forbidden of ['FOREIGN-888', 'CURRENT-992'])
 			expect(recalled).not.toContain(forbidden)

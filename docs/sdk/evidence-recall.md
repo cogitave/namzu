@@ -235,16 +235,52 @@ Remaining candidates with exactly equal text,
 is distinct from explicit success. Letter case, whitespace and changed identifiers
 are preserved; this is not semantic similarity or automatic conflict resolution.
 
-Known derived summaries (`source: 'compaction_shed:summary'`) are ranked after
-other matching records. Each group uses its own bounded BM25 statistics, so
-repeated summary vocabulary cannot change the source records' scores. This
-orders only the discovered candidate pool; it does not search extra pages or
-establish which claim is true. Summaries can still fill remaining passage slots,
-are used when they are the only matching candidates, and retain omitted read
-addresses. Visible source references use the same ordering. Explicit archive
-search remains unfiltered. Older unmarked summaries are not guessed from prose.
-The [CLI comparison](../../research/conversation-evidence/summary-evidence-results.md)
-records the case where four derived summaries displaced a retrieved original.
+For non-summary candidates, the best positive BM25 match stays first. One
+positive match from each other producer kind follows, then remaining matches
+in score order. This prevents several distinct model claims from occupying
+all slots when a matching tool record is already in the bounded candidate pool.
+`message_completed` and `compaction_shed:assistant` share one producer kind;
+custom source labels all share `unknown`, so invented labels cannot reserve
+extra slots. This does not guarantee one passage per kind when the slot or
+character budget is too small. When the highest-scoring passage fits, one-slot
+selection remains unchanged.
+
+Known derived summaries (`source: 'compaction_shed:summary'`) remain last, with
+their own BM25 statistics, so their repeated vocabulary cannot change other
+records' scores. Summaries still fill remaining slots or serve summary-only
+archives. The same ordering is applied separately to already visible quotes.
+Neither ordering nor producer diversity establishes relevance, truth,
+independence or chronology. Explicit archive searches retain their original
+traversal order. No new page, model call or read allowance is added.
+
+Selected passages and `visibleEvidence` entries add a `recordKind` label derived
+only from the validated `source`, never from the excerpt's claims:
+
+| Source | Record kind |
+| --- | --- |
+| `message_completed`, `compaction_shed:assistant` | `assistant_message` |
+| `tool_completed`, `compaction_shed:tool` | `tool_result` |
+| `compaction_shed:user` | `user_message` |
+| `compaction_shed:summary` | `derived_summary` |
+| `compaction_shed:system` | `system_message` |
+| Other host labels | `unknown` |
+
+`user_message` identifies a user-role record; that role may also carry
+runtime-generated context. It does not authenticate human authorship.
+`system_message` identifies a stored role, not instruction authority.
+An assistant record establishes what the model said, not what a file contained
+or whether an action succeeded. Tool results can themselves quote claims or
+retrieved text. These labels identify the producer and confer no authority on
+content. When eligible assistant records exist, bounded `recordKindGuidance`
+asks the model to attribute unsupported prior statements as claims and check
+relevant original observations. This guidance is not a verifier or a guarantee
+that a model will obey it. Host retrievers still own source integrity checks.
+
+The [source-origin CLI controls](../../research/conversation-evidence/record-origin-results.md)
+record the model treating its own unsupported claim as an observed file value,
+and compare bounded source selection and attribution after this change.
+The earlier [summary comparison](../../research/conversation-evidence/summary-evidence-results.md)
+records a separate case where derived summaries displaced an original.
 
 If a partial CLI discovery page includes known summaries, the host may spend
 its existing refinement page on the same terms with
@@ -424,8 +460,9 @@ conversation and reject stale run ownership before and after asynchronous I/O.
 
 ## Historical and current facts
 
-The context labels passages as historical observations and untrusted reference
-data, not instructions or verified current state. A past file observation may
+The context labels passages as historical records and untrusted reference
+data, not instructions or verified current state. Producer labels distinguish
+assistant claims from tool results without certifying either as true. A past file observation may
 answer what was seen earlier. It cannot establish what is in the file now.
 Current facts still require sufficiently fresh evidence. Missing, bounded or
 unavailable history is not proof of absence; explicit archive search/read
