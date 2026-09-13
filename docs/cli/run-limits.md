@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Run limits
-description: How far one headless run may go before the kernel stops it — the limits config key, the --max-iterations and --token-budget flags, explicit reasoning effort, and budget enforcement.
+description: Limits for interactive and headless runs, headless override flags, explicit reasoning effort and budget enforcement.
 resource: packages/cli/src/commands/run-flags.ts
 tags: [cli, run, config]
 status: stable
@@ -14,6 +14,18 @@ CLI runs default to 50 main-loop iterations and no cumulative token limit. Set a
 
 - **`limits`** in `namzu.config.json` or `~/.namzu/config.yaml`: `{ "maxIterations": 400, "tokenBudget": 5000000 }`. Either key may be omitted. Whole numbers above zero.
 - **`--max-iterations <n>`** and **`--token-budget <n>`** on `run` and `run-stream` override the file for one run.
+
+The TUI also applies `limits.maxIterations` and `limits.tokenBudget` from the
+resolved configuration, including when resuming a conversation or rebuilding
+the session after a model change. User settings apply at launch; project
+settings apply after workspace trust is established. Each ordinary new user
+turn opens a run with these limits; durable recovery preserves the existing
+run's ledger. `limits.waitForProviderMs` remains a headless wait policy.
+
+Earlier TUI launches ignored configured limits. To retain unlimited cumulative
+tokens in interactive use, omit `limits.tokenBudget` from the effective config
+and use `--token-budget` for individual headless runs. The omitted defaults stay
+50 iterations and no cumulative token cap.
 
 Interactive and headless sessions use the same token-budget default. Children also have no implicit token cap when the tree is unlimited; their iteration and cancellation boundaries remain active. Context size is a separate matter and is governed by [compaction](context-and-compaction.md), which keeps the working set under the model's window however long the run goes.
 
@@ -29,7 +41,9 @@ main run; separately configured delegation has its own model settings.
 An exhausted iteration, token, cost or elapsed-time guard stops without making
 an additional model call just to produce a closing summary. Finalization advice
 may be sent while budget remains. Stop reasons continue to distinguish finished
-work from exhaustion. Token and cost limits are checked between calls using
+work from a limit-triggered stop, including a closing response at the warning
+threshold. The TUI displays a stop notice alongside retained partial output;
+closing prose does not establish that answer review passed. Token and cost limits are checked between calls using
 reported usage; an in-flight response can cross a threshold, so these are not
 provider-side billing caps. The configured token budget is shared by the parent
 and its descendants. Under a finite parent limit each child reserves a finite allowance, and its unused

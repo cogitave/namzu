@@ -91,13 +91,14 @@ afterEach(() => {
 
 const tick = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
-async function openWith(web: { fetch?: boolean } | undefined) {
+async function openWith(web: { fetch?: boolean } | undefined, extras: Partial<TuiContext> = {}) {
 	const ctx: TuiContext = {
 		cwd: process.cwd(),
 		version: '0.0.0-test',
 		rules: [],
 		skipPermissions: false,
 		...(web ? { web } : {}),
+		...extras,
 	} as unknown as TuiContext
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
@@ -118,5 +119,12 @@ describe('the App creating its session', () => {
 	it('passes no web config when it was given none', async () => {
 		const options = await openWith(undefined)
 		expect(options.web).toBeUndefined()
+		expect(options).not.toHaveProperty('limits')
+	})
+
+	it.each([0, 1_000])('passes explicit token allowance %s and iteration limit to the session', async (tokenBudget) => {
+		const limits = { tokenBudget, maxIterations: 3 }
+		const options = await openWith(undefined, { limits })
+		expect(options.limits).toEqual(limits)
 	})
 })

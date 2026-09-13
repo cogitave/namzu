@@ -2620,6 +2620,7 @@ export function App({
 				...(activeCtx.hooks ? { hooks: activeCtx.hooks } : {}),
 				...(activeCtx.compaction ? { compaction: activeCtx.compaction } : {}),
 				...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
+				...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
 				...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
 				// Somebody is at this terminal, so the model may ask them one
 				// question when a decision is genuinely theirs.

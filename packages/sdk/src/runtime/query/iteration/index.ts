@@ -1354,7 +1354,12 @@ export class IterationOrchestrator {
 							continue
 						}
 
-						let closingStopReason: StopReason | undefined
+						// A limit-requested summary bypasses prose review and further
+						// work. Preserve that limit on settlement, even if the provider
+						// reports a normal text completion and headroom still remains.
+						let closingStopReason: StopReason | undefined = forceFinalize
+							? guardResult.stopReason
+							: undefined
 						if (!hasContent && !forceFinalize) {
 							this.ctx.log.warn('Empty completion detected — requesting final summary', {
 								[NAMZU.ITERATION]: iterationNum,

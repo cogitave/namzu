@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Preserve limit-triggered closing reasons in [answer verification](sdk/verification.md) and carry configured [run limits](cli/run-limits.md) through interactive startup and session creation; record natural CLI failures and terminal regression evidence.
+
 - **Update** Bind [advisory context](sdk/advisory-context.md) to the dispatched request and subsequently appended records, sharing one window and releasing request-only evidence on iteration exit and resume.
 
 - **Update** Preserve public calls, rich tool text and host provenance in [advisory context](sdk/advisory-context.md), count serialized records against its window, and record bounded CLI source-support review controls including a failed speaker-attribution case.

@@ -289,7 +289,7 @@ describe('the run record names the member that served', () => {
 			{ providerId: 'anthropic', model: 'claude-haiku-4-5', chainIndex: 1 },
 			{ providerId: 'anthropic', model: 'claude-haiku-4-5', chainIndex: 1 },
 		])
-		expect(run.stopReason).toBe('end_turn')
+		expect(run.stopReason).toBe('token_budget')
 		expect(run.costInfo.totalCost).toBeCloseTo(6.6, 6)
 		expect(run.messages.at(-1)).toMatchObject({
 			role: 'assistant',

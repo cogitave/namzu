@@ -354,6 +354,7 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.hooks ? { hooks: resolvedCtx.config.hooks } : {}),
 					...(resolvedCtx.config.compaction ? { compaction: resolvedCtx.config.compaction } : {}),
 					...(resolvedCtx.config.memory ? { memory: resolvedCtx.config.memory } : {}),
+					...(resolvedCtx.config.limits ? { limits: resolvedCtx.config.limits } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
 				}

@@ -18,7 +18,7 @@ The operator application.
 * [Adding a directory](add-dir.md) - How a session lets the file tools reach a directory besides the working directory, and what changes for the tools, the sandbox and the model.
 * [File checkpoints](file-checkpoints.md) - How the session records every file before a tool changes it, per turn, and how /restore puts the tree back to before a turn.
 * [Memory](memory.md) - The curated files injected into every turn, per project and per user, and the kernel's searchable store; where each lives and what writes to it.
-* [Run limits](run-limits.md) - How far one headless run may go before the kernel stops it: the limits config key and the --max-iterations and --token-budget flags.
+* [Run limits](run-limits.md) - Limits for interactive and headless runs, headless override flags and honest closing stop reasons.
 * [Slash commands](slash-commands.md) - Every builtin slash command the interactive session answers to, one line each, with the composer keys that are not commands.
 * [Plugins](plugins.md) - Trusted extension loading, live contributions and session enable/disable controls.
 * [The composer prefixes](composer-prefixes.md) - What a line starting with `!` or `#` does in the composer: a command run on the host without the model, or a note remembered, and what the model learns of either.

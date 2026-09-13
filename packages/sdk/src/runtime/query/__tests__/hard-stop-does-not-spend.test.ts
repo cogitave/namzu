@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
@@ -16,17 +16,34 @@ import {
 	generateTenantId,
 	generateTopicId,
 } from '../../../utils/id.js'
-import { drainQuery } from '../index.js'
+import { type QueryParams, drainQuery } from '../index.js'
 
 const dirs: string[] = []
 afterEach(async () => {
+	vi.restoreAllMocks()
 	await removeTempDirs(dirs.splice(0))
 })
 
-async function run(turns: MockTurn[], limits: Partial<AgentRunConfig>) {
+async function run(
+	turns: MockTurn[],
+	limits: Partial<AgentRunConfig>,
+	controls: Pick<QueryParams, 'reviewAnswer' | 'onStepFinish' | 'signal' | 'structuredOutput'> = {},
+) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-hard-stop-'))
 	dirs.push(workingDirectory)
-	const provider = new MockLLMProvider({ turns })
+	const provider = new MockLLMProvider({
+		turns,
+		...(controls.structuredOutput
+			? {
+					capabilities: {
+						supportsTools: true,
+						supportsStreaming: true,
+						supportsFunctionCalling: true,
+						supportsNativeStructuredOutput: true,
+					},
+				}
+			: {}),
+	})
 	const tools = new ToolRegistry()
 	tools.register({
 		name: 'observe',
@@ -37,6 +54,7 @@ async function run(turns: MockTurn[], limits: Partial<AgentRunConfig>) {
 	const events: RunEvent[] = []
 	const result = await drainQuery(
 		{
+			...controls,
 			provider,
 			tools,
 			retry: false,
@@ -138,6 +156,7 @@ describe('a hard stop starts no closing model request', () => {
 		expect(provider.requests[1]?.toolChoice).toBe('none')
 		expect(result.result).toBe('Work summarized.')
 		expect(result.tokenUsage.totalTokens).toBe(940)
+		expect(result.stopReason).toBe('token_budget')
 	})
 
 	it('keeps zero token and cost limits unlimited', async () => {
@@ -147,6 +166,86 @@ describe('a hard stop starts no closing model request', () => {
 			maxIterations: 2,
 		})
 		expect(provider.requests).toHaveLength(2)
+		expect(result.stopReason).toBe('end_turn')
+	})
+})
+
+describe('a forced prose summary preserves the reason it bypassed review', () => {
+	const approaching = { promptTokens: 475, completionTokens: 475, totalTokens: 950 }
+	const summary: MockTurn = {
+		text: 'Unverified closing summary.',
+		usage: { promptTokens: 20, completionTokens: 20, totalTokens: 40 },
+	}
+
+	it.each([
+		{ reason: 'token_budget', limits: { tokenBudget: 1_000 } },
+		{ reason: 'cost_limit', limits: { costLimitUsd: 0.001 } },
+		{ reason: 'timeout', limits: { timeoutMs: 10_000 } },
+	] as const)('reports %s on the run and terminal event', async ({ reason, limits }) => {
+		let now = Date.now()
+		vi.spyOn(Date, 'now').mockImplementation(() => now)
+		const review = vi.fn(() => ({ accept: true as const }))
+		const { result, provider, events } = await run(
+			[{ ...toolTurn, usage: approaching }, summary],
+			limits,
+			{
+				reviewAnswer: review,
+				onStepFinish: (step) => {
+					if (reason === 'timeout' && step.stepNumber === 1) now += 9_500
+				},
+			},
+		)
+		expect(provider.requests).toHaveLength(2)
+		expect(provider.requests[1]?.toolChoice).toBe('none')
+		expect(review).not.toHaveBeenCalled()
+		expect(result.result).toBe(summary.text)
+		expect(result.stopReason).toBe(reason)
+		expect(events).toContainEqual(
+			expect.objectContaining({ type: 'run_completed', stopReason: reason }),
+		)
+	})
+
+	it('cannot turn a rejected candidate into an accepted run by reaching the warning threshold', async () => {
+		const review = vi.fn(() => ({ accept: false as const, feedback: 'Missing original evidence.' }))
+		const { result, provider } = await run(
+			[{ text: 'Unsupported claim.', usage: approaching }, summary],
+			{ tokenBudget: 1_000 },
+			{ reviewAnswer: review },
+		)
+		expect(provider.requests).toHaveLength(2)
+		expect(review).toHaveBeenCalledTimes(1)
+		expect(result.result).toBe(summary.text)
+		expect(result.stopReason).toBe('token_budget')
+	})
+
+	it('keeps cancellation ahead of the closing limit reason', async () => {
+		const controller = new AbortController()
+		const { result, provider } = await run(
+			[{ ...toolTurn, usage: approaching }, summary],
+			{ tokenBudget: 1_000 },
+			{
+				signal: controller.signal,
+				onStepFinish: (step) => {
+					if (step.stepNumber === 2) controller.abort()
+				},
+			},
+		)
+		expect(provider.requests).toHaveLength(2)
+		expect(result.stopReason).toBe('cancelled')
+	})
+
+	it('still settles reviewed native output on the separate validated path', async () => {
+		const review = vi.fn(() => ({ accept: true as const }))
+		const { result } = await run(
+			[
+				{ ...toolTurn, usage: approaching },
+				{ ...summary, text: '{"score":2}' },
+			],
+			{ tokenBudget: 1_000 },
+			{ structuredOutput: { mode: 'native', schema: z.object({ score: z.number() }), review } },
+		)
+		expect(review).toHaveBeenCalledTimes(1)
+		expect(result.structuredOutput).toEqual({ score: 2 })
 		expect(result.stopReason).toBe('end_turn')
 	})
 })

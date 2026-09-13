@@ -12,6 +12,7 @@ import type {
 	HooksConfig,
 	MemoryCliConfig,
 	PluginConfig,
+	RunLimitsConfig,
 	SandboxConfig,
 	TuiConfig,
 	WebConfig,
@@ -94,6 +95,8 @@ export interface TuiContext {
 	readonly hooks?: HooksConfig
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
+	/** Configured per-run limits, also applied when rebuilding a session. */
+	readonly limits?: RunLimitsConfig
 	/** See `NamzuCliConfig.additionalDirectories`, resolved absolute, plus `--add-dir`. */
 	readonly additionalDirectories?: readonly string[]
 	/**

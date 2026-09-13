@@ -183,7 +183,7 @@ describe('a run against a catalogued model', () => {
 			],
 		})
 
-		expect(settled.stopReason).toBe('end_turn')
+		expect(settled.stopReason).toBe('token_budget')
 		expect(settled.costInfo.unpricedTokens).toBe(0)
 		// Two calls, both priced: the turn and the forced summary.
 		expect(settled.tokenUsage.totalTokens).toBe(2_100)

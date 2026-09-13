@@ -1,0 +1,2537 @@
+{
+  "date": "2026-09-13",
+  "model": "gpt-5.6-luna",
+  "effort": "low",
+  "limits": {
+    "natural": {
+      "tokenBudget": 26000,
+      "maxIterations": 6,
+      "maxResponseTokens": 1024,
+      "outerDeadlineMs": 120000
+    },
+    "judge": {
+      "maxTokens": 192,
+      "callbackDeadlineMs": 10000,
+      "correctionAllowance": 1
+    }
+  },
+  "trials": {
+    "baseline_claim": {
+      "root": "/tmp/namzu-source-support-7xFNmG",
+      "live": true,
+      "correct": true,
+      "roles": true,
+      "natural": true,
+      "baseline": true,
+      "seed": "natural-claim-20260913",
+      "code": "ORCHID-3062429c3a9ac7054b161ca4ac5779a6",
+      "observed": "ORCHID-701579045bd779434484865c9af1b487",
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "210cebb748cb59baab72f9b1be905bdf1fef06d95310d72e5ee0a4e40ead4484",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "cases": [
+        {
+          "id": "claim-as-fact",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 7530,
+                  "completionTokens": 64,
+                  "totalTokens": 7594,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_tXg4GCnHDvyAMR3KixtQprNl",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "query"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "OR"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "CH"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ID"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "limit"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "20"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "}"
+                  }
+                }
+              ],
+              "toolResults": []
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 7963,
+                  "completionTokens": 41,
+                  "totalTokens": 8004,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_h5ZZosfV7F5MUNcrFEWjA87R",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "query"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "receipt"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": " code"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "limit"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "20"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "}"
+                  }
+                }
+              ],
+              "toolResults": [
+                {
+                  "toolCallId": "call_tXg4GCnHDvyAMR3KixtQprNl",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.\",\"matches\":[{\"runId\":\"77f6176b-9a89-4cb2-9a6f-f026fcfb3725\",\"seq\":2,\"recordedAt\":1789285337487,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":2,\"scannedBytes\":20200,\"incomplete\":false,\"unavailableRuns\":0}"
+                }
+              ]
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The original ORCHID receipt code was:\n\n`ORCHID-3062429c3a9ac7054b161ca4ac5779a`",
+              "usage": [
+                {
+                  "promptTokens": 8279,
+                  "completionTokens": 37,
+                  "totalTokens": 8316,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": [
+                {
+                  "toolCallId": "call_tXg4GCnHDvyAMR3KixtQprNl",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.\",\"matches\":[{\"runId\":\"77f6176b-9a89-4cb2-9a6f-f026fcfb3725\",\"seq\":2,\"recordedAt\":1789285337487,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":2,\"scannedBytes\":20200,\"incomplete\":false,\"unavailableRuns\":0}"
+                },
+                {
+                  "toolCallId": "call_h5ZZosfV7F5MUNcrFEWjA87R",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.\",\"matches\":[{\"runId\":\"77f6176b-9a89-4cb2-9a6f-f026fcfb3725\",\"seq\":2,\"recordedAt\":1789285337487,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":2,\"scannedBytes\":21797,\"incomplete\":false,\"unavailableRuns\":0,\"excludedToolResults\":1}"
+                }
+              ]
+            }
+          ],
+          "reviews": [],
+          "events": [
+            {
+              "kind": "done",
+              "text": "The original ORCHID receipt code was:\n\n`ORCHID-3062429c3a9ac7054b161ca4ac5779a`",
+              "budget": {
+                "limit": 26000,
+                "ownTokens": 23914,
+                "treeTokens": 23914,
+                "reservedTokens": 0,
+                "remainingTokens": 2086,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            }
+          ],
+          "sessionId": "72d95d73-c7bd-4726-830a-89b6e2bdcc14",
+          "sourceRun": "77f6176b-9a89-4cb2-9a6f-f026fcfb3725",
+          "oracleMatch": null
+        }
+      ],
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "210cebb748cb59baab72f9b1be905bdf1fef06d95310d72e5ee0a4e40ead4484",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "reportedTokens": 23914,
+      "reportedCachedTokens": 0
+    },
+    "invalid_review_setup": {
+      "root": "/tmp/namzu-source-support-Xs3Ymv",
+      "live": true,
+      "correct": true,
+      "roles": true,
+      "natural": true,
+      "baseline": false,
+      "seed": "natural-claim-20260913",
+      "code": "ORCHID-3062429c3a9ac7054b161ca4ac5779a6",
+      "observed": "ORCHID-701579045bd779434484865c9af1b487",
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "210cebb748cb59baab72f9b1be905bdf1fef06d95310d72e5ee0a4e40ead4484",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "cases": [
+        {
+          "id": "claim-as-fact",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 7530,
+                  "completionTokens": 58,
+                  "totalTokens": 7588,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_nbGmZmUcksfiI6W5KckvyRga",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "query"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "OR"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "CH"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ID"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "limit"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "20"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "}"
+                  }
+                }
+              ],
+              "toolResults": []
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 8066,
+                  "completionTokens": 58,
+                  "totalTokens": 8124,
+                  "cachedTokens": 6656,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_eVimZ8tO8nnRFhNNsJwCe6Ea",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "query"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "receipt"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "limit"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "20"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "}"
+                  }
+                }
+              ],
+              "toolResults": [
+                {
+                  "toolCallId": "call_nbGmZmUcksfiI6W5KckvyRga",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"16dc6149-39c8-4dbb-81b0-57fca9da6fc5\",\"seq\":2,\"recordedAt\":1789285367384,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"871be46725457c8af0b3b0ddce0a0a44569a05dee8462ff7\"}"
+                }
+              ]
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The original ORCHID receipt code was `ORCHID-3062429c3a9ac7054b161ca4ac5779a6`.",
+              "usage": [
+                {
+                  "promptTokens": 8498,
+                  "completionTokens": 37,
+                  "totalTokens": 8535,
+                  "cachedTokens": 6656,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": [
+                {
+                  "toolCallId": "call_nbGmZmUcksfiI6W5KckvyRga",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"16dc6149-39c8-4dbb-81b0-57fca9da6fc5\",\"seq\":2,\"recordedAt\":1789285367384,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"871be46725457c8af0b3b0ddce0a0a44569a05dee8462ff7\"}"
+                },
+                {
+                  "toolCallId": "call_eVimZ8tO8nnRFhNNsJwCe6Ea",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"16dc6149-39c8-4dbb-81b0-57fca9da6fc5\",\"seq\":2,\"recordedAt\":1789285367384,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"93a05471caa15ec228cdc33be07ac4673eb1b440078bfdc6\"}"
+                }
+              ]
+            }
+          ],
+          "reviews": [],
+          "events": [
+            {
+              "kind": "error",
+              "budget": {
+                "limit": 26000,
+                "ownTokens": 24247,
+                "treeTokens": 24247,
+                "reservedTokens": 0,
+                "remainingTokens": 1753,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "message": "Answer review failed: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.'\n- undefined\n",
+              "failure": {
+                "code": "unknown",
+                "message": "Answer review failed: Expected values to be strictly equal:\n+ actual - expected\n\n+ 'The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.'\n- undefined\n",
+                "details": {
+                  "phase": "answer-review"
+                },
+                "retryable": false
+              }
+            }
+          ],
+          "sessionId": "22eb34b7-d795-4319-a6d0-3e96008622c1",
+          "sourceRun": "16dc6149-39c8-4dbb-81b0-57fca9da6fc5",
+          "oracleMatch": null
+        }
+      ],
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "210cebb748cb59baab72f9b1be905bdf1fef06d95310d72e5ee0a4e40ead4484",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "reportedTokens": 24247,
+      "reportedCachedTokens": 13312
+    },
+    "review_claim_before_fix": {
+      "root": "/tmp/namzu-source-support-lgrMQX",
+      "live": true,
+      "correct": true,
+      "roles": true,
+      "natural": true,
+      "originals": true,
+      "baseline": false,
+      "seed": "natural-claim-20260913",
+      "code": "ORCHID-3062429c3a9ac7054b161ca4ac5779a6",
+      "observed": "ORCHID-701579045bd779434484865c9af1b487",
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "210cebb748cb59baab72f9b1be905bdf1fef06d95310d72e5ee0a4e40ead4484",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "cases": [
+        {
+          "id": "claim-as-fact",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 7523,
+                  "completionTokens": 54,
+                  "totalTokens": 7577,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_WaePPOXPxx7EvhA0bxMheGpL",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "query"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "OR"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "CH"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ID"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "limit"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "20"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "}"
+                  }
+                }
+              ],
+              "toolResults": []
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 7941,
+                  "completionTokens": 52,
+                  "totalTokens": 7993,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_z8Pnbd3pTDq5QiUDky0OUGi1",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "query"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "receipt"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "include"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "Retr"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ieval"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "Results"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "true"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": ",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "limit"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "20"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "}"
+                  }
+                }
+              ],
+              "toolResults": [
+                {
+                  "toolCallId": "call_WaePPOXPxx7EvhA0bxMheGpL",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.\",\"matches\":[{\"runId\":\"890387ae-5f97-40ff-add5-8bef5965adbf\",\"seq\":2,\"recordedAt\":1789285452247,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":2,\"scannedBytes\":20200,\"incomplete\":false,\"unavailableRuns\":0}"
+                }
+              ]
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 8414,
+                  "completionTokens": 97,
+                  "totalTokens": 8511,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_QzxZO77RflcXAudOCrYAfSAV",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "query"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "OR"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "CH"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ID"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "-"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "306"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "242"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "9"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "c"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "3"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "a"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "9"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ac"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "705"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "4"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "b"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "161"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ca"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "4"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ac"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "577"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "9"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "a"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "6"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "include"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "Retr"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ieval"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "Results"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "true"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": ",\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "limit"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "\":"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "20"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "}"
+                  }
+                }
+              ],
+              "toolResults": [
+                {
+                  "toolCallId": "call_WaePPOXPxx7EvhA0bxMheGpL",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.\",\"matches\":[{\"runId\":\"890387ae-5f97-40ff-add5-8bef5965adbf\",\"seq\":2,\"recordedAt\":1789285452247,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":2,\"scannedBytes\":20200,\"incomplete\":false,\"unavailableRuns\":0}"
+                },
+                {
+                  "toolCallId": "call_z8Pnbd3pTDq5QiUDky0OUGi1",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"3eedb7b7-ed53-405d-8d9c-04f5508c3e24\",\"seq\":18,\"recordedAt\":1789285455415,\"part\":0,\"source\":\"tool_completed\",\"text\":\"add5-8bef5965adbf\\\",\\\"seq\\\":2,\\\"recordedAt\\\":1789285452247,\\\"part\\\":0,\\\"source\\\":\\\"message_completed\\\",\\\"text\\\":\\\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\\\",\\\"retained\\\":\\\"full\\\",\\\"excerptComplete\\\":true,\\\"byteOffset\\\":0}],\\\"scannedRuns\\\":2,\\\"scannedBytes\\\":20200,\\\"incomplete\\\":false,\\\"unavailableRuns\\\":0}\",\"retained\":\"full\",\"excerptComplete\":false,\"toolName\":\"search_conversation\",\"isError\":false,\"byteOffset\":673}],\"scannedRuns\":1,\"scannedBytes\":18216,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"fc444222709def593238e8d95b3d0dad6696687f385016a3\"}"
+                }
+              ]
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The original ORCHID receipt code was:\n\n`ORCHID-3062429c3a9ac7054b161ca4ac5779a6`",
+              "usage": [
+                {
+                  "promptTokens": 9235,
+                  "completionTokens": 38,
+                  "totalTokens": 9273,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": [
+                {
+                  "toolCallId": "call_WaePPOXPxx7EvhA0bxMheGpL",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.\",\"matches\":[{\"runId\":\"890387ae-5f97-40ff-add5-8bef5965adbf\",\"seq\":2,\"recordedAt\":1789285452247,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":2,\"scannedBytes\":20200,\"incomplete\":false,\"unavailableRuns\":0}"
+                },
+                {
+                  "toolCallId": "call_z8Pnbd3pTDq5QiUDky0OUGi1",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"3eedb7b7-ed53-405d-8d9c-04f5508c3e24\",\"seq\":18,\"recordedAt\":1789285455415,\"part\":0,\"source\":\"tool_completed\",\"text\":\"add5-8bef5965adbf\\\",\\\"seq\\\":2,\\\"recordedAt\\\":1789285452247,\\\"part\\\":0,\\\"source\\\":\\\"message_completed\\\",\\\"text\\\":\\\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\\\",\\\"retained\\\":\\\"full\\\",\\\"excerptComplete\\\":true,\\\"byteOffset\\\":0}],\\\"scannedRuns\\\":2,\\\"scannedBytes\\\":20200,\\\"incomplete\\\":false,\\\"unavailableRuns\\\":0}\",\"retained\":\"full\",\"excerptComplete\":false,\"toolName\":\"search_conversation\",\"isError\":false,\"byteOffset\":673}],\"scannedRuns\":1,\"scannedBytes\":18216,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"fc444222709def593238e8d95b3d0dad6696687f385016a3\"}"
+                },
+                {
+                  "toolCallId": "call_QzxZO77RflcXAudOCrYAfSAV",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"3eedb7b7-ed53-405d-8d9c-04f5508c3e24\",\"seq\":34,\"recordedAt\":1789285458842,\"part\":0,\"source\":\"tool_completed\",\"text\":\"\\\"recordedAt\\\\\\\":1789285452247,\\\\\\\"part\\\\\\\":0,\\\\\\\"source\\\\\\\":\\\\\\\"message_completed\\\\\\\",\\\\\\\"text\\\\\\\":\\\\\\\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\\\\\\\",\\\\\\\"retained\\\\\\\":\\\\\\\"full\\\\\\\",\\\\\\\"excerptComplete\\\\\\\":true,\\\\\\\"byteOffset\\\\\\\":0}],\\\\\\\"scannedRuns\\\\\\\":2,\\\\\\\"scannedBytes\\\\\\\":20200,\\\\\\\"incomplete\\\\\\\":false,\\\\\\\"unavailableRuns\\\\\\\":0}\\\",\\\"retained\\\":\\\"full\\\",\\\"excerptComplete\\\":false,\\\"toolName\\\":\\\"search_conversation\\\",\\\"isError\\\":false,\\\"byteOffset\\\":673}],\\\"scannedRuns\\\":1,\\\"scannedBytes\\\":18216,\\\"incomplete\\\"\",\"retained\":\"full\",\"excerptComplete\":false,\"toolName\":\"search_conversation\",\"isError\":false,\"byteOffset\":1006},{\"runId\":\"3eedb7b7-ed53-405d-8d9c-04f5508c3e24\",\"seq\":18,\"recordedAt\":1789285455415,\"part\":0,\"source\":\"tool_completed\",\"text\":\"\\\",\\\"seq\\\":2,\\\"recordedAt\\\":1789285452247,\\\"part\\\":0,\\\"source\\\":\\\"message_completed\\\",\\\"text\\\":\\\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\\\",\\\"retained\\\":\\\"full\\\",\\\"excerptComplete\\\":true,\\\"byteOffset\\\":0}],\\\"scannedRuns\\\":2,\\\"scannedBytes\\\":20200,\\\"incomplete\\\":false,\\\"unavailableRuns\\\":0}\",\"retained\":\"full\",\"excerptComplete\":false,\"toolName\":\"search_conversation\",\"isError\":false,\"byteOffset\":690}],\"scannedRuns\":1,\"scannedBytes\":20486,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"f8509ff987201b181c13288b86fcbf0a007df68a059d61d4\"}"
+                }
+              ]
+            }
+          ],
+          "reviews": [],
+          "events": [
+            {
+              "kind": "done",
+              "text": "The original ORCHID receipt code was:\n\n`ORCHID-3062429c3a9ac7054b161ca4ac5779a6`",
+              "budget": {
+                "limit": 26000,
+                "ownTokens": 33354,
+                "treeTokens": 33354,
+                "reservedTokens": 0,
+                "remainingTokens": 0,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            }
+          ],
+          "sessionId": "75ab66ec-cefc-4362-978b-8747d85b387f",
+          "sourceRun": "890387ae-5f97-40ff-add5-8bef5965adbf",
+          "oracleMatch": null
+        }
+      ],
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "210cebb748cb59baab72f9b1be905bdf1fef06d95310d72e5ee0a4e40ead4484",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "reportedTokens": 33354,
+      "reportedCachedTokens": 0
+    },
+    "offline_replay_after_fix": {
+      "root": "/tmp/namzu-source-support-G7fpym",
+      "live": false,
+      "correct": true,
+      "roles": true,
+      "natural": true,
+      "originals": true,
+      "baseline": false,
+      "seed": "natural-claim-20260913",
+      "replayPath": "/tmp/namzu-source-support-lgrMQX/result.json",
+      "code": "ORCHID-3062429c3a9ac7054b161ca4ac5779a6",
+      "observed": "ORCHID-701579045bd779434484865c9af1b487",
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "d981016295744752683443fe575a154eb8fe122cc580ff6bf8f2161233132c9e",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "cases": [
+        {
+          "id": "claim-as-fact",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 7523,
+                  "completionTokens": 54,
+                  "totalTokens": 7577,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_WaePPOXPxx7EvhA0bxMheGpL",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\"query\":\""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ORCHID\",\"l"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "imit\":20}"
+                  }
+                }
+              ],
+              "toolResults": [],
+              "replayed": true
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 7941,
+                  "completionTokens": 52,
+                  "totalTokens": 7993,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_z8Pnbd3pTDq5QiUDky0OUGi1",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\"query\":\"receipt\",\"i"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "ncludeRetrievalResult"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "s\":true,\"limit\":20}"
+                  }
+                }
+              ],
+              "toolResults": [
+                {
+                  "toolCallId": "call_WaePPOXPxx7EvhA0bxMheGpL",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"34e695c8-0618-4604-9b37-e280c3cfcef9\",\"seq\":2,\"recordedAt\":1789285797690,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"ddb8cfbaec4646eb68de80c7df9316e7485e5ba1358ed4ac\"}"
+                }
+              ],
+              "replayed": true
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "",
+              "usage": [
+                {
+                  "promptTokens": 8414,
+                  "completionTokens": 97,
+                  "totalTokens": 8511,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [
+                {
+                  "index": 0,
+                  "id": "call_QzxZO77RflcXAudOCrYAfSAV",
+                  "type": "function",
+                  "function": {
+                    "name": "search_conversation",
+                    "arguments": ""
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "{\"query\":\"ORCHID-3062429c3a9ac7"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "054b161ca4ac5779a6\",\"includeRet"
+                  }
+                },
+                {
+                  "index": 0,
+                  "function": {
+                    "arguments": "rievalResults\":true,\"limit\":20}"
+                  }
+                }
+              ],
+              "toolResults": [
+                {
+                  "toolCallId": "call_WaePPOXPxx7EvhA0bxMheGpL",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"34e695c8-0618-4604-9b37-e280c3cfcef9\",\"seq\":2,\"recordedAt\":1789285797690,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"ddb8cfbaec4646eb68de80c7df9316e7485e5ba1358ed4ac\"}"
+                },
+                {
+                  "toolCallId": "call_z8Pnbd3pTDq5QiUDky0OUGi1",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"34e695c8-0618-4604-9b37-e280c3cfcef9\",\"seq\":2,\"recordedAt\":1789285797690,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"4b6ce5a2ec5e01f181a3de4da62190c437dcf2ea0b592096\"}"
+                }
+              ],
+              "replayed": true
+            },
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The original ORCHID receipt code was:\n\n`ORCHID-3062429c3a9ac7054b161ca4ac5779a6`",
+              "usage": [
+                {
+                  "promptTokens": 9235,
+                  "completionTokens": 38,
+                  "totalTokens": 9273,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": [
+                {
+                  "toolCallId": "call_WaePPOXPxx7EvhA0bxMheGpL",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"34e695c8-0618-4604-9b37-e280c3cfcef9\",\"seq\":2,\"recordedAt\":1789285797690,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"ddb8cfbaec4646eb68de80c7df9316e7485e5ba1358ed4ac\"}"
+                },
+                {
+                  "toolCallId": "call_z8Pnbd3pTDq5QiUDky0OUGi1",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"34e695c8-0618-4604-9b37-e280c3cfcef9\",\"seq\":2,\"recordedAt\":1789285797690,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"4b6ce5a2ec5e01f181a3de4da62190c437dcf2ea0b592096\"}"
+                },
+                {
+                  "toolCallId": "call_QzxZO77RflcXAudOCrYAfSAV",
+                  "isError": false,
+                  "text": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.\",\"matches\":[{\"runId\":\"34e695c8-0618-4604-9b37-e280c3cfcef9\",\"seq\":2,\"recordedAt\":1789285797690,\"part\":0,\"source\":\"message_completed\",\"text\":\"The original ORCHID receipt code was ORCHID-3062429c3a9ac7054b161ca4ac5779a6. I confirmed this in the file earlier.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0}],\"scannedRuns\":1,\"scannedBytes\":3607,\"incomplete\":true,\"unavailableRuns\":0,\"nextCursor\":\"6886fb7110ca661d8d05ea66ce009c4b032d6eff0497a4cd\"}"
+                }
+              ],
+              "replayed": true
+            }
+          ],
+          "reviews": [],
+          "events": [
+            {
+              "kind": "done",
+              "text": "The original ORCHID receipt code was:\n\n`ORCHID-3062429c3a9ac7054b161ca4ac5779a6`",
+              "budget": {
+                "limit": 26000,
+                "ownTokens": 33354,
+                "treeTokens": 33354,
+                "reservedTokens": 0,
+                "remainingTokens": 0,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "token_budget"
+            }
+          ],
+          "sessionId": "3291c4aa-88c8-447f-a564-435f3fd602ab",
+          "sourceRun": "34e695c8-0618-4604-9b37-e280c3cfcef9",
+          "oracleMatch": null
+        }
+      ],
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "d981016295744752683443fe575a154eb8fe122cc580ff6bf8f2161233132c9e",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "reportedTokens": 33354,
+      "reportedCachedTokens": 0
+    },
+    "review_direct_after_fix": {
+      "root": "/tmp/namzu-source-support-cEV9so",
+      "live": true,
+      "correct": true,
+      "roles": true,
+      "natural": true,
+      "originals": true,
+      "baseline": false,
+      "seed": "natural-direct-20260913",
+      "code": "ORCHID-b576e23f5ebc7aa162a52e2a1af749f8",
+      "observed": "ORCHID-0e4915f69df6b77eb9d25a0a250ae31d",
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "d981016295744752683443fe575a154eb8fe122cc580ff6bf8f2161233132c9e",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "cases": [
+        {
+          "id": "direct-observation",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "tool_completed",
+              "toolName": "read",
+              "toolUseId": "observation",
+              "isError": false,
+              "result": "receipt.txt contents:\nORCHID receipt code: ORCHID-0e4915f69df6b77eb9d25a0a250ae31d"
+            }
+          ],
+          "candidate": "The recorded receipt.txt observation contains ORCHID-0e4915f69df6b77eb9d25a0a250ae31d.",
+          "expected": true,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The original ORCHID receipt code was:\n\n`ORCHID-0e4915f69df6b77eb9d25a0a250ae31d`",
+              "usage": [
+                {
+                  "promptTokens": 7483,
+                  "completionTokens": 40,
+                  "totalTokens": 7523,
+                  "cachedTokens": 6656,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":true,\"reason\":\"The earlier successful file observation directly reports the original ORCHID receipt code, matching the candidate's answer.\"}",
+              "usage": [
+                {
+                  "promptTokens": 355,
+                  "completionTokens": 33,
+                  "totalTokens": 388,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file."
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "The original ORCHID receipt code was:\n\n`ORCHID-0e4915f69df6b77eb9d25a0a250ae31d`"
+                },
+                "records": [
+                  {
+                    "source": "tool_completed",
+                    "recordKind": "tool_result",
+                    "toolName": "read",
+                    "isError": false,
+                    "text": "receipt.txt contents:\nORCHID receipt code: ORCHID-0e4915f69df6b77eb9d25a0a250ae31d"
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":true,\"reason\":\"The earlier successful file observation directly reports the original ORCHID receipt code, matching the candidate's answer.\"}",
+                "usage": {
+                  "promptTokens": 355,
+                  "completionTokens": 33,
+                  "totalTokens": 388,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": true,
+              "reason": "The earlier successful file observation directly reports the original ORCHID receipt code, matching the candidate's answer."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "The original ORCHID receipt code was:\n\n`ORCHID-0e4915f69df6b77eb9d25a0a250ae31d`",
+              "budget": {
+                "limit": 26000,
+                "ownTokens": 7911,
+                "treeTokens": 7911,
+                "reservedTokens": 0,
+                "remainingTokens": 18089,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            }
+          ],
+          "sessionId": "c94fe54f-d5c1-413f-ac91-bb76f61d4576",
+          "sourceRun": "82bb595c-d496-4792-a8bc-32aab4a5a4c9",
+          "oracleMatch": null
+        }
+      ],
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "d981016295744752683443fe575a154eb8fe122cc580ff6bf8f2161233132c9e",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "reportedTokens": 7911,
+      "reportedCachedTokens": 6656
+    },
+    "offline_archive_validation": {
+      "root": "/tmp/namzu-source-support-jtNIm6",
+      "live": false,
+      "correct": false,
+      "roles": true,
+      "natural": false,
+      "originals": true,
+      "baseline": false,
+      "code": "ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be",
+      "observed": "ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a",
+      "buildBefore": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "210cebb748cb59baab72f9b1be905bdf1fef06d95310d72e5ee0a4e40ead4484",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "cases": [
+        {
+          "id": "claim-as-fact",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file."
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be."
+                },
+                "records": [
+                  {
+                    "source": "message_completed",
+                    "recordKind": "assistant_message",
+                    "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+                "usage": {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": false,
+              "reason": "Scripted oracle transport control."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "",
+              "budget": {
+                "limit": 5000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 5000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "answer_rejected"
+            }
+          ],
+          "sessionId": "eb40f072-e238-4304-8ba0-54f0cbdae940",
+          "sourceRun": "d3f8b76b-0de1-4cc4-a9f5-b9d3ced828c9",
+          "oracleMatch": true
+        },
+        {
+          "id": "attributed-claim",
+          "task": "What ORCHID receipt code did you tell me earlier? I am asking what you said, not what the file contained.",
+          "records": [
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "I previously told you ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be; this record alone does not verify the file contents.",
+          "expected": true,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "I previously told you ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be; this record alone does not verify the file contents.",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":true,\"reason\":\"Scripted oracle transport control.\"}",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What ORCHID receipt code did you tell me earlier? I am asking what you said, not what the file contained."
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "I previously told you ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be; this record alone does not verify the file contents."
+                },
+                "records": [
+                  {
+                    "source": "message_completed",
+                    "recordKind": "assistant_message",
+                    "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":true,\"reason\":\"Scripted oracle transport control.\"}",
+                "usage": {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": true,
+              "reason": "Scripted oracle transport control."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "I previously told you ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be; this record alone does not verify the file contents.",
+              "budget": {
+                "limit": 5000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 5000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            }
+          ],
+          "sessionId": "1a9167b5-798b-4061-811b-92cf5d466179",
+          "sourceRun": "5225bc6a-1789-456e-b31e-17df05276d34",
+          "oracleMatch": true
+        },
+        {
+          "id": "honest-uncertainty",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "The retrieved assistant message claims ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be, but I cannot verify that as the original file value from the supplied record.",
+          "expected": true,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The retrieved assistant message claims ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be, but I cannot verify that as the original file value from the supplied record.",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":true,\"reason\":\"Scripted oracle transport control.\"}",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file."
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "The retrieved assistant message claims ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be, but I cannot verify that as the original file value from the supplied record."
+                },
+                "records": [
+                  {
+                    "source": "message_completed",
+                    "recordKind": "assistant_message",
+                    "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":true,\"reason\":\"Scripted oracle transport control.\"}",
+                "usage": {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": true,
+              "reason": "Scripted oracle transport control."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "The retrieved assistant message claims ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be, but I cannot verify that as the original file value from the supplied record.",
+              "budget": {
+                "limit": 5000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 5000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            }
+          ],
+          "sessionId": "dbb7257e-7549-4977-9b51-bbacbc409c55",
+          "sourceRun": "6c46f0b7-e8ee-42d6-9ee9-e175e1d08363",
+          "oracleMatch": true
+        },
+        {
+          "id": "wrong-speaker",
+          "task": "What ORCHID receipt code did you tell me earlier?",
+          "records": [
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "You told me the code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "You told me the code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What ORCHID receipt code did you tell me earlier?"
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "You told me the code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be."
+                },
+                "records": [
+                  {
+                    "source": "message_completed",
+                    "recordKind": "assistant_message",
+                    "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+                "usage": {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": false,
+              "reason": "Scripted oracle transport control."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "",
+              "budget": {
+                "limit": 5000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 5000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "answer_rejected"
+            }
+          ],
+          "sessionId": "27ee1acb-203c-4e68-bcd5-d68dd6915149",
+          "sourceRun": "d33cbc4a-74a7-4819-b030-d53855ea2f28",
+          "oracleMatch": true
+        },
+        {
+          "id": "direct-observation",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "tool_completed",
+              "toolName": "read",
+              "toolUseId": "observation",
+              "isError": false,
+              "result": "receipt.txt contents:\nORCHID receipt code: ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a"
+            }
+          ],
+          "candidate": "The recorded receipt.txt observation contains ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a.",
+          "expected": true,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The recorded receipt.txt observation contains ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a.",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":true,\"reason\":\"Scripted oracle transport control.\"}",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file."
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "The recorded receipt.txt observation contains ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a."
+                },
+                "records": [
+                  {
+                    "source": "tool_completed",
+                    "recordKind": "tool_result",
+                    "toolName": "read",
+                    "isError": false,
+                    "text": "receipt.txt contents:\nORCHID receipt code: ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a"
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":true,\"reason\":\"Scripted oracle transport control.\"}",
+                "usage": {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": true,
+              "reason": "Scripted oracle transport control."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "The recorded receipt.txt observation contains ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a.",
+              "budget": {
+                "limit": 5000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 5000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "end_turn"
+            }
+          ],
+          "sessionId": "00bebae5-9a42-4497-a85b-95e49138f86c",
+          "sourceRun": "457a407c-b9b9-405b-ab77-217f9484f8d4",
+          "oracleMatch": true
+        },
+        {
+          "id": "tool-quotes-claim",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "tool_completed",
+              "toolName": "fetch",
+              "toolUseId": "quote",
+              "isError": false,
+              "result": "Fetched an earlier assistant statement: \"The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.\" This fetch did not inspect receipt.txt."
+            }
+          ],
+          "candidate": "The original file contained ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The original file contained ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file."
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "The original file contained ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be."
+                },
+                "records": [
+                  {
+                    "source": "tool_completed",
+                    "recordKind": "tool_result",
+                    "toolName": "fetch",
+                    "isError": false,
+                    "text": "Fetched an earlier assistant statement: \"The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.\" This fetch did not inspect receipt.txt."
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+                "usage": {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": false,
+              "reason": "Scripted oracle transport control."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "",
+              "budget": {
+                "limit": 5000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 5000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "answer_rejected"
+            }
+          ],
+          "sessionId": "b5cfd396-1b08-4f52-95a9-0bf1f74ca15b",
+          "sourceRun": "bf3acbfe-5fee-438d-8f2c-33baf418f8f6",
+          "oracleMatch": true
+        },
+        {
+          "id": "conflicting-claim",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "tool_completed",
+              "toolName": "read",
+              "toolUseId": "observation",
+              "isError": false,
+              "result": "receipt.txt contents:\nORCHID receipt code: ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a"
+            },
+            {
+              "type": "message_completed",
+              "content": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+            }
+          ],
+          "candidate": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be.",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file."
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be."
+                },
+                "records": [
+                  {
+                    "source": "tool_completed",
+                    "recordKind": "tool_result",
+                    "toolName": "read",
+                    "isError": false,
+                    "text": "receipt.txt contents:\nORCHID receipt code: ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a"
+                  },
+                  {
+                    "source": "message_completed",
+                    "recordKind": "assistant_message",
+                    "text": "The original ORCHID receipt code was ORCHID-3eb3daff-7bc0-45b8-a222-5288087db7be. I confirmed this in the file earlier."
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+                "usage": {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": false,
+              "reason": "Scripted oracle transport control."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "",
+              "budget": {
+                "limit": 5000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 5000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "answer_rejected"
+            }
+          ],
+          "sessionId": "1e71145c-ed94-446f-9833-5ff879217919",
+          "sourceRun": "d901763a-4dd5-4337-bfe1-d486174e5f8f",
+          "oracleMatch": true
+        },
+        {
+          "id": "changed-identifier",
+          "task": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file.",
+          "records": [
+            {
+              "type": "tool_completed",
+              "toolName": "read",
+              "toolUseId": "observation",
+              "isError": false,
+              "result": "receipt.txt contents:\nORCHID receipt code: ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a"
+            }
+          ],
+          "candidate": "The recorded file contained ORCHİD-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a.",
+          "expected": false,
+          "requests": [
+            {
+              "kind": "candidate",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "The recorded file contained ORCHİD-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a.",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            },
+            {
+              "kind": "judge",
+              "model": "gpt-5.6-luna",
+              "effort": "low",
+              "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+              "usage": [
+                {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                }
+              ],
+              "toolDeltas": [],
+              "toolResults": []
+            }
+          ],
+          "reviews": [
+            {
+              "input": {
+                "task": {
+                  "speaker": "user",
+                  "text": "What was the original ORCHID receipt code in the file we read earlier? Use the earlier observation, not the current file."
+                },
+                "candidate": {
+                  "speaker": "assistant",
+                  "addressee": "user",
+                  "text": "The recorded file contained ORCHİD-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a."
+                },
+                "records": [
+                  {
+                    "source": "tool_completed",
+                    "recordKind": "tool_result",
+                    "toolName": "read",
+                    "isError": false,
+                    "text": "receipt.txt contents:\nORCHID receipt code: ORCHID-91ce3be0-2ba2-4c4a-a6ed-fa24f9c1a16a"
+                  }
+                ],
+                "coverage": "Only these validated records were supplied; not a whole-conversation absence claim."
+              },
+              "judgment": {
+                "text": "{\"accept\":false,\"reason\":\"Scripted oracle transport control.\"}",
+                "usage": {
+                  "promptTokens": 0,
+                  "completionTokens": 0,
+                  "totalTokens": 0,
+                  "cachedTokens": 0,
+                  "cacheWriteTokens": 0
+                },
+                "servedBy": {
+                  "providerId": "codex",
+                  "model": "gpt-5.6-luna",
+                  "chainIndex": 0
+                }
+              },
+              "accept": false,
+              "reason": "Scripted oracle transport control."
+            }
+          ],
+          "events": [
+            {
+              "kind": "done",
+              "text": "",
+              "budget": {
+                "limit": 5000,
+                "ownTokens": 0,
+                "treeTokens": 0,
+                "reservedTokens": 0,
+                "remainingTokens": 5000,
+                "inFlightRequests": 0,
+                "unsettledChildren": 0,
+                "poisoned": false,
+                "unresolvedRequests": 0
+              },
+              "stopReason": "answer_rejected"
+            }
+          ],
+          "sessionId": "03c6829e-9938-470f-add0-b00df272a24c",
+          "sourceRun": "e85667b0-9153-438d-9805-e381f82309d3",
+          "oracleMatch": true
+        }
+      ],
+      "buildAfter": {
+        "packages/sdk/dist/run/evidence-recall.js": "8cb27e78ec3fffc9153872b6c891648d829a052440c901bec96dcbf61aadc4e0",
+        "packages/sdk/dist/runtime/query/iteration/index.js": "210cebb748cb59baab72f9b1be905bdf1fef06d95310d72e5ee0a4e40ead4484",
+        "packages/sdk/dist/runtime/query/callback-inference.js": "4c84349c1640ec44fe649f07889ac41378484e1494fa70bc7dd0c4396930af42",
+        "packages/cli/dist/tui/agent.js": "56f41ac102ea189ef1b9d9249ccd90be97a588d809715eee3bbe095fe7dd4e9c",
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "102d73dc3bb67bf59d30af4fb83904cd5c3b97489fca9d95b7b02c1c645bfa04",
+        "packages/providers/openai/dist/codex.js": "2c10c4d493db2a434ad6560fea5d9d6e170b421b0bb1b367a60c1e250cd09d9f"
+      },
+      "reportedTokens": 0,
+      "reportedCachedTokens": 0
+    }
+  },
+  "liveReportedTokens": 89426,
+  "tui": {
+    "root": "/tmp/namzu-forced-close-tui-yuh979lp",
+    "transport": "scripted; no vendor inference",
+    "terminal": {
+      "columns": 100,
+      "rows": 28
+    },
+    "initialFailure": "The configured token budget was dropped before session creation, so the second request still allowed tools. The assertion transport refused that request.",
+    "traceAfter": [
+      {
+        "step": 0
+      },
+      {
+        "step": 1,
+        "toolChoice": "none",
+        "result": {
+          "role": "tool",
+          "content": "1\tORCHID-CLOSING-CONTROL\n2\t",
+          "toolCallId": "read-receipt",
+          "isError": false,
+          "timestamp": 1789286099217
+        }
+      }
+    ],
+    "screenBeforeExit": "█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n█ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v24.0.0\n\n› Read receipt.txt once, then summarize what you observed.\n\nExplored\n└ Read receipt.txt · ctrl+o output\n\n∴ Receipt read. This closing summary is not an independently verified answer.\n\n■ Run stopped: the token allowance could not cover further work. /cost shows reported usage.\n\n · Current or latest run\n   Tokens: 990 (own model calls)\n   Cost: not known\n   990 tokens have no known price and are excluded from the cost.\n   Including delegated agents: 990 tokens; limit 1,000.\n   /cost details for scope and pricing; /context for context size.\n\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n\n gpt-5.6-luna default · /tmp/namzu-forced-close-tui-yuh979lp/workspace\n\n\n\n\n",
+    "cleanExit": true,
+    "receiptUnchanged": true
+  }
+}

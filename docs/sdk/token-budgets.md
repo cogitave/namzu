@@ -38,6 +38,12 @@ Canceling a task signals it; its pending execution still owns its reservation.
 An invocation that throws without returning its usage keeps its unspent grant
 reserved. A failed task is not evidence that its provider spent zero tokens.
 
+At the run's warning threshold, the kernel may request closing prose while
+allowance remains. That response preserves the triggering guard's stop reason,
+such as `token_budget`, instead of reporting normal completion. The text remains
+available, but prose answer review is bypassed on this path; it is not a verified
+answer. The warning is not proof that measured spend reached the hard ceiling.
+
 `beginRequest()` persists an outstanding request before contacting the provider.
 `finishRequest(id, usage)` records the response and resolves the request together.
 Usage frames within one response merge by their component high-water marks;

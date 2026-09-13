@@ -36,7 +36,8 @@ snapshot does not authenticate its contents, authorize archive access, or prove
 file freshness. A verifier of retained evidence must revalidate the quoted
 source's scope, address and bytes before accepting its own task-specific claim.
 
-Only runs with a prose or structured reviewer make this copy; it adds no model
+Runs with a prose/structured reviewer or configured
+[advisory context](advisory-context.md) capture this request; it adds no model
 call or archive read by itself. Its memory cost is another copy of that projected
 request, including its rich content. A reviewer may retain its received copy,
 but the kernel keeps no cross-turn archive of these snapshots. Mutating nested
@@ -175,6 +176,14 @@ unbypassable objective-verification boundary. The built-in command reviewer
 contains command/fingerprint errors and forwards cancellation. Custom prose and
 structured reviewers both distinguish valid rejections from verification failures,
 but cannot stop external work whose implementation ignores cancellation.
+
+A limit-triggered closing prose response preserves the guard's `token_budget`,
+`cost_limit` or `timeout` stop reason. It is retained as partial work even when
+the provider reports a normal text completion. This can happen at the warning
+threshold while allowance remains; it does not imply the hard ceiling was
+exhausted. A previously rejected candidate does not become accepted because the
+next response bypassed review. Cancellation still takes precedence. Validated
+native structured output retains its separate schema/review settlement path.
 
 The CLI's headless `run` and `run-stream` commands accept repeatable `--gate`
 commands and `--gate-retries`; the TUI does not automatically install this gate.
