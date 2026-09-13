@@ -151,6 +151,7 @@ import { StatusBar } from './StatusBar.js'
 import { TaskList, type TaskListItem } from './TaskList.js'
 import { TextPrompt } from './TextPrompt.js'
 import { modelCatalogueView } from './model-catalogue-view.js'
+import { conversationEvidenceView } from './conversation-evidence-view.js'
 import { Transcript, willCollapse } from './Transcript.js'
 import { TrustPrompt } from './TrustPrompt.js'
 import {
@@ -4167,6 +4168,14 @@ export function App({
 					if (catalogue !== undefined) {
 						pushMessage('tool', catalogue, false, '✓', event.output?.split('\n'),
 							theme.status.ok, 'ctrl+o details', 'catalogue')
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
+					const evidence = !event.isError && event.output !== undefined
+						? conversationEvidenceView(event.toolName, event.output) : undefined
+					if (evidence !== undefined) {
+						pushMessage('tool', evidence.content, false, '✓', evidence.detail,
+							theme.status.ok, 'ctrl+o details', 'evidence')
 						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
 						break
 					}

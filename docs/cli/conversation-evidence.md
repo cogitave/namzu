@@ -400,6 +400,33 @@ payload cache. Indexed spill reads verify just the selected chunks and manifest.
 Both tools remain ready when deferred tool loading is selected. Stateless
 headless runs without a host-owned conversation do not acquire these tools. Unrecorded bytes and binary attachments are not reconstructed.
 
+## Terminal presentation
+
+Successful archive calls show compact source and coverage summaries in the TUI.
+Search displays the number of matches on this page, incomplete traversal and
+unavailable runs, with at most three shortened excerpts. It does not turn an
+empty page into proof of historical absence. Read distinguishes a partial page,
+lookup still in progress, a final page starting at a later offset, and a selected
+retained part returned from its beginning. These are delivery states, not task
+completion or truth judgments.
+
+A flagged preview stays visible even on a final page: the original may be
+incomplete. Recorded producer kind and tool error status are shown separately
+from retrieval success. Thus a successful archive read can display “Original
+tool reported an error”; missing tool status remains unknown. Source labels
+come from response metadata, not claims inside the excerpt.
+
+Ctrl+O opens the complete returned JSON with formatting, including addresses,
+continuations, source metadata and exact text strings; the compact excerpt does
+not replace it. The model-facing receipt and durable event output are unchanged.
+The output window uses a single-line heading for multiline summaries. Retrieval
+errors and unrecognized response shapes keep the existing fallback display.
+
+The [presentation control](../../research/conversation-evidence/presentation-results.md)
+uses real archive tools through a resumed CLI process and a 100×28 terminal,
+with scripted inference. Screen tests also cover 40-column terminals, empty
+lookup progress and incomplete searches without a continuation.
+
 ## Visible context inventory
 
 Interactive sessions with conversation storage append a small, ephemeral

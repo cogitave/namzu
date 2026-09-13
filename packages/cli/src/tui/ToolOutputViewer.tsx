@@ -37,7 +37,7 @@ export function ToolOutputViewer({
 	})
 	return (
 		<Box flexDirection="column" borderStyle="single" borderColor={theme.text.muted} paddingX={1}>
-			<Text bold color={theme.status.ok} wrap="truncate-end">Tool output · {terminalDisplayText(title)}</Text>
+			<Text bold color={theme.status.ok} wrap="truncate-end">Tool output · {terminalDisplayText(title).split('\n')[0]}</Text>
 			{wrapped.slice(start, start + pageSize).map(row => (
 				<Text key={row.index} wrap="truncate-end" color={
 					row.text.trimStart().startsWith('+ ') ? theme.status.ok

@@ -30,7 +30,7 @@ export interface TranscriptMessage {
 	readonly statusRows?: readonly (readonly [string, string])[]
 	readonly pending?: boolean
 	/** Compact successful observation, with full output available on expansion. */
-	readonly activity?: 'exploration' | 'catalogue'
+	readonly activity?: 'exploration' | 'catalogue' | 'evidence'
 	/** Overrides the role's default gutter glyph (e.g. a per-tool icon). */
 	readonly glyph?: string
 	/** Overrides the glyph color (e.g. red for a failed tool). */

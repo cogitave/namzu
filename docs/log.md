@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Preserve source, preview and page status in [conversation evidence](cli/conversation-evidence.md) terminal summaries, retain full JSON in the output viewer, and verify the actual resumed TUI with scoped archive tools.
+
 - **Update** Fill [conversation search](cli/conversation-evidence.md) pages across completely searched matching runs, reserving escaped output space before each SDK call and preserving partial-scan continuations.
 
 - **Update** Make [closing guidance](sdk/token-budgets.md) preserve source attribution and unresolved work; compare a live closing request with replayed search prefixes without billing synthetic usage as live spend.
