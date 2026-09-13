@@ -1,0 +1,229 @@
+{
+  "root": "/tmp/namzu-learning-cycle-pkFLKo",
+  "live": true,
+  "model": "muse-spark-1.3-contributor-free",
+  "effort": "low",
+  "sourceReportSha256": "e5ab2eee5725698a25a8dfc41eb939314b1bcdfa24c08b313e6653ff64a19486",
+  "elapsedMs": 168944,
+  "cycle": {
+    "cycleId": "5959f0fa-248a-4565-9e85-2b85a05941a7",
+    "status": "activated",
+    "reason": "Evaluated guidance was committed for subsequent admissions.",
+    "candidate": {
+      "name": "workspace-routing",
+      "description": "Rules for routing items to workspace destination paths",
+      "body": "Preserve id exactly, including case and leading zeros. If sealed is true, destination is hold/<id>.json regardless of kind. Otherwise: if kind is invoice, destination is finance/<year>/<month padded to two digits>/<id>.json; if kind is memo, destination is notes/<year>/<id>.md. Return only the path, without quoting or explanation."
+    },
+    "candidateRevision": "c35a3e42177272b0a37e09c14f5e5944072ef54fb43387132f60efd267301d33",
+    "baselineRevision": "none",
+    "review": {
+      "decision": "accept",
+      "reason": "Both rounds support improvement without observed regression; confirmation improves the paired pass rate.",
+      "verification": {
+        "tasks": [
+          {
+            "taskId": "verification-0",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          },
+          {
+            "taskId": "verification-1",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          },
+          {
+            "taskId": "verification-2",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          },
+          {
+            "taskId": "verification-3",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          },
+          {
+            "taskId": "verification-4",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          }
+        ],
+        "positiveEvidence": [
+          "verification-0",
+          "verification-1",
+          "verification-2",
+          "verification-3",
+          "verification-4"
+        ],
+        "regressions": [],
+        "unresolved": [],
+        "usage": {
+          "rollouts": 20,
+          "tokens": 7819,
+          "costUsd": 0,
+          "durationMs": 45791.33944600001
+        },
+        "passRateDelta": 1
+      },
+      "confirmation": {
+        "tasks": [
+          {
+            "taskId": "confirmation-0",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          },
+          {
+            "taskId": "confirmation-1",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          },
+          {
+            "taskId": "confirmation-2",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          },
+          {
+            "taskId": "confirmation-3",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          },
+          {
+            "taskId": "confirmation-4",
+            "status": "recovered",
+            "baselinePasses": 0,
+            "candidatePasses": 2,
+            "trials": 2
+          }
+        ],
+        "positiveEvidence": [
+          "confirmation-0",
+          "confirmation-1",
+          "confirmation-2",
+          "confirmation-3",
+          "confirmation-4"
+        ],
+        "regressions": [],
+        "unresolved": [],
+        "usage": {
+          "rollouts": 20,
+          "tokens": 7600,
+          "costUsd": 0,
+          "durationMs": 44440.744221999994
+        },
+        "passRateDelta": 1
+      }
+    },
+    "agendaRevision": 3,
+    "consumption": {
+      "tokens": 26256,
+      "costUsd": 0,
+      "receipts": 61,
+      "unknownTokens": 0,
+      "unknownCosts": 61,
+      "unfinishedStages": 0
+    },
+    "auditComplete": true
+  },
+  "scored": [
+    {
+      "phase": "verification",
+      "arm": "frozen",
+      "correct": 0,
+      "total": 10,
+      "tokens": 3582
+    },
+    {
+      "phase": "verification",
+      "arm": "memory",
+      "correct": 10,
+      "total": 10,
+      "tokens": 5070
+    },
+    {
+      "phase": "verification",
+      "arm": "guidance",
+      "correct": 10,
+      "total": 10,
+      "tokens": 4237
+    },
+    {
+      "phase": "confirmation",
+      "arm": "frozen",
+      "correct": 0,
+      "total": 10,
+      "tokens": 3299
+    },
+    {
+      "phase": "confirmation",
+      "arm": "memory",
+      "correct": 10,
+      "total": 10,
+      "tokens": 5013
+    },
+    {
+      "phase": "confirmation",
+      "arm": "guidance",
+      "correct": 10,
+      "total": 10,
+      "tokens": 4301
+    }
+  ],
+  "holdout": [
+    {
+      "arm": "frozen",
+      "correct": 0,
+      "total": 4
+    },
+    {
+      "arm": "memory",
+      "correct": 4,
+      "total": 4
+    },
+    {
+      "arm": "guidance",
+      "correct": 4,
+      "total": 4
+    }
+  ],
+  "sdkRuns": 75,
+  "sdkTokens": 32083,
+  "unpricedSdkTokens": 32083,
+  "cliTokens": 8804,
+  "cliUnpricedTokens": 8804,
+  "cliAdmission": {
+    "phase": "complete",
+    "summary": "finance/2033/08/ReOpened-07.json",
+    "expected": "finance/2033/08/ReOpened-07.json"
+  },
+  "rollback": {
+    "activeSkills": [],
+    "output": "UNKNOWN",
+    "observedUnknown": true
+  },
+  "build": {
+    "packages/sdk/dist/manager/resident/learning-cycle.js": "36ce513d4ceb3385144c2a527b097f85aa0ee030e29b1bf54fd38c7e471e70a5",
+    "packages/sdk/dist/manager/resident/learning.js": "50ccf1c65822319ec0bf4d1254caa17b2e045bd4aa9e01c29aad01480cd22159",
+    "packages/sdk/dist/eval/harness-verification.js": "9a96246feddf4f15518e9b35ca2fc334b6afc5c4e82e2536799a7c77dd12786c",
+    "packages/cli/dist/integrations/resident/session-step.js": "5045fa006b95e2652b785e5ff4946edd7012e69dabfe64ca26df555750241324",
+    "packages/providers/zen/dist/client.js": "73cb8262e814a0cd2fe0eaa044fde0a455db8e3c6b6e88d7ce6692916c4e00ce"
+  },
+  "passed": true,
+  "limitations": "Synthetic workspace convention, supplied as authoritative host correction after an observed cold gap. Candidate text is model-generated only in --live. Frozen/memory/guidance are independent fresh runs. Acceptance compares guidance with frozen behavior; the memory arm can explain the same gain. No proof of advantage over raw memory, broad generalization or recursive improvement. CLI completion is checked by this experiment, not a configured resident verification policy. SDK totals exclude the separately reported CLI inspection."
+}

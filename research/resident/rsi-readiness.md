@@ -4,6 +4,12 @@ Assessment date: 2026-09-14. Namzu code inspected at `016ae22f`.
 Status: research assessment and proposed next experiment. No RSI benchmark or
 new automatic improvement loop was executed in this assessment.
 
+Follow-up: the [learning-cycle implementation and Muse experiment](learning-cycle-results.md)
+now connect candidate generation, paired review, activation, reopening and rollback.
+That narrow acquired-convention experiment found equal accuracy for retained raw
+experience and generated guidance; it does not establish recursive improvement.
+The assessment below records the state at its stated revision.
+
 ## What the completed work establishes
 
 The [lifetime audit](lifetime-accounting.md) establishes retained execution and

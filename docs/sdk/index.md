@@ -55,6 +55,7 @@ The kernel.
 * [Resident communication experiment](resident-communication.md) - Atomic outbound intents, acknowledged delivery and explicit time windows.
 
 * [Resident learning experiment](resident-learning.md) - Evidence-backed behavioral revisions, evaluated guidance and admitted context.
+* [Resident learning cycle](resident-learning-cycle.md) - Generated guidance, independent evaluation, fresh confirmation and exact-revision activation.
 * [Resident retention and history](resident-retention.md) - Terminal archival with durable deduplication and ancestry limits.
 * [Resident evidence recall](resident-recall.md) - Bounded reads of earlier settled summaries and consumed inputs within one pursuit.
 

@@ -532,6 +532,17 @@ export type {
 	ResidentLearningProjectionOptions,
 	ResidentLearningProjection,
 } from './manager/resident/learning.js'
+export type {
+	ResidentLearningStage,
+	ResidentLearningReceipt,
+	ResidentLearningConsumption,
+	ResidentLearningCycleEvent,
+	ResidentLearningCycleContext,
+	ResidentLearningGenerationContext,
+	ResidentLearningEvaluationContext,
+	ResidentLearningCycleOptions,
+	ResidentLearningCycleResult,
+} from './manager/resident/learning-cycle.js'
 
 export type {
 	ResidentArchiveRequest,

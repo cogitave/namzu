@@ -17,6 +17,10 @@ remain optional SDK capabilities. The [resident CLI](../cli/resident-work.md)
 can project approved learning into foreground steps; service hosting and a
 learning-management UI are separate.
 
+The [learning cycle](resident-learning-cycle.md) now connects host-owned candidate
+generation and evaluation to these activation primitives. It records consumption
+and failed stages and uses the existing fresh-confirmation gate.
+
 ## Research and existing kernel mechanisms
 
 [Reflexion](https://arxiv.org/abs/2303.11366v4) uses textual feedback retained

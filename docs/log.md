@@ -2,6 +2,8 @@
 
 ## 2026-09-14
 
+- **Creation** Add the optional SDK [resident learning cycle](sdk/resident-learning-cycle.md), connecting recorded failures, generated guidance, paired evaluation and fresh confirmation to exact-revision activation with explicit incomplete consumption and recovery outcomes.
+
 - **Update** Record the completed two-hour [resident consumption audit](sdk/resident-agents.md#activity-and-consumption-inspection), including abrupt and graceful interruptions, retained unknown usage, archived pursuits and bounded real CLI supplements.
 
 ## 2026-09-13
