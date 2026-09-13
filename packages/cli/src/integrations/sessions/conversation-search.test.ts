@@ -873,7 +873,7 @@ describe('bounded original conversation evidence', () => {
 		},
 	)
 
-	it('does not skip a nonmatching partial index when a later run already matches', async () => {
+	it('crosses a partial index before a later matching run inside one public page', async () => {
 		const { sessions, sessionId } = await fixture()
 		await closedTranscript(sessions, sessionId, 1, 'Unrelated complete run')
 		const partial = await closedTranscript(sessions, sessionId, 2, 'Replaced fixture')
@@ -892,17 +892,13 @@ describe('bounded original conversation evidence', () => {
 		)
 		const later = await closedTranscript(sessions, sessionId, 3, 'TARGET in later run')
 		const first = await searchConversation(sessions, sessionId, { query: 'TARGET' })
-		expect(first.matches).toEqual([])
-		expect(first.scannedRuns).toBe(2)
-		expect(first.incomplete).toBe(true)
-		expect(first.nextCursor).toBeDefined()
-		const second = await searchConversation(sessions, sessionId, { cursor: first.nextCursor })
-		expect(second.matches).toEqual([
+		expect(first.matches).toEqual([
 			expect.objectContaining({ runId: partial.runId, seq: 71 }),
 			expect.objectContaining({ runId: later.runId }),
 		])
-		expect(second.incomplete).toBe(false)
-		expect(second.nextCursor).toBeUndefined()
+		expect(first.scannedRuns).toBe(3)
+		expect(first.incomplete).toBe(false)
+		expect(first.nextCursor).toBeUndefined()
 	})
 
 	it('preserves unavailable ownership while crossing an exhausted empty index', async () => {
@@ -1738,7 +1734,7 @@ describe('bounded original conversation evidence', () => {
 				.map((event) => JSON.stringify(event))
 				.join('\n')}\n`,
 		)
-		const first = await searchConversation(sessions, sessionId, { query: 'DELTA', runId })
+		const first = await searchConversation(sessions, sessionId, { query: 'DELTA', runId, limit: 3 })
 		expect(first.matches).toHaveLength(3)
 		expect(first.matches.every((match) => match.source === 'message_completed')).toBe(true)
 		expect(first.incomplete).toBe(true)

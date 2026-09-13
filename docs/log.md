@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Pack internal index pages into bounded [conversation-search responses](cli/conversation-evidence.md), preserving public continuations, per-run validation, cancellation, and shared read/output allowances.
+
 - **Update** Preserve one labelled compaction summary in bounded [evidence-query preparation](sdk/evidence-recall.md), retain derived-reference provenance, and measure named and unnamed historical follow-ups after 18 intervening CLI turns and real compaction.
 
 - **Update** Align shortened [tool-output recovery](sdk/tool-execution.md) with host-authorized archive access, distinguish retained observations from fresh source reads, and verify the actual CLI provider request with a bounded live past/current comparison.

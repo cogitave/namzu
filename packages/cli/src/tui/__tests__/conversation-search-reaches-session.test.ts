@@ -423,8 +423,8 @@ it('recovers a late compacted message through real Session tools within four mod
 			last: observed.at(-1)?.messages.filter((message) => message.role === 'tool'),
 		}),
 	).toContain(code)
-	expect(calls).toEqual(['search_conversation', 'search_conversation', 'read_conversation'])
-	expect(observed).toHaveLength(4)
+	expect(calls).toEqual(['search_conversation', 'read_conversation'])
+	expect(observed).toHaveLength(3)
 })
 
 it('keeps manual compaction unpublished on archive failure', async () => {
@@ -740,7 +740,9 @@ it('hands automatic recall off to the real search tool without repeating its fir
 	const sessions = await openSessions(cwd)
 	const sessionId = await startConversation(sessions)
 	await archive(cwd, sessions, sessionId, [
-		...Array(9).fill('DELTA receipt investigation pending.'),
+		// Packed public pages hold five matches; leave the original beyond the
+		// automatic history pages so this still exercises explicit continuation.
+		...Array(16).fill('DELTA receipt investigation pending.'),
 		'DELTA receipt: EXACT-CODE-4917',
 	])
 	const observed: ChatCompletionParams[] = []

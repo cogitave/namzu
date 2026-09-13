@@ -37,6 +37,9 @@ const OUTPUT_BYTES = 12_000
 // JSON escaping). This also reserves its bounded identity/tool metadata and
 // array separators, before asking the SDK to consume any matches.
 const INDEXED_MATCH_RESERVE_BYTES = 4_000
+// Internal index boundaries are not public result boundaries. Permit bounded
+// continuation work while the caller's match, output and I/O room remains.
+const INDEXED_PAGE_RESUMES = 7
 // Bound cold address lookup work as well as bytes, including tiny index pages.
 const READ_LOOKUP_PAGES = 8
 
@@ -808,11 +811,22 @@ async function searchConversationCore(
 	}
 	result.incomplete ||= cursor.omitted
 	let outputBytes = 0
+	let indexedResumes = 0
+	const scannedRuns = new Set<string>()
+	const unavailableRuns = new Set<string>()
+	let currentRun: string | undefined
+	let runStartMatches = 0
+	let runStartBytes = 0
 	while (cursor.index < cursor.runIds.length) {
 		signal?.throwIfAborted()
 		if (maxReadBytes - result.scannedBytes < 1.5 * 1024 * 1024 || result.matches.length >= limit)
 			break
 		const runId = cursor.runIds[cursor.index] as string
+		if (currentRun !== runId) {
+			currentRun = runId
+			runStartMatches = result.matches.length
+			runStartBytes = outputBytes
+		}
 		const pageMatches: EvidenceMatch[] = []
 		let pageBytes = 0
 		let usingIndex = false
@@ -830,8 +844,7 @@ async function searchConversationCore(
 			if (source) {
 				if (maxReadBytes - result.scannedBytes < 6 * 1024 * 1024) break
 				usingIndex = true
-				// At most one SDK page per run. Cross exhausted runs within the
-				// same public page; partial SDK pages still yield immediately.
+				// Reserve output before consuming matches, including resumed pages.
 				const matchSlots = Math.min(
 					3,
 					limit - result.matches.length,
@@ -855,7 +868,8 @@ async function searchConversationCore(
 					result.excludedToolResults = (result.excludedToolResults ?? 0) + page.excludedToolResults
 				if (page.excludedSummaries)
 					result.excludedSummaries = (result.excludedSummaries ?? 0) + page.excludedSummaries
-				result.scannedRuns++
+				scannedRuns.add(runId)
+				result.scannedRuns = scannedRuns.size
 				const indexedMatches = page.matches.map((match) => ({
 					runId,
 					seq: match.seq,
@@ -877,12 +891,18 @@ async function searchConversationCore(
 				result.matches.push(...indexedMatches)
 				result.incomplete ||= page.incomplete
 				cursor.omitted ||= page.incomplete
-				if (page.unavailable.length) result.unavailableRuns++
+				if (page.unavailable.length) unavailableRuns.add(runId)
+				result.unavailableRuns = unavailableRuns.size
 				signal?.throwIfAborted()
 				for (const match of page.matches) retainReadLocation(scope, runId, cursor.backend, match)
+				const previousIndexCursor = cursor.indexCursor
 				cursor.indexCursor = page.nextCursor ?? undefined
 				if (!page.nextCursor) {
 					nextRun(cursor)
+					continue
+				}
+				if (page.nextCursor !== previousIndexCursor && indexedResumes < INDEXED_PAGE_RESUMES) {
+					indexedResumes++
 					continue
 				}
 				break
@@ -942,13 +962,19 @@ async function searchConversationCore(
 			)
 			result.matches.push(...pageMatches)
 			outputBytes += pageBytes
-			result.scannedRuns++
+			scannedRuns.add(runId)
+			result.scannedRuns = scannedRuns.size
 			result.incomplete ||= page.incomplete
 			cursor.omitted ||= page.incomplete
 			if (!page.done) break
 		} catch {
 			signal?.throwIfAborted()
-			result.unavailableRuns++
+			// If a later internal page fails validation, expose none of this
+			// run's accumulated matches in this public response. Other runs stay.
+			result.matches.length = runStartMatches
+			outputBytes = runStartBytes
+			unavailableRuns.add(runId)
+			result.unavailableRuns = unavailableRuns.size
 			result.incomplete = true
 			cursor.omitted = true
 			if (usingIndex) {

@@ -1,0 +1,869 @@
+{
+  "date": "2026-09-13",
+  "base": "bd4bd2e5",
+  "liveTokens": 15120,
+  "finalBuildMatches": true,
+  "records": [
+    {
+      "id": "j8PkGY",
+      "sourceReport": "/tmp/namzu-index-pages-j8PkGY/result.json",
+      "sourceReportSha256": "128e0db91ffd8d76bfaad0dc5817ca1ce53c953b52ce04f578204ef0d9cdee99",
+      "root": "/tmp/namzu-index-pages-j8PkGY",
+      "baseline": true,
+      "live": false,
+      "recallEvidence": false,
+      "passes": [],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+      },
+      "seed": {
+        "sessionId": "f6cd7070-1014-467a-a86b-88a5f78cd6e6",
+        "runId": "fbc0bbfa-d4e6-4936-ad4f-25b0946fa713",
+        "runDir": "/tmp/namzu-index-pages-j8PkGY/home/sessions/f6cd7070-1014-467a-a86b-88a5f78cd6e6/runs/fbc0bbfa-d4e6-4936-ad4f-25b0946fa713",
+        "tracking": "TRACK-c5efe939-b648-450e-8b32-95d35ba3fbe2",
+        "destination": "DEPOT-7d1f868c-bfc3-43f1-9045-b8fee5e0a77b",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "indexedCompaction": {
+        "runId": "00000000-0000-4000-8000-000000000001",
+        "messages": 136,
+        "constructedArchive": true
+      },
+      "sourcesBefore": {
+        "/tmp/namzu-index-pages-j8PkGY/home/sessions/f6cd7070-1014-467a-a86b-88a5f78cd6e6/runs/fbc0bbfa-d4e6-4936-ad4f-25b0946fa713/transcript.jsonl": "e580eac0ee24d5dc6f13013a92c19e4815dda2b12075818736cfe35c462036db",
+        "/tmp/namzu-index-pages-j8PkGY/home/sessions/f6cd7070-1014-467a-a86b-88a5f78cd6e6/runs/fbc0bbfa-d4e6-4936-ad4f-25b0946fa713/run.json": "f1920403fb7d3135d77ba769585f52970bf0ecea6b718c694df4844153edb63c",
+        "/tmp/namzu-index-pages-j8PkGY/home/sessions/f6cd7070-1014-467a-a86b-88a5f78cd6e6/runs/fbc0bbfa-d4e6-4936-ad4f-25b0946fa713/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt": "bee568720fc1d8e9f86d60742298ef6e35732ae92933e83688bf063042ee44df",
+        "/tmp/namzu-index-pages-j8PkGY/home/sessions/f6cd7070-1014-467a-a86b-88a5f78cd6e6/runs/fbc0bbfa-d4e6-4936-ad4f-25b0946fa713/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt.manifest.json": "cb936f704631ffff0590bde4e2401dcddd1f9f9932203397e6bcb98ba29ea2d2",
+        "/tmp/namzu-index-pages-j8PkGY/home/sessions/f6cd7070-1014-467a-a86b-88a5f78cd6e6/runs/00000000-0000-4000-8000-000000000001/transcript.jsonl": "ee96177ac3aeeb4c18efc9e81387b0246129b13bc5983cc29e53be58e968debd",
+        "/tmp/namzu-index-pages-j8PkGY/home/sessions/f6cd7070-1014-467a-a86b-88a5f78cd6e6/runs/00000000-0000-4000-8000-000000000001/run.json": "eb90cb19c2ebeaf06e930d24601e4ab65a1edb2aed0a0a713db38778106cc86c",
+        "/tmp/namzu-index-pages-j8PkGY/workspace/manifest.txt": "b152d0d2ac48f049561d1bd520f075b094907445c9298d1ea574b80c291d04fa"
+      },
+      "passed": false,
+      "error": "AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\n\n3 !== 4\n",
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+      },
+      "buildStable": true
+    },
+    {
+      "id": "tiGzDs",
+      "sourceReport": "/tmp/namzu-index-pages-tiGzDs/result.json",
+      "sourceReportSha256": "23cdaa2d428f8cbf605ec258435b9c4f7bb22d96ebec4a9e0534bc087132c361",
+      "root": "/tmp/namzu-index-pages-tiGzDs",
+      "baseline": true,
+      "live": false,
+      "recallEvidence": false,
+      "passes": [
+        {
+          "temperature": "cold",
+          "pages": [
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+              "matches": [
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295521630,
+                  "part": 0,
+                  "source": "compaction_shed:user",
+                  "recordKind": "user_message",
+                  "text": "Inspect the DELTA receipt.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295521630,
+                  "part": 1,
+                  "source": "compaction_shed:assistant",
+                  "recordKind": "assistant_message",
+                  "text": "DELTA inspection requested; no original identifiers in this announcement.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                }
+              ],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 1,
+              "scannedBytes": 23574,
+              "incomplete": true,
+              "unavailableRuns": 0,
+              "nextCursor": "c35fc33e37750f3e675172c45e12d28a2be88a9dc4c33722"
+            },
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+              "matches": [],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 1,
+              "scannedBytes": 23422,
+              "incomplete": true,
+              "unavailableRuns": 0,
+              "nextCursor": "a830c2fe814f0d60fce21fa04db357f153d3c1de99419692"
+            },
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+              "matches": [
+                {
+                  "runId": "839ea918-1518-47d6-abee-23664198b83b",
+                  "seq": 16,
+                  "recordedAt": 1789295521577,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-516283a3-5845-4550-bb4f-127bd57eda9e.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 181304
+                },
+                {
+                  "runId": "839ea918-1518-47d6-abee-23664198b83b",
+                  "seq": 16,
+                  "recordedAt": 1789295521577,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-70a3a095-43de-4fc6-bc39-7835c20b5914.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 183138
+                }
+              ],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 2,
+              "scannedBytes": 491825,
+              "incomplete": true,
+              "unavailableRuns": 0,
+              "nextCursor": "5486ac7824acc94e6186b3afd20bdab5f8dbc7b476ad40ee"
+            }
+          ],
+          "exact": {
+            "runId": "839ea918-1518-47d6-abee-23664198b83b",
+            "seq": 16,
+            "part": 0,
+            "containsOriginals": true
+          }
+        },
+        {
+          "temperature": "warm",
+          "pages": [
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+              "matches": [
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295521630,
+                  "part": 0,
+                  "source": "compaction_shed:user",
+                  "recordKind": "user_message",
+                  "text": "Inspect the DELTA receipt.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295521630,
+                  "part": 1,
+                  "source": "compaction_shed:assistant",
+                  "recordKind": "assistant_message",
+                  "text": "DELTA inspection requested; no original identifiers in this announcement.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                }
+              ],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 1,
+              "scannedBytes": 163471,
+              "incomplete": true,
+              "unavailableRuns": 0,
+              "nextCursor": "30b49d86b7c43d9df015679b91cdb92f34f63920b14771b8"
+            },
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+              "matches": [],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 1,
+              "scannedBytes": 163533,
+              "incomplete": true,
+              "unavailableRuns": 0,
+              "nextCursor": "4df7971732fee3d3d09215b9e820aa75a179dec0d6cdaa35"
+            },
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. More recorded history remains: if these excerpts do not answer the question, call search_conversation with nextCursor as cursor alone; its original query and case setting are restored automatically. Continue even when matches are empty or only contain an announcement about searching; an announcement is not the original observation. Do not treat this page as proof of absence or replace a historical value with current workspace content.",
+              "matches": [
+                {
+                  "runId": "839ea918-1518-47d6-abee-23664198b83b",
+                  "seq": 16,
+                  "recordedAt": 1789295521577,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-516283a3-5845-4550-bb4f-127bd57eda9e.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 181304
+                },
+                {
+                  "runId": "839ea918-1518-47d6-abee-23664198b83b",
+                  "seq": 16,
+                  "recordedAt": 1789295521577,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-70a3a095-43de-4fc6-bc39-7835c20b5914.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 183138
+                }
+              ],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 2,
+              "scannedBytes": 455682,
+              "incomplete": true,
+              "unavailableRuns": 0,
+              "nextCursor": "3ae492c18cbfeb86379d98af32188455eaf645770252df02"
+            }
+          ],
+          "exact": {
+            "runId": "839ea918-1518-47d6-abee-23664198b83b",
+            "seq": 16,
+            "part": 0,
+            "containsOriginals": true
+          }
+        }
+      ],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+      },
+      "seed": {
+        "sessionId": "f3be1a97-0703-49cc-b243-71dd9c3e0170",
+        "runId": "839ea918-1518-47d6-abee-23664198b83b",
+        "runDir": "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b",
+        "tracking": "TRACK-516283a3-5845-4550-bb4f-127bd57eda9e",
+        "destination": "DEPOT-70a3a095-43de-4fc6-bc39-7835c20b5914",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "indexedCompaction": {
+        "runId": "00000000-0000-4000-8000-000000000001",
+        "messages": 136,
+        "constructedArchive": true
+      },
+      "sourcesBefore": {
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b/transcript.jsonl": "5985ef51e6b3d0980fecbe58162f5a6fd8545191ab103164be13cb2019b4feac",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b/run.json": "75d93d24af78aa477f01e7972cda63ff59c727ec26fcb651a7c7f71a887ed3ae",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt": "0440a4e5e1a4f9f56c9fc3a77a3a4b5d90a2d990c284c7ac5d2a97afe000559d",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt.manifest.json": "14794faccdd06bf9183702d2f8dea788cb424247a942c4ff053e461f407021d9",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/00000000-0000-4000-8000-000000000001/transcript.jsonl": "769fcb247ec5d12c6b0943d9c494590aa66d2d9355ce94848f48c4467f917f1b",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/00000000-0000-4000-8000-000000000001/run.json": "ac06ab8a5b293fb53f5362c3e6fbacf5a4f76d4476b8621d060e9d063b9a83f4",
+        "/tmp/namzu-index-pages-tiGzDs/workspace/manifest.txt": "b152d0d2ac48f049561d1bd520f075b094907445c9298d1ea574b80c291d04fa"
+      },
+      "sourcesAfter": {
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b/transcript.jsonl": "5985ef51e6b3d0980fecbe58162f5a6fd8545191ab103164be13cb2019b4feac",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b/run.json": "75d93d24af78aa477f01e7972cda63ff59c727ec26fcb651a7c7f71a887ed3ae",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt": "0440a4e5e1a4f9f56c9fc3a77a3a4b5d90a2d990c284c7ac5d2a97afe000559d",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/839ea918-1518-47d6-abee-23664198b83b/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt.manifest.json": "14794faccdd06bf9183702d2f8dea788cb424247a942c4ff053e461f407021d9",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/00000000-0000-4000-8000-000000000001/transcript.jsonl": "769fcb247ec5d12c6b0943d9c494590aa66d2d9355ce94848f48c4467f917f1b",
+        "/tmp/namzu-index-pages-tiGzDs/home/sessions/f3be1a97-0703-49cc-b243-71dd9c3e0170/runs/00000000-0000-4000-8000-000000000001/run.json": "ac06ab8a5b293fb53f5362c3e6fbacf5a4f76d4476b8621d060e9d063b9a83f4",
+        "/tmp/namzu-index-pages-tiGzDs/workspace/manifest.txt": "b152d0d2ac48f049561d1bd520f075b094907445c9298d1ea574b80c291d04fa"
+      },
+      "passed": true,
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "7f2947d0c07c5174aec8a8aa67de81d32f4add8831c1acb9ea21c2e13c79de3f",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+      },
+      "buildStable": true
+    },
+    {
+      "id": "awE1AO",
+      "sourceReport": "/tmp/namzu-index-pages-awE1AO/result.json",
+      "sourceReportSha256": "ecfa7ed96609cd5767b2dbc8e7b4f656987478a367d006083d38b301cdad5ce5",
+      "root": "/tmp/namzu-index-pages-awE1AO",
+      "baseline": false,
+      "live": false,
+      "recallEvidence": false,
+      "passes": [
+        {
+          "temperature": "cold",
+          "pages": [
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.",
+              "matches": [
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295804444,
+                  "part": 0,
+                  "source": "compaction_shed:user",
+                  "recordKind": "user_message",
+                  "text": "Inspect the DELTA receipt.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295804444,
+                  "part": 1,
+                  "source": "compaction_shed:assistant",
+                  "recordKind": "assistant_message",
+                  "text": "DELTA inspection requested; no original identifiers in this announcement.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+                  "seq": 16,
+                  "recordedAt": 1789295804389,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-971d12d9-df56-48f1-ab64-eee3aa3d7dad.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 181304
+                },
+                {
+                  "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+                  "seq": 16,
+                  "recordedAt": 1789295804389,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-10f3173c-e7f6-4b2b-a200-42ef4f2d62a4.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 183138
+                }
+              ],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 2,
+              "scannedBytes": 931737,
+              "incomplete": false,
+              "unavailableRuns": 0
+            }
+          ],
+          "exact": {
+            "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+            "seq": 16,
+            "part": 0,
+            "containsOriginals": true
+          }
+        },
+        {
+          "temperature": "warm",
+          "pages": [
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.",
+              "matches": [
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295804444,
+                  "part": 0,
+                  "source": "compaction_shed:user",
+                  "recordKind": "user_message",
+                  "text": "Inspect the DELTA receipt.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295804444,
+                  "part": 1,
+                  "source": "compaction_shed:assistant",
+                  "recordKind": "assistant_message",
+                  "text": "DELTA inspection requested; no original identifiers in this announcement.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+                  "seq": 16,
+                  "recordedAt": 1789295804389,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-971d12d9-df56-48f1-ab64-eee3aa3d7dad.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 181304
+                },
+                {
+                  "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+                  "seq": 16,
+                  "recordedAt": 1789295804389,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-10f3173c-e7f6-4b2b-a200-42ef4f2d62a4.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 183138
+                }
+              ],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 2,
+              "scannedBytes": 1175602,
+              "incomplete": false,
+              "unavailableRuns": 0
+            }
+          ],
+          "exact": {
+            "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+            "seq": 16,
+            "part": 0,
+            "containsOriginals": true
+          }
+        }
+      ],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "dbcb6a18acc404b9e38cad21bfc1b09f5d48a81f2832be05695bb4065388c1c6",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+      },
+      "seed": {
+        "sessionId": "3a3a55dc-2a15-43eb-b842-a3009b613e79",
+        "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+        "runDir": "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f",
+        "tracking": "TRACK-971d12d9-df56-48f1-ab64-eee3aa3d7dad",
+        "destination": "DEPOT-10f3173c-e7f6-4b2b-a200-42ef4f2d62a4",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "indexedCompaction": {
+        "runId": "00000000-0000-4000-8000-000000000001",
+        "messages": 136,
+        "constructedArchive": true
+      },
+      "sourcesBefore": {
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f/transcript.jsonl": "f981ff69bc6943255f7320d39d14713b098ff6a979ac87134d5bbd8bcfbc91a3",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f/run.json": "0b653f35aa8c4fb0bb4026773d92820a5dab0833b59de5e8e4e976c5ede980b9",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt": "767fdb246e93f93d1036851af2c2a2e9bf401e877f9437de6001d4800c6525a8",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt.manifest.json": "960d8501be5774bd09533be6d8110fa65d45d46473c748ae9e9d14cd9f71d216",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/00000000-0000-4000-8000-000000000001/transcript.jsonl": "04bca8a2188a409cc8e4051ec4430aafbd2ce3f10148608d1d87f9221783e778",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/00000000-0000-4000-8000-000000000001/run.json": "bf2535fe660df07ded1942b8176d861fd12f3eb6234ec82d09cb8bd13714bb86",
+        "/tmp/namzu-index-pages-awE1AO/workspace/manifest.txt": "b152d0d2ac48f049561d1bd520f075b094907445c9298d1ea574b80c291d04fa"
+      },
+      "sourcesAfter": {
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f/transcript.jsonl": "f981ff69bc6943255f7320d39d14713b098ff6a979ac87134d5bbd8bcfbc91a3",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f/run.json": "0b653f35aa8c4fb0bb4026773d92820a5dab0833b59de5e8e4e976c5ede980b9",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt": "767fdb246e93f93d1036851af2c2a2e9bf401e877f9437de6001d4800c6525a8",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/29671aed-72be-490e-9b60-e503f226e33f/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt.manifest.json": "960d8501be5774bd09533be6d8110fa65d45d46473c748ae9e9d14cd9f71d216",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/00000000-0000-4000-8000-000000000001/transcript.jsonl": "04bca8a2188a409cc8e4051ec4430aafbd2ce3f10148608d1d87f9221783e778",
+        "/tmp/namzu-index-pages-awE1AO/home/sessions/3a3a55dc-2a15-43eb-b842-a3009b613e79/runs/00000000-0000-4000-8000-000000000001/run.json": "bf2535fe660df07ded1942b8176d861fd12f3eb6234ec82d09cb8bd13714bb86",
+        "/tmp/namzu-index-pages-awE1AO/workspace/manifest.txt": "b152d0d2ac48f049561d1bd520f075b094907445c9298d1ea574b80c291d04fa"
+      },
+      "passed": true,
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "dbcb6a18acc404b9e38cad21bfc1b09f5d48a81f2832be05695bb4065388c1c6",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+      },
+      "buildStable": true
+    },
+    {
+      "id": "Ib4aiQ",
+      "sourceReport": "/tmp/namzu-index-pages-Ib4aiQ/result.json",
+      "sourceReportSha256": "2f2afa7e10eb95126b841bf199990c9200b7cf6d4bb593884582beb94c6c4bb9",
+      "root": "/tmp/namzu-index-pages-Ib4aiQ",
+      "baseline": false,
+      "live": true,
+      "recallEvidence": false,
+      "passes": [
+        {
+          "temperature": "cold",
+          "pages": [
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.",
+              "matches": [
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295817087,
+                  "part": 0,
+                  "source": "compaction_shed:user",
+                  "recordKind": "user_message",
+                  "text": "Inspect the DELTA receipt.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295817087,
+                  "part": 1,
+                  "source": "compaction_shed:assistant",
+                  "recordKind": "assistant_message",
+                  "text": "DELTA inspection requested; no original identifiers in this announcement.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "ff67e6e7-1852-4a97-8c68-a2a9052b8c1f",
+                  "seq": 16,
+                  "recordedAt": 1789295816980,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-3d94963b-6bb4-475e-942d-b9c05e576926.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 181304
+                },
+                {
+                  "runId": "ff67e6e7-1852-4a97-8c68-a2a9052b8c1f",
+                  "seq": 16,
+                  "recordedAt": 1789295816980,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-dd2d3e5e-a0b9-4b67-9115-b62d6fadf868.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 183138
+                }
+              ],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 2,
+              "scannedBytes": 931737,
+              "incomplete": false,
+              "unavailableRuns": 0
+            }
+          ],
+          "exact": {
+            "runId": "ff67e6e7-1852-4a97-8c68-a2a9052b8c1f",
+            "seq": 16,
+            "part": 0,
+            "containsOriginals": true
+          }
+        },
+        {
+          "temperature": "warm",
+          "pages": [
+            {
+              "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.",
+              "matches": [
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295817087,
+                  "part": 0,
+                  "source": "compaction_shed:user",
+                  "recordKind": "user_message",
+                  "text": "Inspect the DELTA receipt.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "00000000-0000-4000-8000-000000000001",
+                  "seq": 2,
+                  "recordedAt": 1789295817087,
+                  "part": 1,
+                  "source": "compaction_shed:assistant",
+                  "recordKind": "assistant_message",
+                  "text": "DELTA inspection requested; no original identifiers in this announcement.",
+                  "retained": "full",
+                  "excerptComplete": true,
+                  "byteOffset": 0
+                },
+                {
+                  "runId": "ff67e6e7-1852-4a97-8c68-a2a9052b8c1f",
+                  "seq": 16,
+                  "recordedAt": 1789295816980,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-3d94963b-6bb4-475e-942d-b9c05e576926.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 181304
+                },
+                {
+                  "runId": "ff67e6e7-1852-4a97-8c68-a2a9052b8c1f",
+                  "seq": 16,
+                  "recordedAt": 1789295816980,
+                  "part": 0,
+                  "source": "tool_completed",
+                  "recordKind": "tool_result",
+                  "text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-dd2d3e5e-a0b9-4b67-9115-b62d6fadf868.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+                  "retained": "full",
+                  "excerptComplete": false,
+                  "toolName": "read",
+                  "isError": false,
+                  "byteOffset": 183138
+                }
+              ],
+              "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+              "scannedRuns": 2,
+              "scannedBytes": 1175602,
+              "incomplete": false,
+              "unavailableRuns": 0
+            }
+          ],
+          "exact": {
+            "runId": "ff67e6e7-1852-4a97-8c68-a2a9052b8c1f",
+            "seq": 16,
+            "part": 0,
+            "containsOriginals": true
+          }
+        }
+      ],
+      "buildBefore": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "dbcb6a18acc404b9e38cad21bfc1b09f5d48a81f2832be05695bb4065388c1c6",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+      },
+      "seed": {
+        "sessionId": "b4ce7c7b-e57a-4417-83af-f627ed7ce243",
+        "runId": "ff67e6e7-1852-4a97-8c68-a2a9052b8c1f",
+        "runDir": "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f",
+        "tracking": "TRACK-3d94963b-6bb4-475e-942d-b9c05e576926",
+        "destination": "DEPOT-dd2d3e5e-a0b9-4b67-9115-b62d6fadf868",
+        "seq": 16,
+        "originalNotInPreview": true,
+        "originalNotInProjection": true,
+        "seededWith": "scripted provider through real CLI Session, read tool and kernel persistence"
+      },
+      "indexedCompaction": {
+        "runId": "00000000-0000-4000-8000-000000000001",
+        "messages": 136,
+        "constructedArchive": true
+      },
+      "sourcesBefore": {
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f/transcript.jsonl": "9164a17bdca821ad361492f887b94764ea7b8c3ce62538ce5ebbc63403a44ac6",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f/run.json": "5a7ba9b74b440297c30f1367ab9b91e2045b00b7ec0d8dcc09a5037d59e5710b",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt": "c84b7f5f67f90119f0b227b59b0e4155eb075c0368c08ae725d233b4b0c874b7",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt.manifest.json": "4ca7ed30672dc990d7446480fde315fc0dedccc790a1ee0505a2fcb87e92fd05",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/00000000-0000-4000-8000-000000000001/transcript.jsonl": "612340d43666c355cd2c14d171139d7807919b7d9275900c672e4656ab44067f",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/00000000-0000-4000-8000-000000000001/run.json": "5ed7fcc1f9322ea21020a1334e9df4ce9046f42fcb7d9b2e787cb219b5a32bb4",
+        "/tmp/namzu-index-pages-Ib4aiQ/workspace/manifest.txt": "b152d0d2ac48f049561d1bd520f075b094907445c9298d1ea574b80c291d04fa"
+      },
+      "command": [
+        "--quiet",
+        "--format",
+        "json",
+        "run",
+        "--trust",
+        "--cwd",
+        "/tmp/namzu-index-pages-Ib4aiQ/workspace",
+        "--resume",
+        "b4ce7c7b-e57a-4417-83af-f627ed7ce243",
+        "--provider",
+        "codex",
+        "--model",
+        "gpt-5.6-luna",
+        "--effort",
+        "low",
+        "--max-iterations",
+        "4",
+        "--token-budget",
+        "30000",
+        "DELTA kaydını ilk okuduğumuzdaki takip kodu ve hedef deposu neydi?"
+      ],
+      "stdout": "{\n  \"text\": \"İlk okuduğumuz DELTA kaydında:\\n\\n- **Takip kodu:** `TRACK-3d94963b-6bb4-475e-942d-b9c05e576926`\\n- **Hedef deposu:** `DEPOT-dd2d3e5e-a0b9-4b67-9115-b62d6fadf868`\",\n  \"usage\": {\n    \"totalTokens\": 15120,\n    \"cost\": {\n      \"totalCost\": 0,\n      \"cacheDiscount\": 0,\n      \"unpricedTokens\": 15120\n    }\n  },\n  \"budget\": {\n    \"limit\": 30000,\n    \"ownTokens\": 15120,\n    \"treeTokens\": 15120,\n    \"reservedTokens\": 0,\n    \"remainingTokens\": 14880,\n    \"inFlightRequests\": 0,\n    \"unsettledChildren\": 0,\n    \"poisoned\": false,\n    \"unresolvedRequests\": 0\n  }\n}\n",
+      "stderr": "     +0ms  sandbox     ! Sandbox off by configuration: commands run in this process, with this shell's environment, against the real working directory. Remove `sandbox.enabled: false` to turn it back on.\n",
+      "calls": [
+        {
+          "name": "search_conversation",
+          "input": {
+            "query": "DELTA",
+            "limit": 20
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "search_conversation",
+          "isError": false,
+          "result": "{\"guidance\":\"Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\\\"read_conversation\\\",\\\"search_conversation\\\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results.\",\"matches\":[{\"runId\":\"00000000-0000-4000-8000-000000000001\",\"seq\":2,\"recordedAt\":1789295817087,\"part\":0,\"source\":\"compaction_shed:user\",\"recordKind\":\"user_message\",\"text\":\"Inspect the DELTA receipt.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0},{\"runId\":\"00000000-0000-4000-8000-000000000001\",\"seq\":2,\"recordedAt\":1789295817087,\"part\":1,\"source\":\"compaction_shed:assistant\",\"recordKind\":\"assistant_message\",\"text\":\"DELTA inspection requested; no original identifiers in this announcement.\",\"retained\":\"full\",\"excerptComplete\":true,\"byteOffset\":0},{\"runId\":\"ff67e6e7-1852-4a97-8c68-a2a9052b8c1f\",\"seq\":16,\"recordedAt\":1789295816980,\"part\":0,\"source\":\"tool_completed\",\"recordKind\":\"tool_result\",\"text\":\"ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n211\\tDELTA original receipt. Tracking: TRACK-3d94963b-6bb4-475e-942d-b9c05e576926.\\n212\\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u\",\"retained\":\"full\",\"excerptComplete\":false,\"toolName\":\"read\",\"isError\":false,\"byteOffset\":181304},{\"runId\":\"ff67e6e7-1852-4a97-8c68-a2a9052b8c1f\",\"seq\":16,\"recordedAt\":1789295816980,\"part\":0,\"source\":\"tool_completed\",\"recordKind\":\"tool_result\",\"text\":\"packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \\n214\\tDestination of the DELTA receipt: DEPOT-dd2d3e5e-a0b9-4b67-9115-b62d6fadf868.\\n215\\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa\",\"retained\":\"full\",\"excerptComplete\":false,\"toolName\":\"read\",\"isError\":false,\"byteOffset\":183138}],\"recordKindGuidance\":\"Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.\",\"scannedRuns\":3,\"scannedBytes\":1192502,\"incomplete\":false,\"unavailableRuns\":0}"
+        }
+      ],
+      "result": {
+        "text": "İlk okuduğumuz DELTA kaydında:\n\n- **Takip kodu:** `TRACK-3d94963b-6bb4-475e-942d-b9c05e576926`\n- **Hedef deposu:** `DEPOT-dd2d3e5e-a0b9-4b67-9115-b62d6fadf868`",
+        "usage": {
+          "totalTokens": 15120,
+          "cost": {
+            "totalCost": 0,
+            "cacheDiscount": 0,
+            "unpricedTokens": 15120
+          }
+        },
+        "budget": {
+          "limit": 30000,
+          "ownTokens": 15120,
+          "treeTokens": 15120,
+          "reservedTokens": 0,
+          "remainingTokens": 14880,
+          "inFlightRequests": 0,
+          "unsettledChildren": 0,
+          "poisoned": false,
+          "unresolvedRequests": 0
+        }
+      },
+      "sourcesAfter": {
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f/transcript.jsonl": "9164a17bdca821ad361492f887b94764ea7b8c3ce62538ce5ebbc63403a44ac6",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f/run.json": "5a7ba9b74b440297c30f1367ab9b91e2045b00b7ec0d8dcc09a5037d59e5710b",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt": "c84b7f5f67f90119f0b227b59b0e4155eb075c0368c08ae725d233b4b0c874b7",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/ff67e6e7-1852-4a97-8c68-a2a9052b8c1f/tool-output/cd956b5d002d7226d53b261bbef1bf8bd194c695bab0b4e2710e5b6f87ed49a1.txt.manifest.json": "4ca7ed30672dc990d7446480fde315fc0dedccc790a1ee0505a2fcb87e92fd05",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/00000000-0000-4000-8000-000000000001/transcript.jsonl": "612340d43666c355cd2c14d171139d7807919b7d9275900c672e4656ab44067f",
+        "/tmp/namzu-index-pages-Ib4aiQ/home/sessions/b4ce7c7b-e57a-4417-83af-f627ed7ce243/runs/00000000-0000-4000-8000-000000000001/run.json": "5ed7fcc1f9322ea21020a1334e9df4ce9046f42fcb7d9b2e787cb219b5a32bb4",
+        "/tmp/namzu-index-pages-Ib4aiQ/workspace/manifest.txt": "b152d0d2ac48f049561d1bd520f075b094907445c9298d1ea574b80c291d04fa"
+      },
+      "passed": true,
+      "buildAfter": {
+        "packages/cli/dist/integrations/sessions/conversation-search.js": "dbcb6a18acc404b9e38cad21bfc1b09f5d48a81f2832be05695bb4065388c1c6",
+        "packages/cli/dist/tui/agent.js": "0a45ad745f2dbf4476ef21bd0a488b47decd8605a167248a683afd8a19f5e370",
+        "packages/sdk/dist/store/evidence/disk.js": "651350a9010d1578320259e83e5bc4a589cce644c7fc42fdf30c1a0205b7c9c4"
+      },
+      "buildStable": true
+    }
+  ],
+  "tui": {
+    "root": "/tmp/namzu-index-pages-awE1AO",
+    "controlledModel": true,
+    "liveTokens": 0,
+    "columns": 100,
+    "rows": 28,
+    "exit0": true,
+    "sourceHashesUnchanged": true,
+    "searchCards": 1,
+    "readCards": 1,
+    "idleComposer": true,
+    "fullIdentifierOccurrences": [
+      1,
+      1
+    ],
+    "trace": [
+      {
+        "step": 2,
+        "search": {
+          "guidance": "Search is case-insensitive. excerptComplete=true means the entire full-retained text part is shown; reading it again adds no text or independent support. Otherwise matches are partial or unknown: use read_conversation with runId, seq, part and byteOffset when more text is needed. toolName identifies the source; search_conversation/read_conversation outputs repeat earlier evidence. Successful results from [\"read_conversation\",\"search_conversation\"] are excluded from this scan; errors and unknown sources remain. A new literal search with includeRetrievalResults=true and no cursor can inspect excluded results. Some recorded evidence was omitted or unavailable, or an inspected run has not recorded a terminal status. These matches cannot establish absence; report missing historical details honestly rather than substituting current values.",
+          "matches": [
+            {
+              "runId": "00000000-0000-4000-8000-000000000001",
+              "seq": 2,
+              "recordedAt": 1789295804444,
+              "part": 0,
+              "source": "compaction_shed:user",
+              "recordKind": "user_message",
+              "text": "Inspect the DELTA receipt.",
+              "retained": "full",
+              "excerptComplete": true,
+              "byteOffset": 0
+            },
+            {
+              "runId": "00000000-0000-4000-8000-000000000001",
+              "seq": 2,
+              "recordedAt": 1789295804444,
+              "part": 1,
+              "source": "compaction_shed:assistant",
+              "recordKind": "assistant_message",
+              "text": "DELTA inspection requested; no original identifiers in this announcement.",
+              "retained": "full",
+              "excerptComplete": true,
+              "byteOffset": 0
+            },
+            {
+              "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+              "seq": 16,
+              "recordedAt": 1789295804389,
+              "part": 0,
+              "source": "tool_completed",
+              "recordKind": "tool_result",
+              "text": "ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n211\tDELTA original receipt. Tracking: TRACK-971d12d9-df56-48f1-ab64-eee3aa3d7dad.\n212\tInspection row 211: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging u",
+              "retained": "full",
+              "excerptComplete": false,
+              "toolName": "read",
+              "isError": false,
+              "byteOffset": 181304
+            },
+            {
+              "runId": "29671aed-72be-490e-9b60-e503f226e33f",
+              "seq": 16,
+              "recordedAt": 1789295804389,
+              "part": 0,
+              "source": "tool_completed",
+              "recordKind": "tool_result",
+              "text": "packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; \n214\tDestination of the DELTA receipt: DEPOT-10f3173c-e7f6-4b2b-a200-42ef4f2d62a4.\n215\tInspection row 214: α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packa",
+              "retained": "full",
+              "excerptComplete": false,
+              "toolName": "read",
+              "isError": false,
+              "byteOffset": 183138
+            }
+          ],
+          "recordKindGuidance": "Producer kinds do not establish truth or independence. assistant_message is a prior model claim, not proof of observed state or successful action. Attribute it as a claim unless supported by the original observation; tool results may themselves quote claims.",
+          "scannedRuns": 4,
+          "scannedBytes": 1224880,
+          "incomplete": true,
+          "unavailableRuns": 0
+        }
+      },
+      {
+        "step": 3,
+        "readContainsOriginals": true
+      }
+    ],
+    "capture": "/tmp/namzu-index-pages-awE1AO/terminal-fixed.ansi",
+    "ansiSha256": "50dc19278369da456bf55dbe2d5bc2eef0ba2285804d43f4a1cb423971717ab6",
+    "screenPath": "/tmp/namzu-index-pages-awE1AO/screen.txt",
+    "screenSha256": "c22a960a88d0eac94bd9c9f585e4b6edfd1d3f1c13a9a825103c0c69d2a15119",
+    "screen": "\n█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █\n█ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v24.0.0\n\n⚠ Auto-approve tools — tools run without asking. Use /permissions to change this.\n\n› Compacted summary: the DELTA manifest was observed. Its exact identifiers are retained in the \n  earlier tool result. The workspace file was subsequently replaced.\n\n› DELTA kaydını ilk okuduğumuzdaki takip kodu ve hedef deposu neydi?\n\n✓ Conversation search · 4 matches on this page\n  Search incomplete · absence is inconclusive\n  User message: Inspect the DELTA receipt.\n  Assistant message: DELTA inspection requested; no original identifiers in this announcement.\n  Tool result (read): ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging\n   unchanged; α🦉 packa…\n  +1 more matches in details · ctrl+o details\n\n✓ Conversation read · Tool result (read)\n  Partial page · more retained text available\n  Original tool reported no error\n  Excerpt: ing unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged; α🦉 packaging unchanged;\n   α🦉 packaging unchanged; 211 DELTA original receipt. Tracking: TRACK-971d… · ctrl+o details\n\n ∴ İlk kayıttaki kimlikler: TRACK-971d12d9-df56-48f1-ab64-eee3aa3d7dad · \n   DEPOT-10f3173c-e7f6-4b2b-a200-42ef4f2d62a4\n\n ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐\n │ ⏵⏵ Auto-approve tools (shift+tab to cycle)                                                     │\n │ › Type a message… (/help for commands)                                                         │\n └────────────────────────────────────────────────────────────────────────────────────────────────┘\n\n gpt-5.6-luna default · /tmp/namzu-index-pages-awE1AO/workspace\nTo resume this conversation, run: /home/arda/.local/node/bin/node /home/arda/workspaces/@cogitave/co\ngitave/namzu/packages/cli/dist/bin.js resume 3a3a55dc-2a15-43eb-b842-a3009b613e79\n\nScript done on 2026-09-13 13:40:05+03:00 [COMMAND_EXIT_CODE=\"0\"]\n",
+    "failedFixture": {
+      "capture": "/tmp/namzu-index-pages-awE1AO/terminal.ansi",
+      "sha256": "5001d9f351f8d1fdef46f417812adadc107d8044c83ab80e26757f3c0a249a19",
+      "exitCode": 70,
+      "cause": "Experiment passed an async nextTurn callback to synchronous MockLLMProvider; fixed to synchronous trace writing."
+    }
+  }
+}

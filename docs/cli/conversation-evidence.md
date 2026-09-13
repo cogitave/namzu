@@ -253,8 +253,12 @@ a compaction record. Pass it as `cursor`; optionally repeated `query` and
 `caseSensitive` settings must match the original search. Omit `runId` or repeat
 the original single-run ID. A recall cursor may represent a multi-term host
 query, so use cursor alone for those continuations. Closed, explicitly scoped runs use the SDK
-text index: one bounded index page per visited run, at most three indexed matches
-from each such page, may require continuation even when `limit` is larger. When an indexed
+text index: at most three indexed matches are requested from each internal page.
+An internal page boundary alone does not end the public response. The host can
+follow up to seven additional internal continuations per call while the public
+match, serialized-output and read allowances have room. Scope and source checks
+run again for each page. An unchanged internal cursor yields immediately rather
+than consuming the continuation allowance on repeated work. When an indexed
 run is completely searched, literal search and automatic multi-term discovery
 both advance to the next run within the shared read and directory-discovery
 limits. This includes matching runs: a small matching record does not require
@@ -265,13 +269,17 @@ excerpt, JSON escaping and bounded metadata. It requests at most three matches
 and reduces that count when less room remains in the 12,000-byte allowance.
 Actual returned sizes are charged, and no consumed matches are discarded to
 make a page fit. Cursor-only continuations keep their original search mode.
-A partial SDK page still returns control immediately;
-partial empty pages require continuation. Known omissions
+An internal page may therefore be empty without requiring another model turn.
+The host yields with a public continuation when its work or space allowance is
+exhausted; that public page can still be empty. Known omissions
 stay incomplete even when scanning advances, and failed operations with unknown
 read cost still charge the remaining ceiling and yield. The index also pages within large
 compaction records. Literal case-insensitive search bypasses case-sensitive index
 filters and verifies the original text; it can need more I/O or pages while
-keeping the same ceilings.
+keeping the same ceilings. The [indexed-page experiment](../../research/conversation-evidence/index-pages-results.md)
+records fewer public calls with increased accounted reads in its fixture;
+packing pages is not a guarantee of lower total I/O or model cost.
+
 The 48-character handle binds the host scope, query, case sensitivity and file snapshot. It expires
 after ten minutes, process restart or eviction from a 128-entry cache. Restart
 the search if the cursor expires. Changed files are reported as unavailable;
@@ -281,7 +289,11 @@ index beside each closed run (`evidence-index/`), reused after restart. This
 index is disposable; the run transcript and retained outputs remain primary.
 
 Results include `scannedRuns`, `scannedBytes`, `unavailableRuns` and `incomplete`.
-Counts describe the current call. A continuation also preserves omissions seen
+Run counts describe distinct runs visited or found unavailable in the current
+call, even when several internal pages visit one run. Read bytes include all
+internal operations. If a later internal page fails validation, the current
+response discards matches already collected from that run; other runs' matches
+remain. A continuation also preserves omissions seen
 earlier in that same scan, including when an automatic live scan hands off to
 this tool. Finishing its remaining pages does not erase a prior preview or
 unavailable original. A final page may therefore have `unavailableRuns: 0`, no
