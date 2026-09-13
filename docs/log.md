@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Give tool text blocks and earlier preparation context the same [automatic recall](sdk/evidence-recall.md) visibility rules as plain messages, and let bounded [CLI candidate pages](cli/conversation-evidence.md) cross exhausted matching runs so repeated visible text does not displace missing evidence.
+
 - **Update** Recover exact text blocks from compacted rich tool results in [SDK retained evidence](sdk/retained-tool-evidence.md) and [CLI conversation retrieval](cli/conversation-evidence.md), preserving existing plain-text addresses and excluding binary payloads from search.
 
 - **Update** Add authenticated token-key negative filters to [retained SDK evidence](sdk/retained-tool-evidence.md), reducing payload reads in automatic [CLI recall](cli/conversation-evidence.md) while preserving exact-match verification, Unicode boundaries and existing I/O/retention limits.

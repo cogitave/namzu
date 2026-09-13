@@ -324,6 +324,82 @@ async function closedTranscript(
 }
 
 describe('bounded original conversation evidence', () => {
+	it('bounds escaped multi-run candidate pages and resumes without dropping matches', async () => {
+		const { sessions, sessionId } = await fixture()
+		for (let i = 1; i <= 8; i++)
+			await closedTranscript(sessions, sessionId, i, `ORCHID ${i} ${'\u0000'.repeat(480)}`)
+		const request = {
+			terms: ['ORCHID'],
+			excludeRunId: generateRunId(),
+			maxReadBytes: 8 * 1024 * 1024,
+		}
+		let cursor: string | undefined
+		const runs: string[] = []
+		let pages = 0
+		do {
+			const page = await searchConversationTerms(sessions, sessionId, { ...request, cursor })
+			expect(Buffer.byteLength(JSON.stringify(page.matches))).toBeLessThanOrEqual(12_000)
+			expect(page.scannedBytes).toBeLessThanOrEqual(request.maxReadBytes)
+			expect(page.unavailableRuns).toBe(0)
+			runs.push(...page.matches.map((m) => m.runId))
+			cursor = page.nextCursor
+			if (!cursor) expect(page.incomplete).toBe(false)
+			expect(++pages).toBeLessThan(12)
+		} while (cursor)
+		expect(runs).toHaveLength(8)
+		expect(new Set(runs).size).toBe(8)
+		expect(pages).toBeGreaterThan(1)
+	})
+
+	it.each(['string', 'blocks'] as const)(
+		'recalls missing archived text before repeated visible %s results',
+		async (shape) => {
+			const { sessions, sessionId } = await fixture()
+			const visible = Array.from(
+				{ length: 4 },
+				(_, i) => `ORCHID original receipt code: not recorded on copy ${i}.`,
+			)
+			for (const [i, text] of visible.entries())
+				await closedTranscript(sessions, sessionId, i + 1, text)
+			const original = `ORCHID original receipt code RECEIPT-A17. ${'Archive accompanying notes. '.repeat(11)}`
+			const target = await closedTranscript(sessions, sessionId, 5, original)
+			const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+			const result = await recall({
+				runId: generateRunId(),
+				stepNumber: 1,
+				steps: [],
+				prepared: {},
+				messages: [
+					createUserMessage('What was the original ORCHID receipt code?'),
+					...visible.map((text, i) => ({
+						role: 'tool' as const,
+						toolCallId: `read-${i}`,
+						content: shape === 'string' ? text : [{ type: 'text' as const, text }],
+					})),
+				],
+			})
+			const text = result!.context!
+			const selected = text
+				.split('\n')
+				.filter((line) => line.startsWith('{"runId":'))
+				.map((line) => JSON.parse(line))
+			expect(selected.map((entry) => entry.runId)).toEqual([target.runId])
+			const metadata = JSON.parse(text.split('\n')[1]!)
+			expect(metadata.visibleEvidence).toHaveLength(3)
+			expect(metadata.omittedVisibleEvidence).toBe(1)
+			expect(metadata.omittedPassages).toBe(0)
+			expect(text.length).toBeLessThanOrEqual(6000)
+			await releaseConversationEvidence(sessions, sessionId)
+			expect(
+				await readConversationEvidence(sessions, sessionId, {
+					runId: target.runId,
+					seq: 2,
+					part: 0,
+				}),
+			).toMatchObject({ text: original, complete: true })
+		},
+	)
+
 	it.each([0, 250_000])(
 		'crosses exhausted nonmatching indexed runs within the shared byte ceiling (payload %i)',
 		async (padding) => {

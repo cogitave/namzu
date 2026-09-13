@@ -763,8 +763,9 @@ async function searchConversationCore(
 			if (source) {
 				if (maxReadBytes - result.scannedBytes < 6 * 1024 * 1024) break
 				usingIndex = true
-				// At most one SDK page per run. Empty exhausted runs can be
-				// crossed within this call's shared byte/discovery ceilings.
+				// At most one SDK page per run. Automatic candidate discovery can
+				// cross exhausted matching runs inside the shared output/I/O caps;
+				// an unfinished run still returns its continuation immediately.
 				// Reserve three 512-character excerpts even under JSON escaping.
 				if (OUTPUT_BYTES - outputBytes < 11_000) break
 				const page = await source.search(
@@ -782,24 +783,26 @@ async function searchConversationCore(
 				if (page.excludedToolResults)
 					result.excludedToolResults = (result.excludedToolResults ?? 0) + page.excludedToolResults
 				result.scannedRuns++
-				result.matches.push(
-					...page.matches.map((match) => ({
-						runId,
-						seq: match.seq,
-						recordedAt: match.recordedAt,
-						part: match.part,
-						source: match.source,
-						text: match.excerpt,
-						retained: match.retained,
-						toolName:
-							match.toolName !== undefined &&
-							Buffer.byteLength(JSON.stringify(match.toolName)) <= 256
-								? match.toolName
-								: undefined,
-						isError: match.isError,
-						...(match.characterOffset === undefined ? {} : { byteOffset: match.byteOffset }),
-					})),
-				)
+				const indexedMatches = page.matches.map((match) => ({
+					runId,
+					seq: match.seq,
+					recordedAt: match.recordedAt,
+					part: match.part,
+					source: match.source,
+					text: match.excerpt,
+					retained: match.retained,
+					toolName:
+						match.toolName !== undefined && Buffer.byteLength(JSON.stringify(match.toolName)) <= 256
+							? match.toolName
+							: undefined,
+					isError: match.isError,
+					...(match.characterOffset === undefined ? {} : { byteOffset: match.byteOffset }),
+				}))
+				const indexedBytes = Buffer.byteLength(JSON.stringify(indexedMatches))
+				if (outputBytes + indexedBytes > OUTPUT_BYTES)
+					throw new Error('Indexed evidence exceeded its output allowance.')
+				outputBytes += indexedBytes
+				result.matches.push(...indexedMatches)
 				result.incomplete ||= page.incomplete
 				cursor.omitted ||= page.incomplete
 				if (page.unavailable.length) result.unavailableRuns++
@@ -808,7 +811,7 @@ async function searchConversationCore(
 				cursor.indexCursor = page.nextCursor ?? undefined
 				if (!page.nextCursor) {
 					nextRun(cursor)
-					if (page.matches.length === 0) continue
+					if (page.matches.length === 0 || input.terms !== undefined) continue
 				}
 				break
 			}

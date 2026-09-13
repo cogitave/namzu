@@ -212,10 +212,26 @@ function passageLine({ candidate, others }: Passage, included: number): string {
 	}).replace(/</g, '\\u003c')}\n`
 }
 
-function visibleText(messages: readonly Message[]): string[] {
-	return messages.flatMap((message) =>
-		typeof message.content === 'string' ? [message.content] : [],
-	)
+function visibleText(
+	messages: readonly Message[],
+	prepared: { system?: string; context?: string },
+): string[] {
+	const texts: string[] = []
+	for (const message of messages) {
+		if (typeof message.content === 'string') texts.push(message.content)
+		else if (message.role === 'tool' && Array.isArray(message.content)) {
+			// Match actual text blocks independently. Joining them invents visible
+			// passages across boundaries; stringifying them indexes binary payloads.
+			for (const block of message.content)
+				if (block?.type === 'text' && typeof block.text === 'string') texts.push(block.text)
+		}
+	}
+	// Earlier preparation stages already contribute these to this request.
+	// They have the same visibility semantics as string-valued history, without
+	// becoming durable messages or establishing an authenticated source.
+	if (prepared.system) texts.push(prepared.system)
+	if (prepared.context) texts.push(prepared.context)
+	return texts
 }
 
 function continuationHints(batch: EvidenceRecallBatch): EvidenceRecallContinuation[] {
@@ -354,7 +370,7 @@ export function createEvidenceRecallStep(options: EvidenceRecallOptions): Prepar
 			const candidates: EvidenceRecallCandidate[] = []
 			const visibleCandidates: EvidenceRecallCandidate[] = []
 			const seen = new Set<string>()
-			const visible = visibleText(messages)
+			const visible = visibleText(messages, prepared)
 			// Validate the WHOLE batch before exposing any passage, including foreign
 			// candidates which ranking or deduplication would otherwise discard.
 			for (const candidate of batch.candidates) {

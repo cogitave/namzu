@@ -4,6 +4,7 @@ import {
 	createRuntimeContextMessage,
 	createUserMessage,
 } from '../../types/message/index.js'
+import type { Message } from '../../types/message/index.js'
 import type { PrepareStepContext } from '../../types/run/prepare-step.js'
 import {
 	generateProjectId,
@@ -66,6 +67,91 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it.each(['string', 'blocks', 'context', 'system'] as const)(
+		'prioritizes missing evidence over text already visible in %s',
+		async (shape) => {
+			const already = 'DELTA tracking code pending'
+			const missing = `DELTA tracking code A17; ${'accompanying notes '.repeat(20)}`
+			const entries = [candidate(already), candidate(missing, { seq: 3 })]
+			const base = context()
+			const ctx: PrepareStepContext =
+				shape === 'context' || shape === 'system'
+					? { ...base, prepared: { [shape]: already } }
+					: {
+							...base,
+							messages: [
+								...base.messages,
+								{
+									role: 'tool',
+									toolCallId: 'visible',
+									content:
+										shape === 'string'
+											? already
+											: [
+													{ type: 'image', data: 'binary', mediaType: 'image/png' },
+													{ type: 'text', text: already },
+												],
+								},
+							],
+						}
+			const before = structuredClone(ctx)
+			const result = await fixture(entries, { maxPassages: 1 }).recall(ctx)
+			const recalled = result?.context?.slice(shape === 'context' ? already.length + 2 : 0)
+			expect(rendered(recalled).map((p) => p.seq)).toEqual([3])
+			const metadata = JSON.parse(recalled!.split('\n')[1]!)
+			expect(metadata.omittedVisibleEvidence).toBe(1)
+			expect(metadata.omittedPassages).toBe(0)
+			expect(recalled!.length).toBeLessThanOrEqual(6000)
+			if (shape === 'context') expect(result?.context?.startsWith(`${already}\n\n`)).toBe(true)
+			expect(ctx).toEqual(before)
+		},
+	)
+
+	it('keeps rich text block boundaries, excludes binary metadata and private reasoning from visibility', async () => {
+		const excerpt = 'DELTA A17'
+		const history: Message[] = [
+			{
+				role: 'tool',
+				toolCallId: 'split',
+				content: [
+					{ type: 'text', text: 'DELTA ' },
+					{ type: 'text', text: 'A17' },
+					{ type: 'image', data: excerpt, mediaType: excerpt },
+					{ type: 'document', data: excerpt, name: excerpt, mediaType: excerpt },
+				],
+			},
+			{
+				role: 'assistant',
+				content: null,
+				reasoning: [{ type: 'thinking', text: excerpt, signature: 'private' }],
+			},
+		]
+		const result = await fixture([candidate(excerpt)]).recall({
+			...context(),
+			latestUserMessage: createUserMessage('DELTA tracking code'),
+			messages: history,
+		})
+		expect(rendered(result?.context).map((p) => p.excerpt)).toEqual([excerpt])
+		expect(result?.context).not.toContain('visibleEvidence')
+	})
+
+	it('revalidates rich visible quotes instead of treating them as an authorization cache', async () => {
+		const entry = candidate()
+		const { recall } = fixture([
+			entry,
+			{ ...entry, scope: { ...entry.scope, sessionId: generateSessionId() } },
+		])
+		await expect(
+			recall({
+				...context(),
+				latestUserMessage: createUserMessage('DELTA tracking code'),
+				messages: [
+					{ role: 'tool', toolCallId: 'visible', content: [{ type: 'text', text: entry.excerpt }] },
+				],
+			}),
+		).rejects.toThrow('different conversation scope')
+	})
+
 	it('reports deliberate source exclusions even when no passage is selected', async () => {
 		const recall = createEvidenceRecallStep({
 			scope,

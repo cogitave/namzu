@@ -62,7 +62,23 @@ translation, synonym expansion or embedding model. Other languages may need a
 host retrieval strategy that suits their text.
 
 Duplicate source/excerpt addresses with equal metadata are omitted. Exact passages
-already visible in history contribute quoted source references instead of new passages. Remaining candidates with exactly equal text,
+already visible in history or an earlier stage's `prepared.system`/`prepared.context`
+contribute quoted source references instead of new passages. Tool text blocks
+have the same visibility behavior as string-valued messages. Each text block is
+checked independently: joining blocks would invent visible text across their
+boundaries. Image/document payloads, filenames, media types and private reasoning
+do not establish textual visibility. Earlier context is preserved and still
+counts against the runtime's remaining budget; it is not added to durable history.
+
+This is visibility at this preparation boundary, not a guarantee about later
+stages or provider transformations. Visibility grants no archive authority:
+every candidate, including visible text, still passes the full scope and metadata
+validation. Available references retain their exact quotes, error/preview status
+and recording times. Visible text no longer consumes a new-passage slot just
+because its message uses the block form. The [CLI comparison](../../research/conversation-evidence/visible-blocks-results.md)
+records missing evidence displaced by that representation mismatch.
+
+Remaining candidates with exactly equal text,
 `source`, `toolName`, `isError` and `retained` share one passage. Missing status
 is distinct from explicit success. Letter case, whitespace and changed identifiers
 are preserved; this is not semantic similarity or automatic conflict resolution.
@@ -240,6 +256,13 @@ retained text after compaction within the same running invocation. The combined
 pass still has four pages and an 8 MiB accounted-read ceiling. Explicit tools
 remain available for later pages, longer excerpts and exact sequential reads;
 automatic recall does not claim an exhaustive search of long-running history.
+Within one automatic candidate page, the CLI can cross completely searched
+matching runs as well as empty runs, while respecting the shared byte and output
+limits. Partially traversed SDK pages keep their continuation boundary. This
+allows distinct evidence from several small invocations to enter the bounded
+candidate pool instead of spending one automatic page on each run. It does not
+expand the four-page budget or claim exhaustive archive coverage.
+
 The CLI's directory discovery continues across batches of 100 entries, so that
 limit no longer permanently excludes later runs. The automatic four-page pass
 can still stop before discovery or text traversal is exhausted; explicit search
