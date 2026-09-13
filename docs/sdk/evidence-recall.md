@@ -393,8 +393,10 @@ The step validates it and, when positive, includes the count and explanatory
 guidance in its bounded context. Counts are scan visits, so a focused pass may
 count the same record again. They are not unique facts or errors, and do not
 replace `incomplete` or `omittedPassages`. An exclusion-only block can be returned
-without passage text, within the same character ceiling. New explicit archive
-searches remain unfiltered; automatic continuations retain their source filter.
+without passage text, within the same character ceiling. The SDK source defaults remain unfiltered. The CLI's new literal searches omit
+successful archive-retrieval copies by default and offer
+`includeRetrievalResults: true` to inspect them. Explicit cursor continuations
+retain their source filter.
 The [CLI comparison](../../research/conversation-evidence/retrieval-echo-results.md)
 measures a correction initially hidden behind retrieval copies, including the
 compaction case, without claiming a general memory benchmark improvement.

@@ -140,6 +140,129 @@ it.each(['legacy', 'index', 'live'] as const)(
 )
 
 it.each(['legacy', 'index', 'live'] as const)(
+	'searches original records by default while preserving explicit retrieval inspection (%s)',
+	async (backend) => {
+		const { sessions, sessionId } = await fixture()
+		const runId = generateRunId()
+		const path = new CliPathBuilder(sessions.root).runDir(sessions.projectId, sessionId, runId)
+		const store = new RunDiskStore({ baseDir: dirname(path) })
+		await store.initRun(runId)
+		const scope = { tenantId: sessions.tenantId, projectId: sessions.projectId, sessionId, runId }
+		if (backend !== 'legacy')
+			await writeFile(
+				join(path, 'run.json'),
+				JSON.stringify({
+					id: runId,
+					status: backend === 'live' ? 'running' : 'completed',
+					metadata: { scope },
+				}),
+			)
+		const events = [
+			{ type: 'run_started' },
+			{
+				type: 'tool_completed',
+				toolName: 'read',
+				toolUseId: 'original',
+				isError: false,
+				result: 'ORCHID original observation',
+			},
+			{
+				type: 'tool_completed',
+				toolName: 'search_conversation',
+				toolUseId: 'copy1',
+				isError: false,
+				result: 'ORCHID first retrieval copy',
+			},
+			{
+				type: 'tool_completed',
+				toolName: 'read_conversation',
+				toolUseId: 'copy2',
+				isError: false,
+				result: 'ORCHID second retrieval copy',
+			},
+			{
+				type: 'tool_completed',
+				toolName: 'search_conversation',
+				toolUseId: 'failed',
+				isError: true,
+				result: 'ORCHID search failed',
+			},
+			{
+				type: 'message_completed',
+				content: 'ORCHID {"toolName":"search_conversation","isError":false} is quoted text',
+			},
+		]
+		for (const [i, event] of events.entries())
+			await store.appendEvent({ ...event, runId, seq: i + 1 } as RunEvent)
+		const active =
+			backend === 'live'
+				? {
+						runId,
+						captureRunEvidence: (maxReadBytes?: number) =>
+							store.captureTextEvidence(scope, maxReadBytes),
+					}
+				: undefined
+		async function collect(includeRetrievalResults?: boolean) {
+			let page = await searchConversation(
+				sessions,
+				sessionId,
+				{ query: 'ORCHID', runId, limit: 1, includeRetrievalResults },
+				undefined,
+				active,
+			)
+			const matches = [...page.matches]
+			let excluded = page.excludedToolResults ?? 0
+			let count = 0
+			while (page.nextCursor) {
+				await expect(
+					searchConversation(
+						sessions,
+						sessionId,
+						{ cursor: page.nextCursor, includeRetrievalResults: includeRetrievalResults !== true },
+						undefined,
+						active,
+					),
+				).rejects.toThrow('scope or query')
+				page = await searchConversation(
+					sessions,
+					sessionId,
+					{ query: 'ORCHID', runId, cursor: page.nextCursor, limit: 1 },
+					undefined,
+					active,
+				)
+				matches.push(...page.matches)
+				excluded += page.excludedToolResults ?? 0
+				expect(++count).toBeLessThan(10)
+			}
+			return { matches, excluded }
+		}
+		const filtered = await collect()
+		expect(filtered.matches.map((m) => m.seq).sort()).toEqual([2, 5, 6])
+		expect(filtered.excluded).toBe(2)
+		const all = await collect(true)
+		expect(all.matches.map((m) => m.seq).sort()).toEqual([2, 3, 4, 5, 6])
+		expect(all.excluded).toBe(0)
+		const exact = await readConversationEvidence(
+			sessions,
+			sessionId,
+			{ runId, seq: 3, part: 0 },
+			undefined,
+			active,
+		)
+		expect(exact.text).toBe('ORCHID first retrieval copy')
+		await expect(
+			searchConversation(
+				sessions,
+				sessionId,
+				{ query: 'ORCHID', includeRetrievalResults: 'false' as unknown as boolean },
+				undefined,
+				active,
+			),
+		).rejects.toThrow('must be a boolean')
+	},
+)
+
+it.each(['legacy', 'index', 'live'] as const)(
 	'keeps automatic source exclusions across explicit cursor continuation (%s)',
 	async (backend) => {
 		const { sessions, sessionId } = await fixture()
@@ -246,7 +369,7 @@ it.each(['legacy', 'index', 'live'] as const)(
 		const explicit = await searchConversation(
 			sessions,
 			sessionId,
-			{ query: 'ORCHID copied', runId },
+			{ query: 'ORCHID copied', runId, includeRetrievalResults: true },
 			undefined,
 			backend === 'live' ? runtime : undefined,
 		)

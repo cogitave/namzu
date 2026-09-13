@@ -2,6 +2,8 @@
 
 ## 2026-09-13
 
+- **Update** Make new [CLI conversation searches](cli/conversation-evidence.md) omit successful retrieval copies by default, add explicit retrieval-result inspection, and preserve source filters through continuation.
+
 - **Update** Distinguish fully displayed text parts from retained previews and partial excerpts in [SDK search](sdk/retained-tool-evidence.md), [automatic recall](sdk/evidence-recall.md) and [CLI conversation evidence](cli/conversation-evidence.md), using validated UTF-8 source bounds without treating completeness as truth.
 
 - **Update** Label producers in [automatic evidence recall](sdk/evidence-recall.md), keep matching record kinds represented before repeated same-kind passages, and distinguish prior model claims from observed state without granting source authority.

@@ -6,12 +6,12 @@ import {
 	createEvidenceRecallStep,
 	refineEvidenceRecallTerms,
 } from '@namzu/sdk'
-import { retainLiveConversationSearch, searchConversationTerms } from './conversation-search.js'
+import {
+	CONVERSATION_RETRIEVAL_TOOLS,
+	retainLiveConversationSearch,
+	searchConversationTerms,
+} from './conversation-search.js'
 import type { ConversationContext } from './store.js'
-
-// These host-owned tools quote archived observations; successful results are
-// not new observations for automatic discovery. New explicit searches remain unfiltered.
-const EXCLUDE_RETRIEVAL_RESULTS = ['read_conversation', 'search_conversation'] as const
 
 interface RecallScan {
 	terms: readonly string[]
@@ -99,7 +99,7 @@ export function createConversationEvidenceRecall(
 						{
 							terms: scan.terms,
 							matchMode: 'token',
-							excludeSuccessfulTools: EXCLUDE_RETRIEVAL_RESULTS,
+							excludeSuccessfulTools: CONVERSATION_RETRIEVAL_TOOLS,
 							excludeDerivedSummaries: scan.excludeDerivedSummaries,
 							caseSensitive: false,
 							cursor: scan.cursor,
@@ -167,7 +167,7 @@ export function createConversationEvidenceRecall(
 					{
 						terms: scan.terms,
 						matchMode: 'token',
-						excludeSuccessfulTools: EXCLUDE_RETRIEVAL_RESULTS,
+						excludeSuccessfulTools: CONVERSATION_RETRIEVAL_TOOLS,
 						excludeDerivedSummaries: scan.excludeDerivedSummaries,
 						excludeRunId: runId,
 						maxReadBytes: remaining,
@@ -227,7 +227,7 @@ export function createConversationEvidenceRecall(
 							scan.cursor,
 							scan.omitted,
 							'token',
-							EXCLUDE_RETRIEVAL_RESULTS,
+							CONVERSATION_RETRIEVAL_TOOLS,
 							scan.excludeDerivedSummaries,
 						),
 					},

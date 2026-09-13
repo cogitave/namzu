@@ -132,8 +132,12 @@ compaction tool results in scoped indexes retain their tool name and explicit
 error status; copies keep their compaction source/time. Legacy unindexed
 compaction messages and archives without this metadata remain unknown.
 
-The automatic continuation preserves that filter, while a new explicit
-`search_conversation({query: ...})` can inspect the omitted outputs. Exact
+New explicit `search_conversation({query: ...})` calls use the same retrieval
+filter by default. This prevents one search from finding an earlier search's
+copy as another apparent source. To inspect those successful retrieval outputs
+themselves, start a new search with `includeRetrievalResults: true`. This changes
+the previous unfiltered explicit-search default; callers needing that behavior
+must pass the option. Exact
 `read_conversation` access is unchanged. `excludedToolResults` in filtered search
 results and recall context counts skipped visits, possibly repeated across
 focused scans, not unique historical records. Exclusion guidance distinguishes
@@ -145,7 +149,7 @@ SDK's authenticated token-key filters. Potential matches are still read and
 verified against original text. This reduces I/O for sparse matches without
 increasing the automatic page or byte allowance. New manifests pay extra storage
 for the filter; old or oversized manifests without it use the existing scan.
-Literal `search_conversation` semantics are unchanged. The
+The literal matching algorithm is unchanged. The
 [large-output CLI experiment](../../research/conversation-evidence/token-filter-results.md)
 separates candidate recovery, I/O cost and the live model's answer.
 
@@ -165,6 +169,14 @@ explicit without loading the full archive record. Pass its `address` to
 and read limits apply. `omittedVisibleEvidence` counts references which did not
 fit the shared context allowance. This can be positive even when traversal is
 complete; no archive-wide absence or timestamp completeness is implied.
+
+A continuation retains the scan's original source filter whether the query is
+omitted or repeated. Leave `includeRetrievalResults` absent on continuation;
+changing its filter is rejected. Host-provided automatic cursors keep their own
+selection, including narrower filters. `excludedToolResults` and tool guidance
+report the omitted successful results. Exclusion counts describe scan visits,
+not independent facts, and do not prove historical absence. Exact reads of a
+known authorized retrieval-result address remain available without this flag.
 
 Matching ignores letter case
 by default: `destination` also finds `Destination`. Set `caseSensitive: true` to
