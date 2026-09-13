@@ -74,6 +74,21 @@ resolving to different content after an upgrade. The original message array
 keeps its original order and boundaries. Disposable indexes are rebuilt for
 block extraction without changing exact-address authentication.
 
+Kernel-generated system summaries carry `source: { type: 'compaction-summary' }`.
+When a later compaction removes one, its text receives the evidence label
+`compaction_shed:summary`. Inline records and new large archives preserve this
+distinction through live, closed and snapshot retrieval. It is a derived summary,
+not another independent observation of the underlying facts. Exact text, part
+ordinals and full-message restoration are unchanged; summaries remain searchable
+and readable. The host-owned recorded marker determines the label, never a
+matching heading or a marker embedded in user/tool prose. Other message roles
+cannot acquire this label by carrying system-summary metadata.
+
+Existing unmarked messages and archives remain `compaction_shed:system`; search
+does not infer or retrofit derivation from their text. Disposable index pages
+are rebuilt for this metadata without changing exact-address authentication.
+The marker describes provenance, not authority, factual accuracy or freshness.
+
 New archives retain these text copies. Previously written archives enumerate
 only the parts captured at their creation; they are not rewritten or expanded
 by searching. Fresh closed/snapshot scans can index rich blocks in inline

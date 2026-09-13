@@ -27,6 +27,7 @@ export const compactionArchiveSchema = z.object({
 			.array(
 				z.object({
 					role,
+					summary: z.literal(true).optional(),
 					manifest: hash,
 					toolName: z.string().min(1).max(1024).optional(),
 					isError: z.boolean().optional(),
@@ -67,7 +68,11 @@ export async function retainCompactionRecord(
 	await noLinks(join(runDir, 'compaction-output'))
 	await mkdir(dir, { mode: 0o700 })
 	await writeFile(join(dir, 'messages.json'), original, { flag: 'wx', mode: 0o600 })
-	const parts: ({ role: z.infer<typeof role>; manifest: string } & CompactedToolMetadata)[] = []
+	const parts: ({
+		role: z.infer<typeof role>
+		manifest: string
+		summary?: true
+	} & CompactedToolMetadata)[] = []
 	for (const [part, value] of texts.entries()) {
 		const bytes = Buffer.from(value.text, 'utf8')
 		const manifest = spillManifest(bytes)
@@ -78,6 +83,7 @@ export async function retainCompactionRecord(
 		await writeFile(`${path}.manifest.json`, manifest, { flag: 'wx', mode: 0o600 })
 		parts.push({
 			role: value.role,
+			summary: value.summary,
 			manifest: digest(manifest),
 			toolName: value.toolName,
 			isError: value.isError,

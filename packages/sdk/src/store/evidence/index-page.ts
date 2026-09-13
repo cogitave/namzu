@@ -27,6 +27,7 @@ export const entrySchema = z.object({
 		'tool_completed',
 		'message_completed',
 		'compaction_shed:system',
+		'compaction_shed:summary',
 		'compaction_shed:user',
 		'compaction_shed:assistant',
 		'compaction_shed:tool',
@@ -161,7 +162,7 @@ export function eventTexts(
 ): ({ source: string; text: string } & CompactedToolMetadata)[] {
 	if (event.type === 'compaction_archive') {
 		return compactionArchiveSchema.parse(event).archive.parts.map((part) => ({
-			source: `compaction_shed:${part.role}`,
+			source: `compaction_shed:${part.role === 'system' && part.summary ? 'summary' : part.role}`,
 			text: '',
 			...(part.role === 'tool' ? { toolName: part.toolName, isError: part.isError } : {}),
 		}))
@@ -176,8 +177,8 @@ export function eventTexts(
 		return [{ source: 'message_completed', text: event.content }]
 	}
 	if (event.type !== 'compaction_shed') return []
-	return compactedTexts(event.messages).map(({ role, ...part }) => ({
-		source: `compaction_shed:${role}`,
+	return compactedTexts(event.messages).map(({ role, summary, ...part }) => ({
+		source: `compaction_shed:${summary ? 'summary' : role}`,
 		...part,
 	}))
 }
@@ -194,7 +195,7 @@ export async function indexPage(
 ): Promise<{ page: IndexPage; cacheHit: boolean }> {
 	const path = join(
 		seal.dir,
-		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}:text-blocks-v1:${process.version}:${process.versions.v8}:${process.versions.unicode}`)}.page`,
+		`${digest(`${sourceKey}:${start.offset}:${start.seq}:${start.textIndex}:summary-provenance-v1:${process.version}:${process.versions.v8}:${process.versions.unicode}`)}.page`,
 	)
 	try {
 		const cached = await readSmall(path, budget, 512 * 1024)

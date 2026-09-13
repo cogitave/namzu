@@ -13,6 +13,13 @@ valid span. Neither mutates the supplied array or owns a running invocation.
 The result contains replacement `messages`, the pinned `summary`, net `shed`
 count and optional verifier `usage`. `null` means no reduction is available.
 
+Generated summaries carry the optional `SystemMessage.source` value
+`{ type: 'compaction-summary' }`. This host provenance distinguishes a derived
+summary from ordinary system text, independent of its heading. Automatic
+compaction uses the same marker; a replaced summary keeps it when archived.
+Manual summaries retain their `retain: true` protection. This addition does not
+change the existing leading-summary replacement or retention rules.
+
 Both accept optional `onShed(removedMessages)`. The SDK awaits this callback
 before returning a replacement. It receives original messages absent from the
 replacement, in input order, including removed system messages. Retained messages

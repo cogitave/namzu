@@ -100,6 +100,11 @@ describe('a host can ask for compaction', () => {
 			release()
 			const result = await work
 			expect(result).not.toBeNull()
+			expect(result!.summary).toMatchObject({
+				role: 'system',
+				source: { type: 'compaction-summary' },
+				retain: true,
+			})
 			expect(removed).toEqual(messages.filter((message) => !result!.messages.includes(message)))
 			expect(removed).not.toContain(messages[3])
 		},

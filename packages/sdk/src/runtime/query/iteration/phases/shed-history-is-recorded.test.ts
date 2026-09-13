@@ -88,6 +88,22 @@ const shedOf = (h: Harness) =>
 	)
 
 describe('a compaction records what it removes', () => {
+	it('archives a replaced summary with its derivation marker on the next real pass', async () => {
+		const h = harness({ compaction: { strategy: 'structured' } })
+		await runCompactionCheck(h.ctx)
+		const first = h.messages.find(
+			(m) => m.role === 'system' && m.source?.type === 'compaction-summary',
+		)
+		expect(first).toBeDefined()
+		h.messages.push(...longHistory().slice(1))
+		await runCompactionCheck(h.ctx)
+		expect(h.messages).not.toContain(first)
+		expect(shedOf(h).at(-1)?.messages).toContain(first)
+		expect(
+			h.messages.filter((m) => m.role === 'system' && m.source?.type === 'compaction-summary'),
+		).toHaveLength(1)
+	})
+
 	it('emits exactly what left the history, on the structured path', async () => {
 		const h = harness({ compaction: { strategy: 'structured' } })
 		const before = [...h.messages]

@@ -3,6 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, it } from 'vitest'
+import { buildCompactionMessage } from '../../../compaction/summary.js'
 import type { Message, ToolResultBlock } from '../../../types/message/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import { asRunId } from '../../../utils/id.js'
@@ -81,6 +82,69 @@ async function all(source: RunTextEvidenceSource, query: string) {
 	} while (cursor)
 	return matches
 }
+
+it.each(['live', 'closed', 'snapshot'] as const)(
+	'preserves summary provenance and addresses without classifying lookalike prose (%s)',
+	async (mode) => {
+		for (const archived of [false, true]) {
+			const summary = buildCompactionMessage('ORCHID derived receipt summary')
+			const lookalike = {
+				role: 'system' as const,
+				content: summary.content as string,
+			}
+			const removed = [
+				summary,
+				lookalike,
+				// Other roles and non-object source values cannot claim summary identity.
+				{
+					role: 'user',
+					content: lookalike.content,
+					source: { type: 'compaction-summary' },
+				},
+				{
+					role: 'system',
+					content: lookalike.content,
+					source: [{ type: 'compaction-summary' }],
+				},
+				...messages([
+					{
+						type: 'image',
+						data: archived ? 'A'.repeat(4 * 1024 * 1024) : 'A',
+						mediaType: 'image/png',
+					},
+				]),
+			] as Message[]
+			const f = await fixture(mode, removed)
+			for (const source of [f.source, f.reopen()]) {
+				for (const part of [0, 1, 2, 3]) {
+					const found = (await source.search({ seq: 2, part })).matches[0]!
+					expect(found.source).toBe(
+						part === 0
+							? 'compaction_shed:summary'
+							: `compaction_shed:${part === 2 ? 'user' : 'system'}`,
+					)
+					expect(await source.read({ address: found.address })).toMatchObject({
+						part,
+						text: lookalike.content,
+						source: found.source,
+					})
+				}
+			}
+			expect((await f.store.readEvents()).find((e) => e.type === 'compaction_shed')).toMatchObject({
+				messages: removed,
+			})
+			const before = (await f.reopen().search({ seq: 2, part: 0 })).matches[0]!
+			const path = join(f.runDir, 'transcript.jsonl')
+			const text = await readFile(path, 'utf8')
+			const changed = archived
+				? text.replace('"summary":true', '"summary":null')
+				: text.replace('"type":"compaction-summary"', '"type":"compaction-summarx"')
+			expect(changed).not.toBe(text)
+			await writeFile(path, changed)
+			await expect(f.reopen().read({ address: before.address })).rejects.toThrow()
+		}
+	},
+)
 
 it.each(['live', 'closed', 'snapshot'] as const)(
 	'preserves exact rich text, binary separation and old plain-part addresses (%s)',

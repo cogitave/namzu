@@ -33,6 +33,14 @@ archived before replacement in a separate zero-model maintenance record. User
 text is not inferred from an assistant's summary. Manual archives use the same
 scoped search/read paths, with `compaction_shed:user` identifying user messages.
 
+New kernel summaries retain explicit derivation metadata. Indexed archive tools
+identify their exact text as `compaction_shed:summary`; tool guidance explains
+that this is not an independent observation. Automatic recall prioritizes other
+matching records within the same bounded candidate pool, then derived summaries.
+Summaries remain available for explicit search and reads, including after
+reopening. This is source selection, not a guarantee of truth. Older unmarked
+archives retain their existing labels; no heading-based classification is added.
+
 Scoped retrieval also reads text blocks from compacted rich tool results. Each
 block remains exact text with its own `part`; images and documents are not
 stringified into the search corpus. Plain-string message parts keep their old

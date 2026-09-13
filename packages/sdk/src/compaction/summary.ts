@@ -27,5 +27,8 @@ export function isCompactionMessage(content: string | null | undefined): boolean
 
 /** The summary, as the system message that replaces what it summarises. */
 export function buildCompactionMessage(body: string): Message {
-	return createSystemMessage(`${COMPACTION_HEADER}\n\n${body}`)
+	return {
+		...createSystemMessage(`${COMPACTION_HEADER}\n\n${body}`),
+		source: { type: 'compaction-summary' },
+	}
 }

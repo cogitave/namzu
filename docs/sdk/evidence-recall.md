@@ -83,6 +83,17 @@ Remaining candidates with exactly equal text,
 is distinct from explicit success. Letter case, whitespace and changed identifiers
 are preserved; this is not semantic similarity or automatic conflict resolution.
 
+Known derived summaries (`source: 'compaction_shed:summary'`) are ranked after
+other matching records. Each group uses its own bounded BM25 statistics, so
+repeated summary vocabulary cannot change the source records' scores. This
+orders only the discovered candidate pool; it does not search extra pages or
+establish which claim is true. Summaries can still fill remaining passage slots,
+are used when they are the only matching candidates, and retain omitted read
+addresses. Visible source references use the same ordering. Explicit archive
+search remains unfiltered. Older unmarked summaries are not guessed from prose.
+The [CLI comparison](../../research/conversation-evidence/summary-evidence-results.md)
+records the case where four derived summaries displaced a retrieved original.
+
 `recordedAt` is optional recorder wall-clock Unix milliseconds, not fact time.
 Explicit callback values must be positive integer milliseconds within the JavaScript
 Date range; omit unknown times rather than returning a zero sentinel. Invalid

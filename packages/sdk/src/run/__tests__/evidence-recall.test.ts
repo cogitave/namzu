@@ -67,6 +67,48 @@ function rendered(text: string | undefined) {
 afterEach(() => vi.useRealTimers())
 
 describe('ephemeral scoped evidence recall', () => {
+	it('prioritizes source records without discarding derived summaries or their read addresses', async () => {
+		const summaries = Array.from({ length: 4 }, (_, i) =>
+			candidate(`DELTA tracking code pending ${i}`, {
+				seq: i + 2,
+				source: 'compaction_shed:summary',
+			}),
+		)
+		const original = candidate(`DELTA A17 ${'original accompanying notes '.repeat(13)}`, { seq: 7 })
+		const result = await fixture([...summaries, original], {
+			maxPassages: 1,
+		}).recall(context())
+		expect(rendered(result?.context).map((p) => p.seq)).toEqual([7])
+		const metadata = JSON.parse(result!.context!.split('\n')[1]!)
+		expect(metadata.omittedPassages).toBe(4)
+		expect(metadata.additionalEvidence.map((p: { seq: number }) => p.seq)).toEqual([2, 3, 4, 5])
+		expect(result!.context!.length).toBeLessThanOrEqual(6000)
+		const onlySummaries = await fixture(summaries, { maxPassages: 1 }).recall(context())
+		expect(rendered(onlySummaries?.context)[0]).toMatchObject({
+			source: 'compaction_shed:summary',
+			seq: 2,
+		})
+		expect(onlySummaries?.context).toContain('derived text, not an independent observation')
+	})
+
+	it('checks a derived candidate owner even when source prioritization would omit it', async () => {
+		const derived = candidate('DELTA pending', {
+			source: 'compaction_shed:summary',
+		})
+		await expect(
+			fixture(
+				[
+					candidate('DELTA A17'),
+					{
+						...derived,
+						scope: { ...derived.scope, sessionId: generateSessionId() },
+					},
+				],
+				{ maxPassages: 1 },
+			).recall(context()),
+		).rejects.toThrow('different conversation scope')
+	})
+
 	it.each(['string', 'blocks', 'context', 'system'] as const)(
 		'prioritizes missing evidence over text already visible in %s',
 		async (shape) => {

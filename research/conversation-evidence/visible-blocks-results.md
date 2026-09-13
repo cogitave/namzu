@@ -146,3 +146,6 @@ that text. Its impact on recall has not yet been measured. Distinguishing
 kernel-generated summaries from ordinary messages containing similar prose
 needs a separate provenance decision; this patch does not infer that distinction
 from text or change summary retention.
+
+Follow-up: [derived-summary comparison](summary-evidence-results.md) measures
+that case and adds explicit provenance while preserving exact summary reads.

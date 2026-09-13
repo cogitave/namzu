@@ -4,6 +4,7 @@ import { type CompactedToolMetadata, compactedToolMetadata } from './compaction-
 interface CompactedText extends CompactedToolMetadata {
 	role: MessageRole
 	text: string
+	summary?: true
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {
@@ -33,7 +34,14 @@ export function compactedTexts(messages: unknown): CompactedText[] {
 			throw new Error('Invalid shed message.')
 		const role = message.role as MessageRole
 		if (typeof message.content === 'string') {
-			strings.push({ role, text: message.content, ...metadata[index] })
+			strings.push({
+				role,
+				text: message.content,
+				...metadata[index],
+				...(role === 'system' && record(message.source)?.type === 'compaction-summary'
+					? { summary: true as const }
+					: {}),
+			})
 		} else if (role === 'tool' && Array.isArray(message.content)) {
 			for (const value of message.content) {
 				const block = record(value)

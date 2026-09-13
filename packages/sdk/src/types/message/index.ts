@@ -195,6 +195,8 @@ export interface BaseMessage {
 export interface SystemMessage extends BaseMessage {
 	role: 'system'
 	content: string
+	/** Host provenance for a derived summary, independent of its textual heading. */
+	source?: { readonly type: 'compaction-summary' }
 }
 
 export interface UserMessage extends BaseMessage {

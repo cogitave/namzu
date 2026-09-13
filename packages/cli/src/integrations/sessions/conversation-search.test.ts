@@ -324,6 +324,51 @@ async function closedTranscript(
 }
 
 describe('bounded original conversation evidence', () => {
+	it('recalls originals ahead of retained summaries and can still read every derived source', async () => {
+		const { sessions, sessionId } = await fixture()
+		const summaries = Array.from({ length: 4 }, (_, i) => ({
+			role: 'system' as const,
+			source: { type: 'compaction-summary' as const },
+			content: `ORCHID receipt code not recorded in summary ${i}.`,
+		}))
+		const original = `ORCHID receipt code RECEIPT-A17. ${'Original accompanying notes. '.repeat(13)}`
+		await retainManualCompaction(sessions, sessionId, [
+			...summaries,
+			{ role: 'tool', toolCallId: 'original', content: original, isError: false },
+		])
+		const recall = createConversationEvidenceRecall(sessions, sessionId, () => {})
+		const result = await recall({
+			runId: generateRunId(),
+			stepNumber: 1,
+			steps: [],
+			prepared: {},
+			messages: [createUserMessage('What was the ORCHID receipt code?')],
+		})
+		const selected = result!
+			.context!.split('\n')
+			.filter((s) => s.startsWith('{"runId":'))
+			.map((s) => JSON.parse(s))
+		expect(selected[0]).toMatchObject({
+			part: 4,
+			source: 'compaction_shed:tool',
+			excerpt: original,
+		})
+		expect(selected.slice(1).every((p) => p.source === 'compaction_shed:summary')).toBe(true)
+		await releaseConversationEvidence(sessions, sessionId)
+		for (let part = 0; part < 4; part++) {
+			const read = await readConversationEvidence(sessions, sessionId, {
+				runId: selected[0].runId,
+				seq: selected[0].seq,
+				part,
+			})
+			expect(read).toMatchObject({
+				text: summaries[part]!.content,
+				complete: true,
+				source: 'compaction_shed:summary',
+			})
+		}
+	})
+
 	it('bounds escaped multi-run candidate pages and resumes without dropping matches', async () => {
 		const { sessions, sessionId } = await fixture()
 		for (let i = 1; i <= 8; i++)
