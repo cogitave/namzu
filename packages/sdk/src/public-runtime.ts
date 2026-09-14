@@ -1382,4 +1382,5 @@ export { createResidentEvidenceRecallStep } from './manager/resident/evidence-re
 export {
 	SqliteResidentLearningStore,
 	runStoredResidentLearningCycle,
+	runStoredResidentLearningFromObservations,
 } from './manager/resident/learning-store.js'

@@ -5,7 +5,9 @@ import { stripVTControlCharacters } from 'node:util'
 import {
 	type ResidentLearningCycleOptions,
 	type ResidentLearningCycleSummary,
+	type ResidentLearningDiscoveryOptions,
 	runStoredResidentLearningCycle,
+	runStoredResidentLearningFromObservations,
 } from '@namzu/sdk'
 import { Command } from 'commander'
 import { EXIT_UNTRUSTED, EXIT_USAGE } from '../exit-codes.js'
@@ -16,6 +18,12 @@ import { resolveWorkingDirectory } from './run-flags.js'
 import type { CommandHandlerArgs } from './types.js'
 
 const line = (value: string) => stripVTControlCharacters(value).replace(/[\p{Cc}\p{Cf}]/gu, ' ')
+const preview = (value: string) => {
+	const chars = Array.from(line(value))
+	return chars.length > 240
+		? `${chars.slice(0, 240).join('')}… (full text: --format json)`
+		: chars.join('')
+}
 const integer = (value: string) => {
 	if (!/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)))
 		throw new Error('Expected a nonnegative safe integer.')
@@ -27,6 +35,19 @@ export function learningSummary(row: ResidentLearningCycleSummary): string {
 		...row.recordedUsage,
 		unfinishedStages: 1,
 	}
+	const review = row.result?.review
+	const comparisons = (
+		[
+			['Verification', review?.verification],
+			['Confirmation', review?.confirmation],
+		] as const
+	).flatMap(([label, round]) => {
+		if (!round?.tasks.length) return []
+		const total = round.tasks.reduce((n, t) => n + t.trials, 0)
+		const baseline = round.tasks.reduce((n, t) => n + t.baselinePasses, 0)
+		const candidate = round.tasks.reduce((n, t) => n + t.candidatePasses, 0)
+		return [`  ${label}: baseline ${baseline}/${total} → candidate ${candidate}/${total}`]
+	})
 	return [
 		`${row.cycleId} · ${row.status} · ${line(row.skillName ?? 'preflight')}`,
 		`  ${usage.tokens} recorded tokens${usage.unknownTokens || usage.unfinishedStages ? ' · incomplete' : ''} · ${usage.unknownCosts || usage.unfinishedStages ? 'price incomplete or unknown' : `$${usage.costUsd.toFixed(4)}`}`,
@@ -34,6 +55,7 @@ export function learningSummary(row: ResidentLearningCycleSummary): string {
 			? ['  No final receipt; recorded state does not establish a live executor.']
 			: []),
 		...(row.result ? [`  ${line(row.result.reason)}`] : []),
+		...comparisons,
 	].join('\n')
 }
 
@@ -54,6 +76,7 @@ export async function residentLearningCommand({
 	else
 		parser
 			.option('--events')
+			.option('--observations', 'Inspect host-scored learning observations')
 			.option('--after <sequence>', '', integer)
 			.option('--before <ordinal>', '', integer)
 			.option('--limit <count>', '', integer)
@@ -68,6 +91,7 @@ export async function residentLearningCommand({
 		agent: string
 		trust?: boolean
 		events?: boolean
+		observations?: boolean
 		after?: number
 		before?: number
 		limit?: number
@@ -91,6 +115,33 @@ export async function residentLearningCommand({
 		}
 		if (!execute) {
 			const id = parser.args[0]
+			if (flags.observations) {
+				if (id || flags.events || flags.before !== undefined)
+					throw new Error(
+						'--observations uses --after and --limit, without a cycle ID, --events or --before.',
+					)
+				const store = residentLearningStore(resident, true)
+				const observations = store
+					? await store.observations({ after: flags.after, limit: flags.limit })
+					: []
+				ctx.formatter.print({
+					text: observations.length
+						? observations
+								.map((o) =>
+									[
+										`${o.ordinal} · ${line(o.skillName)} · ${o.outcome}${o.usageComplete ? '' : ' · usage unresolved'}`,
+										`  ${line(o.taskKey)} · ${line(o.evaluatorRevision)}`,
+										`  ${preview(o.evidence.reason)}`,
+										`  ${o.attemptedCycleId ? `Experiment: ${o.attemptedCycleId}` : 'No experiment claimed'}`,
+									].join('\n'),
+								)
+								.join('\n\n')
+						: 'No learning observations recorded.',
+					observations,
+					nextAfter: observations.at(-1)?.ordinal ?? flags.after ?? 0,
+				})
+				return 0
+			}
 			if ((flags.events || flags.after !== undefined) && !id)
 				throw new Error('--events and --after require a cycle ID.')
 			if (flags.after !== undefined && !flags.events) throw new Error('--after requires --events.')
@@ -174,21 +225,38 @@ export async function residentLearningCommand({
 			agentKey: resident.agentKey,
 			signal: controller.signal,
 			store,
-		})) as Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>
+		})) as
+			| Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>
+			| Omit<ResidentLearningDiscoveryOptions, 'agenda' | 'signal'>
 		controller.signal.throwIfAborted()
-		const result = await runStoredResidentLearningCycle(store, {
+		const execution = {
 			...options,
 			agenda: resident.agenda,
 			signal: controller.signal,
-			generate: async (context) => {
+			generate: async (context: Parameters<ResidentLearningCycleOptions['generate']>[0]) => {
 				ctx.formatter.info(`Learning · ${line(context.skillName)} · generating guidance`)
 				return options.generate(context)
 			},
-			evaluate: async (context) => {
+			evaluate: async (context: Parameters<ResidentLearningCycleOptions['evaluate']>[0]) => {
 				ctx.formatter.info(`Learning · ${context.stage}`)
 				return options.evaluate(context)
 			},
-		})
+		}
+		const discovery =
+			'evaluators' in execution
+				? await runStoredResidentLearningFromObservations(store, execution)
+				: null
+		const result =
+			'evaluators' in execution
+				? discovery?.cycle
+				: await runStoredResidentLearningCycle(store, execution)
+		if (!result) {
+			ctx.formatter.print({
+				text: 'No eligible unattempted learning observation for the current skills and evaluators.',
+				result: null,
+			})
+			return 0
+		}
 		let saved: ResidentLearningCycleSummary | null = null
 		try {
 			saved = await store.get(result.cycleId)

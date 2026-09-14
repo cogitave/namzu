@@ -151,3 +151,7 @@ The next, stronger experiment can allow revisions to the proposal strategy and
 compare their downstream improvement yield under equal total experimental
 budgets. That tests recursive improvement of the search process. It is premature
 to label persistence or a single accepted skill as that result.
+
+## Learning discovery follow-up
+
+[Retained-failure discovery](learning-discovery.md) now selects an eligible observation, claims one experiment atomically and reuses the verified learning cycle. A sequential Muse low study produced 6/10 to 10/10 on verification and 7/10 to 10/10 on fresh confirmation. This is a narrow result from retained failure plus host correction; the meta-level selection procedure remains engineered, not learned.

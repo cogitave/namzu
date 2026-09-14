@@ -15,6 +15,10 @@ supplies its durable event callback and saves the full verification and confirma
 batches. The caller still owns generation, independent evaluation, authorization,
 execution limits and the agenda. Both APIs are experimental and opt-in.
 
+[Learning discovery](resident-learning-discovery.md) adds host-scored observations
+and per-task attempt claims in the same database. A host can let the SDK select
+an eligible retained failure through `runStoredResidentLearningFromObservations`.
+
 ## Authority and layout
 
 | Record | Authority | Recovery meaning |
@@ -69,6 +73,11 @@ state-directory checks. An unopened/absent database is not silently initialized
 by a read-only inspection; the CLI reports no experiments before constructing it.
 A writable store is initialized by its first append. Unknown schema versions and
 nonempty unversioned databases are refused.
+
+An observation write also initializes the store. Schema version 2 adds observation
+and attempt tables; version 1 is upgraded on the next write. Read-only inspection
+does not perform that upgrade. Older readers restricted to version 1 cannot read
+an upgraded database.
 
 - `append(event)` requires contiguous sequence numbers. Repeating identical
   serialized content at the same number is idempotent; conflicting content,

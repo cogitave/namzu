@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import {
 	closeSync,
+	existsSync,
 	fsyncSync,
 	linkSync,
 	lstatSync,
@@ -22,6 +23,14 @@ import {
 	type ResidentLearningCycleResult,
 	runResidentLearningCycle,
 } from './learning-cycle.js'
+import {
+	type ResidentLearningObservation,
+	type ResidentLearningObservationRecord,
+	type ResidentLearningTarget,
+	learningObservationSchema,
+	learningTargetSchema,
+} from './learning-observation.js'
+import { hashResidentSkill } from './learning.js'
 
 const uuid = z
 	.string()
@@ -32,6 +41,36 @@ const MAX_EVENT_BYTES = 256 * 1024
 const MAX_ARTIFACT_BYTES = 8 * 1024 * 1024
 const MAX_EVENTS = 4096
 const MAX_ARTIFACTS = 256
+const NO_LATER_PASS = `NOT EXISTS (
+  SELECT 1 FROM observations newer WHERE newer.tenant_id=o.tenant_id
+  AND newer.project_id=o.project_id AND newer.agent_key=o.agent_key
+  AND newer.skill_name=o.skill_name AND newer.evaluator_revision=o.evaluator_revision
+  AND newer.baseline_revision=o.baseline_revision AND newer.task_key=o.task_key
+  AND newer.ordinal>o.ordinal AND json_extract(newer.body, '$.outcome')='passed'
+)`
+const OBSERVATIONS_SCHEMA = `
+CREATE TABLE observations (
+  ordinal INTEGER PRIMARY KEY AUTOINCREMENT,
+  tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, agent_key TEXT NOT NULL,
+  run_id TEXT NOT NULL, evaluator_revision TEXT NOT NULL, skill_name TEXT NOT NULL,
+  baseline_revision TEXT NOT NULL, task_key TEXT NOT NULL,
+  eligible INTEGER NOT NULL, body TEXT NOT NULL,
+  UNIQUE(tenant_id, project_id, agent_key, run_id, evaluator_revision, skill_name)
+);
+CREATE INDEX observations_select ON observations(
+  tenant_id, project_id, agent_key, skill_name, evaluator_revision, baseline_revision, eligible, ordinal
+);
+CREATE INDEX observations_task ON observations(
+  tenant_id, project_id, agent_key, skill_name, evaluator_revision, baseline_revision, task_key, ordinal
+);
+CREATE TABLE observation_attempts (
+  tenant_id TEXT NOT NULL, project_id TEXT NOT NULL, agent_key TEXT NOT NULL,
+  skill_name TEXT NOT NULL, evaluator_revision TEXT NOT NULL,
+  baseline_revision TEXT NOT NULL, task_key TEXT NOT NULL,
+  cycle_id TEXT NOT NULL REFERENCES cycles(id),
+  PRIMARY KEY(tenant_id, project_id, agent_key, skill_name, evaluator_revision, baseline_revision, task_key)
+);
+`
 const SCHEMA = `
 CREATE TABLE cycles (
   ordinal INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT NOT NULL UNIQUE,
@@ -196,8 +235,10 @@ export class SqliteResidentLearningStore {
 							.get()
 					)
 						throw new Error('Refusing to initialize a nonempty learning database.')
-					db.exec(`${SCHEMA} PRAGMA user_version = 1;`)
-				} else if (version !== 1)
+					db.exec(`${SCHEMA} ${OBSERVATIONS_SCHEMA} PRAGMA user_version = 2;`)
+				} else if (version === 1 && write) {
+					db.exec(`${OBSERVATIONS_SCHEMA} PRAGMA user_version = 2;`)
+				} else if (version !== 1 && version !== 2)
 					throw new Error(`Unsupported learning database version ${version}.`)
 				const value = operation(db)
 				db.exec('COMMIT')
@@ -221,6 +262,158 @@ export class SqliteResidentLearningStore {
 		)
 			throw new Error('Learning cycle does not belong to this tenant, project and resident.')
 		return row
+	}
+
+	/** Immutable, idempotent observations. Regrading requires a different evaluator revision. */
+	async observe(input: ResidentLearningObservation): Promise<void> {
+		const value = learningObservationSchema.parse(input)
+		const body = JSON.stringify(value)
+		this.use(true, (db) => {
+			const scope = [this.scope.tenantId, this.scope.projectId, this.scope.agentKey]
+			const previous = db
+				.prepare(
+					'SELECT body FROM observations WHERE tenant_id=? AND project_id=? AND agent_key=? AND run_id=? AND evaluator_revision=? AND skill_name=?',
+				)
+				.get(...scope, value.runId, value.evaluatorRevision, value.skillName)
+			if (previous) {
+				if (previous.body !== body)
+					throw new Error('Learning observation already has different content.')
+				return
+			}
+			db.prepare(`INSERT INTO observations
+				(tenant_id, project_id, agent_key, run_id, evaluator_revision, skill_name, baseline_revision, task_key, eligible, body)
+				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+				...scope,
+				value.runId,
+				value.evaluatorRevision,
+				value.skillName,
+				value.baselineRevision,
+				value.taskKey,
+				Number(value.outcome === 'failed' && value.usageComplete),
+				body,
+			)
+		})
+	}
+
+	private observationsQuery() {
+		return `SELECT o.ordinal, o.body, a.cycle_id AS attemptedCycleId FROM observations o
+			LEFT JOIN observation_attempts a ON
+			a.tenant_id=o.tenant_id AND a.project_id=o.project_id AND a.agent_key=o.agent_key
+			AND a.skill_name=o.skill_name AND a.evaluator_revision=o.evaluator_revision
+			AND a.baseline_revision=o.baseline_revision AND a.task_key=o.task_key
+			WHERE o.tenant_id=? AND o.project_id=? AND o.agent_key=?`
+	}
+
+	private observationRecord(row: {
+		ordinal: number
+		body: string
+		attemptedCycleId: string | null
+	}): ResidentLearningObservationRecord {
+		const value = learningObservationSchema.parse(JSON.parse(row.body))
+		return Object.freeze({
+			...value,
+			evidence: Object.freeze(value.evidence),
+			ordinal: row.ordinal,
+			attemptedCycleId: row.attemptedCycleId,
+		})
+	}
+
+	/** Ordered inspection; summaries are host observations, not inferred task completion. */
+	async observations(
+		options: { readonly after?: number; readonly limit?: number } = {},
+	): Promise<readonly ResidentLearningObservationRecord[]> {
+		const after = z
+			.number()
+			.int()
+			.nonnegative()
+			.safe()
+			.parse(options.after ?? 0)
+		const limit = z
+			.number()
+			.int()
+			.min(1)
+			.max(100)
+			.parse(options.limit ?? 20)
+		if (!existsSync(this.databasePath)) return []
+		return this.use(false, (db) => {
+			if (Number(db.prepare('PRAGMA user_version').get()?.user_version) === 1) return []
+			const rows = db
+				.prepare(`${this.observationsQuery()} AND o.ordinal>? ORDER BY o.ordinal LIMIT ?`)
+				.all(this.scope.tenantId, this.scope.projectId, this.scope.agentKey, after, limit)
+			return rows.map((row) =>
+				this.observationRecord(
+					row as { ordinal: number; body: string; attemptedCycleId: string | null },
+				),
+			)
+		})
+	}
+
+	/** Oldest eligible unattempted task across current targets; no model call or claim is made. */
+	async selectObservation(
+		input: readonly ResidentLearningTarget[],
+	): Promise<ResidentLearningObservationRecord | null> {
+		const targets = z.array(learningTargetSchema).min(1).max(16).parse(input)
+		if (new Set(targets.map((t) => t.skillName)).size !== targets.length)
+			throw new Error('Learning selection requires one current evaluator per skill.')
+		if (!existsSync(this.databasePath)) return null
+		return this.use(false, (db) => {
+			if (Number(db.prepare('PRAGMA user_version').get()?.user_version) === 1) return null
+			const rows = targets.flatMap((target) => {
+				const row = db
+					.prepare(`${this.observationsQuery()} AND o.skill_name=?
+					AND o.evaluator_revision=? AND o.baseline_revision=? AND o.eligible=1
+					AND a.cycle_id IS NULL AND ${NO_LATER_PASS} ORDER BY o.ordinal LIMIT 1`)
+					.get(
+						this.scope.tenantId,
+						this.scope.projectId,
+						this.scope.agentKey,
+						target.skillName,
+						target.evaluatorRevision,
+						target.baselineRevision,
+					)
+				return row
+					? [
+							this.observationRecord(
+								row as { ordinal: number; body: string; attemptedCycleId: string | null },
+							),
+						]
+					: []
+			})
+			return rows.sort((a, b) => a.ordinal - b.ordinal)[0] ?? null
+		})
+	}
+
+	private claimObservation(db: DatabaseSync, event: ResidentLearningCycleEvent): void {
+		if (event.kind !== 'started' || event.data.observation === undefined) return
+		const selected = z
+			.object({ ordinal: z.number().int().positive().safe() })
+			.parse(event.data.observation)
+		const row = db
+			.prepare(`${this.observationsQuery()} AND o.ordinal=? AND ${NO_LATER_PASS}`)
+			.get(this.scope.tenantId, this.scope.projectId, this.scope.agentKey, selected.ordinal)
+		if (!row) throw new Error('Selected learning observation is not retained in this scope.')
+		const value = this.observationRecord(
+			row as { ordinal: number; body: string; attemptedCycleId: string | null },
+		)
+		if (value.outcome !== 'failed' || !value.usageComplete || value.attemptedCycleId)
+			throw new Error('Selected learning observation is ineligible or already attempted.')
+		if (
+			event.data.skillName !== value.skillName ||
+			event.data.baselineRevision !== value.baselineRevision ||
+			JSON.stringify(event.data.failure) !==
+				JSON.stringify({ evidence: value.evidence, trace: value.trace })
+		)
+			throw new Error('Selected observation differs from the current learning baseline or failure.')
+		db.prepare('INSERT INTO observation_attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(
+			this.scope.tenantId,
+			this.scope.projectId,
+			this.scope.agentKey,
+			value.skillName,
+			value.evaluatorRevision,
+			value.baselineRevision,
+			value.taskKey,
+			event.cycleId,
+		)
 	}
 
 	/** Identical event retries are idempotent. Different content at the same sequence is refused. */
@@ -297,6 +490,7 @@ export class SqliteResidentLearningStore {
 				)
 				row = this.owned(db, event.cycleId) as CycleRow
 			}
+			this.claimObservation(db, event)
 			let status = row.status
 			let result: string | null = null
 			let hash = row.candidate_hash
@@ -563,4 +757,56 @@ export async function runStoredResidentLearningCycle(
 			return value
 		},
 	})
+}
+
+/** @experimental Host authorizes evaluators; the SDK selects a retained failure against the active skill. */
+export interface ResidentLearningDiscoveryOptions
+	extends Omit<ResidentLearningCycleOptions, 'record' | 'failure' | 'skillName'> {
+	readonly evaluators: readonly { readonly skillName: string; readonly evaluatorRevision: string }[]
+}
+
+/** @experimental Null cycle means no eligible work. A failed claimed cycle is never silently replayed. */
+export interface ResidentLearningDiscoveryResult {
+	readonly observation: ResidentLearningObservationRecord | null
+	readonly cycle: ResidentLearningCycleResult | null
+}
+
+/**
+ * @experimental Admit at most one experiment from host-scored observations.
+ * Selection is local FIFO fairness, not an estimated probability of improvement.
+ * Claim and start are one SQLite transaction; concurrent selectors cannot run
+ * the same task/evaluator/baseline twice, even after a crash or reopened process.
+ */
+export async function runStoredResidentLearningFromObservations(
+	store: SqliteResidentLearningStore,
+	options: ResidentLearningDiscoveryOptions,
+): Promise<ResidentLearningDiscoveryResult> {
+	options.signal.throwIfAborted()
+	const agenda = await options.agenda.read()
+	if (!agenda || agenda.paused || agenda.pursuits.some((p) => p.state.phase === 'running'))
+		throw new Error('Learning discovery requires an unpaused agenda without running pursuits.')
+	const targets = options.evaluators.map((target) => {
+		const skill = agenda.learning?.skills.find((s) => s.name === target.skillName)
+		return { ...target, baselineRevision: skill ? hashResidentSkill(skill) : 'none' }
+	})
+	const observation = await store.selectObservation(targets)
+	options.signal.throwIfAborted()
+	if (!observation) return { observation: null, cycle: null }
+	const cycle = await runResidentLearningCycle({
+		...options,
+		skillName: observation.skillName,
+		failure: { evidence: observation.evidence, trace: observation.trace },
+		record: (event) =>
+			store.append(
+				event.kind === 'started'
+					? { ...event, data: { ...event.data, observation: { ordinal: observation.ordinal } } }
+					: event,
+			),
+		evaluate: async (context) => {
+			const value = await options.evaluate(context)
+			await store.putArtifact(context.cycleId, context.stage, value.batch)
+			return value
+		},
+	})
+	return { observation, cycle }
 }

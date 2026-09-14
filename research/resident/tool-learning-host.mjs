@@ -17,6 +17,11 @@ export function usageIsComplete(run) {
     b.ownTokens === run.tokenUsage.totalTokens
 }
 
+export function retainedUsageIsComplete(record) {
+  const b = record.budget
+  return record.usageComplete === true && !!b && !b.poisoned && b.inFlightRequests === 0 && b.unsettledChildren === 0 && b.unresolvedRequests === 0 && b.ownTokens === record.tokens
+}
+
 export async function executeCase(
   root,
   fixture,
@@ -27,6 +32,7 @@ export async function executeCase(
   context,
   store,
   scripted = false,
+  limits = {},
 ) {
   const tools = new sdk.ToolRegistry()
   const calls = []
@@ -77,8 +83,8 @@ export async function executeCase(
     instructions: `${base}\n${guidance}`,
     prompt: fixture.prompt,
     maxIterations: 8,
-    tokenBudget: 18000,
-    timeoutMs: 45000,
+    tokenBudget: limits.tokens ?? 18000,
+    timeoutMs: limits.timeoutMs ?? 45000,
     signal,
   })
   assert.ok(
@@ -118,7 +124,7 @@ export async function executeCase(
   return record
 }
 
-export default async function createHost(host, root, live) {
+export default async function createHost(host, root, live, settings = {}) {
   const spec = JSON.parse(await readFile(join(root, 'study.json'), 'utf8'))
   const seed = JSON.parse(await readFile(join(root, 'seed.json'), 'utf8'))
   // No model request during factory loading. All owned requests are inside callbacks.
@@ -132,8 +138,19 @@ export default async function createHost(host, root, live) {
   assert.ok(trace.length <= 32000)
   let count = 0
   const summaries = []
-  const signal = AbortSignal.any([host.signal, AbortSignal.timeout(600000)])
+  const signal = AbortSignal.any([host.signal, AbortSignal.timeout(settings.timeoutMs ?? 600000)])
+  if (settings.discovery) {
+    if (!retainedUsageIsComplete(seed) || seed.stopReason !== 'end_turn' || seed.output.trim() === spec.seed.expected)
+      throw new Error('Discovery requires a settled, independently checked seed failure.');
+    await host.store.observe({
+      runId: seed.runId, taskKey: 'source-map/seed-v0', skillName: 'workspace-source-selection',
+      evaluatorRevision: settings.evaluatorRevision, baselineRevision: 'none',
+      outcome: 'failed', usageComplete: true,
+      evidence: { key: seed.runId, source: 'retained-sdk-run', reason: 'Returned the retired value instead of the current source value.' }, trace,
+    });
+  }
   return {
+    ...(settings.discovery ? { evaluators: [{ skillName: 'workspace-source-selection', evaluatorRevision: settings.evaluatorRevision }] } : {}),
     skillName: 'workspace-source-selection',
     failure: {
       evidence: {
@@ -168,10 +185,10 @@ export default async function createHost(host, root, live) {
         tools: new sdk.ToolRegistry(),
         instructions:
           'Derive reusable instructions from the retained failure and authoritative correction. Return only JSON with name, description, body. name must be workspace-source-selection. Do not hardcode sample values or sample-specific leaf paths. Do not claim evaluation success.',
-        prompt: trace,
+        prompt: context.failure.trace,
         maxIterations: 1,
-        tokenBudget: 3000,
-        timeoutMs: 45000,
+        tokenBudget: settings.generationTokens ?? 3000,
+        timeoutMs: settings.caseTimeoutMs ?? 45000,
         signal,
       })
       const r = generated.run
@@ -213,9 +230,8 @@ export default async function createHost(host, root, live) {
       const reports = {}
       const receipts = []
       // Rotate arm order between rounds; each case starts with a new tool registry/history.
-      for (const arm of phase === 'verification'
-        ? ['frozen', 'memory', 'guidance']
-        : ['guidance', 'memory', 'frozen']) {
+      const arms = settings.discovery ? ['frozen', 'guidance'] : ['frozen', 'memory', 'guidance']
+      for (const arm of phase === 'verification' ? arms : [...arms].reverse()) {
         const guidance =
           arm === 'memory'
             ? `Retained experience: ${trace}`
@@ -225,8 +241,8 @@ export default async function createHost(host, root, live) {
         reports[arm] = await sdk.runExperiment({
           name: `${phase}/${arm}`,
           cases: fixtures.map((f) => ({ name: f.id, input: f, expected: f.expected })),
-          concurrency: 2,
-          timeoutMs: 50000,
+          concurrency: settings.concurrency ?? 2,
+          timeoutMs: (settings.caseTimeoutMs ?? 45000) + 5000,
           passThreshold: 1,
           run: async (fixture, _case, caseSignal) => {
             assert.ok(++count <= 60)
@@ -240,6 +256,7 @@ export default async function createHost(host, root, live) {
               context,
               host.store,
               arm !== 'frozen',
+              { tokens: settings.caseTokens, timeoutMs: settings.caseTimeoutMs },
             )
             receipts.push(record)
             return {
@@ -274,6 +291,7 @@ export default async function createHost(host, root, live) {
             model: live ? model : 'mock-model',
             effort: 'low',
             tools: ['read', 'glob', 'grep'],
+            settings,
           }),
           trajectoryId: `${phase}/${arm}/${fixtures[i].id}`,
           result,
@@ -318,7 +336,7 @@ export default async function createHost(host, root, live) {
       process.stderr.write(JSON.stringify(summaries.at(-1)) + '\n')
       return {
         batch,
-        usageComplete: receipts.length === fixtures.length * 3 && receipts.every((r) => r.usageComplete),
+        usageComplete: receipts.length === fixtures.length * arms.length && receipts.every((r) => r.usageComplete),
       }
     },
   }

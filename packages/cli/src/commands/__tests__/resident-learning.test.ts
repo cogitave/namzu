@@ -71,6 +71,7 @@ export default function(host) {
   }
  };
 }
+
 `,
 	)
 	return path
@@ -173,4 +174,60 @@ it('rejects unsupported command flags and paused residents before importing code
 	await command(['pause'])
 	expect((await command(['learn', moduleFile(), '--trust'])).code).toBe(1)
 	expect(existsSync(join(root, 'imported'))).toBe(false)
+})
+
+it('inspects observations without leaking full traces or implying an executor is alive', async () => {
+	await command(['add', '--trust', 'Improve the source check.'])
+	const resident = await lookupResident(cwd, 'default')
+	if (!resident) throw new Error('Missing resident.')
+	const store = residentLearningStore(resident)
+	if (!store) throw new Error('Missing store.')
+	await store.observe({
+		runId: 'c7b3b083-1934-4cae-a445-2a8dd580d4a1',
+		skillName: 'source-check',
+		evaluatorRevision: 'muse-low-v1',
+		baselineRevision: 'none',
+		taskKey: 'source-a',
+		outcome: 'execution-error',
+		usageComplete: false,
+		evidence: { key: 'receipt', source: 'host-check', reason: 'Provider did not complete.' },
+		trace: 'Full trace only for structured inspection.',
+	})
+	const inspected = await command(['learning', '--observations', '--limit', '1'])
+	expect(inspected.code, JSON.stringify(inspected.errors)).toBe(0)
+	expect(inspected.printed[0]?.text).toContain('execution-error · usage unresolved')
+	expect(inspected.printed[0]?.text).toContain('Provider did not complete.')
+	expect(inspected.printed[0]?.text).not.toContain('Full trace')
+	expect(inspected.printed[0]?.nextAfter).toBe(1)
+	expect((await command(['learning', '--observations', '--after', '1'])).printed[0]?.text).toBe(
+		'No learning observations recorded.',
+	)
+	expect((await command(['learning', '--observations', '--events'])).code).not.toBe(0)
+})
+
+it('selects a stored failure through the host module and does not replay it on a second CLI invocation', async () => {
+	await command(['add', '--trust', 'Improve source checks.'])
+	const path = moduleFile()
+	let body = readFileSync(path, 'utf8')
+	body = body.replace('export default function(host)', 'export default async function(host)')
+	body = body.replace(
+		' return {\n  skillName:',
+		`
+ await host.store.observe({runId:'a33cc456-e5d6-46c6-9347-db1c4300ab08',skillName:candidate.name,evaluatorRevision:'fixture-v1',baselineRevision:'none',taskKey:'source-fixture',outcome:'failed',usageComplete:true,evidence:{key:'source',source:'host-fixture',reason:'No source read.'},trace:'Source was not read.'});
+ return {evaluators:[{skillName:candidate.name,evaluatorRevision:'fixture-v1'}],\n  skillName:`,
+	)
+	writeFileSync(path, body)
+	const first = await command(['learn', path, '--trust'])
+	expect(first.code, JSON.stringify(first.errors)).toBe(0)
+	expect(first.printed[0]?.result).toMatchObject({ status: 'activated' })
+	expect(first.printed[0]?.text).toContain('Verification: baseline 8/10 → candidate 10/10')
+	expect(first.printed[0]?.text).toContain('Confirmation: baseline 8/10 → candidate 10/10')
+	const second = await command(['learn', path, '--trust'])
+	expect(second.code, JSON.stringify(second.errors)).toBe(0)
+	expect(second.printed[0]?.result).toBeNull()
+	expect(second.printed[0]?.text).toContain('No eligible unattempted')
+	const observations = await command(['learning', '--observations'])
+	expect(observations.printed[0]?.observations).toEqual([
+		expect.objectContaining({ attemptedCycleId: expect.any(String) }),
+	])
 })

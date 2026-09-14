@@ -129,7 +129,7 @@ export const residentCommand: CommandDef = {
 		'  add <objective>          Save work without starting a model',
 		'  inspect                  Inspect lifetime usage and evidence (--cursor, --through-revision, --max-revisions)',
 		'  learn <file.learning.js> Run one explicitly selected executable learning experiment (--trust, --cwd, --agent)',
-		'  learning [cycle-id]      Inspect recorded experiments (--events, --after, --before, --limit)',
+		'  learning [cycle-id]      Inspect experiments or --observations (--events, --after, --before, --limit)',
 		'  status                   Show saved work and unresolved claims (default action)',
 		'  run --max-steps <n>       Continue due work in this foreground process',
 		'  run/start --verify <file> Require configured JSON claims before completion (host file reads)',

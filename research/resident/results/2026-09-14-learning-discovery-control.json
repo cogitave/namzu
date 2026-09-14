@@ -1,0 +1,832 @@
+{
+  "study": "/tmp/namzu-learning-discovery-yAhLJB",
+  "live": false,
+  "model": "mock-model",
+  "effort": "low",
+  "settings": {
+    "discovery": true,
+    "evaluatorRevision": "source-evidence-v2/muse-low/serial-120s",
+    "concurrency": 1,
+    "caseTimeoutMs": 120000,
+    "caseTokens": 24000,
+    "generationTokens": 12000,
+    "timeoutMs": 1200000
+  },
+  "sourceHashes": {
+    "packages/sdk/dist/manager/resident/learning-store.js": "9c6e00cf1e6f365b947035e63e2a25547489e2e9a78e1024edb115a08407ae88",
+    "packages/sdk/dist/manager/resident/learning-observation.js": "31de5788e7df54fcb974c600145588e126c54e9d1c4e25279cde2d272bf995bb",
+    "packages/sdk/dist/manager/resident/learning-cycle.js": "6e5103b91a078979ab738268f32547bd0a942db419d86dd04624d655209dd14e",
+    "packages/cli/dist/commands/resident-learning.js": "c5e44f781f3c5e9d7eb0df632731b8088cc2d8ab3f7cb24b56584b31a3f14041",
+    "research/resident/tool-learning-host.mjs": "c22b31db6c36c639674806bc430a0f457f96e982d57da79877ec7230af8193de",
+    "research/resident/learning-discovery-study.mjs": "a3787f59fa251b9aa5366f454ffa33054cda444828971aaef8e11cb5785e31c7"
+  },
+  "seed": {
+    "runId": "59f6e99b-59d6-40ed-b85b-8d708453980a",
+    "source": "/tmp/namzu-tool-learning-3J6rt8",
+    "sha256": "fe49d7ce4daec850e05240c6e0c2aec442790754e73e05df5f2c2442ef75343b",
+    "tokens": 9408,
+    "alreadyRecordedHistoricalUsage": true
+  },
+  "outcome": "activated",
+  "cycleId": "908d2f5e-1aaa-43d6-9c43-d832e260b05e",
+  "candidate": {
+    "name": "workspace-source-selection",
+    "description": "Find the current source in this workspace family.",
+    "body": "In this workspace family, .meta/authority.json is the authoritative current source map. Read it for every new workspace or question, then read the path selected for the requested key. README and docs can be stale snapshots or refer to moved files. If a documented path is missing, recover through the current map. Use narrow grep or a read window if the current source is long. Never reuse the seed answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path."
+  },
+  "candidateRevision": "67cb312d63a229257bd88644a90cc437c638bb7c48445fa670911bb754fae15a",
+  "review": {
+    "decision": "accept",
+    "reason": "Both rounds support improvement without observed regression; confirmation improves the paired pass rate.",
+    "verification": {
+      "tasks": [
+        {
+          "taskId": "verification-0",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        },
+        {
+          "taskId": "verification-1",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        },
+        {
+          "taskId": "verification-2",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        },
+        {
+          "taskId": "verification-3",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        },
+        {
+          "taskId": "verification-4",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        }
+      ],
+      "positiveEvidence": [
+        "verification-0",
+        "verification-1",
+        "verification-2",
+        "verification-3",
+        "verification-4"
+      ],
+      "regressions": [],
+      "unresolved": [],
+      "usage": {
+        "rollouts": 20,
+        "tokens": 0,
+        "costUsd": 0,
+        "durationMs": 700
+      },
+      "passRateDelta": 1
+    },
+    "confirmation": {
+      "tasks": [
+        {
+          "taskId": "confirmation-0",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        },
+        {
+          "taskId": "confirmation-1",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        },
+        {
+          "taskId": "confirmation-2",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        },
+        {
+          "taskId": "confirmation-3",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        },
+        {
+          "taskId": "confirmation-4",
+          "status": "recovered",
+          "baselinePasses": 0,
+          "candidatePasses": 2,
+          "trials": 2
+        }
+      ],
+      "positiveEvidence": [
+        "confirmation-0",
+        "confirmation-1",
+        "confirmation-2",
+        "confirmation-3",
+        "confirmation-4"
+      ],
+      "regressions": [],
+      "unresolved": [],
+      "usage": {
+        "rollouts": 20,
+        "tokens": 0,
+        "costUsd": 0,
+        "durationMs": 719
+      },
+      "passRateDelta": 1
+    }
+  },
+  "consumption": {
+    "tokens": 0,
+    "costUsd": 0,
+    "receipts": 41,
+    "unknownTokens": 0,
+    "unknownCosts": 0,
+    "unfinishedStages": 0
+  },
+  "observations": [
+    {
+      "skillName": "workspace-source-selection",
+      "evaluatorRevision": "source-evidence-v2/muse-low/serial-120s",
+      "baselineRevision": "none",
+      "runId": "59f6e99b-59d6-40ed-b85b-8d708453980a",
+      "taskKey": "source-map/seed-v0",
+      "outcome": "failed",
+      "usageComplete": true,
+      "ordinal": 1,
+      "attemptedCycleId": "908d2f5e-1aaa-43d6-9c43-d832e260b05e"
+    }
+  ],
+  "rounds": [
+    {
+      "phase": "verification",
+      "scores": {
+        "frozen": {
+          "passed": 0,
+          "total": 10,
+          "trials": [
+            {
+              "runId": "56574105-6697-4571-9dcd-67a06f5648e0",
+              "taskId": "verification-0",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-59db1c55d4c2",
+              "observed": "retired-verification-0-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "ba1deaa3-413c-48bb-be98-794bfb3eec1f",
+              "taskId": "verification-0",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-90b32c353651",
+              "observed": "retired-verification-0-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "72d7559e-8c6e-4514-8897-b44347f4d21e",
+              "taskId": "verification-1",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-4d089e9dedb6",
+              "observed": "retired-verification-1-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "92de60f4-5cf7-446a-a372-1da1268f472e",
+              "taskId": "verification-1",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-247cb7d65a28",
+              "observed": "retired-verification-1-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "c0054165-c62d-484d-8dfa-2f12ecb4ca14",
+              "taskId": "verification-2",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-c9820ecacf3e",
+              "observed": "retired-verification-2-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "bf6a36b3-10a8-440d-9f31-76bd2b47a51e",
+              "taskId": "verification-2",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-b77e23f72885",
+              "observed": "retired-verification-2-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "6b3cf831-f4a1-443a-9fb7-b1ebee83a6a5",
+              "taskId": "verification-3",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-ab9b3eb62667",
+              "observed": "retired-verification-3-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "98c2f15f-c3c7-46a8-95a3-0cf4cdf32fb3",
+              "taskId": "verification-3",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-68ba90dbd5af",
+              "observed": "retired-verification-3-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "5181c7ea-cbc3-4711-933c-747b2dee9243",
+              "taskId": "verification-4",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-2b5f9b948aae",
+              "observed": "retired-verification-4-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "a1fd95bc-8bf0-4a3c-8ad5-5dd67e3324c9",
+              "taskId": "verification-4",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-8a3ab2280065",
+              "observed": "retired-verification-4-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            }
+          ]
+        },
+        "guidance": {
+          "passed": 10,
+          "total": 10,
+          "trials": [
+            {
+              "runId": "2a500876-3b45-47ce-9890-045fbd69cf58",
+              "taskId": "verification-0",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-59db1c55d4c2",
+              "observed": "active-59db1c55d4c2",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "f27b181b-e2be-4fc6-bebd-069581dd0669",
+              "taskId": "verification-0",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-90b32c353651",
+              "observed": "active-90b32c353651",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "e527e6da-d2b5-4b3c-b885-3224a4d8fa40",
+              "taskId": "verification-1",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-4d089e9dedb6",
+              "observed": "active-4d089e9dedb6",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "cc7eb198-e3a3-47ff-b5f0-ccee87a59047",
+              "taskId": "verification-1",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-247cb7d65a28",
+              "observed": "active-247cb7d65a28",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "76667994-8806-4bf9-b3a2-2e9775def12f",
+              "taskId": "verification-2",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-c9820ecacf3e",
+              "observed": "active-c9820ecacf3e",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "d91021ac-5b09-4607-962d-6db1ad0aa4fa",
+              "taskId": "verification-2",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-b77e23f72885",
+              "observed": "active-b77e23f72885",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "6dcdcc00-2563-448d-a848-d35dfc72b4ff",
+              "taskId": "verification-3",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-ab9b3eb62667",
+              "observed": "active-ab9b3eb62667",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "ae63a5bc-6ca1-4760-b823-327aa56331b5",
+              "taskId": "verification-3",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-68ba90dbd5af",
+              "observed": "active-68ba90dbd5af",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "08932d70-0fbd-4eb7-9195-bc79b9a93bba",
+              "taskId": "verification-4",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-2b5f9b948aae",
+              "observed": "active-2b5f9b948aae",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "16e74f98-4481-4b97-bd11-b94962c6d22c",
+              "taskId": "verification-4",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-8a3ab2280065",
+              "observed": "active-8a3ab2280065",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "phase": "confirmation",
+      "scores": {
+        "guidance": {
+          "passed": 10,
+          "total": 10,
+          "trials": [
+            {
+              "runId": "373c422a-8c61-43c6-819c-7ce0dd287d3d",
+              "taskId": "confirmation-0",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-7e0f0ddc2896",
+              "observed": "active-7e0f0ddc2896",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "3c0e155d-b42c-4b0f-a59a-016e8fc5c882",
+              "taskId": "confirmation-0",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-7442fb1f02f9",
+              "observed": "active-7442fb1f02f9",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "268b01a4-eaa5-403e-a093-ae15a9aa09f6",
+              "taskId": "confirmation-1",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-0eb4b03be191",
+              "observed": "active-0eb4b03be191",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "ab9427f1-761d-4cb6-b0db-736e3cd80c2c",
+              "taskId": "confirmation-1",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-bb6cbba34814",
+              "observed": "active-bb6cbba34814",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "fe1514f8-759d-4624-9dff-eac4c1cab950",
+              "taskId": "confirmation-2",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-25b21ada8f96",
+              "observed": "active-25b21ada8f96",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "677a4384-257f-496d-a7a5-24f86cd14f56",
+              "taskId": "confirmation-2",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-c9e12c719066",
+              "observed": "active-c9e12c719066",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "e9dec50b-41e7-449e-b44a-52a2c401064f",
+              "taskId": "confirmation-3",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-51b2a8e87cd1",
+              "observed": "active-51b2a8e87cd1",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "395ba3e5-5169-4d45-b2b6-1f8082e0bfd8",
+              "taskId": "confirmation-3",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-2111d8bf5f33",
+              "observed": "active-2111d8bf5f33",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "63f2937c-d2a2-427f-a053-6d99c8f0ed8f",
+              "taskId": "confirmation-4",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-9279761872c0",
+              "observed": "active-9279761872c0",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "7f403dd1-f37c-4067-8983-6738196999db",
+              "taskId": "confirmation-4",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": true,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-3dc0f1314a51",
+              "observed": "active-3dc0f1314a51",
+              "passed": true,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            }
+          ]
+        },
+        "frozen": {
+          "passed": 0,
+          "total": 10,
+          "trials": [
+            {
+              "runId": "9b1e08df-c40d-4650-9176-1aa2c220303a",
+              "taskId": "confirmation-0",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-7e0f0ddc2896",
+              "observed": "retired-confirmation-0-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "f185f2e0-e3d0-4345-906b-514431f77b29",
+              "taskId": "confirmation-0",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-7442fb1f02f9",
+              "observed": "retired-confirmation-0-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "3e0cda32-d7d1-432e-ae1f-5262d108dc03",
+              "taskId": "confirmation-1",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-0eb4b03be191",
+              "observed": "retired-confirmation-1-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "1f505866-2d61-4bc4-ad64-75f79c63b219",
+              "taskId": "confirmation-1",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-bb6cbba34814",
+              "observed": "retired-confirmation-1-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "0dfaecb0-6d19-478e-9a2f-ed10ee31e1fa",
+              "taskId": "confirmation-2",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-25b21ada8f96",
+              "observed": "retired-confirmation-2-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "3cdb803e-52ba-442d-971f-89e7adea9134",
+              "taskId": "confirmation-2",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-c9e12c719066",
+              "observed": "retired-confirmation-2-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "d5abe331-3dee-435e-968d-af7f88a1646b",
+              "taskId": "confirmation-3",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-51b2a8e87cd1",
+              "observed": "retired-confirmation-3-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "af195399-f3bd-44bc-afc8-a043b210ad8a",
+              "taskId": "confirmation-3",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-2111d8bf5f33",
+              "observed": "retired-confirmation-3-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "a55347de-89ee-4c34-8185-6044f2885383",
+              "taskId": "confirmation-4",
+              "trial": 0,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-9279761872c0",
+              "observed": "retired-confirmation-4-0",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            },
+            {
+              "runId": "1c92c3c0-ca41-439f-bbbe-e1aec0a95787",
+              "taskId": "confirmation-4",
+              "trial": 1,
+              "evidenceVersion": 2,
+              "correct": false,
+              "observedSource": true,
+              "completed": true,
+              "expected": "active-3dc0f1314a51",
+              "observed": "retired-confirmation-4-1",
+              "passed": false,
+              "tokens": 0,
+              "usageComplete": true,
+              "stopReason": "end_turn"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "modelRuns": 41,
+  "recordedTokens": 0,
+  "rawRunsSha256": "bfdb3b84a1b2d1fff1f09f71c21258f69698214fb3c9985a3f5911e6aaaa31f6",
+  "replay": {
+    "newCalls": 0,
+    "secondAdmission": {
+      "text": "No eligible unattempted learning observation for the current skills and evaluators.",
+      "result": null
+    }
+  },
+  "activated": [
+    {
+      "name": "workspace-source-selection",
+      "hash": "67cb312d63a229257bd88644a90cc437c638bb7c48445fa670911bb754fae15a",
+      "evidence": {
+        "key": "908d2f5e-1aaa-43d6-9c43-d832e260b05e",
+        "source": "resident-learning-cycle:908d2f5e-1aaa-43d6-9c43-d832e260b05e",
+        "reason": "Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a."
+      }
+    }
+  ],
+  "integrationPassed": true,
+  "limitation": "Scripted inference with real tools/storage; not empirical model improvement."
+}

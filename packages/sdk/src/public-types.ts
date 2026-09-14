@@ -598,4 +598,11 @@ export type {
 	ResidentLearningArtifact,
 	ResidentLearningRecordedUsage,
 	ResidentLearningCycleSummary,
+	ResidentLearningDiscoveryOptions,
+	ResidentLearningDiscoveryResult,
 } from './manager/resident/learning-store.js'
+export type {
+	ResidentLearningObservation,
+	ResidentLearningObservationRecord,
+	ResidentLearningTarget,
+} from './manager/resident/learning-observation.js'

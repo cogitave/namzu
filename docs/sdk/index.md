@@ -57,6 +57,7 @@ The kernel.
 * [Resident learning experiment](resident-learning.md) - Evidence-backed behavioral revisions, evaluated guidance and admitted context.
 * [Durable resident learning records](resident-learning-storage.md) - Scoped SQLite journals, immutable artifacts and explicit host execution.
 * [Resident learning cycle](resident-learning-cycle.md) - Generated guidance, independent evaluation, fresh confirmation and exact-revision activation.
+* [Resident learning discovery](resident-learning-discovery.md) - Select retained failures and atomically admit one experiment per task, evaluator and baseline.
 * [Resident retention and history](resident-retention.md) - Terminal archival with durable deduplication and ancestry limits.
 * [Resident evidence recall](resident-recall.md) - Bounded reads of earlier settled summaries and consumed inputs within one pursuit.
 

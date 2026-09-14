@@ -106,3 +106,52 @@ process.kill(process.pid,'SIGKILL');
 	})
 	expect((await f.store.get(f.cycleId))?.sequence).toBe(2)
 })
+
+it('separate processes claim a learning task once and reopening does not replay an unfinished experiment', async () => {
+	const f = fixture()
+	const observation = {
+		runId: randomUUID(),
+		skillName: 'source-check',
+		evaluatorRevision: 'fixture-v1',
+		baselineRevision: 'none',
+		taskKey: 'same-input',
+		outcome: 'failed' as const,
+		usageComplete: true,
+		evidence: { key: 'actual-run', source: 'fixture', reason: 'Source differed.' },
+		trace: 'Expected A, observed B.',
+	}
+	await f.store.observe(observation)
+	const selected = await f.store.selectObservation([observation])
+	if (!selected) throw new Error('Missing selected observation.')
+	const module = new URL('../../../dist/manager/resident/learning-store.js', import.meta.url).href
+	const events = [0, 1].map(() => ({
+		cycleId: randomUUID(),
+		sequence: 1,
+		kind: 'started' as const,
+		data: {
+			tenantId: f.options.scope.tenantId,
+			agentKey: 'default',
+			skillName: observation.skillName,
+			baselineRevision: 'none',
+			failure: { evidence: observation.evidence, trace: observation.trace },
+			observation: { ordinal: selected.ordinal },
+		},
+	}))
+	const contenders = await Promise.all(
+		events.map((event) =>
+			child(`
+import { SqliteResidentLearningStore } from ${JSON.stringify(module)};
+const store = new SqliteResidentLearningStore(${JSON.stringify(f.options)});
+try {await store.append(${JSON.stringify(event)});console.log('claimed');}
+catch(error){console.error(error.message);process.exitCode=3;}
+`),
+		),
+	)
+	expect(contenders.map((r) => r.code).sort(), JSON.stringify(contenders)).toEqual([0, 3])
+	const reopened = new SqliteResidentLearningStore(f.options)
+	expect(await reopened.list()).toHaveLength(1)
+	expect((await reopened.list())[0]).toMatchObject({ status: 'running', result: null })
+	expect(await reopened.selectObservation([observation])).toBeNull()
+	await reopened.observe({ ...observation, runId: randomUUID() })
+	expect(await reopened.selectObservation([observation])).toBeNull()
+})

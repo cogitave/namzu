@@ -447,6 +447,7 @@ its durable records without executing the module or starting a model:
 namzu resident learn /absolute/path/source-check.learning.mjs --trust --cwd /absolute/path/workspace
 namzu resident learning --cwd /absolute/path/workspace --limit 20
 namzu resident learning <cycle-uuid> --events --after 0 --limit 32 --cwd /absolute/path/workspace
+namzu resident learning --observations --after 0 --limit 20 --cwd /absolute/path/workspace
 ```
 
 An existing unpaused resident with no running pursuits is required. `--agent`
@@ -463,6 +464,17 @@ chooses its own installed SDK providers, exact models, effort, tools, per-run
 budgets and independent scoring. It does not inherit an interactive model or
 silently choose one. A factory can save run traces with
 `store.putArtifact(context.cycleId, name, value)` after the cycle starts.
+
+A host may instead return
+`Omit<ResidentLearningDiscoveryOptions, 'agenda' | 'signal'>` with `evaluators`
+and record independently scored runs through `store.observe`. The SDK then
+[selects one retained failure](../sdk/resident-learning-discovery.md), bound to
+the installed guidance and the authorized evaluation conditions. This mode
+does not use an additional explicit `failure` or `skillName`. Each task can start
+one experiment per evaluator and baseline; a process restart does not replay it.
+`learning --observations` displays outcome, usage completeness and claimed cycle,
+with `--after`/`--limit` pagination. Human previews include a bounded failure reason and recorded verification/confirmation pass counts, and omit the full trace; JSON retains
+the complete observation. A claim does not establish a live executor.
 
 This is executable host code, like a local eval suite. `--trust` accepts that
 execution; it is **not a sandbox for the module**. The host must propagate the
@@ -483,10 +495,11 @@ explicit; neither a `running` record nor a past `activated` event establishes
 that an executor or skill is active now. Current skill authority remains the
 resident agenda, including later rollback. Inspect a cycle for artifact hashes
 and optionally paginated events. `--before` pages the cycle list, while `--after`
-applies only to `--events` with a cycle ID. JSON output exposes `nextBefore` or
+applies to `--events` with a cycle ID or the separate `--observations` list. JSON output exposes `nextBefore` or
 `nextAfter` along with the records.
 
-`learn` exits 0 for acknowledged activation with a complete journal, 2 for a
+`learn` exits 0 for acknowledged activation with a complete journal or discovery
+with no eligible unattempted observation (no model call is made), 2 for a
 rejected or inconclusive experiment, 130 for cancellation, and 1 for other
 execution outcomes. Usage errors return 64 and a refused trust admission 77.
 A failed final journal append preserves the actual activation acknowledgement
