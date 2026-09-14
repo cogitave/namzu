@@ -1,0 +1,25 @@
+{
+  "standaloneTestsPassed": 4,
+  "standaloneLogSha256": "973462692bb2588260bf9fa5003e8554538f4403743469fb085248b7f84e1c98",
+  "syntaxChecksPassed": [
+    "exploration-policy-host.mjs",
+    "exploration-policy-study.mjs",
+    "exploration-policy-audit.mjs"
+  ],
+  "control": {
+    "acceptedBothRounds": true,
+    "reopened": 3,
+    "rollbackSuccesses": 0,
+    "providerFaultRunCount": 2,
+    "providerFaultExitCode": 2
+  },
+  "live": {
+    "pairs": 10,
+    "runs": 41,
+    "decision": "reject",
+    "confirmationAdmitted": false,
+    "activePolicies": 0
+  },
+  "packageSourceChanged": false,
+  "fullWorkspaceGatesRerun": false
+}

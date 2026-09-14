@@ -1,0 +1,69 @@
+{
+  "purpose": "Availability and bounded tool-use checks only; not policy evaluation trials.",
+  "checks": [
+    {
+      "startedAt": "2026-09-14T15:50:14.420Z",
+      "endedAt": "2026-09-14T15:50:18.032Z",
+      "model": "mimo-v2.5-free",
+      "effort": null,
+      "runId": "59da2551-b2cc-42c2-998f-632d4d16d002",
+      "stopReason": "error",
+      "tokens": 0,
+      "usageComplete": true,
+      "calls": [],
+      "error": "zen (HTTP 429) \u2014 rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+      "providerError": {
+        "kind": "throttle",
+        "providerId": "zen",
+        "status": 429,
+        "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+      },
+      "toolExecutions": 0,
+      "transcriptSha256": "cb451d474d2da45619049e9162a5432847b0f55c3c162e114f20f6dedb3deebb",
+      "limitation": "The probe mistakenly supplied tools to the registry constructor; it registered no tools. HTTP 429 still establishes this request was rejected, but this is not a tool-use check."
+    },
+    {
+      "startedAt": "2026-09-14T15:51:22.954Z",
+      "endedAt": "2026-09-14T15:53:23.057Z",
+      "model": "nemotron-3.5-lightning-free",
+      "effort": null,
+      "runId": "75d43e0b-4520-4a43-b005-21f8d48987be",
+      "stopReason": "error",
+      "tokens": 0,
+      "usageComplete": false,
+      "calls": [],
+      "error": "zen \u2014 could not reach the provider: The model stream failed.",
+      "providerError": {
+        "kind": "network",
+        "providerId": "zen",
+        "detail": "The model stream failed."
+      },
+      "toolExecutions": 0,
+      "transcriptSha256": "40e01b25a95e4ff7fdf2f9b33944092bb51685afb451e1cc6d41380c5f1f78d9",
+      "limitation": "Requested run timeout was 45 seconds; the provider stream ended after 120 seconds. Usage is unresolved, not known zero."
+    },
+    {
+      "startedAt": "2026-09-14T15:53:35.515Z",
+      "endedAt": "2026-09-14T15:53:39.220Z",
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "runId": "ef3a5894-a6ef-4017-b94c-43e5cbad11ca",
+      "stopReason": "end_turn",
+      "output": "ready",
+      "tokens": 274,
+      "usageComplete": true,
+      "calls": [
+        {}
+      ],
+      "toolExecutions": 1,
+      "transcriptSha256": "2877754b7cdb60ca331ca40185e5f3c0207e0cc0e461b61956c241586aec68f2"
+    }
+  ],
+  "selected": {
+    "provider": "codex",
+    "model": "gpt-5.6-terra",
+    "effort": "low"
+  },
+  "source": "https://opencode.ai/docs/zen/"
+}

@@ -1,0 +1,286 @@
+{
+  "scope": "Actual built TUI, separate temporary home, 120x34 PTY. Parent usage is separate from the learning cycle.",
+  "driver": {
+    "pid": 1181266,
+    "status": "exited",
+    "code": 0
+  },
+  "frames": {
+    "03-steered-settled.txt": "\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2234 job_1 is still running. I\u2019ll keep monitoring only its completion status without inspecting experiment data.\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2234 I\u2019m pausing briefly before checking the existing job\u2019s status again.\n\n\u2713 Bash(sleep 30) \u00b7 30s\n\u23bf (no output)\n\n\u2713 List background jobs \u00b7 0.0s\n \u23bf job_1 running $NODE \n   $NAMZU_REPO/research/resident/explorat\u2026\n  \u258f job_1  running   $NODE \n    $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n    $STUDY\n\n \u203a End this turn now. Leave job_1 running. Do not poll or stop it; just report its ID. \u00b7 steered current turn\n\n \u2234 job_1\n\n \u250c\u2500 MESSAGE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n \u2502 \u203a Type a message\u2026 (/help for commands)                                                                             \u2502\n \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n gpt-5.6-terra low \u00b7 $STUDY/workspace\n",
+    "05-jobs.txt": "\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2234 job_1 is still running. I\u2019ll keep monitoring only its completion status without inspecting experiment data.\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2234 I\u2019m pausing briefly before checking the existing job\u2019s status again.\n\n\u2713 Bash(sleep 30) \u00b7 30s\n\u23bf (no output)\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u203a End this turn now. Leave job_1 running. Do not poll or stop it; just report its ID. \u00b7 steered current turn\n\n \u2234 job_1\n\n \u2699 background job job_1 ($NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY) exited 0\n\n \u00b7 1 background job this session:\n   job_1  exited 0          $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n   The agent reads one with the job tool; ask it to stop one, or /exit stops them all.\n\n \u250c\u2500 MESSAGE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n \u2502 \u203a Type a message\u2026 (/help for commands)                                                                             \u2502\n \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n gpt-5.6-terra low \u00b7 $STUDY/workspace\n",
+    "01-start-approval.txt": "\u2588\u2584 \u2588 \u2584\u2580\u2588 \u2588\u2580\u2584\u2580\u2588 \u2580\u2588 \u2588 \u2588\n\u2588 \u2580\u2588 \u2588\u2580\u2588 \u2588 \u2580 \u2588 \u2588\u2584 \u2588\u2584\u2588  Cogitave v24.0.0\n\n \u00b7 Reasoning: low (this session).\n\n \u00b7 Press Ctrl+C again to exit.\n\n \u203a Run this exact authorized experiment command once using bash. It may continue as a background job. Do not edit \n   files, repeat the command, or inspect the experiment data. Report the returned job ID and let the command finish: \n   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n \u2502 Bash command                                                                                                       \u2502\n \u2502 Run: 29170b29-154d-4cfe-a147-605b494cd349                                                                          \u2502\n \u2502   $ $NODE $NAMZU_REPO/research/resident/exploration   \u2502\n \u2502   \u21b3 -policy-study.mjs --run $STUDY                                                   \u2502\n \u2502   timeout: 120000 ms                                                                                               \u2502\n \u2502   background: yes                                                                                                  \u2502\n \u2502                                                                                                                    \u2502\n \u2502 Do you want to proceed?                                                                                            \u2502\n \u2502 \u276f 1. Yes                                                                                                           \u2502\n \u2502   2. Yes, allow all tools for this session                                                                         \u2502\n \u2502   3. No, and tell namzu what to do differently (esc)                                                               \u2502\n \u2502 \u2191\u2193 select \u00b7 enter confirm \u00b7 y / a / n answer \u00b7 d exact input                                                       \u2502\n \u2502 esc decline \u00b7 ctrl+c decline and stop the turn                                                                     \u2502\n \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n\n gpt-5.6-terra low \u00b7 $STUDY/workspace             \u2191\u2193 select \u00b7 enter confirm \u00b7 esc decline\n",
+    "04-job-exited.txt": "\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2234 job_1 is still running. I\u2019ll keep monitoring only its completion status without inspecting experiment data.\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2234 I\u2019m pausing briefly before checking the existing job\u2019s status again.\n\n\u2713 Bash(sleep 30) \u00b7 30s\n\u23bf (no output)\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n \u203a End this turn now. Leave job_1 running. Do not poll or stop it; just report its ID. \u00b7 steered current turn\n\n \u2234 job_1\n\n \u2699 background job job_1 ($NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY) exited 0\n\n \u250c\u2500 MESSAGE \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2510\n \u2502 \u203a Type a message\u2026 (/help for commands)                                                                             \u2502\n \u2514\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2518\n\n gpt-5.6-terra low \u00b7 $STUDY/workspace\n",
+    "02-initial-polling.txt": "\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 Read background output \u00b7 job_1 \u00b7 0.0s\n\u23bf (no new output)\n \u258f  \n \u258f [job job_1 is still running; next_offset 0]\n\n\u2713 List background jobs \u00b7 0.0s\n\u23bf job_1 running $NODE \n  $NAMZU_REPO/research/resident/explorat\u2026\n \u258f job_1  running   $NODE \n   $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n   $STUDY\n\n\u2234 job_1 is still running. I\u2019ll keep monitoring only its completion status without inspecting experiment data.\n\n\u2713 List background jobs \u00b7 0.0s\n \u23bf job_1 running $NODE \n   $NAMZU_REPO/research/resident/explorat\u2026\n  \u258f job_1  running   $NODE \n    $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n    $STUDY\n\n \u2713 List background jobs \u00b7 0.0s\n \u23bf job_1 running $NODE \n   $NAMZU_REPO/research/resident/explorat\u2026\n  \u258f job_1  running   $NODE \n    $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run \n    $STUDY\n\n \u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n \u2502 Bash command                                                                                                       \u2502\n \u2502 Run: 29170b29-154d-4cfe-a147-605b494cd349                                                                          \u2502\n \u2502   $ sleep 30                                                                                                       \u2502\n \u2502   timeout: 40000 ms                                                                                                \u2502\n \u2502                                                                                                                    \u2502\n \u2502 Do you want to proceed?                                                                                            \u2502\n \u2502 \u276f 1. Yes                                                                                                           \u2502\n \u2502   2. Yes, allow all tools for this session                                                                         \u2502\n \u2502   3. No, and tell namzu what to do differently (esc)                                                               \u2502\n \u2502 \u2191\u2193 select \u00b7 enter confirm \u00b7 y / a / n answer \u00b7 d exact input                                                       \u2502\n \u2502 esc decline \u00b7 ctrl+c decline and stop the turn                                                                     \u2502\n \u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n\n gpt-5.6-terra low \u00b7 $STUDY/workspace             \u2191\u2193 select \u00b7 enter confirm \u00b7 esc decline\n"
+  },
+  "runs": [
+    {
+      "id": "29170b29-154d-4cfe-a147-605b494cd349",
+      "status": "completed",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "tokenUsage": {
+        "promptTokens": 123609,
+        "completionTokens": 1020,
+        "totalTokens": 124629,
+        "cachedTokens": 61440,
+        "cacheWriteTokens": 0
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 124629,
+        "treeTokens": 124629,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "transcriptSha256": "4301ace9bb5fd6e22477321c59ad8ca5c9050bda5ce0337452190bfea9338aae",
+      "events": [
+        {
+          "type": "tool_review_requested",
+          "seq": 14
+        },
+        {
+          "type": "tool_review_completed",
+          "seq": 15,
+          "decision": "approved"
+        },
+        {
+          "type": "tool_executing",
+          "seq": 18,
+          "toolName": "bash",
+          "toolUseId": "call_1aX4GZJRN6BuGs8DAzSDTvZH",
+          "input": {
+            "command": "$NODE $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run $STUDY",
+            "timeout": 120000,
+            "run_in_background": true
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 20,
+          "toolName": "bash",
+          "toolUseId": "call_1aX4GZJRN6BuGs8DAzSDTvZH",
+          "result": "Started background job job_1. Read its output with the `job` tool: {\"action\":\"read\",\"id\":\"job_1\"}.",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 34,
+          "toolName": "job",
+          "toolUseId": "call_8ibFpb4KtHHBlhpLcqhBzWjO",
+          "input": {
+            "action": "read",
+            "id": "job_1"
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 36,
+          "toolName": "job",
+          "toolUseId": "call_8ibFpb4KtHHBlhpLcqhBzWjO",
+          "result": "(no new output)\n\n[job job_1 is still running; next_offset 0]",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 50,
+          "toolName": "job",
+          "toolUseId": "call_mfkh1rUuh7u3S58KB0dVBvfC",
+          "input": {
+            "action": "read",
+            "id": "job_1",
+            "from_offset": 0
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 52,
+          "toolName": "job",
+          "toolUseId": "call_mfkh1rUuh7u3S58KB0dVBvfC",
+          "result": "(no new output)\n\n[job job_1 is still running; next_offset 0]",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 66,
+          "toolName": "job",
+          "toolUseId": "call_jMAh5wTol2rISAv1W2W2m6eV",
+          "input": {
+            "action": "read",
+            "id": "job_1",
+            "from_offset": 0
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 68,
+          "toolName": "job",
+          "toolUseId": "call_jMAh5wTol2rISAv1W2W2m6eV",
+          "result": "(no new output)\n\n[job job_1 is still running; next_offset 0]",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 82,
+          "toolName": "job",
+          "toolUseId": "call_yLJlUxKKnXO4NNFPjOQArHZ5",
+          "input": {
+            "action": "read",
+            "id": "job_1",
+            "from_offset": 0
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 84,
+          "toolName": "job",
+          "toolUseId": "call_yLJlUxKKnXO4NNFPjOQArHZ5",
+          "result": "(no new output)\n\n[job job_1 is still running; next_offset 0]",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 98,
+          "toolName": "job",
+          "toolUseId": "call_1ziNjx28FRRFJ2avyceEWrRQ",
+          "input": {
+            "action": "read",
+            "id": "job_1",
+            "from_offset": 0
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 100,
+          "toolName": "job",
+          "toolUseId": "call_1ziNjx28FRRFJ2avyceEWrRQ",
+          "result": "(no new output)\n\n[job job_1 is still running; next_offset 0]",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 114,
+          "toolName": "job",
+          "toolUseId": "call_8rv6P5iiOewPx5hnaL3l8qV5",
+          "input": {
+            "action": "read",
+            "id": "job_1",
+            "from_offset": 0
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 116,
+          "toolName": "job",
+          "toolUseId": "call_8rv6P5iiOewPx5hnaL3l8qV5",
+          "result": "(no new output)\n\n[job job_1 is still running; next_offset 0]",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 132,
+          "toolName": "job",
+          "toolUseId": "call_bq6auEaaQFNcTYUdHld9sCex",
+          "input": {
+            "action": "list"
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 134,
+          "toolName": "job",
+          "toolUseId": "call_bq6auEaaQFNcTYUdHld9sCex",
+          "result": "job_1  running   $NODE $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run $STUDY",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 150,
+          "toolName": "job",
+          "toolUseId": "call_dIioaYdgkf5RoZbkbLEtoPQ7",
+          "input": {
+            "action": "list"
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 152,
+          "toolName": "job",
+          "toolUseId": "call_dIioaYdgkf5RoZbkbLEtoPQ7",
+          "result": "job_1  running   $NODE $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run $STUDY",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 166,
+          "toolName": "job",
+          "toolUseId": "call_4qBuojz6YX2PJyXZ5uIzDrsI",
+          "input": {
+            "action": "list"
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 168,
+          "toolName": "job",
+          "toolUseId": "call_4qBuojz6YX2PJyXZ5uIzDrsI",
+          "result": "job_1  running   $NODE $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run $STUDY",
+          "isError": false
+        },
+        {
+          "type": "tool_review_requested",
+          "seq": 183
+        },
+        {
+          "type": "tool_review_completed",
+          "seq": 184,
+          "decision": "approved"
+        },
+        {
+          "type": "tool_executing",
+          "seq": 187,
+          "toolName": "bash",
+          "toolUseId": "call_Ve3CSYutaoO2w4je8Dg1OzG3",
+          "input": {
+            "command": "sleep 30",
+            "timeout": 40000
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 189,
+          "toolName": "bash",
+          "toolUseId": "call_Ve3CSYutaoO2w4je8Dg1OzG3",
+          "result": "(no output)",
+          "isError": false
+        },
+        {
+          "type": "tool_executing",
+          "seq": 205,
+          "toolName": "job",
+          "toolUseId": "call_C8vax4opET4xxavaXPeeE9t4",
+          "input": {
+            "action": "list"
+          }
+        },
+        {
+          "type": "tool_completed",
+          "seq": 207,
+          "toolName": "job",
+          "toolUseId": "call_C8vax4opET4xxavaXPeeE9t4",
+          "result": "job_1  running   $NODE $NAMZU_REPO/research/resident/exploration-policy-study.mjs --run $STUDY",
+          "isError": false
+        },
+        {
+          "type": "run_completed",
+          "seq": 218,
+          "result": "`job_1`",
+          "stopReason": "end_turn"
+        }
+      ]
+    }
+  ]
+}

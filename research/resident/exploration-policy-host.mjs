@@ -3,24 +3,38 @@ import { createHash } from 'node:crypto'
 import { appendFile, mkdir, readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import * as sdk from '../../packages/sdk/dist/index.js'
-import { usageIsComplete, model } from './tool-learning-host.mjs'
+import { usageIsComplete } from './tool-learning-host.mjs'
 import { baselinePolicy, preview, previewSchema, controlProbes } from './exploration-policy-environment.mjs'
 
 export const sha = data => createHash('sha256').update(typeof data === 'string' ? data : JSON.stringify(data)).digest('hex')
 export const skillName = 'preview-exploration-policy'
 export const predictionInstructions = 'Predict this service from actual observations only. Return a JSON array of destinations in the requested order, using UNKNOWN where behavior is unknown. Do not include prose. No preview tool is available in this fresh prediction session.'
+export async function createStudyProvider(spec) {
+  if ((spec.provider ?? 'zen') === 'zen') {
+    return new (await import('../../packages/providers/zen/dist/index.js')).ZenProvider({ model: spec.model })
+  }
+  assert.equal(spec.provider, 'codex', 'Study provider must be zen or codex.')
+  const { discoverProviders } = await import('../../packages/cli/dist/integrations/providers/discover.js')
+  const detected = (await discoverProviders({ skipProbes: true })).find(p => p.entry.id === 'codex')
+  assert.ok(detected?.apiKey && detected.codex?.accountId, 'An installed Codex session is required.')
+  // Read the installed credential in memory; this research host never refreshes or writes it.
+  return new (await import('../../packages/providers/openai/dist/index.js')).CodexProvider({
+    accessToken: detected.apiKey, accountId: detected.codex.accountId, model: spec.model,
+  })
+}
 export async function execute(root, spec, label, options, context, store) {
   await appendFile(join(root, 'attempts.jsonl'), `${JSON.stringify({ label, at: Date.now() })}\n`)
-  const provider = spec.live ? new (await import('../../packages/providers/zen/dist/index.js')).ZenProvider({ model }) : new sdk.MockLLMProvider({ turns: options.turns })
+  const provider = spec.live ? await createStudyProvider(spec) : new sdk.MockLLMProvider({ turns: options.turns })
   const cwd = join(root, 'episodes', sha(label)); await mkdir(cwd, { recursive: true })
   const started = Date.now()
-  const result = await sdk.runAgent({ provider, model: spec.live ? model : 'mock-model', effort: 'low',
+  const timeoutMs = spec.limits?.timeoutMs ?? 120000
+  const result = await sdk.runAgent({ provider, model: spec.live ? spec.model : 'mock-model', ...(spec.effort ? { effort: spec.effort } : {}),
     pathBuilder: new sdk.DefaultPathBuilder(join(root, 'runs', sha(label))), workingDirectory: cwd,
     instructions: options.instructions, prompt: options.prompt, tools: options.tools ?? new sdk.ToolRegistry(),
-    maxIterations: options.iterations ?? 6, tokenBudget: options.tokens ?? 16000, timeoutMs: 120000,
-    signal: context?.signal })
+    maxIterations: options.iterations ?? 6, tokenBudget: options.tokens ?? 16000, timeoutMs,
+    signal: AbortSignal.any([AbortSignal.timeout(timeoutMs), ...(context?.signal ? [context.signal] : [])]) })
   const run = result.run
-  const record = { label, runId: run.id, output: result.output, stopReason: run.stopReason,
+  const record = { label, runId: run.id, provider: provider.id, model: spec.live ? spec.model : 'mock-model', effort: spec.effort ?? null, output: result.output, stopReason: run.stopReason,
     tokens: run.tokenUsage.totalTokens, budget: run.budget, usageComplete: usageIsComplete(run),
     cost: run.costInfo, durationMs: Date.now() - started, ...(run.lastError ? { error: run.lastError } : {}) }
   await appendFile(join(root, 'runs.jsonl'), `${JSON.stringify(record)}\n`)
@@ -102,7 +116,7 @@ export default async function host(context, root) {
         }
       }
       const trials = arm => rows.filter(r => r.arm === arm).map(r => ({ taskId: r.taskId, trial: r.trial,
-        conditions: sha({ episode: spec[stage.stage].find(e => e.id === r.episode), limits: spec.limits, model, effort: 'low', baselinePolicy, predictionInstructions }),
+        conditions: sha({ episode: spec[stage.stage].find(e => e.id === r.episode), limits: spec.limits, provider: spec.provider ?? 'zen', model: spec.model, effort: spec.effort ?? null, baselinePolicy, predictionInstructions }),
         trajectoryId: r.predictorRunId, result: { case: r.episode, passed: r.passed, status: r.passed ? 'passed' : 'failed', mean: Number(r.passed),
           scores: { exact: { score: r.correct / r.count, reason: 'Host compared all six withheld service destinations after model-selected exploration.' } },
           run: { output: r.output, steps: [], toolCalls: r.calls, totalTokens: r.tokens, totalCostUsd: 0, durationMs: r.durationMs,

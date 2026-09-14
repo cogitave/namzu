@@ -1,0 +1,3164 @@
+[
+  {
+    "live": false,
+    "spec": {
+      "version": 2,
+      "live": false,
+      "seed": "eadba8cd-09b9-41aa-8b58-41cf8345754e",
+      "createdAt": 1789401374532,
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "baselinePolicy": "Investigate the undocumented preview service through the provided tool. Choose your own experiments to distinguish possible rules. Use observed results to revise hypotheses. Do not claim rules you have not checked. Finish when you have enough evidence, or identify remaining uncertainty.",
+      "controlProviderError": false,
+      "limits": {
+        "records": 8,
+        "explorationIterations": 6,
+        "explorationTokens": 16000,
+        "predictionTokens": 12000,
+        "timeoutMs": 120000
+      },
+      "verification": [
+        {
+          "id": "verification-month-0",
+          "taskId": "verification-month",
+          "family": "month",
+          "trial": 0,
+          "config": {
+            "family": "month",
+            "root": "30a66f15",
+            "sealed": "a1fb0ba2",
+            "aliases": {
+              "invoice": "a39c30d5",
+              "memo": "c9f8c123",
+              "notice": "77664586"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "000ed51390Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00458f5dcfAz",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00d48daf9aAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "0093c5d068Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00fa19cae0Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00e91ba1a7Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "30a66f15/2034/02/a39c30d5/000ed51390Az",
+            "30a66f15/2034/11/c9f8c123/00458f5dcfAz",
+            "30a66f15/2034/02/77664586/00d48daf9aAz",
+            "a1fb0ba2/a39c30d5/0093c5d068Az",
+            "a1fb0ba2/c9f8c123/00fa19cae0Az",
+            "a1fb0ba2/77664586/00e91ba1a7Az"
+          ]
+        },
+        {
+          "id": "verification-month-1",
+          "taskId": "verification-month",
+          "family": "month",
+          "trial": 1,
+          "config": {
+            "family": "month",
+            "root": "5622d796",
+            "sealed": "d47c2dad",
+            "aliases": {
+              "invoice": "3cf364f6",
+              "memo": "84c89b5b",
+              "notice": "f39a230c"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00f7e677faAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00725a312eAz",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "004660b5a7Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00b80eb26aAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00bb43ca1cAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "009cf32a22Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "5622d796/2035/02/3cf364f6/00f7e677faAz",
+            "5622d796/2035/11/84c89b5b/00725a312eAz",
+            "5622d796/2035/02/f39a230c/004660b5a7Az",
+            "d47c2dad/3cf364f6/00b80eb26aAz",
+            "d47c2dad/84c89b5b/00bb43ca1cAz",
+            "d47c2dad/f39a230c/009cf32a22Az"
+          ]
+        },
+        {
+          "id": "verification-day-0",
+          "taskId": "verification-day",
+          "family": "day",
+          "trial": 0,
+          "config": {
+            "family": "day",
+            "root": "ba2d3b0e",
+            "sealed": "a1a6c116",
+            "aliases": {
+              "invoice": "02f98ff8",
+              "memo": "d358c964",
+              "notice": "32d8fc56"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00a6b02518Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00ae471624Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00ebec482dAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "000cd3503eAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00b5a7bcddAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0069c8efafAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "ba2d3b0e/2034/02/17/02f98ff8/00a6b02518Az",
+            "ba2d3b0e/2034/11/17/d358c964/00ae471624Az",
+            "ba2d3b0e/2034/02/17/32d8fc56/00ebec482dAz",
+            "a1a6c116/02f98ff8/000cd3503eAz",
+            "a1a6c116/d358c964/00b5a7bcddAz",
+            "a1a6c116/32d8fc56/0069c8efafAz"
+          ]
+        },
+        {
+          "id": "verification-day-1",
+          "taskId": "verification-day",
+          "family": "day",
+          "trial": 1,
+          "config": {
+            "family": "day",
+            "root": "54306e64",
+            "sealed": "b5b2c22a",
+            "aliases": {
+              "invoice": "4fe3d16e",
+              "memo": "805f3928",
+              "notice": "fefdb01e"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0045aa7659Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0062148622Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "006dd141e8Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00cd1cea39Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "005937fd7eAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0000a28019Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "54306e64/2035/02/17/4fe3d16e/0045aa7659Az",
+            "54306e64/2035/11/17/805f3928/0062148622Az",
+            "54306e64/2035/02/17/fefdb01e/006dd141e8Az",
+            "b5b2c22a/4fe3d16e/00cd1cea39Az",
+            "b5b2c22a/805f3928/005937fd7eAz",
+            "b5b2c22a/fefdb01e/0000a28019Az"
+          ]
+        },
+        {
+          "id": "verification-year-0",
+          "taskId": "verification-year",
+          "family": "year",
+          "trial": 0,
+          "config": {
+            "family": "year",
+            "root": "627a2b51",
+            "sealed": "2352276f",
+            "aliases": {
+              "invoice": "d210186c",
+              "memo": "92995276",
+              "notice": "9223bdc1"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "002862fdb5Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00719b8700Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00ccfd970dAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00681e87fbAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "004c56ad68Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00bacbdf91Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "627a2b51/2034/d210186c/002862fdb5Az",
+            "627a2b51/2034/92995276/00719b8700Az",
+            "627a2b51/2034/9223bdc1/00ccfd970dAz",
+            "2352276f/d210186c/00681e87fbAz",
+            "2352276f/92995276/004c56ad68Az",
+            "2352276f/9223bdc1/00bacbdf91Az"
+          ]
+        },
+        {
+          "id": "verification-year-1",
+          "taskId": "verification-year",
+          "family": "year",
+          "trial": 1,
+          "config": {
+            "family": "year",
+            "root": "46eef9ea",
+            "sealed": "037fa101",
+            "aliases": {
+              "invoice": "d5457f03",
+              "memo": "9de9ea41",
+              "notice": "40efe4dd"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "003d919377Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00d5adc94bAz",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00ef1e8444Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "006ec6e14aAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00b8de6691Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "007382b66bAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "46eef9ea/2035/d5457f03/003d919377Az",
+            "46eef9ea/2035/9de9ea41/00d5adc94bAz",
+            "46eef9ea/2035/40efe4dd/00ef1e8444Az",
+            "037fa101/d5457f03/006ec6e14aAz",
+            "037fa101/9de9ea41/00b8de6691Az",
+            "037fa101/40efe4dd/007382b66bAz"
+          ]
+        },
+        {
+          "id": "verification-identity-0",
+          "taskId": "verification-identity",
+          "family": "identity",
+          "trial": 0,
+          "config": {
+            "family": "identity",
+            "root": "cfd35af4",
+            "sealed": "b6ba6378",
+            "aliases": {
+              "invoice": "6a46925c",
+              "memo": "dc973239",
+              "notice": "3f139466"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00ddab4d7eAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "001f37c8dbAz",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00b908139fAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "0000ddb5ffAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00ef075b80Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0084f20a7cAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "cfd35af4/00ddab4d7eAz",
+            "cfd35af4/001f37c8dbAz",
+            "cfd35af4/00b908139fAz",
+            "cfd35af4/0000ddb5ffAz",
+            "cfd35af4/00ef075b80Az",
+            "cfd35af4/0084f20a7cAz"
+          ]
+        },
+        {
+          "id": "verification-identity-1",
+          "taskId": "verification-identity",
+          "family": "identity",
+          "trial": 1,
+          "config": {
+            "family": "identity",
+            "root": "bb05d428",
+            "sealed": "28ebaddd",
+            "aliases": {
+              "invoice": "97020a9b",
+              "memo": "e675434e",
+              "notice": "d588f485"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0089a69f61Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "002ce11f9fAz",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00b79d3af6Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "0060b42053Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00c1537e71Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00838dd0c6Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "bb05d428/0089a69f61Az",
+            "bb05d428/002ce11f9fAz",
+            "bb05d428/00b79d3af6Az",
+            "bb05d428/0060b42053Az",
+            "bb05d428/00c1537e71Az",
+            "bb05d428/00838dd0c6Az"
+          ]
+        },
+        {
+          "id": "verification-kind-0",
+          "taskId": "verification-kind",
+          "family": "kind",
+          "trial": 0,
+          "config": {
+            "family": "kind",
+            "root": "4aa5a2a0",
+            "sealed": "fbffe10d",
+            "aliases": {
+              "invoice": "b770b946",
+              "memo": "600ef7bf",
+              "notice": "d1243e77"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "009eb556a0Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0044dca8e6Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "001eed00e5Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00dea9b057Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00a4b35a22Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00522643ecAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "4aa5a2a0/b770b946/009eb556a0Az",
+            "4aa5a2a0/600ef7bf/0044dca8e6Az",
+            "4aa5a2a0/d1243e77/001eed00e5Az",
+            "4aa5a2a0/b770b946/00dea9b057Az",
+            "4aa5a2a0/600ef7bf/00a4b35a22Az",
+            "4aa5a2a0/d1243e77/00522643ecAz"
+          ]
+        },
+        {
+          "id": "verification-kind-1",
+          "taskId": "verification-kind",
+          "family": "kind",
+          "trial": 1,
+          "config": {
+            "family": "kind",
+            "root": "e8fe1bda",
+            "sealed": "ab7b36d2",
+            "aliases": {
+              "invoice": "a3381596",
+              "memo": "c0829e0b",
+              "notice": "4a3d1fb7"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00eb920134Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00b8855000Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00c429217fAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "000f41c2faAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00720e2361Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "002b3f06c8Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "e8fe1bda/a3381596/00eb920134Az",
+            "e8fe1bda/c0829e0b/00b8855000Az",
+            "e8fe1bda/4a3d1fb7/00c429217fAz",
+            "e8fe1bda/a3381596/000f41c2faAz",
+            "e8fe1bda/c0829e0b/00720e2361Az",
+            "e8fe1bda/4a3d1fb7/002b3f06c8Az"
+          ]
+        }
+      ],
+      "confirmation": [
+        {
+          "id": "confirmation-month-0",
+          "taskId": "confirmation-month",
+          "family": "month",
+          "trial": 0,
+          "config": {
+            "family": "month",
+            "root": "fcd798c0",
+            "sealed": "e3c70be0",
+            "aliases": {
+              "invoice": "a5d01f6f",
+              "memo": "a53cc95b",
+              "notice": "8225cf5a"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00de743413Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "004d649eaeAz",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00e4eb892fAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "0099eba83eAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "0055acab41Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "004ba7a0e7Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "fcd798c0/2034/02/a5d01f6f/00de743413Az",
+            "fcd798c0/2034/11/a53cc95b/004d649eaeAz",
+            "fcd798c0/2034/02/8225cf5a/00e4eb892fAz",
+            "e3c70be0/a5d01f6f/0099eba83eAz",
+            "e3c70be0/a53cc95b/0055acab41Az",
+            "e3c70be0/8225cf5a/004ba7a0e7Az"
+          ]
+        },
+        {
+          "id": "confirmation-month-1",
+          "taskId": "confirmation-month",
+          "family": "month",
+          "trial": 1,
+          "config": {
+            "family": "month",
+            "root": "8c4efd48",
+            "sealed": "ec34b179",
+            "aliases": {
+              "invoice": "0763e765",
+              "memo": "b67aeaea",
+              "notice": "840eb122"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "002fa9aedbAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0007620398Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "0048ff7b4aAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00e30a82fcAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "003346428eAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00c30ce646Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "8c4efd48/2035/02/0763e765/002fa9aedbAz",
+            "8c4efd48/2035/11/b67aeaea/0007620398Az",
+            "8c4efd48/2035/02/840eb122/0048ff7b4aAz",
+            "ec34b179/0763e765/00e30a82fcAz",
+            "ec34b179/b67aeaea/003346428eAz",
+            "ec34b179/840eb122/00c30ce646Az"
+          ]
+        },
+        {
+          "id": "confirmation-day-0",
+          "taskId": "confirmation-day",
+          "family": "day",
+          "trial": 0,
+          "config": {
+            "family": "day",
+            "root": "effbfa7c",
+            "sealed": "d90542b7",
+            "aliases": {
+              "invoice": "05ddaafa",
+              "memo": "9857dad5",
+              "notice": "a221d454"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "007b534906Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00fcc51ea2Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "000ce320f6Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "007d9a5ac5Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00579f52c6Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "001344e786Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "effbfa7c/2034/02/17/05ddaafa/007b534906Az",
+            "effbfa7c/2034/11/17/9857dad5/00fcc51ea2Az",
+            "effbfa7c/2034/02/17/a221d454/000ce320f6Az",
+            "d90542b7/05ddaafa/007d9a5ac5Az",
+            "d90542b7/9857dad5/00579f52c6Az",
+            "d90542b7/a221d454/001344e786Az"
+          ]
+        },
+        {
+          "id": "confirmation-day-1",
+          "taskId": "confirmation-day",
+          "family": "day",
+          "trial": 1,
+          "config": {
+            "family": "day",
+            "root": "f6523cf1",
+            "sealed": "d2abad41",
+            "aliases": {
+              "invoice": "c8aaabc7",
+              "memo": "9cf93b69",
+              "notice": "cc69fac5"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "007628a1d4Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0043c8b4b3Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00e10b3c96Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "0045a6b44fAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "001aeb5cb9Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "008d1a7a0bAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "f6523cf1/2035/02/17/c8aaabc7/007628a1d4Az",
+            "f6523cf1/2035/11/17/9cf93b69/0043c8b4b3Az",
+            "f6523cf1/2035/02/17/cc69fac5/00e10b3c96Az",
+            "d2abad41/c8aaabc7/0045a6b44fAz",
+            "d2abad41/9cf93b69/001aeb5cb9Az",
+            "d2abad41/cc69fac5/008d1a7a0bAz"
+          ]
+        },
+        {
+          "id": "confirmation-year-0",
+          "taskId": "confirmation-year",
+          "family": "year",
+          "trial": 0,
+          "config": {
+            "family": "year",
+            "root": "aedf0c2b",
+            "sealed": "d2a7b373",
+            "aliases": {
+              "invoice": "4b457133",
+              "memo": "aec740cc",
+              "notice": "e905c32a"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00a636b171Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00cc025fb2Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00d692a0f3Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "001b689531Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00311f04cfAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0004dd802bAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "aedf0c2b/2034/4b457133/00a636b171Az",
+            "aedf0c2b/2034/aec740cc/00cc025fb2Az",
+            "aedf0c2b/2034/e905c32a/00d692a0f3Az",
+            "d2a7b373/4b457133/001b689531Az",
+            "d2a7b373/aec740cc/00311f04cfAz",
+            "d2a7b373/e905c32a/0004dd802bAz"
+          ]
+        },
+        {
+          "id": "confirmation-year-1",
+          "taskId": "confirmation-year",
+          "family": "year",
+          "trial": 1,
+          "config": {
+            "family": "year",
+            "root": "8f6728f6",
+            "sealed": "bf897d09",
+            "aliases": {
+              "invoice": "9ad0a682",
+              "memo": "09b06cd6",
+              "notice": "be7a2917"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "008737d879Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00942334a8Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00986d7210Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "004eaa6476Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "002f6b3c4dAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "002bafb85fAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "8f6728f6/2035/9ad0a682/008737d879Az",
+            "8f6728f6/2035/09b06cd6/00942334a8Az",
+            "8f6728f6/2035/be7a2917/00986d7210Az",
+            "bf897d09/9ad0a682/004eaa6476Az",
+            "bf897d09/09b06cd6/002f6b3c4dAz",
+            "bf897d09/be7a2917/002bafb85fAz"
+          ]
+        },
+        {
+          "id": "confirmation-identity-0",
+          "taskId": "confirmation-identity",
+          "family": "identity",
+          "trial": 0,
+          "config": {
+            "family": "identity",
+            "root": "05d3f492",
+            "sealed": "f671f8f3",
+            "aliases": {
+              "invoice": "cfa1772e",
+              "memo": "e6eff905",
+              "notice": "5d884aab"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "002cd729c8Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0014d0c702Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00a3530534Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00888cbc35Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "008276cdd7Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00b752cfbfAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "05d3f492/002cd729c8Az",
+            "05d3f492/0014d0c702Az",
+            "05d3f492/00a3530534Az",
+            "05d3f492/00888cbc35Az",
+            "05d3f492/008276cdd7Az",
+            "05d3f492/00b752cfbfAz"
+          ]
+        },
+        {
+          "id": "confirmation-identity-1",
+          "taskId": "confirmation-identity",
+          "family": "identity",
+          "trial": 1,
+          "config": {
+            "family": "identity",
+            "root": "926ef9ad",
+            "sealed": "935c60ed",
+            "aliases": {
+              "invoice": "bdb69afd",
+              "memo": "f7b38e3d",
+              "notice": "83bf2a96"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "007b7454f7Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0088111e3dAz",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00de10a0d4Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00775c81dfAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "0012cf6574Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0049768d6aAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "926ef9ad/007b7454f7Az",
+            "926ef9ad/0088111e3dAz",
+            "926ef9ad/00de10a0d4Az",
+            "926ef9ad/00775c81dfAz",
+            "926ef9ad/0012cf6574Az",
+            "926ef9ad/0049768d6aAz"
+          ]
+        },
+        {
+          "id": "confirmation-kind-0",
+          "taskId": "confirmation-kind",
+          "family": "kind",
+          "trial": 0,
+          "config": {
+            "family": "kind",
+            "root": "32903612",
+            "sealed": "e3e9c658",
+            "aliases": {
+              "invoice": "54c4df08",
+              "memo": "8064984f",
+              "notice": "a50c5fcf"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0063b3d283Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00dd01f9b0Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "0087225f39Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "009f99f894Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "007c232e9eAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00feabff73Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "32903612/54c4df08/0063b3d283Az",
+            "32903612/8064984f/00dd01f9b0Az",
+            "32903612/a50c5fcf/0087225f39Az",
+            "32903612/54c4df08/009f99f894Az",
+            "32903612/8064984f/007c232e9eAz",
+            "32903612/a50c5fcf/00feabff73Az"
+          ]
+        },
+        {
+          "id": "confirmation-kind-1",
+          "taskId": "confirmation-kind",
+          "family": "kind",
+          "trial": 1,
+          "config": {
+            "family": "kind",
+            "root": "57553ebb",
+            "sealed": "4b81e245",
+            "aliases": {
+              "invoice": "4b97c49b",
+              "memo": "8408f963",
+              "notice": "d155fb07"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00dd171751Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "000ed35bafAz",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00ecf0cb31Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "006ffbe498Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "009e7f338dAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "003945f4caAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "57553ebb/4b97c49b/00dd171751Az",
+            "57553ebb/8408f963/000ed35bafAz",
+            "57553ebb/d155fb07/00ecf0cb31Az",
+            "57553ebb/4b97c49b/006ffbe498Az",
+            "57553ebb/8408f963/009e7f338dAz",
+            "57553ebb/d155fb07/003945f4caAz"
+          ]
+        }
+      ],
+      "holdout": [
+        {
+          "id": "holdout-month-0",
+          "taskId": "holdout-month",
+          "family": "month",
+          "trial": 0,
+          "config": {
+            "family": "month",
+            "root": "c271a104",
+            "sealed": "fce65e49",
+            "aliases": {
+              "invoice": "e62a6b19",
+              "memo": "c14231f1",
+              "notice": "31f3e2fb"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0047692cc3Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00ea0d4012Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "006a258906Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "006af50104Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00e036c28bAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0083c8433bAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "c271a104/2034/02/e62a6b19/0047692cc3Az",
+            "c271a104/2034/11/c14231f1/00ea0d4012Az",
+            "c271a104/2034/02/31f3e2fb/006a258906Az",
+            "fce65e49/e62a6b19/006af50104Az",
+            "fce65e49/c14231f1/00e036c28bAz",
+            "fce65e49/31f3e2fb/0083c8433bAz"
+          ]
+        },
+        {
+          "id": "holdout-day-0",
+          "taskId": "holdout-day",
+          "family": "day",
+          "trial": 0,
+          "config": {
+            "family": "day",
+            "root": "0adcc56d",
+            "sealed": "34956aa6",
+            "aliases": {
+              "invoice": "ece0c01b",
+              "memo": "3edbf994",
+              "notice": "d45e0979"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00fbc85e4cAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00279a5dbdAz",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "0095b559d6Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00c9fcc4cdAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "0062080cdfAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00694793b2Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "0adcc56d/2034/02/17/ece0c01b/00fbc85e4cAz",
+            "0adcc56d/2034/11/17/3edbf994/00279a5dbdAz",
+            "0adcc56d/2034/02/17/d45e0979/0095b559d6Az",
+            "34956aa6/ece0c01b/00c9fcc4cdAz",
+            "34956aa6/3edbf994/0062080cdfAz",
+            "34956aa6/d45e0979/00694793b2Az"
+          ]
+        },
+        {
+          "id": "holdout-year-0",
+          "taskId": "holdout-year",
+          "family": "year",
+          "trial": 0,
+          "config": {
+            "family": "year",
+            "root": "58836835",
+            "sealed": "949f3179",
+            "aliases": {
+              "invoice": "359bc49b",
+              "memo": "dd0c3b1d",
+              "notice": "97540beb"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "002196df7fAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "007bd1dc55Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00dce38561Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00fd2fe338Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "005a8b8f48Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00bd1cc2bbAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "58836835/2034/359bc49b/002196df7fAz",
+            "58836835/2034/dd0c3b1d/007bd1dc55Az",
+            "58836835/2034/97540beb/00dce38561Az",
+            "949f3179/359bc49b/00fd2fe338Az",
+            "949f3179/dd0c3b1d/005a8b8f48Az",
+            "949f3179/97540beb/00bd1cc2bbAz"
+          ]
+        }
+      ],
+      "protection": {
+        "verification": [
+          "verification-identity",
+          "verification-kind"
+        ],
+        "confirmation": [
+          "confirmation-identity",
+          "confirmation-kind"
+        ]
+      },
+      "trainingSha256": "f84d78efbe1b900dd0075718da28687d59b5420108427f584368b48dc17b16bf",
+      "sourceHashes": {
+        "research/resident/exploration-policy-environment.mjs": "4b9f9f288255f7d535744940f1bcda02fb1276abf152d2b3903fb2356266828b",
+        "research/resident/exploration-policy-host.mjs": "a5344bdf15607e64fe647d545134461cf8b20356cf4a04cc55d80e4330e53926",
+        "research/resident/exploration-policy-study.mjs": "2afb78b2e8a2d93490dac18886e7db95d605e9983ef978eed67d95f524a4df24",
+        "packages/sdk/dist/manager/resident/learning.js": "c6bc9729a952fe85a113a123950c36355845cf8352a0499d54e895dcc723f2b1",
+        "packages/sdk/dist/manager/resident/learning-cycle.js": "a04f0f3a11cf700969438782a8d3950bd98af93a5783f8a81d06f378a00797f7"
+      }
+    },
+    "cycleStatus": "activated",
+    "review": "accept",
+    "rounds": {
+      "verification": {
+        "baseline": {
+          "passed": 4,
+          "count": 10,
+          "correct": 24,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "candidate": {
+          "passed": 10,
+          "count": 10,
+          "correct": 60,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "confirmation": {
+        "baseline": {
+          "passed": 4,
+          "count": 10,
+          "correct": 24,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "candidate": {
+          "passed": 10,
+          "count": 10,
+          "correct": 60,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "holdout": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 3,
+          "count": 3,
+          "correct": 18,
+          "predictions": 18,
+          "tokens": 0,
+          "probes": 18
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 3,
+          "correct": 0,
+          "predictions": 18,
+          "tokens": 0,
+          "probes": 18
+        }
+      }
+    },
+    "runs": 93,
+    "tokens": 0,
+    "evidenceSha256": "349489d589e10481681021f6188bcfa0628aa86bc76c23ab29ea392d3879ee0d",
+    "auditVerified": true
+  },
+  {
+    "live": false,
+    "spec": {
+      "version": 2,
+      "live": false,
+      "seed": "acda24c9-0f7f-4766-89e8-3dc3aea08f79",
+      "createdAt": 1789401955374,
+      "provider": "codex",
+      "model": "gpt-5.6-terra",
+      "effort": "low",
+      "baselinePolicy": "Investigate the undocumented preview service through the provided tool. Choose your own experiments to distinguish possible rules. Use observed results to revise hypotheses. Do not claim rules you have not checked. Finish when you have enough evidence, or identify remaining uncertainty.",
+      "controlProviderError": true,
+      "limits": {
+        "records": 8,
+        "explorationIterations": 6,
+        "explorationTokens": 16000,
+        "predictionTokens": 12000,
+        "timeoutMs": 120000
+      },
+      "verification": [
+        {
+          "id": "verification-month-0",
+          "taskId": "verification-month",
+          "family": "month",
+          "trial": 0,
+          "config": {
+            "family": "month",
+            "root": "e0f3cdbb",
+            "sealed": "7581337e",
+            "aliases": {
+              "invoice": "1a93afde",
+              "memo": "4be3a835",
+              "notice": "958ac532"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "000a640e87Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0043e3fa78Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "009b87e1b4Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00f2e96af7Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00922f2dbdAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00b7d9ca9bAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "e0f3cdbb/2034/02/1a93afde/000a640e87Az",
+            "e0f3cdbb/2034/11/4be3a835/0043e3fa78Az",
+            "e0f3cdbb/2034/02/958ac532/009b87e1b4Az",
+            "7581337e/1a93afde/00f2e96af7Az",
+            "7581337e/4be3a835/00922f2dbdAz",
+            "7581337e/958ac532/00b7d9ca9bAz"
+          ]
+        },
+        {
+          "id": "verification-month-1",
+          "taskId": "verification-month",
+          "family": "month",
+          "trial": 1,
+          "config": {
+            "family": "month",
+            "root": "ca32281c",
+            "sealed": "64e749e9",
+            "aliases": {
+              "invoice": "ada1998d",
+              "memo": "d4fdd14b",
+              "notice": "4d9070a9"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "003884612bAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00dd4030eaAz",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00b71483fcAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "008c8663c5Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "003354ad91Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00c00c6534Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "ca32281c/2035/02/ada1998d/003884612bAz",
+            "ca32281c/2035/11/d4fdd14b/00dd4030eaAz",
+            "ca32281c/2035/02/4d9070a9/00b71483fcAz",
+            "64e749e9/ada1998d/008c8663c5Az",
+            "64e749e9/d4fdd14b/003354ad91Az",
+            "64e749e9/4d9070a9/00c00c6534Az"
+          ]
+        },
+        {
+          "id": "verification-day-0",
+          "taskId": "verification-day",
+          "family": "day",
+          "trial": 0,
+          "config": {
+            "family": "day",
+            "root": "75680f00",
+            "sealed": "161bd8e9",
+            "aliases": {
+              "invoice": "4867843b",
+              "memo": "74c8a33f",
+              "notice": "461f5f84"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "003e307f3aAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00c8fc44d2Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "0025d3d930Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "003f369617Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "0009cb4dcfAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "008c4a43f0Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "75680f00/2034/02/17/4867843b/003e307f3aAz",
+            "75680f00/2034/11/17/74c8a33f/00c8fc44d2Az",
+            "75680f00/2034/02/17/461f5f84/0025d3d930Az",
+            "161bd8e9/4867843b/003f369617Az",
+            "161bd8e9/74c8a33f/0009cb4dcfAz",
+            "161bd8e9/461f5f84/008c4a43f0Az"
+          ]
+        },
+        {
+          "id": "verification-day-1",
+          "taskId": "verification-day",
+          "family": "day",
+          "trial": 1,
+          "config": {
+            "family": "day",
+            "root": "0a6fd95b",
+            "sealed": "c930722e",
+            "aliases": {
+              "invoice": "d4699cfd",
+              "memo": "f1642c77",
+              "notice": "a7fe55fb"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00c2759970Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00b3f556e5Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "0099eb97d9Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "003b94408dAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00f67306ceAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0048ea3bf0Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "0a6fd95b/2035/02/17/d4699cfd/00c2759970Az",
+            "0a6fd95b/2035/11/17/f1642c77/00b3f556e5Az",
+            "0a6fd95b/2035/02/17/a7fe55fb/0099eb97d9Az",
+            "c930722e/d4699cfd/003b94408dAz",
+            "c930722e/f1642c77/00f67306ceAz",
+            "c930722e/a7fe55fb/0048ea3bf0Az"
+          ]
+        },
+        {
+          "id": "verification-year-0",
+          "taskId": "verification-year",
+          "family": "year",
+          "trial": 0,
+          "config": {
+            "family": "year",
+            "root": "536d3dd2",
+            "sealed": "a74b5fa3",
+            "aliases": {
+              "invoice": "baf7069d",
+              "memo": "cee84248",
+              "notice": "15027128"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "005e7b8d14Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "000becb8fbAz",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "0062e8ee42Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00c748c8a4Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "001ba5bd93Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "001f2d774eAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "536d3dd2/2034/baf7069d/005e7b8d14Az",
+            "536d3dd2/2034/cee84248/000becb8fbAz",
+            "536d3dd2/2034/15027128/0062e8ee42Az",
+            "a74b5fa3/baf7069d/00c748c8a4Az",
+            "a74b5fa3/cee84248/001ba5bd93Az",
+            "a74b5fa3/15027128/001f2d774eAz"
+          ]
+        },
+        {
+          "id": "verification-year-1",
+          "taskId": "verification-year",
+          "family": "year",
+          "trial": 1,
+          "config": {
+            "family": "year",
+            "root": "46e6cc98",
+            "sealed": "79dc98b5",
+            "aliases": {
+              "invoice": "a559ab89",
+              "memo": "2f7f24c6",
+              "notice": "76030f36"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0087649aabAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "001c77b9a0Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00bd96035dAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "002a6369f2Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00ad132b8aAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "002683ba41Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "46e6cc98/2035/a559ab89/0087649aabAz",
+            "46e6cc98/2035/2f7f24c6/001c77b9a0Az",
+            "46e6cc98/2035/76030f36/00bd96035dAz",
+            "79dc98b5/a559ab89/002a6369f2Az",
+            "79dc98b5/2f7f24c6/00ad132b8aAz",
+            "79dc98b5/76030f36/002683ba41Az"
+          ]
+        },
+        {
+          "id": "verification-identity-0",
+          "taskId": "verification-identity",
+          "family": "identity",
+          "trial": 0,
+          "config": {
+            "family": "identity",
+            "root": "d55af2d4",
+            "sealed": "d27a621c",
+            "aliases": {
+              "invoice": "b07ad066",
+              "memo": "0a4e6a53",
+              "notice": "b458c131"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0044a05379Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0014390095Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00af84b129Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00c3f20b7fAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "007aa80b2aAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "009b04fd2bAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "d55af2d4/0044a05379Az",
+            "d55af2d4/0014390095Az",
+            "d55af2d4/00af84b129Az",
+            "d55af2d4/00c3f20b7fAz",
+            "d55af2d4/007aa80b2aAz",
+            "d55af2d4/009b04fd2bAz"
+          ]
+        },
+        {
+          "id": "verification-identity-1",
+          "taskId": "verification-identity",
+          "family": "identity",
+          "trial": 1,
+          "config": {
+            "family": "identity",
+            "root": "72238617",
+            "sealed": "631da1e0",
+            "aliases": {
+              "invoice": "dd5c6dcf",
+              "memo": "12fd061a",
+              "notice": "44ea2ce1"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00ac2ad019Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "007713f166Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "005b0783adAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00d2ac3ce6Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "006178a40fAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00151b7a67Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "72238617/00ac2ad019Az",
+            "72238617/007713f166Az",
+            "72238617/005b0783adAz",
+            "72238617/00d2ac3ce6Az",
+            "72238617/006178a40fAz",
+            "72238617/00151b7a67Az"
+          ]
+        },
+        {
+          "id": "verification-kind-0",
+          "taskId": "verification-kind",
+          "family": "kind",
+          "trial": 0,
+          "config": {
+            "family": "kind",
+            "root": "ed5c9b7d",
+            "sealed": "f4d71840",
+            "aliases": {
+              "invoice": "7d42b5f7",
+              "memo": "91443fe6",
+              "notice": "1a424e7f"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "006756ef9eAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00c6ddf472Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00d24bfa96Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00d98afa29Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "006c012441Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "002897c35bAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "ed5c9b7d/7d42b5f7/006756ef9eAz",
+            "ed5c9b7d/91443fe6/00c6ddf472Az",
+            "ed5c9b7d/1a424e7f/00d24bfa96Az",
+            "ed5c9b7d/7d42b5f7/00d98afa29Az",
+            "ed5c9b7d/91443fe6/006c012441Az",
+            "ed5c9b7d/1a424e7f/002897c35bAz"
+          ]
+        },
+        {
+          "id": "verification-kind-1",
+          "taskId": "verification-kind",
+          "family": "kind",
+          "trial": 1,
+          "config": {
+            "family": "kind",
+            "root": "d308ffcd",
+            "sealed": "ca281fca",
+            "aliases": {
+              "invoice": "2fdab39c",
+              "memo": "160bdad9",
+              "notice": "dcdbfc8f"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "006f30e757Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0091944ef4Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "0040f96953Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "0061715b71Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00719324c3Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00e1413fc5Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "d308ffcd/2fdab39c/006f30e757Az",
+            "d308ffcd/160bdad9/0091944ef4Az",
+            "d308ffcd/dcdbfc8f/0040f96953Az",
+            "d308ffcd/2fdab39c/0061715b71Az",
+            "d308ffcd/160bdad9/00719324c3Az",
+            "d308ffcd/dcdbfc8f/00e1413fc5Az"
+          ]
+        }
+      ],
+      "confirmation": [
+        {
+          "id": "confirmation-month-0",
+          "taskId": "confirmation-month",
+          "family": "month",
+          "trial": 0,
+          "config": {
+            "family": "month",
+            "root": "ac7d2724",
+            "sealed": "6ff48d53",
+            "aliases": {
+              "invoice": "66cffb40",
+              "memo": "c8844795",
+              "notice": "f9563cb2"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0019823ac5Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "006c852223Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "006beb3558Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00def49567Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00a1ed2fc4Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "001803eb7aAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "ac7d2724/2034/02/66cffb40/0019823ac5Az",
+            "ac7d2724/2034/11/c8844795/006c852223Az",
+            "ac7d2724/2034/02/f9563cb2/006beb3558Az",
+            "6ff48d53/66cffb40/00def49567Az",
+            "6ff48d53/c8844795/00a1ed2fc4Az",
+            "6ff48d53/f9563cb2/001803eb7aAz"
+          ]
+        },
+        {
+          "id": "confirmation-month-1",
+          "taskId": "confirmation-month",
+          "family": "month",
+          "trial": 1,
+          "config": {
+            "family": "month",
+            "root": "81cce53a",
+            "sealed": "f83a3da7",
+            "aliases": {
+              "invoice": "c6cdb75c",
+              "memo": "f2863aeb",
+              "notice": "5a419e67"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "009c45369fAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "004ede1784Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00d541d80aAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00b47d17afAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "002894753eAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "006a5ae587Az",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "81cce53a/2035/02/c6cdb75c/009c45369fAz",
+            "81cce53a/2035/11/f2863aeb/004ede1784Az",
+            "81cce53a/2035/02/5a419e67/00d541d80aAz",
+            "f83a3da7/c6cdb75c/00b47d17afAz",
+            "f83a3da7/f2863aeb/002894753eAz",
+            "f83a3da7/5a419e67/006a5ae587Az"
+          ]
+        },
+        {
+          "id": "confirmation-day-0",
+          "taskId": "confirmation-day",
+          "family": "day",
+          "trial": 0,
+          "config": {
+            "family": "day",
+            "root": "4ea7f3b7",
+            "sealed": "bf9ae2e8",
+            "aliases": {
+              "invoice": "27fc6d7b",
+              "memo": "e233d5ed",
+              "notice": "63600aec"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "008acdb82aAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0042e58a1bAz",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00651075e8Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00c602ff4bAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00f67043f0Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00d4e32411Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "4ea7f3b7/2034/02/17/27fc6d7b/008acdb82aAz",
+            "4ea7f3b7/2034/11/17/e233d5ed/0042e58a1bAz",
+            "4ea7f3b7/2034/02/17/63600aec/00651075e8Az",
+            "bf9ae2e8/27fc6d7b/00c602ff4bAz",
+            "bf9ae2e8/e233d5ed/00f67043f0Az",
+            "bf9ae2e8/63600aec/00d4e32411Az"
+          ]
+        },
+        {
+          "id": "confirmation-day-1",
+          "taskId": "confirmation-day",
+          "family": "day",
+          "trial": 1,
+          "config": {
+            "family": "day",
+            "root": "bcbf77c4",
+            "sealed": "6ea8019e",
+            "aliases": {
+              "invoice": "5d473e91",
+              "memo": "bcdeba7e",
+              "notice": "f0b6e494"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00f8ff82ffAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "006492ca2fAz",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00d4c63f63Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00c70115e0Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00c0e0fa80Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00b089b05fAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "bcbf77c4/2035/02/17/5d473e91/00f8ff82ffAz",
+            "bcbf77c4/2035/11/17/bcdeba7e/006492ca2fAz",
+            "bcbf77c4/2035/02/17/f0b6e494/00d4c63f63Az",
+            "6ea8019e/5d473e91/00c70115e0Az",
+            "6ea8019e/bcdeba7e/00c0e0fa80Az",
+            "6ea8019e/f0b6e494/00b089b05fAz"
+          ]
+        },
+        {
+          "id": "confirmation-year-0",
+          "taskId": "confirmation-year",
+          "family": "year",
+          "trial": 0,
+          "config": {
+            "family": "year",
+            "root": "845b1f80",
+            "sealed": "58133419",
+            "aliases": {
+              "invoice": "8bfe2ae1",
+              "memo": "9e63de69",
+              "notice": "8f6dd6ca"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0096ec5bebAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00a7760c82Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00d9d097a3Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "009d94c0a7Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00324f0caaAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0002bc8119Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "845b1f80/2034/8bfe2ae1/0096ec5bebAz",
+            "845b1f80/2034/9e63de69/00a7760c82Az",
+            "845b1f80/2034/8f6dd6ca/00d9d097a3Az",
+            "58133419/8bfe2ae1/009d94c0a7Az",
+            "58133419/9e63de69/00324f0caaAz",
+            "58133419/8f6dd6ca/0002bc8119Az"
+          ]
+        },
+        {
+          "id": "confirmation-year-1",
+          "taskId": "confirmation-year",
+          "family": "year",
+          "trial": 1,
+          "config": {
+            "family": "year",
+            "root": "8dba5924",
+            "sealed": "cfc2cdc2",
+            "aliases": {
+              "invoice": "95c350af",
+              "memo": "42f517ed",
+              "notice": "fd52ec7b"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "009b4ba9cbAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00999bd25cAz",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00f64ba541Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "007d55b0d0Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00d8053a68Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00e2dbe9bdAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "8dba5924/2035/95c350af/009b4ba9cbAz",
+            "8dba5924/2035/42f517ed/00999bd25cAz",
+            "8dba5924/2035/fd52ec7b/00f64ba541Az",
+            "cfc2cdc2/95c350af/007d55b0d0Az",
+            "cfc2cdc2/42f517ed/00d8053a68Az",
+            "cfc2cdc2/fd52ec7b/00e2dbe9bdAz"
+          ]
+        },
+        {
+          "id": "confirmation-identity-0",
+          "taskId": "confirmation-identity",
+          "family": "identity",
+          "trial": 0,
+          "config": {
+            "family": "identity",
+            "root": "e1b8705a",
+            "sealed": "2836bedd",
+            "aliases": {
+              "invoice": "6eebb5a4",
+              "memo": "25038001",
+              "notice": "d26ed8f8"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "003d2e458eAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "003b42c842Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00e3906069Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "006dc0858fAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00421b0cd2Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00b21076fbAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "e1b8705a/003d2e458eAz",
+            "e1b8705a/003b42c842Az",
+            "e1b8705a/00e3906069Az",
+            "e1b8705a/006dc0858fAz",
+            "e1b8705a/00421b0cd2Az",
+            "e1b8705a/00b21076fbAz"
+          ]
+        },
+        {
+          "id": "confirmation-identity-1",
+          "taskId": "confirmation-identity",
+          "family": "identity",
+          "trial": 1,
+          "config": {
+            "family": "identity",
+            "root": "31c84cbe",
+            "sealed": "ec7b8704",
+            "aliases": {
+              "invoice": "bb5935da",
+              "memo": "7e77d254",
+              "notice": "f79ff8c7"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "009ad4ab07Az",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00d56bd700Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "009c07c8ebAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "000287e27bAz",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00af67f37cAz",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0057107b3aAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "31c84cbe/009ad4ab07Az",
+            "31c84cbe/00d56bd700Az",
+            "31c84cbe/009c07c8ebAz",
+            "31c84cbe/000287e27bAz",
+            "31c84cbe/00af67f37cAz",
+            "31c84cbe/0057107b3aAz"
+          ]
+        },
+        {
+          "id": "confirmation-kind-0",
+          "taskId": "confirmation-kind",
+          "family": "kind",
+          "trial": 0,
+          "config": {
+            "family": "kind",
+            "root": "5c44fdd7",
+            "sealed": "cc18a3d8",
+            "aliases": {
+              "invoice": "f58395c7",
+              "memo": "51d1cdc1",
+              "notice": "1d94ab9b"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00f621ea5bAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00da7a6ab0Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "005eaeddbbAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "00be900b73Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "0036e43cd6Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "0024f42dadAz",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "5c44fdd7/f58395c7/00f621ea5bAz",
+            "5c44fdd7/51d1cdc1/00da7a6ab0Az",
+            "5c44fdd7/1d94ab9b/005eaeddbbAz",
+            "5c44fdd7/f58395c7/00be900b73Az",
+            "5c44fdd7/51d1cdc1/0036e43cd6Az",
+            "5c44fdd7/1d94ab9b/0024f42dadAz"
+          ]
+        },
+        {
+          "id": "confirmation-kind-1",
+          "taskId": "confirmation-kind",
+          "family": "kind",
+          "trial": 1,
+          "config": {
+            "family": "kind",
+            "root": "4fb7242f",
+            "sealed": "d85d1daa",
+            "aliases": {
+              "invoice": "13af6079",
+              "memo": "0d7509aa",
+              "notice": "325d7f41"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00bf9d848eAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "00c2e0a2e6Az",
+              "date": "2035-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "007e078e0dAz",
+              "date": "2035-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "0088c088c8Az",
+              "date": "2035-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "00bb8a13a8Az",
+              "date": "2035-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "000d5b41ceAz",
+              "date": "2035-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "4fb7242f/13af6079/00bf9d848eAz",
+            "4fb7242f/0d7509aa/00c2e0a2e6Az",
+            "4fb7242f/325d7f41/007e078e0dAz",
+            "4fb7242f/13af6079/0088c088c8Az",
+            "4fb7242f/0d7509aa/00bb8a13a8Az",
+            "4fb7242f/325d7f41/000d5b41ceAz"
+          ]
+        }
+      ],
+      "holdout": [
+        {
+          "id": "holdout-month-0",
+          "taskId": "holdout-month",
+          "family": "month",
+          "trial": 0,
+          "config": {
+            "family": "month",
+            "root": "e1ffcf0b",
+            "sealed": "a28f6e9a",
+            "aliases": {
+              "invoice": "5f48343f",
+              "memo": "4dcebe1e",
+              "notice": "41746d16"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "00b36b5e45Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0054ff04e8Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00d0dd5911Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "001e1eff5fAz",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "0055357309Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00edf95ab5Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "e1ffcf0b/2034/02/5f48343f/00b36b5e45Az",
+            "e1ffcf0b/2034/11/4dcebe1e/0054ff04e8Az",
+            "e1ffcf0b/2034/02/41746d16/00d0dd5911Az",
+            "a28f6e9a/5f48343f/001e1eff5fAz",
+            "a28f6e9a/4dcebe1e/0055357309Az",
+            "a28f6e9a/41746d16/00edf95ab5Az"
+          ]
+        },
+        {
+          "id": "holdout-day-0",
+          "taskId": "holdout-day",
+          "family": "day",
+          "trial": 0,
+          "config": {
+            "family": "day",
+            "root": "4d698291",
+            "sealed": "070dd6d1",
+            "aliases": {
+              "invoice": "1d27976e",
+              "memo": "a90d0a51",
+              "notice": "16904a30"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "0066cccb42Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "0088f5d1cdAz",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00a84fdf45Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "001a026dc5Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "009d451411Az",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "00f0673ed5Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "4d698291/2034/02/17/1d27976e/0066cccb42Az",
+            "4d698291/2034/11/17/a90d0a51/0088f5d1cdAz",
+            "4d698291/2034/02/17/16904a30/00a84fdf45Az",
+            "070dd6d1/1d27976e/001a026dc5Az",
+            "070dd6d1/a90d0a51/009d451411Az",
+            "070dd6d1/16904a30/00f0673ed5Az"
+          ]
+        },
+        {
+          "id": "holdout-year-0",
+          "taskId": "holdout-year",
+          "family": "year",
+          "trial": 0,
+          "config": {
+            "family": "year",
+            "root": "b651fcf8",
+            "sealed": "71028134",
+            "aliases": {
+              "invoice": "ffa392a7",
+              "memo": "ff83c09a",
+              "notice": "c4e92a57"
+            }
+          },
+          "tests": [
+            {
+              "kind": "invoice",
+              "id": "002d6f611cAz",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "memo",
+              "id": "000fdbf037Az",
+              "date": "2034-11-17",
+              "sealed": false
+            },
+            {
+              "kind": "notice",
+              "id": "00b68215a8Az",
+              "date": "2034-02-17",
+              "sealed": false
+            },
+            {
+              "kind": "invoice",
+              "id": "0085e66e26Az",
+              "date": "2034-11-23",
+              "sealed": true
+            },
+            {
+              "kind": "memo",
+              "id": "000c7fbf3dAz",
+              "date": "2034-02-23",
+              "sealed": true
+            },
+            {
+              "kind": "notice",
+              "id": "005ea704e1Az",
+              "date": "2034-11-23",
+              "sealed": true
+            }
+          ],
+          "expected": [
+            "b651fcf8/2034/ffa392a7/002d6f611cAz",
+            "b651fcf8/2034/ff83c09a/000fdbf037Az",
+            "b651fcf8/2034/c4e92a57/00b68215a8Az",
+            "71028134/ffa392a7/0085e66e26Az",
+            "71028134/ff83c09a/000c7fbf3dAz",
+            "71028134/c4e92a57/005ea704e1Az"
+          ]
+        }
+      ],
+      "protection": {
+        "verification": [
+          "verification-identity",
+          "verification-kind"
+        ],
+        "confirmation": [
+          "confirmation-identity",
+          "confirmation-kind"
+        ]
+      },
+      "trainingSha256": "f84d78efbe1b900dd0075718da28687d59b5420108427f584368b48dc17b16bf",
+      "sourceHashes": {
+        "research/resident/exploration-policy-environment.mjs": "4b9f9f288255f7d535744940f1bcda02fb1276abf152d2b3903fb2356266828b",
+        "research/resident/exploration-policy-host.mjs": "a5344bdf15607e64fe647d545134461cf8b20356cf4a04cc55d80e4330e53926",
+        "research/resident/exploration-policy-study.mjs": "2afb78b2e8a2d93490dac18886e7db95d605e9983ef978eed67d95f524a4df24",
+        "packages/sdk/dist/manager/resident/learning.js": "c6bc9729a952fe85a113a123950c36355845cf8352a0499d54e895dcc723f2b1",
+        "packages/sdk/dist/manager/resident/learning-cycle.js": "a04f0f3a11cf700969438782a8d3950bd98af93a5783f8a81d06f378a00797f7"
+      }
+    },
+    "cycleStatus": "failed",
+    "review": null,
+    "rounds": {
+      "verification": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "confirmation": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "holdout": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      }
+    },
+    "runs": 2,
+    "tokens": 0,
+    "evidenceSha256": "e68ad80c89f5a02318885aa139ab13d74ed9aaa947edbf5de6157018830d439d",
+    "auditVerified": true
+  }
+]

@@ -7,7 +7,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import * as sdk from '../../packages/sdk/dist/index.js'
 import { suite, episode, baselinePolicy } from './exploration-policy-environment.mjs'
-import { evaluateEpisode, sha, skillName } from './exploration-policy-host.mjs'
+import { createStudyProvider, evaluateEpisode, sha, skillName } from './exploration-policy-host.mjs'
 import { model } from './tool-learning-host.mjs'
 
 const repo = fileURLToPath(new URL('../../', import.meta.url)), cli = join(repo, 'packages/cli/dist/bin.js')
@@ -49,12 +49,28 @@ async function inspect(root) {
 if (args.includes('--prepare')) {
   const root = await mkdtemp(join(tmpdir(), 'namzu-exploration-policy-')), seed = randomUUID(), live = args.includes('--live')
   assert.ok(!live || !args.includes('--control-provider-error'), 'Scripted provider faults cannot be enabled in a live study.')
+  const provider = args.includes('--provider') ? arg('--provider') : 'zen'
+  const selectedModel = args.includes('--model') ? arg('--model') : model
+  const effortArg = args.includes('--effort') ? arg('--effort') : 'low'
+  const effort = effortArg === 'default' ? null : effortArg
+  assert.ok(['zen', 'codex'].includes(provider), 'Choose zen or codex before preparation.')
+  assert.ok(typeof selectedModel === 'string' && /^[A-Za-z0-9._-]+$/.test(selectedModel), 'An exact model ID is required.')
+  assert.ok(effort === null || ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(effort), 'Choose an exact effort or default.')
+  if (live) {
+    const driver = await createStudyProvider({ provider, model: selectedModel })
+    const catalogue = await driver.listModels(AbortSignal.timeout(10000))
+    const selected = catalogue.find(m => m.id === selectedModel)
+    assert.ok(selected, 'Selected model is absent from the current provider catalogue.')
+    const levels = driver.reasoningEffortLevelsFor?.(selectedModel) ?? selected.effortLevels
+    assert.ok(effort === null || levels?.includes(effort), 'The selected model does not advertise this effort; use default or a listed value.')
+    await writeFile(join(root, 'selected-model.json'), JSON.stringify({ provider, model: selectedModel, effort, metadata: selected }, null, 2))
+  }
   await mkdir(join(root, 'workspace')); await mkdir(join(root, 'home'))
   const priorPath = join(repo, 'research/resident/results/2026-09-14-autonomous-learning-muse.json'), prior = await json(priorPath)
   const training = { sourceRunId: prior.observations.evidence.key, sourceReportSha256: sha(await readFile(priorPath, 'utf8')),
     coldFailure: prior.events[0].data.failure, observations: prior.observations, explorerTokens: prior.runs.find(r => r.label === 'explore').tokens,
     result: { verification: prior.rounds.verification, confirmation: prior.rounds.confirmation } }
-  const spec = { version: 1, live, seed, createdAt: Date.now(), model, effort: 'low', baselinePolicy,
+  const spec = { version: 2, live, seed, createdAt: Date.now(), provider, model: selectedModel, effort, baselinePolicy,
     controlProviderError: args.includes('--control-provider-error'),
     limits: { records: 8, explorationIterations: 6, explorationTokens: 16000, predictionTokens: 12000, timeoutMs: 120000 },
     verification: suite(seed, 'verification'), confirmation: suite(seed, 'confirmation'),
@@ -64,7 +80,7 @@ if (args.includes('--prepare')) {
   for (const name of ['exploration-policy-environment.mjs', 'exploration-policy-host.mjs', 'exploration-policy-study.mjs']) spec.sourceHashes[`research/resident/${name}`] = sha(await readFile(join(repo, 'research/resident', name), 'utf8'))
   for (const name of ['learning.js', 'learning-cycle.js']) spec.sourceHashes[`packages/sdk/dist/manager/resident/${name}`] = sha(await readFile(join(repo, 'packages/sdk/dist/manager/resident', name), 'utf8'))
   await writeFile(join(root, 'spec.json'), JSON.stringify(spec, null, 2)); await writeFile(join(root, 'training.json'), JSON.stringify(training, null, 2))
-  await writeFile(join(root, 'home/preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'zen', model }], subagents: { active: [] } }))
+  await writeFile(join(root, 'home/preferences.json'), JSON.stringify({ version: 3, providers: [{ id: provider, model: selectedModel }], subagents: { active: [] } }))
   await writeFile(join(root, 'home/config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\n')
   await writeFile(join(root, 'experiment.learning.mjs'), `import host from ${JSON.stringify(new URL('./exploration-policy-host.mjs', import.meta.url).href)};\nexport default context => host(context, ${JSON.stringify(root)});\n`)
   console.log(JSON.stringify({ root, live, command: `${process.execPath} ${fileURLToPath(import.meta.url)} --run ${root}` }))
@@ -93,4 +109,4 @@ if (args.includes('--prepare')) {
   console.log(JSON.stringify({ status: report.cycle?.status, rounds: report.rounds, tokens: report.tokens, unknownRuns: report.unknownRuns, error }))
 } else if (args.includes('--inspect')) {
   const { report } = await inspect(arg('--inspect')); console.log(JSON.stringify({ status: report.cycle?.status, rounds: report.rounds, tokens: report.tokens }))
-} else throw new Error('Use --prepare [--live], --run <root>, or --inspect <root>.')
+} else throw new Error('Use --prepare [--live] [--provider zen|codex --model ID --effort low|default], --run <root>, or --inspect <root>.')

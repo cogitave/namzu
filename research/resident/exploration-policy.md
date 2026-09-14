@@ -164,6 +164,23 @@ be combined with `--live`. Do not resume the cancelled live batch or fill its mi
 measurements with new calls; prepare a separately identified experiment when the
 provider is available, and retain the original outcome.
 
+An explicitly selected alternative starts a separate experiment. Both arms,
+proposal generation and the frozen predictor use the recorded provider/model/effort;
+there is no fallback during a study:
+
+```sh
+node research/resident/exploration-policy-study.mjs --prepare --live --provider codex --model gpt-5.6-terra --effort low
+```
+
+Preparation checks the live catalogue and its exact effort menu without inference.
+Use `--effort default` for a model that advertises no selectable effort. Codex
+uses its already installed session in memory; the research host does not refresh
+or write borrowed credentials. The study also supplies an explicit cancellation
+deadline around each model run, including an in-flight stream. Availability
+checks are recorded separately from scored trials; the
+[alternative-provider investigation](exploration-policy-terra.md) retains those
+checks and its independently identified experiment.
+
 ```sh
 node research/resident/exploration-policy-study.mjs --inspect /absolute/study/root
 node research/resident/exploration-policy-audit.mjs /absolute/study/root

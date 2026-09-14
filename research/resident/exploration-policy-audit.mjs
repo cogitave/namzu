@@ -32,7 +32,12 @@ for (const run of runs) {
   if (final.type === 'run_failed') { assert.equal(run.stopReason, 'error'); assert.equal(final.error, run.error) }
   else { assert.equal(final.result ?? '', run.output ?? ''); assert.equal(final.stopReason, run.stopReason) }
   assert.equal(record.tokenUsage.totalTokens, run.tokens)
-  if (spec.live) { assert.equal(record.metadata.config.model, spec.model); assert.equal(record.metadata.config.effort, 'low') }
+  if (spec.live) {
+    assert.equal(record.metadata.config.model, spec.model)
+    assert.equal(record.metadata.provider, spec.provider ?? 'zen')
+    assert.equal(record.metadata.config.effort ?? null, spec.effort ?? null)
+    if (spec.version >= 2) { assert.equal(run.model, spec.model); assert.equal(run.provider, spec.provider); assert.equal(run.effort, spec.effort) }
+  }
   const stored = await json(join(dir, 'messages.json')), visible = JSON.stringify(stored.messages)
   originalMessages.set(run.label, stored.messages)
   if (!run.label.endsWith('/predict')) {
@@ -82,11 +87,13 @@ for (const row of report.episodes) {
   try { actual = JSON.parse(predictor.output.replace(/^```(?:json)?\s*|\s*```$/g, '')) } catch { actual = null }
   const correct = Array.isArray(actual) ? e.expected.filter((answer, i) => answer === actual[i]).length : 0
   assert.equal(row.correct, correct)
+  assert.equal(row.complete, explorer.stopReason === 'end_turn' && predictor.stopReason === 'end_turn')
   assert.equal(row.passed, explorer.stopReason === 'end_turn' && predictor.stopReason === 'end_turn' && Array.isArray(actual) && actual.length === e.expected.length && correct === e.expected.length)
 }
 assert.equal(report.tokens, runs.reduce((n,r) => n+r.tokens,0))
 const receipts = report.events.filter(e => e.kind === 'usage').map(e => e.data.receipt)
 assert.equal(new Set(receipts.map(r => r.runId)).size, receipts.length)
+assert.deepEqual(new Set(receipts.map(r => r.runId)), new Set(runs.filter(r => !r.label.startsWith('holdout-')).map(r => r.runId)))
 for (const receipt of receipts) {
   const run = runs.find(r => r.runId === receipt.runId); assert.ok(run)
   assert.equal(receipt.tokens, run.usageComplete ? run.tokens : null)
@@ -106,6 +113,10 @@ if (verification) {
       const row = report.episodes.find(r => r.predictorRunId === trial.trajectoryId)
       assert.ok(row); assert.equal(row.passed, trial.result.passed)
       assert.equal(row.tokens, trial.result.run.totalTokens)
+      const episode = spec[stage].find(e => e.id === row.episode)
+      assert.equal(trial.conditions, sha({ episode, limits: spec.limits,
+        ...(spec.version >= 2 ? { provider: spec.provider } : {}), model: spec.model,
+        effort: spec.effort ?? null, baselinePolicy, predictionInstructions }))
     }
     assert.equal(report.episodes.filter(r => r.episode.startsWith(stage)).length, 20)
   }
