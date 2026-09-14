@@ -76,7 +76,7 @@ Old profile snapshots remain available through `readRevision(agendaRevision)`.
 `ResidentSkillCandidate` contains `name`, `description`, and instructional
 `body`, capped at 64, 1,000 and 4,000 characters respectively. Leading/trailing
 whitespace is normalized. `hashResidentSkill(candidate)` hashes the normalized
-three-field tuple with SHA-256; changing any field changes its approval identity.
+three-field tuple with SHA-256. Optional source bindings extend that tuple; changing content or a declared source revision changes its approval identity.
 
 `promoteSkill(expectedAgenda, candidate, ResidentSkillEvaluation, evidence)`
 binds both verification rounds' `candidateRevision` to that digest and
@@ -109,6 +109,42 @@ it never decreases a revision or erases history. Current preferences,
 self-description and other skills remain intact. Recovery from changed
 requirements is an explicit host decision; regression does not start a hidden
 monitor or rollback service.
+
+## Source-dependent guidance
+
+A candidate may declare `sources: [{ key, revision }]`: up to eight unique,
+nonempty host-owned source identities and their revisions. The host supplies and
+checks those bindings; a model-generated digest is not source verification.
+Bindings are normalized, sorted by key, included in the approval hash and retained
+through generation, evaluation, activation, immutable storage and rollback.
+Unbound candidates retain their existing hashes and behavior.
+
+`projectResidentLearning` accepts an optional `sources` array of current host
+observations. Every dependency must match exactly. Missing observations produce
+`unverified-source`; mismatching observed revisions produce `changed-source`.
+Such skills contribute to `omitted` and `withheldSkills`, and **their bodies are
+not projected**. The stored skill is preserved for historical inspection. Other
+skills and profile entries remain eligible. A matching revision establishes only
+that declared dependencies match, not that the guidance is correct or complete.
+
+`createResidentStepContributions` accepts `resolveLearningSources`, a synchronous
+host callback invoked for each model request. Bound guidance uses the existing
+`turn` contribution, outside the standing cached prompt and durable transcript.
+It is reconsidered after tool execution and on each new admission. A throwing
+resolver withholds bound guidance. Hosts must use bounded observation work and
+reconstruct the resolver when reopening a session. Undeclared dependencies and
+unbound profile facts cannot be invalidated automatically by this mechanism.
+A change during an in-flight provider request is visible on the next request;
+this is not a filesystem transaction or an action authorization check.
+
+The CLI resident profile recognizes `workspace-file:<relative/posix/path>` keys
+with lowercase SHA-256 byte revisions. It rehashes declared regular files inside
+the bound workspace, refusing symlinks, traversal, absent/unreadable files and
+files over 256 KiB. Each request reads at most 1 MiB of dependency bytes; anything
+outside that observation budget stays unverified. Unknown key namespaces also
+stay unverified. The legacy `interactive` resident context profile conservatively
+withholds source-bound skills because it uses a fixed invocation snapshot.
+These bounds limit context observation work, not user token or run budgets.
 
 ## Admitted context
 

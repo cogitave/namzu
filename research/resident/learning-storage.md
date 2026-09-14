@@ -235,3 +235,11 @@ loader error (`encodeCodeValue` export unavailable). Its isolated five-test suit
 and the complete CLI suite subsequently passed without changing that source.
 The transient loader failure's cause was not established. No publish or consumer
 registry-install claim is made by these local results.
+
+## Source-validity follow-up
+
+The [source-freshness follow-up](source-freshness.md) adds optional revision-bound
+guidance, rechecks it per model request, and records real resident CLI and TUI
+observations, including external edits and conversation reopening. Its new
+read/search-aware learning evaluation remains inconclusive; the recorded failures
+and absence of real-tool activation are preserved.

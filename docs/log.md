@@ -2,6 +2,8 @@
 
 ## 2026-09-14
 
+- **Update** Bind optional [resident guidance](sdk/resident-learning.md#source-dependent-guidance) to host-observed source revisions and withhold changed or unavailable dependencies before each request. Distinguish uncertain usage from exhausted allowance in [TUI run stops](cli/run-limits.md).
+
 - **Update** [CLI run limits](cli/run-limits.md) default to unlimited tokens, iterations and duration. `/config` now edits per-session limits for future turns and their built-in children while retaining usage accounting and the active run’s captured limits. SDK embedding defaults remain unchanged.
 
 - **Update** Allow explicit unlimited [CLI run limits](cli/run-limits.md) and [SDK iteration/time guards](sdk/token-budgets.md#limits-of-the-guarantee), preserving usage accounting and cancellation while forwarding configured limits to built-in children.

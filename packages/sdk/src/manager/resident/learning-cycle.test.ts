@@ -128,6 +128,37 @@ async function fixture() {
 }
 
 describe('resident learning cycle', () => {
+	it('keeps source bindings through generation, confirmation, persistence and a later baseline', async () => {
+		const f = await fixture()
+		const sources = [{ key: 'host:policy', revision: 'version-one' }]
+		const candidate = { ...skill, sources }
+		const first = await runResidentLearningCycle({
+			...f.options,
+			generate: async (context) => {
+				await context.recordUsage({ runId: randomUUID(), tokens: 1, costUsd: 0 })
+				return { candidate, usageComplete: true }
+			},
+			evaluate: async (context) => {
+				expect(context.candidate.sources).toEqual(sources)
+				expect(Object.isFrozen(context.candidate.sources?.[0])).toBe(true)
+				return f.options.evaluate(context)
+			},
+		})
+		expect(first.status).toBe('activated')
+		expect(
+			(await snapshot(new DiskResidentAgenda(f.root, f.scope))).learning?.skills[0]?.sources,
+		).toEqual(sources)
+		const second = await runResidentLearningCycle({
+			...f.options,
+			generate: async (context) => {
+				expect(context.baseline?.sources).toEqual(sources)
+				await context.recordUsage({ runId: randomUUID(), tokens: 1, costUsd: 0 })
+				return { candidate, usageComplete: true }
+			},
+		})
+		expect(second.status).toBe('rejected')
+		expect(second.reason).toContain('identical')
+	})
 	it('generates, verifies, confirms and atomically activates exact guidance; reopening and rollback reach admitted context', async () => {
 		const f = await fixture()
 		const parentCycleId = randomUUID()

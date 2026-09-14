@@ -38,6 +38,7 @@ import type { CliSessions } from '../sessions/store.js'
 import { publishPrivateJsonIfAbsent } from '../state/immutable-json.js'
 import { ensurePrivateStateDirectory } from '../state/private-directory.js'
 import { type AttachedSessionExport, attachSessionExport } from '../telemetry/session-export.js'
+import { residentLearningSources } from './learning-sources.js'
 import { ResidentCleanupUnconfirmedError } from './lifecycle-errors.js'
 import { residentToolEvidence } from './tool-evidence.js'
 import {
@@ -432,6 +433,7 @@ export function createResidentSessionStep(
 								residentContext: {
 									state: pursuit.state,
 									learning: context.learning,
+									resolveLearningSources: residentLearningSources(cwd, context.learning),
 									history: history?.scope,
 									toolEvidence: !!toolEvidence,
 									readOnly: mode.mode === 'plan',

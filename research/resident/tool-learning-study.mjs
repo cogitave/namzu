@@ -18,6 +18,8 @@ const signal = AbortSignal.timeout(900000)
 const report = {
   root,
   live,
+  evidenceVersion: 2,
+  caseConcurrency: 2,
   model: live ? model : 'mock-model',
   effort: 'low',
   limits: {
@@ -53,7 +55,7 @@ const fingerprint = async () =>
 report.buildBefore = await fingerprint()
 report.producerHashes = Object.fromEntries(
   await Promise.all(
-    ['tool-learning-study.mjs', 'tool-learning-host.mjs'].map(async (p) => [
+    ['tool-learning-study.mjs', 'tool-learning-host.mjs', 'tool-learning-evidence.mjs'].map(async (p) => [
       p,
       sha(await readFile(new URL(p, import.meta.url))),
     ]),

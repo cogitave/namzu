@@ -1,6 +1,6 @@
 /** A resource stop must not look like the agent quietly forgot the conversation. */
 
-import type { Message, StopReason } from '@namzu/sdk'
+import type { Message, StopReason, TokenBudgetSummary } from '@namzu/sdk'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 import type { Preferences } from '../../integrations/providers/index.js'
@@ -17,6 +17,7 @@ const partial = 'I inspected the package entry points.'
 const followup = 'Continue from those findings.'
 const sent: Message[][] = []
 let stopReason: StopReason | undefined
+let budget: TokenBudgetSummary | undefined
 
 vi.mock('../../integrations/trust/store.js', () => ({ isTrusted: () => true, trustDir: () => {} }))
 vi.mock('../../integrations/updates.js', () => ({ checkUpdates: async () => [] }))
@@ -41,7 +42,11 @@ vi.mock('../agent.js', async (importOriginal) => {
 					sent.push([...messages])
 					if (sent.length === 1) {
 						yield { kind: 'delta', text: partial }
-						yield { kind: 'done', ...(stopReason ? { stopReason } : {}) }
+						yield {
+							kind: 'done',
+							...(stopReason ? { stopReason } : {}),
+							...(budget ? { budget } : {}),
+						}
 					} else {
 						yield { kind: 'delta', text: 'Continuing with the retained findings.' }
 						yield { kind: 'done', stopReason: 'end_turn' }
@@ -56,6 +61,35 @@ const { App } = await import('../App.js')
 beforeEach(() => {
 	sent.length = 0
 	stopReason = undefined
+	budget = undefined
+})
+
+it('shows missing usage rather than exhausted allowance for an unlimited run', async () => {
+	stopReason = 'token_budget'
+	budget = {
+		limit: 0,
+		ownTokens: 0,
+		treeTokens: 0,
+		reservedTokens: 0,
+		remainingTokens: 0,
+		inFlightRequests: 1,
+		unsettledChildren: 0,
+		poisoned: true,
+		unresolvedRequests: 1,
+	}
+	const screen = await renderToScreen(
+		<App ctx={{ cwd: '/workspace/namzu', version: '0.0.0-test' }} />,
+		{ cols: 100, rows: 30 },
+	)
+	try {
+		await until(screen, () => screen.viewport().join('\n').includes('stop-fixture default'))
+		await submit(screen, 'Inspect the current source.')
+		await until(screen, () => screen.viewport().join('\n').includes('could not be confirmed'))
+		expect(screen.viewport().join('\n')).not.toContain('allowance could not cover')
+		expect(screen.viewport().join('\n')).toContain('Type a message')
+	} finally {
+		await screen.unmount()
+	}
 })
 
 async function until(screen: Screen, predicate: () => boolean): Promise<void> {

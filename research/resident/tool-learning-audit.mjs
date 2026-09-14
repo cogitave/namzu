@@ -1,5 +1,6 @@
 // Read-only audit of an isolated producer directory. No model/provider initialization.
 import assert from 'node:assert/strict'
+import { observesCurrentSource, scoreSourceObservation } from './tool-learning-evidence.mjs'
 import { createHash } from 'node:crypto'
 import { readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -56,7 +57,7 @@ export async function auditToolLearning(root) {
   for (const receipt of receipts) {
     const run = runs.find((r) => r.runId === receipt.runId)
     assert.ok(run)
-    assert.equal(receipt.tokens, run.stopReason === 'end_turn' ? run.tokens : null)
+    assert.equal(receipt.tokens, (run.evidenceVersion === 2 ? run.usageComplete : run.stopReason === 'end_turn') ? run.tokens : null)
   }
   const artifacts = await store.artifacts(cycle.cycleId)
   const retained = {}
@@ -91,15 +92,25 @@ export async function auditToolLearning(root) {
             t.name === 'read' &&
             [fixture.source, join(fixture.cwd, fixture.source)].includes(t.input.path),
         )
+        const observedSource = run.evidenceVersion === 2 ? observesCurrentSource(run.tools, fixture) : read
         correct += Number(exact)
-        grounded += Number(exact && read)
+        grounded += Number(exact && observedSource)
         ended += Number(run.stopReason === 'end_turn')
         // Evaluation may have a timeout before a trace; don't treat unavailable scoring as a pass.
         const score = c.scores?.['observed-source']
-        if (score?.details) {
+        if (score?.details && 'correct' in score.details) {
           assert.equal(score.details.correct, exact)
-          assert.equal(score.details.read, read)
-          assert.equal(score.score, Number(exact && read))
+          if (run.evidenceVersion === 2) {
+            const rescored = scoreSourceObservation({ output: run.output, toolCalls: run.tools, stopReason: run.stopReason }, { input: fixture, expected: fixture.expected })
+            assert.deepEqual(score, rescored)
+          } else {
+            assert.equal(score.details.read, read)
+            assert.equal(score.score, Number(exact && read))
+          }
+        } else if (score?.details?.error) {
+          assert.equal(score.score, 0)
+          assert.equal(c.status, 'failed')
+          assert.ok(score.reason.startsWith('run failed:'))
         }
         assert.equal(c.passed, Boolean(score && score.score === 1 && c.status === 'passed'))
       }

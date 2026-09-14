@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { HarnessTrial, HarnessVerificationBatch } from '../../eval/harness-verification.js'
 import type { CaseResult } from '../../eval/types.js'
 import {
+	type ResidentSkillCandidate,
 	hashResidentSkill,
 	projectResidentLearning,
 	promoteResidentSkill,
@@ -84,13 +85,50 @@ function batch(
 	}
 }
 
-function evaluation(candidate = skill(), baselineRevision = 'none') {
+function evaluation(candidate: ResidentSkillCandidate = skill(), baselineRevision = 'none') {
 	const digest = hashResidentSkill(candidate)
 	return {
 		verification: batch('verification', baselineRevision, digest),
 		confirmation: batch('confirmation', baselineRevision, digest),
 	}
 }
+
+describe('source-bound learning', () => {
+	const a = { key: 'workspace-file:map.json', revision: 'v1' }
+	const b = { key: 'database:policy', revision: 'revision-2' }
+	const candidate = { ...skill(), sources: [a, b] }
+	const active = () =>
+		promoteResidentSkill(undefined, candidate, evaluation(candidate), evidence('bound'))
+	it('binds canonical dependencies to approval and rejects duplicate identities', () => {
+		expect(hashResidentSkill(candidate)).toBe(hashResidentSkill({ ...candidate, sources: [b, a] }))
+		expect(hashResidentSkill(candidate)).not.toBe(hashResidentSkill(skill()))
+		expect(() => hashResidentSkill({ ...candidate, sources: [a, a] })).toThrow()
+		expect(() =>
+			promoteResidentSkill(
+				undefined,
+				{ ...candidate, sources: [b] },
+				evaluation(candidate),
+				evidence('wrong'),
+			),
+		).toThrow('digests')
+	})
+	it('withholds unavailable and changed dependencies, including after a JSON round trip', () => {
+		const state = JSON.parse(JSON.stringify(active()))
+		const options = { maxChars: 10000, skillNames: [candidate.name] }
+		for (const sources of [undefined, [a], [a, { ...b, revision: 'revision-3' }]]) {
+			const result = projectResidentLearning(state, { ...options, sources })
+			expect(result.text).not.toContain(candidate.body)
+			expect(result.includedSkills).toEqual([])
+			expect(result.withheldSkills).toHaveLength(1)
+			expect(result.omitted).toBe(1)
+		}
+		expect(projectResidentLearning(state, { ...options, sources: [b, a] }).includedSkills).toEqual([
+			candidate.name,
+		])
+		expect(state.skills[0].body).toBe(candidate.body)
+		expect(Object.isFrozen(active().skills[0]?.sources?.[0])).toBe(true)
+	})
+})
 
 describe('versioned resident preferences', () => {
 	it('corrects the named previous evidence without mutating the original profile', () => {
@@ -366,6 +404,7 @@ describe('bounded resident learning projection', () => {
 			revision: null,
 			includedSkills: [],
 			omitted: 1,
+			withheldSkills: [],
 		})
 		const candidate = skill()
 		const current = promoteResidentSkill(

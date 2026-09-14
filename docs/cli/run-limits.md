@@ -150,3 +150,8 @@ consuming tokens. A lost or incomplete provider receipt leaves unresolved spend.
 account and accounts sharing a finite ancestor allowance; healthy siblings under
 unlimited ancestors may continue. Usage totals remain explicitly incomplete. Waiting cannot establish the missing receipt;
 the run must retain that uncertainty instead of reopening its allowance.
+
+A stopped TUI run distinguishes a depleted token allowance from missing request
+usage or an accounting failure. The latter can also stop an unlimited run; the
+notice reports uncertainty rather than claiming the configured allowance ran out.
+`/cost` shows the available measurements, not a fabricated complete total.

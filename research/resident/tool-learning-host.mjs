@@ -4,12 +4,18 @@ import { createHash } from 'node:crypto'
 import { appendFile, readFile, readdir, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import * as sdk from '../../packages/sdk/dist/index.js'
+import { evidenceVersion, scoreSourceObservation } from './tool-learning-evidence.mjs'
 
 const hash = (value) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
 export const model = 'muse-spark-1.3-contributor-free'
 const base =
   'Inspect the workspace to answer the question using its current source. Files may contain older copies. Use read, glob or grep as needed. Return only the requested value, without prose or Markdown. Do not change files.'
-const normalize = (value) => (value ?? '').trim().replace(/^['"`]|['"`]$/g, '')
+export function usageIsComplete(run) {
+  const b = run.budget
+  return Number.isFinite(run.endedAt) && !!b && !b.poisoned &&
+    b.inFlightRequests === 0 && b.unsettledChildren === 0 && b.unresolvedRequests === 0 &&
+    b.ownTokens === run.tokenUsage.totalTokens
+}
 
 export async function executeCase(
   root,
@@ -90,6 +96,9 @@ export async function executeCase(
     lastError: run.lastError,
     lastProviderError: run.lastProviderError,
     tokens: run.tokenUsage.totalTokens,
+    budget: run.budget,
+    usageComplete: usageIsComplete(run),
+    evidenceVersion,
     cost: run.costInfo,
     durationMs: Date.now() - start,
     tools: calls,
@@ -98,9 +107,9 @@ export async function executeCase(
   if (context) {
     await context.recordUsage({
       runId: run.id,
-      tokens: run.stopReason === 'end_turn' ? record.tokens : null,
+      tokens: record.usageComplete ? record.tokens : null,
       costUsd:
-        run.stopReason === 'end_turn' && run.costInfo?.unpricedTokens === 0
+        record.usageComplete && run.costInfo?.unpricedTokens === 0
           ? run.costInfo.totalCost
           : null,
     })
@@ -174,15 +183,18 @@ export default async function createHost(host, root, live) {
         lastError: r.lastError,
         lastProviderError: r.lastProviderError,
         tokens: r.tokenUsage.totalTokens,
+        budget: r.budget,
+        usageComplete: usageIsComplete(r),
+        evidenceVersion,
         cost: r.costInfo,
         tools: [],
       }
       await appendFile(join(root, 'runs.jsonl'), JSON.stringify(retained) + '\n')
       await context.recordUsage({
         runId: r.id,
-        tokens: r.stopReason === 'end_turn' ? r.tokenUsage.totalTokens : null,
+        tokens: retained.usageComplete ? r.tokenUsage.totalTokens : null,
         costUsd:
-          r.stopReason === 'end_turn' && r.costInfo?.unpricedTokens === 0
+          retained.usageComplete && r.costInfo?.unpricedTokens === 0
             ? r.costInfo.totalCost
             : null,
       })
@@ -192,13 +204,14 @@ export default async function createHost(host, root, live) {
         candidate: JSON.parse(
           generated.output.replace(/^```(?:json)?\s*\n([\s\S]*?)\n```\s*$/u, '$1'),
         ),
-        usageComplete: true,
+        usageComplete: retained.usageComplete,
       }
     },
     evaluate: async (context) => {
       const phase = context.stage
       const fixtures = spec[phase]
       const reports = {}
+      const receipts = []
       // Rotate arm order between rounds; each case starts with a new tool registry/history.
       for (const arm of phase === 'verification'
         ? ['frozen', 'memory', 'guidance']
@@ -212,7 +225,7 @@ export default async function createHost(host, root, live) {
         reports[arm] = await sdk.runExperiment({
           name: `${phase}/${arm}`,
           cases: fixtures.map((f) => ({ name: f.id, input: f, expected: f.expected })),
-          concurrency: 1,
+          concurrency: 2,
           timeoutMs: 50000,
           passThreshold: 1,
           run: async (fixture, _case, caseSignal) => {
@@ -228,6 +241,7 @@ export default async function createHost(host, root, live) {
               host.store,
               arm !== 'frozen',
             )
+            receipts.push(record)
             return {
               output: record.output,
               steps: [],
@@ -245,26 +259,7 @@ export default async function createHost(host, root, live) {
               name: 'observed-source',
               severity: 'gate',
               threshold: 1,
-              score: (run, fixture) => {
-                const correct = normalize(run.output) === fixture.expected
-                const read = run.toolCalls.some(
-                  (t) =>
-                    t.name === 'read' &&
-                    (t.input.path === fixture.input.source ||
-                      t.input.path === join(fixture.input.cwd, fixture.input.source)),
-                )
-                return {
-                  score: Number(correct && read),
-                  reason:
-                    'Checked exact output and a read of the current authoritative source; model success claims are not used.',
-                  details: {
-                    correct,
-                    read,
-                    expected: fixture.expected,
-                    observed: normalize(run.output),
-                  },
-                }
-              },
+              score: scoreSourceObservation,
             },
           ],
         })
@@ -323,10 +318,7 @@ export default async function createHost(host, root, live) {
       process.stderr.write(JSON.stringify(summaries.at(-1)) + '\n')
       return {
         batch,
-        usageComplete:
-          reports.frozen.cases.every((c) => c.run.stopReason === 'end_turn') &&
-          reports.memory.cases.every((c) => c.run.stopReason === 'end_turn') &&
-          reports.guidance.cases.every((c) => c.run.stopReason === 'end_turn'),
+        usageComplete: receipts.length === fixtures.length * 3 && receipts.every((r) => r.usageComplete),
       }
     },
   }

@@ -10,6 +10,7 @@ import {
 	type ResidentLearningEvidence,
 	type ResidentSkillCandidate,
 	hashResidentSkill,
+	normalizeResidentSkill,
 	promoteResidentSkill,
 	residentLearningEvidenceSchema,
 } from './learning.js'
@@ -219,9 +220,7 @@ export async function runResidentLearningCycle(
 		if (snapshot.paused || snapshot.pursuits.some((p) => p.state.phase === 'running'))
 			throw new Error('Resident learning requires an unpaused agenda without running pursuits.')
 		const current = snapshot.learning?.skills.find((s) => s.name === skillName)
-		const baseline = current
-			? Object.freeze({ name: current.name, description: current.description, body: current.body })
-			: null
+		const baseline = current ? normalizeResidentSkill(current) : null
 		baselineRevision = baseline ? hashResidentSkill(baseline) : 'none'
 		await append('started', {
 			tenantId: snapshot.tenantId,
@@ -310,11 +309,7 @@ export async function runResidentLearningCycle(
 			options.generate(Object.freeze({ ...context, skillName, failure, baseline })),
 		)
 		candidateRevision = hashResidentSkill(generated.candidate)
-		candidate = Object.freeze({
-			name: generated.candidate.name.trim(),
-			description: generated.candidate.description.trim(),
-			body: generated.candidate.body.trim(),
-		})
+		candidate = normalizeResidentSkill(generated.candidate)
 		if (candidate.name !== skillName)
 			throw new Error('Generated guidance must retain the requested skill name.')
 		await append('candidate', { candidate, candidateRevision, baselineRevision })

@@ -491,3 +491,13 @@ rejected or inconclusive experiment, 130 for cancellation, and 1 for other
 execution outcomes. Usage errors return 64 and a refused trust admission 77.
 A failed final journal append preserves the actual activation acknowledgement
 and asks for evidence inspection. It never automatically retries an experiment.
+
+### Source-dependent retained guidance
+
+The default resident context profile rechecks declared `workspace-file:` learning
+sources before each model request. Changed or unavailable file revisions withhold
+the affected skill body while retaining its historical record. See the SDK
+[source binding contract](../sdk/resident-learning.md#source-dependent-guidance)
+for hashes, observation bounds and custom-host responsibilities. Source-free
+skills retain their existing behavior; the CLI does not infer dependency hashes
+from prose or treat approval as current source evidence.

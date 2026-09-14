@@ -1,0 +1,159 @@
+{
+  "root": "/tmp/namzu-bound-learning-k16EXS",
+  "model": "muse-spark-1.3-contributor-free",
+  "effort": "low",
+  "promotionEvidence": "scripted control, not empirical improvement",
+  "cases": [
+    {
+      "name": "matching",
+      "expected": "SOURCE_A_READY",
+      "phase": "complete",
+      "summary": "SOURCE_A_READY",
+      "includedSkills": [
+        "old-routing"
+      ],
+      "withheldSkills": []
+    },
+    {
+      "name": "changed",
+      "expected": "SOURCE_B_READY",
+      "phase": "complete",
+      "summary": "SOURCE_B_READY",
+      "includedSkills": [],
+      "withheldSkills": [
+        {
+          "name": "old-routing",
+          "reason": "changed-source",
+          "sourceKeys": [
+            "workspace-file:routing.json"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "missing",
+      "expected": "SOURCE_UNAVAILABLE",
+      "phase": "blocked",
+      "summary": "SOURCE_UNAVAILABLE",
+      "includedSkills": [],
+      "withheldSkills": [
+        {
+          "name": "old-routing",
+          "reason": "unverified-source",
+          "sourceKeys": [
+            "workspace-file:routing.json"
+          ]
+        }
+      ]
+    }
+  ],
+  "passed": true,
+  "rollback": true,
+  "inspection": {
+    "inspection": {
+      "scope": {
+        "tenantId": "5cd3b918-ae11-4b52-b0be-46b60b9b99ed",
+        "agentKey": "default",
+        "throughRevision": 12
+      },
+      "fromRevision": 1,
+      "throughRevision": 12,
+      "nextCursor": null,
+      "historyComplete": true,
+      "unavailableRevisions": [],
+      "historyBytes": 36404,
+      "receiptBytesReserved": 589824,
+      "archivedPursuits": [],
+      "attempts": [
+        {
+          "revision": 4,
+          "pursuitRevision": 2,
+          "pursuitId": "b47506b5-dcd2-41a9-9149-a3eac5818241",
+          "claimId": "9e1b10a3-90e1-45ca-a896-e27813d13204",
+          "step": 1,
+          "objective": "Read routing.json and the file it currently selects. Return complete with only that file\u2019s single line as summary. Do not modify files or run commands. If routing.json is unavailable, return blocked with summary SOURCE_UNAVAILABLE; never infer its current selection from history.",
+          "settlement": {
+            "revision": 5,
+            "pursuitId": "b47506b5-dcd2-41a9-9149-a3eac5818241",
+            "claimId": "9e1b10a3-90e1-45ca-a896-e27813d13204",
+            "outcome": "complete"
+          },
+          "receipt": {
+            "runId": "4d3a7e4a-bfb5-438d-811f-be2f023fdd32",
+            "ownTokens": 26195,
+            "treeTokens": 26195,
+            "ownCostUsd": 0,
+            "unpricedOwnTokens": 26195,
+            "usageFinal": true,
+            "cleanup": "confirmed",
+            "verification": "unconfigured"
+          },
+          "receiptStatus": "available"
+        },
+        {
+          "revision": 7,
+          "pursuitRevision": 2,
+          "pursuitId": "63c99a50-0e06-4162-bfa6-9c48ecedbc51",
+          "claimId": "c5a0667b-f284-4cb5-b252-a96f435c9837",
+          "step": 1,
+          "objective": "Read routing.json and the file it currently selects. Return complete with only that file\u2019s single line as summary. Do not modify files or run commands. If routing.json is unavailable, return blocked with summary SOURCE_UNAVAILABLE; never infer its current selection from history.",
+          "settlement": {
+            "revision": 8,
+            "pursuitId": "63c99a50-0e06-4162-bfa6-9c48ecedbc51",
+            "claimId": "c5a0667b-f284-4cb5-b252-a96f435c9837",
+            "outcome": "complete"
+          },
+          "receipt": {
+            "runId": "42273907-6ea9-4778-81c2-ea18b925391b",
+            "ownTokens": 25743,
+            "treeTokens": 25743,
+            "ownCostUsd": 0,
+            "unpricedOwnTokens": 25743,
+            "usageFinal": true,
+            "cleanup": "confirmed",
+            "verification": "unconfigured"
+          },
+          "receiptStatus": "available"
+        },
+        {
+          "revision": 10,
+          "pursuitRevision": 2,
+          "pursuitId": "85cb3857-510b-498d-8cf5-3d01ce5616b9",
+          "claimId": "96f936c3-206e-4e66-94b9-42fb70239935",
+          "step": 1,
+          "objective": "Read routing.json and the file it currently selects. Return complete with only that file\u2019s single line as summary. Do not modify files or run commands. If routing.json is unavailable, return blocked with summary SOURCE_UNAVAILABLE; never infer its current selection from history.",
+          "settlement": {
+            "revision": 11,
+            "pursuitId": "85cb3857-510b-498d-8cf5-3d01ce5616b9",
+            "claimId": "96f936c3-206e-4e66-94b9-42fb70239935",
+            "outcome": "blocked"
+          },
+          "receipt": {
+            "runId": "2d059b73-d2e7-4a6d-b675-96ca2e99a882",
+            "ownTokens": 17142,
+            "treeTokens": 17142,
+            "ownCostUsd": 0,
+            "unpricedOwnTokens": 17142,
+            "usageFinal": true,
+            "cleanup": "confirmed",
+            "verification": "unconfigured"
+          },
+          "receiptStatus": "available"
+        }
+      ],
+      "recorded": {
+        "ownTokens": 69080,
+        "treeTokens": 69080,
+        "ownCostUsd": 0,
+        "unpricedOwnTokens": 69080
+      },
+      "unknown": {
+        "ownUsageAttempts": 0,
+        "treeUsageAttempts": 0,
+        "ownPriceAttempts": 3
+      },
+      "usageComplete": true
+    },
+    "text": "Resident default \u00b7 lifetime history\nRevisions 1\u201312 of 12\n3 admitted \u00b7 3 settled \u00b7 0 completions with recorded verification \u00b7 0 archived pursuits\nRecorded tokens: 69080 own \u00b7 69080 including descendants (separate totals)\nKnown own cost: $0.000000 (partial) \u00b7 69080 unpriced own tokens \u00b7 descendant prices not included\nIncomplete attempts: 0 own usage \u00b7 0 tree usage \u00b7 3 own price\nAccounting only; existing limits apply per step. Verification is historical, not a current-source check.\n\n9e1b10a3-90e1-45ca-a896-e27813d13204 \u00b7 step 1 \u00b7 complete \u00b7 26195 own tokens\n  Read routing.json and the file it currently selects. Return complete with only that file\u2019s single line as summary. Do not modify files or run commands. If routing.json is unavailab\nc5a0667b-f284-4cb5-b252-a96f435c9837 \u00b7 step 1 \u00b7 complete \u00b7 25743 own tokens\n  Read routing.json and the file it currently selects. Return complete with only that file\u2019s single line as summary. Do not modify files or run commands. If routing.json is unavailab\n96f936c3-206e-4e66-94b9-42fb70239935 \u00b7 step 1 \u00b7 blocked \u00b7 17142 own tokens\n  Read routing.json and the file it currently selects. Return complete with only that file\u2019s single line as summary. Do not modify files or run commands. If routing.json is unavailab"
+  }
+}

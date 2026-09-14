@@ -54,7 +54,7 @@ boundaries and activation uses the original snapshot, so a racing update cannot
 silently receive evaluation produced for a different baseline. The workflow
 does not hold the agenda locked during model calls.
 
-Normalized name, description and body identify a candidate through
+Normalized name, description, body and any host-declared source bindings identify a candidate through
 `hashResidentSkill`. A changed name or mismatched evaluation revision is refused.
 An identical candidate is rejected without evaluation. The existing review gate
 requires at least five tasks with exactly two trials per side, independently

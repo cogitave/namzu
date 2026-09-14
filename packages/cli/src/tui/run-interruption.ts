@@ -1,4 +1,4 @@
-import type { StopReason } from '@namzu/sdk'
+import type { StopReason, TokenBudgetSummary } from '@namzu/sdk'
 
 import type { AgentEvent } from './agent.js'
 import { terminalDisplayText } from './terminal-display.js'
@@ -10,13 +10,20 @@ export type Interruption = Extract<AgentEvent, { kind: 'error' | 'paused' }>
  * Budget admission includes reservations: refusal is not proof of money or
  * tokens spent. Usage remains the reported measurement available through /cost.
  */
-export function describeRunStop(reason: StopReason | undefined): string | undefined {
+export function describeRunStop(
+	reason: StopReason | undefined,
+	budget?: TokenBudgetSummary,
+): string | undefined {
 	switch (reason) {
 		case undefined:
 		case 'end_turn':
 		case 'cancelled':
 			return undefined
 		case 'token_budget':
+			if ((budget?.unresolvedRequests ?? 0) > 0)
+				return 'Run stopped: usage for a model request could not be confirmed. /cost shows reported usage; the total remains uncertain.'
+			if (budget?.poisoned)
+				return 'Run stopped: usage accounting could not be verified. /cost shows the available measurements.'
 			return 'Run stopped: the token allowance could not cover further work. /cost shows reported usage.'
 		case 'cost_limit':
 			return 'Run stopped: the cost allowance could not cover further work. /cost shows reported usage.'

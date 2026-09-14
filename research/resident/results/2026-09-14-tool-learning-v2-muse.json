@@ -1,0 +1,204 @@
+{
+  "root": "/tmp/namzu-tool-learning-3J6rt8",
+  "live": true,
+  "model": "muse-spark-1.3-contributor-free",
+  "effort": "low",
+  "producerCompleted": true,
+  "producerError": null,
+  "sourceReportSha256": "bae33be2d3884f5f08007f90dae5bc5b74aaf1729ba35cd31a8855bdece0a40b",
+  "runsSha256": "b7aff35831ec72bc5e6d2da1bfed60826f2435610d47fb793c30cadd4f993995",
+  "cycleId": "73c2ee11-4d6f-4113-abe5-0da8b735aeb3",
+  "status": "inconclusive",
+  "auditComplete": true,
+  "recordedUsage": {
+    "tokens": 317459,
+    "costUsd": 0,
+    "receipts": 31,
+    "unknownTokens": 3,
+    "unknownCosts": 31
+  },
+  "artifactsVerified": 35,
+  "events": 39,
+  "receiptArtifactsMissing": 0,
+  "sdkRuns": 47,
+  "sdkTokens": 461649,
+  "unpricedSdkTokens": 461649,
+  "cliTokens": 0,
+  "cliUnpricedTokens": 0,
+  "incompleteRuns": [
+    {
+      "label": "verification/frozen/verification-1-0",
+      "reason": "token_budget",
+      "recordedTokens": 19491
+    },
+    {
+      "label": "verification/frozen/verification-1-1",
+      "reason": "token_budget",
+      "recordedTokens": 20588
+    },
+    {
+      "label": "verification/frozen/verification-3-0",
+      "reason": "token_budget",
+      "recordedTokens": 18182
+    },
+    {
+      "label": "verification/frozen/verification-2-0",
+      "reason": "token_budget",
+      "recordedTokens": 19588
+    },
+    {
+      "label": "verification/memory/verification-4-1",
+      "reason": "cancelled",
+      "recordedTokens": 2137
+    },
+    {
+      "label": "verification/guidance/verification-3-0",
+      "reason": "cancelled",
+      "recordedTokens": 0
+    },
+    {
+      "label": "verification/guidance/verification-3-1",
+      "reason": "cancelled",
+      "recordedTokens": 0
+    },
+    {
+      "label": "holdout/frozen/holdout-1",
+      "reason": "token_budget",
+      "recordedTokens": 18501
+    }
+  ],
+  "scored": [
+    {
+      "phase": "verification",
+      "arm": "frozen",
+      "cases": 10,
+      "correct": 2,
+      "grounded": 2,
+      "ended": 6,
+      "tokens": 144130
+    },
+    {
+      "phase": "verification",
+      "arm": "memory",
+      "cases": 10,
+      "correct": 9,
+      "grounded": 9,
+      "ended": 9,
+      "tokens": 127696
+    },
+    {
+      "phase": "verification",
+      "arm": "guidance",
+      "cases": 10,
+      "correct": 8,
+      "grounded": 8,
+      "ended": 8,
+      "tokens": 46454
+    }
+  ],
+  "heldout": [
+    {
+      "arm": "frozen",
+      "id": "holdout-0",
+      "correct": false
+    },
+    {
+      "arm": "memory",
+      "id": "holdout-0",
+      "correct": true
+    },
+    {
+      "arm": "guidance",
+      "id": "holdout-0",
+      "correct": true
+    },
+    {
+      "arm": "frozen",
+      "id": "holdout-1",
+      "correct": false
+    },
+    {
+      "arm": "memory",
+      "id": "holdout-1",
+      "correct": true
+    },
+    {
+      "arm": "guidance",
+      "id": "holdout-1",
+      "correct": true
+    },
+    {
+      "arm": "frozen",
+      "id": "holdout-2",
+      "correct": true
+    },
+    {
+      "arm": "memory",
+      "id": "holdout-2",
+      "correct": true
+    },
+    {
+      "arm": "guidance",
+      "id": "holdout-2",
+      "correct": true
+    },
+    {
+      "arm": "frozen",
+      "id": "holdout-3",
+      "correct": true
+    },
+    {
+      "arm": "memory",
+      "id": "holdout-3",
+      "correct": true
+    },
+    {
+      "arm": "guidance",
+      "id": "holdout-3",
+      "correct": true
+    }
+  ],
+  "controls": [
+    {
+      "arm": "current",
+      "correct": true,
+      "stopReason": "end_turn"
+    },
+    {
+      "arm": "irrelevant",
+      "correct": false,
+      "stopReason": "end_turn"
+    },
+    {
+      "arm": "stale",
+      "correct": false,
+      "stopReason": "end_turn"
+    }
+  ],
+  "cliObserved": null,
+  "rollback": {
+    "performed": false,
+    "activeSkills": 0
+  },
+  "generatedStateInFixtures": [],
+  "limits": {
+    "caseTokens": 18000,
+    "caseIterations": 8,
+    "caseTimeoutMs": 45000,
+    "cycleTokens": 800000,
+    "studyTimeoutMs": 900000
+  },
+  "build": {
+    "packages/sdk/dist/agents/runAgent.js": "e589b99297bc9a3e738cd43dace5c15ece3c098e34fcd8c15fe869757f55a8cd",
+    "packages/sdk/dist/manager/resident/learning-store.js": "bcaaef25e95e031d352ad2a38ad06e47f9c369b0aadca73864c7b9c3bae4ff91",
+    "packages/sdk/dist/manager/resident/learning-cycle.js": "6e5103b91a078979ab738268f32547bd0a942db419d86dd04624d655209dd14e",
+    "packages/cli/dist/commands/resident-learning.js": "5729c0106fbbe724f136e8aadd390577daf512d05f2dadaa8f57385d44531e5b",
+    "packages/providers/zen/dist/client.js": "73cb8262e814a0cd2fe0eaa044fde0a455db8e3c6b6e88d7ce6692916c4e00ce"
+  },
+  "producerHashes": {
+    "tool-learning-study.mjs": "a7b31ebbf011715a2745ecf6438bf61bd797a77aed7f93671660ebe3b10fa786",
+    "tool-learning-host.mjs": "e835eea291ecdea12d03f4abec6dcd03bd72d4c7b09f1875a32e5926647dfbdd",
+    "tool-learning-evidence.mjs": "8586e13c3ffb41dafbbdd4ba872f872d3bd6722f68e9838b45b52f51e91ba0fb"
+  },
+  "evidenceConsistent": true
+}

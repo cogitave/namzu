@@ -4331,7 +4331,7 @@ export function App({
 						outcome: st.completed ? 'completed' : 'stopped',
 					}
 					closeAssistant()
-					const stopNotice = describeRunStop(event.stopReason)
+					const stopNotice = describeRunStop(event.stopReason, event.budget)
 					if (stopNotice) pushMessage('system', stopNotice, false, '■')
 					break
 				}

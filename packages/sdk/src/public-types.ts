@@ -530,6 +530,7 @@ export type {
 	ResidentProfileUpdate,
 	ResidentSkillEvaluation,
 	ResidentLearningProjectionOptions,
+	ResidentLearningSource,
 	ResidentLearningProjection,
 } from './manager/resident/learning.js'
 export type {

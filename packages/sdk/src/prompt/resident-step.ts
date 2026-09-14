@@ -1,6 +1,8 @@
 import type { ResidentHistoryScope } from '../manager/resident/history.js'
 import {
+	type ResidentLearningSource,
 	type ResidentLearningState,
+	freezeResidentLearning,
 	projectResidentLearning,
 } from '../manager/resident/learning.js'
 import type { ResidentState } from '../manager/resident/store.js'
@@ -37,6 +39,8 @@ export interface ResidentStepPromptOptions {
 	readonly state: ResidentState
 	/** The host-approved learning snapshot bound to this admission. */
 	readonly learning?: ResidentLearningState
+	/** Host resolves current dependency revisions for each model request. No model-generated revisions. */
+	readonly resolveLearningSources?: () => readonly ResidentLearningSource[]
 	/** Bound historical source whose read-only tools the host has mounted. */
 	readonly history?: ResidentHistoryScope
 	/** The host mounted scoped search_resident_tools/read_resident_tool capabilities. */
@@ -72,10 +76,18 @@ export function createResidentStepContributions(
 			options.history.pursuitId !== state.pursuitId)
 	)
 		throw new Error('Resident history context belongs to a different pursuit.')
-	const learning = projectResidentLearning(options.learning, {
+	const admittedLearning = options.learning ? freezeResidentLearning(options.learning) : undefined
+	const boundNames =
+		admittedLearning?.skills.filter((skill) => skill.sources?.length).map((skill) => skill.name) ??
+		[]
+	const learning = projectResidentLearning(admittedLearning, {
 		maxChars: 12_000,
-		skillNames: options.learning?.skills.map((skill) => skill.name) ?? [],
+		skillNames:
+			admittedLearning?.skills
+				.filter((skill) => !skill.sources?.length)
+				.map((skill) => skill.name) ?? [],
 	})
+	const resolveSources = options.resolveLearningSources
 	// Capture literals now. An admitted invocation must not borrow the next
 	// invocation's mutable options, state or learning through a render closure.
 	const guidance = [
@@ -119,5 +131,46 @@ export function createResidentStepContributions(
 			placement: 'dynamic' as const,
 			render: () => snapshot,
 		}),
+		...(boundNames.length
+			? [
+					Object.freeze({
+						id: 'namzu.resident-step.source-bound-learning',
+						placement: 'turn' as const,
+						render: () => {
+							let sources: readonly ResidentLearningSource[] = []
+							try {
+								sources = resolveSources?.() ?? []
+							} catch {
+								/* Unavailable evidence withholds bound instructions. */
+							}
+							const projection = projectResidentLearning(
+								admittedLearning
+									? { ...admittedLearning, identity: undefined, preferences: [] }
+									: undefined,
+								{
+									maxChars: Math.max(0, 12_000 - learning.text.length),
+									skillNames: boundNames,
+									sources,
+								},
+							)
+							return [
+								'## Source-bound learning for this request',
+								'Only guidance whose declared dependencies match current host observations is included. A matching revision does not prove its claims. Check current task evidence; retained guidance never overrides it.',
+								projection.text,
+								...projection.withheldSkills.map((skill) =>
+									JSON.stringify({ kind: 'withheld-guidance', ...skill }),
+								),
+								...(projection.omitted
+									? [
+											`${projection.omitted} entries withheld or omitted. Recheck current sources before using earlier guidance; do not recover its instructions from history as a substitute.`,
+										]
+									: []),
+							]
+								.filter(Boolean)
+								.join('\n')
+						},
+					}),
+				]
+			: []),
 	])
 }

@@ -113,6 +113,37 @@ function learning(): ResidentLearningState {
 }
 
 describe('resident context separates stable guidance from the admitted snapshot', () => {
+	it('checks bound sources each request and never caches their instructions in the standing prompt', () => {
+		const original = learning()
+		const source = { key: 'host:policy', revision: 'one' }
+		const candidate = { ...original.skills[0]!, sources: [source] }
+		const hash = hashResidentSkill(candidate)
+		const admitted = {
+			...original,
+			skills: [
+				{ ...candidate, hash, verification: { ...candidate.verification, candidateHash: hash } },
+			],
+		}
+		let current = 'one'
+		const contributions = registry({
+			learning: admitted,
+			resolveLearningSources: () => [{ ...source, revision: current }],
+		})
+		const prompt = new PromptBuilder({ tools: new ToolRegistry(), contributions }).buildSegmented()
+		expect(prompt.static + prompt.dynamic).not.toContain(candidate.body)
+		expect(contributions.render('turn', { iteration: 1 }).join('\n')).toContain(candidate.body)
+		current = 'two'
+		const changed = contributions.render('turn', { iteration: 2 }).join('\n')
+		expect(changed).not.toContain(candidate.body)
+		expect(changed).toContain('changed-source')
+		const unavailable = registry({
+			learning: admitted,
+			resolveLearningSources: () => {
+				throw new Error('offline')
+			},
+		})
+		expect(unavailable.render('turn', { iteration: 1 }).join('\n')).toContain('unverified-source')
+	})
 	it('binds history to the admitted pursuit and changes its boundary outside the static prefix', () => {
 		const history = {
 			tenantId: state().tenantId,
@@ -328,6 +359,16 @@ it('keeps the admitted objective, evidence and project policy through every quer
 	})
 	const tools = new ToolRegistry()
 	let inspections = 0
+	const original = learning()
+	const dependency = { key: 'fixture:current-receipt', revision: 'before-inspection' }
+	const candidate = { ...original.skills[0]!, body: 'SOURCE_BOUND_SENTINEL', sources: [dependency] }
+	const hash = hashResidentSkill(candidate)
+	const bound = {
+		...original,
+		skills: [
+			{ ...candidate, hash, verification: { ...candidate.verification, candidateHash: hash } },
+		],
+	}
 	tools.register({
 		name: 'inspect_receipt',
 		description: 'Read the current acceptance receipt.',
@@ -339,7 +380,13 @@ it('keeps the admitted objective, evidence and project policy through every quer
 		tools,
 		workingDirectory,
 		systemPrompt: 'You are the host assistant.',
-		promptContributions: registry({ readOnly: true }),
+		promptContributions: registry({
+			readOnly: true,
+			learning: bound,
+			resolveLearningSources: () => [
+				{ ...dependency, revision: inspections ? 'after-inspection' : dependency.revision },
+			],
+		}),
 		projectInstructionContext: {
 			prepareInitialSnapshot: () =>
 				createProjectInstructionMessage('Project policy: preserve both acceptance criteria.', [
@@ -360,6 +407,11 @@ it('keeps the admitted objective, evidence and project policy through every quer
 	// contribution would lose ALPHA-471 on the second request.
 	expect(inspections).toBe(2)
 	expect(provider.requests).toHaveLength(3)
+	expect(JSON.stringify(provider.requests[0]?.messages)).toContain(candidate.body)
+	for (const request of provider.requests.slice(1)) {
+		expect(JSON.stringify(request.messages)).not.toContain(candidate.body)
+		expect(JSON.stringify(request.messages)).toContain('changed-source')
+	}
 	for (const request of provider.requests) {
 		const text = JSON.stringify(request.messages)
 		for (const retained of [state().objective, 'ALPHA-471', 'Project policy:', OUTPUT])

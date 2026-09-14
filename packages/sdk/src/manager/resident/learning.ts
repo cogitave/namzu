@@ -17,14 +17,43 @@ export const residentLearningEvidenceSchema = z.object({
 /** @experimental Host provenance for a correction, evaluated activation or rollback. */
 export type ResidentLearningEvidence = Readonly<z.infer<typeof residentLearningEvidenceSchema>>
 
+const sourceSchema = z.object({ key: label, revision: label })
+/** @experimental Host-owned source identity and revision; neither is a model assertion. */
+export type ResidentLearningSource = Readonly<z.infer<typeof sourceSchema>>
+
+const sourcesSchema = z
+	.array(sourceSchema)
+	.min(1)
+	.max(8)
+	.superRefine((sources, context) => {
+		if (new Set(sources.map((source) => source.key)).size !== sources.length)
+			context.addIssue({ code: z.ZodIssueCode.custom, message: 'Duplicate learning source keys.' })
+	})
+	.transform((sources) => sources.sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0)))
+
 const candidateSchema = z.object({
 	name,
 	description: z.string().trim().min(1).max(1_000),
 	body: z.string().trim().min(1).max(4_000),
+	/** Optional dependencies whose revisions must still match before projection. */
+	sources: sourcesSchema.optional(),
 })
 
 /** @experimental Instructional guidance only; never executable assets or tool permissions. */
-export type ResidentSkillCandidate = Readonly<z.infer<typeof candidateSchema>>
+export type ResidentSkillCandidate = Readonly<Omit<z.infer<typeof candidateSchema>, 'sources'>> & {
+	readonly sources?: readonly ResidentLearningSource[]
+}
+
+/** Internal canonical snapshot, including immutable source bindings. */
+export function normalizeResidentSkill(input: ResidentSkillCandidate): ResidentSkillCandidate {
+	const candidate = candidateSchema.parse(input)
+	return Object.freeze({
+		...candidate,
+		...(candidate.sources
+			? { sources: Object.freeze(candidate.sources.map((source) => Object.freeze(source))) }
+			: {}),
+	})
+}
 
 const learnedSkillSchema = candidateSchema.extend({
 	hash: digest,
@@ -39,7 +68,9 @@ const learnedSkillSchema = candidateSchema.extend({
 })
 
 /** @experimental Immutable evaluated content and evidence identity. */
-export type ResidentLearnedSkill = Readonly<z.infer<typeof learnedSkillSchema>>
+export type ResidentLearnedSkill = Readonly<Omit<z.infer<typeof learnedSkillSchema>, 'sources'>> & {
+	readonly sources?: readonly ResidentLearningSource[]
+}
 
 export const residentLearningSchema = z
 	.object({
@@ -128,6 +159,9 @@ export function freezeResidentLearning(input: ResidentLearningState): ResidentLe
 			state.skills.map((skill) =>
 				Object.freeze({
 					...skill,
+					...(skill.sources
+						? { sources: Object.freeze(skill.sources.map((source) => Object.freeze(source))) }
+						: {}),
 					evidence: Object.freeze(skill.evidence),
 					verification: Object.freeze(skill.verification),
 				}),
@@ -214,11 +248,18 @@ export function reviseResidentProfile(
 	})
 }
 
-/** @experimental Bind evaluation to the exact normalized name, description and body. */
+/** @experimental Bind evaluation to normalized content and any declared source dependencies. */
 export function hashResidentSkill(input: ResidentSkillCandidate): string {
 	const candidate = candidateSchema.parse(input)
 	return createHash('sha256')
-		.update(JSON.stringify([candidate.name, candidate.description, candidate.body]))
+		.update(
+			JSON.stringify([
+				candidate.name,
+				candidate.description,
+				candidate.body,
+				...(candidate.sources ? [candidate.sources] : []),
+			]),
+		)
 		.digest('hex')
 }
 
@@ -298,6 +339,8 @@ export function restoreResidentSkill(
 export interface ResidentLearningProjectionOptions {
 	readonly maxChars: number
 	readonly skillNames: readonly string[]
+	/** Fresh host observations for this projection; absent/mismatched dependencies withhold guidance. */
+	readonly sources?: readonly ResidentLearningSource[]
 }
 
 /** @experimental Omitted entries are counted; no partial skill instruction is emitted. */
@@ -306,6 +349,11 @@ export interface ResidentLearningProjection {
 	readonly revision: number | null
 	readonly includedSkills: readonly string[]
 	readonly omitted: number
+	readonly withheldSkills: readonly {
+		readonly name: string
+		readonly reason: 'changed-source' | 'unverified-source'
+		readonly sourceKeys: readonly string[]
+	}[]
 }
 
 /** @experimental Bounded context data; never registers tools, loads files or executes a skill. */
@@ -317,16 +365,25 @@ export function projectResidentLearning(
 		throw new TypeError('Resident learning context requires maxChars between 0 and 64000.')
 	const selected = z.array(name).max(16).parse(options.skillNames)
 	if (new Set(selected).size !== selected.length) throw new Error('Duplicate selected skill names.')
+	const sources = z
+		.array(sourceSchema)
+		.max(128)
+		.parse(options.sources ?? [])
+	if (new Set(sources.map((source) => source.key)).size !== sources.length)
+		throw new Error('Duplicate observed learning source keys.')
+	const observed = new Map(sources.map((source) => [source.key, source.revision]))
 	if (!current)
 		return Object.freeze({
 			text: '',
 			revision: null,
 			includedSkills: Object.freeze([]),
 			omitted: selected.length,
+			withheldSkills: Object.freeze([]),
 		})
 	const state = freezeResidentLearning(current)
 	const pieces: string[] = []
 	const includedSkills: string[] = []
+	const withheldSkills: ResidentLearningProjection['withheldSkills'][number][] = []
 	let omitted = 0
 	let length = 0
 	const add = (value: unknown): boolean => {
@@ -348,6 +405,21 @@ export function projectResidentLearning(
 			omitted++
 			continue
 		}
+		const mismatched =
+			skill.sources?.filter((source) => observed.get(source.key) !== source.revision) ?? []
+		if (mismatched.length) {
+			omitted++
+			withheldSkills.push(
+				Object.freeze({
+					name: skill.name,
+					reason: mismatched.some((source) => observed.has(source.key))
+						? 'changed-source'
+						: 'unverified-source',
+					sourceKeys: Object.freeze(mismatched.map((source) => source.key)),
+				}),
+			)
+			continue
+		}
 		if (
 			add({
 				kind: 'evaluated-guidance',
@@ -365,5 +437,6 @@ export function projectResidentLearning(
 		revision: state.revision,
 		includedSkills: Object.freeze(includedSkills),
 		omitted,
+		withheldSkills: Object.freeze(withheldSkills),
 	})
 }
