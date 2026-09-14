@@ -20,6 +20,9 @@
 import { mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { afterAll, inject } from 'vitest'
+
+import { removeTempDir } from './__fixtures__/temp-dir.js'
 
 // macOS commonly exposes one temporary directory through both `/var/...` and
 // `/private/var/...`. The product canonicalizes filesystem authority paths, so
@@ -35,10 +38,20 @@ if (process.env.NAMZU_LOG_LEVEL === undefined) {
 }
 
 // Production now routes generated state through NAMZU_HOME. Give every test
-// worker an owned application home so a command-level test can never inspect
+// suite an owned application home so a command-level test can never inspect
 // or mutate the developer's real sessions merely because it exercises the
 // production entry point. Preserve an explicit value for tests that launch
 // this suite under a deliberately chosen state root.
 if (process.env.NAMZU_HOME === undefined) {
-	process.env.NAMZU_HOME = mkdtempSync(join(tmpdir(), 'namzu-cli-tests-'))
+	const ownedHome = mkdtempSync(join(inject('namzuTestHomeRoot'), 'home-'))
+	process.env.NAMZU_HOME = ownedHome
+	afterAll(() => {
+		// Capture ownership: a test may replace NAMZU_HOME with caller-owned state.
+		// Vitest runs this setup hook after the suite's own teardown hooks.
+		removeTempDir(ownedHome)
+		if (process.env.NAMZU_HOME === ownedHome) {
+			// biome-ignore lint/performance/noDelete: assigning undefined creates the string "undefined" in process.env.
+			delete process.env.NAMZU_HOME
+		}
+	})
 }

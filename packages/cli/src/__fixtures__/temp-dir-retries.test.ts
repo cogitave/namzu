@@ -23,6 +23,9 @@ afterEach(() => {
 
 describe('removeTempDir', () => {
 	it('asks for retries, which the default does not', async () => {
+		// Setup holds the real cleanup helper. Reload this test's copy so its
+		// filesystem mock applies without replacing the suite's actual teardown.
+		vi.resetModules()
 		const { removeTempDir } = await import('./temp-dir.js')
 
 		removeTempDir('/some/path')

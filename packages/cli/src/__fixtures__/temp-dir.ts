@@ -36,8 +36,8 @@
  * named, on every affected run, instead of surfacing as an unrelated test
  * failing one time in ten.
  *
- * A leftover directory under the OS temp root is not a defect worth failing a
- * passing test over; the OS reclaims it.
+ * Leftover directories can persist across runs. The warning names the path for
+ * investigation and later cleanup; OS reclamation is not guaranteed.
  *
  * ## What is NOT claimed
  *
@@ -57,10 +57,7 @@ export function removeTempDir(path: string): void {
 		rmSync(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
 	} catch (err) {
 		const reason = err instanceof Error ? err.message : String(err)
-		// biome-ignore lint/suspicious/noConsole: the warning IS the feature. This
-		// runs only in tests, and the whole point of not throwing is that the
-		// information survives somewhere a reader will see it. Routing it through
-		// a logger nobody configures in a test process would lose it.
+		// biome-ignore lint/suspicious/noConsole: cleanup failures must remain visible in test output.
 		console.warn(
 			`[test cleanup] could not remove ${path} after 10 attempts: ${reason}\n  The test result above is unaffected. If this recurs, something is holding a handle.`,
 		)
