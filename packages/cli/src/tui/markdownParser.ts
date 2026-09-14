@@ -196,7 +196,9 @@ export function parseMarkdown(src: string): MdBlock[] {
 	return scanBlocks(src).map(parseBlock)
 }
 
-const INLINE = /(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|(__[^_]+__)|(\*[^*]+\*)|(_[^_]+_)/
+// Underscores inside identifiers are literal, including non-ASCII names.
+const INLINE =
+	/(`[^`]+`)|(\[[^\]]+\]\([^)]+\))|(\*\*[^*]+\*\*)|((?<![\p{L}\p{N}\p{M}_])__[^_]+__(?![\p{L}\p{N}\p{M}_]))|(\*[^*]+\*)|((?<![\p{L}\p{N}\p{M}_])_[^_]+_(?![\p{L}\p{N}\p{M}_]))/u
 const LINK = /^\[([^\]]+)\]\(([^)]+)\)$/
 
 /** Parse a single line of text into styled inline spans. */

@@ -67,6 +67,22 @@ describe('parseInline', () => {
 		expect(parseInline('just text')).toEqual([{ text: 'just text' }])
 	})
 
+	it.each(['RUN_LIMITS_READY', 'some__field__name', 'işlem_çok_uzun', '变量_名称_值', 'v1_2_3'])(
+		'preserves literal underscores in %s',
+		(text) => {
+			expect(parseInline(text)).toEqual([{ text }])
+		},
+	)
+
+	it('styles surrounding prose without changing identifiers', () => {
+		expect(parseInline('RUN_LIMITS_READY (_done_) __ok__')).toEqual([
+			{ text: 'RUN_LIMITS_READY (' },
+			{ text: 'done', italic: true },
+			{ text: ') ' },
+			{ text: 'ok', bold: true },
+		])
+	})
+
 	it('does not parse markers inside inline code', () => {
 		expect(parseInline('`a*b*c`')).toEqual([{ text: 'a*b*c', code: true }])
 	})
