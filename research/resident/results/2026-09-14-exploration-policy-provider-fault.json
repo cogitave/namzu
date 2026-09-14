@@ -1,0 +1,1863 @@
+{
+  "live": false,
+  "spec": {
+    "version": 1,
+    "live": false,
+    "seed": "9755360e-0d22-464e-aaff-4d0a986899a6",
+    "createdAt": 1789400033772,
+    "model": "muse-spark-1.3-contributor-free",
+    "effort": "low",
+    "baselinePolicy": "Investigate the undocumented preview service through the provided tool. Choose your own experiments to distinguish possible rules. Use observed results to revise hypotheses. Do not claim rules you have not checked. Finish when you have enough evidence, or identify remaining uncertainty.",
+    "controlProviderError": true,
+    "limits": {
+      "records": 8,
+      "explorationIterations": 6,
+      "explorationTokens": 16000,
+      "predictionTokens": 12000,
+      "timeoutMs": 120000
+    },
+    "verification": [
+      {
+        "id": "verification-month-0",
+        "taskId": "verification-month",
+        "family": "month",
+        "trial": 0,
+        "config": {
+          "family": "month",
+          "root": "486e8e85",
+          "sealed": "8803a5c4",
+          "aliases": {
+            "invoice": "6e5882e2",
+            "memo": "b92e3a38",
+            "notice": "dc98fc5b"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "000783ce97Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00edc246eeAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00abdbaaf5Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00407a5610Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00131871ceAz",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "005a97ed3eAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "486e8e85/2034/02/6e5882e2/000783ce97Az",
+          "486e8e85/2034/11/b92e3a38/00edc246eeAz",
+          "486e8e85/2034/02/dc98fc5b/00abdbaaf5Az",
+          "8803a5c4/6e5882e2/00407a5610Az",
+          "8803a5c4/b92e3a38/00131871ceAz",
+          "8803a5c4/dc98fc5b/005a97ed3eAz"
+        ]
+      },
+      {
+        "id": "verification-month-1",
+        "taskId": "verification-month",
+        "family": "month",
+        "trial": 1,
+        "config": {
+          "family": "month",
+          "root": "b2266dff",
+          "sealed": "0de36f09",
+          "aliases": {
+            "invoice": "19708253",
+            "memo": "6253e155",
+            "notice": "1e7e6d12"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "0011e25c4dAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00ae468c2aAz",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "0070c99819Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00e06dac3cAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "006dd6f486Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0040a6c222Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "b2266dff/2035/02/19708253/0011e25c4dAz",
+          "b2266dff/2035/11/6253e155/00ae468c2aAz",
+          "b2266dff/2035/02/1e7e6d12/0070c99819Az",
+          "0de36f09/19708253/00e06dac3cAz",
+          "0de36f09/6253e155/006dd6f486Az",
+          "0de36f09/1e7e6d12/0040a6c222Az"
+        ]
+      },
+      {
+        "id": "verification-day-0",
+        "taskId": "verification-day",
+        "family": "day",
+        "trial": 0,
+        "config": {
+          "family": "day",
+          "root": "36e36afa",
+          "sealed": "454085f0",
+          "aliases": {
+            "invoice": "8c214482",
+            "memo": "ca12fd63",
+            "notice": "41929b1b"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00a58cad0eAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "008f2fa64aAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "0004c82792Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "007b59c838Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "004ca94e6eAz",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0033032506Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "36e36afa/2034/02/17/8c214482/00a58cad0eAz",
+          "36e36afa/2034/11/17/ca12fd63/008f2fa64aAz",
+          "36e36afa/2034/02/17/41929b1b/0004c82792Az",
+          "454085f0/8c214482/007b59c838Az",
+          "454085f0/ca12fd63/004ca94e6eAz",
+          "454085f0/41929b1b/0033032506Az"
+        ]
+      },
+      {
+        "id": "verification-day-1",
+        "taskId": "verification-day",
+        "family": "day",
+        "trial": 1,
+        "config": {
+          "family": "day",
+          "root": "005b19a7",
+          "sealed": "bfb01321",
+          "aliases": {
+            "invoice": "7eade13b",
+            "memo": "e6d473ad",
+            "notice": "511a8015"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "0092c60149Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00b28b5fd2Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00fcabd271Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00a0be4174Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "007b79d07dAz",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00ac6a7517Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "005b19a7/2035/02/17/7eade13b/0092c60149Az",
+          "005b19a7/2035/11/17/e6d473ad/00b28b5fd2Az",
+          "005b19a7/2035/02/17/511a8015/00fcabd271Az",
+          "bfb01321/7eade13b/00a0be4174Az",
+          "bfb01321/e6d473ad/007b79d07dAz",
+          "bfb01321/511a8015/00ac6a7517Az"
+        ]
+      },
+      {
+        "id": "verification-year-0",
+        "taskId": "verification-year",
+        "family": "year",
+        "trial": 0,
+        "config": {
+          "family": "year",
+          "root": "c6e306dc",
+          "sealed": "e5ea5621",
+          "aliases": {
+            "invoice": "a67a95f4",
+            "memo": "54e62fee",
+            "notice": "ad7215db"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00bf492182Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00a60c7523Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00a07f235fAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "003e46abd8Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "003d785d34Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "007b377bbfAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "c6e306dc/2034/a67a95f4/00bf492182Az",
+          "c6e306dc/2034/54e62fee/00a60c7523Az",
+          "c6e306dc/2034/ad7215db/00a07f235fAz",
+          "e5ea5621/a67a95f4/003e46abd8Az",
+          "e5ea5621/54e62fee/003d785d34Az",
+          "e5ea5621/ad7215db/007b377bbfAz"
+        ]
+      },
+      {
+        "id": "verification-year-1",
+        "taskId": "verification-year",
+        "family": "year",
+        "trial": 1,
+        "config": {
+          "family": "year",
+          "root": "c40cef56",
+          "sealed": "048d2b12",
+          "aliases": {
+            "invoice": "3f77f006",
+            "memo": "1b033520",
+            "notice": "419a30ce"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "006e627cffAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00f651e645Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "004a5c0f74Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "0052cbeb33Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0068744005Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00b40527b7Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "c40cef56/2035/3f77f006/006e627cffAz",
+          "c40cef56/2035/1b033520/00f651e645Az",
+          "c40cef56/2035/419a30ce/004a5c0f74Az",
+          "048d2b12/3f77f006/0052cbeb33Az",
+          "048d2b12/1b033520/0068744005Az",
+          "048d2b12/419a30ce/00b40527b7Az"
+        ]
+      },
+      {
+        "id": "verification-identity-0",
+        "taskId": "verification-identity",
+        "family": "identity",
+        "trial": 0,
+        "config": {
+          "family": "identity",
+          "root": "f767bf8b",
+          "sealed": "0326220f",
+          "aliases": {
+            "invoice": "f62b71bb",
+            "memo": "6b6b894b",
+            "notice": "9d3cb065"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00ee5912d7Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00afb1b6e4Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00f41243aeAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00622a7cc7Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0058dcef46Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00315323ebAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "f767bf8b/00ee5912d7Az",
+          "f767bf8b/00afb1b6e4Az",
+          "f767bf8b/00f41243aeAz",
+          "f767bf8b/00622a7cc7Az",
+          "f767bf8b/0058dcef46Az",
+          "f767bf8b/00315323ebAz"
+        ]
+      },
+      {
+        "id": "verification-identity-1",
+        "taskId": "verification-identity",
+        "family": "identity",
+        "trial": 1,
+        "config": {
+          "family": "identity",
+          "root": "570ffb87",
+          "sealed": "5f83e822",
+          "aliases": {
+            "invoice": "735d59fc",
+            "memo": "0826353e",
+            "notice": "f214d801"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "0083a9b062Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00ceb4af48Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "0096e74ecaAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00476dd90cAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "004d3926fbAz",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0050f56d92Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "570ffb87/0083a9b062Az",
+          "570ffb87/00ceb4af48Az",
+          "570ffb87/0096e74ecaAz",
+          "570ffb87/00476dd90cAz",
+          "570ffb87/004d3926fbAz",
+          "570ffb87/0050f56d92Az"
+        ]
+      },
+      {
+        "id": "verification-kind-0",
+        "taskId": "verification-kind",
+        "family": "kind",
+        "trial": 0,
+        "config": {
+          "family": "kind",
+          "root": "25014b16",
+          "sealed": "32dbc0b3",
+          "aliases": {
+            "invoice": "0b0217fa",
+            "memo": "29e41096",
+            "notice": "300d3c53"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00d607d259Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "009f4a787eAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00e936e6a1Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00f617e779Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00ac160fcaAz",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0089c4ee96Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "25014b16/0b0217fa/00d607d259Az",
+          "25014b16/29e41096/009f4a787eAz",
+          "25014b16/300d3c53/00e936e6a1Az",
+          "25014b16/0b0217fa/00f617e779Az",
+          "25014b16/29e41096/00ac160fcaAz",
+          "25014b16/300d3c53/0089c4ee96Az"
+        ]
+      },
+      {
+        "id": "verification-kind-1",
+        "taskId": "verification-kind",
+        "family": "kind",
+        "trial": 1,
+        "config": {
+          "family": "kind",
+          "root": "959953fb",
+          "sealed": "ac13d9f2",
+          "aliases": {
+            "invoice": "f5119026",
+            "memo": "281ba6d5",
+            "notice": "75d7df0a"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00143f9b99Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00ff6acbe0Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00913a46f6Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "0071ca0b4eAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00d4703084Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00fff6afefAz",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "959953fb/f5119026/00143f9b99Az",
+          "959953fb/281ba6d5/00ff6acbe0Az",
+          "959953fb/75d7df0a/00913a46f6Az",
+          "959953fb/f5119026/0071ca0b4eAz",
+          "959953fb/281ba6d5/00d4703084Az",
+          "959953fb/75d7df0a/00fff6afefAz"
+        ]
+      }
+    ],
+    "confirmation": [
+      {
+        "id": "confirmation-month-0",
+        "taskId": "confirmation-month",
+        "family": "month",
+        "trial": 0,
+        "config": {
+          "family": "month",
+          "root": "c25a308f",
+          "sealed": "4b8450ec",
+          "aliases": {
+            "invoice": "dd058424",
+            "memo": "44eceaf7",
+            "notice": "6e149430"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "006cc57a1dAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0043c6de64Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00c7ac9864Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00c5ef61deAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0010c685e2Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "009b24aaacAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "c25a308f/2034/02/dd058424/006cc57a1dAz",
+          "c25a308f/2034/11/44eceaf7/0043c6de64Az",
+          "c25a308f/2034/02/6e149430/00c7ac9864Az",
+          "4b8450ec/dd058424/00c5ef61deAz",
+          "4b8450ec/44eceaf7/0010c685e2Az",
+          "4b8450ec/6e149430/009b24aaacAz"
+        ]
+      },
+      {
+        "id": "confirmation-month-1",
+        "taskId": "confirmation-month",
+        "family": "month",
+        "trial": 1,
+        "config": {
+          "family": "month",
+          "root": "4be7a9f3",
+          "sealed": "8f62a20c",
+          "aliases": {
+            "invoice": "cc7dd39c",
+            "memo": "78d463c2",
+            "notice": "140b273d"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00e40541d3Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0010ffa4e5Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00c714b96fAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "005f5e38c6Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00877128e9Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00f85672e6Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "4be7a9f3/2035/02/cc7dd39c/00e40541d3Az",
+          "4be7a9f3/2035/11/78d463c2/0010ffa4e5Az",
+          "4be7a9f3/2035/02/140b273d/00c714b96fAz",
+          "8f62a20c/cc7dd39c/005f5e38c6Az",
+          "8f62a20c/78d463c2/00877128e9Az",
+          "8f62a20c/140b273d/00f85672e6Az"
+        ]
+      },
+      {
+        "id": "confirmation-day-0",
+        "taskId": "confirmation-day",
+        "family": "day",
+        "trial": 0,
+        "config": {
+          "family": "day",
+          "root": "321284e3",
+          "sealed": "6321e1d1",
+          "aliases": {
+            "invoice": "f000c2cc",
+            "memo": "7f7485e9",
+            "notice": "7216d5b1"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00b8899a2eAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00d778e6c2Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00b8202996Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00fca23caeAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "001e240063Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00282dad2aAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "321284e3/2034/02/17/f000c2cc/00b8899a2eAz",
+          "321284e3/2034/11/17/7f7485e9/00d778e6c2Az",
+          "321284e3/2034/02/17/7216d5b1/00b8202996Az",
+          "6321e1d1/f000c2cc/00fca23caeAz",
+          "6321e1d1/7f7485e9/001e240063Az",
+          "6321e1d1/7216d5b1/00282dad2aAz"
+        ]
+      },
+      {
+        "id": "confirmation-day-1",
+        "taskId": "confirmation-day",
+        "family": "day",
+        "trial": 1,
+        "config": {
+          "family": "day",
+          "root": "b02468b5",
+          "sealed": "7a7cd6ac",
+          "aliases": {
+            "invoice": "fe3fbab9",
+            "memo": "522e1451",
+            "notice": "5d9eca1c"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00d3a922e9Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00c3b2a2ebAz",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "003575d5a9Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "006077300dAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00bf23abc3Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0023a7106bAz",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "b02468b5/2035/02/17/fe3fbab9/00d3a922e9Az",
+          "b02468b5/2035/11/17/522e1451/00c3b2a2ebAz",
+          "b02468b5/2035/02/17/5d9eca1c/003575d5a9Az",
+          "7a7cd6ac/fe3fbab9/006077300dAz",
+          "7a7cd6ac/522e1451/00bf23abc3Az",
+          "7a7cd6ac/5d9eca1c/0023a7106bAz"
+        ]
+      },
+      {
+        "id": "confirmation-year-0",
+        "taskId": "confirmation-year",
+        "family": "year",
+        "trial": 0,
+        "config": {
+          "family": "year",
+          "root": "0dab1896",
+          "sealed": "e8e9dd3f",
+          "aliases": {
+            "invoice": "be475224",
+            "memo": "2fb758b3",
+            "notice": "62c71c40"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "0097de55e8Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0034773cbaAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00152982abAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00cfbeafdeAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0085bdd248Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00662b3c84Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "0dab1896/2034/be475224/0097de55e8Az",
+          "0dab1896/2034/2fb758b3/0034773cbaAz",
+          "0dab1896/2034/62c71c40/00152982abAz",
+          "e8e9dd3f/be475224/00cfbeafdeAz",
+          "e8e9dd3f/2fb758b3/0085bdd248Az",
+          "e8e9dd3f/62c71c40/00662b3c84Az"
+        ]
+      },
+      {
+        "id": "confirmation-year-1",
+        "taskId": "confirmation-year",
+        "family": "year",
+        "trial": 1,
+        "config": {
+          "family": "year",
+          "root": "62050dda",
+          "sealed": "89f6ac5b",
+          "aliases": {
+            "invoice": "fc34e6b1",
+            "memo": "63ebe4f2",
+            "notice": "42210cf8"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "001b70fbdaAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "005bac79b3Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00360ef118Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "0090962425Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0056eaded8Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00710c9a66Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "62050dda/2035/fc34e6b1/001b70fbdaAz",
+          "62050dda/2035/63ebe4f2/005bac79b3Az",
+          "62050dda/2035/42210cf8/00360ef118Az",
+          "89f6ac5b/fc34e6b1/0090962425Az",
+          "89f6ac5b/63ebe4f2/0056eaded8Az",
+          "89f6ac5b/42210cf8/00710c9a66Az"
+        ]
+      },
+      {
+        "id": "confirmation-identity-0",
+        "taskId": "confirmation-identity",
+        "family": "identity",
+        "trial": 0,
+        "config": {
+          "family": "identity",
+          "root": "f6dae780",
+          "sealed": "4e5c8571",
+          "aliases": {
+            "invoice": "7226ae2f",
+            "memo": "95e51f59",
+            "notice": "b8fa5b64"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00476c45e7Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00965ce254Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00a6d89d53Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00c6181ad1Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00da55e6b5Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "003a5b996eAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "f6dae780/00476c45e7Az",
+          "f6dae780/00965ce254Az",
+          "f6dae780/00a6d89d53Az",
+          "f6dae780/00c6181ad1Az",
+          "f6dae780/00da55e6b5Az",
+          "f6dae780/003a5b996eAz"
+        ]
+      },
+      {
+        "id": "confirmation-identity-1",
+        "taskId": "confirmation-identity",
+        "family": "identity",
+        "trial": 1,
+        "config": {
+          "family": "identity",
+          "root": "a8556783",
+          "sealed": "7eb9bf21",
+          "aliases": {
+            "invoice": "0c271541",
+            "memo": "6e03b589",
+            "notice": "da09eb03"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "005489c5eeAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00862ac10eAz",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "0051012850Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00e93b0779Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "008d930bc7Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00b289ab17Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "a8556783/005489c5eeAz",
+          "a8556783/00862ac10eAz",
+          "a8556783/0051012850Az",
+          "a8556783/00e93b0779Az",
+          "a8556783/008d930bc7Az",
+          "a8556783/00b289ab17Az"
+        ]
+      },
+      {
+        "id": "confirmation-kind-0",
+        "taskId": "confirmation-kind",
+        "family": "kind",
+        "trial": 0,
+        "config": {
+          "family": "kind",
+          "root": "7d59771f",
+          "sealed": "a33dc0eb",
+          "aliases": {
+            "invoice": "4ab02f31",
+            "memo": "de978c9e",
+            "notice": "70f11862"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "005d4f59fdAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0091f09728Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "007926953fAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00e24dd90bAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00ea1d2ddaAz",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00f97d5f34Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "7d59771f/4ab02f31/005d4f59fdAz",
+          "7d59771f/de978c9e/0091f09728Az",
+          "7d59771f/70f11862/007926953fAz",
+          "7d59771f/4ab02f31/00e24dd90bAz",
+          "7d59771f/de978c9e/00ea1d2ddaAz",
+          "7d59771f/70f11862/00f97d5f34Az"
+        ]
+      },
+      {
+        "id": "confirmation-kind-1",
+        "taskId": "confirmation-kind",
+        "family": "kind",
+        "trial": 1,
+        "config": {
+          "family": "kind",
+          "root": "62e944fe",
+          "sealed": "0cde7ab3",
+          "aliases": {
+            "invoice": "07141374",
+            "memo": "c35c97e6",
+            "notice": "f14b009f"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00061c1b94Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "001eea9337Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "0012fae9e8Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00efcd7bb2Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0062f3eb3bAz",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0065102d0aAz",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "62e944fe/07141374/00061c1b94Az",
+          "62e944fe/c35c97e6/001eea9337Az",
+          "62e944fe/f14b009f/0012fae9e8Az",
+          "62e944fe/07141374/00efcd7bb2Az",
+          "62e944fe/c35c97e6/0062f3eb3bAz",
+          "62e944fe/f14b009f/0065102d0aAz"
+        ]
+      }
+    ],
+    "holdout": [
+      {
+        "id": "holdout-month-0",
+        "taskId": "holdout-month",
+        "family": "month",
+        "trial": 0,
+        "config": {
+          "family": "month",
+          "root": "07de9216",
+          "sealed": "c3fb1e82",
+          "aliases": {
+            "invoice": "ef23f3c8",
+            "memo": "a7270e34",
+            "notice": "cec321a7"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00d08e2c73Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "007a9cbb17Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00bc19f734Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00a8e7cd07Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "007a5b1096Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00c1204adcAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "07de9216/2034/02/ef23f3c8/00d08e2c73Az",
+          "07de9216/2034/11/a7270e34/007a9cbb17Az",
+          "07de9216/2034/02/cec321a7/00bc19f734Az",
+          "c3fb1e82/ef23f3c8/00a8e7cd07Az",
+          "c3fb1e82/a7270e34/007a5b1096Az",
+          "c3fb1e82/cec321a7/00c1204adcAz"
+        ]
+      },
+      {
+        "id": "holdout-day-0",
+        "taskId": "holdout-day",
+        "family": "day",
+        "trial": 0,
+        "config": {
+          "family": "day",
+          "root": "93967323",
+          "sealed": "11047dc3",
+          "aliases": {
+            "invoice": "6f949817",
+            "memo": "d8b9ea1f",
+            "notice": "537cbce9"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00ab3f1b2cAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00fe29bffdAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00c04931aaAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "004dda58bcAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00fbf9f041Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00be17923dAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "93967323/2034/02/17/6f949817/00ab3f1b2cAz",
+          "93967323/2034/11/17/d8b9ea1f/00fe29bffdAz",
+          "93967323/2034/02/17/537cbce9/00c04931aaAz",
+          "11047dc3/6f949817/004dda58bcAz",
+          "11047dc3/d8b9ea1f/00fbf9f041Az",
+          "11047dc3/537cbce9/00be17923dAz"
+        ]
+      },
+      {
+        "id": "holdout-year-0",
+        "taskId": "holdout-year",
+        "family": "year",
+        "trial": 0,
+        "config": {
+          "family": "year",
+          "root": "04844693",
+          "sealed": "4475dc7e",
+          "aliases": {
+            "invoice": "b0872984",
+            "memo": "27a36b8e",
+            "notice": "9bbef161"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "008ad6a3d5Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0023862115Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00a63d2a0bAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "0045882cb6Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "008d95a195Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00d0bf8a0dAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "04844693/2034/b0872984/008ad6a3d5Az",
+          "04844693/2034/27a36b8e/0023862115Az",
+          "04844693/2034/9bbef161/00a63d2a0bAz",
+          "4475dc7e/b0872984/0045882cb6Az",
+          "4475dc7e/27a36b8e/008d95a195Az",
+          "4475dc7e/9bbef161/00d0bf8a0dAz"
+        ]
+      }
+    ],
+    "protection": {
+      "verification": [
+        "verification-identity",
+        "verification-kind"
+      ],
+      "confirmation": [
+        "confirmation-identity",
+        "confirmation-kind"
+      ]
+    },
+    "trainingSha256": "f84d78efbe1b900dd0075718da28687d59b5420108427f584368b48dc17b16bf",
+    "sourceHashes": {
+      "research/resident/exploration-policy-environment.mjs": "4b9f9f288255f7d535744940f1bcda02fb1276abf152d2b3903fb2356266828b",
+      "research/resident/exploration-policy-host.mjs": "8fea19b5008f7271bd8fc6acc479e03ed8a8ce930c923bd5461e876f8d52718c",
+      "research/resident/exploration-policy-study.mjs": "71e01f8d6928a981371bc0543ff81f6e2a0943c248894ac82166599d2891532a",
+      "packages/sdk/dist/manager/resident/learning.js": "c6bc9729a952fe85a113a123950c36355845cf8352a0499d54e895dcc723f2b1",
+      "packages/sdk/dist/manager/resident/learning-cycle.js": "a04f0f3a11cf700969438782a8d3950bd98af93a5783f8a81d06f378a00797f7"
+    }
+  },
+  "cycle": {
+    "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+    "ordinal": 1,
+    "parentCycleId": null,
+    "skillName": "preview-exploration-policy",
+    "status": "failed",
+    "sequence": 8,
+    "startedAt": 1789400062775,
+    "updatedAt": 1789400065337,
+    "candidateRevision": "0c69c269ecdd58eb290eb2d7d724f6d4bb859b1eb281bca0e1b56d35af6e78fb",
+    "result": {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "status": "failed",
+      "reason": "Study execution stopped at verification-month-0/baseline/explore: Scripted provider rate limit.. No later episode will be attempted.",
+      "candidate": {
+        "name": "preview-exploration-policy",
+        "purpose": "exploration",
+        "description": "Scripted control policy, not a learned result.",
+        "body": "Choose informative experiments within the declared limits."
+      },
+      "candidateRevision": "0c69c269ecdd58eb290eb2d7d724f6d4bb859b1eb281bca0e1b56d35af6e78fb",
+      "baselineRevision": "none",
+      "consumption": {
+        "tokens": 0,
+        "costUsd": 0,
+        "receipts": 2,
+        "unknownTokens": 0,
+        "unknownCosts": 0,
+        "unfinishedStages": 1
+      },
+      "auditComplete": true
+    },
+    "recordedUsage": {
+      "tokens": 0,
+      "costUsd": 0,
+      "receipts": 2,
+      "unknownTokens": 0,
+      "unknownCosts": 0
+    }
+  },
+  "episodes": [],
+  "runs": [
+    {
+      "label": "propose-policy",
+      "runId": "657a6f8a-dd2f-4455-828c-e40396b01b92",
+      "output": "{\"name\":\"preview-exploration-policy\",\"purpose\":\"exploration\",\"description\":\"Scripted control policy, not a learned result.\",\"body\":\"Choose informative experiments within the declared limits.\"}",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 33
+    },
+    {
+      "label": "verification-month-0/baseline/explore",
+      "runId": "692d9c45-6d20-4cac-af6a-e666c36afd5c",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2338,
+      "error": "Scripted provider rate limit."
+    }
+  ],
+  "events": [
+    {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "sequence": 1,
+      "kind": "started",
+      "data": {
+        "tenantId": "4c497f5c-b91d-4669-955c-e3d7c4976cbe",
+        "agentKey": "default",
+        "agendaRevision": 2,
+        "baselineRevision": "none",
+        "skillName": "preview-exploration-policy",
+        "purpose": "exploration",
+        "failure": {
+          "evidence": {
+            "key": "852a850b-3426-41ca-8245-cfad92b1ffee",
+            "source": "retained-exploration-trajectory",
+            "reason": "Inspect the prior cold gap and actual exploration to propose a reusable learning policy."
+          },
+          "trace": "{\"sourceRunId\":\"852a850b-3426-41ca-8245-cfad92b1ffee\",\"sourceReportSha256\":\"53cc78bf82cf85fc32a2f580a7b12338e400a82150e717681f18323683a7a208\",\"coldFailure\":{\"evidence\":{\"key\":\"69fd3dd9-27b7-4caa-83f8-98bea4b88f36\",\"source\":\"observed-preview-failure\",\"reason\":\"A cold prediction disagreed with the service.\"},\"trace\":\"{\\\"prompt\\\":\\\"Read the record in input.txt. Predict the exact destination produced by this workspace preview service. Return only the path. If its behavior is unknown, return UNKNOWN.\\\",\\\"tools\\\":[{\\\"name\\\":\\\"read\\\",\\\"input\\\":{\\\"path\\\":\\\"/tmp/namzu-autonomous-learning-0Tbcwv/cases/a590ecdc88e53a79fce11782777acd68ffe99cbe203d3e6332c4de1c92ec9027/input.txt\\\"},\\\"success\\\":true,\\\"output\\\":\\\"1\\\\t{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false}\\\"}],\\\"output\\\":\\\"UNKNOWN\\\",\\\"passed\\\":false}\"},\"observations\":{\"evidence\":{\"key\":\"852a850b-3426-41ca-8245-cfad92b1ffee\",\"source\":\"executed-preview-tool\",\"reason\":\"Recorded service outputs for model-selected inputs.\"},\"trace\":\"[{\\\"name\\\":\\\"preview_route\\\",\\\"input\\\":{\\\"records\\\":[{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false}]},\\\"success\\\":true,\\\"output\\\":\\\"[{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/003f41cbAz\\\\\\\"}]\\\"},{\\\"name\\\":\\\"preview_route\\\",\\\"input\\\":{\\\"records\\\":[{\\\"kind\\\":\\\"memo\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"notice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":true},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-04-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-20\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbBz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"AAAAAAAzAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2030-12-01\\\",\\\"sealed\\\":false}]},\\\"success\\\":true,\\\"output\\\":\\\"[{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"memo\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/8987d9/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"notice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/04fa80/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":true},\\\\\\\"destination\\\\\\\":\\\\\\\"sealed-946bce/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-04-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/04/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-20\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbBz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/003f41cbBz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"AAAAAAAzAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/AAAAAAAzAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2030-12-01\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2030/12/9baaf2/003f41cbAz\\\\\\\"}]\\\"},{\\\"name\\\":\\\"preview_route\\\",\\\"input\\\":{\\\"records\\\":[{\\\"kind\\\":\\\"memo\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":true},{\\\"kind\\\":\\\"notice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":true},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2020-01-15\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2026-09-14\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"ZZZZZZZZZZ\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"a\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false}]},\\\"success\\\":true,\\\"output\\\":\\\"[{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"memo\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":true},\\\\\\\"destination\\\\\\\":\\\\\\\"sealed-946bce/8987d9/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"notice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":true},\\\\\\\"destination\\\\\\\":\\\\\\\"sealed-946bce/04fa80/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2020-01-15\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2020/01/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2026-09-14\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2026/09/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"ZZZZZZZZZZ\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/ZZZZZZZZZZ\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"a\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/a\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/003f41cbAz\\\\\\\"}]\\\"}]\"},\"explorerTokens\":10269,\"result\":{\"verification\":{\"baseline\":{\"passed\":4,\"count\":10,\"tokens\":31440},\"memory\":{\"passed\":10,\"count\":10,\"tokens\":52390},\"candidate\":{\"passed\":10,\"count\":10,\"tokens\":32748},\"reopened\":{\"passed\":0,\"count\":0,\"tokens\":0},\"rollback\":{\"passed\":0,\"count\":0,\"tokens\":0}},\"confirmation\":{\"baseline\":{\"passed\":4,\"count\":10,\"tokens\":36849},\"memory\":{\"passed\":10,\"count\":10,\"tokens\":52912},\"candidate\":{\"passed\":10,\"count\":10,\"tokens\":32589},\"reopened\":{\"passed\":0,\"count\":0,\"tokens\":0},\"rollback\":{\"passed\":0,\"count\":0,\"tokens\":0}}}}"
+        },
+        "resources": {
+          "unit": "tokens",
+          "maxUnits": 1500000
+        },
+        "protection": {
+          "verification": [
+            "verification-identity",
+            "verification-kind"
+          ],
+          "confirmation": [
+            "confirmation-identity",
+            "confirmation-kind"
+          ]
+        }
+      }
+    },
+    {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "sequence": 2,
+      "kind": "stage-started",
+      "stage": "generate",
+      "data": {}
+    },
+    {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "sequence": 3,
+      "kind": "usage",
+      "stage": "generate",
+      "data": {
+        "receipt": {
+          "runId": "657a6f8a-dd2f-4455-828c-e40396b01b92",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "sequence": 4,
+      "kind": "stage-finished",
+      "stage": "generate",
+      "data": {
+        "usageComplete": true,
+        "consumption": {
+          "tokens": 0,
+          "costUsd": 0,
+          "receipts": 1,
+          "unknownTokens": 0,
+          "unknownCosts": 0,
+          "unfinishedStages": 0
+        }
+      }
+    },
+    {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "sequence": 5,
+      "kind": "candidate",
+      "data": {
+        "candidate": {
+          "name": "preview-exploration-policy",
+          "purpose": "exploration",
+          "description": "Scripted control policy, not a learned result.",
+          "body": "Choose informative experiments within the declared limits."
+        },
+        "candidateRevision": "0c69c269ecdd58eb290eb2d7d724f6d4bb859b1eb281bca0e1b56d35af6e78fb",
+        "baselineRevision": "none"
+      }
+    },
+    {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "sequence": 6,
+      "kind": "stage-started",
+      "stage": "verification",
+      "data": {}
+    },
+    {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "sequence": 7,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "692d9c45-6d20-4cac-af6a-e666c36afd5c",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+      "sequence": 8,
+      "kind": "finished",
+      "data": {
+        "result": {
+          "cycleId": "102acdd6-a019-4405-90ed-c06e4e860fb0",
+          "status": "failed",
+          "reason": "Study execution stopped at verification-month-0/baseline/explore: Scripted provider rate limit.. No later episode will be attempted.",
+          "candidate": {
+            "name": "preview-exploration-policy",
+            "purpose": "exploration",
+            "description": "Scripted control policy, not a learned result.",
+            "body": "Choose informative experiments within the declared limits."
+          },
+          "candidateRevision": "0c69c269ecdd58eb290eb2d7d724f6d4bb859b1eb281bca0e1b56d35af6e78fb",
+          "baselineRevision": "none",
+          "consumption": {
+            "tokens": 0,
+            "costUsd": 0,
+            "receipts": 2,
+            "unknownTokens": 0,
+            "unknownCosts": 0,
+            "unfinishedStages": 1
+          },
+          "auditComplete": true
+        }
+      }
+    }
+  ],
+  "candidate": {
+    "name": "preview-exploration-policy",
+    "purpose": "exploration",
+    "description": "Scripted control policy, not a learned result.",
+    "body": "Choose informative experiments within the declared limits."
+  },
+  "active": [],
+  "projection": {
+    "task": {
+      "text": "",
+      "revision": null,
+      "includedSkills": [],
+      "omitted": 1,
+      "withheldSkills": []
+    },
+    "exploration": {
+      "text": "",
+      "revision": null,
+      "includedSkills": [],
+      "omitted": 1,
+      "withheldSkills": []
+    }
+  },
+  "rounds": {
+    "verification": {
+      "baseline": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "candidate": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "reopened": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "rollback": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      }
+    },
+    "confirmation": {
+      "baseline": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "candidate": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "reopened": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "rollback": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      }
+    },
+    "holdout": {
+      "baseline": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "candidate": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "reopened": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "rollback": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      }
+    }
+  },
+  "tokens": 0,
+  "unknownRuns": [],
+  "audit": {
+    "verifiedRetainedEvidence": true,
+    "settledAttempts": 2,
+    "attemptedRuns": 2,
+    "comparableVerificationPairs": [],
+    "unknownRuns": [],
+    "reportSha256": "db3e7d955fce3240a04cba81208afb52e1b636b33053fa2e8c68ee6bdd9d3f32",
+    "decision": null,
+    "predictorInstructionsSha256": "40e9616ff46c599ad34eb836cd32142b10c39481bc8197cd85754dc9435ac29b",
+    "transcripts": [
+      {
+        "runId": "657a6f8a-dd2f-4455-828c-e40396b01b92",
+        "label": "propose-policy",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "end_turn"
+        },
+        "transcriptSha256": "d4e17834eac74f84bb8ea2db7ca0dd4a2e63ca89d449cb3a325102f27dbf23cd",
+        "tools": []
+      },
+      {
+        "runId": "692d9c45-6d20-4cac-af6a-e666c36afd5c",
+        "label": "verification-month-0/baseline/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "Scripted provider rate limit."
+        },
+        "transcriptSha256": "d121ba73051b1ecdf4a3b7adaf534751bd6c3e1c7f08906786fd94a51c9fad33",
+        "tools": []
+      }
+    ],
+    "toolErrors": 0
+  }
+}

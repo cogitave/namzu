@@ -16,6 +16,10 @@ and fresh confirmation, and activates accepted content through the agenda's
 existing exact-revision transaction. It is an optional SDK workflow, not another
 provider loop or an automatically installed background learner.
 
+Optional [`purpose: 'exploration'`](exploration-policies.md) admits a policy for
+choosing experiments. The generated candidate must retain that purpose; ordinary
+task projection withholds it. The omitted purpose remains task guidance.
+
 The [RSI assessment](../../research/resident/rsi-readiness.md) explains the source
 comparison and the distinction between persisted guidance and recursive
 improvement of the improvement procedure. This API does not train model weights,

@@ -129,6 +129,58 @@ async function fixture() {
 }
 
 describe('resident learning cycle', () => {
+	it('admits and retains an exploration policy without projecting it as task guidance', async () => {
+		const f = await fixture()
+		const result = await runResidentLearningCycle({
+			...f.options,
+			purpose: 'exploration',
+			generate: async (context) => {
+				expect(context.purpose).toBe('exploration')
+				const generated = await f.options.generate(context)
+				return { ...generated, candidate: { ...generated.candidate, purpose: 'exploration' } }
+			},
+		})
+		expect(result.status).toBe('activated')
+		expect(f.events.find((e) => e.kind === 'started')?.data.purpose).toBe('exploration')
+		const learning = (await f.agenda.read())?.learning
+		expect(
+			projectResidentLearning(learning, { maxChars: 4000, skillNames: [skill.name] })
+				.includedSkills,
+		).toEqual([])
+		expect(
+			projectResidentLearning(learning, {
+				maxChars: 4000,
+				skillNames: [skill.name],
+				purpose: 'exploration',
+			}).includedSkills,
+		).toEqual([skill.name])
+		const attempted = await runResidentLearningCycle(f.options)
+		expect(attempted.status).toBe('failed')
+		expect(attempted.reason).toContain('purpose')
+	})
+	it.each(['task', 'exploration'] as const)(
+		'cannot redirect the host-admitted %s purpose during generation',
+		async (purpose) => {
+			const f = await fixture()
+			const result = await runResidentLearningCycle({
+				...f.options,
+				purpose,
+				generate: async (context) => {
+					const generated = await f.options.generate(context)
+					return {
+						...generated,
+						candidate: {
+							...generated.candidate,
+							purpose: purpose === 'task' ? 'exploration' : 'task',
+						},
+					}
+				},
+			})
+			expect(result.status).toBe('failed')
+			expect(result.reason).toContain('purpose')
+			expect(f.events.some((e) => e.kind === 'evaluation')).toBe(false)
+		},
+	)
 	it('retains independent exploration before generation without disclosing evaluation tasks', async () => {
 		const f = await fixture()
 		const observations = { evidence, trace: 'tool probe(input=7) returned 21' }

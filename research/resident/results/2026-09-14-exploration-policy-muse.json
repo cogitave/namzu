@@ -1,0 +1,4903 @@
+{
+  "live": true,
+  "spec": {
+    "version": 1,
+    "live": true,
+    "seed": "23cbb38c-9725-4e68-8f1a-5d954590075d",
+    "createdAt": 1789399428644,
+    "model": "muse-spark-1.3-contributor-free",
+    "effort": "low",
+    "baselinePolicy": "Investigate the undocumented preview service through the provided tool. Choose your own experiments to distinguish possible rules. Use observed results to revise hypotheses. Do not claim rules you have not checked. Finish when you have enough evidence, or identify remaining uncertainty.",
+    "limits": {
+      "records": 8,
+      "explorationIterations": 6,
+      "explorationTokens": 16000,
+      "predictionTokens": 12000,
+      "timeoutMs": 120000
+    },
+    "verification": [
+      {
+        "id": "verification-month-0",
+        "taskId": "verification-month",
+        "family": "month",
+        "trial": 0,
+        "config": {
+          "family": "month",
+          "root": "694f764f",
+          "sealed": "1d447bf1",
+          "aliases": {
+            "invoice": "5650bb9c",
+            "memo": "8a5753f1",
+            "notice": "3eebd55c"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00d722a953Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "008ff0cc0eAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00b92e660eAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00fb818ad7Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "005ee49ec1Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "008a4a4217Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "694f764f/2034/02/5650bb9c/00d722a953Az",
+          "694f764f/2034/11/8a5753f1/008ff0cc0eAz",
+          "694f764f/2034/02/3eebd55c/00b92e660eAz",
+          "1d447bf1/5650bb9c/00fb818ad7Az",
+          "1d447bf1/8a5753f1/005ee49ec1Az",
+          "1d447bf1/3eebd55c/008a4a4217Az"
+        ]
+      },
+      {
+        "id": "verification-month-1",
+        "taskId": "verification-month",
+        "family": "month",
+        "trial": 1,
+        "config": {
+          "family": "month",
+          "root": "e5d87d33",
+          "sealed": "93059573",
+          "aliases": {
+            "invoice": "0d9c9329",
+            "memo": "9ee332d6",
+            "notice": "664f3a4e"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "0016157a6aAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "009889b534Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "000c727b35Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00e8105262Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0080668460Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00fe4591afAz",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "e5d87d33/2035/02/0d9c9329/0016157a6aAz",
+          "e5d87d33/2035/11/9ee332d6/009889b534Az",
+          "e5d87d33/2035/02/664f3a4e/000c727b35Az",
+          "93059573/0d9c9329/00e8105262Az",
+          "93059573/9ee332d6/0080668460Az",
+          "93059573/664f3a4e/00fe4591afAz"
+        ]
+      },
+      {
+        "id": "verification-day-0",
+        "taskId": "verification-day",
+        "family": "day",
+        "trial": 0,
+        "config": {
+          "family": "day",
+          "root": "4104950b",
+          "sealed": "686e070e",
+          "aliases": {
+            "invoice": "f237dd22",
+            "memo": "a49d33a1",
+            "notice": "d804380e"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00602c1479Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "006967ccddAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "000b2a1348Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "0011999b1cAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0059f84ba3Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0031fa3e1bAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "4104950b/2034/02/17/f237dd22/00602c1479Az",
+          "4104950b/2034/11/17/a49d33a1/006967ccddAz",
+          "4104950b/2034/02/17/d804380e/000b2a1348Az",
+          "686e070e/f237dd22/0011999b1cAz",
+          "686e070e/a49d33a1/0059f84ba3Az",
+          "686e070e/d804380e/0031fa3e1bAz"
+        ]
+      },
+      {
+        "id": "verification-day-1",
+        "taskId": "verification-day",
+        "family": "day",
+        "trial": 1,
+        "config": {
+          "family": "day",
+          "root": "eac4ddda",
+          "sealed": "0e46efee",
+          "aliases": {
+            "invoice": "adad18c9",
+            "memo": "98269fd7",
+            "notice": "17f8841c"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "004188df26Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "001ab9b210Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "0072e72ebaAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00acd3436cAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "009da63ad6Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0076a79797Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "eac4ddda/2035/02/17/adad18c9/004188df26Az",
+          "eac4ddda/2035/11/17/98269fd7/001ab9b210Az",
+          "eac4ddda/2035/02/17/17f8841c/0072e72ebaAz",
+          "0e46efee/adad18c9/00acd3436cAz",
+          "0e46efee/98269fd7/009da63ad6Az",
+          "0e46efee/17f8841c/0076a79797Az"
+        ]
+      },
+      {
+        "id": "verification-year-0",
+        "taskId": "verification-year",
+        "family": "year",
+        "trial": 0,
+        "config": {
+          "family": "year",
+          "root": "04ff3dab",
+          "sealed": "55c34c06",
+          "aliases": {
+            "invoice": "929cf020",
+            "memo": "e87be8da",
+            "notice": "22cf5bdd"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00b0c319c0Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "008931f4a5Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00ac9814a4Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "009d9b17e5Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0070d4c6d5Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0084a68226Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "04ff3dab/2034/929cf020/00b0c319c0Az",
+          "04ff3dab/2034/e87be8da/008931f4a5Az",
+          "04ff3dab/2034/22cf5bdd/00ac9814a4Az",
+          "55c34c06/929cf020/009d9b17e5Az",
+          "55c34c06/e87be8da/0070d4c6d5Az",
+          "55c34c06/22cf5bdd/0084a68226Az"
+        ]
+      },
+      {
+        "id": "verification-year-1",
+        "taskId": "verification-year",
+        "family": "year",
+        "trial": 1,
+        "config": {
+          "family": "year",
+          "root": "cb3ae4d0",
+          "sealed": "45b0196f",
+          "aliases": {
+            "invoice": "51ed4c00",
+            "memo": "dac4a07d",
+            "notice": "7df3c427"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00d4d0b932Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00ea63652bAz",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "006aa0c68eAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "006125607dAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0078600883Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00e1a1649bAz",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "cb3ae4d0/2035/51ed4c00/00d4d0b932Az",
+          "cb3ae4d0/2035/dac4a07d/00ea63652bAz",
+          "cb3ae4d0/2035/7df3c427/006aa0c68eAz",
+          "45b0196f/51ed4c00/006125607dAz",
+          "45b0196f/dac4a07d/0078600883Az",
+          "45b0196f/7df3c427/00e1a1649bAz"
+        ]
+      },
+      {
+        "id": "verification-identity-0",
+        "taskId": "verification-identity",
+        "family": "identity",
+        "trial": 0,
+        "config": {
+          "family": "identity",
+          "root": "b389832e",
+          "sealed": "ad2b7cc1",
+          "aliases": {
+            "invoice": "adcfb3dc",
+            "memo": "4f88e5e1",
+            "notice": "100064d1"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00de45a808Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "003abf8d14Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00c7b1015cAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "0038f9943aAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "001b13192dAz",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "000de020bfAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "b389832e/00de45a808Az",
+          "b389832e/003abf8d14Az",
+          "b389832e/00c7b1015cAz",
+          "b389832e/0038f9943aAz",
+          "b389832e/001b13192dAz",
+          "b389832e/000de020bfAz"
+        ]
+      },
+      {
+        "id": "verification-identity-1",
+        "taskId": "verification-identity",
+        "family": "identity",
+        "trial": 1,
+        "config": {
+          "family": "identity",
+          "root": "8d01df73",
+          "sealed": "df6b5a64",
+          "aliases": {
+            "invoice": "d21541fb",
+            "memo": "7b12d6ca",
+            "notice": "789d3cba"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00d2976701Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "008c48308cAz",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00d4391e55Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "000b27511eAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "003a52943aAz",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00a6475581Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "8d01df73/00d2976701Az",
+          "8d01df73/008c48308cAz",
+          "8d01df73/00d4391e55Az",
+          "8d01df73/000b27511eAz",
+          "8d01df73/003a52943aAz",
+          "8d01df73/00a6475581Az"
+        ]
+      },
+      {
+        "id": "verification-kind-0",
+        "taskId": "verification-kind",
+        "family": "kind",
+        "trial": 0,
+        "config": {
+          "family": "kind",
+          "root": "15fdb8e7",
+          "sealed": "f572ca0e",
+          "aliases": {
+            "invoice": "47ca4dfb",
+            "memo": "c0f69fb5",
+            "notice": "cac3e060"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00e538fd10Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00c0113d23Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00bf825aacAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "005193fe8bAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "008866ee68Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00185bd9f4Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "15fdb8e7/47ca4dfb/00e538fd10Az",
+          "15fdb8e7/c0f69fb5/00c0113d23Az",
+          "15fdb8e7/cac3e060/00bf825aacAz",
+          "15fdb8e7/47ca4dfb/005193fe8bAz",
+          "15fdb8e7/c0f69fb5/008866ee68Az",
+          "15fdb8e7/cac3e060/00185bd9f4Az"
+        ]
+      },
+      {
+        "id": "verification-kind-1",
+        "taskId": "verification-kind",
+        "family": "kind",
+        "trial": 1,
+        "config": {
+          "family": "kind",
+          "root": "54e4600a",
+          "sealed": "af53d6ae",
+          "aliases": {
+            "invoice": "6844bdbc",
+            "memo": "8c0d8d0e",
+            "notice": "e7b5e24b"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00fed9beddAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00682f7945Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "009d9a8842Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00bd59a8cdAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00092723faAz",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0001f1afb5Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "54e4600a/6844bdbc/00fed9beddAz",
+          "54e4600a/8c0d8d0e/00682f7945Az",
+          "54e4600a/e7b5e24b/009d9a8842Az",
+          "54e4600a/6844bdbc/00bd59a8cdAz",
+          "54e4600a/8c0d8d0e/00092723faAz",
+          "54e4600a/e7b5e24b/0001f1afb5Az"
+        ]
+      }
+    ],
+    "confirmation": [
+      {
+        "id": "confirmation-month-0",
+        "taskId": "confirmation-month",
+        "family": "month",
+        "trial": 0,
+        "config": {
+          "family": "month",
+          "root": "442ba882",
+          "sealed": "7a608781",
+          "aliases": {
+            "invoice": "400d4886",
+            "memo": "c08ffadd",
+            "notice": "e3efd57e"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00d1c43015Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "003415af25Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "005a36f169Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00ad1e0071Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00520424bfAz",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00f9d36188Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "442ba882/2034/02/400d4886/00d1c43015Az",
+          "442ba882/2034/11/c08ffadd/003415af25Az",
+          "442ba882/2034/02/e3efd57e/005a36f169Az",
+          "7a608781/400d4886/00ad1e0071Az",
+          "7a608781/c08ffadd/00520424bfAz",
+          "7a608781/e3efd57e/00f9d36188Az"
+        ]
+      },
+      {
+        "id": "confirmation-month-1",
+        "taskId": "confirmation-month",
+        "family": "month",
+        "trial": 1,
+        "config": {
+          "family": "month",
+          "root": "5ed14901",
+          "sealed": "6945c305",
+          "aliases": {
+            "invoice": "567054f2",
+            "memo": "49e39f49",
+            "notice": "9a22da82"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00108f8c39Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00cf0af91bAz",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00dd2726e3Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "009b1518c9Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0057b9fd7eAz",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0032946bf6Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "5ed14901/2035/02/567054f2/00108f8c39Az",
+          "5ed14901/2035/11/49e39f49/00cf0af91bAz",
+          "5ed14901/2035/02/9a22da82/00dd2726e3Az",
+          "6945c305/567054f2/009b1518c9Az",
+          "6945c305/49e39f49/0057b9fd7eAz",
+          "6945c305/9a22da82/0032946bf6Az"
+        ]
+      },
+      {
+        "id": "confirmation-day-0",
+        "taskId": "confirmation-day",
+        "family": "day",
+        "trial": 0,
+        "config": {
+          "family": "day",
+          "root": "e4addcc9",
+          "sealed": "b947ef84",
+          "aliases": {
+            "invoice": "fc491d15",
+            "memo": "671befcd",
+            "notice": "a1c11bbe"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00856506efAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0074093c7cAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00f4553036Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00bdf3e0e5Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00c0109834Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00b40c7e5dAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "e4addcc9/2034/02/17/fc491d15/00856506efAz",
+          "e4addcc9/2034/11/17/671befcd/0074093c7cAz",
+          "e4addcc9/2034/02/17/a1c11bbe/00f4553036Az",
+          "b947ef84/fc491d15/00bdf3e0e5Az",
+          "b947ef84/671befcd/00c0109834Az",
+          "b947ef84/a1c11bbe/00b40c7e5dAz"
+        ]
+      },
+      {
+        "id": "confirmation-day-1",
+        "taskId": "confirmation-day",
+        "family": "day",
+        "trial": 1,
+        "config": {
+          "family": "day",
+          "root": "a28f6b5d",
+          "sealed": "b849b30e",
+          "aliases": {
+            "invoice": "d003806b",
+            "memo": "351c9e1d",
+            "notice": "439eedd9"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00f5a8a2a6Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0015b3f20eAz",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00371dc772Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00ecd647eaAz",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "008d122f31Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "005c9b274bAz",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "a28f6b5d/2035/02/17/d003806b/00f5a8a2a6Az",
+          "a28f6b5d/2035/11/17/351c9e1d/0015b3f20eAz",
+          "a28f6b5d/2035/02/17/439eedd9/00371dc772Az",
+          "b849b30e/d003806b/00ecd647eaAz",
+          "b849b30e/351c9e1d/008d122f31Az",
+          "b849b30e/439eedd9/005c9b274bAz"
+        ]
+      },
+      {
+        "id": "confirmation-year-0",
+        "taskId": "confirmation-year",
+        "family": "year",
+        "trial": 0,
+        "config": {
+          "family": "year",
+          "root": "4c72a5a3",
+          "sealed": "03814f22",
+          "aliases": {
+            "invoice": "8dd80224",
+            "memo": "439416b2",
+            "notice": "8bf76862"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "009ae996d0Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0078294874Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00bbccfe94Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00a33aaffaAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0062a68eaaAz",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0068e6b110Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "4c72a5a3/2034/8dd80224/009ae996d0Az",
+          "4c72a5a3/2034/439416b2/0078294874Az",
+          "4c72a5a3/2034/8bf76862/00bbccfe94Az",
+          "03814f22/8dd80224/00a33aaffaAz",
+          "03814f22/439416b2/0062a68eaaAz",
+          "03814f22/8bf76862/0068e6b110Az"
+        ]
+      },
+      {
+        "id": "confirmation-year-1",
+        "taskId": "confirmation-year",
+        "family": "year",
+        "trial": 1,
+        "config": {
+          "family": "year",
+          "root": "2f2d5f6e",
+          "sealed": "ec2f357d",
+          "aliases": {
+            "invoice": "5286a052",
+            "memo": "7bb18e11",
+            "notice": "c3756e1b"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "006913994fAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "004c4286a4Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00c64a2455Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "004a8e03c6Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00107adffdAz",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0026d9699dAz",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "2f2d5f6e/2035/5286a052/006913994fAz",
+          "2f2d5f6e/2035/7bb18e11/004c4286a4Az",
+          "2f2d5f6e/2035/c3756e1b/00c64a2455Az",
+          "ec2f357d/5286a052/004a8e03c6Az",
+          "ec2f357d/7bb18e11/00107adffdAz",
+          "ec2f357d/c3756e1b/0026d9699dAz"
+        ]
+      },
+      {
+        "id": "confirmation-identity-0",
+        "taskId": "confirmation-identity",
+        "family": "identity",
+        "trial": 0,
+        "config": {
+          "family": "identity",
+          "root": "339211fe",
+          "sealed": "a738c7d5",
+          "aliases": {
+            "invoice": "0307d250",
+            "memo": "0b9eb75c",
+            "notice": "f2ff1990"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00862cedc3Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "006414b44fAz",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00c8e3fa36Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "004fa867e1Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00cdbe388dAz",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0015055cb7Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "339211fe/00862cedc3Az",
+          "339211fe/006414b44fAz",
+          "339211fe/00c8e3fa36Az",
+          "339211fe/004fa867e1Az",
+          "339211fe/00cdbe388dAz",
+          "339211fe/0015055cb7Az"
+        ]
+      },
+      {
+        "id": "confirmation-identity-1",
+        "taskId": "confirmation-identity",
+        "family": "identity",
+        "trial": 1,
+        "config": {
+          "family": "identity",
+          "root": "bb2143f4",
+          "sealed": "a3915988",
+          "aliases": {
+            "invoice": "83bcda7a",
+            "memo": "9411cd0d",
+            "notice": "9bd23571"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "003aa4b1f8Az",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00d930bbbfAz",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "0045541e1dAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00e0b8ed74Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "0009c99ccbAz",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00523d4f27Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "bb2143f4/003aa4b1f8Az",
+          "bb2143f4/00d930bbbfAz",
+          "bb2143f4/0045541e1dAz",
+          "bb2143f4/00e0b8ed74Az",
+          "bb2143f4/0009c99ccbAz",
+          "bb2143f4/00523d4f27Az"
+        ]
+      },
+      {
+        "id": "confirmation-kind-0",
+        "taskId": "confirmation-kind",
+        "family": "kind",
+        "trial": 0,
+        "config": {
+          "family": "kind",
+          "root": "3fd75e9f",
+          "sealed": "a3a72c9a",
+          "aliases": {
+            "invoice": "fdac1d49",
+            "memo": "56e74aec",
+            "notice": "08b4ff69"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "006bd73969Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0061bfed43Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "00c8095f2bAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00bb035e35Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00e8847992Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "0015168e4aAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "3fd75e9f/fdac1d49/006bd73969Az",
+          "3fd75e9f/56e74aec/0061bfed43Az",
+          "3fd75e9f/08b4ff69/00c8095f2bAz",
+          "3fd75e9f/fdac1d49/00bb035e35Az",
+          "3fd75e9f/56e74aec/00e8847992Az",
+          "3fd75e9f/08b4ff69/0015168e4aAz"
+        ]
+      },
+      {
+        "id": "confirmation-kind-1",
+        "taskId": "confirmation-kind",
+        "family": "kind",
+        "trial": 1,
+        "config": {
+          "family": "kind",
+          "root": "3e00e24c",
+          "sealed": "c1434d78",
+          "aliases": {
+            "invoice": "5086cbe7",
+            "memo": "a8fc3025",
+            "notice": "db3adf04"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00b174e4acAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00b4fe8c44Az",
+            "date": "2035-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "0083619dfbAz",
+            "date": "2035-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "00a0b3cd96Az",
+            "date": "2035-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00b79b83d0Az",
+            "date": "2035-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00cf5508e1Az",
+            "date": "2035-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "3e00e24c/5086cbe7/00b174e4acAz",
+          "3e00e24c/a8fc3025/00b4fe8c44Az",
+          "3e00e24c/db3adf04/0083619dfbAz",
+          "3e00e24c/5086cbe7/00a0b3cd96Az",
+          "3e00e24c/a8fc3025/00b79b83d0Az",
+          "3e00e24c/db3adf04/00cf5508e1Az"
+        ]
+      }
+    ],
+    "holdout": [
+      {
+        "id": "holdout-month-0",
+        "taskId": "holdout-month",
+        "family": "month",
+        "trial": 0,
+        "config": {
+          "family": "month",
+          "root": "3500b3a4",
+          "sealed": "c45daaa9",
+          "aliases": {
+            "invoice": "e7ebe2d4",
+            "memo": "7901d4c9",
+            "notice": "32a7e395"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "005738e669Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "0014bb5076Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "001ff25e4bAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "001b4de758Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "002dffef08Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "007b123bf0Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "3500b3a4/2034/02/e7ebe2d4/005738e669Az",
+          "3500b3a4/2034/11/7901d4c9/0014bb5076Az",
+          "3500b3a4/2034/02/32a7e395/001ff25e4bAz",
+          "c45daaa9/e7ebe2d4/001b4de758Az",
+          "c45daaa9/7901d4c9/002dffef08Az",
+          "c45daaa9/32a7e395/007b123bf0Az"
+        ]
+      },
+      {
+        "id": "holdout-day-0",
+        "taskId": "holdout-day",
+        "family": "day",
+        "trial": 0,
+        "config": {
+          "family": "day",
+          "root": "a2e29f82",
+          "sealed": "96d5eb70",
+          "aliases": {
+            "invoice": "d4f36706",
+            "memo": "08bf527d",
+            "notice": "caf2f21e"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "00d573f6c5Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00b1496463Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "008b318489Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "008212d165Az",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "00fc022886Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "006f536bbbAz",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "a2e29f82/2034/02/17/d4f36706/00d573f6c5Az",
+          "a2e29f82/2034/11/17/08bf527d/00b1496463Az",
+          "a2e29f82/2034/02/17/caf2f21e/008b318489Az",
+          "96d5eb70/d4f36706/008212d165Az",
+          "96d5eb70/08bf527d/00fc022886Az",
+          "96d5eb70/caf2f21e/006f536bbbAz"
+        ]
+      },
+      {
+        "id": "holdout-year-0",
+        "taskId": "holdout-year",
+        "family": "year",
+        "trial": 0,
+        "config": {
+          "family": "year",
+          "root": "616c94dd",
+          "sealed": "43444c1f",
+          "aliases": {
+            "invoice": "8e048612",
+            "memo": "9e4f3f54",
+            "notice": "899433fe"
+          }
+        },
+        "tests": [
+          {
+            "kind": "invoice",
+            "id": "004721a76dAz",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "memo",
+            "id": "00cf5e1893Az",
+            "date": "2034-11-17",
+            "sealed": false
+          },
+          {
+            "kind": "notice",
+            "id": "009ad0e366Az",
+            "date": "2034-02-17",
+            "sealed": false
+          },
+          {
+            "kind": "invoice",
+            "id": "0069033c4eAz",
+            "date": "2034-11-23",
+            "sealed": true
+          },
+          {
+            "kind": "memo",
+            "id": "009fc7a4f4Az",
+            "date": "2034-02-23",
+            "sealed": true
+          },
+          {
+            "kind": "notice",
+            "id": "00363bf075Az",
+            "date": "2034-11-23",
+            "sealed": true
+          }
+        ],
+        "expected": [
+          "616c94dd/2034/8e048612/004721a76dAz",
+          "616c94dd/2034/9e4f3f54/00cf5e1893Az",
+          "616c94dd/2034/899433fe/009ad0e366Az",
+          "43444c1f/8e048612/0069033c4eAz",
+          "43444c1f/9e4f3f54/009fc7a4f4Az",
+          "43444c1f/899433fe/00363bf075Az"
+        ]
+      }
+    ],
+    "protection": {
+      "verification": [
+        "verification-identity",
+        "verification-kind"
+      ],
+      "confirmation": [
+        "confirmation-identity",
+        "confirmation-kind"
+      ]
+    },
+    "trainingSha256": "f84d78efbe1b900dd0075718da28687d59b5420108427f584368b48dc17b16bf",
+    "sourceHashes": {
+      "research/resident/exploration-policy-environment.mjs": "4b9f9f288255f7d535744940f1bcda02fb1276abf152d2b3903fb2356266828b",
+      "research/resident/exploration-policy-host.mjs": "84d2cbceab0f57a9627c936cc8b44ab1e65b91ce8cbf63d44283916e63107382",
+      "research/resident/exploration-policy-study.mjs": "0be7fb8fe3ecb1dd88d7e72005218e603bed5a3b3da8135ca285dd010de35833",
+      "packages/sdk/dist/manager/resident/learning.js": "c6bc9729a952fe85a113a123950c36355845cf8352a0499d54e895dcc723f2b1",
+      "packages/sdk/dist/manager/resident/learning-cycle.js": "a04f0f3a11cf700969438782a8d3950bd98af93a5783f8a81d06f378a00797f7"
+    }
+  },
+  "cycle": {
+    "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+    "ordinal": 1,
+    "parentCycleId": null,
+    "skillName": "preview-exploration-policy",
+    "status": "cancelled",
+    "sequence": 47,
+    "startedAt": 1789399693034,
+    "updatedAt": 1789399879247,
+    "candidateRevision": "a8d0e78295488cc644417412c0e4dee1a557f456c394c45cc9d13b16f5472d70",
+    "result": {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "status": "cancelled",
+      "reason": "Learning experiment interrupted by the operator.",
+      "candidate": {
+        "name": "preview-exploration-policy",
+        "purpose": "exploration",
+        "description": "Single-factor exploration policy for unknown preview routing with kind/id/date/sealed records under tight probe budget.",
+        "body": "You explore an undocumented preview_route service. You cannot change tool, evaluator, or held-out inputs. Your tool outputs alone train a frozen predictor. Maximize information in <=8 records, <=6 iterations.\n\n1. Anchor (1 record, iter1): pick a neutral base: common kind, typical id, typical date, sealed=false. Record full destination template: prefix parts, date parts, middle part, suffix.\n2. Single-factor sweeps (4-5 records, iter2-3, batch together): vary ONE field at a time from anchor, hold others fixed:\n - sealed: same base but sealed=true. Tests branch vs flag, and whether date/prefix are dropped.\n - kind: 2 variants with same id/date/sealed=false. Tests if middle segment is kind-derived and if prefix changes.\n - date: same base but (a) same year-month different day, (b) different month and/or year. Tests YYYY/MM vs DD dependence, zero-padding, old/future dates.\n - id: one variant with sharply different id string/length, same other fields. Tests verbatim echo vs hashing/truncation.\n3. Interaction check (1-2 records, iter4): combine key interactions: e.g., different kind + sealed=true, and different month + different kind. Tests whether sealed overrides date/prefix uniformly and whether kind mapping is stable across dates.\n4. Revise, do not over-probe: after each batch compare outputs character-by-character. Attribute each destination segment to kind/id/date/sealed/constant. Only add a probe if two hypotheses remain (e.g., day matters, id hashed). Stop early if structure is stable; leave budget unused rather than repeat.\n5. Uncertainty: do not invent constants or rules you did not observe. If a field was never varied, treat as unknown. Prefer diverse values over repeats of anchor. Keep reasoning brief to stay under token limit."
+      },
+      "candidateRevision": "a8d0e78295488cc644417412c0e4dee1a557f456c394c45cc9d13b16f5472d70",
+      "baselineRevision": "none",
+      "consumption": {
+        "tokens": 38459,
+        "costUsd": 0,
+        "receipts": 41,
+        "unknownTokens": 0,
+        "unknownCosts": 7,
+        "unfinishedStages": 1
+      },
+      "auditComplete": true
+    },
+    "recordedUsage": {
+      "tokens": 38459,
+      "costUsd": 0,
+      "receipts": 41,
+      "unknownTokens": 0,
+      "unknownCosts": 7
+    }
+  },
+  "episodes": [
+    {
+      "label": "verification-month-0/baseline",
+      "episode": "verification-month-0",
+      "taskId": "verification-month",
+      "family": "month",
+      "trial": 0,
+      "arm": "baseline",
+      "explorerRunId": "9ff7c481-d1fa-4313-a4f5-4d30177f9d67",
+      "predictorRunId": "758f25cb-9af5-4f09-a146-5f527e780f0d",
+      "passed": false,
+      "correct": 5,
+      "count": 6,
+      "output": "[\"694f764f/2034/02/5650bb9c/00d722a953Az\",\"694f764f/2034/11/8a5753f1/008ff0cc0eAz\",\"694f764f/2034/02/3eebd55c/00b92e660eAz\",\"1d447bf1/5650bb9c/00fb818ad7Az\",\"1d447bf1/8a5753f1/005ee49ec1Az\",\"UNKNOWN\"]",
+      "actual": [
+        "694f764f/2034/02/5650bb9c/00d722a953Az",
+        "694f764f/2034/11/8a5753f1/008ff0cc0eAz",
+        "694f764f/2034/02/3eebd55c/00b92e660eAz",
+        "1d447bf1/5650bb9c/00fb818ad7Az",
+        "1d447bf1/8a5753f1/005ee49ec1Az",
+        "UNKNOWN"
+      ],
+      "expected": [
+        "694f764f/2034/02/5650bb9c/00d722a953Az",
+        "694f764f/2034/11/8a5753f1/008ff0cc0eAz",
+        "694f764f/2034/02/3eebd55c/00b92e660eAz",
+        "1d447bf1/5650bb9c/00fb818ad7Az",
+        "1d447bf1/8a5753f1/005ee49ec1Az",
+        "1d447bf1/3eebd55c/008a4a4217Az"
+      ],
+      "probesUsed": 8,
+      "calls": [
+        {
+          "input": {
+            "records": [
+              {
+                "kind": "invoice",
+                "id": "A-1",
+                "date": "2026-01-01",
+                "sealed": false
+              },
+              {
+                "kind": "invoice",
+                "id": "A-1",
+                "date": "2026-01-01",
+                "sealed": true
+              },
+              {
+                "kind": "memo",
+                "id": "A-1",
+                "date": "2026-01-01",
+                "sealed": false
+              },
+              {
+                "kind": "notice",
+                "id": "A-1",
+                "date": "2026-01-01",
+                "sealed": false
+              }
+            ]
+          },
+          "output": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":false},\"destination\":\"694f764f/2026/01/5650bb9c/A-1\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":true},\"destination\":\"1d447bf1/5650bb9c/A-1\"},{\"input\":{\"kind\":\"memo\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":false},\"destination\":\"694f764f/2026/01/8a5753f1/A-1\"},{\"input\":{\"kind\":\"notice\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":false},\"destination\":\"694f764f/2026/01/3eebd55c/A-1\"}]",
+          "success": true
+        },
+        {
+          "input": {
+            "records": [
+              {
+                "kind": "memo",
+                "id": "A-1",
+                "date": "2026-01-01",
+                "sealed": true
+              },
+              {
+                "kind": "invoice",
+                "id": "A-1",
+                "date": "2025-12-15",
+                "sealed": false
+              },
+              {
+                "kind": "invoice",
+                "id": "B-2",
+                "date": "2026-01-01",
+                "sealed": false
+              },
+              {
+                "kind": "invoice",
+                "id": "A-1",
+                "date": "2025-12-15",
+                "sealed": true
+              }
+            ]
+          },
+          "output": "[{\"input\":{\"kind\":\"memo\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":true},\"destination\":\"1d447bf1/8a5753f1/A-1\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"A-1\",\"date\":\"2025-12-15\",\"sealed\":false},\"destination\":\"694f764f/2025/12/5650bb9c/A-1\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"B-2\",\"date\":\"2026-01-01\",\"sealed\":false},\"destination\":\"694f764f/2026/01/5650bb9c/B-2\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"A-1\",\"date\":\"2025-12-15\",\"sealed\":true},\"destination\":\"1d447bf1/5650bb9c/A-1\"}]",
+          "success": true
+        }
+      ],
+      "tokens": 9700,
+      "durationMs": 39579,
+      "complete": true,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "b83d895c8810a9bd30d28981489bdda2097a43e3f113dd33c09f32c862ea89f9"
+    },
+    {
+      "label": "verification-month-0/candidate",
+      "episode": "verification-month-0",
+      "taskId": "verification-month",
+      "family": "month",
+      "trial": 0,
+      "arm": "candidate",
+      "explorerRunId": "929e342c-5392-48c5-985b-101c083da28d",
+      "predictorRunId": "e9802bfc-3e0c-4484-9637-1f967d7654e4",
+      "passed": false,
+      "correct": 5,
+      "count": 6,
+      "output": "[\"694f764f/2034/02/5650bb9c/00d722a953Az\",\"694f764f/2034/11/8a5753f1/008ff0cc0eAz\",\"694f764f/2034/02/3eebd55c/00b92e660eAz\",\"1d447bf1/5650bb9c/00fb818ad7Az\",\"1d447bf1/8a5753f1/005ee49ec1Az\",\"UNKNOWN\"]",
+      "actual": [
+        "694f764f/2034/02/5650bb9c/00d722a953Az",
+        "694f764f/2034/11/8a5753f1/008ff0cc0eAz",
+        "694f764f/2034/02/3eebd55c/00b92e660eAz",
+        "1d447bf1/5650bb9c/00fb818ad7Az",
+        "1d447bf1/8a5753f1/005ee49ec1Az",
+        "UNKNOWN"
+      ],
+      "expected": [
+        "694f764f/2034/02/5650bb9c/00d722a953Az",
+        "694f764f/2034/11/8a5753f1/008ff0cc0eAz",
+        "694f764f/2034/02/3eebd55c/00b92e660eAz",
+        "1d447bf1/5650bb9c/00fb818ad7Az",
+        "1d447bf1/8a5753f1/005ee49ec1Az",
+        "1d447bf1/3eebd55c/008a4a4217Az"
+      ],
+      "probesUsed": 8,
+      "calls": [
+        {
+          "input": {
+            "records": [
+              {
+                "kind": "invoice",
+                "id": "INV-001",
+                "date": "2026-09-14",
+                "sealed": false
+              }
+            ]
+          },
+          "output": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-09-14\",\"sealed\":false},\"destination\":\"694f764f/2026/09/5650bb9c/INV-001\"}]",
+          "success": true
+        },
+        {
+          "input": {
+            "records": [
+              {
+                "kind": "invoice",
+                "id": "INV-001",
+                "date": "2026-09-14",
+                "sealed": true
+              },
+              {
+                "kind": "memo",
+                "id": "INV-001",
+                "date": "2026-09-14",
+                "sealed": false
+              },
+              {
+                "kind": "invoice",
+                "id": "INV-001",
+                "date": "2026-09-02",
+                "sealed": false
+              },
+              {
+                "kind": "invoice",
+                "id": "X9-zzz-42Q",
+                "date": "2026-09-14",
+                "sealed": false
+              }
+            ]
+          },
+          "output": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-09-14\",\"sealed\":true},\"destination\":\"1d447bf1/5650bb9c/INV-001\"},{\"input\":{\"kind\":\"memo\",\"id\":\"INV-001\",\"date\":\"2026-09-14\",\"sealed\":false},\"destination\":\"694f764f/2026/09/8a5753f1/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-09-02\",\"sealed\":false},\"destination\":\"694f764f/2026/09/5650bb9c/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"X9-zzz-42Q\",\"date\":\"2026-09-14\",\"sealed\":false},\"destination\":\"694f764f/2026/09/5650bb9c/X9-zzz-42Q\"}]",
+          "success": true
+        },
+        {
+          "input": {
+            "records": [
+              {
+                "kind": "notice",
+                "id": "INV-001",
+                "date": "2026-09-14",
+                "sealed": false
+              },
+              {
+                "kind": "invoice",
+                "id": "INV-001",
+                "date": "2025-01-05",
+                "sealed": false
+              },
+              {
+                "kind": "memo",
+                "id": "INV-001",
+                "date": "2025-01-05",
+                "sealed": true
+              }
+            ]
+          },
+          "output": "[{\"input\":{\"kind\":\"notice\",\"id\":\"INV-001\",\"date\":\"2026-09-14\",\"sealed\":false},\"destination\":\"694f764f/2026/09/3eebd55c/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2025-01-05\",\"sealed\":false},\"destination\":\"694f764f/2025/01/5650bb9c/INV-001\"},{\"input\":{\"kind\":\"memo\",\"id\":\"INV-001\",\"date\":\"2025-01-05\",\"sealed\":true},\"destination\":\"1d447bf1/8a5753f1/INV-001\"}]",
+          "success": true
+        }
+      ],
+      "tokens": 13150,
+      "durationMs": 39357,
+      "complete": true,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "bccdd880c18f88e9e1f652ed98249cf2a3a8fa55b96383373c9992e7dea3c983"
+    },
+    {
+      "label": "verification-month-1/candidate",
+      "episode": "verification-month-1",
+      "taskId": "verification-month",
+      "family": "month",
+      "trial": 1,
+      "arm": "candidate",
+      "explorerRunId": "f85a9ae4-cbe1-4257-a5ba-4a32dced2d81",
+      "predictorRunId": "c4ef9b6e-6d6c-4c51-ab3e-96a9e82af5f3",
+      "passed": true,
+      "correct": 6,
+      "count": 6,
+      "output": "[\"e5d87d33/2035/02/0d9c9329/0016157a6aAz\",\"e5d87d33/2035/11/9ee332d6/009889b534Az\",\"e5d87d33/2035/02/664f3a4e/000c727b35Az\",\"93059573/0d9c9329/00e8105262Az\",\"93059573/9ee332d6/0080668460Az\",\"93059573/664f3a4e/00fe4591afAz\"]",
+      "actual": [
+        "e5d87d33/2035/02/0d9c9329/0016157a6aAz",
+        "e5d87d33/2035/11/9ee332d6/009889b534Az",
+        "e5d87d33/2035/02/664f3a4e/000c727b35Az",
+        "93059573/0d9c9329/00e8105262Az",
+        "93059573/9ee332d6/0080668460Az",
+        "93059573/664f3a4e/00fe4591afAz"
+      ],
+      "expected": [
+        "e5d87d33/2035/02/0d9c9329/0016157a6aAz",
+        "e5d87d33/2035/11/9ee332d6/009889b534Az",
+        "e5d87d33/2035/02/664f3a4e/000c727b35Az",
+        "93059573/0d9c9329/00e8105262Az",
+        "93059573/9ee332d6/0080668460Az",
+        "93059573/664f3a4e/00fe4591afAz"
+      ],
+      "probesUsed": 8,
+      "calls": [
+        {
+          "input": {
+            "records": [
+              {
+                "kind": "invoice",
+                "id": "INV-001",
+                "date": "2026-03-15",
+                "sealed": false
+              }
+            ]
+          },
+          "output": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/0d9c9329/INV-001\"}]",
+          "success": true
+        },
+        {
+          "input": {
+            "records": [
+              {
+                "kind": "invoice",
+                "id": "INV-001",
+                "date": "2026-03-15",
+                "sealed": true
+              },
+              {
+                "kind": "memo",
+                "id": "INV-001",
+                "date": "2026-03-15",
+                "sealed": false
+              },
+              {
+                "kind": "notice",
+                "id": "INV-001",
+                "date": "2026-03-15",
+                "sealed": false
+              },
+              {
+                "kind": "invoice",
+                "id": "INV-001",
+                "date": "2026-03-22",
+                "sealed": false
+              },
+              {
+                "kind": "invoice",
+                "id": "VERY-LONG-DIFFERENT-ID-99999-XYZ",
+                "date": "2026-03-15",
+                "sealed": false
+              }
+            ]
+          },
+          "output": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":true},\"destination\":\"93059573/0d9c9329/INV-001\"},{\"input\":{\"kind\":\"memo\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/9ee332d6/INV-001\"},{\"input\":{\"kind\":\"notice\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/664f3a4e/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-03-22\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/0d9c9329/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"VERY-LONG-DIFFERENT-ID-99999-XYZ\",\"date\":\"2026-03-15\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/0d9c9329/VERY-LONG-DIFFERENT-ID-99999-XYZ\"}]",
+          "success": true
+        },
+        {
+          "input": {
+            "records": [
+              {
+                "kind": "invoice",
+                "id": "INV-001",
+                "date": "2025-11-15",
+                "sealed": false
+              },
+              {
+                "kind": "memo",
+                "id": "INV-001",
+                "date": "2026-03-15",
+                "sealed": true
+              }
+            ]
+          },
+          "output": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2025-11-15\",\"sealed\":false},\"destination\":\"e5d87d33/2025/11/0d9c9329/INV-001\"},{\"input\":{\"kind\":\"memo\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":true},\"destination\":\"93059573/9ee332d6/INV-001\"}]",
+          "success": true
+        }
+      ],
+      "tokens": 12104,
+      "durationMs": 35297,
+      "complete": true,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4dd2eb357352317f86ecd2cef8ead79cdea8f0698d28ad7d2f1f2b811d3e0041"
+    },
+    {
+      "label": "verification-month-1/baseline",
+      "episode": "verification-month-1",
+      "taskId": "verification-month",
+      "family": "month",
+      "trial": 1,
+      "arm": "baseline",
+      "explorerRunId": "ac97b6c3-2cbf-4b11-81a9-cce183d2fdbc",
+      "predictorRunId": "a1b26a34-60ef-48e9-8825-74cebba096b4",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "e5d87d33/2035/02/0d9c9329/0016157a6aAz",
+        "e5d87d33/2035/11/9ee332d6/009889b534Az",
+        "e5d87d33/2035/02/664f3a4e/000c727b35Az",
+        "93059573/0d9c9329/00e8105262Az",
+        "93059573/9ee332d6/0080668460Az",
+        "93059573/664f3a4e/00fe4591afAz"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 5209,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-day-0/baseline",
+      "episode": "verification-day-0",
+      "taskId": "verification-day",
+      "family": "day",
+      "trial": 0,
+      "arm": "baseline",
+      "explorerRunId": "84896cf9-8675-4004-bbc4-82b9ec9b71d9",
+      "predictorRunId": "9f99c443-705f-4bc5-80af-01474246c147",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "4104950b/2034/02/17/f237dd22/00602c1479Az",
+        "4104950b/2034/11/17/a49d33a1/006967ccddAz",
+        "4104950b/2034/02/17/d804380e/000b2a1348Az",
+        "686e070e/f237dd22/0011999b1cAz",
+        "686e070e/a49d33a1/0059f84ba3Az",
+        "686e070e/d804380e/0031fa3e1bAz"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 5529,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-day-0/candidate",
+      "episode": "verification-day-0",
+      "taskId": "verification-day",
+      "family": "day",
+      "trial": 0,
+      "arm": "candidate",
+      "explorerRunId": "c3b5c684-b506-44a1-acbf-e9d023017b8e",
+      "predictorRunId": "3a118719-a0c2-46e2-8c31-8d601c08e9be",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "4104950b/2034/02/17/f237dd22/00602c1479Az",
+        "4104950b/2034/11/17/a49d33a1/006967ccddAz",
+        "4104950b/2034/02/17/d804380e/000b2a1348Az",
+        "686e070e/f237dd22/0011999b1cAz",
+        "686e070e/a49d33a1/0059f84ba3Az",
+        "686e070e/d804380e/0031fa3e1bAz"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 6558,
+      "complete": false,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-day-1/candidate",
+      "episode": "verification-day-1",
+      "taskId": "verification-day",
+      "family": "day",
+      "trial": 1,
+      "arm": "candidate",
+      "explorerRunId": "5d07512f-e7b8-4a33-a26f-ca52722068d8",
+      "predictorRunId": "672aaaca-555e-4b9b-8f5b-1d3a3bb720a5",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "eac4ddda/2035/02/17/adad18c9/004188df26Az",
+        "eac4ddda/2035/11/17/98269fd7/001ab9b210Az",
+        "eac4ddda/2035/02/17/17f8841c/0072e72ebaAz",
+        "0e46efee/adad18c9/00acd3436cAz",
+        "0e46efee/98269fd7/009da63ad6Az",
+        "0e46efee/17f8841c/0076a79797Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 7037,
+      "complete": false,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-day-1/baseline",
+      "episode": "verification-day-1",
+      "taskId": "verification-day",
+      "family": "day",
+      "trial": 1,
+      "arm": "baseline",
+      "explorerRunId": "d1dc0b3f-2a16-4646-97dd-a401865c2b7f",
+      "predictorRunId": "fc2a72a4-d471-4be2-be2d-f12a67649f98",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "eac4ddda/2035/02/17/adad18c9/004188df26Az",
+        "eac4ddda/2035/11/17/98269fd7/001ab9b210Az",
+        "eac4ddda/2035/02/17/17f8841c/0072e72ebaAz",
+        "0e46efee/adad18c9/00acd3436cAz",
+        "0e46efee/98269fd7/009da63ad6Az",
+        "0e46efee/17f8841c/0076a79797Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 7147,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-year-0/baseline",
+      "episode": "verification-year-0",
+      "taskId": "verification-year",
+      "family": "year",
+      "trial": 0,
+      "arm": "baseline",
+      "explorerRunId": "97fd39b0-676b-4c5e-b96e-0a85ea3f3ddb",
+      "predictorRunId": "287626df-77cd-4288-bab8-b639d597e5e0",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "04ff3dab/2034/929cf020/00b0c319c0Az",
+        "04ff3dab/2034/e87be8da/008931f4a5Az",
+        "04ff3dab/2034/22cf5bdd/00ac9814a4Az",
+        "55c34c06/929cf020/009d9b17e5Az",
+        "55c34c06/e87be8da/0070d4c6d5Az",
+        "55c34c06/22cf5bdd/0084a68226Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 5715,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-year-0/candidate",
+      "episode": "verification-year-0",
+      "taskId": "verification-year",
+      "family": "year",
+      "trial": 0,
+      "arm": "candidate",
+      "explorerRunId": "40c235ac-d119-4b1e-bd01-b6a9baacf1bc",
+      "predictorRunId": "eeb2c2d0-7c13-4d57-8f1b-a2e04c46edb0",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "04ff3dab/2034/929cf020/00b0c319c0Az",
+        "04ff3dab/2034/e87be8da/008931f4a5Az",
+        "04ff3dab/2034/22cf5bdd/00ac9814a4Az",
+        "55c34c06/929cf020/009d9b17e5Az",
+        "55c34c06/e87be8da/0070d4c6d5Az",
+        "55c34c06/22cf5bdd/0084a68226Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 4809,
+      "complete": false,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-year-1/candidate",
+      "episode": "verification-year-1",
+      "taskId": "verification-year",
+      "family": "year",
+      "trial": 1,
+      "arm": "candidate",
+      "explorerRunId": "9843b2f2-a387-4753-89a4-7ed8ce6ed6a7",
+      "predictorRunId": "a83be023-c94b-403b-9736-16059ea3bd74",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "cb3ae4d0/2035/51ed4c00/00d4d0b932Az",
+        "cb3ae4d0/2035/dac4a07d/00ea63652bAz",
+        "cb3ae4d0/2035/7df3c427/006aa0c68eAz",
+        "45b0196f/51ed4c00/006125607dAz",
+        "45b0196f/dac4a07d/0078600883Az",
+        "45b0196f/7df3c427/00e1a1649bAz"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 5417,
+      "complete": false,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-year-1/baseline",
+      "episode": "verification-year-1",
+      "taskId": "verification-year",
+      "family": "year",
+      "trial": 1,
+      "arm": "baseline",
+      "explorerRunId": "234d95e1-bf5b-4059-801f-081c740272a8",
+      "predictorRunId": "51e1cae6-016d-4526-a759-0ad85d05c2cf",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "cb3ae4d0/2035/51ed4c00/00d4d0b932Az",
+        "cb3ae4d0/2035/dac4a07d/00ea63652bAz",
+        "cb3ae4d0/2035/7df3c427/006aa0c68eAz",
+        "45b0196f/51ed4c00/006125607dAz",
+        "45b0196f/dac4a07d/0078600883Az",
+        "45b0196f/7df3c427/00e1a1649bAz"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 15,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-identity-0/baseline",
+      "episode": "verification-identity-0",
+      "taskId": "verification-identity",
+      "family": "identity",
+      "trial": 0,
+      "arm": "baseline",
+      "explorerRunId": "c4d01e49-0c3b-4361-b11d-cc37bf895a1e",
+      "predictorRunId": "933f9086-8a97-45f6-8521-0ca96c2d7d17",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "b389832e/00de45a808Az",
+        "b389832e/003abf8d14Az",
+        "b389832e/00c7b1015cAz",
+        "b389832e/0038f9943aAz",
+        "b389832e/001b13192dAz",
+        "b389832e/000de020bfAz"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 15,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-identity-0/candidate",
+      "episode": "verification-identity-0",
+      "taskId": "verification-identity",
+      "family": "identity",
+      "trial": 0,
+      "arm": "candidate",
+      "explorerRunId": "5fef7a53-82cb-4132-ac92-c0aa6bd25ff3",
+      "predictorRunId": "15cce7b0-93c6-4715-ad08-7cfdfdeaa163",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "b389832e/00de45a808Az",
+        "b389832e/003abf8d14Az",
+        "b389832e/00c7b1015cAz",
+        "b389832e/0038f9943aAz",
+        "b389832e/001b13192dAz",
+        "b389832e/000de020bfAz"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 17,
+      "complete": false,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-identity-1/candidate",
+      "episode": "verification-identity-1",
+      "taskId": "verification-identity",
+      "family": "identity",
+      "trial": 1,
+      "arm": "candidate",
+      "explorerRunId": "b010b7b4-cd5e-4807-b147-12ab3834ca3b",
+      "predictorRunId": "247b1167-378e-45b2-a172-5a566018af42",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "8d01df73/00d2976701Az",
+        "8d01df73/008c48308cAz",
+        "8d01df73/00d4391e55Az",
+        "8d01df73/000b27511eAz",
+        "8d01df73/003a52943aAz",
+        "8d01df73/00a6475581Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 16,
+      "complete": false,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-identity-1/baseline",
+      "episode": "verification-identity-1",
+      "taskId": "verification-identity",
+      "family": "identity",
+      "trial": 1,
+      "arm": "baseline",
+      "explorerRunId": "5e7604e6-db06-4d2c-abfb-006373738a0c",
+      "predictorRunId": "87ba835c-2f58-4e6e-88ce-058c339070e1",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "8d01df73/00d2976701Az",
+        "8d01df73/008c48308cAz",
+        "8d01df73/00d4391e55Az",
+        "8d01df73/000b27511eAz",
+        "8d01df73/003a52943aAz",
+        "8d01df73/00a6475581Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 17,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-kind-0/baseline",
+      "episode": "verification-kind-0",
+      "taskId": "verification-kind",
+      "family": "kind",
+      "trial": 0,
+      "arm": "baseline",
+      "explorerRunId": "c77c9b76-de6a-4b24-a83a-c30b30ab1576",
+      "predictorRunId": "6a1593d6-b449-4e17-9fae-88fe2030193d",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "15fdb8e7/47ca4dfb/00e538fd10Az",
+        "15fdb8e7/c0f69fb5/00c0113d23Az",
+        "15fdb8e7/cac3e060/00bf825aacAz",
+        "15fdb8e7/47ca4dfb/005193fe8bAz",
+        "15fdb8e7/c0f69fb5/008866ee68Az",
+        "15fdb8e7/cac3e060/00185bd9f4Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 17,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-kind-0/candidate",
+      "episode": "verification-kind-0",
+      "taskId": "verification-kind",
+      "family": "kind",
+      "trial": 0,
+      "arm": "candidate",
+      "explorerRunId": "a5d277dc-090d-4a73-b93f-bd3369c483be",
+      "predictorRunId": "b0c1a71f-3f60-4d1d-83fc-fb174fc12c30",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "15fdb8e7/47ca4dfb/00e538fd10Az",
+        "15fdb8e7/c0f69fb5/00c0113d23Az",
+        "15fdb8e7/cac3e060/00bf825aacAz",
+        "15fdb8e7/47ca4dfb/005193fe8bAz",
+        "15fdb8e7/c0f69fb5/008866ee68Az",
+        "15fdb8e7/cac3e060/00185bd9f4Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 16,
+      "complete": false,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-kind-1/candidate",
+      "episode": "verification-kind-1",
+      "taskId": "verification-kind",
+      "family": "kind",
+      "trial": 1,
+      "arm": "candidate",
+      "explorerRunId": "28b30f48-25dd-49ad-9f46-f4196c3f2e8b",
+      "predictorRunId": "c194c306-c32d-4fc3-8f0c-4646c7f49b99",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "54e4600a/6844bdbc/00fed9beddAz",
+        "54e4600a/8c0d8d0e/00682f7945Az",
+        "54e4600a/e7b5e24b/009d9a8842Az",
+        "54e4600a/6844bdbc/00bd59a8cdAz",
+        "54e4600a/8c0d8d0e/00092723faAz",
+        "54e4600a/e7b5e24b/0001f1afb5Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 18,
+      "complete": false,
+      "policyHash": "840ef6d53db07bb6f21e008c164b370dfc0e9a886255b779910116b556bb303c",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
+    {
+      "label": "verification-kind-1/baseline",
+      "episode": "verification-kind-1",
+      "taskId": "verification-kind",
+      "family": "kind",
+      "trial": 1,
+      "arm": "baseline",
+      "explorerRunId": "726c692a-1a6f-4431-ab17-6eb60adfe84a",
+      "predictorRunId": "66772e37-0c6e-47e5-8bc5-423e7efd86ec",
+      "passed": false,
+      "correct": 0,
+      "count": 6,
+      "actual": null,
+      "expected": [
+        "54e4600a/6844bdbc/00fed9beddAz",
+        "54e4600a/8c0d8d0e/00682f7945Az",
+        "54e4600a/e7b5e24b/009d9a8842Az",
+        "54e4600a/6844bdbc/00bd59a8cdAz",
+        "54e4600a/8c0d8d0e/00092723faAz",
+        "54e4600a/e7b5e24b/0001f1afb5Az"
+      ],
+      "probesUsed": 0,
+      "calls": [],
+      "tokens": 0,
+      "durationMs": 17,
+      "complete": false,
+      "policyHash": "1162db696f54a9b72d4f7ac41e57cf62ea4ebe0321cb608ffa81ecc954347624",
+      "observationsHash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    }
+  ],
+  "runs": [
+    {
+      "label": "propose-policy",
+      "runId": "9ef39050-acc4-46c7-a7f9-57335db6bfa7",
+      "output": "{\"name\": \"preview-exploration-policy\", \"purpose\": \"exploration\", \"description\": \"Single-factor exploration policy for unknown preview routing with kind/id/date/sealed records under tight probe budget.\", \"body\": \"You explore an undocumented preview_route service. You cannot change tool, evaluator, or held-out inputs. Your tool outputs alone train a frozen predictor. Maximize information in <=8 records, <=6 iterations.\\n\\n1. Anchor (1 record, iter1): pick a neutral base: common kind, typical id, typical date, sealed=false. Record full destination template: prefix parts, date parts, middle part, suffix.\\n2. Single-factor sweeps (4-5 records, iter2-3, batch together): vary ONE field at a time from anchor, hold others fixed:\\n - sealed: same base but sealed=true. Tests branch vs flag, and whether date/prefix are dropped.\\n - kind: 2 variants with same id/date/sealed=false. Tests if middle segment is kind-derived and if prefix changes.\\n - date: same base but (a) same year-month different day, (b) different month and/or year. Tests YYYY/MM vs DD dependence, zero-padding, old/future dates.\\n - id: one variant with sharply different id string/length, same other fields. Tests verbatim echo vs hashing/truncation.\\n3. Interaction check (1-2 records, iter4): combine key interactions: e.g., different kind + sealed=true, and different month + different kind. Tests whether sealed overrides date/prefix uniformly and whether kind mapping is stable across dates.\\n4. Revise, do not over-probe: after each batch compare outputs character-by-character. Attribute each destination segment to kind/id/date/sealed/constant. Only add a probe if two hypotheses remain (e.g., day matters, id hashed). Stop early if structure is stable; leave budget unused rather than repeat.\\n5. Uncertainty: do not invent constants or rules you did not observe. If a field was never varied, treat as unknown. Prefer diverse values over repeats of anchor. Keep reasoning brief to stay under token limit.\"}",
+      "stopReason": "end_turn",
+      "tokens": 3505,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 3505,
+        "treeTokens": 3505,
+        "reservedTokens": 0,
+        "remainingTokens": 8495,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 3505
+      },
+      "durationMs": 22709
+    },
+    {
+      "label": "verification-month-0/baseline/explore",
+      "runId": "9ff7c481-d1fa-4313-a4f5-4d30177f9d67",
+      "output": "Evidence from `preview_route` (8/8 records used). No other evidence.\n\nObserved destinations:\n\nUnsealed (`sealed:false`):\n- `invoice,A-1,2026-01-01` -> `694f764f/2026/01/5650bb9c/A-1`\n- `memo,A-1,2026-01-01` -> `694f764f/2026/01/8a5753f1/A-1`\n- `notice,A-1,2026-01-01` -> `694f764f/2026/01/3eebd55c/A-1`\n- `invoice,A-1,2025-12-15` -> `694f764f/2025/12/5650bb9c/A-1`\n- `invoice,B-2,2026-01-01` -> `694f764f/2026/01/5650bb9c/B-2`\n\nSealed (`sealed:true`):\n- `invoice,A-1,2026-01-01` -> `1d447bf1/5650bb9c/A-1`\n- `memo,A-1,2026-01-01` -> `1d447bf1/8a5753f1/A-1`\n- `invoice,A-1,2025-12-15` -> `1d447bf1/5650bb9c/A-1` (identical to same id/kind with different date)\n\nChecked rules for later prediction:\n\n1. Last path segment is verbatim `id`. Checked for `A-1` vs `B-2`.\n2. Second-from-last segment is `kind`-dependent only in these tests:\n   - `invoice` -> `5650bb9c` (checked unsealed x3 + sealed x2, consistent)\n   - `memo` -> `8a5753f1` (checked unsealed x1 + sealed x1, consistent)\n   - `notice` -> `3eebd55c` (checked unsealed x1 only)\n   - Independent of `id` and `date` in tested combos. Independent of `sealed`.\n3. `sealed` controls prefix and date inclusion:\n   - `sealed:false` -> starts `694f764f/YYYY/MM/` where `YYYY/MM` is split from `date`. Checked `2026/01` vs `2025/12`.\n   - `sealed:true` -> starts `1d447bf1/` with NO date segment. Checked same prefix for `invoice` and `memo`. Checked date change `2026-01-01` -> `2025-12-15` leaves destination identical for sealed invoice.\n4. Full templates (checked combos only):\n   - unsealed: `694f764f/{YYYY}/{MM}/{kindHash}/{id}`\n   - sealed: `1d447bf1/{kindHash}/{id}`\n\nRemaining uncertainty (budget exhausted, NOT checked):\n- `notice` + `sealed:true` combo never previewed. Predicted by analogy as `1d447bf1/3eebd55c/{id}` but unverified.\n- Only dates `2026-01-01` and `2025-12-15` tested; other months/years, zero-padding behavior, invalid dates unknown.\n- Only ids `A-1`, `B-2` tested; other allowed chars `[A-Za-z0-9-]{1,64}`, case sensitivity, length effects unknown.\n- Whether constants `694f764f`, `1d447bf1`, kind hashes are truly constant vs derived from hidden inputs unknown; treat as constant only for tested values.\n- No test of interaction beyond above (e.g., does `date` day matter for unsealed beyond YYYY/MM? Both tested dates differ in day as well as month/year, day `01` vs `15` did not appear; suggests day ignored but not isolated).\n",
+      "stopReason": "end_turn",
+      "tokens": 7711,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 7711,
+        "treeTokens": 7711,
+        "reservedTokens": 0,
+        "remainingTokens": 8289,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 7711
+      },
+      "durationMs": 31046
+    },
+    {
+      "label": "verification-month-0/baseline/predict",
+      "runId": "758f25cb-9af5-4f09-a146-5f527e780f0d",
+      "output": "[\"694f764f/2034/02/5650bb9c/00d722a953Az\",\"694f764f/2034/11/8a5753f1/008ff0cc0eAz\",\"694f764f/2034/02/3eebd55c/00b92e660eAz\",\"1d447bf1/5650bb9c/00fb818ad7Az\",\"1d447bf1/8a5753f1/005ee49ec1Az\",\"UNKNOWN\"]",
+      "stopReason": "end_turn",
+      "tokens": 1989,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 1989,
+        "treeTokens": 1989,
+        "reservedTokens": 0,
+        "remainingTokens": 10011,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 1989
+      },
+      "durationMs": 8533
+    },
+    {
+      "label": "verification-month-0/candidate/explore",
+      "runId": "929e342c-5392-48c5-985b-101c083da28d",
+      "output": "Destination structure fully stable across 8 probes:\n\nTemplate:\n- if `sealed==false`: `{P_open}/{YYYY}/{MM}/{M_kind}/{id}`\n- if `sealed==true`: `{P_sealed}/{M_kind}/{id}` // date dropped\n\nObserved constants (do not generalize beyond these):\n- `P_open = 694f764f` — same for invoice/memo/notice, both ids, both YM tested. Changes only with `sealed`.\n- `P_sealed = 1d447bf1` — same for invoice + memo, both dates tested. Independent of kind/date/id observed.\n- `M_kind` — depends only on `kind`, independent of id/date/sealed observed:\n  - `invoice -> 5650bb9c` (same unsealed/sealed, same across 2026/09,2025/01, both ids, both days)\n  - `memo -> 8a5753f1` (same unsealed/sealed, same across dates)\n  - `notice -> 3eebd55c` (only tested unsealed 2026-09-14)\n- `YYYY/MM` from `date` verbatim: `2026-09-14`->`2026/09`, `2025-01-05`->`2025/01`. Zero-padded MM preserved.\n- Day `DD` ignored: `2026-09-14` vs `2026-09-02` with same kind/id/sealed gave identical `694f764f/2026/09/5650bb9c/INV-001`.\n- `id` verbatim echo as final segment, case-sensitive: `INV-001`->`INV-001`, `X9-zzz-42Q`->`X9-zzz-42Q`. No hashing/truncation observed.\n\nExamples observed:\n- invoice/INV-001/2026-09-14/false -> `694f764f/2026/09/5650bb9c/INV-001`\n- invoice/INV-001/2026-09-14/true -> `1d447bf1/5650bb9c/INV-001`\n- memo/INV-001/2026-09-14/false -> `694f764f/2026/09/8a5753f1/INV-001`\n- memo/INV-001/2025-01-05/true -> `1d447bf1/8a5753f1/INV-001`\n- notice/INV-001/2026-09-14/false -> `694f764f/2026/09/3eebd55c/INV-001`\n- invoice/INV-001/2025-01-05/false -> `694f764f/2025/01/5650bb9c/INV-001`\n\nPrediction rule: parse `YYYY=date[0:4]`, `MM=date[5:7]`, lookup `P` by `sealed`, lookup `M` by `kind`, append `id` verbatim.\n\nUnknown: dates outside 2025-01 / 2026-09 not tested; ids with other chars/lengths not tested — assume verbatim; kinds outside invoice/memo/notice unknown.\n",
+      "stopReason": "end_turn",
+      "tokens": 10394,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 10394,
+        "treeTokens": 10394,
+        "reservedTokens": 0,
+        "remainingTokens": 5606,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10394
+      },
+      "durationMs": 22960
+    },
+    {
+      "label": "verification-month-0/candidate/predict",
+      "runId": "e9802bfc-3e0c-4484-9637-1f967d7654e4",
+      "output": "[\"694f764f/2034/02/5650bb9c/00d722a953Az\",\"694f764f/2034/11/8a5753f1/008ff0cc0eAz\",\"694f764f/2034/02/3eebd55c/00b92e660eAz\",\"1d447bf1/5650bb9c/00fb818ad7Az\",\"1d447bf1/8a5753f1/005ee49ec1Az\",\"UNKNOWN\"]",
+      "stopReason": "end_turn",
+      "tokens": 2756,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 2756,
+        "treeTokens": 2756,
+        "reservedTokens": 0,
+        "remainingTokens": 9244,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 2756
+      },
+      "durationMs": 16397
+    },
+    {
+      "label": "verification-month-1/candidate/explore",
+      "runId": "f85a9ae4-cbe1-4257-a5ba-4a32dced2d81",
+      "output": "Structure learned (8/8 probes used). For predictor:\n\n**Template observed (all 8 outputs):**\n\n* If `sealed=false`: `P_UNSEALED/YYYY/MM/K_HASH/ID`\n  * 4 slashes? Actually 4 segments: `aaaaaaaa/YYYY/MM/hhhhhhhh/ID` e.g. `e5d87d33/2026/03/0d9c9329/INV-001`\n* If `sealed=true`: `P_SEALED/K_HASH/ID`\n  * 2 slashes, 3 segments: `bbbbbbbb/hhhhhhhh/ID` e.g. `93059573/0d9c9329/INV-001` — date dropped entirely.\n\n**Field attribution (character-by-character):**\n\n* `P_UNSEALED` = `e5d87d33` in all 6 unsealed probes. Independent of kind (invoice/memo/notice), id (`INV-001` vs `VERY-LONG-DIFFERENT-ID-99999-XYZ`), date (`2026-03-15` vs `2026-03-22` vs `2025-11-15`). Treat as constant unless new evidence.\n* `P_SEALED` = `93059573` in both sealed probes (invoice + memo). Independent of kind. Uniform sealed-prefix, different from unsealed-prefix.\n* `YYYY/MM` = direct zero-padded echo of date year and month only:\n  * `2026-03-15` -> `2026/03`, `2026-03-22` -> `2026/03` (day ignored), `2025-11-15` -> `2025/11`.\n  * Day never affected any segment in probes.\n* `K_HASH` (8 hex chars) depends ONLY on `kind`, independent of id/date/sealed:\n  * `invoice` -> `0d9c9329` (4 probes: unsealed same-day/diff-day/diff-month + sealed)\n  * `memo` -> `9ee332d6` (unsealed + sealed same)\n  * `notice` -> `664f3a4e` (1 probe)\n  * Stable across dates and sealed flag; sealed preserves same hash as unsealed for same kind.\n* `ID` = verbatim echo of `id` as final segment, no truncation/hashing/encoding observed even with long id containing dashes. No effect on other segments.\n\n**Prediction rules:**\n1. Parse date `YYYY-MM-DD` -> use `YYYY` and `MM` only.\n2. Map kind via table above. No rule invented for unseen kinds.\n3. If sealed=false: `{e5d87d33}/{YYYY}/{MM}/{k_hash}/{id}`\n4. If sealed=true: `{93059573}/{k_hash}/{id}`\n\n**Unknowns / do not assume:** whether prefixes ever vary (e.g. by environment); mapping for kinds outside invoice/memo/notice; behavior for malformed id/date (never probed).",
+      "stopReason": "end_turn",
+      "tokens": 10144,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 10144,
+        "treeTokens": 10144,
+        "reservedTokens": 0,
+        "remainingTokens": 5856,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10144
+      },
+      "durationMs": 28904
+    },
+    {
+      "label": "verification-month-1/candidate/predict",
+      "runId": "c4ef9b6e-6d6c-4c51-ab3e-96a9e82af5f3",
+      "output": "[\"e5d87d33/2035/02/0d9c9329/0016157a6aAz\",\"e5d87d33/2035/11/9ee332d6/009889b534Az\",\"e5d87d33/2035/02/664f3a4e/000c727b35Az\",\"93059573/0d9c9329/00e8105262Az\",\"93059573/9ee332d6/0080668460Az\",\"93059573/664f3a4e/00fe4591afAz\"]",
+      "stopReason": "end_turn",
+      "tokens": 1960,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 1960,
+        "treeTokens": 1960,
+        "reservedTokens": 0,
+        "remainingTokens": 10040,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 1960
+      },
+      "durationMs": 6393
+    },
+    {
+      "label": "verification-month-1/baseline/explore",
+      "runId": "ac97b6c3-2cbf-4b11-81a9-cce183d2fdbc",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2993,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-month-1/baseline/predict",
+      "runId": "a1b26a34-60ef-48e9-8825-74cebba096b4",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2216,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-day-0/baseline/explore",
+      "runId": "84896cf9-8675-4004-bbc4-82b9ec9b71d9",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2922,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-day-0/baseline/predict",
+      "runId": "9f99c443-705f-4bc5-80af-01474246c147",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2607,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-day-0/candidate/explore",
+      "runId": "c3b5c684-b506-44a1-acbf-e9d023017b8e",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 3197,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-day-0/candidate/predict",
+      "runId": "3a118719-a0c2-46e2-8c31-8d601c08e9be",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 3361,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-day-1/candidate/explore",
+      "runId": "5d07512f-e7b8-4a33-a26f-ca52722068d8",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 3589,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-day-1/candidate/predict",
+      "runId": "672aaaca-555e-4b9b-8f5b-1d3a3bb720a5",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 3448,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-day-1/baseline/explore",
+      "runId": "d1dc0b3f-2a16-4646-97dd-a401865c2b7f",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 3823,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-day-1/baseline/predict",
+      "runId": "fc2a72a4-d471-4be2-be2d-f12a67649f98",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 3324,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-year-0/baseline/explore",
+      "runId": "97fd39b0-676b-4c5e-b96e-0a85ea3f3ddb",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2779,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-year-0/baseline/predict",
+      "runId": "287626df-77cd-4288-bab8-b639d597e5e0",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2936,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-year-0/candidate/explore",
+      "runId": "40c235ac-d119-4b1e-bd01-b6a9baacf1bc",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2804,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-year-0/candidate/predict",
+      "runId": "eeb2c2d0-7c13-4d57-8f1b-a2e04c46edb0",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 2005,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-year-1/candidate/explore",
+      "runId": "9843b2f2-a387-4753-89a4-7ed8ce6ed6a7",
+      "stopReason": "error",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 3530,
+      "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later."
+    },
+    {
+      "label": "verification-year-1/candidate/predict",
+      "runId": "a83be023-c94b-403b-9736-16059ea3bd74",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 1887
+    },
+    {
+      "label": "verification-year-1/baseline/explore",
+      "runId": "234d95e1-bf5b-4059-801f-081c740272a8",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-year-1/baseline/predict",
+      "runId": "51e1cae6-016d-4526-a759-0ad85d05c2cf",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 7
+    },
+    {
+      "label": "verification-identity-0/baseline/explore",
+      "runId": "c4d01e49-0c3b-4361-b11d-cc37bf895a1e",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 7
+    },
+    {
+      "label": "verification-identity-0/baseline/predict",
+      "runId": "933f9086-8a97-45f6-8521-0ca96c2d7d17",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-identity-0/candidate/explore",
+      "runId": "5fef7a53-82cb-4132-ac92-c0aa6bd25ff3",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 9
+    },
+    {
+      "label": "verification-identity-0/candidate/predict",
+      "runId": "15cce7b0-93c6-4715-ad08-7cfdfdeaa163",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-identity-1/candidate/explore",
+      "runId": "b010b7b4-cd5e-4807-b147-12ab3834ca3b",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-identity-1/candidate/predict",
+      "runId": "247b1167-378e-45b2-a172-5a566018af42",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-identity-1/baseline/explore",
+      "runId": "5e7604e6-db06-4d2c-abfb-006373738a0c",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-identity-1/baseline/predict",
+      "runId": "87ba835c-2f58-4e6e-88ce-058c339070e1",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 9
+    },
+    {
+      "label": "verification-kind-0/baseline/explore",
+      "runId": "c77c9b76-de6a-4b24-a83a-c30b30ab1576",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 9
+    },
+    {
+      "label": "verification-kind-0/baseline/predict",
+      "runId": "6a1593d6-b449-4e17-9fae-88fe2030193d",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-kind-0/candidate/explore",
+      "runId": "a5d277dc-090d-4a73-b93f-bd3369c483be",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-kind-0/candidate/predict",
+      "runId": "b0c1a71f-3f60-4d1d-83fc-fb174fc12c30",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-kind-1/candidate/explore",
+      "runId": "28b30f48-25dd-49ad-9f46-f4196c3f2e8b",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 9
+    },
+    {
+      "label": "verification-kind-1/candidate/predict",
+      "runId": "c194c306-c32d-4fc3-8f0c-4646c7f49b99",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 9
+    },
+    {
+      "label": "verification-kind-1/baseline/explore",
+      "runId": "726c692a-1a6f-4431-ab17-6eb60adfe84a",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 16000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 16000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 8
+    },
+    {
+      "label": "verification-kind-1/baseline/predict",
+      "runId": "66772e37-0c6e-47e5-8bc5-423e7efd86ec",
+      "stopReason": "cancelled",
+      "tokens": 0,
+      "budget": {
+        "limit": 12000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 12000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 9
+    }
+  ],
+  "events": [
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 1,
+      "kind": "started",
+      "data": {
+        "tenantId": "6907e8d9-7409-4bb3-a36c-f63979394ebb",
+        "agentKey": "default",
+        "agendaRevision": 2,
+        "baselineRevision": "none",
+        "skillName": "preview-exploration-policy",
+        "purpose": "exploration",
+        "failure": {
+          "evidence": {
+            "key": "852a850b-3426-41ca-8245-cfad92b1ffee",
+            "source": "retained-exploration-trajectory",
+            "reason": "Inspect the prior cold gap and actual exploration to propose a reusable learning policy."
+          },
+          "trace": "{\"sourceRunId\":\"852a850b-3426-41ca-8245-cfad92b1ffee\",\"sourceReportSha256\":\"53cc78bf82cf85fc32a2f580a7b12338e400a82150e717681f18323683a7a208\",\"coldFailure\":{\"evidence\":{\"key\":\"69fd3dd9-27b7-4caa-83f8-98bea4b88f36\",\"source\":\"observed-preview-failure\",\"reason\":\"A cold prediction disagreed with the service.\"},\"trace\":\"{\\\"prompt\\\":\\\"Read the record in input.txt. Predict the exact destination produced by this workspace preview service. Return only the path. If its behavior is unknown, return UNKNOWN.\\\",\\\"tools\\\":[{\\\"name\\\":\\\"read\\\",\\\"input\\\":{\\\"path\\\":\\\"/tmp/namzu-autonomous-learning-0Tbcwv/cases/a590ecdc88e53a79fce11782777acd68ffe99cbe203d3e6332c4de1c92ec9027/input.txt\\\"},\\\"success\\\":true,\\\"output\\\":\\\"1\\\\t{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false}\\\"}],\\\"output\\\":\\\"UNKNOWN\\\",\\\"passed\\\":false}\"},\"observations\":{\"evidence\":{\"key\":\"852a850b-3426-41ca-8245-cfad92b1ffee\",\"source\":\"executed-preview-tool\",\"reason\":\"Recorded service outputs for model-selected inputs.\"},\"trace\":\"[{\\\"name\\\":\\\"preview_route\\\",\\\"input\\\":{\\\"records\\\":[{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false}]},\\\"success\\\":true,\\\"output\\\":\\\"[{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/003f41cbAz\\\\\\\"}]\\\"},{\\\"name\\\":\\\"preview_route\\\",\\\"input\\\":{\\\"records\\\":[{\\\"kind\\\":\\\"memo\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"notice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":true},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-04-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-20\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbBz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"AAAAAAAzAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2030-12-01\\\",\\\"sealed\\\":false}]},\\\"success\\\":true,\\\"output\\\":\\\"[{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"memo\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/8987d9/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"notice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/04fa80/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":true},\\\\\\\"destination\\\\\\\":\\\\\\\"sealed-946bce/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-04-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/04/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-20\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbBz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/003f41cbBz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"AAAAAAAzAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/AAAAAAAzAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2030-12-01\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2030/12/9baaf2/003f41cbAz\\\\\\\"}]\\\"},{\\\"name\\\":\\\"preview_route\\\",\\\"input\\\":{\\\"records\\\":[{\\\"kind\\\":\\\"memo\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":true},{\\\"kind\\\":\\\"notice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":true},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2020-01-15\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2026-09-14\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"ZZZZZZZZZZ\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"a\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false},{\\\"kind\\\":\\\"invoice\\\",\\\"id\\\":\\\"003f41cbAz\\\",\\\"date\\\":\\\"2031-03-19\\\",\\\"sealed\\\":false}]},\\\"success\\\":true,\\\"output\\\":\\\"[{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"memo\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":true},\\\\\\\"destination\\\\\\\":\\\\\\\"sealed-946bce/8987d9/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"notice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":true},\\\\\\\"destination\\\\\\\":\\\\\\\"sealed-946bce/04fa80/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2020-01-15\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2020/01/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2026-09-14\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2026/09/9baaf2/003f41cbAz\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"ZZZZZZZZZZ\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/ZZZZZZZZZZ\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"a\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/a\\\\\\\"},{\\\\\\\"input\\\\\\\":{\\\\\\\"kind\\\\\\\":\\\\\\\"invoice\\\\\\\",\\\\\\\"id\\\\\\\":\\\\\\\"003f41cbAz\\\\\\\",\\\\\\\"date\\\\\\\":\\\\\\\"2031-03-19\\\\\\\",\\\\\\\"sealed\\\\\\\":false},\\\\\\\"destination\\\\\\\":\\\\\\\"store-e956f5/2031/03/9baaf2/003f41cbAz\\\\\\\"}]\\\"}]\"},\"explorerTokens\":10269,\"result\":{\"verification\":{\"baseline\":{\"passed\":4,\"count\":10,\"tokens\":31440},\"memory\":{\"passed\":10,\"count\":10,\"tokens\":52390},\"candidate\":{\"passed\":10,\"count\":10,\"tokens\":32748},\"reopened\":{\"passed\":0,\"count\":0,\"tokens\":0},\"rollback\":{\"passed\":0,\"count\":0,\"tokens\":0}},\"confirmation\":{\"baseline\":{\"passed\":4,\"count\":10,\"tokens\":36849},\"memory\":{\"passed\":10,\"count\":10,\"tokens\":52912},\"candidate\":{\"passed\":10,\"count\":10,\"tokens\":32589},\"reopened\":{\"passed\":0,\"count\":0,\"tokens\":0},\"rollback\":{\"passed\":0,\"count\":0,\"tokens\":0}}}}"
+        },
+        "resources": {
+          "unit": "tokens",
+          "maxUnits": 1500000
+        },
+        "protection": {
+          "verification": [
+            "verification-identity",
+            "verification-kind"
+          ],
+          "confirmation": [
+            "confirmation-identity",
+            "confirmation-kind"
+          ]
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 2,
+      "kind": "stage-started",
+      "stage": "generate",
+      "data": {}
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 3,
+      "kind": "usage",
+      "stage": "generate",
+      "data": {
+        "receipt": {
+          "runId": "9ef39050-acc4-46c7-a7f9-57335db6bfa7",
+          "tokens": 3505,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 4,
+      "kind": "stage-finished",
+      "stage": "generate",
+      "data": {
+        "usageComplete": true,
+        "consumption": {
+          "tokens": 3505,
+          "costUsd": 0,
+          "receipts": 1,
+          "unknownTokens": 0,
+          "unknownCosts": 1,
+          "unfinishedStages": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 5,
+      "kind": "candidate",
+      "data": {
+        "candidate": {
+          "name": "preview-exploration-policy",
+          "purpose": "exploration",
+          "description": "Single-factor exploration policy for unknown preview routing with kind/id/date/sealed records under tight probe budget.",
+          "body": "You explore an undocumented preview_route service. You cannot change tool, evaluator, or held-out inputs. Your tool outputs alone train a frozen predictor. Maximize information in <=8 records, <=6 iterations.\n\n1. Anchor (1 record, iter1): pick a neutral base: common kind, typical id, typical date, sealed=false. Record full destination template: prefix parts, date parts, middle part, suffix.\n2. Single-factor sweeps (4-5 records, iter2-3, batch together): vary ONE field at a time from anchor, hold others fixed:\n - sealed: same base but sealed=true. Tests branch vs flag, and whether date/prefix are dropped.\n - kind: 2 variants with same id/date/sealed=false. Tests if middle segment is kind-derived and if prefix changes.\n - date: same base but (a) same year-month different day, (b) different month and/or year. Tests YYYY/MM vs DD dependence, zero-padding, old/future dates.\n - id: one variant with sharply different id string/length, same other fields. Tests verbatim echo vs hashing/truncation.\n3. Interaction check (1-2 records, iter4): combine key interactions: e.g., different kind + sealed=true, and different month + different kind. Tests whether sealed overrides date/prefix uniformly and whether kind mapping is stable across dates.\n4. Revise, do not over-probe: after each batch compare outputs character-by-character. Attribute each destination segment to kind/id/date/sealed/constant. Only add a probe if two hypotheses remain (e.g., day matters, id hashed). Stop early if structure is stable; leave budget unused rather than repeat.\n5. Uncertainty: do not invent constants or rules you did not observe. If a field was never varied, treat as unknown. Prefer diverse values over repeats of anchor. Keep reasoning brief to stay under token limit."
+        },
+        "candidateRevision": "a8d0e78295488cc644417412c0e4dee1a557f456c394c45cc9d13b16f5472d70",
+        "baselineRevision": "none"
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 6,
+      "kind": "stage-started",
+      "stage": "verification",
+      "data": {}
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 7,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "9ff7c481-d1fa-4313-a4f5-4d30177f9d67",
+          "tokens": 7711,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 8,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "758f25cb-9af5-4f09-a146-5f527e780f0d",
+          "tokens": 1989,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 9,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "929e342c-5392-48c5-985b-101c083da28d",
+          "tokens": 10394,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 10,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "e9802bfc-3e0c-4484-9637-1f967d7654e4",
+          "tokens": 2756,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 11,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "f85a9ae4-cbe1-4257-a5ba-4a32dced2d81",
+          "tokens": 10144,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 12,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "c4ef9b6e-6d6c-4c51-ab3e-96a9e82af5f3",
+          "tokens": 1960,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 13,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "ac97b6c3-2cbf-4b11-81a9-cce183d2fdbc",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 14,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "a1b26a34-60ef-48e9-8825-74cebba096b4",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 15,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "84896cf9-8675-4004-bbc4-82b9ec9b71d9",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 16,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "9f99c443-705f-4bc5-80af-01474246c147",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 17,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "c3b5c684-b506-44a1-acbf-e9d023017b8e",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 18,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "3a118719-a0c2-46e2-8c31-8d601c08e9be",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 19,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "5d07512f-e7b8-4a33-a26f-ca52722068d8",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 20,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "672aaaca-555e-4b9b-8f5b-1d3a3bb720a5",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 21,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "d1dc0b3f-2a16-4646-97dd-a401865c2b7f",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 22,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "fc2a72a4-d471-4be2-be2d-f12a67649f98",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 23,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "97fd39b0-676b-4c5e-b96e-0a85ea3f3ddb",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 24,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "287626df-77cd-4288-bab8-b639d597e5e0",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 25,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "40c235ac-d119-4b1e-bd01-b6a9baacf1bc",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 26,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "eeb2c2d0-7c13-4d57-8f1b-a2e04c46edb0",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 27,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "9843b2f2-a387-4753-89a4-7ed8ce6ed6a7",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 28,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "a83be023-c94b-403b-9736-16059ea3bd74",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 29,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "234d95e1-bf5b-4059-801f-081c740272a8",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 30,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "51e1cae6-016d-4526-a759-0ad85d05c2cf",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 31,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "c4d01e49-0c3b-4361-b11d-cc37bf895a1e",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 32,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "933f9086-8a97-45f6-8521-0ca96c2d7d17",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 33,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "5fef7a53-82cb-4132-ac92-c0aa6bd25ff3",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 34,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "15cce7b0-93c6-4715-ad08-7cfdfdeaa163",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 35,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "b010b7b4-cd5e-4807-b147-12ab3834ca3b",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 36,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "247b1167-378e-45b2-a172-5a566018af42",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 37,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "5e7604e6-db06-4d2c-abfb-006373738a0c",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 38,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "87ba835c-2f58-4e6e-88ce-058c339070e1",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 39,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "c77c9b76-de6a-4b24-a83a-c30b30ab1576",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 40,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "6a1593d6-b449-4e17-9fae-88fe2030193d",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 41,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "a5d277dc-090d-4a73-b93f-bd3369c483be",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 42,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "b0c1a71f-3f60-4d1d-83fc-fb174fc12c30",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 43,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "28b30f48-25dd-49ad-9f46-f4196c3f2e8b",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 44,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "c194c306-c32d-4fc3-8f0c-4646c7f49b99",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 45,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "726c692a-1a6f-4431-ab17-6eb60adfe84a",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 46,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "66772e37-0c6e-47e5-8bc5-423e7efd86ec",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+      "sequence": 47,
+      "kind": "finished",
+      "data": {
+        "result": {
+          "cycleId": "8eb9c172-67f5-4f5e-9135-b2c9ba784798",
+          "status": "cancelled",
+          "reason": "Learning experiment interrupted by the operator.",
+          "candidate": {
+            "name": "preview-exploration-policy",
+            "purpose": "exploration",
+            "description": "Single-factor exploration policy for unknown preview routing with kind/id/date/sealed records under tight probe budget.",
+            "body": "You explore an undocumented preview_route service. You cannot change tool, evaluator, or held-out inputs. Your tool outputs alone train a frozen predictor. Maximize information in <=8 records, <=6 iterations.\n\n1. Anchor (1 record, iter1): pick a neutral base: common kind, typical id, typical date, sealed=false. Record full destination template: prefix parts, date parts, middle part, suffix.\n2. Single-factor sweeps (4-5 records, iter2-3, batch together): vary ONE field at a time from anchor, hold others fixed:\n - sealed: same base but sealed=true. Tests branch vs flag, and whether date/prefix are dropped.\n - kind: 2 variants with same id/date/sealed=false. Tests if middle segment is kind-derived and if prefix changes.\n - date: same base but (a) same year-month different day, (b) different month and/or year. Tests YYYY/MM vs DD dependence, zero-padding, old/future dates.\n - id: one variant with sharply different id string/length, same other fields. Tests verbatim echo vs hashing/truncation.\n3. Interaction check (1-2 records, iter4): combine key interactions: e.g., different kind + sealed=true, and different month + different kind. Tests whether sealed overrides date/prefix uniformly and whether kind mapping is stable across dates.\n4. Revise, do not over-probe: after each batch compare outputs character-by-character. Attribute each destination segment to kind/id/date/sealed/constant. Only add a probe if two hypotheses remain (e.g., day matters, id hashed). Stop early if structure is stable; leave budget unused rather than repeat.\n5. Uncertainty: do not invent constants or rules you did not observe. If a field was never varied, treat as unknown. Prefer diverse values over repeats of anchor. Keep reasoning brief to stay under token limit."
+          },
+          "candidateRevision": "a8d0e78295488cc644417412c0e4dee1a557f456c394c45cc9d13b16f5472d70",
+          "baselineRevision": "none",
+          "consumption": {
+            "tokens": 38459,
+            "costUsd": 0,
+            "receipts": 41,
+            "unknownTokens": 0,
+            "unknownCosts": 7,
+            "unfinishedStages": 1
+          },
+          "auditComplete": true
+        }
+      }
+    }
+  ],
+  "candidate": {
+    "name": "preview-exploration-policy",
+    "purpose": "exploration",
+    "description": "Single-factor exploration policy for unknown preview routing with kind/id/date/sealed records under tight probe budget.",
+    "body": "You explore an undocumented preview_route service. You cannot change tool, evaluator, or held-out inputs. Your tool outputs alone train a frozen predictor. Maximize information in <=8 records, <=6 iterations.\n\n1. Anchor (1 record, iter1): pick a neutral base: common kind, typical id, typical date, sealed=false. Record full destination template: prefix parts, date parts, middle part, suffix.\n2. Single-factor sweeps (4-5 records, iter2-3, batch together): vary ONE field at a time from anchor, hold others fixed:\n - sealed: same base but sealed=true. Tests branch vs flag, and whether date/prefix are dropped.\n - kind: 2 variants with same id/date/sealed=false. Tests if middle segment is kind-derived and if prefix changes.\n - date: same base but (a) same year-month different day, (b) different month and/or year. Tests YYYY/MM vs DD dependence, zero-padding, old/future dates.\n - id: one variant with sharply different id string/length, same other fields. Tests verbatim echo vs hashing/truncation.\n3. Interaction check (1-2 records, iter4): combine key interactions: e.g., different kind + sealed=true, and different month + different kind. Tests whether sealed overrides date/prefix uniformly and whether kind mapping is stable across dates.\n4. Revise, do not over-probe: after each batch compare outputs character-by-character. Attribute each destination segment to kind/id/date/sealed/constant. Only add a probe if two hypotheses remain (e.g., day matters, id hashed). Stop early if structure is stable; leave budget unused rather than repeat.\n5. Uncertainty: do not invent constants or rules you did not observe. If a field was never varied, treat as unknown. Prefer diverse values over repeats of anchor. Keep reasoning brief to stay under token limit."
+  },
+  "active": [],
+  "projection": {
+    "task": {
+      "text": "",
+      "revision": null,
+      "includedSkills": [],
+      "omitted": 1,
+      "withheldSkills": []
+    },
+    "exploration": {
+      "text": "",
+      "revision": null,
+      "includedSkills": [],
+      "omitted": 1,
+      "withheldSkills": []
+    }
+  },
+  "rounds": {
+    "verification": {
+      "baseline": {
+        "passed": 0,
+        "count": 10,
+        "correct": 5,
+        "predictions": 60,
+        "tokens": 9700,
+        "probes": 8
+      },
+      "candidate": {
+        "passed": 1,
+        "count": 10,
+        "correct": 11,
+        "predictions": 60,
+        "tokens": 25254,
+        "probes": 16
+      },
+      "reopened": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "rollback": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      }
+    },
+    "confirmation": {
+      "baseline": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "candidate": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "reopened": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "rollback": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      }
+    },
+    "holdout": {
+      "baseline": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "candidate": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "reopened": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      },
+      "rollback": {
+        "passed": 0,
+        "count": 0,
+        "correct": 0,
+        "predictions": 0,
+        "tokens": 0,
+        "probes": 0
+      }
+    }
+  },
+  "tokens": 38459,
+  "unknownRuns": [],
+  "audit": {
+    "verifiedRetainedEvidence": true,
+    "settledAttempts": 41,
+    "attemptedRuns": 41,
+    "comparableVerificationPairs": [
+      {
+        "episode": "verification-month-0",
+        "baselineCorrect": 5,
+        "candidateCorrect": 5,
+        "count": 6
+      }
+    ],
+    "unknownRuns": [],
+    "reportSha256": "7f404a1e59dfbb6fdc36215ed34c75e2515343047e4fc496a72cc85af7be9356",
+    "decision": "inconclusive",
+    "predictorInstructionsSha256": "40e9616ff46c599ad34eb836cd32142b10c39481bc8197cd85754dc9435ac29b",
+    "transcripts": [
+      {
+        "runId": "9ef39050-acc4-46c7-a7f9-57335db6bfa7",
+        "label": "propose-policy",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "end_turn"
+        },
+        "transcriptSha256": "39845fcd8e4cd2722e616e4f322b61d9473514511a597b26445acf3d970e46d2",
+        "tools": []
+      },
+      {
+        "runId": "9ff7c481-d1fa-4313-a4f5-4d30177f9d67",
+        "label": "verification-month-0/baseline/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "end_turn"
+        },
+        "transcriptSha256": "30e88bfcbc75a9ea302afc9ad43ba01498152e435017f715bad55fbe4e03a407",
+        "tools": [
+          {
+            "type": "tool_executing",
+            "toolName": "preview_route",
+            "input": {
+              "records": [
+                {
+                  "kind": "invoice",
+                  "id": "A-1",
+                  "date": "2026-01-01",
+                  "sealed": false
+                },
+                {
+                  "kind": "invoice",
+                  "id": "A-1",
+                  "date": "2026-01-01",
+                  "sealed": true
+                },
+                {
+                  "kind": "memo",
+                  "id": "A-1",
+                  "date": "2026-01-01",
+                  "sealed": false
+                },
+                {
+                  "kind": "notice",
+                  "id": "A-1",
+                  "date": "2026-01-01",
+                  "sealed": false
+                }
+              ]
+            },
+            "toolUseId": "call_01a0a088de7f7bb28f4ebd13fb578c3c"
+          },
+          {
+            "type": "tool_completed",
+            "toolName": "preview_route",
+            "result": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":false},\"destination\":\"694f764f/2026/01/5650bb9c/A-1\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":true},\"destination\":\"1d447bf1/5650bb9c/A-1\"},{\"input\":{\"kind\":\"memo\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":false},\"destination\":\"694f764f/2026/01/8a5753f1/A-1\"},{\"input\":{\"kind\":\"notice\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":false},\"destination\":\"694f764f/2026/01/3eebd55c/A-1\"}]",
+            "isError": false,
+            "toolUseId": "call_01a0a088de7f7bb28f4ebd13fb578c3c"
+          },
+          {
+            "type": "tool_executing",
+            "toolName": "preview_route",
+            "input": {
+              "records": [
+                {
+                  "kind": "memo",
+                  "id": "A-1",
+                  "date": "2026-01-01",
+                  "sealed": true
+                },
+                {
+                  "kind": "invoice",
+                  "id": "A-1",
+                  "date": "2025-12-15",
+                  "sealed": false
+                },
+                {
+                  "kind": "invoice",
+                  "id": "B-2",
+                  "date": "2026-01-01",
+                  "sealed": false
+                },
+                {
+                  "kind": "invoice",
+                  "id": "A-1",
+                  "date": "2025-12-15",
+                  "sealed": true
+                }
+              ]
+            },
+            "toolUseId": "call_01a0a0891bc873b38878376c29af7986"
+          },
+          {
+            "type": "tool_completed",
+            "toolName": "preview_route",
+            "result": "[{\"input\":{\"kind\":\"memo\",\"id\":\"A-1\",\"date\":\"2026-01-01\",\"sealed\":true},\"destination\":\"1d447bf1/8a5753f1/A-1\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"A-1\",\"date\":\"2025-12-15\",\"sealed\":false},\"destination\":\"694f764f/2025/12/5650bb9c/A-1\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"B-2\",\"date\":\"2026-01-01\",\"sealed\":false},\"destination\":\"694f764f/2026/01/5650bb9c/B-2\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"A-1\",\"date\":\"2025-12-15\",\"sealed\":true},\"destination\":\"1d447bf1/5650bb9c/A-1\"}]",
+            "isError": false,
+            "toolUseId": "call_01a0a0891bc873b38878376c29af7986"
+          }
+        ]
+      },
+      {
+        "runId": "758f25cb-9af5-4f09-a146-5f527e780f0d",
+        "label": "verification-month-0/baseline/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "end_turn"
+        },
+        "transcriptSha256": "edbf9674bc1c9b4d7e207d54957ab85e9e1b55d14323db58230522c328aca878",
+        "tools": []
+      },
+      {
+        "runId": "929e342c-5392-48c5-985b-101c083da28d",
+        "label": "verification-month-0/candidate/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "end_turn"
+        },
+        "transcriptSha256": "54a05a0db34ae29b5c00751a32ce4d9528f618c74003da3d834406626181dba3",
+        "tools": [
+          {
+            "type": "tool_executing",
+            "toolName": "preview_route",
+            "input": {
+              "records": [
+                {
+                  "kind": "invoice",
+                  "id": "INV-001",
+                  "date": "2026-09-14",
+                  "sealed": false
+                }
+              ]
+            },
+            "toolUseId": "call_01a0a0896d117ab18a8627074fc3e047"
+          },
+          {
+            "type": "tool_completed",
+            "toolName": "preview_route",
+            "result": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-09-14\",\"sealed\":false},\"destination\":\"694f764f/2026/09/5650bb9c/INV-001\"}]",
+            "isError": false,
+            "toolUseId": "call_01a0a0896d117ab18a8627074fc3e047"
+          },
+          {
+            "type": "tool_executing",
+            "toolName": "preview_route",
+            "input": {
+              "records": [
+                {
+                  "kind": "invoice",
+                  "id": "INV-001",
+                  "date": "2026-09-14",
+                  "sealed": true
+                },
+                {
+                  "kind": "memo",
+                  "id": "INV-001",
+                  "date": "2026-09-14",
+                  "sealed": false
+                },
+                {
+                  "kind": "invoice",
+                  "id": "INV-001",
+                  "date": "2026-09-02",
+                  "sealed": false
+                },
+                {
+                  "kind": "invoice",
+                  "id": "X9-zzz-42Q",
+                  "date": "2026-09-14",
+                  "sealed": false
+                }
+              ]
+            },
+            "toolUseId": "call_01a0a08982507a6090a41a4e90c7288c"
+          },
+          {
+            "type": "tool_completed",
+            "toolName": "preview_route",
+            "result": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-09-14\",\"sealed\":true},\"destination\":\"1d447bf1/5650bb9c/INV-001\"},{\"input\":{\"kind\":\"memo\",\"id\":\"INV-001\",\"date\":\"2026-09-14\",\"sealed\":false},\"destination\":\"694f764f/2026/09/8a5753f1/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-09-02\",\"sealed\":false},\"destination\":\"694f764f/2026/09/5650bb9c/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"X9-zzz-42Q\",\"date\":\"2026-09-14\",\"sealed\":false},\"destination\":\"694f764f/2026/09/5650bb9c/X9-zzz-42Q\"}]",
+            "isError": false,
+            "toolUseId": "call_01a0a08982507a6090a41a4e90c7288c"
+          },
+          {
+            "type": "tool_executing",
+            "toolName": "preview_route",
+            "input": {
+              "records": [
+                {
+                  "kind": "notice",
+                  "id": "INV-001",
+                  "date": "2026-09-14",
+                  "sealed": false
+                },
+                {
+                  "kind": "invoice",
+                  "id": "INV-001",
+                  "date": "2025-01-05",
+                  "sealed": false
+                },
+                {
+                  "kind": "memo",
+                  "id": "INV-001",
+                  "date": "2025-01-05",
+                  "sealed": true
+                }
+              ]
+            },
+            "toolUseId": "call_01a0a0899a227163979f01aa025e161e"
+          },
+          {
+            "type": "tool_completed",
+            "toolName": "preview_route",
+            "result": "[{\"input\":{\"kind\":\"notice\",\"id\":\"INV-001\",\"date\":\"2026-09-14\",\"sealed\":false},\"destination\":\"694f764f/2026/09/3eebd55c/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2025-01-05\",\"sealed\":false},\"destination\":\"694f764f/2025/01/5650bb9c/INV-001\"},{\"input\":{\"kind\":\"memo\",\"id\":\"INV-001\",\"date\":\"2025-01-05\",\"sealed\":true},\"destination\":\"1d447bf1/8a5753f1/INV-001\"}]",
+            "isError": false,
+            "toolUseId": "call_01a0a0899a227163979f01aa025e161e"
+          }
+        ]
+      },
+      {
+        "runId": "e9802bfc-3e0c-4484-9637-1f967d7654e4",
+        "label": "verification-month-0/candidate/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "end_turn"
+        },
+        "transcriptSha256": "b21bbc3b3ee31e981d2923b74d4e14aaef5d5fd2370cc5ea57986efdc94c31a3",
+        "tools": []
+      },
+      {
+        "runId": "f85a9ae4-cbe1-4257-a5ba-4a32dced2d81",
+        "label": "verification-month-1/candidate/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "end_turn"
+        },
+        "transcriptSha256": "95ca49f50a1e181e1ce44e770a65c1435e8ca148574479085d3af435dc738d50",
+        "tools": [
+          {
+            "type": "tool_executing",
+            "toolName": "preview_route",
+            "input": {
+              "records": [
+                {
+                  "kind": "invoice",
+                  "id": "INV-001",
+                  "date": "2026-03-15",
+                  "sealed": false
+                }
+              ]
+            },
+            "toolUseId": "call_01a0a08a0ae679429f2c6e20b3a1306c"
+          },
+          {
+            "type": "tool_completed",
+            "toolName": "preview_route",
+            "result": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/0d9c9329/INV-001\"}]",
+            "isError": false,
+            "toolUseId": "call_01a0a08a0ae679429f2c6e20b3a1306c"
+          },
+          {
+            "type": "tool_executing",
+            "toolName": "preview_route",
+            "input": {
+              "records": [
+                {
+                  "kind": "invoice",
+                  "id": "INV-001",
+                  "date": "2026-03-15",
+                  "sealed": true
+                },
+                {
+                  "kind": "memo",
+                  "id": "INV-001",
+                  "date": "2026-03-15",
+                  "sealed": false
+                },
+                {
+                  "kind": "notice",
+                  "id": "INV-001",
+                  "date": "2026-03-15",
+                  "sealed": false
+                },
+                {
+                  "kind": "invoice",
+                  "id": "INV-001",
+                  "date": "2026-03-22",
+                  "sealed": false
+                },
+                {
+                  "kind": "invoice",
+                  "id": "VERY-LONG-DIFFERENT-ID-99999-XYZ",
+                  "date": "2026-03-15",
+                  "sealed": false
+                }
+              ]
+            },
+            "toolUseId": "call_01a0a08a20b076108138f92063eb7a01"
+          },
+          {
+            "type": "tool_completed",
+            "toolName": "preview_route",
+            "result": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":true},\"destination\":\"93059573/0d9c9329/INV-001\"},{\"input\":{\"kind\":\"memo\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/9ee332d6/INV-001\"},{\"input\":{\"kind\":\"notice\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/664f3a4e/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2026-03-22\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/0d9c9329/INV-001\"},{\"input\":{\"kind\":\"invoice\",\"id\":\"VERY-LONG-DIFFERENT-ID-99999-XYZ\",\"date\":\"2026-03-15\",\"sealed\":false},\"destination\":\"e5d87d33/2026/03/0d9c9329/VERY-LONG-DIFFERENT-ID-99999-XYZ\"}]",
+            "isError": false,
+            "toolUseId": "call_01a0a08a20b076108138f92063eb7a01"
+          },
+          {
+            "type": "tool_executing",
+            "toolName": "preview_route",
+            "input": {
+              "records": [
+                {
+                  "kind": "invoice",
+                  "id": "INV-001",
+                  "date": "2025-11-15",
+                  "sealed": false
+                },
+                {
+                  "kind": "memo",
+                  "id": "INV-001",
+                  "date": "2026-03-15",
+                  "sealed": true
+                }
+              ]
+            },
+            "toolUseId": "call_01a0a08a3a897c80aee2109e4f2831b8"
+          },
+          {
+            "type": "tool_completed",
+            "toolName": "preview_route",
+            "result": "[{\"input\":{\"kind\":\"invoice\",\"id\":\"INV-001\",\"date\":\"2025-11-15\",\"sealed\":false},\"destination\":\"e5d87d33/2025/11/0d9c9329/INV-001\"},{\"input\":{\"kind\":\"memo\",\"id\":\"INV-001\",\"date\":\"2026-03-15\",\"sealed\":true},\"destination\":\"93059573/9ee332d6/INV-001\"}]",
+            "isError": false,
+            "toolUseId": "call_01a0a08a3a897c80aee2109e4f2831b8"
+          }
+        ]
+      },
+      {
+        "runId": "c4ef9b6e-6d6c-4c51-ab3e-96a9e82af5f3",
+        "label": "verification-month-1/candidate/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "end_turn"
+        },
+        "transcriptSha256": "4ac0548193e4644e176d1456f0de892f557639dfc88cafe3d751917e1b613b48",
+        "tools": []
+      },
+      {
+        "runId": "ac97b6c3-2cbf-4b11-81a9-cce183d2fdbc",
+        "label": "verification-month-1/baseline/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "5c12aa6487965fcdcc76dcabb4fad526c0accbf7a33720f9f145029dc79ebfb1",
+        "tools": []
+      },
+      {
+        "runId": "a1b26a34-60ef-48e9-8825-74cebba096b4",
+        "label": "verification-month-1/baseline/predict",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "00d3e6e8501c4f589c612fcef82efd4ff58ecef0cd19770d56fd333bfbb25917",
+        "tools": []
+      },
+      {
+        "runId": "84896cf9-8675-4004-bbc4-82b9ec9b71d9",
+        "label": "verification-day-0/baseline/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "2390a276d80d21ba500100f0ddcf95deba7230bd0cfbd0a9fff012974666cf3f",
+        "tools": []
+      },
+      {
+        "runId": "9f99c443-705f-4bc5-80af-01474246c147",
+        "label": "verification-day-0/baseline/predict",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "49a0675a22d7ba097c684bdf56a0cfbe130b1904f4dc5372374c5e5564b5438a",
+        "tools": []
+      },
+      {
+        "runId": "c3b5c684-b506-44a1-acbf-e9d023017b8e",
+        "label": "verification-day-0/candidate/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "8a0c96f49ee397dfdb068bf802cf946fe7f8b94a995d84b9187c9d5b6751551c",
+        "tools": []
+      },
+      {
+        "runId": "3a118719-a0c2-46e2-8c31-8d601c08e9be",
+        "label": "verification-day-0/candidate/predict",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "e5e1584ed26c039f7a32161677cac8cb3243b1ec077c20732289fccd11873216",
+        "tools": []
+      },
+      {
+        "runId": "5d07512f-e7b8-4a33-a26f-ca52722068d8",
+        "label": "verification-day-1/candidate/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "ae41642c2edfd3789d9f5f5553ee9beb10bf9b7380f6ab68451e0085c7a04692",
+        "tools": []
+      },
+      {
+        "runId": "672aaaca-555e-4b9b-8f5b-1d3a3bb720a5",
+        "label": "verification-day-1/candidate/predict",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "c557e38e0de31f70ab1967025268c86d81643d4dbdc48031413af5c9a47420be",
+        "tools": []
+      },
+      {
+        "runId": "d1dc0b3f-2a16-4646-97dd-a401865c2b7f",
+        "label": "verification-day-1/baseline/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "9a29bf242d57e9da0d301e184982724f547823695bd26e90ee4070759ce27de1",
+        "tools": []
+      },
+      {
+        "runId": "fc2a72a4-d471-4be2-be2d-f12a67649f98",
+        "label": "verification-day-1/baseline/predict",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "3c383b7a2f2dc28324945a43326fecaefe8354e9581bfc356d7543c2a6ae317a",
+        "tools": []
+      },
+      {
+        "runId": "97fd39b0-676b-4c5e-b96e-0a85ea3f3ddb",
+        "label": "verification-year-0/baseline/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "320c5b964cd7786d9b730bfe7a6a1a569776e2cbe1366e62213d444d351e6166",
+        "tools": []
+      },
+      {
+        "runId": "287626df-77cd-4288-bab8-b639d597e5e0",
+        "label": "verification-year-0/baseline/predict",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "afb4255735a740ab39cb4c53e2d5aeff00bfb5470ecd12ad2e682db4096cc953",
+        "tools": []
+      },
+      {
+        "runId": "40c235ac-d119-4b1e-bd01-b6a9baacf1bc",
+        "label": "verification-year-0/candidate/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "520efde6152af7bb5306288d12795bf85ff83e5f76c621f067036ca7a6d1c1a0",
+        "tools": []
+      },
+      {
+        "runId": "eeb2c2d0-7c13-4d57-8f1b-a2e04c46edb0",
+        "label": "verification-year-0/candidate/predict",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "b1fa8f0d2853f88ad23a4bfc132c91a208bb92764e0d9e131f6660ce0f4c64a6",
+        "tools": []
+      },
+      {
+        "runId": "9843b2f2-a387-4753-89a4-7ed8ce6ed6a7",
+        "label": "verification-year-1/candidate/explore",
+        "terminal": {
+          "type": "run_failed",
+          "error": "zen (HTTP 429) — rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+          "providerError": {
+            "kind": "throttle",
+            "providerId": "zen",
+            "status": 429,
+            "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+          }
+        },
+        "transcriptSha256": "d128e733f9af83557193607a61d671c7234e6044739ef992d2641327d11db799",
+        "tools": []
+      },
+      {
+        "runId": "a83be023-c94b-403b-9736-16059ea3bd74",
+        "label": "verification-year-1/candidate/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "5403df9288febad6e997a455a1e2f6df099345843f568ab89454ee5272c21be0",
+        "tools": []
+      },
+      {
+        "runId": "234d95e1-bf5b-4059-801f-081c740272a8",
+        "label": "verification-year-1/baseline/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "5ed580179e0067d401d3e9a3fa92294aba72e13b9c754052216bc128e7f0a137",
+        "tools": []
+      },
+      {
+        "runId": "51e1cae6-016d-4526-a759-0ad85d05c2cf",
+        "label": "verification-year-1/baseline/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "081fefaf52d345c9ddb5544e59b0ad8d21c8776f379d589b1deefc2779b65d55",
+        "tools": []
+      },
+      {
+        "runId": "c4d01e49-0c3b-4361-b11d-cc37bf895a1e",
+        "label": "verification-identity-0/baseline/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "86cbecc71ac0a09fd4f74c9eaa9a30d05944aa5cd70a5a33c11a894dc288928b",
+        "tools": []
+      },
+      {
+        "runId": "933f9086-8a97-45f6-8521-0ca96c2d7d17",
+        "label": "verification-identity-0/baseline/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "a45283f79624b828ba58ffac8ef8db195e8b1a64f1cf66a062966dd02dab7a77",
+        "tools": []
+      },
+      {
+        "runId": "5fef7a53-82cb-4132-ac92-c0aa6bd25ff3",
+        "label": "verification-identity-0/candidate/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "81ad087d9bae7e31701220740ca2c0bac397e11f4713a6876d2c4a3de96fc509",
+        "tools": []
+      },
+      {
+        "runId": "15cce7b0-93c6-4715-ad08-7cfdfdeaa163",
+        "label": "verification-identity-0/candidate/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "b592796b34ec1b4df23b4e707a5db4b64476b5e16581b4a41fe807e1ce71235c",
+        "tools": []
+      },
+      {
+        "runId": "b010b7b4-cd5e-4807-b147-12ab3834ca3b",
+        "label": "verification-identity-1/candidate/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "2ff51e6ceb2e185cc5056db13466987176fe4c533d8f74d7c86553f55aa75c84",
+        "tools": []
+      },
+      {
+        "runId": "247b1167-378e-45b2-a172-5a566018af42",
+        "label": "verification-identity-1/candidate/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "56d1f6f0e6eee7e6c1db27656c5107d045be8643f8a08878106482f9d67642c2",
+        "tools": []
+      },
+      {
+        "runId": "5e7604e6-db06-4d2c-abfb-006373738a0c",
+        "label": "verification-identity-1/baseline/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "a1fab37072964c968e5fe9f91465fd44e1fc8e604c58d47229a0d4b3737270b3",
+        "tools": []
+      },
+      {
+        "runId": "87ba835c-2f58-4e6e-88ce-058c339070e1",
+        "label": "verification-identity-1/baseline/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "c3305985d14c60998c513e6244e9529a5556687b7eb7b7a86ba1212d17c75c49",
+        "tools": []
+      },
+      {
+        "runId": "c77c9b76-de6a-4b24-a83a-c30b30ab1576",
+        "label": "verification-kind-0/baseline/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "26e103135a18da8819e4a6ca764c533910a22a0dd47af300f72043737e11c71b",
+        "tools": []
+      },
+      {
+        "runId": "6a1593d6-b449-4e17-9fae-88fe2030193d",
+        "label": "verification-kind-0/baseline/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "9f009ff181909818ca5b7baf214d4499d4367b523b6a4815dd44193b71d1942f",
+        "tools": []
+      },
+      {
+        "runId": "a5d277dc-090d-4a73-b93f-bd3369c483be",
+        "label": "verification-kind-0/candidate/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "d213932d26cc63b59b2f2a846835e8a4db55b704cbbba7811f19314ef7960338",
+        "tools": []
+      },
+      {
+        "runId": "b0c1a71f-3f60-4d1d-83fc-fb174fc12c30",
+        "label": "verification-kind-0/candidate/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "71a9f94b9eff80b361c5ca1872218608ed12796f5b2f2ea15bd4e24f4b7afe17",
+        "tools": []
+      },
+      {
+        "runId": "28b30f48-25dd-49ad-9f46-f4196c3f2e8b",
+        "label": "verification-kind-1/candidate/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "268fdc7e436928006186fc308e1059267af36b9280cba8d44bb1b8b89e4e6def",
+        "tools": []
+      },
+      {
+        "runId": "c194c306-c32d-4fc3-8f0c-4646c7f49b99",
+        "label": "verification-kind-1/candidate/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "c904b3e1efe20f8d13c35ad30013aeb0fb721f1cf5184e1116bc21f0340993a4",
+        "tools": []
+      },
+      {
+        "runId": "726c692a-1a6f-4431-ab17-6eb60adfe84a",
+        "label": "verification-kind-1/baseline/explore",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "756be119a1ddadb9ace8175eb0831e0e11b7c343f7ed970908c195b7a7f2eb26",
+        "tools": []
+      },
+      {
+        "runId": "66772e37-0c6e-47e5-8bc5-423e7efd86ec",
+        "label": "verification-kind-1/baseline/predict",
+        "terminal": {
+          "type": "run_completed",
+          "stopReason": "cancelled"
+        },
+        "transcriptSha256": "707d43a13df0cfb07584e2bb6e55c20ff05d7cd9c1491d2c4dfe6f3d3f6e6627",
+        "tools": []
+      }
+    ],
+    "toolErrors": 0
+  }
+}

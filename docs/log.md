@@ -2,6 +2,8 @@
 
 ## 2026-09-14
 
+- **Creation** Add [purpose-bound exploration policies](sdk/exploration-policies.md), preventing generated policies from changing their admitted purpose or entering ordinary task guidance, while retaining existing learning evaluation and rollback.
+
 - **Creation** Add optional [environment exploration](sdk/resident-exploration.md) before resident skill generation, retaining observation evidence and usage through the existing SQLite journal and explicit CLI learning host.
 
 - **Update** Classify [background job observation](cli/background-jobs.md) per action, support input-dependent read-only declarations in the [SDK tool builder](sdk/tool-execution.md), and preserve explicit [review rules](sdk/review-policy.md) through CLI compilation and durable review.

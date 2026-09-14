@@ -1,0 +1,450 @@
+[
+  {
+    "root": "/tmp/namzu-exploration-policy-6a5CZ6",
+    "scope": "invalid scripted rollback answer; corrected before live",
+    "live": false,
+    "status": "activated",
+    "rounds": {
+      "verification": {
+        "baseline": {
+          "passed": 4,
+          "count": 10,
+          "correct": 24,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "candidate": {
+          "passed": 10,
+          "count": 10,
+          "correct": 60,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "confirmation": {
+        "baseline": {
+          "passed": 4,
+          "count": 10,
+          "correct": 24,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "candidate": {
+          "passed": 10,
+          "count": 10,
+          "correct": 60,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "holdout": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 3,
+          "count": 3,
+          "correct": 18,
+          "predictions": 18,
+          "tokens": 0,
+          "probes": 18
+        },
+        "rollback": {
+          "passed": 3,
+          "count": 3,
+          "correct": 18,
+          "predictions": 18,
+          "tokens": 0,
+          "probes": 18
+        }
+      }
+    },
+    "reportSha256": "2f287630c4839445292071356e7906cfc99ee6b84ff536de98249942f4746b12",
+    "driverLogSha256": "a0f5d1faa3f9e2bd4ac550e5a8c786a7baf80e73973fc787b08b4ae299aec0ac"
+  },
+  {
+    "root": "/tmp/namzu-exploration-policy-LuU9PT",
+    "scope": "corrected control before live",
+    "live": false,
+    "status": "activated",
+    "rounds": {
+      "verification": {
+        "baseline": {
+          "passed": 4,
+          "count": 10,
+          "correct": 24,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "candidate": {
+          "passed": 10,
+          "count": 10,
+          "correct": 60,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "confirmation": {
+        "baseline": {
+          "passed": 4,
+          "count": 10,
+          "correct": 24,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "candidate": {
+          "passed": 10,
+          "count": 10,
+          "correct": 60,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "holdout": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 3,
+          "count": 3,
+          "correct": 18,
+          "predictions": 18,
+          "tokens": 0,
+          "probes": 18
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 3,
+          "correct": 0,
+          "predictions": 18,
+          "tokens": 0,
+          "probes": 18
+        }
+      }
+    },
+    "reportSha256": "06856d585efa4b06c958bbc2583b2cd6a002eac88e3bc6b379a25b09e005abf9",
+    "driverLogSha256": "d25907d782608f2661e4580cadaac4dfabefe6b1c2816edb003533ba7e13b73b"
+  },
+  {
+    "root": "/tmp/namzu-exploration-policy-zugoIW",
+    "scope": "complete control after fail-fast driver change",
+    "live": false,
+    "status": "activated",
+    "rounds": {
+      "verification": {
+        "baseline": {
+          "passed": 4,
+          "count": 10,
+          "correct": 24,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "candidate": {
+          "passed": 10,
+          "count": 10,
+          "correct": 60,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "confirmation": {
+        "baseline": {
+          "passed": 4,
+          "count": 10,
+          "correct": 24,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "candidate": {
+          "passed": 10,
+          "count": 10,
+          "correct": 60,
+          "predictions": 60,
+          "tokens": 0,
+          "probes": 60
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "holdout": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 3,
+          "count": 3,
+          "correct": 18,
+          "predictions": 18,
+          "tokens": 0,
+          "probes": 18
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 3,
+          "correct": 0,
+          "predictions": 18,
+          "tokens": 0,
+          "probes": 18
+        }
+      }
+    },
+    "reportSha256": "84e4f6bf94a92d0184eeadd721c4a0c75954e416592f1fcb958c4a2dd2d01ada",
+    "driverLogSha256": "d25907d782608f2661e4580cadaac4dfabefe6b1c2816edb003533ba7e13b73b"
+  },
+  {
+    "root": "/tmp/namzu-exploration-policy-tDI7Bp",
+    "scope": "provider-error control after fail-fast driver change",
+    "live": false,
+    "status": "failed",
+    "rounds": {
+      "verification": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "confirmation": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      },
+      "holdout": {
+        "baseline": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "candidate": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "reopened": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        },
+        "rollback": {
+          "passed": 0,
+          "count": 0,
+          "correct": 0,
+          "predictions": 0,
+          "tokens": 0,
+          "probes": 0
+        }
+      }
+    },
+    "reportSha256": "db3e7d955fce3240a04cba81208afb52e1b636b33053fa2e8c68ee6bdd9d3f32",
+    "driverLogSha256": "2399586d9cd271c76144b50c7ff265075605274812ebd01e37e4040bb8b54797"
+  }
+]

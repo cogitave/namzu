@@ -75,6 +75,37 @@ const rendered = (bundle: ReturnType<typeof createResidentStepContext>, placemen
 		.join('\n')
 
 describe('resident guidance disclosure', () => {
+	it('does not advertise or disclose explorer policies in a task admission', async () => {
+		const input = options()
+		const original = input.learning.skills[0]!
+		const candidate = {
+			...original,
+			name: 'explorer-policy',
+			purpose: 'exploration' as const,
+			description: 'EXPLORER DESCRIPTION',
+			body: 'EXPLORER BODY',
+		}
+		const hash = hashResidentSkill(candidate)
+		const policy = {
+			...candidate,
+			hash,
+			verification: { ...original.verification, candidateHash: hash },
+		}
+		input.learning = { ...input.learning, skills: [original, policy] }
+		const bundle = createResidentStepContext(input)
+		expect(rendered(bundle, 'dynamic')).not.toContain(policy.description)
+		const read = await bundle.tools[0]!.execute({ name: policy.name }, context)
+		expect(read.success).toBe(false)
+		expect(read.output).toContain('different-purpose')
+		expect(read.output).not.toContain(policy.body)
+		expect(rendered(bundle, 'turn')).toBe('')
+		const onlyPolicy = createResidentStepContext({
+			...input,
+			learning: { ...input.learning, skills: [policy] },
+		})
+		expect(onlyPolicy.tools).toEqual([])
+		expect(rendered(onlyPolicy, 'dynamic')).not.toContain(policy.description)
+	})
 	it('advertises metadata without executing instructions and freezes the admitted content', async () => {
 		const input = options()
 		const body = input.learning.skills[0]!.body

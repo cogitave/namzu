@@ -73,6 +73,8 @@ export interface ResidentLearningCycleContext {
 /** @experimental Original failure and active baseline; never contains confirmation tasks. */
 export interface ResidentLearningExplorationContext extends ResidentLearningCycleContext {
 	readonly skillName: string
+	/** Admitted by the host before generation; cannot be changed by a candidate. */
+	readonly purpose?: 'task' | 'exploration'
 	readonly failure: Readonly<{ evidence: ResidentLearningEvidence; trace: string }>
 	readonly baseline: ResidentSkillCandidate | null
 }
@@ -98,6 +100,8 @@ export interface ResidentLearningEvaluationContext extends ResidentLearningCycle
 
 /** @experimental No provider, default background loop or executable-code activation is installed. */
 export interface ResidentLearningCycleOptions {
+	/** Omitted means task guidance. Explicitly select exploration to improve an explorer policy. */
+	readonly purpose?: 'task' | 'exploration'
 	/** Fixed before generation; both rounds must preserve every named task. */
 	readonly protection: HarnessProtectionPlan
 	readonly agenda: Pick<DiskResidentAgenda, 'read' | 'promoteSkill'>
@@ -154,6 +158,8 @@ export async function runResidentLearningCycle(
 	options: ResidentLearningCycleOptions,
 ): Promise<ResidentLearningCycleResult> {
 	const protection = normalizeHarnessProtection(options.protection)
+	const purpose = z.enum(['task', 'exploration']).parse(options.purpose ?? 'task')
+	const purposeContext = options.purpose === undefined ? {} : { purpose }
 	const skillName = z
 		.string()
 		.regex(/^[a-z0-9][a-z0-9_-]{0,63}$/)
@@ -244,6 +250,10 @@ export async function runResidentLearningCycle(
 		if (snapshot.paused || snapshot.pursuits.some((p) => p.state.phase === 'running'))
 			throw new Error('Resident learning requires an unpaused agenda without running pursuits.')
 		const current = snapshot.learning?.skills.find((s) => s.name === skillName)
+		if (current && (current.purpose ?? 'task') !== purpose)
+			throw new Error(
+				'The active skill has a different learning purpose; use a distinct skill name.',
+			)
 		const baseline = current ? normalizeResidentSkill(current) : null
 		baselineRevision = baseline ? hashResidentSkill(baseline) : 'none'
 		await append('started', {
@@ -252,6 +262,7 @@ export async function runResidentLearningCycle(
 			agendaRevision: snapshot.revision,
 			baselineRevision,
 			skillName,
+			...purposeContext,
 			failure,
 			resources,
 			protection,
@@ -335,7 +346,7 @@ export async function runResidentLearningCycle(
 		if (options.explore) {
 			const explore = options.explore
 			const observed = await stage('explore', (context) =>
-				explore(Object.freeze({ ...context, skillName, failure, baseline })),
+				explore(Object.freeze({ ...context, skillName, ...purposeContext, failure, baseline })),
 			)
 			exploration = Object.freeze({
 				evidence: Object.freeze(
@@ -359,6 +370,7 @@ export async function runResidentLearningCycle(
 				Object.freeze({
 					...context,
 					skillName,
+					...purposeContext,
 					failure,
 					baseline,
 					...(exploration ? { exploration } : {}),
@@ -367,6 +379,8 @@ export async function runResidentLearningCycle(
 		)
 		candidateRevision = hashResidentSkill(generated.candidate)
 		candidate = normalizeResidentSkill(generated.candidate)
+		if ((candidate.purpose ?? 'task') !== purpose)
+			throw new Error('Generated skill purpose does not match the host-admitted learning purpose.')
 		if (candidate.name !== skillName)
 			throw new Error('Generated guidance must retain the requested skill name.')
 		await append('candidate', { candidate, candidateRevision, baselineRevision })

@@ -37,6 +37,8 @@ const sourcesSchema = z
 
 const candidateSchema = z.object({
 	name,
+	/** Omitted means ordinary task guidance; exploration policies require explicit projection. */
+	purpose: z.enum(['task', 'exploration']).optional(),
 	description: z.string().trim().min(1).max(1_000),
 	body: z.string().trim().min(1).max(4_000),
 	/** Optional dependencies whose revisions must still match before projection. */
@@ -277,6 +279,7 @@ export function hashResidentSkill(input: ResidentSkillCandidate): string {
 				candidate.description,
 				candidate.body,
 				...(candidate.sources ? [candidate.sources] : []),
+				...(candidate.purpose === 'exploration' ? [{ purpose: candidate.purpose }] : []),
 			]),
 		)
 		.digest('hex')
@@ -292,7 +295,10 @@ export function promoteResidentSkill(
 	const protection = normalizeHarnessProtection(evaluation.protection)
 	const candidate = candidateSchema.parse(input)
 	const hash = hashResidentSkill(candidate)
-	const baselineHash = current?.skills.find((s) => s.name === candidate.name)?.hash ?? 'none'
+	const baseline = current?.skills.find((s) => s.name === candidate.name)
+	if (baseline && (baseline.purpose ?? 'task') !== (candidate.purpose ?? 'task'))
+		throw new Error('A skill cannot change learning purpose; use a distinct skill name.')
+	const baselineHash = baseline?.hash ?? 'none'
 	const evidence = evidenceFor(current, inputEvidence)
 	for (const batch of [evaluation.verification, evaluation.confirmation]) {
 		if (!batch) continue
@@ -370,6 +376,8 @@ export function restoreResidentSkill(
 export interface ResidentLearningProjectionOptions {
 	readonly maxChars: number
 	readonly skillNames: readonly string[]
+	/** Defaults to task guidance. Exploration policies never enter ordinary task context. */
+	readonly purpose?: 'task' | 'exploration'
 	/** Fresh host observations for this projection; absent/mismatched dependencies withhold guidance. */
 	readonly sources?: readonly ResidentLearningSource[]
 }
@@ -382,7 +390,7 @@ export interface ResidentLearningProjection {
 	readonly omitted: number
 	readonly withheldSkills: readonly {
 		readonly name: string
-		readonly reason: 'changed-source' | 'unverified-source'
+		readonly reason: 'changed-source' | 'unverified-source' | 'different-purpose'
 		readonly sourceKeys: readonly string[]
 	}[]
 }
@@ -395,6 +403,7 @@ export function projectResidentLearning(
 	if (!Number.isSafeInteger(options.maxChars) || options.maxChars < 0 || options.maxChars > 64_000)
 		throw new TypeError('Resident learning context requires maxChars between 0 and 64000.')
 	const selected = z.array(name).max(16).parse(options.skillNames)
+	const purpose = z.enum(['task', 'exploration']).parse(options.purpose ?? 'task')
 	if (new Set(selected).size !== selected.length) throw new Error('Duplicate selected skill names.')
 	const sources = z
 		.array(sourceSchema)
@@ -434,6 +443,17 @@ export function projectResidentLearning(
 		const skill = state.skills.find((s) => s.name === skillName)
 		if (!skill) {
 			omitted++
+			continue
+		}
+		if ((skill.purpose ?? 'task') !== purpose) {
+			omitted++
+			withheldSkills.push(
+				Object.freeze({
+					name: skill.name,
+					reason: 'different-purpose',
+					sourceKeys: Object.freeze([]),
+				}),
+			)
 			continue
 		}
 		const mismatched =

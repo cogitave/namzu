@@ -173,6 +173,11 @@ the three-argument surface. Custom agenda backends require atomic `executionAt`
 support when enabling this option. The callback decides how to assemble the
 provider request from this data; the kernel does not overwrite its system policy.
 
+An optional [exploration purpose](exploration-policies.md) separates learned
+experiment-selection policies from ordinary task guidance. It is covered by the
+content digest and requires explicit matching projection; ordinary resident steps
+withhold such policies. Existing skills without a purpose retain their task behavior.
+
 `projectResidentLearning(state, { maxChars, skillNames })` creates a
 `ResidentLearningProjection`: newline-separated JSON entries, revision,
 included skill names and omission count. The character budget is required and

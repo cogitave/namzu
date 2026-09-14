@@ -45,6 +45,11 @@ skill and its evidence; it grants no permissions and performs no filesystem or
 network operations. Unknown names, failed authorization and unverified source
 bindings disclose no instructions. A cancelled call does not select a skill.
 
+Only task guidance appears in this catalogue. Learned
+[exploration policies](exploration-policies.md) are excluded, and guessing their
+names through `read_resident_skill` does not disclose their bodies. A learning
+host explicitly projects them into its explorer instead.
+
 Create a fresh bundle for each admission and keep its tools out of other runs.
 Selection is not persisted. Descriptions are limited to 160 Unicode code points
 each (16 skills maximum); full descriptions are retained in the read result.
@@ -166,8 +171,8 @@ to the whole authorized objective. The host supplies its own response format
 and owns answer validation and durable settlement.
 
 [Approved learning](resident-learning.md) uses `projectResidentLearning` with a
-12,000-character projection bound and all skills present in that approved
-snapshot selected. The projection reports omitted entries and never emits a
+12,000-character projection bound and all task skills present in that approved
+snapshot selected; exploration policies are withheld. The projection reports omitted entries and never emits a
 partial learning entry. That limit applies to learning, not to the entire prompt
 or host-supplied skill context.
 

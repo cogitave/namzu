@@ -29,7 +29,9 @@ export function createResidentStepContext(
 		...options,
 		learning: learning ? { ...learning, skills: [] } : undefined,
 	})
-	if (!learning?.skills.length) return Object.freeze({ contributions, tools: Object.freeze([]) })
+	const taskSkills = learning?.skills.filter((skill) => (skill.purpose ?? 'task') === 'task')
+	if (!learning || !taskSkills?.length)
+		return Object.freeze({ contributions, tools: Object.freeze([]) })
 	const authorize = options.authorizeLearningRead
 	const resolveSources = options.resolveLearningSources
 	const selected = new Set<string>()
@@ -49,7 +51,7 @@ export function createResidentStepContext(
 	}
 	// Metadata is a catalogue, not executable instructions. Bound its size and
 	// escape control characters; complete descriptions remain available on read.
-	const catalogue = learning.skills.map((skill) => ({
+	const catalogue = taskSkills.map((skill) => ({
 		name: skill.name,
 		description: [...skill.description]
 			.slice(0, 160)

@@ -779,67 +779,71 @@ describe('failed or interrupted work stays unresolved', () => {
 	})
 })
 
-it('projects saved summaries and approved learning without changing session authority', async () => {
-	const f = await fixture()
-	const candidate = {
-		name: 'check-evidence',
-		description: 'Check source evidence.',
-		body: 'Compare each claim with its source.',
-	}
-	const hash = hashResidentSkill(candidate)
-	const evidence = { key: 'verified', source: 'host', reason: 'Approved fixture' }
-	const learning: ResidentLearningState = {
-		revision: 1,
-		identity: { text: 'A concise researcher.', evidence },
-		preferences: [{ key: 'language', value: 'Turkish', evidence }],
-		skills: [
-			{
-				...candidate,
-				hash,
-				evidence,
-				verification: {
-					baselineHash: 'none',
-					candidateHash: hash,
-					evidenceDigest: 'a'.repeat(64),
-					verificationTasks: 5,
-					confirmationTasks: 5,
+it.each(['task', 'exploration'] as const)(
+	'projects saved summaries and scoped %s learning without changing session authority',
+	async (purpose) => {
+		const f = await fixture()
+		const candidate = {
+			name: 'check-evidence',
+			purpose,
+			description: 'Check source evidence.',
+			body: 'Compare each claim with its source.',
+		}
+		const hash = hashResidentSkill(candidate)
+		const evidence = { key: 'verified', source: 'host', reason: 'Approved fixture' }
+		const learning: ResidentLearningState = {
+			revision: 1,
+			identity: { text: 'A concise researcher.', evidence },
+			preferences: [{ key: 'language', value: 'Turkish', evidence }],
+			skills: [
+				{
+					...candidate,
+					hash,
+					evidence,
+					verification: {
+						baselineHash: 'none',
+						candidateHash: hash,
+						evidenceDigest: 'a'.repeat(64),
+						verificationTasks: 5,
+						confirmationTasks: 5,
+					},
 				},
-			},
-		],
-		lastChange: evidence,
-	}
-	const execution = f.agenda.execution(f.pursuit.id)
-	const admitted = await execution.claim(f.pursuit.state, Date.now())
-	const waiting = await execution.settle(
-		admitted,
-		{ kind: 'wait', summary: 'Prior evidence was retained.', wakeAt: null },
-		Date.now(),
-	)
-	const awake = await f.agenda.wake(f.pursuit.id, waiting, 'A new source arrived.', Date.now())
-	const claim = await execution.claim(awake, Date.now())
-	let sent: SendOptions | undefined
-	mocks.create.mockResolvedValue(
-		fakeAgentSession({
-			close: mocks.close,
-			send: (_messages, opts) => {
-				sent = opts
-				return stream([{ kind: 'done', stopReason: 'end_turn', text: JSON.stringify(complete) }])
-			},
-		}),
-	)
-	await f.step()({ id: f.pursuit.id, state: claim }, signal, {
-		agendaRevision: 1,
-		learning,
-	} satisfies ResidentStepContext)
-	expect(sent!.signal).toBe(signal)
-	expect(renderedResidentContext(sent!)).toContain('Prior evidence was retained.')
-	expect(renderedResidentContext(sent!)).toContain('A new source arrived.')
-	expect(renderedResidentContext(sent!)).toContain('A concise researcher.')
-	expect(renderedResidentContext(sent!)).toContain('Turkish')
-	expect(renderedResidentContext(sent!)).toContain(candidate.body)
-	expect(creationOptions().permissionMode).toBe('plan')
-	expect(creationOptions()).not.toHaveProperty('sessionGoals')
-})
+			],
+			lastChange: evidence,
+		}
+		const execution = f.agenda.execution(f.pursuit.id)
+		const admitted = await execution.claim(f.pursuit.state, Date.now())
+		const waiting = await execution.settle(
+			admitted,
+			{ kind: 'wait', summary: 'Prior evidence was retained.', wakeAt: null },
+			Date.now(),
+		)
+		const awake = await f.agenda.wake(f.pursuit.id, waiting, 'A new source arrived.', Date.now())
+		const claim = await execution.claim(awake, Date.now())
+		let sent: SendOptions | undefined
+		mocks.create.mockResolvedValue(
+			fakeAgentSession({
+				close: mocks.close,
+				send: (_messages, opts) => {
+					sent = opts
+					return stream([{ kind: 'done', stopReason: 'end_turn', text: JSON.stringify(complete) }])
+				},
+			}),
+		)
+		await f.step()({ id: f.pursuit.id, state: claim }, signal, {
+			agendaRevision: 1,
+			learning,
+		} satisfies ResidentStepContext)
+		expect(sent!.signal).toBe(signal)
+		expect(renderedResidentContext(sent!)).toContain('Prior evidence was retained.')
+		expect(renderedResidentContext(sent!)).toContain('A new source arrived.')
+		expect(renderedResidentContext(sent!)).toContain('A concise researcher.')
+		expect(renderedResidentContext(sent!)).toContain('Turkish')
+		expect(renderedResidentContext(sent!).includes(candidate.body)).toBe(purpose === 'task')
+		expect(creationOptions().permissionMode).toBe('plan')
+		expect(creationOptions()).not.toHaveProperty('sessionGoals')
+	},
+)
 
 it.each([
 	['--continue'],

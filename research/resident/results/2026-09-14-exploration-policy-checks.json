@@ -1,0 +1,91 @@
+{
+  "workspaceTestsPassed": 11475,
+  "sdkProcessTestsPassed": 269,
+  "standaloneTestsPassed": 3,
+  "additionalPassed": [
+    "signature exports",
+    "SDK test presence",
+    "project references"
+  ],
+  "fullReleaseGatesRun": false,
+  "logs": {
+    "lint.log": {
+      "sha256": "a67fc76f94555c1d692c2e89d33f9299afcd3f08d4758f5de60955b70b1be26d",
+      "summaries": [
+        "packages/sdk lint: Found 43 warnings.",
+        "packages/cli lint: Found 13 warnings."
+      ]
+    },
+    "tests.log": {
+      "sha256": "f2a922ec180a149db3904ed4834cee4174826694ab73868bab6f4df2670db9d7",
+      "summaries": [
+        "packages/files test:  Test Files  3 passed | 1 skipped (4)",
+        "packages/files test:       Tests  48 passed | 11 skipped (59)",
+        "packages/sdk test:  Test Files  689 passed (689)",
+        "packages/sdk test:       Tests  6923 passed (6923)",
+        "packages/computer-use test:  Test Files  11 passed (11)",
+        "packages/computer-use test:       Tests  67 passed (67)",
+        "packages/live test:  Test Files  3 passed (3)",
+        "packages/live test:       Tests  24 passed (24)",
+        "packages/ag-ui test:  Test Files  5 passed (5)",
+        "packages/ag-ui test:       Tests  121 passed (121)",
+        "packages/lsp test:  Test Files  2 passed (2)",
+        "packages/lsp test:       Tests  27 passed (27)",
+        "packages/providers/bedrock test:  Test Files  12 passed (12)",
+        "packages/providers/bedrock test:       Tests  114 passed (114)",
+        "packages/providers/anthropic test:  Test Files  18 passed | 2 skipped (20)",
+        "packages/providers/anthropic test:       Tests  207 passed | 40 skipped (247)",
+        "packages/providers/deepseek test:  Test Files  5 passed (5)",
+        "packages/providers/deepseek test:       Tests  42 passed (42)",
+        "packages/providers/google test:  Test Files  3 passed (3)",
+        "packages/providers/google test:       Tests  25 passed (25)",
+        "packages/providers/http test:  Test Files  8 passed (8)",
+        "packages/providers/http test:       Tests  60 passed | 10 skipped (70)",
+        "packages/providers/lmstudio test:  Test Files  5 passed (5)",
+        "packages/providers/lmstudio test:       Tests  28 passed (28)",
+        "packages/providers/ollama test:  Test Files  7 passed (7)",
+        "packages/providers/ollama test:       Tests  34 passed (34)",
+        "packages/providers/openrouter test:  Test Files  9 passed (9)",
+        "packages/providers/openrouter test:       Tests  40 passed (40)",
+        "packages/providers/zen test:  Test Files  10 passed (10)",
+        "packages/providers/zen test:       Tests  124 passed (124)",
+        "packages/providers/openai test:  Test Files  9 passed (9)",
+        "packages/providers/openai test:       Tests  123 passed (123)",
+        "packages/telemetry test:  Test Files  4 passed (4)",
+        "packages/telemetry test:       Tests  33 passed (33)",
+        "packages/sandbox test:  Test Files  23 passed (23)",
+        "packages/sandbox test:       Tests  304 passed (304)",
+        "packages/cli test:  Test Files  346 passed (346)",
+        "packages/cli test:       Tests  3131 passed | 5 skipped (3136)"
+      ]
+    },
+    "typecheck.log": {
+      "sha256": "1fd1daa5199f1ee633b707050352a0d89d4765d14a4266401906f9d22374e0de",
+      "summaries": []
+    },
+    "proc.log": {
+      "sha256": "0f3cdc67254d1b44641660f5cd14139fc99481bcb442bf110e82881b34975d0f",
+      "summaries": [
+        " Test Files  41 passed (41)",
+        "      Tests  269 passed (269)"
+      ]
+    },
+    "fences.log": {
+      "sha256": "50c278e12a6ad3fec57ceb9fc244dead7982cf7760489e7b699338188bb84a82",
+      "summaries": [
+        "           20 publishable package README(s) compiled alongside docs/",
+        "           0 file(s) under docs/ outside FENCE_CONFORMING"
+      ]
+    },
+    "docs.log": {
+      "sha256": "3f7fff48bc0122f83208964eb6ccedb2b3d7187d996f1d4f84d7c08781dc55c8",
+      "summaries": [
+        "OKF v0.2 gate passed: 78 file(s) under docs"
+      ]
+    },
+    "build.log": {
+      "sha256": "284f31448706d890032274e8fb1a3e21833d8e3d2c009a613820f61bd282382f",
+      "summaries": []
+    }
+  }
+}

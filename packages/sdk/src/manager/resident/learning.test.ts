@@ -96,6 +96,55 @@ function evaluation(candidate: ResidentSkillCandidate = skill(), baselineRevisio
 }
 
 describe('source-bound learning', () => {
+	it('binds exploration purpose to its digest and requires explicit projection', () => {
+		const task = skill()
+		const policy = { ...task, purpose: 'exploration' as const }
+		expect(hashResidentSkill(task)).toBe(hashResidentSkill({ ...task, purpose: 'task' }))
+		expect(hashResidentSkill(policy)).not.toBe(hashResidentSkill(task))
+		const state = promoteResidentSkill(undefined, policy, evaluation(policy), evidence('policy'))
+		const options = { maxChars: 10_000, skillNames: [task.name] }
+		const ordinary = projectResidentLearning(state, options)
+		expect(ordinary.text).toBe('')
+		expect(ordinary.withheldSkills).toEqual([
+			{ name: task.name, reason: 'different-purpose', sourceKeys: [] },
+		])
+		expect(
+			projectResidentLearning(state, { ...options, purpose: 'exploration' }).includedSkills,
+		).toEqual([task.name])
+		const tampered = {
+			...state,
+			skills: state.skills.map((s) => ({ ...s, purpose: 'task' as const })),
+		}
+		expect(() => projectResidentLearning(tampered, options)).toThrow()
+		expect(() =>
+			promoteResidentSkill(
+				state,
+				task,
+				evaluation(task, hashResidentSkill(policy)),
+				evidence('repurpose'),
+			),
+		).toThrow('purpose')
+	})
+	it('retains source freshness checks for explicitly selected exploration policies', () => {
+		const policy = {
+			...skill(),
+			purpose: 'exploration' as const,
+			sources: [{ key: 'service', revision: 'v1' }],
+		}
+		const state = promoteResidentSkill(
+			undefined,
+			policy,
+			evaluation(policy),
+			evidence('sourced-policy'),
+		)
+		const options = { maxChars: 10_000, skillNames: [policy.name], purpose: 'exploration' as const }
+		expect(projectResidentLearning(state, options).withheldSkills[0]?.reason).toBe(
+			'unverified-source',
+		)
+		expect(
+			projectResidentLearning(state, { ...options, sources: policy.sources }).includedSkills,
+		).toEqual([policy.name])
+	})
 	it('cannot bypass protection through direct promotion or omit a failed control from the selection', () => {
 		const candidate = skill()
 		const measured = evaluation(candidate)

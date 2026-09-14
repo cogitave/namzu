@@ -61,6 +61,9 @@ This setting applies to `run` and `start`, including the background worker; it i
 not persisted by `add`. It is independent of tool schema loading and is rejected
 with the `interactive` context profile, which keeps its existing prompt behavior.
 These are learned resident instructions, separate from filesystem/plugin skills.
+Learned [exploration policies](../sdk/exploration-policies.md) are excluded from
+ordinary task context, its catalogue and skill-read results. Learning hosts select
+them explicitly for exploration.
 
 Project instructions and tool permission enforcement use their existing paths.
 The resident profile also distinguishes historical answers from current-state
@@ -220,7 +223,7 @@ Each admitted step uses a fresh isolated CLI session. Its context receives the
 immutable objective, identity, last saved summary, all pending wake inputs and an approved
 [learning snapshot](../sdk/resident-learning.md) bound to the admission revision.
 Learning projection has a 12,000-character cap and selects currently active
-host-approved skills. Oversized entries are reported as omitted. Continuation uses this snapshot and bounded historical evidence retrieval; it
+host-approved task skills. Exploration policies and oversized entries are reported as omitted. Continuation uses this snapshot and bounded historical evidence retrieval; it
 does not restore an in-flight process or resume an old chat transcript.
 
 Both context profiles also mount `search_resident_history` and
