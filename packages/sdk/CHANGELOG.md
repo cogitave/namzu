@@ -1,5 +1,705 @@
 # Changelog
 
+## 39.0.0
+
+### Major Changes
+
+- 6663561: Prose `reviewAnswer` callbacks now fail the run when they throw or return a malformed verdict. Previously a thrown error accepted the answer without review. To keep a deliberately permissive policy, catch the error in the host callback and explicitly return `{ accept: true }`; return `{ accept: false, feedback }` only when requesting a bounded correction. Rejection feedback must be a nonempty string.
+
+  `maxAnswerReviews` now rejects negative, fractional, non-finite or unsafe values. Use a nonnegative safe integer (default three corrections). Rejection counts and feedback are saved together in checkpoints, so resuming the same checkpoint preserves the remaining allowance even after history compaction. Cancellation stops waiting for a pending reviewer; external work started by the callback must still honor its signal.
+
+  The CLI inherits these SDK semantics for host-supplied reviewers. Its command gate already converts unavailable checks to bounded rejection and keeps that behavior. Forced finalization, terminal tools and structured output retain their separate settlement paths.
+
+- 9463b6f: Background job `read` and `list` calls now count as read-only observations by default; starting commands and `job kill` retain their existing approval requirements. SDK `defineTool` accepts an input predicate for `readOnly`.
+
+  Explicit CLI `ask` rules are now enforced rather than omitted, so they can request review ahead of a wildcard allowance or the read-only default. SDK custom-pattern rules support `decision: 'review'`, with an `authorization.explicitReview` marker on review summaries. Read-only and accept-edits exemptions honor it; explicit auto modes and prior approvals keep their meaning.
+
+  To keep reviewing every background-job operation in prompt mode, configure `permissions: { job: ask }`, or supply a matching SDK custom-pattern review rule. If an old `ask` entry was intended to inherit default behavior, remove that entry instead. Deny rules, plan-mode mutation restrictions, job ownership and sandbox boundaries remain enforced.
+
+- b2d5b01: Support explicit unlimited run guards while retaining measured token usage.
+  Set `tokenBudget: 0`, `maxIterations: 0` and `timeoutMs: 0` in SDK run options,
+  or in the CLI's `limits` configuration, to disable those three caps. The CLI's
+  `--token-budget 0` and `--max-iterations 0` now override configured caps; blank,
+  negative and unsafe numeric values are refused. Omitted defaults are unchanged.
+
+  SDK breaking change: `maxIterations: 0` and `timeoutMs: 0` previously prevented
+  progress; they now disable those guards, consistently with the token limit.
+  Hosts that used zero to prevent a run from starting must refuse admission or
+  pass an already-aborted signal instead. Use positive values for finite guards.
+
+  CLI breaking change: an explicitly configured `limits.maxIterations` now applies
+  to built-in subagents too, instead of always giving them 40 iterations. Existing
+  configurations with a smaller value can stop children earlier; larger values
+  permit more work. Omit that setting to retain the previous child default (40)
+  and parent default (50), or define a specialist agent with its own iteration
+  configuration when the two must differ. The new `limits.timeoutMs` setting also
+  reaches child runs and blocking delegation tools. `0` does not bypass a finite
+  ancestor token cap, permissions, operator cancellation or unresolved usage.
+
+- ebfb3b4: Preserve original messages removed by CLI `/compact`, including exact user details
+  absent from its summary, for conversation search/read after restart. Failed
+  retention keeps the existing conversation; messages whose serialized form exceeds
+  3 MiB are refused before replacement.
+
+  SDK consumers handling `compaction_shed.reason` or `ShedPass.reason` exhaustively
+  must add the new `manual` case. Both manual compaction helpers accept optional
+  `onShed` to await host-owned retention before returning replacement history;
+  callback failure rejects the operation. Existing callers without a callback keep
+  their projection-only behavior.
+
+- e63ca83: Add `PrepareStepResult.context` for current observations carried after history in a labelled runtime message for this request only. It is separate from `system` authority, counted in subsequent stages' context estimates, and never replaces operator intent or accumulates in conversation history.
+
+  The emitted `RuntimeContextMessageKind` union now includes `step-context`. Consumers with exhaustive switches or records over that exported union must handle the new kind as runtime-generated context, not operator input. This is the SDK's breaking surface; existing `prepareStep.system` callers retain their behavior.
+
+  The CLI moves its changing context inventory into this field. OpenAI and Anthropic request conversion no longer moves that inventory ahead of conversation history as system text. This preserves history placement without promising cache hits or reduced billed tokens.
+
+  Anthropic message caching now places its breakpoint before request-only step context, so the cached boundary ends on stable history rather than the inventory that changes next step. Requests without step context keep their existing breakpoint.
+
+- 5d31eea: Resident learning hosts and direct skill promotions now require a `protection` plan with disjoint `verification` and `confirmation` task IDs chosen before candidate generation. Existing hosts without this field are refused before inference. Include at least one real preservation task per round, with two measured successful baseline trials and two successful candidate trials. Missing or uncertain controls block activation; losing one established success rejects the candidate even when aggregate scores improve.
+
+  Update `ResidentLearningCycleOptions`, discovery hosts, and `ResidentSkillEvaluation` callers to supply this plan and its actual paired evidence. Historical stored skills remain readable but do not gain protection evidence retroactively. Generic `reviewHarnessCandidate` callers can opt into the same checks with its third argument. CLI learning summaries display protected-task outcomes.
+
+- f1e33a1: Resident wake calls now retain all accepted inputs until the next step settles, instead of replacing the previous wake reason. `ResidentState.wakeEvidence` exposes immutable reasons and receipt times; the SDK resident prompt and both CLI resident profiles include the complete batch. CLI resident status shows pending input counts.
+
+  The new default accepts at most 16 pending inputs and 16,000 total reason characters per pursuit. Overflow rejects the new wake without discarding accepted evidence. Callers that previously sent an unlimited series of replacement wakes must process each batch before sending more, or coalesce superseded inputs before calling `wake`. Custom callbacks should read `wakeEvidence` rather than only the latest `reason`.
+
+  Standalone resident records now write schema 2 and agenda records schema 6. Older processes refuse these new formats: upgrade all processes sharing the store together. Prior formats remain readable without inventing historical inputs. Crashed steps keep their pending evidence; only successful exact-claim settlement or explicit inspected reconciliation consumes it.
+
+- 1d651d0: Keep large compacted histories searchable, including short user text attached to
+  large images and individual long text messages. The disk store writes a bounded
+  `compaction_archive` storage record and saves original messages and authenticated
+  text chunks under the run's `compaction-output/` directory. Full SDK event readers
+  restore the original `compaction_shed` event with its attachments and metadata.
+
+  Raw JSONL consumers must handle this new storage record or switch to
+  `RunDiskStore.readEvents()` / `readRunEventsIn()`. Preserve `compaction-output/`
+  with the transcript when copying a run. Upgrade SDK readers before consuming new
+  archives. Existing inline records remain readable; older oversized records are
+  not converted automatically.
+
+  CLI manual compaction now offloads messages above 3 MiB instead of refusing them.
+  Automatic compaction and scoped search/read use the same SDK mechanism. Archive
+  write failures and limits still prevent the history replacement.
+
+### Minor Changes
+
+- b156888: Supply configured advisors with the successfully dispatched SDK request,
+  including request-only step context, followed by records appended from its
+  response onward. The public `AdvisoryCallContext.turn` and exported
+  `AdvisoryTurnContext` describe this optional trajectory. Records distinguish
+  request inputs from later tools and messages within one shared context window.
+
+  Snapshots are scoped to one iteration, omitted from checkpoints, and rebuilt
+  after resume. If the current response anchor is unavailable, the advisor sees
+  explicitly labelled canonical history instead. Same-batch results that have not
+  yet reached history are not synthesized. No additional model call is enabled.
+
+- 7bb8163: SDK evidence sources now accept `matchMode: 'token'` for complete Unicode
+  letter/number/underscore terms, with the same lowercase keys used by bounded
+  evidence ranking. The default remains literal substring search. Token queries
+  must contain one token per term; use literal mode for phrases or punctuation.
+  Continuations retain their matching mode, and token search authenticates the
+  preceding chunk when checking a word boundary within the existing I/O budget.
+
+  CLI automatic evidence recall uses this mode to keep incidental substrings
+  such as `in` inside `Packing`, or `3` inside `13000`, from consuming its candidate
+  slots. Explicit conversation search still supports literal substrings.
+  Whole-word frequency can still limit bounded discovery; this change does not
+  claim complete or globally ranked archive retrieval.
+
+- 2d26b44: Add optional `AnswerReviewContext.requestMessages` to prose and structured
+  review callbacks. The built-in loop supplies an isolated copy of the SDK
+  provider-chain request that produced the candidate, including request-only
+  retrieved context and the last image-recovery dispatch. `messages` continues to
+  mean canonical conversation history.
+
+  The snapshot is not persisted across turns or checkpoints. Runs without a
+  reviewer do not copy requests for review; configured reviewers incur the memory
+  cost of that copy. This does not install a factual judge, authenticate arbitrary
+  request text, or capture provider-specific wire transformations. Hosts must
+  still validate source scope and integrity for their task-specific checks.
+
+- 2a1e0e5: Preserve provider-identified public assistant message items through streaming,
+  settlement and conversation persistence. The SDK adds optional `textParts`
+  snapshots, `textPart` delta metadata and `selectAssistantText`. Completed content
+  selects explicitly final answers instead of concatenating intermediate progress
+  into the answer; ordinary unphased streams retain their existing behavior.
+
+  The Codex subscription driver maps native message phases and verifies the original
+  public parts before native replay. The CLI exposes optional item metadata on
+  delta events, separates streamed item bubbles and uses the settled answer for
+  turn completion. Consumers that manually concatenate deltas should use completed
+  content when they want the final answer; deltas still contain public progress.
+
+- ce55c21: Add experimental `createEvidenceRecallStep` and its typed host retrieval contract.
+  It ranks a bounded pool of authenticated historical passages and supplies exact
+  excerpts with source/error/preview labels in request-only context. Every request
+  revalidates ownership and source data; deadlines discard late reads without
+  accumulating overlapping retrieval or replaying actions.
+
+  Recorded CLI conversations can opt in with `compaction.recallEvidence: true`.
+  The default remains off. Automatic recall excludes the requesting invocation;
+  explicit conversation search/read still cover live evidence, more pages and
+  complete text. This adds historical context, not automatic verification of
+  current workspace state or a guarantee of exhaustive recall.
+
+- de53442: Allow hosts to lower the read allowance for an individual resident-history or
+  run-evidence search/read operation with `maxReadBytes`. Resident history accepts
+  1 byte through 8 MiB; run evidence accepts 1–8 MiB and cannot exceed its source's
+  configured ceiling. The option also reaches captured live-boundary text readers.
+  Existing defaults and cursor/address identity remain unchanged, so a continuation
+  can use another allowance while preserving its scope and source validation.
+
+  Custom source backends must honor the new option when their caller supplies it.
+  An insufficient allowance can stop traversal or refuse a read; it does not mean
+  the requested evidence is absent. These low-level controls do not yet impose a
+  combined budget on the resident tool-evidence wrapper.
+
+- 6e4a820: Recover original oversized tool text in ordinary conversations after compaction or restart. `search_conversation` and `read_conversation` now use authenticated retained output for closed scoped runs while preserving assistant-message and compaction-history search. Search results can provide a UTF-8 byte position for reading near a match; returned character positions remain UTF-16. Missing or changed originals are explicitly unavailable, and partial legacy records remain previews.
+
+  The SDK adds `createDiskRunTextEvidenceSource` and its public types, a bounded text view alongside the existing tool-only evidence source, plus an optional smaller per-operation read ceiling. New spill manifests record character positions without changing the existing tool-only source interface.
+
+  Headless `run --resume`/`--continue` and persistent `run-stream --session` now receive conversation retrieval tools. Both search and read remain available with deferred tool loading. Hosts still authorize the invoking conversation; no tool is replayed to recover its result.
+
+- bd4bd2e: Allow automatic evidence-query resolution to use one explicitly marked compaction summary as a derived lookup reference after original turns leave visible history. The existing six-excerpt, 64-message and inference limits remain; ordinary system policy and tool text are excluded. Query-resolution basis metadata may now include `source: "compaction-summary"`. This provenance marks a derived reference, not proof of the requested fact: answers still require retained originals. Recorded CLI conversations use this through their existing recall configuration.
+- bb0281b: Add optional `EvidenceRecallBatch.continuations` with exported
+  `EvidenceRecallContinuation` hints for bounded, host-mounted read-only tools.
+  Incomplete recall now reports its status even when no new passage is selected,
+  so missing context cannot silently look like an exhaustive negative search.
+  Hint arguments and output are bounded within the existing context allowance.
+
+  CLI `search_conversation` accepts `cursor` alone to restore the original query,
+  case setting and excluded invocation. Automatic recall supplies these handles
+  when live or earlier-run traversal has more pages. The model can continue from
+  that position without replaying an action or starting the same scan again.
+  New searches still require a literal query. Scope, expiry, source-integrity
+  checks and read limits remain enforced; live handles require the same active
+  writer and never downgrade to another source. Automatic recall remains opt-in.
+
+- cff2b6a: Conversation search now ignores letter case by default: searching for `destination` also finds `Destination`. Pass `caseSensitive: true` to `search_conversation` to keep the former behavior. Continue pages with the same query and case setting.
+
+  SDK run-evidence search adds optional `caseSensitive` (default `true`, unchanged). Active and closed run sources now return distinct matching passages within one text chunk, with continuation at the match limit, rather than hiding later passages in that chunk. Exact retained text, UTF-8/UTF-16 offsets, integrity verification and per-call I/O limits remain intact. Case-insensitive searches bypass exact-case filters and may read more bytes or require more pages.
+
+- df686fc: System messages can now carry `source: { type: 'compaction-summary' }`.
+  Kernel-generated compaction summaries receive this marker. When retained,
+  their text is searchable and readable as `compaction_shed:summary`, preserving
+  exact text and existing part positions. Ordinary system text with the same
+  heading and older unmarked archives keep their previous classification.
+
+  Automatic evidence recall orders matching source records before known derived
+  summaries within its bounded candidate pool, using separate relevance statistics.
+  Summaries remain available as passages and exact read addresses; they are not
+  deleted. CLI evidence guidance explains that these are derived text, not
+  independent observations. Recall limits and opt-in settings are unchanged.
+
+- 2869fbe: Add an optional SQLite resident learning journal with atomic event/summary updates, scoped ancestry and recorded usage, plus hash-verified immutable JSON artifacts. `runStoredResidentLearningCycle` connects existing generation and independent evaluation callbacks to the journal without adding another model loop. The store requires Node.js 22.13 or newer when used; other SDK stores retain their existing support.
+
+  Add `namzu resident learn <experiment.learning.mjs>` for explicit trusted host modules and `namzu resident learning [cycle-id]` for read-only inspection. Modules select and bound their own providers and evaluators. Interrupted work and incomplete prices remain visible; these commands do not automatically replay experiments, activate unverified guidance or start background learning. Records live in `state/learning.sqlite` and `learning/artifacts/`; accepted skills remain in the existing resident agenda.
+
+  Expose `pathBuilder`, `runStore` and `checkpointStore` on `runAgent`, forwarding the kernel's existing host storage controls. Hosts can separate generated execution evidence from a searched workspace. Omitting these options preserves the SDK's current local layout; the CLI retains its application-home layout.
+
+- df143c8: Expose optional `excerptComplete` on retained-evidence search matches and recall candidates. Built-in sources prove whether the displayed excerpt contains a whole full-retained text part using validated UTF-8 bounds. A partial excerpt or retained preview reports false; custom sources that omit the field remain unknown.
+
+  CLI conversation search and automatic recall preserve this information and explain when reading the same unchanged part adds no text or independent evidence. The field describes one text part, not the truth of its claims or coverage of the whole conversation. Existing scope, integrity, cancellation and context limits remain enforced.
+
+- 691342c: Automatic conversation recall now labels selected passages and visible-source
+  references with their producer kind. Prior assistant statements are identified
+  as claims rather than proof of observed file state or successful actions.
+
+  Within the existing candidate and context limits, selection keeps the best
+  lexical match first and then considers matching records from other producer
+  kinds before repeating a kind. This prevents repeated model claims from taking
+  every slot when a tool record is available. Derived summaries remain last.
+  Archive bytes, explicit search/read tools and access boundaries are unchanged;
+  these labels and ranking do not establish truth or independent corroboration.
+
+- d5d2b9a: Expose optional `recordedAt` Unix milliseconds on evidence search matches, exact read pages and recall candidates. CLI conversation search/read and automatic recall preserve the stored event time, including each included occurrence of equal text. Callers can distinguish recording times without inferring them from run IDs, file times or run-start metadata.
+
+  Unknown or invalid stored timestamps stay absent; custom recall callbacks must omit unknown times and supply positive integer milliseconds within the JavaScript Date range when known. The timestamp dates recording, not fact validity; compaction copies carry their own copy time. Sequence still orders one run, and clocks across runs do not establish causal order. Existing retrieval ordering, scope, read limits and source validation remain unchanged.
+
+- b971796: Expose `classifyEvidenceSource`, `EvidenceRecordKind` and `EVIDENCE_RECORD_GUIDANCE` for hosts presenting authenticated text evidence. Automatic recall uses the same classification. The helper interprets source tags only; it does not authenticate text or establish that its claims are true.
+
+  CLI `search_conversation` matches and located `read_conversation` pages now include `recordKind` with interpretation guidance. Exact reads also preserve recorded `toolName` and `isError`, leaving missing status unknown. Tool names exceeding 256 JSON-encoded UTF-8 bytes are omitted consistently. Original text, addresses, scope checks and pagination remain unchanged.
+
+- e9a4192: Add optional `terms` to retained-evidence source searches. Supply 1–16 nonblank literal terms instead of `query` to discover matching passages in a shared bounded scan. Exact duplicate terms and their order do not matter; cursors bind membership and case sensitivity. Both writer-captured and closed-run sources preserve scope, integrity checks, Unicode offsets, exact reads and existing resource limits. This is candidate discovery, not automatic recall or relevance ranking. Existing literal-query callers and CLI tool schemas keep their behavior.
+- 3e09024: Learning candidates and learning cycles can declare `purpose: 'exploration'` for instructions intended to improve an explorer. Their purpose is covered by the content digest, and generation cannot redirect the host-admitted purpose. A skill cannot change purpose under the same name.
+
+  `projectResidentLearning` continues to select task guidance by default. Exploration policies require an explicit matching purpose and are reported as `different-purpose` when withheld. Existing skills without a purpose retain their task behavior and hashes. CLI resident steps therefore keep exploration policies out of ordinary task context. Explicit exploration projection still requires matching source revisions and does not grant tools or start inference.
+
+- f49a4b8: Add optional run-metered, tool-free `PrepareStepContext.generateText` and
+  `createEvidenceRecallStep({ resolveQuery: true })` for resolving historical
+  follow-ups against bounded visible conversation. Generated search terms must
+  occur in the question or exact cited history. SDK query resolution defaults off.
+
+  In the CLI, conversations with `compaction.recallEvidence: true` now resolve
+  eligible conversational queries by default. This can add one provider request
+  per operator input, up to 512 output tokens and ten seconds before local
+  retrieval. It consumes the same run token budget. Set
+  `compaction.resolveEvidenceQueries: false` to keep the previous literal-query,
+  local-only behavior. Automatic recall itself still defaults off.
+
+- 43124f0: When automatic evidence query resolution is enabled, allow its existing bounded
+  planner to select grounded subject words for discovery. A named record can now
+  focus the search without generic field words filling context with other records.
+  Source spelling, quoted context and every candidate's conversation ownership
+  are validated before use.
+
+  Temporary context reports the selected focus, observed focus words and locally
+  excluded passages. An empty focused scan is explicitly not proof of archive
+  absence. Explicit conversation search/read tools remain available with their
+  existing semantics; no additional model call or retrieval budget is introduced.
+  SDK query resolution remains opt-in. CLI integration checks cover archived
+  observations after reopening a conversation.
+
+- 0a0baf2: Add bounded resident activity inspection and a reusable consumption projection in the SDK. The CLI's new `namzu resident inspect` command reports retained admissions, settlements, archived pursuits, historical verification receipts and known versus missing usage across process restarts.
+
+  Root usage and descendant-inclusive token totals remain separate. Missing or interrupted receipts are explicitly incomplete; unpriced tokens do not imply free work. Cost reports cover the root invocation, not descendant prices or a provider bill. Inspection does not impose a new lifetime spending limit or change existing execution defaults. Use `--max-revisions` or the returned `--cursor` to inspect histories beyond the default bounded range.
+
+- 77272e3: Read retained original observations after a process exits before recording a
+  terminal run status. Disk evidence factories accept `consistency: 'snapshot'`
+  for explicitly scoped nonterminal runs; the existing default remains `closed`.
+  Snapshot reads validate ownership and unchanged source bytes on every operation
+  without acquiring an execution lease, resuming tools or changing run metadata.
+
+  The CLI now uses this mode for recorded `idle`, `pending` and `running` runs
+  outside its requesting live writer. An incomplete final JSONL fragment is
+  excluded within the existing bounded I/O allowance without editing the source.
+  Search remains incomplete for nonterminal snapshots; a full read describes only
+  the selected retained text. File or metadata changes require a fresh search,
+  and missing or altered retained originals remain unavailable.
+
+- 5996a84: Recover retained tool text while the same invocation is still running. The SDK adds optional `ToolContext.captureRunEvidence` and `RunStore.captureTextEvidence` capabilities; custom stores need not implement them. Disk events carry additive integrity links so new appends do not invalidate earlier search/read continuations. Scope changes, damaged records and modified retained outputs are refused; torn boundaries remain explicitly incomplete.
+
+  CLI conversation search and read use this capability for the requesting invocation, preserving exact output after compaction without repeating the original action. Live cursors expire when the writer is replaced; start a new search after restart. Closed-run retrieval continues to support durable run/event/part references.
+
+  Conversation search also identifies the originating tool and directs callers to read the full passage, so original observations can be distinguished from prior retrieval excerpts.
+
+- 4828eb0: Add opt-in learning discovery from retained, host-scored failures. Hosts can record observations and authorize evaluator revisions; the SDK selects an eligible task against the installed guidance, then uses the existing generation, verification and fresh confirmation cycle. Task claims survive process restarts and prevent concurrent or accidental duplicate experiments. Provider errors, unresolved usage and obsolete observations are excluded from selection.
+
+  The CLI accepts discovery hosts in `resident learn` and adds `resident learning --observations` for paginated inspection. Compact output includes failure reasons and verification/confirmation pass counts so inspection does not require following raw artifact hashes. Existing explicit-failure hosts remain supported. Learning storage upgrades to schema 2 on its next write; older SDK builds restricted to schema 1 cannot reopen that upgraded database. Keep a database backup if a rollback to such a build is required.
+
+- 97acc32: Resident run/start now automatically retrieve bounded original tool evidence
+  from earlier settled admissions before model requests, under both context
+  profiles. Previously these admissions exposed explicit archive tools only.
+  Set `compaction.recallEvidence: false` to retain that previous behavior. This
+  adds local archive I/O and request context; it does not add query-planning
+  inference, replay actions or grant ordinary chats/delegated agents access.
+
+  SDK hosts can attach `createResidentEvidenceRecallStep` to an admitted run.
+  It preserves historical Session/run/claim addresses and shares bounded evidence
+  selection with conversation recall. Resident tool sources also support bounded
+  token queries and exact cursor-only recovery, retaining query/filter identity
+  across reopening. Incomplete results do not establish absence.
+
+  Resident Sessions now leave signal handling to their enclosing host. Previously
+  the SDK emergency handler could exit immediately on SIGINT/SIGTERM before the
+  host wrote cleanup/runner receipts. Cancellation now drains through the resident
+  lifecycle and preserves the interrupted claim for inspected reconciliation.
+
+- b649224: Expose optional `PrepareStepContext.captureRunEvidence(maxReadBytes?, signal?)`
+  for authenticated text from the current invocation's writer. It rejects local
+  or run cancellation and settled invocations; unsupported stores return
+  `undefined`. Automatic evidence recall forwards this capability with its own
+  deadline and revokes new captures when the recall pass ends.
+
+  With `compaction.recallEvidence: true`, recorded CLI turns now recall missing
+  observations from the current run, including after compaction. Up to two live
+  pages share the existing four-page, 8 MiB read ceiling with earlier runs;
+  explicit conversation tools still handle further pages and exact full text.
+  The default remains off. Captured observations describe the past and do not
+  establish current workspace contents or replay a tool action.
+
+- 10e9984: Add optional `RunEvidenceSearchOptions.excludeSuccessfulTools` to omit successful
+  results from up to 16 exact tool names during bounded discovery. The default
+  excludes nothing. Filter membership is bound to continuations; exact reads stay
+  available and errors or unknown provenance remain searchable. Search results and
+  `EvidenceRecallBatch` can report optional `excludedToolResults`, counting skipped
+  visits rather than unique facts. A positive count can produce an explanatory
+  recall context even when no passage is selected.
+
+  Preserve tool name and explicit error status in compacted text when the same
+  record contains an unambiguous, correctly ordered call/result pair. Newly written
+  large compaction archives retain that metadata; older archives without it stay
+  unknown. Text addresses, original messages and copy timestamps are unchanged.
+
+  When CLI automatic evidence recall is enabled, successful `search_conversation`
+  and `read_conversation` results no longer occupy its initial candidate slots,
+  allowing original observations behind repeated archive quotes to be considered.
+  Automatic cursors preserve this filter. Start a new literal search without that
+  cursor to inspect the quoted search/read results. This fixes candidate pollution
+  without increasing budgets or changing the default-disabled recall option.
+
+- b9e0f37: Add the experimental `refineEvidenceRecallTerms` SDK helper for bounded lexical
+  coverage checks. Hosts can use the returned strict query subset to search terms
+  missing from candidate excerpts without introducing another model call.
+
+  When `compaction.recallEvidence` is enabled, the CLI spends existing retrieval
+  pages on uncovered terms so frequent words are less likely to hide an earlier
+  observation. Original and focused cursors retain their own query and omission
+  state. The four-page, two-live-page and 8 MiB read limits remain in force;
+  explicit conversation searches retain literal matching. No configuration or
+  stored-data migration is required.
+
+- 2bcf017: Improve automatic resident evidence selection when a long objective/summary
+  loses its subject or frequent matches hide a rarer requested observation.
+  Selection samples both ends of bounded fields and can spend existing search
+  pages on uncovered query words. Original and corrected observations retain
+  separate provenance; ambiguous references are not silently resolved.
+
+  Disk evidence sources and the resident source factory now advertise
+  `supportsTermRefinement`. SDK callers can supply `refineTerms` with an existing
+  token-search cursor to branch a strict subset at its authenticated position.
+  Returned cursors use the subset; the original broad cursor remains valid.
+  Scope, filters, read ceilings and automatic page/context limits stay enforced.
+  Custom sources without this capability use a fresh subset search; the resident
+  factory restarts within the selected invocation when its resolved backend
+  cannot refine a cursor.
+
+- 6394010: Learning hosts can supply an optional `explore` callback to run environment experiments before generating guidance. The SDK retains bounded observations and their digest, then provides them to `generate` as `context.exploration`. Missing usage, cancellation, stale state or evidence-journal failure prevents continuing to synthesis or activation.
+
+  The CLI forwards the callback, shows its exploration phase and retains evidence in SQLite. Hosts that omit it keep their current behavior. Event consumers opting into this feature should handle the new `explore` stage and `exploration` event kind. Exploration needs separately authorized tools and independent evaluation; enabling it does not automatically start learning in ordinary conversations.
+
+- f4b3ffb: Residents can retrieve earlier settled summaries and consumed wake inputs when
+  the latest summary omits needed evidence. The SDK adds experimental
+  `DiskResidentAgenda.history`, `ResidentHistorySource` and related result types,
+  `buildResidentHistoryTools`, and optional `ResidentStepPromptOptions.history`.
+  Searches are bounded and paged, tied to one pursuit and an explicit upper
+  revision, and report unreadable evidence without treating it as proven absence.
+
+  CLI foreground and managed resident runs mount the two read-only recall tools
+  in both context profiles, including deferred loading. Ordinary conversations
+  and delegated children do not inherit the resident's history. These tools read
+  existing immutable revisions; they do not restore full tool transcripts, replay
+  actions, or change the persisted schema.
+
+- f92daf8: Resident `run` and `start` now default to `--learning-disclosure on-demand` in the resident context profile. Previously all accepted learned skill bodies were included automatically; now the model sees their descriptions and can read relevant guidance with `read_resident_skill`. To retain automatic inclusion, pass `--learning-disclosure eager`. The interactive context profile and ordinary chat retain their existing behavior. Stored learning is unchanged.
+
+  The SDK adds `createResidentStepContext`, which returns prompt contributions and a read-only skill tool bound by the host to one admitted run. Source dependencies are checked when instructions are read and before subsequent requests. Existing `createResidentStepContributions` callers retain eager disclosure.
+
+- 22203b0: Add the experimental `runResidentLearningCycle` workflow for host-authorized instructional learning. It generates one candidate from recorded failure evidence, reuses paired harness verification and fresh confirmation, and activates accepted guidance through the existing resident agenda transaction.
+
+  Hosts supply generation, independent evaluation and durable event storage. The workflow preserves usage from unsuccessful work, rejects duplicate receipts, distinguishes unpriced or incomplete consumption, and reports ambiguous activation acknowledgements without replaying work. Its recorded resource allowance does not impose an in-flight spending cap; callbacks must apply their own execution limits. Existing resident defaults are unchanged.
+
+- b888779: Separate the SDK's overflow threshold from the size of an authenticated retained-output preview. `query`/`resumeRun` and `ReactiveAgent` accept `retainedToolPreviewChars`; unset or zero preserves the existing behavior. A shorter preview is used only after full host text and its integrity manifest are saved. Storage failure keeps the ordinary text budget. Rich blocks and independently supplied model text keep their existing handling.
+
+  Recorded CLI conversations now default to at most 4,000 characters for these retained overflow previews, previously up to 40,000. The 40,000-character spill threshold and ordinary smaller results are unchanged. Set `compaction.retainedToolPreviewChars: 0` in CLI configuration to retain the previous preview size. This applies to new tool results in ordinary turns and resumed runs, without rewriting existing history. Stateless sessions and delegated workers retain their existing defaults.
+
+- d1a6ce5: Residents can search and page original retained tool text from earlier settled invocations, even when the latest summary or compacted context omits it. The SDK adds bounded disk indexing, scoped source interfaces and `search_resident_tools` / `read_resident_tool` builders. The CLI binds them to the admitted pursuit, matching attempt receipts and invocation ownership; ordinary conversations gain no cross-session access.
+
+  Fix fresh disk-backed runs capturing their output directory before store initialization, which could leave oversized tool output as an unrecoverable preview. New spills record chunk integrity manifests, and new run metadata records its own tenant/project/Session/run scope independently of shared token accounting. The existing 40,000-character model-visible cap remains unchanged. Older unscoped runs are unavailable through this API; older truncated records without authenticated spills remain explicitly partial. Missing or modified output is never replayed or presented as an intact original.
+
+- d81aca6: Add optional `AnswerReviewContext.latestUserMessage`, an isolated copy of the
+  latest accepted operator, goal-round or steering input before the candidate's
+  model dispatch. It uses the run's existing retained input tracking across
+  compaction and checkpoint resume. Later arrivals do not relabel an older
+  candidate, and runtime reports do not replace operator intent. This single
+  input is not a complete task specification or a verbatim provider-wire record.
+
+  Fix tool-mode structured settlement dropping inbound messages or steering that
+  arrived during the candidate's request or tool execution. While run limits
+  permit, the loop handles the new input before publishing a new candidate,
+  including when no output reviewer is installed.
+
+- 61aab1f: Add optional `AnswerReviewContext.generateText` to prose and structured output
+  review. A host callback can make one bounded, tool-free inference using the
+  run's provider/fallback chain, selected step model and effort. It accepts the
+  existing `PreparationTextRequest` shape and returns `PreparationTextResult`.
+
+  Usage contributes to the owning run and token budget without changing the
+  candidate step's usage or provenance. Await the call before returning a verdict;
+  completion, error and cancellation revoke the capability. Only explicitly
+  supplied text is sent, and no automatic model judge is installed. Hosts must
+  still validate generated judgments and authenticate task-specific source data.
+
+- ea5367d: The CLI now requires Node.js 22.13+ and stores session metadata in
+  `NAMZU_HOME/state/sessions.sqlite`, with artifacts directly under
+  `NAMZU_HOME/sessions/<sessionId>/`. It no longer creates or reads a `projects/`
+  runtime tree. Generated memory remains isolated under `memory/<projectId>/`,
+  and resident state moves to `residents/<projectId>/<agent>/`.
+
+  This changes the default persisted CLI format. Existing project trees are left
+  untouched and are not imported automatically. Back up the original application
+  home and retain the older CLI to access its conversations, generated memory
+  and residents. Credentials, preferences and authored configuration keep their
+  locations. Update custom artifact readers to the new session paths.
+
+  The SDK adds the optional `SqliteSessionStore` driver and an exact `directory`
+  option for `DiskMemoryStore`. Existing SDK drivers, formats and defaults remain
+  unchanged; SQLite is loaded only when its driver is used.
+
+  `history` now accepts real conversation UUIDs as well as host keys, and with no
+  key reads the most recent workspace conversation as its help documents.
+
+- 0fa8941: Allow a host to bound a resident tool-evidence operation across history,
+  invocation resolution and archive reads with `maxReadBytes`. Configure the
+  source's `resolutionReadBytes` with a host-enforced document-read ceiling;
+  bounded calls refuse to proceed without that declaration. Their `chargedBytes`
+  includes the declared resolution allowance, and a failed source search without
+  a byte receipt conservatively consumes the remainder. Calls without the new
+  option retain their separate existing limits.
+
+  The CLI declares the existing size bounds of its two attempt receipts, making
+  its source usable by bounded host retrieval. This does not enable automatic
+  resident recall yet. Returned pages must match their resolved invocation's
+  tenant/project/Session/run identity, and cancelled reads cannot expose a late
+  backend result. Custom sources must honor the read limits they accept.
+
+- 3c60512: Add optional writer-owned `PersistedRunEvent.previousTextRecord` links for live
+  text retrieval. Bounded searches can reach earlier observations without spending
+  their record allowance on intervening nontext lifecycle events. Operational JSONL
+  records and adjacent links remain intact. Missing text links retain adjacent
+  traversal, and malformed content or incomplete history cannot be skipped as if
+  the archive were complete.
+
+  The CLI's opt-in automatic evidence recall benefits from these links within its
+  existing page and byte limits. No extra model call or tool action replay is used.
+  This is selected-text integrity checking, not a full audit of skipped operational
+  records; the `compaction.recallEvidence` default remains off.
+
+- 8095541: Allow resident skill candidates to declare source revision dependencies. Their approval hash includes those bindings, and context projection withholds a bound skill unless every dependency matches fresh host observations. Unbound candidates keep their existing hashes and behavior. SDK hosts can resolve revisions per model request; the CLI resident profile supports bounded workspace-file SHA-256 observations.
+
+  Correct TUI stop messages for unresolved usage and accounting failures, including unlimited runs, so they no longer claim the token allowance was exhausted.
+
+- 6c682d8: Text evidence searches accept `excludeDerivedSummaries`, defaulting to false.
+  This excludes only explicitly marked compaction summaries, binds the selection
+  into cursors, and reports `excludedSummaries` as skipped part visits. Summary
+  text remains available through unfiltered searches and exact reads.
+
+  When a partial automatic CLI evidence page contains derived summaries, the host
+  can spend its existing refinement page on source records instead. The general
+  cursor and already retrieved summaries are preserved. This helps discovery reach
+  original observations behind repeated summaries without increasing the four-page,
+  8 MiB read or context allowances. Explicit tool continuations restore the exact
+  filter; new literal searches remain unfiltered. An incomplete scan still cannot
+  establish absence.
+
+- 656e79d: Add optional cancellation signals to `ToolContext.captureRunEvidence` and
+  `RunStore.captureTextEvidence`. Existing implementations that accept fewer
+  arguments remain compatible; custom stores should observe the supplied signal
+  to stop their own I/O promptly.
+
+  Tool evidence capture now observes the tool's deadline and nested dispatch
+  cancellation, and refuses use after the tool call settles even if its parent
+  run is still working. Cancelling a local read leaves other calls available.
+  Queued cancelled captures are skipped without releasing a writer lock early.
+  An uncooperative custom store can still delay later appends until its pending
+  operation settles, although the cancelled caller stops waiting immediately.
+  CLI conversation search and exact reads also forward their operation signal
+  when capturing live evidence.
+
+- 3c6326f: Prevent checkpoint resume from repeating a tool that started but never recorded
+  its completion. Previously, resuming a partially completed batch could execute
+  such a call again, duplicating an external effect. The resumed conversation now
+  receives an explicit unknown outcome and can verify current state before further
+  work. Completed calls remain recovered and proven unstarted calls can continue.
+
+  Add optional `RunStore.readToolExecutions` and exported `ToolExecutionSnapshot` /
+  `ToolExecutionRecord` types. Disk and memory stores implement the scan; custom
+  stores without it use their strict `readEvents` contract. Missing or contradictory
+  execution evidence does not authorize replay. The disk scan has documented size
+  bounds; exceeded bounds produce unknown outcomes instead of automatic re-execution.
+
+  Explicitly answered durable questions may still re-enter their own asking tool,
+  without granting the same exception to interrupted siblings.
+
+  CLI `drain` now passes configured run limits to its resume host. Previously a
+  bounded run could fail with a token-budget root-limit mismatch because `drain`
+  silently used an unlimited limit. Keep the original token limit in configuration;
+  the existing ledger still enforces its spent allowance.
+
+- 0a36260: Add `createJsonClaimVerifier` for host-configured scalar JSON claims and observation-time receipts. It rejects mismatched, incomplete, historical or foreign observations, bounds verification time and bytes, and exposes pending observation drainage. Hosts supply an authorized read adapter; this does not verify arbitrary prose or establish atomic/future source state.
+
+  Resident `run` and `start` accept `--verify <manifest>` to require configured claims before recording completion. The manifest explicitly authorizes bounded host file reads, is snapshotted per invocation, and applies to every admitted pursuit. Rejected values use the existing repair budget; only the reviewed answer can complete. Existing invocation behavior is unchanged without the flag.
+
+- f3b377e: Project bounded file-evidence references and owned worker status into model requests. A successful write body is referenced only while its complete call input and receipt remain visible and match the conversation's observation fingerprint. Existing disk-drift checks still run before mutations. Observations without content now invalidate an earlier fingerprint instead of carrying it forward.
+
+  `FileReadTracker.recordRead` accepts an optional third argument for a successful full-body write's tool-call ID, exposed through the optional `writeCallId` method. The built-in tracker preserves this witness across identical observations and clears it on changed or unknown content. Existing custom trackers remain valid; trackers without the witness do not enable the new file reference projection.
+
+  Add `CompletionInbox.describeOwnedWork()` for a non-consuming snapshot of up to sixteen owned tasks, separating scheduler state from delivery to history. The runtime uses it to keep available results visible after operator steering; delivery does not claim that a user-facing synthesis was produced. No automatic relaunch, answer-verification inference or persisted duplicate transcript is added.
+
+- fd0d270: Automatic evidence recall now retains bounded source references for exact text already visible in conversation history. The temporary context can contain `visibleEvidence` entries binding an exact bounded `textQuote` to an `address` for a host archive-read tool, recording time when known, source and retention/error metadata. `omittedVisibleEvidence` reports references withheld by the existing character limit. Quotes repeat at most 512 UTF-16 units to make the source association explicit; full records remain available through the read address. Visible quotes and new passages share `maxPassages`, with new text taking priority.
+
+  An otherwise complete recall pass may now return source metadata even when all matching text is already visible. Consumers should not assume every recall block contains new passage text. New-text ranking is independent of visible copies, and source ownership, revalidation, read limits and cancellation remain enforced. CLI models can use each reference's `address` with `read_conversation` to recover the exact source association without searching again or replaying an action.
+
+### Patch Changes
+
+- 40651dd: Fix configured advisors losing rich tool-result text and tool-call details in
+  conversation context. Public records now retain roles, host provenance, call
+  IDs, names, arguments and explicit result status; media content and private
+  provider replay state are omitted.
+
+  The existing `maxContextTokens` window now counts serialized records, including
+  rich text, metadata and escaping, instead of array element counts. Tight windows
+  may retain fewer complete records; increase the configured window if needed.
+  The unbounded default is unchanged. Omitted records are explicitly identified.
+
+- 28d3874: Reduce unnecessary retained-output reads during whole-token evidence search,
+  including the case-insensitive mode used by CLI automatic recall. New manifests
+  and disposable indexes carry small token-key Bloom filters. A negative skips
+  payload I/O; every potential match is still authenticated and matched against
+  original text. Literal search, scope, cancellation, query limits and exact-read
+  addresses retain their existing contracts.
+
+  Filters add storage and write work. Existing manifests without them or with a different runtime tag still scan
+  normally, and the writer omits this optional metadata when it would exceed the
+  existing manifest size ceiling. No data migration or configuration change is
+  required. The optimization can reach sparse matches within the existing I/O
+  budget; it does not guarantee exhaustive automatic recall.
+
+- 985db49: Correct resident step guidance that allowed an unnamed follow-up to select one
+  of several plausible subjects, or treat the latest historical observation as
+  current. Residents are instructed to distinguish subject corrections from
+  changes over time, qualify alternatives, obtain fresh permitted evidence for
+  current-state questions, and report unavailable evidence without claiming that
+  the unfinished current-state task is complete.
+
+  This applies to hosts using `createResidentStepContributions`, including the
+  CLI's default resident context profile. It adds no inference call, retrieval
+  permission or stored state. Model interpretation remains fallible; the host's
+  answer validation contract is unchanged.
+
+- fe6e0fb: Avoid reading and parsing a shared compaction record once for every removed
+  message. A search reuses one authenticated record within that operation; later
+  calls revalidate it. Text manifests, integrity checks, cancellation and page
+  limits remain in effect.
+
+  CLI manual compaction now stores one `compaction_shed` event containing all
+  removed messages, matching automatic compaction, instead of one event per message.
+  Consumers of raw manual-maintenance events must iterate the `messages` array
+  and use search results' `seq` and `part` addresses, rather than assuming `part: 0`
+  or one sequence per message. Existing archives and SDK event readers remain
+  supported. No config change is required for ordinary CLI use.
+
+- e954d02: Automatic evidence recall now reports `omittedPassages` when eligible distinct
+  records do not fit the selected passage count or context size. Bounded
+  `additionalEvidence` addresses let archive tools recover withheld text;
+  `omittedAddresses` reports addresses which also could not fit. The original
+  scope checks and character ceiling remain in force.
+
+  The context can now retain an omission notice and read address even when no
+  whole excerpt fits. `incomplete` continues to describe source traversal, rather
+  than implying that every matched record was presented. In the CLI these
+  addresses work with the existing `read_conversation` tool. This corrects hidden
+  selection loss without changing the recall opt-in or adding model calls to the
+  retrieval hook itself.
+
+- b1e3bc5: Resource-limit closure and recovery from an empty assistant completion now ask for a concise evidence-supported response that attributes unverified claims and identifies unresolved work. The closing request no longer demands a comprehensive answer regardless of the available evidence. This changes the kernel's model guidance, not its factual validation guarantees, tool restrictions, resource limits or stop reasons. The instruction remains local to the closing request and is not retained as an instruction for resumed turns.
+- 45c8292: Fix opt-in evidence query resolution skipping follow-up questions after six or
+  more assistant progress messages. Within the existing 64-message scan, retain
+  the nearest preceding operator request and five recent updates when progress
+  would otherwise fill all six reference slots. The prompt, retrieval and scan
+  ceilings remain unchanged. A missing or compacted-away request is not invented.
+
+  Do not rewind the reference window to an older identical question when the
+  current retained input is outside visible history, such as steering carried on
+  a tool result. Use the known message object as the boundary when available;
+  otherwise consider bounded recent history instead of inventing a position.
+
+  Normalize grounded filenames and punctuation-separated identifiers into the
+  same word tokens used by evidence discovery. A valid term such as
+  `sevkiyatlar.txt` no longer causes the entire optional plan to fail; all expanded
+  tokens must remain grounded and fit the existing 16-token ceiling.
+
+  Cover this behavior through the CLI Session host, including the existing
+  `resolveEvidenceQueries: false` opt-out. The CLI adds no default model call.
+
+- 6e14db9: Clarify automatic evidence-recall guidance: quoting an identifier preserves its
+  spelling, while an operator-requested text transformation produces a derived
+  value, not a replacement source fact. The guidance fits the existing character
+  allowance; retained text, scope checks and retrieval defaults are unchanged.
+
+  This does not add automatic answer correction or a general factual validator.
+
+- 6a6921c: Report unavailable automatic historical evidence in temporary model context instead of silently dropping every sign of a failed query plan or read. The short status distinguishes planning failure, retrieval failure, timeout and an earlier read still pending; it does not imply that the requested history is absent.
+
+  Raw error bodies, malformed plans and rejected source data stay out of the note. Existing error diagnostics and direct callback rejections remain, parent cancellation stops work, and context/read bounds still apply. Explicit archive tools remain available, and a failed cached query plan does not trigger an extra model call each iteration. No status note is stored as operator conversation history.
+
+- 612879e: Recover text blocks in compacted tool results that also contain images or
+  documents. Scoped conversation search and exact reads now include those blocks
+  after compaction and restart, without mixing binary bytes or inserted separators
+  into the text. Existing plain-text part addresses keep pointing to the same
+  content. Newly written large archives retain the additional text parts; old
+  archives are not rewritten. Unindexed legacy scans report skipped block arrays
+  as incomplete instead of claiming a complete search. No configuration changes
+  are required; automatic CLI recall remains opt-in.
+- e7bc7a1: When optional conversation query planning finds competing referents, preserve
+  that interpretation for the main model instead of silently skipping recall.
+  A temporary note carries validated quotes and asks the model to clarify if
+  needed; it is labelled as a fallible interpretation, not historical evidence.
+  No subject is selected for automatic retrieval in this case. The note shares
+  the existing context allowance and cancellation, and new operator input clears
+  the cached interpretation. SDK defaults and CLI configuration keys are unchanged.
+- e40044b: Correct evidence-source guidance for questions about earlier observations. The SDK coding-agent doctrine now distinguishes retained historical content from current workspace reads, preserves exact identifiers in reports and requires unavailable history to be reported honestly. Recorded CLI turns explain how to recover clipped details with their conversation search/read tools, before compaction as well as after restart. The guidance is omitted when those tools are unavailable and remains stable across a run. Search responses explicitly distinguish remaining pages from unavailable evidence so a matching announcement is not confused with the original observation. Storage, permissions, retrieval bounds and freshness checks for edits are unchanged.
+- 6446182: Fix opt-in evidence query planning failing when a model rewrites a word's
+  spelling or inflection. The internal planner selects numbered words supplied
+  by the host; retrieval receives the original spellings after quote validation.
+  The vocabulary shares the existing 12,000-character preparation allowance,
+  offers at most 256 distinct spellings, and reports omissions. Each plan still
+  selects at most 16 words. Literal retrieval remains the SDK default, and the
+  CLI's existing query-resolution opt-out remains available.
+
+  Keep present-state plans from expanding with historical terms. Invalid IDs or
+  quotes still reject optional preparation instead of weakening source grounding.
+  Update the CLI Session regression for the internal selection protocol.
+
+- c4aaf9b: Interactive CLI sessions now honor `limits.maxIterations` and `limits.tokenBudget` from user and trusted project configuration. Previously these configured limits were ignored by TUI startup, although headless commands applied them. This also applies when rebuilding a session after a model change or reopening a conversation. To keep interactive cumulative tokens unlimited, omit `limits.tokenBudget` from the effective config and use `--token-budget` for individual headless runs. Omitted defaults remain unchanged; `limits.waitForProviderMs` remains a headless policy.
+
+  SDK closing prose requested by a token, cost or time warning now preserves the triggering limit's stop reason instead of reporting `end_turn`. The partial text is still returned, including when allowance remains, but this path skips prose answer review and must not be treated as verified completion. Cancellation and validated native structured-output settlement retain their existing behavior.
+
+- 7579aa0: Keep bounded evidence retrieval available when optional query planning fails.
+  Recall can search the unchanged current-query tokens and deliver validated
+  records together with the planning failure status, without importing terms from
+  an invalid plan. The existing read, candidate, context and cancellation limits
+  still apply. Failed planning remains diagnostic and is not retried every step;
+  retrieved evidence is freshly validated. Explicit archive tools remain available
+  when literal retrieval cannot resolve the question.
+- c329408: Fix repeated historical observations filling every automatic evidence-recall
+  passage slot and excluding a different record such as a correction. Exact equal
+  text with the same producer, retention and error status now shares a passage
+  before bounded BM25 scoring. Copies retain their separate source addresses;
+  changed identifiers, previews and errors remain distinct.
+
+  Request context includes `otherOccurrences` for additional addresses and
+  `omittedOccurrences` when the character allowance cannot hold all addresses in
+  the retrieved pool. Distinct text takes priority over extra addresses. No archive
+  record is removed, no current-state or cross-run chronology is inferred, and
+  explicit search/read tools are unchanged. CLI automatic recall remains opt-in
+  with `compaction.recallEvidence: true`; no read or passage limits increase.
+
+- 4801a6f: Automatic evidence recall now recognizes text already present in tool text
+  blocks and earlier preparation stages. Those passages receive source references
+  instead of occupying slots intended for missing information. Images, documents
+  and private reasoning are not treated as visible text, and separate blocks are
+  never joined to invent a matching passage. Existing scope validation, context
+  limits and opt-in behavior are unchanged.
+
+  CLI automatic discovery can fill a candidate page from several completely
+  searched runs, within the same byte, output and page limits. It no longer
+  spends one automatic page on every small matching run. Explicit literal
+  searches retain their early return; unfinished source pages still require
+  continuation. Serialized matches, including escaping, share the output cap.
+
+- 830f81e: Treat uppercase and lowercase hexadecimal spellings of the same UUID as the same identity when joining and deduplicating resident consumption evidence. A copied root receipt can no longer count twice merely because its UUID spelling differs. Original identifiers remain available to the host resolver.
+- 9a4877a: Keep resident selection's mean resource cost finite when valid large observations would overflow an intermediate sum. Candidate explanations retain their numeric cost and score when serialized, and very small nonzero observations are not all discarded by dividing each cost prematurely. Selection remains opt-in; policy values and resource units are unchanged.
+- 9ea5074: Added integration regression coverage for resident evidence recall after
+  structured and sliding-window compaction. The tests verify that an exact receipt
+  removed from model context remains recoverable through the registered history
+  tools while the original pursuit boundary stays intact. Runtime behavior and
+  public APIs are unchanged.
+- 2e93158: Preserve full permitted shell output before condensing similar lines. Previously,
+  condensation happened before retention, so omitted row values could be lost even
+  though conversation search reported the stored result as complete. Historical
+  search and reads can now recover those originals without repeating the command.
+
+  Compact output carries its recovery path. Authenticated retention may also write
+  an artifact for a condensed result below the normal size cap. If retention fails,
+  the ordinary bounded original is shown instead; hook-redacted text stays redacted.
+
+- 281859f: Correct recovery guidance in shortened tool output. The kernel no longer assumes that workspace `read`/`grep` tools can open internal retained-output paths. It directs recovery through the host-authorized tools and distinguishes the saved observation from a fresh read of its source. Existing permissions, exact retention and preview limits are unchanged; previously recorded previews are not rewritten.
+- bdf923d: Add `/plugins` to inspect loaded plugins and enable or disable them for an idle session. The menu reports registered tools and skills, shows plugin scope and directory, and explains how to configure loading when it is off. Changes reset on restart or model switch; configuration and plugin files are retained. Active sends, compaction and durable resumes prevent plugin changes, and session cleanup waits for a pending change to settle.
+
+  Fix discovery when project and user plugin locations resolve to the same directory under an explicit application home. Load that directory once as user scope; project-only scope still excludes it. Distinct plugin directories remain discoverable even if their authority roots match.
+
 ## 38.2.1
 
 ### Patch Changes
