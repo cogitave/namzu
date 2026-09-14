@@ -150,7 +150,7 @@ export const WriteFileTool = defineTool({
 				// This write is now the runtime's newest observation. Recording only
 				// the boolean would leave an older content fingerprint in place and
 				// make the next same-run write refuse its own predecessor as drift.
-				context.fileReadTracker?.recordRead(valid.path, content)
+				context.fileReadTracker?.recordRead(valid.path, content, context.toolUseId)
 				return fileWriteResult(
 					valid.path,
 					current === null ? null : current?.toString('utf-8'),
@@ -171,7 +171,7 @@ export const WriteFileTool = defineTool({
 			// leaves the destination truncated — and this tool overwrites a
 			// whole file, so the truncation is the user's previous work.
 			await atomicWriteFile(hostPath, content)
-			context.fileReadTracker?.recordRead(hostPath, content)
+			context.fileReadTracker?.recordRead(hostPath, content, context.toolUseId)
 
 			return fileWriteResult(hostPath, current, content)
 		})

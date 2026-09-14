@@ -99,6 +99,47 @@ stage composition, token estimates, freshness and retained operator intent;
 the CLI Session test checks actual OpenAI and Anthropic request bodies with
 network transport replaced by a recording fixture.
 
+## Derived work context
+
+After compaction and request projection, the kernel can append two bounded
+runtime observations through the same request-only context channel:
+
+- **Visible file evidence:** up to six references to complete built-in `write`
+  inputs with unique successful receipts and a matching executor-owned file
+  observation fingerprint and execution-owned write-call witness. Transparent
+  wrappers preserve the witness through `ToolContext.toolUseId`. The content is referenced, not copied. Missing,
+  cleared, truncated, ambiguous or changed evidence produces no entry. Custom
+  tools named `write` and trackers without a write-call witness do not establish this contract.
+- **Owned delegated work:** `CompletionInbox.describeOwnedWork()` observes up to
+  sixteen recently launched tasks without claiming or draining them. It reports
+  scheduler state, child run status, any stop reason and whether the result was delivered to
+  history. Unknown scheduler state stays unknown. Other runs' tasks and worker
+  result bodies are excluded; an omitted count covers older owned tasks.
+
+These projections distinguish three questions: content visible to this request,
+the most recent filesystem observation, and current disk state. Matching the
+existing 64-bit observation fingerprint does not perform a fresh read or prove
+byte equality against a concurrent writer. The built-in mutation admission
+check remains authoritative; a changed file is refused and must be inspected
+before replanning. Symlink paths that do not match the ledger's canonical key
+receive no optimization. Full-file `read` reconstruction and edit-chain
+reconstruction are not performed by this projection.
+
+Likewise, a delivered worker result is not a verified answer to the user's
+original request. The projection directs the model to incorporate available
+results alongside steering unless the operator cancels or changes the request.
+It does not infer that a summary was given, impose an extra model call, restart
+workers or override cancellation. A delivered result may have left the active
+context; its task ID is a retrieval reference, not proof of present visibility.
+
+Each contribution is limited to 8,000 UTF-16 units and an estimated 2,000 tokens.
+Preparation's remaining-room estimate must leave at least 1,000 tokens after
+admission; below 1,500 tokens both contributions are omitted. Whole contributions
+are admitted, never cut references. These are approximate request-room bounds,
+not provider billing or tokenizer guarantees. They leave system instructions,
+canonical history, tool authority and `latestUserMessage` unchanged. The same
+projection is applied to a closing request after an empty completion.
+
 ## Bounded preparation inference
 
 `PrepareStepContext.generateText` is an optional experimental capability supplied

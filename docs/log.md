@@ -2,6 +2,8 @@
 
 ## 2026-09-14
 
+- **Update** Add bounded [derived work context](sdk/step-context.md#derived-work-context) for visible write evidence and owned worker outcomes, preserving mutation freshness checks and separating result delivery from user-facing completion.
+
 - **Creation** Add [purpose-bound exploration policies](sdk/exploration-policies.md), preventing generated policies from changing their admitted purpose or entering ordinary task guidance, while retaining existing learning evaluation and rollback.
 
 - **Creation** Add optional [environment exploration](sdk/resident-exploration.md) before resident skill generation, retaining observation evidence and usage through the existing SQLite journal and explicit CLI learning host.

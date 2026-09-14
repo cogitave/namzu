@@ -77,6 +77,7 @@ export class CompletionInbox {
 	 * takes one, and a host that owns a gateway naturally reuses it.
 	 */
 	private readonly ours = new Set<TaskId>()
+	private readonly recentOwned: TaskId[] = []
 	/**
 	 * Announcements that arrived before anyone said whose task it was.
 	 *
@@ -192,6 +193,8 @@ export class CompletionInbox {
 	launched(taskId: TaskId): void {
 		if (this.ours.has(taskId)) return
 		this.ours.add(taskId)
+		this.recentOwned.push(taskId)
+		if (this.recentOwned.length > 16) this.recentOwned.shift()
 
 		if (this.claimed.has(taskId) || this.unheard.has(taskId)) return
 
@@ -276,6 +279,28 @@ export class CompletionInbox {
 	/** Whether anything is waiting to be told. */
 	get hasUnheard(): boolean {
 		return this.unheard.size > 0
+	}
+
+	/** Bounded, non-consuming scheduler observations. Delivery never establishes user-facing completion. */
+	describeOwnedWork(): string | undefined {
+		if (this.ours.size === 0) return
+		const ids = this.recentOwned
+		const tasks = ids.map((taskId) => {
+			let handle = this.unheard.get(taskId)
+			try {
+				handle = this.gateway?.getTask(taskId) ?? handle
+			} catch {
+				// A broken observation must not block execution or invent a task state.
+			}
+			return {
+				taskId,
+				state: handle?.state ?? 'unknown',
+				...(handle?.result?.status ? { runStatus: handle.result.status } : {}),
+				...(handle?.result?.stopReason ? { stopReason: handle.result.stopReason } : {}),
+				resultDelivery: this.claimed.has(taskId) ? 'delivered-to-history' : 'not-delivered',
+			}
+		})
+		return `Owned delegated work (current scheduler observations). Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.\n${JSON.stringify({ tasks, omitted: this.ours.size - ids.length })}`
 	}
 
 	/**
@@ -366,6 +391,7 @@ export class CompletionInbox {
 		this.unheard.clear()
 		this.outstanding.clear()
 		this.ours.clear()
+		this.recentOwned.length = 0
 		this.claimed.clear()
 		this.unowned.clear()
 		// Release anyone still waiting. A closed inbox would otherwise hold

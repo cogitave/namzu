@@ -143,6 +143,20 @@ The tracker retains hashes and path membership, not file contents. It is not
 an inventory of what the model currently sees. A missing fingerprint remains
 unknown; custom boolean-only trackers retain their earlier behavior.
 
+A successful built-in full-body write calls `recordRead(key, content, toolUseId)`.
+The optional third argument records the execution witness returned by the
+optional `FileReadTracker.writeCallId(key)` method. Transparent tool wrappers
+can preserve this evidence by forwarding the original `ToolContext`; a name
+or a successful result alone cannot supply it. An identical later observation
+preserves the witness; a changed or unknown observation clears it. Custom
+trackers may omit this method and retain their existing mutation checks.
+
+A later `recordRead(key)` without content clears the old fingerprint and witness while
+retaining path membership. Unknown newer content cannot establish that an older
+body is still the latest observation. The runtime's [derived work context](step-context.md#derived-work-context)
+can reference a successful write's visible body when it matches this ledger;
+that reference does not skip mutation-time disk checks.
+
 The CLI shares a tracker between ordinary turns for each conversation within a
 live agent session. These observations are not persisted: restarting the CLI
 or rebuilding the agent session (including model changes) starts a new ledger.

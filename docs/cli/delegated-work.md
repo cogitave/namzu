@@ -82,6 +82,12 @@ the task name, ID and observed state; it does not cancel or restart the task.
 The receipt directs the parent to answer the operator before further calls.
 This is model guidance, not a deterministic guarantee about its next response.
 
+The SDK also projects a bounded [owned-work snapshot](../sdk/step-context.md#derived-work-context)
+before model requests. A task's scheduler state and delivery of its result are
+separate fields: neither claims that the parent has summarized the result for
+the operator. This keeps owned work explicit after a steering question without
+duplicating worker output or adding another persistent task store.
+
 
 `agent_task_list` reads the current parent run's actual scheduler invocations,
 including pending, running and terminal tasks. It returns the most recent 40

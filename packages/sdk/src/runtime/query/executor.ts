@@ -50,6 +50,7 @@ import { generateToolCallId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
+import { describeVisibleFileEvidence } from './file-evidence-context.js'
 import type { ToolResultObservation } from './project-instructions.js'
 import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
 import {
@@ -544,6 +545,16 @@ export class ToolExecutor {
 
 	setSandbox(sandbox: Sandbox): void {
 		this.config = { ...this.config, sandbox }
+	}
+
+	/** Request-only evidence from the same ledger used by mutation admission. No filesystem I/O. */
+	describeFileEvidence(messages: readonly Message[]): string | undefined {
+		return describeVisibleFileEvidence(
+			messages,
+			this.fileReadTracker,
+			this.config.workingDirectory,
+			this.config.sandbox !== undefined,
+		)
 	}
 
 	/**

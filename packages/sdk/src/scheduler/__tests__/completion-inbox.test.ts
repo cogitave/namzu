@@ -35,6 +35,53 @@ function handleFor(taskId: string, result?: string): TaskHandle {
 	}
 }
 
+describe('owned-work request projection', () => {
+	it('distinguishes scheduler state from delivery without draining or claiming results', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		const owned = handleFor('owned', 'PRIVATE BODY')
+		inbox.launched(owned.taskId)
+		f.settle(owned)
+		f.settle(handleFor('foreign', 'FOREIGN BODY'))
+		const before = inbox.describeOwnedWork() as string
+		expect(before).toContain('not-delivered')
+		expect(before).not.toContain('PRIVATE BODY')
+		expect(before).not.toContain('foreign')
+		expect(inbox.hasUnheard).toBe(true)
+		inbox.claim(owned.taskId)
+		const after = inbox.describeOwnedWork() as string
+		expect(after).toContain('delivered-to-history')
+		expect(after).toContain('"state":"completed"')
+		expect(after).toContain('"runStatus":"completed"')
+		expect(inbox.drain()).toEqual([])
+		inbox.close()
+		expect(inbox.describeOwnedWork()).toBeUndefined()
+	})
+	it('bounds scheduler reads, preserves incomplete outcomes and reports unavailable state honestly', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		for (let i = 0; i < 30; i++) inbox.launched(`t${i}` as TaskId)
+		const partial = handleFor('t29', 'partial')
+		f.record({
+			...partial,
+			result: { ...partial.result, stopReason: 'token_budget' } as TaskHandle['result'],
+		})
+		const reads = vi.spyOn(f.gateway, 'getTask')
+		const snapshot = inbox.describeOwnedWork() as string
+		expect(reads).toHaveBeenCalledTimes(16)
+		expect(snapshot).toContain('"omitted":14')
+		expect(snapshot).toContain('"stopReason":"token_budget"')
+		expect(snapshot).toContain('"state":"unknown"')
+		reads.mockImplementation(() => {
+			throw new Error('not available')
+		})
+		expect(inbox.describeOwnedWork()).not.toContain('token_budget')
+		inbox.close()
+	})
+})
+
 /**
  * A gateway shaped like the real ones: one listener set, broadcast to all.
  *

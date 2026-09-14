@@ -18,6 +18,13 @@ import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 import { subagentParentFixture } from '../__fixtures__/parent.js'
 import { createSubagentRuntime } from '../runtime.js'
 
+// Runtime context can follow input without becoming a message typed by the operator.
+function operatorText(messages: readonly Message[]): Message['content'] | undefined {
+	return [...messages]
+		.reverse()
+		.find((message) => message.role === 'user' && message.source === undefined)?.content
+}
+
 function deferred<T>() {
 	let resolve!: (value: T) => void
 	const promise = new Promise<T>((settle) => {
@@ -177,7 +184,11 @@ describe('operator input releases delegation waits without cancelling children',
 				await inbox.waiting(3)
 				inbox.enqueue('Are the agents working?')
 				const firstResponse = await requests[1]!.promise
-				expect(firstResponse.messages.at(-1)?.content).toBe('Are the agents working?')
+				expect(operatorText(firstResponse.messages)).toBe('Are the agents working?')
+				expect(firstResponse.messages.at(-1)).toMatchObject({
+					role: 'user',
+					source: { type: 'runtime-context', kind: 'step-context' },
+				})
 				const receipts = firstResponse.messages.filter((message) => message.role === 'tool')
 				expect(receipts).toHaveLength(3)
 				expect(new Set(receipts.map((message) => message.toolCallId)).size).toBe(3)
@@ -213,9 +224,7 @@ describe('operator input releases delegation waits without cancelling children',
 				await inbox.waiting(1)
 				inbox.enqueue('Please keep those same tasks running.')
 				const secondResponse = await requests[2]!.promise
-				expect(secondResponse.messages.at(-1)?.content).toBe(
-					'Please keep those same tasks running.',
-				)
+				expect(operatorText(secondResponse.messages)).toBe('Please keep those same tasks running.')
 				expect(childIndex).toBe(3)
 				expect(signals.every((signal) => !signal.aborted)).toBe(true)
 				await inbox.waiting(1)
@@ -377,9 +386,7 @@ describe('operator input releases delegation waits without cancelling children',
 				expect(gateway.budget!.remaining).toBeGreaterThan(40_000)
 				inbox.enqueue('Can we talk while all ten tasks are tracked?')
 				const response = await requests[1]!.promise
-				expect(response.messages.at(-1)?.content).toBe(
-					'Can we talk while all ten tasks are tracked?',
-				)
+				expect(operatorText(response.messages)).toBe('Can we talk while all ten tasks are tracked?')
 				const receipts = response.messages.filter((message) => message.role === 'tool')
 				expect(receipts).toHaveLength(10)
 				expect(gateway.listTasks()).toHaveLength(10)
@@ -394,7 +401,7 @@ describe('operator input releases delegation waits without cancelling children',
 				expect(receipts.every((message) => !String(message.content).includes('Error:'))).toBe(true)
 				await inbox.waiting(1)
 				inbox.enqueue('Keep those same ten tasks; do not restart any.')
-				expect((await requests[2]!.promise).messages.at(-1)?.content).toBe(
+				expect(operatorText((await requests[2]!.promise).messages)).toBe(
 					'Keep those same ten tasks; do not restart any.',
 				)
 				// A child releases its slot while the parent still owns an open

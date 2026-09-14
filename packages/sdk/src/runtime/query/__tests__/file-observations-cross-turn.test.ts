@@ -10,15 +10,23 @@ import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
+import type { Message } from '../../../types/message/index.js'
 import { drainQuery } from '../index.js'
 
-it('carries a successful write across query turns and refuses an edit after external drift', async () => {
+it('carries a wrapped successful write across query turns and refuses an edit after external drift', async () => {
 	const cwd = await mkdtemp(join(tmpdir(), 'namzu-cross-turn-'))
 	try {
 		const path = join(cwd, 'doc.md')
 		const tools = new ToolRegistry()
-		for (const tool of [ReadFileTool, WriteFileTool, EditTool]) tools.register(tool)
+		for (const tool of [ReadFileTool, EditTool]) tools.register(tool)
+		// CLI checkpoint wrappers retain context but replace execute's function identity.
+		const wrappedWrite: typeof WriteFileTool = {
+			...WriteFileTool,
+			execute: async (input, context) => WriteFileTool.execute(input, context),
+		}
+		tools.register(wrappedWrite)
 		const fileReadTracker = createFileReadTracker()
+		const requests: Message[][] = []
 		const base = {
 			tools,
 			fileReadTracker,
@@ -35,12 +43,20 @@ it('carries a successful write across query turns and refuses an edit after exte
 			...base,
 			messages: [{ role: 'user', content: 'Create doc.md' }],
 			provider: new MockLLMProvider({
+				onRequest: ({ messages }) => requests.push([...messages]),
 				turns: [
 					{ toolCalls: [{ id: 'w', name: 'write', args: { path, content: 'alpha\nbeta\n' } }] },
 					{ text: 'created' },
 				],
 			}),
 		})
+		expect(requests[0]?.some((m) => String(m.content).includes('Visible file evidence'))).toBe(
+			false,
+		)
+		expect(requests[1]?.at(-1)?.content).toContain('"bodyInCall":"w"')
+		expect(first.messages.some((m) => String(m.content).includes('Visible file evidence'))).toBe(
+			false,
+		)
 		expect(await readFile(path, 'utf8')).toBe('alpha\nbeta\n')
 		await writeFile(path, 'ALPHA\nbeta\n')
 		const second = await drainQuery({

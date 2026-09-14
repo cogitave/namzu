@@ -127,9 +127,17 @@ export interface FileReadTracker {
 	 * `content` lets the tracker fingerprint what was read, which is what
 	 * makes drift detectable later. Optional so a host that only needs the
 	 * read-before-overwrite guard can keep its existing implementation.
+	 * `fullWriteCallId` links a successfully written complete body to its
+	 * execution; pass ToolContext.toolUseId only after the write succeeds.
 	 */
-	recordRead(key: string, content?: string): void
+	recordRead(key: string, content?: string, fullWriteCallId?: string): void
 	hasRead(key: string): boolean
+	/**
+	 * Optional witness of a successful full-body write, supplied by the executing
+	 * tool through recordRead's third argument. An unchanged later observation
+	 * preserves it; different or unknown content clears it. Never infer from a name.
+	 */
+	writeCallId?(key: string): string | undefined
 	/**
 	 * Fingerprint of the body captured at the last read, when one was.
 	 *

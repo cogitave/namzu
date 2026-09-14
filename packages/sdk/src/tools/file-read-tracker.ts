@@ -5,12 +5,18 @@ import { fingerprintContent } from './builtins/content-fingerprint.js'
 export function createFileReadTracker(): FileReadTracker {
 	const paths = new Set<string>()
 	const fingerprints = new Map<string, string>()
+	const writes = new Map<string, string>()
 	return {
-		recordRead(key, content) {
+		recordRead(key, content, fullWriteCallId) {
 			paths.add(key)
-			if (content !== undefined) fingerprints.set(key, fingerprintContent(content))
+			const next = content === undefined ? undefined : fingerprintContent(content)
+			if (next === undefined || next !== fingerprints.get(key)) writes.delete(key)
+			if (next !== undefined) fingerprints.set(key, next)
+			else fingerprints.delete(key)
+			if (next !== undefined && fullWriteCallId) writes.set(key, fullWriteCallId)
 		},
 		hasRead: (key) => paths.has(key),
 		fingerprint: (key) => fingerprints.get(key),
+		writeCallId: (key) => writes.get(key),
 	}
 }

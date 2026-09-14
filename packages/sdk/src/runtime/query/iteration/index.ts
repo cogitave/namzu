@@ -689,6 +689,7 @@ export class IterationOrchestrator {
 						this.projectObservations(requestHistory),
 						this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 					)
+					this.appendWorkContext(messages, iterationNum, step)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()
 
@@ -1924,6 +1925,30 @@ export class IterationOrchestrator {
 		)
 	}
 
+	/** Derived after request projection; never accumulates in canonical history or replaces operator intent. */
+	private appendWorkContext(
+		messages: Message[],
+		stepNumber: number,
+		prepared: PrepareStepResult,
+	): void {
+		const contributions = [
+			this.ctx.completionInbox?.describeOwnedWork(),
+			this.ctx.toolExecutor.describeFileEvidence(messages),
+		].filter((content): content is string => Boolean(content))
+		if (contributions.length === 0) return
+		let room = this.stepContext(stepNumber, prepared).contextBudget?.remainingTokens ?? 0
+		// Leave room for the actual task; admit whole contributions, never dangling partial references.
+		if (room < 1_500) return
+		for (const content of contributions) {
+			if (!content || content.length > 8_000) continue
+			const message = this.stepContextMessage(content)
+			const tokens = estimateMessageTokens(message)
+			if (tokens > Math.min(2_000, room - 1_000)) continue
+			messages.push(message)
+			room -= tokens
+		}
+	}
+
 	private stepContext(stepNumber: number, prepared: PrepareStepResult): PrepareStepContext {
 		const model = prepared.model ?? this.ctx.runConfig.model
 		const window = resolveContextWindow(
@@ -2606,6 +2631,7 @@ export class IterationOrchestrator {
 				this.projectObservations(finalHistory),
 				this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 			)
+			this.appendWorkContext(finalMessages, this.steps.length + 1, { model })
 			await this.reportUnsupportedToolResults(finalMessages)
 
 			// Same cache discipline as the forced-final iteration: keep the
