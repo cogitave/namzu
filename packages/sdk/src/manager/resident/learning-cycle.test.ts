@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -105,6 +105,7 @@ async function fixture() {
 	const stages: string[] = []
 	const controller = new AbortController()
 	const options: ResidentLearningCycleOptions = {
+		protection: { verification: ['verification-1'], confirmation: ['confirmation-1'] },
 		agenda,
 		skillName: skill.name,
 		failure: { evidence, trace: 'Expected supported source value, observed unsupported.' },
@@ -128,6 +129,85 @@ async function fixture() {
 }
 
 describe('resident learning cycle', () => {
+	it('validates protection before inference and does not expose or allow generation to replace it', async () => {
+		const f = await fixture()
+		await expect(
+			runResidentLearningCycle({
+				...f.options,
+				protection: undefined as unknown as ResidentLearningCycleOptions['protection'],
+			}),
+		).rejects.toThrow()
+		expect(f.stages).toEqual([])
+		expect(f.events).toEqual([])
+		const protection = { verification: ['verification-1'], confirmation: ['confirmation-1'] }
+		const outcome = await runResidentLearningCycle({
+			...f.options,
+			protection,
+			generate: async (context) => {
+				expect(context).not.toHaveProperty('protection')
+				expect(f.events[0]?.data.protection).toEqual(protection)
+				protection.verification[0] = 'verification-2'
+				protection.confirmation[0] = 'confirmation-2'
+				return f.options.generate(context)
+			},
+			evaluate: async (context) => {
+				const evaluated = await f.options.evaluate(context)
+				// Returning a new selection after seeing the candidate cannot change the admitted plan.
+				return { ...evaluated, protection }
+			},
+		})
+		expect(outcome.status).toBe('activated')
+		const active = (await snapshot(f.agenda)).learning?.skills[0]
+		if (!active) throw new Error('Expected activated guidance.')
+		expect(active.verification.protection).toMatchObject({
+			verificationTasks: 1,
+			confirmationTasks: 1,
+		})
+		expect(Object.isFrozen(active.verification.protection)).toBe(true)
+		expect(active.verification.protection?.planDigest).toBe(
+			createHash('sha256')
+				.update(
+					JSON.stringify({ verification: ['verification-1'], confirmation: ['confirmation-1'] }),
+				)
+				.digest('hex'),
+		)
+		expect(f.events[0]?.data.protection).toEqual({
+			verification: ['verification-1'],
+			confirmation: ['confirmation-1'],
+		})
+	})
+	it('stops before confirmation when a required protection task is omitted, despite positive evidence', async () => {
+		const f = await fixture()
+		const outcome = await runResidentLearningCycle({
+			...f.options,
+			protection: { verification: ['not-evaluated'], confirmation: ['confirmation-1'] },
+		})
+		expect(outcome.status).toBe('inconclusive')
+		expect(f.stages).toEqual(['generate', 'verification'])
+		expect((await snapshot(f.agenda)).learning).toBeUndefined()
+		expect(f.events.some((event) => event.kind === 'activation-requested')).toBe(false)
+	})
+	it('never activates when fresh confirmation loses a protected baseline success', async () => {
+		const f = await fixture()
+		const outcome = await runResidentLearningCycle({
+			...f.options,
+			evaluate: async (context) => {
+				const evaluated = await f.options.evaluate(context)
+				if (context.stage === 'confirmation') {
+					const trial = evaluated.batch.candidate[2]
+					if (!trial?.result.scores.exact) throw new Error('Expected candidate control.')
+					trial.result.passed = false
+					trial.result.status = 'failed'
+					trial.result.scores.exact.score = 0
+				}
+				return evaluated
+			},
+		})
+		expect(outcome.status).toBe('rejected')
+		expect(outcome.review?.protection?.confirmation?.regressedTasks).toEqual(['confirmation-1'])
+		expect(f.stages).toEqual(['generate', 'verification', 'confirmation'])
+		expect((await snapshot(f.agenda)).learning).toBeUndefined()
+	})
 	it('keeps source bindings through generation, confirmation, persistence and a later baseline', async () => {
 		const f = await fixture()
 		const sources = [{ key: 'host:policy', revision: 'version-one' }]

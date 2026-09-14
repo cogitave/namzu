@@ -3,6 +3,7 @@ import type { HarnessTrial, HarnessVerificationBatch } from '../../eval/harness-
 import type { CaseResult } from '../../eval/types.js'
 import {
 	type ResidentSkillCandidate,
+	type ResidentSkillEvaluation,
 	hashResidentSkill,
 	projectResidentLearning,
 	promoteResidentSkill,
@@ -88,12 +89,42 @@ function batch(
 function evaluation(candidate: ResidentSkillCandidate = skill(), baselineRevision = 'none') {
 	const digest = hashResidentSkill(candidate)
 	return {
+		protection: { verification: ['verification-1'], confirmation: ['confirmation-1'] },
 		verification: batch('verification', baselineRevision, digest),
 		confirmation: batch('confirmation', baselineRevision, digest),
 	}
 }
 
 describe('source-bound learning', () => {
+	it('cannot bypass protection through direct promotion or omit a failed control from the selection', () => {
+		const candidate = skill()
+		const measured = evaluation(candidate)
+		expect(() =>
+			promoteResidentSkill(
+				undefined,
+				candidate,
+				{ ...measured, protection: undefined as unknown as ResidentSkillEvaluation['protection'] },
+				evidence('absent'),
+			),
+		).toThrow()
+		expect(() =>
+			promoteResidentSkill(
+				undefined,
+				candidate,
+				{
+					...measured,
+					protection: { verification: ['missing'], confirmation: ['confirmation-1'] },
+				},
+				evidence('missing'),
+			),
+		).toThrow('inconclusive')
+		const control = measured.confirmation.candidate[2]
+		if (!control) throw new Error('Missing control.')
+		control.result = result('confirmation-1', false)
+		expect(() => promoteResidentSkill(undefined, candidate, measured, evidence('loss'))).toThrow(
+			'reject',
+		)
+	})
 	const a = { key: 'workspace-file:map.json', revision: 'v1' }
 	const b = { key: 'database:policy', revision: 'revision-2' }
 	const candidate = { ...skill(), sources: [a, b] }
@@ -340,7 +371,7 @@ describe('evaluated resident skills', () => {
 					promoteResidentSkill(
 						undefined,
 						candidate,
-						{ verification: tested.verification },
+						{ verification: tested.verification, protection: tested.protection },
 						evidence('inconclusive'),
 					),
 				).toThrow()

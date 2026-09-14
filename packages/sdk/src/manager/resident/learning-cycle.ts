@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { z } from 'zod'
 import {
+	type HarnessProtectionPlan,
+	normalizeHarnessProtection,
+} from '../../eval/harness-protection.js'
+import {
 	type HarnessReview,
 	type HarnessVerificationBatch,
 	reviewHarnessCandidate,
@@ -82,6 +86,8 @@ export interface ResidentLearningEvaluationContext extends ResidentLearningCycle
 
 /** @experimental No provider, default background loop or executable-code activation is installed. */
 export interface ResidentLearningCycleOptions {
+	/** Fixed before generation; both rounds must preserve every named task. */
+	readonly protection: HarnessProtectionPlan
 	readonly agenda: Pick<DiskResidentAgenda, 'read' | 'promoteSkill'>
 	readonly skillName: string
 	readonly failure: { readonly evidence: ResidentLearningEvidence; readonly trace: string }
@@ -130,6 +136,7 @@ export interface ResidentLearningCycleResult {
 export async function runResidentLearningCycle(
 	options: ResidentLearningCycleOptions,
 ): Promise<ResidentLearningCycleResult> {
+	const protection = normalizeHarnessProtection(options.protection)
 	const skillName = z
 		.string()
 		.regex(/^[a-z0-9][a-z0-9_-]{0,63}$/)
@@ -230,6 +237,7 @@ export async function runResidentLearningCycle(
 			skillName,
 			failure,
 			resources,
+			protection,
 			...(parentCycleId ? { parentCycleId } : {}),
 		})
 		const check = async () => {
@@ -355,18 +363,19 @@ export async function runResidentLearningCycle(
 			return batch
 		}
 		const verification = await evaluate('verification')
-		review = reviewHarnessCandidate(verification)
+		review = reviewHarnessCandidate(verification, undefined, protection)
 		problem = resourceProblem(true)
 		if (problem) return result('inconclusive', problem)
 		if (review.decision === 'reject') return result('rejected', review.reason)
 		if (
+			review.protection?.verification.status !== 'passed' ||
 			review.verification.unresolved.length ||
 			review.verification.tasks.length < 5 ||
 			review.verification.tasks.some((t) => t.trials !== 2)
 		)
 			return result('inconclusive', review.reason)
 		const confirmation = await evaluate('confirmation')
-		review = reviewHarnessCandidate(verification, confirmation)
+		review = reviewHarnessCandidate(verification, confirmation, protection)
 		problem = resourceProblem()
 		if (problem) return result('inconclusive', problem)
 		if (review.decision !== 'accept')
@@ -379,7 +388,12 @@ export async function runResidentLearningCycle(
 		}
 		// Validate all existing activation contracts before entering the ambiguous
 		// commit interval. The store repeats this against its atomic snapshot.
-		promoteResidentSkill(snapshot.learning, candidate, { verification, confirmation }, evidence)
+		promoteResidentSkill(
+			snapshot.learning,
+			candidate,
+			{ verification, confirmation, protection },
+			evidence,
+		)
 		await append('activation-requested', {
 			baselineRevision,
 			candidateRevision,
@@ -390,7 +404,7 @@ export async function runResidentLearningCycle(
 		const updated = await options.agenda.promoteSkill(
 			snapshot,
 			candidate,
-			{ verification, confirmation },
+			{ verification, confirmation, protection },
 			evidence,
 		)
 		activatedRevision = updated.revision

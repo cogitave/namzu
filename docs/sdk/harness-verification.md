@@ -33,7 +33,7 @@ references are rejected. References make a claim auditable; the independent
 reviewer remains responsible for checking its truth. A score increase alone
 does not supply attribution.
 
-`reviewHarnessCandidate(verification, confirmation?)` returns `accept`, `reject`
+`reviewHarnessCandidate(verification, confirmation?, protection?)` returns `accept`, `reject`
 or `inconclusive` and both comparison reports. Acceptance requires:
 
 - At least five distinct verification tasks, exactly two paired trials each.
@@ -48,6 +48,33 @@ gain can conceal a regressed task. Unknown attribution is never manufactured
 from tool names or rewards. This is a recorded-evidence decision, not a
 statistical guarantee or proof of generalization; keep final TEST tasks outside
 selection and review.
+
+## Declared preservation tasks
+
+The optional third argument, `HarnessProtectionPlan`, names `verification` and
+`confirmation` task IDs that must preserve an existing capability. Each array
+contains 1–63 distinct, nonempty IDs (at most 256 characters each); the two arrays
+must be disjoint. IDs match exactly, without keyword-based task classification.
+The host selects meaningful unrelated or previously successful tasks **before**
+generating a candidate, keeps confirmation inputs private, and includes every
+named task in its designated round. The pure reviewer cannot authenticate that
+selection time or the semantic diversity of tasks.
+
+Each named task needs exactly two successful, measured baseline trials and two
+successful candidate trials. A missing task, uncertain result or unsuccessful
+baseline makes preservation inconclusive. Losing even one of the two established
+baseline successes rejects the candidate, even when the aggregate score rises.
+Preservation cannot replace the separate requirement for attributable improvement.
+`HarnessReview.protection` reports each round's status plus `missingTasks`,
+`unprovenTasks` and `regressedTasks`. A round that has not run has no check.
+
+Generic reviews may omit this plan. [Resident learning](resident-learning-cycle.md)
+and direct resident skill promotion **require** it, snapshot it, and retain its
+identity with the activation evidence. No extra model calls occur in the reviewer.
+This strict finite-sample gate is not a statistical non-inferiority test: it can
+withhold a useful candidate because of noise, and cannot rule out untested harms.
+Resource or tool-efficiency constraints must be part of the host's task scorer if
+they are intended to block acceptance; a correct answer alone does not prove efficiency.
 
 ## Research basis and scope
 

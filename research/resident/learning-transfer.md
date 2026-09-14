@@ -131,8 +131,8 @@ run identifiers, tool calls/results, usage and terminal/transcript digests. All
 processes exited. The fixture's restricted PATH produced an unrelated
 PowerShell/computer-use availability notice; desktop control was not tested.
 
-The next acceptance experiment should include protected tasks from other
-families **before** activation. A short learned description and an instruction
+Follow-up: the [preservation-gate experiment](learning-protection.md) now requires
+protected tasks from other families **before** activation. A short learned description and an instruction
 to skip irrelevant skills do not replace those negative controls. Scope-aware
 learning admission and robust transfer remain unfinished; this is not RSI or AGI.
 

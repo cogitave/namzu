@@ -166,3 +166,12 @@ The live follow-up includes an unresolved provider request and a TUI case that
 still over-explored. These are explicit limits, not a general transfer success
 claim. Protected tasks from other families must be included in future learning
 acceptance studies before broad activation.
+
+## Preservation gate follow-up
+
+[Predeclared preservation tasks](learning-protection.md) are now required for
+resident learning and direct promotion. A fixed-candidate Muse low experiment
+passed both rounds (8/10 to 10/10) while preserving all 16 unrelated trials. A
+scripted counterexample with aggregate improvement and one collateral loss was
+rejected. This closes an acceptance-coverage gap; representative task selection,
+long-term interference and recursive improvement remain unproven.

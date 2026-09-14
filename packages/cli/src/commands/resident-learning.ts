@@ -46,7 +46,16 @@ export function learningSummary(row: ResidentLearningCycleSummary): string {
 		const total = round.tasks.reduce((n, t) => n + t.trials, 0)
 		const baseline = round.tasks.reduce((n, t) => n + t.baselinePasses, 0)
 		const candidate = round.tasks.reduce((n, t) => n + t.candidatePasses, 0)
-		return [`  ${label}: baseline ${baseline}/${total} → candidate ${candidate}/${total}`]
+		const protection =
+			review?.protection?.[label === 'Verification' ? 'verification' : 'confirmation']
+		return [
+			`  ${label}: baseline ${baseline}/${total} → candidate ${candidate}/${total}`,
+			...(protection
+				? [
+						`    Protected tasks: ${protection.status}${protection.missingTasks.length ? ` · ${protection.missingTasks.length} missing` : ''}${protection.unprovenTasks.length ? ` · ${protection.unprovenTasks.length} unproven` : ''}${protection.regressedTasks.length ? ` · ${protection.regressedTasks.length} regressed` : ''}`,
+					]
+				: []),
+		]
 	})
 	return [
 		`${row.cycleId} · ${row.status} · ${line(row.skillName ?? 'preflight')}`,

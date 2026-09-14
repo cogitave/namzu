@@ -82,6 +82,14 @@ three-field tuple with SHA-256. Optional source bindings extend that tuple; chan
 binds both verification rounds' `candidateRevision` to that digest and
 `baselineRevision` to the currently active skill's digest, or `none` when no
 skill with that name is active. It then invokes `reviewHarnessCandidate`.
+
+`ResidentSkillEvaluation.protection` is required: it names disjoint verification
+and confirmation preservation task IDs selected by the host before generation.
+Both rounds must contain successful paired baseline and candidate results for
+every declared control. The same gate applies to direct `promoteSkill` calls,
+not only learning cycles. An omitted plan is refused; see the
+[preservation contract](harness-verification.md#declared-preservation-tasks).
+The pure promotion API cannot prove when a host selected the plan.
 Only `accept` changes durable learning; rejection or inconclusive evidence
 leaves the agenda unchanged. A later stale CAS does not rerun the model or the
 evaluator. Each round is limited to 64 tasks/128 trials per side.
@@ -99,6 +107,10 @@ claim is not an evaluation.
 baseline/candidate hashes, counts of verification/confirmation tasks, and a
 digest of the supplied evaluation. Full traces belong in the host's retained
 evaluation artifacts; a digest alone does not reconstruct or certify them.
+New activations additionally retain `verification.protection` with the number
+of protected tasks in each round and the plan's SHA-256 digest. Historical
+activations lack this optional stored field and have not been requalified by
+merely opening their state. Full selection is bound into the evaluation digest.
 Skill code is neither compiled nor executed by this surface. Promotion grants
 no tool, file, network, model, account or messaging authority.
 

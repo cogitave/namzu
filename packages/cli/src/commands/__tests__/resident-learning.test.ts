@@ -58,6 +58,7 @@ export default function(host) {
  return {
   skillName:candidate.name, failure:{evidence:{key:'failed-read',source:'fixture:actual-observation',reason:'Expected a source read.'},trace:'Original source was not read.'},
   resources:{unit:'tokens',maxUnits:100},
+  protection:{verification:['verification-1'],confirmation:['confirmation-1']},
   generate:async context=>{await context.recordUsage({runId:randomUUID(),tokens:5,costUsd:null});return {candidate,usageComplete:true}},
   evaluate:async context=>{
    await context.recordUsage({runId:randomUUID(),tokens:20,costUsd:null});
@@ -98,6 +99,25 @@ it('refuses untrusted host execution before importing the selected module', asyn
 	expect((await command(['learn', path])).code).toBe(77)
 	expect(existsSync(join(root, 'imported'))).toBe(false)
 	expect(existsSync(join(home, 'state', 'learning.sqlite'))).toBe(false)
+})
+
+it('refuses a legacy host without protection before executing generation', async () => {
+	await command(['add', '--trust', 'Inspect sources.'])
+	const path = moduleFile()
+	writeFileSync(
+		path,
+		readFileSync(path, 'utf8')
+			.replace("protection:{verification:['verification-1'],confirmation:['confirmation-1']},", '')
+			.replace(
+				'generate:async context=>{',
+				`generate:async context=>{throw new Error('generation must not run');`,
+			),
+	)
+	const response = await command(['learn', path, '--trust'])
+	expect(response.code).not.toBe(0)
+	expect(response.errors.join('\n')).toContain('Declare protection.verification')
+	expect(response.errors.join('\n')).not.toContain('generation must not run')
+	expect((await (await resident()).agenda.read())?.learning).toBeUndefined()
 })
 
 it('runs the host factory through the real SDK gate, persists both batches and inspects after reopening', async () => {
@@ -222,6 +242,7 @@ it('selects a stored failure through the host module and does not replay it on a
 	expect(first.printed[0]?.result).toMatchObject({ status: 'activated' })
 	expect(first.printed[0]?.text).toContain('Verification: baseline 8/10 → candidate 10/10')
 	expect(first.printed[0]?.text).toContain('Confirmation: baseline 8/10 → candidate 10/10')
+	expect(first.printed[0]?.text).toContain('Protected tasks: passed')
 	const second = await command(['learn', path, '--trust'])
 	expect(second.code, JSON.stringify(second.errors)).toBe(0)
 	expect(second.printed[0]?.result).toBeNull()

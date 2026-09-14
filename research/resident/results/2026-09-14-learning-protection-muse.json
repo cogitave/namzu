@@ -1,0 +1,4493 @@
+{
+  "root": "/tmp/namzu-protection-WErQXl",
+  "spec": {
+    "version": 1,
+    "live": true,
+    "fault": null,
+    "model": "muse-spark-1.3-contributor-free",
+    "effort": "low",
+    "candidate": {
+      "name": "workspace-source-selection",
+      "description": "Use the authority source map to select the current source for each workspace question.",
+      "body": "For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path."
+    },
+    "acceptedSkill": {
+      "name": "workspace-source-selection",
+      "description": "Use the authority source map to select the current source for each workspace question.",
+      "body": "For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.",
+      "hash": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+      "evidence": {
+        "key": "aa433b22-2b28-4cd8-a27f-1f6ccdb176f6",
+        "source": "resident-learning-cycle:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6",
+        "reason": "Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a."
+      },
+      "verification": {
+        "baselineHash": "none",
+        "candidateHash": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+        "evidenceDigest": "f504e2123af0273ecb08bbf9a103db37e4feeff25cc09a7d58a11093308e3919",
+        "verificationTasks": 5,
+        "confirmationTasks": 5
+      }
+    },
+    "protection": {
+      "verification": [
+        "verification-document",
+        "verification-config",
+        "verification-ledger",
+        "verification-edit"
+      ],
+      "confirmation": [
+        "confirmation-document",
+        "confirmation-config",
+        "confirmation-ledger",
+        "confirmation-edit"
+      ]
+    },
+    "verification": [
+      {
+        "family": "source",
+        "files": {
+          "README.md": "See docs/settings.txt for the current release_channel.\n",
+          "docs/settings.txt": "release_channel=retired-verification-0\n",
+          ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-0.txt\",\"key\":\"release_channel\"}}",
+          "records/current-0.txt": "release_channel=active-protection-0\n"
+        },
+        "prompt": "What is the current release_channel for this workspace? Return only its value.",
+        "expected": "active-protection-0",
+        "reads": [
+          "records/current-0.txt"
+        ],
+        "stale": "retired-verification-0",
+        "taskId": "verification-source",
+        "id": "verification-source-0",
+        "trial": 0
+      },
+      {
+        "family": "document",
+        "files": {
+          "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Mina.\n"
+        },
+        "prompt": "Read docs/oncall.md and return only the name of this week's primary contact.",
+        "expected": "Mina",
+        "reads": [
+          "docs/oncall.md"
+        ],
+        "taskId": "verification-document",
+        "id": "verification-document-0",
+        "trial": 0
+      },
+      {
+        "family": "config",
+        "files": {
+          "defaults.json": "{\"port\":3000,\"retries\":3}",
+          "local.json": "{\"port\":7501}"
+        },
+        "prompt": "Read defaults.json and local.json. Local values override defaults; absent local keys retain defaults. Return the effective port as digits only.",
+        "expected": "7501",
+        "reads": [
+          "defaults.json",
+          "local.json"
+        ],
+        "taskId": "verification-config",
+        "id": "verification-config-0",
+        "trial": 0
+      },
+      {
+        "family": "ledger",
+        "files": {
+          "ledger.csv": "id,status,currency,amount\na,paid,EUR,31\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+        },
+        "prompt": "Read ledger.csv. Sum amount for rows with status paid and currency EUR, including negative amounts. Return the integer only.",
+        "expected": "35",
+        "reads": [
+          "ledger.csv"
+        ],
+        "taskId": "verification-ledger",
+        "id": "verification-ledger-0",
+        "trial": 0
+      },
+      {
+        "family": "edit",
+        "files": {
+          "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\n",
+          "unrelated.txt": "Unrelated content.\n"
+        },
+        "prompt": "Append exactly one line \"Check 0 complete.\" to notes.txt; preserve all existing text and the unrelated file. Return only done.",
+        "expected": "done",
+        "reads": [
+          "notes.txt"
+        ],
+        "after": {
+          "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 0 complete.\n",
+          "unrelated.txt": "Unrelated content.\n"
+        },
+        "taskId": "verification-edit",
+        "id": "verification-edit-0",
+        "trial": 0
+      },
+      {
+        "family": "source",
+        "files": {
+          "README.md": "See docs/settings.txt for the current release_channel.\n",
+          "docs/settings.txt": "release_channel=retired-verification-1\n",
+          ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-1.txt\",\"key\":\"release_channel\"}}",
+          "records/current-1.txt": "release_channel=active-protection-1\n"
+        },
+        "prompt": "What is the current release_channel for this workspace? Return only its value.",
+        "expected": "active-protection-1",
+        "reads": [
+          "records/current-1.txt"
+        ],
+        "stale": "retired-verification-1",
+        "taskId": "verification-source",
+        "id": "verification-source-1",
+        "trial": 1
+      },
+      {
+        "family": "document",
+        "files": {
+          "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Can.\n"
+        },
+        "prompt": "Read docs/oncall.md and return only the name of this week's primary contact.",
+        "expected": "Can",
+        "reads": [
+          "docs/oncall.md"
+        ],
+        "taskId": "verification-document",
+        "id": "verification-document-1",
+        "trial": 1
+      },
+      {
+        "family": "config",
+        "files": {
+          "defaults.json": "{\"port\":3000,\"retries\":3}",
+          "local.json": "{\"port\":7502}"
+        },
+        "prompt": "Read defaults.json and local.json. Local values override defaults; absent local keys retain defaults. Return the effective port as digits only.",
+        "expected": "7502",
+        "reads": [
+          "defaults.json",
+          "local.json"
+        ],
+        "taskId": "verification-config",
+        "id": "verification-config-1",
+        "trial": 1
+      },
+      {
+        "family": "ledger",
+        "files": {
+          "ledger.csv": "id,status,currency,amount\na,paid,EUR,32\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+        },
+        "prompt": "Read ledger.csv. Sum amount for rows with status paid and currency EUR, including negative amounts. Return the integer only.",
+        "expected": "36",
+        "reads": [
+          "ledger.csv"
+        ],
+        "taskId": "verification-ledger",
+        "id": "verification-ledger-1",
+        "trial": 1
+      },
+      {
+        "family": "edit",
+        "files": {
+          "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\n",
+          "unrelated.txt": "Unrelated content.\n"
+        },
+        "prompt": "Append exactly one line \"Check 1 complete.\" to notes.txt; preserve all existing text and the unrelated file. Return only done.",
+        "expected": "done",
+        "reads": [
+          "notes.txt"
+        ],
+        "after": {
+          "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 1 complete.\n",
+          "unrelated.txt": "Unrelated content.\n"
+        },
+        "taskId": "verification-edit",
+        "id": "verification-edit-1",
+        "trial": 1
+      }
+    ],
+    "confirmation": [
+      {
+        "family": "source",
+        "files": {
+          "README.md": "See docs/settings.txt for the current release_channel.\n",
+          "docs/settings.txt": "release_channel=retired-confirmation-0\n",
+          ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-20.txt\",\"key\":\"release_channel\"}}",
+          "records/current-20.txt": "release_channel=active-protection-20\n"
+        },
+        "prompt": "What is the current release_channel for this workspace? Return only its value.",
+        "expected": "active-protection-20",
+        "reads": [
+          "records/current-20.txt"
+        ],
+        "stale": "retired-confirmation-0",
+        "taskId": "confirmation-source",
+        "id": "confirmation-source-0",
+        "trial": 0
+      },
+      {
+        "family": "document",
+        "files": {
+          "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Lale.\n"
+        },
+        "prompt": "Read docs/oncall.md and return only the name of this week's primary contact.",
+        "expected": "Lale",
+        "reads": [
+          "docs/oncall.md"
+        ],
+        "taskId": "confirmation-document",
+        "id": "confirmation-document-0",
+        "trial": 0
+      },
+      {
+        "family": "config",
+        "files": {
+          "defaults.json": "{\"port\":3000,\"retries\":3}",
+          "local.json": "{\"port\":7521}"
+        },
+        "prompt": "Read defaults.json and local.json. Local values override defaults; absent local keys retain defaults. Return the effective port as digits only.",
+        "expected": "7521",
+        "reads": [
+          "defaults.json",
+          "local.json"
+        ],
+        "taskId": "confirmation-config",
+        "id": "confirmation-config-0",
+        "trial": 0
+      },
+      {
+        "family": "ledger",
+        "files": {
+          "ledger.csv": "id,status,currency,amount\na,paid,EUR,51\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+        },
+        "prompt": "Read ledger.csv. Sum amount for rows with status paid and currency EUR, including negative amounts. Return the integer only.",
+        "expected": "55",
+        "reads": [
+          "ledger.csv"
+        ],
+        "taskId": "confirmation-ledger",
+        "id": "confirmation-ledger-0",
+        "trial": 0
+      },
+      {
+        "family": "edit",
+        "files": {
+          "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\n",
+          "unrelated.txt": "Unrelated content.\n"
+        },
+        "prompt": "Append exactly one line \"Check 20 complete.\" to notes.txt; preserve all existing text and the unrelated file. Return only done.",
+        "expected": "done",
+        "reads": [
+          "notes.txt"
+        ],
+        "after": {
+          "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 20 complete.\n",
+          "unrelated.txt": "Unrelated content.\n"
+        },
+        "taskId": "confirmation-edit",
+        "id": "confirmation-edit-0",
+        "trial": 0
+      },
+      {
+        "family": "source",
+        "files": {
+          "README.md": "See docs/settings.txt for the current release_channel.\n",
+          "docs/settings.txt": "release_channel=retired-confirmation-1\n",
+          ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-21.txt\",\"key\":\"release_channel\"}}",
+          "records/current-21.txt": "release_channel=active-protection-21\n"
+        },
+        "prompt": "What is the current release_channel for this workspace? Return only its value.",
+        "expected": "active-protection-21",
+        "reads": [
+          "records/current-21.txt"
+        ],
+        "stale": "retired-confirmation-1",
+        "taskId": "confirmation-source",
+        "id": "confirmation-source-1",
+        "trial": 1
+      },
+      {
+        "family": "document",
+        "files": {
+          "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Ali.\n"
+        },
+        "prompt": "Read docs/oncall.md and return only the name of this week's primary contact.",
+        "expected": "Ali",
+        "reads": [
+          "docs/oncall.md"
+        ],
+        "taskId": "confirmation-document",
+        "id": "confirmation-document-1",
+        "trial": 1
+      },
+      {
+        "family": "config",
+        "files": {
+          "defaults.json": "{\"port\":3000,\"retries\":3}",
+          "local.json": "{\"port\":7522}"
+        },
+        "prompt": "Read defaults.json and local.json. Local values override defaults; absent local keys retain defaults. Return the effective port as digits only.",
+        "expected": "7522",
+        "reads": [
+          "defaults.json",
+          "local.json"
+        ],
+        "taskId": "confirmation-config",
+        "id": "confirmation-config-1",
+        "trial": 1
+      },
+      {
+        "family": "ledger",
+        "files": {
+          "ledger.csv": "id,status,currency,amount\na,paid,EUR,52\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+        },
+        "prompt": "Read ledger.csv. Sum amount for rows with status paid and currency EUR, including negative amounts. Return the integer only.",
+        "expected": "56",
+        "reads": [
+          "ledger.csv"
+        ],
+        "taskId": "confirmation-ledger",
+        "id": "confirmation-ledger-1",
+        "trial": 1
+      },
+      {
+        "family": "edit",
+        "files": {
+          "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\n",
+          "unrelated.txt": "Unrelated content.\n"
+        },
+        "prompt": "Append exactly one line \"Check 21 complete.\" to notes.txt; preserve all existing text and the unrelated file. Return only done.",
+        "expected": "done",
+        "reads": [
+          "notes.txt"
+        ],
+        "after": {
+          "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 21 complete.\n",
+          "unrelated.txt": "Unrelated content.\n"
+        },
+        "taskId": "confirmation-edit",
+        "id": "confirmation-edit-1",
+        "trial": 1
+      }
+    ],
+    "limits": {
+      "iterations": 8,
+      "tokens": 24000,
+      "timeoutMs": 120000
+    },
+    "scorer": "exact+required-reads+full-manifest+end-turn+settled-usage/v1",
+    "order": "sequential, rotating arms by case; no retries",
+    "preparedAt": "2026-09-14T12:40:00.378Z"
+  },
+  "cycles": [
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "ordinal": 1,
+      "parentCycleId": null,
+      "skillName": "workspace-source-selection",
+      "status": "activated",
+      "sequence": 53,
+      "startedAt": 1789389781387,
+      "updatedAt": 1789390114848,
+      "candidateRevision": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+      "result": {
+        "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+        "status": "activated",
+        "reason": "Evaluated guidance was committed for subsequent admissions.",
+        "candidate": {
+          "name": "workspace-source-selection",
+          "description": "Use the authority source map to select the current source for each workspace question.",
+          "body": "For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path."
+        },
+        "candidateRevision": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+        "baselineRevision": "none",
+        "review": {
+          "decision": "accept",
+          "reason": "Both rounds support improvement without observed regression; confirmation improves the paired pass rate.",
+          "verification": {
+            "tasks": [
+              {
+                "taskId": "verification-source",
+                "status": "recovered",
+                "baselinePasses": 0,
+                "candidatePasses": 2,
+                "trials": 2
+              },
+              {
+                "taskId": "verification-document",
+                "status": "stable-success",
+                "baselinePasses": 2,
+                "candidatePasses": 2,
+                "trials": 2
+              },
+              {
+                "taskId": "verification-config",
+                "status": "stable-success",
+                "baselinePasses": 2,
+                "candidatePasses": 2,
+                "trials": 2
+              },
+              {
+                "taskId": "verification-ledger",
+                "status": "stable-success",
+                "baselinePasses": 2,
+                "candidatePasses": 2,
+                "trials": 2
+              },
+              {
+                "taskId": "verification-edit",
+                "status": "stable-success",
+                "baselinePasses": 2,
+                "candidatePasses": 2,
+                "trials": 2
+              }
+            ],
+            "positiveEvidence": [
+              "verification-source"
+            ],
+            "regressions": [],
+            "unresolved": [],
+            "usage": {
+              "rollouts": 20,
+              "tokens": 248117,
+              "costUsd": 0,
+              "durationMs": 177726
+            },
+            "passRateDelta": 0.2
+          },
+          "confirmation": {
+            "tasks": [
+              {
+                "taskId": "confirmation-source",
+                "status": "recovered",
+                "baselinePasses": 0,
+                "candidatePasses": 2,
+                "trials": 2
+              },
+              {
+                "taskId": "confirmation-document",
+                "status": "stable-success",
+                "baselinePasses": 2,
+                "candidatePasses": 2,
+                "trials": 2
+              },
+              {
+                "taskId": "confirmation-config",
+                "status": "stable-success",
+                "baselinePasses": 2,
+                "candidatePasses": 2,
+                "trials": 2
+              },
+              {
+                "taskId": "confirmation-ledger",
+                "status": "stable-success",
+                "baselinePasses": 2,
+                "candidatePasses": 2,
+                "trials": 2
+              },
+              {
+                "taskId": "confirmation-edit",
+                "status": "stable-success",
+                "baselinePasses": 2,
+                "candidatePasses": 2,
+                "trials": 2
+              }
+            ],
+            "positiveEvidence": [
+              "confirmation-source"
+            ],
+            "regressions": [],
+            "unresolved": [],
+            "usage": {
+              "rollouts": 20,
+              "tokens": 221205,
+              "costUsd": 0,
+              "durationMs": 154471
+            },
+            "passRateDelta": 0.2
+          },
+          "protection": {
+            "verification": {
+              "status": "passed",
+              "missingTasks": [],
+              "unprovenTasks": [],
+              "regressedTasks": []
+            },
+            "confirmation": {
+              "status": "passed",
+              "missingTasks": [],
+              "unprovenTasks": [],
+              "regressedTasks": []
+            }
+          }
+        },
+        "agendaRevision": 3,
+        "consumption": {
+          "tokens": 469322,
+          "costUsd": 0,
+          "receipts": 41,
+          "unknownTokens": 0,
+          "unknownCosts": 40,
+          "unfinishedStages": 0
+        },
+        "auditComplete": true
+      },
+      "recordedUsage": {
+        "tokens": 469322,
+        "costUsd": 0,
+        "receipts": 41,
+        "unknownTokens": 0,
+        "unknownCosts": 40
+      }
+    }
+  ],
+  "events": [
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 1,
+      "kind": "started",
+      "data": {
+        "tenantId": "75c3ab07-d330-4568-8326-f007db8361cc",
+        "agentKey": "default",
+        "agendaRevision": 2,
+        "baselineRevision": "none",
+        "skillName": "workspace-source-selection",
+        "failure": {
+          "evidence": {
+            "key": "transfer-diagnostic",
+            "source": "research/resident/results/2026-09-14-learning-transfer-before.json",
+            "reason": "Prior fixed-candidate experiment observed unrelated-task failure and extra tool use."
+          },
+          "trace": "Requalify the unchanged prior candidate under on-demand disclosure and predeclared unrelated preservation tasks. No new candidate generation."
+        },
+        "resources": {
+          "unit": "tokens",
+          "maxUnits": 1000000
+        },
+        "protection": {
+          "verification": [
+            "verification-document",
+            "verification-config",
+            "verification-ledger",
+            "verification-edit"
+          ],
+          "confirmation": [
+            "confirmation-document",
+            "confirmation-config",
+            "confirmation-ledger",
+            "confirmation-edit"
+          ]
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 2,
+      "kind": "stage-started",
+      "stage": "generate",
+      "data": {}
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 3,
+      "kind": "usage",
+      "stage": "generate",
+      "data": {
+        "receipt": {
+          "runId": "0a87a19c-0592-4330-a8bd-d6fc5d0bd275",
+          "tokens": 0,
+          "costUsd": 0
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 4,
+      "kind": "stage-finished",
+      "stage": "generate",
+      "data": {
+        "usageComplete": true,
+        "consumption": {
+          "tokens": 0,
+          "costUsd": 0,
+          "receipts": 1,
+          "unknownTokens": 0,
+          "unknownCosts": 0,
+          "unfinishedStages": 0
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 5,
+      "kind": "candidate",
+      "data": {
+        "candidate": {
+          "name": "workspace-source-selection",
+          "description": "Use the authority source map to select the current source for each workspace question.",
+          "body": "For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path."
+        },
+        "candidateRevision": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+        "baselineRevision": "none"
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 6,
+      "kind": "stage-started",
+      "stage": "verification",
+      "data": {}
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 7,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "7601ce93-e91c-4279-a9a3-18bf9731b4f4",
+          "tokens": 20807,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 8,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "e8ffff98-8d1d-4c0f-b19a-f19ec1d33387",
+          "tokens": 15557,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 9,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "9ce76ba1-a3c7-4681-9952-76d28c72c75f",
+          "tokens": 6679,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 10,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "0e50c5d5-f7fb-439a-8226-c5b2e07059c5",
+          "tokens": 6334,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 11,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "8e4f98f4-76aa-4759-a2df-5709d2e5f745",
+          "tokens": 9866,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 12,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "dd702f7b-0244-4965-a445-d812cae7b2c3",
+          "tokens": 10541,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 13,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "390d4887-48a5-45e2-b333-d2213b68dc22",
+          "tokens": 10373,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 14,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "3fb5e689-00c3-49e4-9ee3-4e99ed0151d4",
+          "tokens": 9674,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 15,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "a66b6f2b-19bd-47b8-a8f5-eac74587b030",
+          "tokens": 14050,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 16,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "600100ef-f87a-4015-8099-f6b1a8b8126a",
+          "tokens": 18315,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 17,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "ea84c220-1903-43c7-ad14-6e32c2da50a7",
+          "tokens": 15639,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 18,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "ef00e7c2-92ba-4c2b-af31-b1eb2dbea723",
+          "tokens": 16837,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 19,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "f1cdd6c7-510b-47c8-8450-3440ceb65ab5",
+          "tokens": 6295,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 20,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "603fff78-6ca0-4e1a-bb3b-b9223f033ef1",
+          "tokens": 6713,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 21,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "c464b0ed-bae1-4769-8896-39d554fa9885",
+          "tokens": 10586,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 22,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "79dd0ef1-b65f-409a-9cca-31a71ff76085",
+          "tokens": 9875,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 23,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "73d540c0-0036-4d22-bd75-8b828ae1754c",
+          "tokens": 9556,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 24,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "a2f7aeb8-baaf-4239-a6fa-7b22065c9592",
+          "tokens": 10265,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 25,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "3c8b4cfb-9321-4f42-b5e9-4e28efe0655e",
+          "tokens": 19013,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 26,
+      "kind": "usage",
+      "stage": "verification",
+      "data": {
+        "receipt": {
+          "runId": "ccd30803-3615-46c7-aec3-e31c5b51be63",
+          "tokens": 21142,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 27,
+      "kind": "stage-finished",
+      "stage": "verification",
+      "data": {
+        "usageComplete": true,
+        "consumption": {
+          "tokens": 248117,
+          "costUsd": 0,
+          "receipts": 21,
+          "unknownTokens": 0,
+          "unknownCosts": 20,
+          "unfinishedStages": 0
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 28,
+      "kind": "evaluation",
+      "stage": "verification",
+      "data": {
+        "baselineRevision": "none",
+        "candidateRevision": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+        "digest": "165ebd53457ef0566b2a025c55de622c2b67f0ea5c1ab634a595ea37529cd973",
+        "baselineTrajectories": [
+          "7601ce93-e91c-4279-a9a3-18bf9731b4f4",
+          "0e50c5d5-f7fb-439a-8226-c5b2e07059c5",
+          "8e4f98f4-76aa-4759-a2df-5709d2e5f745",
+          "3fb5e689-00c3-49e4-9ee3-4e99ed0151d4",
+          "a66b6f2b-19bd-47b8-a8f5-eac74587b030",
+          "ef00e7c2-92ba-4c2b-af31-b1eb2dbea723",
+          "f1cdd6c7-510b-47c8-8450-3440ceb65ab5",
+          "79dd0ef1-b65f-409a-9cca-31a71ff76085",
+          "73d540c0-0036-4d22-bd75-8b828ae1754c",
+          "ccd30803-3615-46c7-aec3-e31c5b51be63"
+        ],
+        "candidateTrajectories": [
+          "e8ffff98-8d1d-4c0f-b19a-f19ec1d33387",
+          "9ce76ba1-a3c7-4681-9952-76d28c72c75f",
+          "dd702f7b-0244-4965-a445-d812cae7b2c3",
+          "390d4887-48a5-45e2-b333-d2213b68dc22",
+          "600100ef-f87a-4015-8099-f6b1a8b8126a",
+          "ea84c220-1903-43c7-ad14-6e32c2da50a7",
+          "603fff78-6ca0-4e1a-bb3b-b9223f033ef1",
+          "c464b0ed-bae1-4769-8896-39d554fa9885",
+          "a2f7aeb8-baaf-4239-a6fa-7b22065c9592",
+          "3c8b4cfb-9321-4f42-b5e9-4e28efe0655e"
+        ]
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 29,
+      "kind": "stage-started",
+      "stage": "confirmation",
+      "data": {}
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 30,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "9eafa8bd-bb0e-4677-a3c8-4662f70ac959",
+          "tokens": 13753,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 31,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "6965ea67-03a0-4e32-b093-85c82630c65a",
+          "tokens": 15603,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 32,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "79771566-01d6-429e-b0a2-f122a9a666bc",
+          "tokens": 6771,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 33,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "d72c73f8-38da-4829-978f-f9df0c1241cc",
+          "tokens": 6278,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 34,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "ad6b8eed-8ef6-49bc-8ce6-58f2b4e9a1e9",
+          "tokens": 6510,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 35,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "9e646fc3-672c-40c2-81ce-63a6832ed2d8",
+          "tokens": 7011,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 36,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "79222252-9ca7-4e53-b651-16ce8915410d",
+          "tokens": 10394,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 37,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "480bfa4f-14cf-47b5-90fd-0b725b040056",
+          "tokens": 6273,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 38,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "cb288b9d-c97d-45f6-a2fa-f0418edbbbd4",
+          "tokens": 17739,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 39,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "3ce72048-59d7-4283-a843-756cbb633ede",
+          "tokens": 18353,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 40,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "df0489e3-b41d-406f-b412-fd66efde45c5",
+          "tokens": 15540,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 41,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "1654405f-e61a-4f68-a068-0856b21c73a1",
+          "tokens": 14475,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 42,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "a8188fbf-9366-42b9-a12d-158ac1fc30b7",
+          "tokens": 6344,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 43,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "f8c2d833-dcb5-4b7e-ae6d-05d3f4621c3a",
+          "tokens": 6835,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 44,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "99e6b94f-622f-4ee0-a7ad-092a0241de10",
+          "tokens": 10602,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 45,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "e750e9b8-2b00-4aed-b1b7-d09ddde5c6d1",
+          "tokens": 6528,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 46,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "16948ba5-155b-40b4-99db-1fb8e2b2392f",
+          "tokens": 6414,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 47,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "18da20d9-719c-4103-aaae-297ed40aa96b",
+          "tokens": 10263,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 48,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "2b92ca4e-64d9-4c12-9cba-880060fe39b8",
+          "tokens": 18531,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 49,
+      "kind": "usage",
+      "stage": "confirmation",
+      "data": {
+        "receipt": {
+          "runId": "b4f6039e-6f66-49d8-bad2-8c4716869f3d",
+          "tokens": 16988,
+          "costUsd": null
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 50,
+      "kind": "stage-finished",
+      "stage": "confirmation",
+      "data": {
+        "usageComplete": true,
+        "consumption": {
+          "tokens": 469322,
+          "costUsd": 0,
+          "receipts": 41,
+          "unknownTokens": 0,
+          "unknownCosts": 40,
+          "unfinishedStages": 0
+        }
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 51,
+      "kind": "evaluation",
+      "stage": "confirmation",
+      "data": {
+        "baselineRevision": "none",
+        "candidateRevision": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+        "digest": "ccc5b3e8956e2b33faaf7b9a94c7a2b8d01e90685285e75f186c0c01f525b377",
+        "baselineTrajectories": [
+          "9eafa8bd-bb0e-4677-a3c8-4662f70ac959",
+          "d72c73f8-38da-4829-978f-f9df0c1241cc",
+          "ad6b8eed-8ef6-49bc-8ce6-58f2b4e9a1e9",
+          "480bfa4f-14cf-47b5-90fd-0b725b040056",
+          "cb288b9d-c97d-45f6-a2fa-f0418edbbbd4",
+          "1654405f-e61a-4f68-a068-0856b21c73a1",
+          "a8188fbf-9366-42b9-a12d-158ac1fc30b7",
+          "e750e9b8-2b00-4aed-b1b7-d09ddde5c6d1",
+          "16948ba5-155b-40b4-99db-1fb8e2b2392f",
+          "b4f6039e-6f66-49d8-bad2-8c4716869f3d"
+        ],
+        "candidateTrajectories": [
+          "6965ea67-03a0-4e32-b093-85c82630c65a",
+          "79771566-01d6-429e-b0a2-f122a9a666bc",
+          "9e646fc3-672c-40c2-81ce-63a6832ed2d8",
+          "79222252-9ca7-4e53-b651-16ce8915410d",
+          "3ce72048-59d7-4283-a843-756cbb633ede",
+          "df0489e3-b41d-406f-b412-fd66efde45c5",
+          "f8c2d833-dcb5-4b7e-ae6d-05d3f4621c3a",
+          "99e6b94f-622f-4ee0-a7ad-092a0241de10",
+          "18da20d9-719c-4103-aaae-297ed40aa96b",
+          "2b92ca4e-64d9-4c12-9cba-880060fe39b8"
+        ]
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 52,
+      "kind": "activation-requested",
+      "data": {
+        "baselineRevision": "none",
+        "candidateRevision": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+        "agendaRevision": 2
+      }
+    },
+    {
+      "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+      "sequence": 53,
+      "kind": "finished",
+      "data": {
+        "result": {
+          "cycleId": "137522c3-00af-4095-af3b-cf7062d56927",
+          "status": "activated",
+          "reason": "Evaluated guidance was committed for subsequent admissions.",
+          "candidate": {
+            "name": "workspace-source-selection",
+            "description": "Use the authority source map to select the current source for each workspace question.",
+            "body": "For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path."
+          },
+          "candidateRevision": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+          "baselineRevision": "none",
+          "review": {
+            "decision": "accept",
+            "reason": "Both rounds support improvement without observed regression; confirmation improves the paired pass rate.",
+            "verification": {
+              "tasks": [
+                {
+                  "taskId": "verification-source",
+                  "status": "recovered",
+                  "baselinePasses": 0,
+                  "candidatePasses": 2,
+                  "trials": 2
+                },
+                {
+                  "taskId": "verification-document",
+                  "status": "stable-success",
+                  "baselinePasses": 2,
+                  "candidatePasses": 2,
+                  "trials": 2
+                },
+                {
+                  "taskId": "verification-config",
+                  "status": "stable-success",
+                  "baselinePasses": 2,
+                  "candidatePasses": 2,
+                  "trials": 2
+                },
+                {
+                  "taskId": "verification-ledger",
+                  "status": "stable-success",
+                  "baselinePasses": 2,
+                  "candidatePasses": 2,
+                  "trials": 2
+                },
+                {
+                  "taskId": "verification-edit",
+                  "status": "stable-success",
+                  "baselinePasses": 2,
+                  "candidatePasses": 2,
+                  "trials": 2
+                }
+              ],
+              "positiveEvidence": [
+                "verification-source"
+              ],
+              "regressions": [],
+              "unresolved": [],
+              "usage": {
+                "rollouts": 20,
+                "tokens": 248117,
+                "costUsd": 0,
+                "durationMs": 177726
+              },
+              "passRateDelta": 0.2
+            },
+            "confirmation": {
+              "tasks": [
+                {
+                  "taskId": "confirmation-source",
+                  "status": "recovered",
+                  "baselinePasses": 0,
+                  "candidatePasses": 2,
+                  "trials": 2
+                },
+                {
+                  "taskId": "confirmation-document",
+                  "status": "stable-success",
+                  "baselinePasses": 2,
+                  "candidatePasses": 2,
+                  "trials": 2
+                },
+                {
+                  "taskId": "confirmation-config",
+                  "status": "stable-success",
+                  "baselinePasses": 2,
+                  "candidatePasses": 2,
+                  "trials": 2
+                },
+                {
+                  "taskId": "confirmation-ledger",
+                  "status": "stable-success",
+                  "baselinePasses": 2,
+                  "candidatePasses": 2,
+                  "trials": 2
+                },
+                {
+                  "taskId": "confirmation-edit",
+                  "status": "stable-success",
+                  "baselinePasses": 2,
+                  "candidatePasses": 2,
+                  "trials": 2
+                }
+              ],
+              "positiveEvidence": [
+                "confirmation-source"
+              ],
+              "regressions": [],
+              "unresolved": [],
+              "usage": {
+                "rollouts": 20,
+                "tokens": 221205,
+                "costUsd": 0,
+                "durationMs": 154471
+              },
+              "passRateDelta": 0.2
+            },
+            "protection": {
+              "verification": {
+                "status": "passed",
+                "missingTasks": [],
+                "unprovenTasks": [],
+                "regressedTasks": []
+              },
+              "confirmation": {
+                "status": "passed",
+                "missingTasks": [],
+                "unprovenTasks": [],
+                "regressedTasks": []
+              }
+            }
+          },
+          "agendaRevision": 3,
+          "consumption": {
+            "tokens": 469322,
+            "costUsd": 0,
+            "receipts": 41,
+            "unknownTokens": 0,
+            "unknownCosts": 40,
+            "unfinishedStages": 0
+          },
+          "auditComplete": true
+        }
+      }
+    }
+  ],
+  "records": [
+    {
+      "case": "verification-source-0",
+      "taskId": "verification-source",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "7601ce93-e91c-4279-a9a3-18bf9731b4f4",
+      "output": "retired-verification-0",
+      "stopReason": "end_turn",
+      "tokens": 20807,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 20807,
+        "treeTokens": 20807,
+        "reservedTokens": 0,
+        "remainingTokens": 3193,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 20807
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/baseline"
+          },
+          "success": true,
+          "output": "./README.md",
+          "data": {
+            "count": 1,
+            "files": [
+              "./README.md"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/baseline/README.md"
+          },
+          "success": true,
+          "output": "1\tSee docs/settings.txt for the current release_channel.\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/baseline/README.md"
+          }
+        },
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "**/*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/baseline"
+          },
+          "success": true,
+          "output": "./records/current-0.txt\n./docs/settings.txt\n./README.md",
+          "data": {
+            "count": 3,
+            "files": [
+              "./records/current-0.txt",
+              "./docs/settings.txt",
+              "./README.md"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/baseline/docs/settings.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=retired-verification-0\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/baseline/docs/settings.txt"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/baseline/records/current-0.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=active-protection-0\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/baseline/records/current-0.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/current-0.txt": "release_channel=active-protection-0\n",
+        "docs/settings.txt": "release_channel=retired-verification-0\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-0.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 9217,
+      "passed": false
+    },
+    {
+      "case": "verification-source-0",
+      "taskId": "verification-source",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "e8ffff98-8d1d-4c0f-b19a-f19ec1d33387",
+      "output": "active-protection-0",
+      "stopReason": "end_turn",
+      "tokens": 15557,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 15557,
+        "treeTokens": 15557,
+        "reservedTokens": 0,
+        "remainingTokens": 8443,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 15557
+      },
+      "tools": [
+        {
+          "name": "read_resident_skill",
+          "input": {
+            "name": "workspace-source-selection"
+          },
+          "success": true,
+          "output": "{\"kind\":\"evaluated-guidance\",\"name\":\"workspace-source-selection\",\"description\":\"Use the authority source map to select the current source for each workspace question.\",\"body\":\"For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.\",\"hash\":\"dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103\",\"evidence\":{\"key\":\"aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"source\":\"resident-learning-cycle:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"reason\":\"Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a.\"}}"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": true,
+          "output": "1\t{\"release_channel\":{\"path\":\"records/current-0.txt\",\"key\":\"release_channel\"}}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/candidate/.meta/authority.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "records/current-0.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=active-protection-0\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-0/candidate/records/current-0.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/current-0.txt": "release_channel=active-protection-0\n",
+        "docs/settings.txt": "release_channel=retired-verification-0\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-0.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 4831,
+      "passed": true
+    },
+    {
+      "case": "verification-document-0",
+      "taskId": "verification-document",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "9ce76ba1-a3c7-4681-9952-76d28c72c75f",
+      "output": "Mina",
+      "stopReason": "end_turn",
+      "tokens": 6679,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6679,
+        "treeTokens": 6679,
+        "reservedTokens": 0,
+        "remainingTokens": 17321,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6679
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call\n2\tHistorical primary: Robin (last month).\n3\tCurrent primary this week: Mina.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-document-0/candidate/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Mina.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 2275,
+      "passed": true
+    },
+    {
+      "case": "verification-document-0",
+      "taskId": "verification-document",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "0e50c5d5-f7fb-439a-8226-c5b2e07059c5",
+      "output": "Mina",
+      "stopReason": "end_turn",
+      "tokens": 6334,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6334,
+        "treeTokens": 6334,
+        "reservedTokens": 0,
+        "remainingTokens": 17666,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6334
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-document-0/baseline/docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call\n2\tHistorical primary: Robin (last month).\n3\tCurrent primary this week: Mina.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-document-0/baseline/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Mina.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3004,
+      "passed": true
+    },
+    {
+      "case": "verification-config-0",
+      "taskId": "verification-config",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "8e4f98f4-76aa-4759-a2df-5709d2e5f745",
+      "output": "7501",
+      "stopReason": "end_turn",
+      "tokens": 9866,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 9866,
+        "treeTokens": 9866,
+        "reservedTokens": 0,
+        "remainingTokens": 14134,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 9866
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/baseline"
+          },
+          "success": true,
+          "output": "./defaults.json\n./local.json",
+          "data": {
+            "count": 2,
+            "files": [
+              "./defaults.json",
+              "./local.json"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/baseline/defaults.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":3000,\"retries\":3}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/baseline/defaults.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/baseline/local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7501}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/baseline/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"retries\":3}",
+        "local.json": "{\"port\":7501}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3534,
+      "passed": true
+    },
+    {
+      "case": "verification-config-0",
+      "taskId": "verification-config",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "dd702f7b-0244-4965-a445-d812cae7b2c3",
+      "output": "7501",
+      "stopReason": "end_turn",
+      "tokens": 10541,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 10541,
+        "treeTokens": 10541,
+        "reservedTokens": 0,
+        "remainingTokens": 13459,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10541
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/candidate"
+          },
+          "success": true,
+          "output": "./defaults.json\n./local.json",
+          "data": {
+            "count": 2,
+            "files": [
+              "./defaults.json",
+              "./local.json"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/candidate/defaults.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":3000,\"retries\":3}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/candidate/defaults.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/candidate/local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7501}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-0/candidate/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"retries\":3}",
+        "local.json": "{\"port\":7501}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3504,
+      "passed": true
+    },
+    {
+      "case": "verification-ledger-0",
+      "taskId": "verification-ledger",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "390d4887-48a5-45e2-b333-d2213b68dc22",
+      "output": "35",
+      "stopReason": "end_turn",
+      "tokens": 10373,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 10373,
+        "treeTokens": 10373,
+        "reservedTokens": 0,
+        "remainingTokens": 13627,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10373
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-ledger-0/candidate"
+          },
+          "success": true,
+          "output": "./ledger.csv",
+          "data": {
+            "count": 1,
+            "files": [
+              "./ledger.csv"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-ledger-0/candidate/ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,31\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-ledger-0/candidate/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,31\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3384,
+      "passed": true
+    },
+    {
+      "case": "verification-ledger-0",
+      "taskId": "verification-ledger",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "3fb5e689-00c3-49e4-9ee3-4e99ed0151d4",
+      "output": "35",
+      "stopReason": "end_turn",
+      "tokens": 9674,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 9674,
+        "treeTokens": 9674,
+        "reservedTokens": 0,
+        "remainingTokens": 14326,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 9674
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-ledger-0/baseline"
+          },
+          "success": true,
+          "output": "./ledger.csv",
+          "data": {
+            "count": 1,
+            "files": [
+              "./ledger.csv"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-ledger-0/baseline/ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,31\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-ledger-0/baseline/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,31\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3773,
+      "passed": true
+    },
+    {
+      "case": "verification-edit-0",
+      "taskId": "verification-edit",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "a66b6f2b-19bd-47b8-a8f5-eac74587b030",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 14050,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 14050,
+        "treeTokens": 14050,
+        "reservedTokens": 0,
+        "remainingTokens": 9950,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 14050
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-0/baseline/notes.txt"
+          }
+        },
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./unrelated.txt\n./notes.txt",
+          "data": {
+            "count": 2,
+            "files": [
+              "./unrelated.txt",
+              "./notes.txt"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "edit",
+          "input": {
+            "path": "notes.txt",
+            "new_string": "Check 0 complete.",
+            "insertLine": "end"
+          },
+          "success": true,
+          "output": "Edited /tmp/namzu-protection-WErQXl/cases/verification-edit-0/baseline/notes.txt: 1 replacement(s)",
+          "data": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-0/baseline/notes.txt",
+            "replacements": 1
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\tCheck 0 complete.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-0/baseline/notes.txt"
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 0 complete.\n",
+        "unrelated.txt": "Unrelated content.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 9956,
+      "passed": true
+    },
+    {
+      "case": "verification-edit-0",
+      "taskId": "verification-edit",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "600100ef-f87a-4015-8099-f6b1a8b8126a",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 18315,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 18315,
+        "treeTokens": 18315,
+        "reservedTokens": 0,
+        "remainingTokens": 5685,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 18315
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./unrelated.txt\n./notes.txt",
+          "data": {
+            "count": 2,
+            "files": [
+              "./unrelated.txt",
+              "./notes.txt"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-0/candidate/notes.txt"
+          }
+        },
+        {
+          "name": "edit",
+          "input": {
+            "path": "notes.txt",
+            "new_string": "Check 0 complete.",
+            "insertLine": "end"
+          },
+          "success": true,
+          "output": "Edited /tmp/namzu-protection-WErQXl/cases/verification-edit-0/candidate/notes.txt: 1 replacement(s)",
+          "data": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-0/candidate/notes.txt",
+            "replacements": 1
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\tCheck 0 complete.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-0/candidate/notes.txt"
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 0 complete.\n",
+        "unrelated.txt": "Unrelated content.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 8789,
+      "passed": true
+    },
+    {
+      "case": "verification-source-1",
+      "taskId": "verification-source",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "ea84c220-1903-43c7-ad14-6e32c2da50a7",
+      "output": "active-protection-1",
+      "stopReason": "end_turn",
+      "tokens": 15639,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 15639,
+        "treeTokens": 15639,
+        "reservedTokens": 0,
+        "remainingTokens": 8361,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 15639
+      },
+      "tools": [
+        {
+          "name": "read_resident_skill",
+          "input": {
+            "name": "workspace-source-selection"
+          },
+          "success": true,
+          "output": "{\"kind\":\"evaluated-guidance\",\"name\":\"workspace-source-selection\",\"description\":\"Use the authority source map to select the current source for each workspace question.\",\"body\":\"For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.\",\"hash\":\"dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103\",\"evidence\":{\"key\":\"aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"source\":\"resident-learning-cycle:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"reason\":\"Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a.\"}}"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": true,
+          "output": "1\t{\"release_channel\":{\"path\":\"records/current-1.txt\",\"key\":\"release_channel\"}}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-1/candidate/.meta/authority.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "records/current-1.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=active-protection-1\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-1/candidate/records/current-1.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/current-1.txt": "release_channel=active-protection-1\n",
+        "docs/settings.txt": "release_channel=retired-verification-1\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-1.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 15414,
+      "passed": true
+    },
+    {
+      "case": "verification-source-1",
+      "taskId": "verification-source",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "ef00e7c2-92ba-4c2b-af31-b1eb2dbea723",
+      "output": "retired-verification-1",
+      "stopReason": "end_turn",
+      "tokens": 16837,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 16837,
+        "treeTokens": 16837,
+        "reservedTokens": 0,
+        "remainingTokens": 7163,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16837
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-1/baseline"
+          },
+          "success": true,
+          "output": "./README.md",
+          "data": {
+            "count": 1,
+            "files": [
+              "./README.md"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-1/baseline/README.md"
+          },
+          "success": true,
+          "output": "1\tSee docs/settings.txt for the current release_channel.\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-1/baseline/README.md"
+          }
+        },
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "**/*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-1/baseline"
+          },
+          "success": true,
+          "output": "./records/current-1.txt\n./docs/settings.txt\n./README.md",
+          "data": {
+            "count": 3,
+            "files": [
+              "./records/current-1.txt",
+              "./docs/settings.txt",
+              "./README.md"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-1/baseline/docs/settings.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=retired-verification-1\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-source-1/baseline/docs/settings.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/current-1.txt": "release_channel=active-protection-1\n",
+        "docs/settings.txt": "release_channel=retired-verification-1\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-1.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": false,
+      "durationMs": 49020,
+      "passed": false
+    },
+    {
+      "case": "verification-document-1",
+      "taskId": "verification-document",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "f1cdd6c7-510b-47c8-8450-3440ceb65ab5",
+      "output": "Can",
+      "stopReason": "end_turn",
+      "tokens": 6295,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6295,
+        "treeTokens": 6295,
+        "reservedTokens": 0,
+        "remainingTokens": 17705,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6295
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-document-1/baseline/docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call\n2\tHistorical primary: Robin (last month).\n3\tCurrent primary this week: Can.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-document-1/baseline/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Can.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3704,
+      "passed": true
+    },
+    {
+      "case": "verification-document-1",
+      "taskId": "verification-document",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "603fff78-6ca0-4e1a-bb3b-b9223f033ef1",
+      "output": "Can",
+      "stopReason": "end_turn",
+      "tokens": 6713,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6713,
+        "treeTokens": 6713,
+        "reservedTokens": 0,
+        "remainingTokens": 17287,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6713
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call\n2\tHistorical primary: Robin (last month).\n3\tCurrent primary this week: Can.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-document-1/candidate/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Can.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 12645,
+      "passed": true
+    },
+    {
+      "case": "verification-config-1",
+      "taskId": "verification-config",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "c464b0ed-bae1-4769-8896-39d554fa9885",
+      "output": "7502",
+      "stopReason": "end_turn",
+      "tokens": 10586,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 10586,
+        "treeTokens": 10586,
+        "reservedTokens": 0,
+        "remainingTokens": 13414,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10586
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/candidate"
+          },
+          "success": true,
+          "output": "./defaults.json\n./local.json",
+          "data": {
+            "count": 2,
+            "files": [
+              "./defaults.json",
+              "./local.json"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/candidate/defaults.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":3000,\"retries\":3}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/candidate/defaults.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/candidate/local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7502}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/candidate/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"retries\":3}",
+        "local.json": "{\"port\":7502}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 5222,
+      "passed": true
+    },
+    {
+      "case": "verification-config-1",
+      "taskId": "verification-config",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "79dd0ef1-b65f-409a-9cca-31a71ff76085",
+      "output": "7502",
+      "stopReason": "end_turn",
+      "tokens": 9875,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 9875,
+        "treeTokens": 9875,
+        "reservedTokens": 0,
+        "remainingTokens": 14125,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 9875
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/baseline"
+          },
+          "success": true,
+          "output": "./defaults.json\n./local.json",
+          "data": {
+            "count": 2,
+            "files": [
+              "./defaults.json",
+              "./local.json"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/baseline/defaults.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":3000,\"retries\":3}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/baseline/defaults.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/baseline/local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7502}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-config-1/baseline/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"retries\":3}",
+        "local.json": "{\"port\":7502}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3789,
+      "passed": true
+    },
+    {
+      "case": "verification-ledger-1",
+      "taskId": "verification-ledger",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "73d540c0-0036-4d22-bd75-8b828ae1754c",
+      "output": "36",
+      "stopReason": "end_turn",
+      "tokens": 9556,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 9556,
+        "treeTokens": 9556,
+        "reservedTokens": 0,
+        "remainingTokens": 14444,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 9556
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./ledger.csv",
+          "data": {
+            "count": 1,
+            "files": [
+              "./ledger.csv"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,32\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-ledger-1/baseline/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,32\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3417,
+      "passed": true
+    },
+    {
+      "case": "verification-ledger-1",
+      "taskId": "verification-ledger",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "a2f7aeb8-baaf-4239-a6fa-7b22065c9592",
+      "output": "36",
+      "stopReason": "end_turn",
+      "tokens": 10265,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 10265,
+        "treeTokens": 10265,
+        "reservedTokens": 0,
+        "remainingTokens": 13735,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10265
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./ledger.csv",
+          "data": {
+            "count": 1,
+            "files": [
+              "./ledger.csv"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,32\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-ledger-1/candidate/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,32\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3161,
+      "passed": true
+    },
+    {
+      "case": "verification-edit-1",
+      "taskId": "verification-edit",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "3c8b4cfb-9321-4f42-b5e9-4e28efe0655e",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 19013,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 19013,
+        "treeTokens": 19013,
+        "reservedTokens": 0,
+        "remainingTokens": 4987,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 19013
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/candidate"
+          },
+          "success": true,
+          "output": "./unrelated.txt\n./notes.txt",
+          "data": {
+            "count": 2,
+            "files": [
+              "./unrelated.txt",
+              "./notes.txt"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/candidate/notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/candidate/notes.txt"
+          }
+        },
+        {
+          "name": "edit",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/candidate/notes.txt",
+            "new_string": "Check 1 complete.",
+            "insertLine": "end"
+          },
+          "success": true,
+          "output": "Edited /tmp/namzu-protection-WErQXl/cases/verification-edit-1/candidate/notes.txt: 1 replacement(s)",
+          "data": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/candidate/notes.txt",
+            "replacements": 1
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/candidate/notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\tCheck 1 complete.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/candidate/notes.txt"
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 1 complete.\n",
+        "unrelated.txt": "Unrelated content.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 15469,
+      "passed": true
+    },
+    {
+      "case": "verification-edit-1",
+      "taskId": "verification-edit",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "ccd30803-3615-46c7-aec3-e31c5b51be63",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 21142,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 21142,
+        "treeTokens": 21142,
+        "reservedTokens": 0,
+        "remainingTokens": 2858,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 21142
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./unrelated.txt\n./notes.txt",
+          "data": {
+            "count": 2,
+            "files": [
+              "./unrelated.txt",
+              "./notes.txt"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/baseline/notes.txt"
+          }
+        },
+        {
+          "name": "edit",
+          "input": {
+            "path": "notes.txt",
+            "new_string": "Check 1 complete.",
+            "insertLine": "end"
+          },
+          "success": true,
+          "output": "Edited /tmp/namzu-protection-WErQXl/cases/verification-edit-1/baseline/notes.txt: 1 replacement(s)",
+          "data": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/baseline/notes.txt",
+            "replacements": 1
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\tCheck 1 complete.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/baseline/notes.txt"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "unrelated.txt"
+          },
+          "success": true,
+          "output": "1\tUnrelated content.\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/verification-edit-1/baseline/unrelated.txt"
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 1 complete.\n",
+        "unrelated.txt": "Unrelated content.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 13618,
+      "passed": true
+    },
+    {
+      "case": "confirmation-source-0",
+      "taskId": "confirmation-source",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "9eafa8bd-bb0e-4677-a3c8-4662f70ac959",
+      "output": "retired-confirmation-0",
+      "stopReason": "end_turn",
+      "tokens": 13753,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 13753,
+        "treeTokens": 13753,
+        "reservedTokens": 0,
+        "remainingTokens": 10247,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 13753
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-0/baseline"
+          },
+          "success": true,
+          "output": "./README.md",
+          "data": {
+            "count": 1,
+            "files": [
+              "./README.md"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-0/baseline/README.md"
+          },
+          "success": true,
+          "output": "1\tSee docs/settings.txt for the current release_channel.\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-0/baseline/README.md"
+          }
+        },
+        {
+          "name": "grep",
+          "input": {
+            "pattern": "release_channel",
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-0/baseline",
+            "case_sensitive": true,
+            "context_lines": 0,
+            "max_results": 100
+          },
+          "success": true,
+          "output": "./records/current-20.txt:1:release_channel=active-protection-20\n./docs/settings.txt:1:release_channel=retired-confirmation-0\n./README.md:1:See docs/settings.txt for the current release_channel.\n\nFound 3 match(es) in 3 file(s) (3 files searched)",
+          "data": {
+            "totalMatches": 3,
+            "filesSearched": 3,
+            "filesMatched": 3,
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-0/baseline/docs/settings.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=retired-confirmation-0\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-0/baseline/docs/settings.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/current-20.txt": "release_channel=active-protection-20\n",
+        "docs/settings.txt": "release_channel=retired-confirmation-0\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-20.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": false,
+      "durationMs": 6292,
+      "passed": false
+    },
+    {
+      "case": "confirmation-source-0",
+      "taskId": "confirmation-source",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "6965ea67-03a0-4e32-b093-85c82630c65a",
+      "output": "active-protection-20",
+      "stopReason": "end_turn",
+      "tokens": 15603,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 15603,
+        "treeTokens": 15603,
+        "reservedTokens": 0,
+        "remainingTokens": 8397,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 15603
+      },
+      "tools": [
+        {
+          "name": "read_resident_skill",
+          "input": {
+            "name": "workspace-source-selection"
+          },
+          "success": true,
+          "output": "{\"kind\":\"evaluated-guidance\",\"name\":\"workspace-source-selection\",\"description\":\"Use the authority source map to select the current source for each workspace question.\",\"body\":\"For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.\",\"hash\":\"dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103\",\"evidence\":{\"key\":\"aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"source\":\"resident-learning-cycle:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"reason\":\"Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a.\"}}"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": true,
+          "output": "1\t{\"release_channel\":{\"path\":\"records/current-20.txt\",\"key\":\"release_channel\"}}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-0/candidate/.meta/authority.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "records/current-20.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=active-protection-20\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-0/candidate/records/current-20.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/current-20.txt": "release_channel=active-protection-20\n",
+        "docs/settings.txt": "release_channel=retired-confirmation-0\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-20.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 4970,
+      "passed": true
+    },
+    {
+      "case": "confirmation-document-0",
+      "taskId": "confirmation-document",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "79771566-01d6-429e-b0a2-f122a9a666bc",
+      "output": "Lale",
+      "stopReason": "end_turn",
+      "tokens": 6771,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6771,
+        "treeTokens": 6771,
+        "reservedTokens": 0,
+        "remainingTokens": 17229,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6771
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-document-0/candidate/docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call\n2\tHistorical primary: Robin (last month).\n3\tCurrent primary this week: Lale.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-document-0/candidate/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Lale.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 2565,
+      "passed": true
+    },
+    {
+      "case": "confirmation-document-0",
+      "taskId": "confirmation-document",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "d72c73f8-38da-4829-978f-f9df0c1241cc",
+      "output": "Lale",
+      "stopReason": "end_turn",
+      "tokens": 6278,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6278,
+        "treeTokens": 6278,
+        "reservedTokens": 0,
+        "remainingTokens": 17722,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6278
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call\n2\tHistorical primary: Robin (last month).\n3\tCurrent primary this week: Lale.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-document-0/baseline/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Lale.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 2612,
+      "passed": true
+    },
+    {
+      "case": "confirmation-config-0",
+      "taskId": "confirmation-config",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "ad6b8eed-8ef6-49bc-8ce6-58f2b4e9a1e9",
+      "output": "7521",
+      "stopReason": "end_turn",
+      "tokens": 6510,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6510,
+        "treeTokens": 6510,
+        "reservedTokens": 0,
+        "remainingTokens": 17490,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6510
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-0/baseline/defaults.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":3000,\"retries\":3}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-0/baseline/defaults.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-0/baseline/local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7521}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-0/baseline/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"retries\":3}",
+        "local.json": "{\"port\":7521}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 2727,
+      "passed": true
+    },
+    {
+      "case": "confirmation-config-0",
+      "taskId": "confirmation-config",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "9e646fc3-672c-40c2-81ce-63a6832ed2d8",
+      "output": "7521",
+      "stopReason": "end_turn",
+      "tokens": 7011,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 7011,
+        "treeTokens": 7011,
+        "reservedTokens": 0,
+        "remainingTokens": 16989,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 7011
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-0/candidate/defaults.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":3000,\"retries\":3}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-0/candidate/defaults.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-0/candidate/local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7521}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-0/candidate/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"retries\":3}",
+        "local.json": "{\"port\":7521}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 7213,
+      "passed": true
+    },
+    {
+      "case": "confirmation-ledger-0",
+      "taskId": "confirmation-ledger",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "79222252-9ca7-4e53-b651-16ce8915410d",
+      "output": "55",
+      "stopReason": "end_turn",
+      "tokens": 10394,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 10394,
+        "treeTokens": 10394,
+        "reservedTokens": 0,
+        "remainingTokens": 13606,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10394
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-ledger-0/candidate"
+          },
+          "success": true,
+          "output": "./ledger.csv",
+          "data": {
+            "count": 1,
+            "files": [
+              "./ledger.csv"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-ledger-0/candidate/ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,51\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-ledger-0/candidate/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,51\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 4162,
+      "passed": true
+    },
+    {
+      "case": "confirmation-ledger-0",
+      "taskId": "confirmation-ledger",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "480bfa4f-14cf-47b5-90fd-0b725b040056",
+      "output": "55",
+      "stopReason": "end_turn",
+      "tokens": 6273,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6273,
+        "treeTokens": 6273,
+        "reservedTokens": 0,
+        "remainingTokens": 17727,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6273
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,51\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-ledger-0/baseline/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,51\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 2157,
+      "passed": true
+    },
+    {
+      "case": "confirmation-edit-0",
+      "taskId": "confirmation-edit",
+      "trial": 0,
+      "arm": "baseline",
+      "runId": "cb288b9d-c97d-45f6-a2fa-f0418edbbbd4",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 17739,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 17739,
+        "treeTokens": 17739,
+        "reservedTokens": 0,
+        "remainingTokens": 6261,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 17739
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./unrelated.txt\n./notes.txt",
+          "data": {
+            "count": 2,
+            "files": [
+              "./unrelated.txt",
+              "./notes.txt"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-0/baseline/notes.txt"
+          }
+        },
+        {
+          "name": "edit",
+          "input": {
+            "path": "notes.txt",
+            "new_string": "Check 20 complete.",
+            "insertLine": "end"
+          },
+          "success": true,
+          "output": "Edited /tmp/namzu-protection-WErQXl/cases/confirmation-edit-0/baseline/notes.txt: 1 replacement(s)",
+          "data": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-0/baseline/notes.txt",
+            "replacements": 1
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\tCheck 20 complete.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-0/baseline/notes.txt"
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 20 complete.\n",
+        "unrelated.txt": "Unrelated content.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 22177,
+      "passed": true
+    },
+    {
+      "case": "confirmation-edit-0",
+      "taskId": "confirmation-edit",
+      "trial": 0,
+      "arm": "candidate",
+      "runId": "3ce72048-59d7-4283-a843-756cbb633ede",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 18353,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 18353,
+        "treeTokens": 18353,
+        "reservedTokens": 0,
+        "remainingTokens": 5647,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 18353
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./unrelated.txt\n./notes.txt",
+          "data": {
+            "count": 2,
+            "files": [
+              "./unrelated.txt",
+              "./notes.txt"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-0/candidate/notes.txt"
+          }
+        },
+        {
+          "name": "edit",
+          "input": {
+            "path": "notes.txt",
+            "new_string": "Check 20 complete.",
+            "insertLine": "end"
+          },
+          "success": true,
+          "output": "Edited /tmp/namzu-protection-WErQXl/cases/confirmation-edit-0/candidate/notes.txt: 1 replacement(s)",
+          "data": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-0/candidate/notes.txt",
+            "replacements": 1
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\tCheck 20 complete.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-0/candidate/notes.txt"
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 20 complete.\n",
+        "unrelated.txt": "Unrelated content.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 12221,
+      "passed": true
+    },
+    {
+      "case": "confirmation-source-1",
+      "taskId": "confirmation-source",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "df0489e3-b41d-406f-b412-fd66efde45c5",
+      "output": "active-protection-21",
+      "stopReason": "end_turn",
+      "tokens": 15540,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 15540,
+        "treeTokens": 15540,
+        "reservedTokens": 0,
+        "remainingTokens": 8460,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 15540
+      },
+      "tools": [
+        {
+          "name": "read_resident_skill",
+          "input": {
+            "name": "workspace-source-selection"
+          },
+          "success": true,
+          "output": "{\"kind\":\"evaluated-guidance\",\"name\":\"workspace-source-selection\",\"description\":\"Use the authority source map to select the current source for each workspace question.\",\"body\":\"For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.\",\"hash\":\"dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103\",\"evidence\":{\"key\":\"aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"source\":\"resident-learning-cycle:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"reason\":\"Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a.\"}}"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": true,
+          "output": "1\t{\"release_channel\":{\"path\":\"records/current-21.txt\",\"key\":\"release_channel\"}}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/candidate/.meta/authority.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "records/current-21.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=active-protection-21\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/candidate/records/current-21.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/current-21.txt": "release_channel=active-protection-21\n",
+        "docs/settings.txt": "release_channel=retired-confirmation-1\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-21.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 6585,
+      "passed": true
+    },
+    {
+      "case": "confirmation-source-1",
+      "taskId": "confirmation-source",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "1654405f-e61a-4f68-a068-0856b21c73a1",
+      "output": "retired-confirmation-1",
+      "stopReason": "end_turn",
+      "tokens": 14475,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 14475,
+        "treeTokens": 14475,
+        "reservedTokens": 0,
+        "remainingTokens": 9525,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 14475
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/baseline"
+          },
+          "success": true,
+          "output": "./README.md",
+          "data": {
+            "count": 1,
+            "files": [
+              "./README.md"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/baseline/README.md"
+          },
+          "success": true,
+          "output": "1\tSee docs/settings.txt for the current release_channel.\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/baseline/README.md"
+          }
+        },
+        {
+          "name": "grep",
+          "input": {
+            "pattern": "release_channel",
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/baseline",
+            "case_sensitive": true,
+            "context_lines": 0,
+            "max_results": 100
+          },
+          "success": true,
+          "output": "./records/current-21.txt:1:release_channel=active-protection-21\n./docs/settings.txt:1:release_channel=retired-confirmation-1\n./README.md:1:See docs/settings.txt for the current release_channel.\n\nFound 3 match(es) in 3 file(s) (3 files searched)",
+          "data": {
+            "totalMatches": 3,
+            "filesSearched": 3,
+            "filesMatched": 3,
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/baseline/docs/settings.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=retired-confirmation-1\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/baseline/docs/settings.txt"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/baseline/records/current-21.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=active-protection-21\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-source-1/baseline/records/current-21.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/current-21.txt": "release_channel=active-protection-21\n",
+        "docs/settings.txt": "release_channel=retired-confirmation-1\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/current-21.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 9992,
+      "passed": false
+    },
+    {
+      "case": "confirmation-document-1",
+      "taskId": "confirmation-document",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "a8188fbf-9366-42b9-a12d-158ac1fc30b7",
+      "output": "Ali",
+      "stopReason": "end_turn",
+      "tokens": 6344,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6344,
+        "treeTokens": 6344,
+        "reservedTokens": 0,
+        "remainingTokens": 17656,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6344
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-document-1/baseline/docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call\n2\tHistorical primary: Robin (last month).\n3\tCurrent primary this week: Ali.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-document-1/baseline/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Ali.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3804,
+      "passed": true
+    },
+    {
+      "case": "confirmation-document-1",
+      "taskId": "confirmation-document",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "f8c2d833-dcb5-4b7e-ae6d-05d3f4621c3a",
+      "output": "Ali",
+      "stopReason": "end_turn",
+      "tokens": 6835,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6835,
+        "treeTokens": 6835,
+        "reservedTokens": 0,
+        "remainingTokens": 17165,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6835
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-document-1/candidate/docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call\n2\tHistorical primary: Robin (last month).\n3\tCurrent primary this week: Ali.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-document-1/candidate/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call\nHistorical primary: Robin (last month).\nCurrent primary this week: Ali.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 2647,
+      "passed": true
+    },
+    {
+      "case": "confirmation-config-1",
+      "taskId": "confirmation-config",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "99e6b94f-622f-4ee0-a7ad-092a0241de10",
+      "output": "7522",
+      "stopReason": "end_turn",
+      "tokens": 10602,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 10602,
+        "treeTokens": 10602,
+        "reservedTokens": 0,
+        "remainingTokens": 13398,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10602
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/candidate"
+          },
+          "success": true,
+          "output": "./defaults.json\n./local.json",
+          "data": {
+            "count": 2,
+            "files": [
+              "./defaults.json",
+              "./local.json"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/candidate/defaults.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":3000,\"retries\":3}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/candidate/defaults.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/candidate/local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7522}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/candidate/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"retries\":3}",
+        "local.json": "{\"port\":7522}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 6735,
+      "passed": true
+    },
+    {
+      "case": "confirmation-config-1",
+      "taskId": "confirmation-config",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "e750e9b8-2b00-4aed-b1b7-d09ddde5c6d1",
+      "output": "7522",
+      "stopReason": "end_turn",
+      "tokens": 6528,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6528,
+        "treeTokens": 6528,
+        "reservedTokens": 0,
+        "remainingTokens": 17472,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6528
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/baseline/defaults.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":3000,\"retries\":3}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/baseline/defaults.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/baseline/local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7522}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-config-1/baseline/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"retries\":3}",
+        "local.json": "{\"port\":7522}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 22229,
+      "passed": true
+    },
+    {
+      "case": "confirmation-ledger-1",
+      "taskId": "confirmation-ledger",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "16948ba5-155b-40b4-99db-1fb8e2b2392f",
+      "output": "56",
+      "stopReason": "end_turn",
+      "tokens": 6414,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 6414,
+        "treeTokens": 6414,
+        "reservedTokens": 0,
+        "remainingTokens": 17586,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 6414
+      },
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-ledger-1/baseline/ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,52\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-ledger-1/baseline/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,52\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3401,
+      "passed": true
+    },
+    {
+      "case": "confirmation-ledger-1",
+      "taskId": "confirmation-ledger",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "18da20d9-719c-4103-aaae-297ed40aa96b",
+      "output": "56",
+      "stopReason": "end_turn",
+      "tokens": 10263,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 10263,
+        "treeTokens": 10263,
+        "reservedTokens": 0,
+        "remainingTokens": 13737,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 10263
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./ledger.csv",
+          "data": {
+            "count": 1,
+            "files": [
+              "./ledger.csv"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,52\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-ledger-1/candidate/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,52\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 3811,
+      "passed": true
+    },
+    {
+      "case": "confirmation-edit-1",
+      "taskId": "confirmation-edit",
+      "trial": 1,
+      "arm": "candidate",
+      "runId": "2b92ca4e-64d9-4c12-9cba-880060fe39b8",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 18531,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 18531,
+        "treeTokens": 18531,
+        "reservedTokens": 0,
+        "remainingTokens": 5469,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 18531
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./unrelated.txt\n./notes.txt",
+          "data": {
+            "count": 2,
+            "files": [
+              "./unrelated.txt",
+              "./notes.txt"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/candidate/notes.txt"
+          }
+        },
+        {
+          "name": "edit",
+          "input": {
+            "path": "notes.txt",
+            "new_string": "Check 21 complete.",
+            "insertLine": "end"
+          },
+          "success": true,
+          "output": "Edited /tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/candidate/notes.txt: 1 replacement(s)",
+          "data": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/candidate/notes.txt",
+            "replacements": 1
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\tCheck 21 complete.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/candidate/notes.txt"
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 21 complete.\n",
+        "unrelated.txt": "Unrelated content.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 17908,
+      "passed": true
+    },
+    {
+      "case": "confirmation-edit-1",
+      "taskId": "confirmation-edit",
+      "trial": 1,
+      "arm": "baseline",
+      "runId": "b4f6039e-6f66-49d8-bad2-8c4716869f3d",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 16988,
+      "usageComplete": true,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 16988,
+        "treeTokens": 16988,
+        "reservedTokens": 0,
+        "remainingTokens": 7012,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 16988
+      },
+      "tools": [
+        {
+          "name": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "."
+          },
+          "success": true,
+          "output": "./unrelated.txt\n./notes.txt",
+          "data": {
+            "count": 2,
+            "files": [
+              "./unrelated.txt",
+              "./notes.txt"
+            ],
+            "truncated": false
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/baseline/notes.txt"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "unrelated.txt"
+          },
+          "success": true,
+          "output": "1\tUnrelated content.\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/baseline/unrelated.txt"
+          }
+        },
+        {
+          "name": "edit",
+          "input": {
+            "path": "notes.txt",
+            "new_string": "Check 21 complete.",
+            "insertLine": "end"
+          },
+          "success": true,
+          "output": "Edited /tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/baseline/notes.txt: 1 replacement(s)",
+          "data": {
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/baseline/notes.txt",
+            "replacements": 1
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: preserve this exact sentence.\n3\tCheck 21 complete.\n4\t",
+          "data": {
+            "totalLines": 4,
+            "returnedLines": 4,
+            "truncated": false,
+            "path": "/tmp/namzu-protection-WErQXl/cases/confirmation-edit-1/baseline/notes.txt"
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: preserve this exact sentence.\nCheck 21 complete.\n",
+        "unrelated.txt": "Unrelated content.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "durationMs": 10263,
+      "passed": true
+    }
+  ],
+  "active": [
+    {
+      "name": "workspace-source-selection",
+      "description": "Use the authority source map to select the current source for each workspace question.",
+      "body": "For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.",
+      "hash": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+      "evidence": {
+        "key": "137522c3-00af-4095-af3b-cf7062d56927",
+        "source": "resident-learning-cycle:137522c3-00af-4095-af3b-cf7062d56927",
+        "reason": "Paired verification and fresh confirmation of guidance derived from evidence transfer-diagnostic."
+      },
+      "verification": {
+        "baselineHash": "none",
+        "candidateHash": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+        "evidenceDigest": "01638bdfd1078c170c0455a2d4e3898392f61c617c360769abed8d100d875a09",
+        "verificationTasks": 5,
+        "confirmationTasks": 5,
+        "protection": {
+          "verificationTasks": 4,
+          "confirmationTasks": 4,
+          "planDigest": "e9019254793856d0ee86013b7f6425c9fc8b05a8ec9c6a2b44d6c5e7ca2a11cd"
+        }
+      }
+    }
+  ],
+  "totalRecordedTokens": 469322,
+  "unknownReceipts": 0,
+  "dataHash": "893c1020964d6b5a15d1cc91c195befb5df9e678002bbba3ca812bbe66d1751d",
+  "limitations": "Small synthetic requalification of a fixed historical candidate under on-demand disclosure. Deterministic candidate selection costs zero model tokens; no new learned candidate. All attempts retained, no retry or answer tuning. Unknown prices/receipts remain unknown. Attributions are host source/output checks, not an external model review. Parent TUI consumption is separate."
+}

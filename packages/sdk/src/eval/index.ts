@@ -1,5 +1,6 @@
 export { evalRunFromQuery, evalRunFromRun } from './from-run.js'
 export { compareHarnessTrials, reviewHarnessCandidate } from './harness-verification.js'
+export type { HarnessProtectionPlan, HarnessProtectionCheck } from './harness-protection.js'
 export type {
 	HarnessTrial,
 	HarnessAttribution,

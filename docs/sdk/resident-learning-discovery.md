@@ -17,6 +17,11 @@ failure; a generated claim of success never replaces verification or confirmatio
 This opt-in experiment changes instructional guidance, not model weights or the
 kernel's executable code. It does not install a background executor.
 
+Discovery hosts also declare `protection` before generation, using the same
+preservation tasks and two-round requirements as explicit learning cycles.
+Selecting a retained failure does not select or manufacture unrelated successful
+controls; the host remains responsible for that coverage.
+
 ## Recording observations
 
 `store.observe(observation)` records an immutable `ResidentLearningObservation`:

@@ -18,6 +18,11 @@ execution limits and the agenda. Both APIs are experimental and opt-in.
 [Learning discovery](resident-learning-discovery.md) adds host-scored observations
 and per-task attempt claims in the same database. A host can let the SDK select
 an eligible retained failure through `runStoredResidentLearningFromObservations`.
+Both host paths require a predeclared `protection` plan under the
+[learning-cycle contract](resident-learning-cycle.md). The `started` event
+retains its exact selection before generation; evaluation artifacts retain the
+actual paired control trials. Reopening a historical cycle does not add controls
+or qualify its candidate under the new gate.
 
 ## Authority and layout
 

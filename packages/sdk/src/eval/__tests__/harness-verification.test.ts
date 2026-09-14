@@ -80,6 +80,46 @@ function attribution(
 }
 
 describe('paired harness verification', () => {
+	it('requires every host-declared preservation task and rejects even one lost successful trial', () => {
+		const protection = { verification: ['initial-1'], confirmation: ['fresh-1'] }
+		expect(reviewHarnessCandidate(batch(), batch('fresh'), protection)).toMatchObject({
+			decision: 'accept',
+			protection: { verification: { status: 'passed' }, confirmation: { status: 'passed' } },
+		})
+		for (const phase of ['verification', 'confirmation'] as const) {
+			const missing = { ...protection, [phase]: ['absent'] }
+			expect(reviewHarnessCandidate(batch(), batch('fresh'), missing)).toMatchObject({
+				decision: 'inconclusive',
+				protection: { [phase]: { missingTasks: ['absent'] } },
+			})
+			const first = batch()
+			const second = batch('fresh')
+			const round = phase === 'verification' ? first : second
+			round.candidate[2]!.result = result(false)
+			// Generic Table 6 calls 2 -> 1 mixed. A predeclared preservation loss is a rejection.
+			expect(reviewHarnessCandidate(first, second, protection)).toMatchObject({
+				decision: 'reject',
+				protection: { [phase]: { status: 'failed', regressedTasks: protection[phase] } },
+			})
+		}
+	})
+	it('does not treat failed, missing or uncertain baseline evidence as proof of preservation', () => {
+		for (const fault of ['failed', 'error', 'unavailable']) {
+			const first = batch()
+			if (fault === 'failed') first.baseline[2]!.result = result(false)
+			else if (fault === 'error') first.candidate[2]!.result.run.error = 'provider disconnected'
+			else first.baseline[2]!.result.scores.exact!.unavailable = true
+			expect(
+				reviewHarnessCandidate(first, batch('fresh'), {
+					verification: ['initial-1'],
+					confirmation: ['fresh-1'],
+				}),
+			).toMatchObject({
+				decision: 'inconclusive',
+				protection: { verification: { unprovenTasks: ['initial-1'] } },
+			})
+		}
+	})
 	it('implements all five Table 6 labels without collapsing mixed outcomes into success', () => {
 		const report = compareHarnessTrials(
 			batch('table', [

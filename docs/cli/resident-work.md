@@ -486,6 +486,13 @@ and record independently scored runs through `store.observe`. The SDK then
 the installed guidance and the authorized evaluation conditions. This mode
 does not use an additional explicit `failure` or `skillName`. Each task can start
 one experiment per evaluator and baseline; a process restart does not replay it.
+Both kinds of learning host must return `protection` with preselected
+verification and confirmation task IDs. Missing or uncertain controls prevent
+activation; a lost protected baseline success rejects the candidate even if the
+total score rises. Human learning summaries show each round's protected-task
+status and missing/unproven/regressed counts. The full selection is retained in
+the starting journal event. See the
+[SDK preservation contract](../sdk/harness-verification.md#declared-preservation-tasks).
 `learning --observations` displays outcome, usage completeness and claimed cycle,
 with `--after`/`--limit` pagination. Human previews include a bounded failure reason and recorded verification/confirmation pass counts, and omit the full trace; JSON retains
 the complete observation. A claim does not establish a live executor.
@@ -496,13 +503,15 @@ signal and enforce limits on every operation it starts. The SDK's stage resource
 policy accounts for observed usage and controls admission to later stages; it
 is not a reservation that can cap a model request already in flight.
 
-The checked-in `research/resident/tool-learning-host.mjs` and
-`tool-learning-study.mjs` form a complete isolated example with real SDK file
-tools. Run the study without `--live` for scripted inference, or explicitly with
-`--live` for bounded Zen Muse/low calls. The study creates its own temporary home,
-fixtures and host module and invokes the built CLI; it does not modify personal
-residents. Its [evidence report](../../research/resident/learning-storage.md)
-distinguishes scripted plumbing checks from live quality measurements.
+The current `research/resident/learning-protection-study.mjs` uses real SDK file
+tools and the required preservation gate. Run without `--live` for scripted
+inference, with `--regression` for a deliberately failed control, or with
+`--live --prepare` to prepare a bounded Zen Muse/low host for CLI/TUI execution.
+It creates its own temporary home and fixtures and does not modify personal
+residents. Its [evidence report](../../research/resident/learning-protection.md)
+separates scripted checks from live measurements. Earlier `tool-learning-*`
+experiments used the pre-protection API; replay those at `f92daf81` with that
+revision's build. Their historical outcomes do not imply the new gate was passed.
 
 `learning` lists status and recorded consumption. A missing final receipt remains
 explicit; neither a `running` record nor a past `activated` event establishes

@@ -1,3 +1,9 @@
+import {
+	type HarnessProtectionCheck,
+	type HarnessProtectionPlan,
+	checkHarnessProtection,
+	normalizeHarnessProtection,
+} from './harness-protection.js'
 import type { CaseResult } from './types.js'
 
 /** A host-owned outcome, with enough identity to check pairing and cite its trace. */
@@ -197,6 +203,7 @@ export interface HarnessReview {
 	reason: string
 	verification: HarnessComparison
 	confirmation?: HarnessComparison
+	protection?: { verification: HarnessProtectionCheck; confirmation?: HarnessProtectionCheck }
 }
 
 /**
@@ -207,14 +214,27 @@ export interface HarnessReview {
 export function reviewHarnessCandidate(
 	verification: HarnessVerificationBatch,
 	confirmation?: HarnessVerificationBatch,
+	protection?: HarnessProtectionPlan,
 ): HarnessReview {
+	const plan = protection === undefined ? undefined : normalizeHarnessProtection(protection)
 	const first = compareHarnessTrials(verification)
 	const second = confirmation ? compareHarnessTrials(confirmation) : undefined
+	const protectedFirst = plan ? checkHarnessProtection(first, plan.verification) : undefined
+	const protectedSecond =
+		plan && second ? checkHarnessProtection(second, plan.confirmation) : undefined
 	const result = (decision: HarnessReview['decision'], reason: string): HarnessReview => ({
 		decision,
 		reason,
 		verification: first,
 		...(second ? { confirmation: second } : {}),
+		...(protectedFirst
+			? {
+					protection: {
+						verification: protectedFirst,
+						...(protectedSecond ? { confirmation: protectedSecond } : {}),
+					},
+				}
+			: {}),
 	})
 	const sufficient = (report: HarnessComparison) =>
 		report.tasks.length >= 5 && report.tasks.every((t) => t.trials === 2)
@@ -223,8 +243,18 @@ export function reviewHarnessCandidate(
 			'inconclusive',
 			'Verification requires at least five distinct tasks and two paired trials per task.',
 		)
-	if (first.regressions.length || second?.regressions.length)
+	if (
+		first.regressions.length ||
+		second?.regressions.length ||
+		protectedFirst?.status === 'failed' ||
+		protectedSecond?.status === 'failed'
+	)
 		return result('reject', 'Observed or attributed regression blocks promotion.')
+	if (protectedFirst?.status === 'inconclusive' || protectedSecond?.status === 'inconclusive')
+		return result(
+			'inconclusive',
+			'Every declared protection task requires two successful baseline and candidate trials in its designated round.',
+		)
 	if (first.unresolved.length || second?.unresolved.length)
 		return result('inconclusive', 'Incomplete or ambiguous behavioral evidence.')
 	if (!first.positiveEvidence.length)

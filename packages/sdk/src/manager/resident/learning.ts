@@ -1,6 +1,10 @@
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import {
+	type HarnessProtectionPlan,
+	normalizeHarnessProtection,
+} from '../../eval/harness-protection.js'
+import {
 	type HarnessVerificationBatch,
 	reviewHarnessCandidate,
 } from '../../eval/harness-verification.js'
@@ -64,6 +68,14 @@ const learnedSkillSchema = candidateSchema.extend({
 		evidenceDigest: digest,
 		verificationTasks: z.number().int().min(5).max(64),
 		confirmationTasks: z.number().int().min(5).max(64),
+		/** Absent only on historical activations made before protection was required. */
+		protection: z
+			.object({
+				verificationTasks: z.number().int().min(1).max(63),
+				confirmationTasks: z.number().int().min(1).max(63),
+				planDigest: digest,
+			})
+			.optional(),
 	}),
 })
 
@@ -135,6 +147,8 @@ export interface ResidentProfileUpdate {
 
 /** @experimental Recorded paired runs; hosts own execution, scoring and independent attribution. */
 export interface ResidentSkillEvaluation {
+	/** Host-owned task selection fixed before generating the candidate. */
+	readonly protection: HarnessProtectionPlan
 	readonly verification: HarnessVerificationBatch
 	readonly confirmation?: HarnessVerificationBatch
 }
@@ -163,7 +177,12 @@ export function freezeResidentLearning(input: ResidentLearningState): ResidentLe
 						? { sources: Object.freeze(skill.sources.map((source) => Object.freeze(source))) }
 						: {}),
 					evidence: Object.freeze(skill.evidence),
-					verification: Object.freeze(skill.verification),
+					verification: Object.freeze({
+						...skill.verification,
+						...(skill.verification.protection
+							? { protection: Object.freeze(skill.verification.protection) }
+							: {}),
+					}),
 				}),
 			),
 		),
@@ -270,6 +289,7 @@ export function promoteResidentSkill(
 	evaluation: ResidentSkillEvaluation,
 	inputEvidence: ResidentLearningEvidence,
 ): ResidentLearningState {
+	const protection = normalizeHarnessProtection(evaluation.protection)
 	const candidate = candidateSchema.parse(input)
 	const hash = hashResidentSkill(candidate)
 	const baselineHash = current?.skills.find((s) => s.name === candidate.name)?.hash ?? 'none'
@@ -293,7 +313,11 @@ export function promoteResidentSkill(
 				throw new Error('Inconsistent recorded skill evaluation outcome.')
 		}
 	}
-	const review = reviewHarnessCandidate(evaluation.verification, evaluation.confirmation)
+	const review = reviewHarnessCandidate(
+		evaluation.verification,
+		evaluation.confirmation,
+		protection,
+	)
 	if (review.decision !== 'accept')
 		throw new Error(`Resident skill promotion ${review.decision}: ${review.reason}`)
 	const skill: ResidentLearnedSkill = {
@@ -303,9 +327,16 @@ export function promoteResidentSkill(
 		verification: {
 			baselineHash,
 			candidateHash: hash,
-			evidenceDigest: createHash('sha256').update(JSON.stringify(evaluation)).digest('hex'),
+			evidenceDigest: createHash('sha256')
+				.update(JSON.stringify({ ...evaluation, protection }))
+				.digest('hex'),
 			verificationTasks: review.verification.tasks.length,
 			confirmationTasks: review.confirmation?.tasks.length ?? 0,
+			protection: {
+				verificationTasks: protection.verification.length,
+				confirmationTasks: protection.confirmation.length,
+				planDigest: createHash('sha256').update(JSON.stringify(protection)).digest('hex'),
+			},
 		},
 	}
 	const next = base(current, evidence)

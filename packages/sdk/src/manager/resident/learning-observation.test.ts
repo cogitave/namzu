@@ -69,6 +69,7 @@ async function fixture() {
 		evaluators: [target],
 		signal: new AbortController().signal,
 		resources: { unit: 'tokens', maxUnits: 100 },
+		protection: { verification: ['v-control'], confirmation: ['c-control'] },
 		generate,
 		evaluate,
 	}

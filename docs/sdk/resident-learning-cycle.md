@@ -25,7 +25,7 @@ execute generated skill code or establish a generalization result.
 
 `ResidentLearningCycleOptions` requires an agenda with `read` and `promoteSkill`,
 a `skillName`, a bounded `failure` containing evidence and a trace, a cancellation
-signal, a resource policy and three callbacks:
+signal, a resource policy, a `protection` plan and three callbacks:
 
 - `generate` receives the failure, active baseline and stage context. It returns
   a candidate with the requested name and an explicit `usageComplete` declaration.
@@ -62,6 +62,23 @@ attributed improvement, no observed regression or ambiguous measurement, and a
 fresh confirmation of the same size. Each round is bounded to 64 paired tasks.
 An already rejected or insufficient verification does not consume confirmation
 work. These are engineering acceptance rules, not a statistical proof.
+
+`protection: { verification: [...taskIds], confirmation: [...taskIds] }` is
+required before generation. The SDK validates and freezes both selections before
+its first callback, records them in the `started` event, and does not expose them
+to `generate`. Returning another selection from generation/evaluation cannot
+replace the admitted plan. Missing verification controls stop the cycle before
+confirmation. Both rounds must satisfy the
+[preservation gate](harness-verification.md#declared-preservation-tasks) before
+activation. Hosts retain the task inputs/scorers and choose semantic coverage;
+strings alone cannot certify independence or freedom from evaluation leakage.
+
+This is a breaking admission requirement: earlier hosts without `protection`
+must declare real preservation tasks and include their paired runs in each
+batch. Do not label a newly recovered task as a preservation control. The stored
+proof records control counts and a plan digest; the full selection remains in
+the journal and is included in the evaluation digest. Previously activated
+guidance is readable but has no retroactively invented preservation evidence.
 
 ## Consumption and cancellation
 
@@ -139,10 +156,19 @@ async function evaluateOneSkill(host: ResidentLearningCycleOptions) {
 
 ## Reproducible experiment
 
-`node research/resident/learning-cycle-experiment.mjs` exercises the normal SDK
+The historical `learning-cycle-experiment.mjs` (replay at `f92daf81`) exercises the SDK
 workflow with explicitly scripted inference. `--live` selects only Zen's
 `muse-spark-1.3-contributor-free` at low effort and enables a real CLI resident
 admission. Both use an isolated workspace and Namzu home.
+
+For the current admission contract, use
+`node research/resident/learning-protection-study.mjs` (scripted control),
+`--regression` (a deliberately damaged protected result), or `--live --prepare`
+to prepare an isolated Muse-low experiment for actual CLI/TUI execution. See
+[the protection study](../../research/resident/learning-protection.md) for the
+fixed-candidate scope and retained results. Historical pre-protection experiments
+must be replayed against their recorded revision; their old batches do not
+establish the new admission requirement.
 
 The host supplies a synthetic workspace routing convention after observing a
 cold knowledge gap. The experiment separates frozen behavior, retained raw
