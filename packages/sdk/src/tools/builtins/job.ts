@@ -47,11 +47,10 @@ export const JobTool = defineTool({
 	inputSchema,
 	category: 'shell',
 	permissions: ['shell_execute'],
-	// `read` and `list` observe; `kill` stops work. The tool as a whole is not
-	// read-only, and claiming otherwise would let a read-only permission
-	// preset hand the model a way to terminate a running process.
-	readOnly: false,
-	destructive: (input: JobInput) => input.action === 'kill',
+	// The static permission describes the full capability. The prepared action
+	// determines whether this call only observes its owner-bound registry.
+	readOnly: (input: JobInput) => input?.action === 'read' || input?.action === 'list',
+	destructive: (input: JobInput) => input?.action === 'kill',
 	concurrencySafe: true,
 
 	presentCall(input) {

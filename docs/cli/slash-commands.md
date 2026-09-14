@@ -176,6 +176,11 @@ displayed operation. Configured rules and sandbox restrictions still apply.
 For typed shortcuts, `/permissions prompt`, `accept-edits`, `auto`, `strict`
 and `plan` remain accepted. `/permissions details` opens the rule report directly.
 
+An explicit `ask` in the configured permissions table is retained as a review
+rule, including when it precedes a broader wildcard `allow`. It also prevents
+automatic read-only exemptions in prompt modes. Omitting a rule keeps the normal
+read-only default. Auto mode and already granted approvals retain their meaning.
+
 ## Goals and task scope
 
 `/goal` opens actions appropriate to the saved goal. `/goal set` and

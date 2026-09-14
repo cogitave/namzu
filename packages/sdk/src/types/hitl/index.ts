@@ -82,6 +82,8 @@ export interface ToolCallSummary {
 	authorization?: {
 		decision: 'allow' | 'deny' | 'review'
 		reason?: string
+		/** A matching rule requested review; read-only exemptions must not bypass it. */
+		explicitReview?: true
 	}
 }
 

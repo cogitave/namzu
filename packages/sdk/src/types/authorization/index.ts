@@ -50,7 +50,7 @@ export type AuthorizationRule =
 			type: 'custom_pattern'
 			pattern: string
 			target: 'name' | 'args' | 'both'
-			decision: 'allow' | 'deny'
+			decision: 'allow' | 'deny' | 'review'
 	  }
 	| {
 			/**
@@ -112,7 +112,7 @@ const CustomPatternSchema = z.object({
 	type: z.literal('custom_pattern'),
 	pattern: z.string().max(MAX_CUSTOM_PATTERN_LENGTH),
 	target: z.enum(['name', 'args', 'both']),
-	decision: z.enum(['allow', 'deny']),
+	decision: z.enum(['allow', 'deny', 'review']),
 })
 const ArgumentPatternSchema = z.object({
 	type: z.literal('argument_pattern'),

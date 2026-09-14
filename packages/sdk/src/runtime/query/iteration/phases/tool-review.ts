@@ -220,6 +220,9 @@ export async function* runToolReview(
 			toolCall.authorization = {
 				decision: gateResult.decision,
 				...(gateResult.reason ? { reason: gateResult.reason } : {}),
+				...(gateResult.decision === 'review' && gateResult.matchedRule
+					? { explicitReview: true as const }
+					: {}),
 			}
 		}
 

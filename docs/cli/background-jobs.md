@@ -14,6 +14,18 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 The model passes `run_in_background: true` to `bash` for work that legitimately outlasts a tool call: a dev server, a watcher, a long build. The call returns the job's id at once and the turn goes on. The `job` tool reads a job's output (`action: read`, with the previous call's `next_offset` to see only what is new), lists them, or stops one.
 
+# Permissions
+
+Reading or listing a session's background jobs is read-only and skips an extra
+approval by default, including in plan mode. Starting a command and stopping a
+job retain their normal approval requirements. Ownership and sandbox boundaries
+still apply; another session's job remains inaccessible.
+
+To request review even for output observation, set `permissions: { job: ask }`
+in the CLI configuration. Explicit ask rules take priority over the read-only
+default; deny rules continue to block. Auto mode and an intentional prior
+approval still follow the selected permission policy.
+
 # Learning that it ended
 
 - **During a turn**, the kernel attaches a `[Background job update]` line to the model's next tool result — no polling — and emits `background_job_exited`; the transcript shows a `⚙` row.

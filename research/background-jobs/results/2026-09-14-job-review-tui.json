@@ -1,0 +1,409 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-09-14",
+  "baseCommit": "61d47e1a",
+  "terminal": {
+    "columns": 120,
+    "rows": 34,
+    "parser": "@xterm/headless",
+    "cliExitCode": 0
+  },
+  "isolation": {
+    "temporaryNamzuHome": true,
+    "temporaryWorkingDirectory": true,
+    "sandboxEnabled": false,
+    "webSearch": "off",
+    "permissionReview": "prompt",
+    "limitsAreFixtureOnly": true
+  },
+  "fixture": {
+    "filename": "ticker.mjs",
+    "content": "console.log('NAMZU_JOB_READY');\nsetInterval(() => console.log('NAMZU_JOB_TICK'), 1000);\nsetTimeout(() => process.exit(0), 300000);\n"
+  },
+  "prompts": [
+    "node ticker.mjs komutunu arka planda bir kez çalıştır. job aracıyla çıktısını ve durumunu oku, sonra aynı işi durdurup sonucu söyle. Yalnızca bu komutu ve bu arka plan işini kullan.",
+    "Aynı denemeyi bir kez daha yap: node ticker.mjs arka planda başlasın, job ile çıktısını oku ve aynı işi durdur. Sonucu kısaca söyle."
+  ],
+  "limitations": [
+    "First run stopped at the fixture timeout after delayed manual approval; retained as a failed completion, not hidden.",
+    "Second run repeated in the same conversation; this is a behavior check, not an independent benchmark.",
+    "Read was exercised in the live TUI. List, deny, explicit ask and plan mode use deterministic query/registry tests.",
+    "The sandbox was disabled for this isolated live fixture; existing ownership/process tests passed separately.",
+    "Numeric zero costs have unpriced tokens and do not establish a free service."
+  ],
+  "runs": [
+    {
+      "runId": "c410a67d-033d-41c6-b497-916767847e05",
+      "provider": "zen",
+      "config": {
+        "model": "muse-spark-1.3-contributor-free",
+        "effort": "low",
+        "tokenBudget": 200000,
+        "maxIterations": 12,
+        "timeoutMs": 180000,
+        "maxResponseTokens": 8192,
+        "permissionMode": "auto",
+        "streamIdleTimeoutMs": 300000,
+        "maxRequestRichContentBytes": 25165824
+      },
+      "elapsedMs": 267889,
+      "usage": {
+        "promptTokens": 32681,
+        "completionTokens": 699,
+        "totalTokens": 33380,
+        "cachedTokens": 20706,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 445
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 33380
+      },
+      "stopReason": "timeout",
+      "events": [
+        {
+          "type": "tool_review_requested",
+          "toolCalls": [
+            {
+              "id": "call_01a0a0309d047fb398ad64306599e8ef",
+              "name": "bash",
+              "input": {
+                "command": "node ticker.mjs",
+                "timeout": 120000,
+                "run_in_background": true
+              },
+              "isDestructive": false,
+              "authorization": {
+                "decision": "review",
+                "reason": "No matching rule found"
+              }
+            }
+          ],
+          "iteration": 1,
+          "seq": 14,
+          "timestamp": 1789393937725
+        },
+        {
+          "type": "tool_review_completed",
+          "decision": "approved",
+          "seq": 15,
+          "timestamp": 1789393973947
+        },
+        {
+          "type": "tool_executing",
+          "toolUseId": "call_01a0a0309d047fb398ad64306599e8ef",
+          "toolName": "bash",
+          "input": {
+            "command": "node ticker.mjs",
+            "timeout": 120000,
+            "run_in_background": true
+          },
+          "seq": 18,
+          "timestamp": 1789393973949
+        },
+        {
+          "type": "tool_completed",
+          "toolUseId": "call_01a0a0309d047fb398ad64306599e8ef",
+          "toolName": "bash",
+          "result": "Started background job job_1. Read its output with the `job` tool: {\"action\":\"read\",\"id\":\"job_1\"}.",
+          "isError": false,
+          "durationMs": 4,
+          "outputLength": 98,
+          "seq": 20,
+          "timestamp": 1789393973954
+        },
+        {
+          "type": "tool_executing",
+          "toolUseId": "call_01a0a0313b477680bbfe66f4e4c1987e",
+          "toolName": "job",
+          "input": {
+            "action": "read",
+            "id": "job_1"
+          },
+          "seq": 36,
+          "timestamp": 1789393977460
+        },
+        {
+          "type": "tool_completed",
+          "toolUseId": "call_01a0a0313b477680bbfe66f4e4c1987e",
+          "toolName": "job",
+          "result": "NAMZU_JOB_READY\nNAMZU_JOB_TICK\nNAMZU_JOB_TICK\nNAMZU_JOB_TICK\n\n\n[job job_1 is still running; next_offset 61]",
+          "isError": false,
+          "durationMs": 0,
+          "outputLength": 107,
+          "seq": 38,
+          "timestamp": 1789393977461
+        },
+        {
+          "type": "tool_review_requested",
+          "toolCalls": [
+            {
+              "id": "call_01a0a031671677b39993f3177e8a5fa1",
+              "name": "job",
+              "input": {
+                "action": "kill",
+                "id": "job_1"
+              },
+              "isDestructive": true,
+              "authorization": {
+                "decision": "review",
+                "reason": "No matching rule found"
+              }
+            }
+          ],
+          "iteration": 3,
+          "seq": 52,
+          "timestamp": 1789393988662
+        },
+        {
+          "type": "tool_review_completed",
+          "decision": "approved",
+          "seq": 53,
+          "timestamp": 1789394201585
+        },
+        {
+          "type": "tool_executing",
+          "toolUseId": "call_01a0a031671677b39993f3177e8a5fa1",
+          "toolName": "job",
+          "input": {
+            "action": "kill",
+            "id": "job_1"
+          },
+          "seq": 56,
+          "timestamp": 1789394201586
+        },
+        {
+          "type": "background_job_exited",
+          "jobId": "job_1",
+          "command": "node ticker.mjs",
+          "status": "killed",
+          "signal": "SIGTERM",
+          "seq": 57,
+          "timestamp": 1789394201589
+        },
+        {
+          "type": "tool_completed",
+          "toolUseId": "call_01a0a031671677b39993f3177e8a5fa1",
+          "toolName": "job",
+          "result": "Job job_1 is killed.",
+          "isError": false,
+          "durationMs": 3,
+          "outputLength": 20,
+          "seq": 59,
+          "timestamp": 1789394201590
+        },
+        {
+          "type": "run_completed",
+          "budget": {
+            "limit": 200000,
+            "ownTokens": 33380,
+            "treeTokens": 33380,
+            "reservedTokens": 0,
+            "remainingTokens": 166620,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "result": "",
+          "stopReason": "timeout",
+          "seq": 62,
+          "timestamp": 1789394201602
+        }
+      ],
+      "transcriptSha256": "fd8d02a6fd28a174230033bbcd34210233f61cce6caa6d1ddd8377f76e8f7b76"
+    },
+    {
+      "runId": "d48c3d23-7c74-4a46-b844-c9cc6e301878",
+      "provider": "zen",
+      "config": {
+        "model": "muse-spark-1.3-contributor-free",
+        "effort": "low",
+        "tokenBudget": 200000,
+        "maxIterations": 12,
+        "timeoutMs": 180000,
+        "maxResponseTokens": 8192,
+        "permissionMode": "auto",
+        "streamIdleTimeoutMs": 300000,
+        "maxRequestRichContentBytes": 25165824
+      },
+      "elapsedMs": 61682,
+      "usage": {
+        "promptTokens": 48335,
+        "completionTokens": 995,
+        "totalTokens": 49330,
+        "cachedTokens": 32595,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 665
+      },
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 49330
+      },
+      "stopReason": "end_turn",
+      "events": [
+        {
+          "type": "tool_review_requested",
+          "toolCalls": [
+            {
+              "id": "call_01a0a03549f67b62abefc70c7f2789de",
+              "name": "bash",
+              "input": {
+                "command": "node ticker.mjs",
+                "timeout": 120000,
+                "run_in_background": true
+              },
+              "isDestructive": false,
+              "authorization": {
+                "decision": "review",
+                "reason": "No matching rule found"
+              }
+            }
+          ],
+          "iteration": 1,
+          "seq": 14,
+          "timestamp": 1789394243332
+        },
+        {
+          "type": "tool_review_completed",
+          "decision": "approved",
+          "seq": 15,
+          "timestamp": 1789394260016
+        },
+        {
+          "type": "tool_executing",
+          "toolUseId": "call_01a0a03549f67b62abefc70c7f2789de",
+          "toolName": "bash",
+          "input": {
+            "command": "node ticker.mjs",
+            "timeout": 120000,
+            "run_in_background": true
+          },
+          "seq": 18,
+          "timestamp": 1789394260018
+        },
+        {
+          "type": "tool_completed",
+          "toolUseId": "call_01a0a03549f67b62abefc70c7f2789de",
+          "toolName": "bash",
+          "result": "Started background job job_2. Read its output with the `job` tool: {\"action\":\"read\",\"id\":\"job_2\"}.",
+          "isError": false,
+          "durationMs": 5,
+          "outputLength": 98,
+          "seq": 20,
+          "timestamp": 1789394260024
+        },
+        {
+          "type": "tool_executing",
+          "toolUseId": "call_01a0a03592a672718341ec73dbc0f1e8",
+          "toolName": "job",
+          "input": {
+            "action": "read",
+            "id": "job_2"
+          },
+          "seq": 36,
+          "timestamp": 1789394262421
+        },
+        {
+          "type": "tool_completed",
+          "toolUseId": "call_01a0a03592a672718341ec73dbc0f1e8",
+          "toolName": "job",
+          "result": "NAMZU_JOB_READY\nNAMZU_JOB_TICK\nNAMZU_JOB_TICK\n\n\n[job job_2 is still running; next_offset 46]",
+          "isError": false,
+          "durationMs": 1,
+          "outputLength": 92,
+          "seq": 38,
+          "timestamp": 1789394262422
+        },
+        {
+          "type": "tool_review_requested",
+          "toolCalls": [
+            {
+              "id": "call_01a0a0359ac872c286c7c87273ae7aae",
+              "name": "job",
+              "input": {
+                "action": "kill",
+                "id": "job_2"
+              },
+              "isDestructive": true,
+              "authorization": {
+                "decision": "review",
+                "reason": "No matching rule found"
+              }
+            }
+          ],
+          "iteration": 3,
+          "seq": 52,
+          "timestamp": 1789394263993
+        },
+        {
+          "type": "tool_review_completed",
+          "decision": "approved",
+          "seq": 53,
+          "timestamp": 1789394290802
+        },
+        {
+          "type": "tool_executing",
+          "toolUseId": "call_01a0a0359ac872c286c7c87273ae7aae",
+          "toolName": "job",
+          "input": {
+            "action": "kill",
+            "id": "job_2"
+          },
+          "seq": 56,
+          "timestamp": 1789394290804
+        },
+        {
+          "type": "background_job_exited",
+          "jobId": "job_2",
+          "command": "node ticker.mjs",
+          "status": "killed",
+          "signal": "SIGTERM",
+          "seq": 57,
+          "timestamp": 1789394290808
+        },
+        {
+          "type": "tool_completed",
+          "toolUseId": "call_01a0a0359ac872c286c7c87273ae7aae",
+          "toolName": "job",
+          "result": "Job job_2 is killed.",
+          "isError": false,
+          "durationMs": 4,
+          "outputLength": 20,
+          "seq": 59,
+          "timestamp": 1789394290809
+        },
+        {
+          "type": "run_completed",
+          "budget": {
+            "limit": 200000,
+            "ownTokens": 49330,
+            "treeTokens": 49330,
+            "reservedTokens": 0,
+            "remainingTokens": 150670,
+            "inFlightRequests": 0,
+            "unsettledChildren": 0,
+            "poisoned": false,
+            "unresolvedRequests": 0
+          },
+          "result": "İkinci deneme tamamlandı:\n- `node ticker.mjs` arka planda `job_2` olarak başladı.\n- Çıktısı: `NAMZU_JOB_READY` ve `NAMZU_JOB_TICK` satırları, okuma sırasında çalışıyordu.\n- Aynı iş `kill` ile durduruldu.",
+          "stopReason": "end_turn",
+          "seq": 72,
+          "timestamp": 1789394298182
+        }
+      ],
+      "transcriptSha256": "584db0260c4db52b7b97f0507787078e91e0c46b3bc547c2ec4c8bdf80e3be98"
+    }
+  ],
+  "terminalScreenHashes": {
+    "04-repeat-start-approval.txt": "38f56e3ac63039f0c28e635a6bda999cf1ce6bcf314323750672a20160dd0bc8",
+    "05-repeat-stop-approval.txt": "21ba0d864059504146fd4f2481b3796ef7ec7c9b93b355d33a65b28902316e28",
+    "06-repeat-completed.txt": "b696f9442c83c8ce748f652505dea3f615f1b32e7f0472b44209dd8248e34174"
+  },
+  "postExit": {
+    "ownedWorkingDirectoryProcesses": 0,
+    "liveJobCount": 0
+  }
+}

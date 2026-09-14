@@ -2,6 +2,8 @@
 
 ## 2026-09-14
 
+- **Update** Classify [background job observation](cli/background-jobs.md) per action, support input-dependent read-only declarations in the [SDK tool builder](sdk/tool-execution.md), and preserve explicit [review rules](sdk/review-policy.md) through CLI compilation and durable review.
+
 - **Update** Require predeclared [preservation tasks](sdk/harness-verification.md#declared-preservation-tasks) for resident learning and direct skill promotion, retain the plan with activation evidence, and show each round’s control status in [CLI learning inspection](cli/resident-work.md#explicit-learning-experiments).
 
 - **Update** Add [on-demand resident guidance](sdk/resident-context.md) with scoped read access and source rechecks. [CLI residents](cli/resident-work.md#context-for-a-resident-step) default to descriptions plus explicit skill reads; `--learning-disclosure eager` retains automatic inclusion.

@@ -7,7 +7,7 @@
  * would look exactly like this change from the outside.
  */
 
-import { AuthorizationGate, NOOP_LOGGER } from '@namzu/sdk'
+import { AuthorizationGate, JobTool, NOOP_LOGGER } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -101,12 +101,78 @@ describe('compiling a permissions table', () => {
 		])
 	})
 
-	it('emits nothing for ask, because the gate already asks by default', () => {
-		// If "ask" emitted a rule it would have to mean something different from
-		// the absence of a rule, and it does not.
+	it('retains explicit ask rules instead of falling through to automatic allowances', () => {
 		const { rules } = compilePermissions({ edit: 'ask', bash: { 'rm *': 'ask' } })
+		expect(rules).toHaveLength(2)
+		expect(rules.every((rule) => 'decision' in rule && rule.decision === 'review')).toBe(true)
+	})
 
-		expect(rules).toEqual([])
+	it('asks for a read-only job when the operator explicitly requested review', () => {
+		const { rules } = compilePermissions({ job: 'ask' })
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: true,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		expect(
+			gate.evaluate({ toolName: 'job', toolInput: { action: 'list' }, toolDef: JobTool }),
+		).toMatchObject({
+			decision: 'review',
+			matchedRule: { decision: 'review' },
+		})
+	})
+
+	it('keeps a specific ask ahead of a broad allow and scoped to its tool', () => {
+		const { rules } = compilePermissions({ job: { '*read*': 'ask', '*': 'allow' } })
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: true,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		const check = (name: string, action: string) =>
+			gate.evaluate({
+				toolName: name,
+				toolInput: { action },
+				toolDef: JobTool,
+			}).decision
+		expect(check('job', 'read')).toBe('review')
+		expect(check('job', 'list')).toBe('allow')
+		expect(check('other-job', 'read')).toBe('allow')
+	})
+
+	it('does not let a broad shell allowance swallow a specific ask on a chained command', () => {
+		const { rules } = compilePermissions({ bash: { 'git push*': 'ask', '*': 'allow' } })
+		const gate = new AuthorizationGate(
+			{
+				enabled: true,
+				rules: [...rules],
+				allowReadOnlyTools: false,
+				denyDangerousPatterns: false,
+				logDecisions: false,
+			},
+			NOOP_LOGGER,
+		)
+		expect(
+			gate.evaluate({
+				toolName: 'bash',
+				toolInput: { command: 'git status && git push' },
+				toolDef: undefined,
+			}).decision,
+		).toBe('review')
+		expect(
+			gate.evaluate({ toolName: 'bash', toolInput: { command: 'git status' }, toolDef: undefined })
+				.decision,
+		).toBe('allow')
 	})
 
 	it('reports a bad effect instead of dropping it in silence', () => {

@@ -17,7 +17,8 @@ export interface DefineToolOptions<S extends z.ZodType> {
 	validationErrorHint?: string
 	category: ToolDefinition['category']
 	permissions: ToolPermission[]
-	readOnly: boolean
+	/** Whether this exact call only observes state; conservative for unknown inputs. */
+	readOnly: boolean | ((input: z.infer<S>) => boolean)
 	destructive: boolean | ((input: z.infer<S>) => boolean)
 	concurrencySafe: boolean
 	/** Batch ordering boundary; see {@link ToolDefinition.executionBarrier}. */
@@ -88,7 +89,8 @@ export function defineTool<S extends z.ZodType>(
 			: {}),
 		category: options.category,
 		permissions: options.permissions,
-		isReadOnly: () => options.readOnly,
+		isReadOnly:
+			typeof options.readOnly === 'function' ? options.readOnly : () => options.readOnly as boolean,
 		isDestructive:
 			typeof options.destructive === 'function'
 				? options.destructive

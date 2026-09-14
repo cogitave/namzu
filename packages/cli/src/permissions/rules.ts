@@ -237,14 +237,8 @@ export function bySpecificity(a: string, b: string): number {
 /**
  * Compile a `[permissions]` table into kernel rules.
  *
- * `ask` emits nothing. That is not an omission: the gate's fallback for an
- * unmatched call is already `review`, so the rule that says "ask" and the
- * absence of any rule have to mean the same thing or the config would be
- * lying about one of them. It also keeps the emitted array small enough for a
- * person to read in a log.
- *
- * A tool nobody wrote a rule for is therefore asked about, and there is no way
- * to spell "allow everything by omission" — the only way to widen is to say so.
+ * `ask` is an explicit review rule. Omitting it would let a later wildcard
+ * allowance or the read-only default approve the call before review.
  */
 export function compilePermissions(
 	config: PermissionsConfig | undefined,
@@ -266,6 +260,14 @@ export function compilePermissions(
 		if (isPermissionEffect(permission)) {
 			if (permission === 'allow') rules.push({ type: 'allow_by_name', toolNames: [tool] })
 			if (permission === 'deny') rules.push({ type: 'deny_by_name', toolNames: [tool] })
+			if (permission === 'ask') {
+				rules.push({
+					type: 'custom_pattern',
+					pattern: `^${escapeRegExp(tool)}$`,
+					target: 'name',
+					decision: 'review',
+				})
+			}
 			continue
 		}
 		if (typeof permission !== 'object' || permission === null) {
@@ -285,7 +287,6 @@ export function compilePermissions(
 				})
 				continue
 			}
-			if (effect === 'ask') continue
 			try {
 				new RegExp(patternToRegExpSource(pattern))
 			} catch (err) {
@@ -293,6 +294,15 @@ export function compilePermissions(
 					tool,
 					pattern,
 					message: `pattern is not usable: ${err instanceof Error ? err.message : String(err)}`,
+				})
+				continue
+			}
+			if (effect === 'ask') {
+				rules.push({
+					type: 'custom_pattern',
+					pattern: toolScopedPattern(tool, pattern),
+					target: 'both',
+					decision: 'review',
 				})
 				continue
 			}

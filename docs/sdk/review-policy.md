@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: The review policy
-description: The five modes a run resolves undecided tool calls under, which calls skip review, and how a host supplies the person to ask.
+description: The five modes a run resolves tool review under, which calls skip review, and how a host supplies the person to ask.
 resource: packages/sdk/src/runtime/query/review-policy.ts
 tags: [sdk, hitl, permissions]
 status: stable
@@ -10,7 +10,7 @@ generated: { by: human:bahadirarda, at: 2026-09-02T00:00:00Z }
 
 # The review policy
 
-An authorization rule says what a tool may do. A review policy says what happens to the calls the rules did not cover: the batch the gate routed to review. Only those calls reach it, so a mode decides the undecided and can never reopen what a rule closed.
+An authorization rule says what a tool may do. A review policy resolves calls the gate routed to review, either because no rule covered them or because a matching rule requested review. Calls already allowed or denied by the gate never reach it, so a mode cannot reopen a denial.
 
 # Build one
 
@@ -32,7 +32,7 @@ The prompt receives the originating `runId` alongside `toolCalls`. Hosts can use
 
 # The modes
 
-| Mode | Undecided calls |
+| Mode | Calls routed to review |
 | --- | --- |
 | `prompt` | Ask the person. The default when a `prompt` is supplied. |
 | `auto` | Approve. The default without one. |
@@ -44,4 +44,16 @@ A plan-approval request is approved and every other checkpoint continues. An ans
 
 # Which calls skip review
 
-`isReviewExempt(registry, name, input)` says yes for a tool that declares itself read-only and is trusted to say so (`isTrustedReadOnly`, the authorization gate's own predicate) and for the bookkeeping writes in `REVIEW_EXEMPT_WRITES`: `task_create`, `task_update`, `update_goal`. It says no for a `network` tool even when read-only, because the request leaves the machine to an address the model chose, and for a tool the registry does not know. `batchNeedsReview` is the batch rule: any destructive or non-exempt call means the batch is reviewed.
+`isReviewExempt(registry, name, input)` says yes for a tool that declares itself read-only and is trusted to say so (`isTrustedReadOnly`, the authorization gate's own predicate) and for the bookkeeping writes in `REVIEW_EXEMPT_WRITES`: `task_create`, `task_update`, `update_goal`. It says no for a `network` tool even when read-only, because the request leaves the machine to an address the model chose, and for a tool the registry does not know. `batchNeedsReview` is the batch rule: any explicit review request, destructive call or non-exempt call means the batch is reviewed.
+
+The built-in `job` classifies each prepared action: reading/listing owned output
+is exempt by default; stopping work is not. `DefineToolOptions.readOnly` supports
+typed input predicates for other mixed-purpose host tools.
+
+A `custom_pattern` authorization rule can explicitly return `review`. Matching
+calls retain `authorization.explicitReview: true` in `ToolCallSummary`, including
+durable review requests. That marker prevents read-only and accept-edits
+exemptions from silently resolving the request. The selected review policy still
+decides: prompt modes ask, strict/plan refuse, and auto or remembered approval
+can approve. Existing scoped tool grants remain prior approval; a deny rule still
+outranks them. Custom hosts providing their own handlers own those decisions.

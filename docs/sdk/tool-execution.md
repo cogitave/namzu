@@ -9,6 +9,21 @@ status: stable
 
 # Tool execution ordering
 
+## Classifying an operation
+
+`DefineToolOptions.readOnly` accepts either a boolean or a typed input predicate,
+matching `ToolDefinition.isReadOnly(input)`. Invocation preparation validates and
+normalizes arguments before authorization and execution. Return true only for
+explicitly recognized observation operations; metadata consumers may probe an
+empty input, which must remain conservative for a mixed-purpose tool.
+
+The built-in `job` tool classifies `read` and `list` as observations, while `kill`
+remains mutating and destructive. Its static `shell_execute` permission describes
+the complete capability. Per-call review, read-only authorization and plan-mode
+execution use the operation predicate; provenance checks remain unchanged.
+
+## Ordering a batch
+
 `ToolDefinition.executionBarrier` and `defineTool({ executionBarrier: true, ... })`
 opt a tool into ordering within a direct model tool-call batch. All earlier calls
 settle before the barrier starts, and later calls wait for the barrier to settle.

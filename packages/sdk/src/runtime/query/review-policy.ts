@@ -1,9 +1,9 @@
 /**
- * How a run resolves the calls no rule decided.
+ * How a run resolves calls routed to review.
  *
  * An authorization rule says what a tool may do. A review policy says what
- * happens to everything the rules did not cover: the batch the gate routed
- * to REVIEW. The two axes are separate on purpose — a rule is a durable
+ * happens to calls the rules did not cover or explicitly routed to REVIEW.
+ * The two axes are separate on purpose — a rule is a durable
  * statement an operator reviewed, and a mode is a property of ONE run, the
  * difference between "we never force-push" and "this run is unattended".
  *
@@ -132,12 +132,14 @@ export function isReviewExempt(
 
 export type ReviewExemption = (name: string, input: unknown) => boolean
 
-/** A batch needs review when any call mutates state: flagged destructive, or not exempt. */
+/** Review explicit requests and calls that are destructive or not exempt. */
 export function batchNeedsReview(
 	toolCalls: readonly ToolCallSummary[],
 	exempt: ReviewExemption,
 ): boolean {
-	return toolCalls.some((tc) => tc.isDestructive || !exempt(tc.name, tc.input))
+	return toolCalls.some(
+		(tc) => tc.authorization?.explicitReview || tc.isDestructive || !exempt(tc.name, tc.input),
+	)
 }
 
 /** The batch a person is asked about. */
@@ -194,14 +196,16 @@ export function createReviewHandler(options: ReviewPolicyOptions = {}): ResumeHa
 		if (
 			mode === 'accept-edits' &&
 			request.toolCalls.every(
-				(tc) => !tc.isDestructive && (ACCEPT_EDITS_TOOLS.has(tc.name) || exempt(tc.name, tc.input)),
+				(tc) =>
+					!tc.authorization?.explicitReview &&
+					!tc.isDestructive &&
+					(ACCEPT_EDITS_TOOLS.has(tc.name) || exempt(tc.name, tc.input)),
 			)
 		) {
 			return { action: 'approve_tools' }
 		}
-		// Reads were approved above. Anything that reached here would change
-		// something, and plan mode's answer is the same every time: not now,
-		// tell the user what you would do.
+		// Ordinary reads were approved above. Remaining calls either change
+		// state or carry explicit review; plan mode does not grant that authority.
 		if (mode === 'plan') return { action: 'reject_tools', feedback: PLAN_MODE_REFUSAL }
 		if (mode === 'strict') return { action: 'reject_tools', feedback: STRICT_MODE_REFUSAL }
 		if (mode === 'auto' || !prompt || remembered.all) {
