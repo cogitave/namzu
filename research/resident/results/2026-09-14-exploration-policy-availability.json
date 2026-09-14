@@ -1,0 +1,31 @@
+{
+  "purpose": "Provider availability only; not an exploration-policy evaluation trial.",
+  "policyStudy": "2026-09-14-exploration-policy-muse.json",
+  "checks": [
+    {
+      "startedAt": "2026-09-14T15:45:59.798Z",
+      "endedAt": "2026-09-14T15:46:02.737Z",
+      "model": "muse-spark-1.3-contributor-free",
+      "effort": "low",
+      "runId": "89546fc7-94ca-4bab-a784-2ef16f664bbf",
+      "stopReason": "error",
+      "tokens": 0,
+      "usageComplete": true,
+      "error": "zen (HTTP 429) \u2014 rate limited by the provider: Error from provider (Console): Rate limit exceeded. Please try again later.",
+      "providerError": {
+        "kind": "throttle",
+        "providerId": "zen",
+        "status": 429,
+        "detail": "Error from provider (Console): Rate limit exceeded. Please try again later."
+      }
+    }
+  ],
+  "evidence": {
+    "runSha256": "f9a5a262be51e5d70e0564845cfb656c4834514a5eafbaaeecb5a8a0675877a5",
+    "transcriptSha256": "9b5ebdd28651159fcb8286567ed136a8a4296afebda5f80f187d10413a956f1b",
+    "terminalType": "run_failed",
+    "toolCalls": 0
+  },
+  "decision": "Do not launch another live comparison while the requested provider rejects the availability request.",
+  "retryAfterInRetainedError": false
+}

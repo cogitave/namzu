@@ -141,6 +141,11 @@ and project references passed. Existing lint warnings remain. No full release-ga
 publish, improved-policy or RSI claim follows from these checks. A complete live
 comparison with fresh confirmation remains pending provider availability.
 
+At 15:46 UTC, a separate one-word Muse-low availability check still returned
+HTTP 429, with zero tokens and no retry time in the retained error. It ran no tools and did
+not launch another study. Its [receipt](results/2026-09-14-exploration-policy-availability.json)
+is retained separately from evaluation trials.
+
 ## Reproduction
 
 Build the repository, then prepare without inference:
