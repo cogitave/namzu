@@ -10,7 +10,7 @@ generated: { by: human:bahadirarda, at: 2026-09-04T00:00:00Z }
 
 # Run limits
 
-CLI runs default to 50 main-loop iterations, a one-hour run deadline and no cumulative token limit. Set a token budget explicitly to bound measured usage across the parent and its descendants. Token exhaustion remains distinct from successful completion.
+CLI runs default to unlimited main-loop iterations, run duration and cumulative tokens. This applies to interactive turns, headless runs and built-in delegated agents. Set a token budget explicitly to bound measured usage across the parent and its descendants. Token exhaustion remains distinct from successful completion.
 
 - **`limits`** in `namzu.config.json` or `~/.namzu/config.yaml`: `{ "maxIterations": 400, "tokenBudget": 5000000, "timeoutMs": 3600000 }`. Keys may be omitted. Nonnegative safe integers; `0` disables the corresponding run guard. A positive `timeoutMs` must be at most 2,147,483,647 milliseconds to fit platform timers.
 - **`--max-iterations <n>`** and **`--token-budget <n>`** on `run` and `run-stream` override the file for one run.
@@ -47,16 +47,49 @@ settings apply after workspace trust is established. Each ordinary new user
 turn opens a run with these limits; durable recovery preserves the existing
 run's ledger. `limits.waitForProviderMs` remains a headless wait policy.
 
-To retain unlimited cumulative tokens in interactive use, omit `limits.tokenBudget`
-from the effective config or set it to `0`. The omitted defaults stay
-50 iterations, one hour and no cumulative token cap.
+Omitting the three limits or setting them to `0` leaves those guards unlimited.
+An explicit positive value in the effective config still takes precedence.
 
 Interactive and headless sessions use the same token-budget default. Built-in
 children inherit explicitly configured iteration and time limits, including `0`;
-without those settings they retain 40 iterations and one hour. Their tokens
+without those settings their run guards are unlimited. Their tokens
 remain constrained by any finite ancestor allowance. File-defined specialist
 agents retain their own iteration configuration. Context size is separate and
 is governed by [compaction](context-and-compaction.md).
+
+## Editing limits in the TUI
+
+Open `/config` → **Run limits** (or `/config limits`). The picker shows the
+current token budget, model-turn limit and duration. Enter on a row opens its
+value editor; `0` or `unlimited` removes that cap. Duration accepts `30m`, `2h`,
+`1500ms`, or a bare millisecond count. **Remove all run caps** sets all three to
+unlimited. Esc in an editor keeps the previous value.
+
+The same controls accept direct input:
+
+```text
+/config limits tokens 200000
+/config limits iterations 100
+/config limits time 2h
+/config limits unlimited
+```
+
+These are host controls, so they do not call a model. Overrides apply to new
+turns and their built-in delegated agents for this TUI session, including after
+a model change. A running turn keeps the snapshot it started with; editing a
+limit does not refill its ledger. Resuming a parked CLI run reloads its saved
+limits from scoped run metadata instead of using new launch defaults; missing
+metadata in checkpoint-only embeds falls back to their launch settings. Invalid
+or mismatched metadata refuses recovery. Usage remains measured.
+The picker labels this scope explicitly. To keep a limit across launches, set
+it in `namzu.config.json` or the user config file; the TUI does not rewrite those
+files. `/config sources` continues to describe launch-time file provenance.
+
+**Default migration:** main runs previously omitted to 50 iterations, built-in
+children to 40, and both to one hour. Hosts that require bounded CLI execution
+must now set positive limits explicitly. For example, `{ "maxIterations": 50,
+"timeoutMs": 3600000 }` restores those main-run caps and applies the same values
+to built-in children. The SDK's own embedding defaults are unchanged.
 
 ## Reasoning effort and budget enforcement
 

@@ -126,6 +126,7 @@ import { realpath, stat } from 'node:fs/promises'
 import { join, parse, resolve } from 'node:path'
 import { FileCheckpointStore } from '../checkpoints/store.js'
 import { CHECKPOINTED_TOOLS, withCheckpoints } from '../checkpoints/wrap.js'
+import { readStoredRunGuards, resolveRunGuards } from '../config/run-limits.js'
 import type {
 	CompactionCliConfig,
 	HooksConfig,
@@ -208,7 +209,6 @@ import { discoverAgentDefinitions } from '../integrations/subagents/definitions.
 import { createDelegationHistoryStep } from '../integrations/subagents/history.js'
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
 import { SubagentPathBuilder, resolveSubagentParent } from '../integrations/subagents/parent.js'
-import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from '../integrations/subagents/policy.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
@@ -469,6 +469,8 @@ export type QuestionAnswer =
 export type QuestionFn = (question: UserQuestion) => Promise<QuestionAnswer>
 
 export interface SendOptions {
+	/** Overrides for this new run and its built-in children; does not change a parked run. */
+	readonly limits?: RunLimitsConfig
 	readonly signal?: AbortSignal
 	/**
 	 * Who answers `ask_user_question` this turn. Absent means nobody: the
@@ -1961,6 +1963,7 @@ export async function createAgentSession(
 	// delegate a self-contained task to a fresh sub-agent (own context window).
 	// Best-effort — if the runtime can't stand up, the chat still works.
 	const delegationScopes = new Map<RunId, RunScope>()
+	const delegationLimits = new Map<RunId, RunLimitsConfig>()
 	const delegatedInputWaiters = new Map<RunId, NonNullable<SendOptions['waitForInbound']>>()
 	if (options.residentHistory) {
 		const history = options.residentHistory
@@ -2066,6 +2069,7 @@ export async function createAgentSession(
 			model,
 			tokenBudget: options.limits?.tokenBudget,
 			maxIterations: options.limits?.maxIterations,
+			resolveLimits: (runId) => delegationLimits.get(runId),
 			timeoutMs: options.limits?.timeoutMs,
 			definitions: discovered.definitions,
 			pathBuilder: new SubagentPathBuilder(projectStateRoot, scope.projectId),
@@ -2510,6 +2514,11 @@ export async function createAgentSession(
 	}): Promise<ResumeOutcome> =>
 		operations.promise(signal, async (ownedSignal) => {
 			const selectTaskStore = beginTaskStoreReadout()
+			const resumedLimits =
+				(await readStoredRunGuards(
+					join(pathBuilder.runDir(entry.projectId, entry.sessionId, entry.runId), 'run.json'),
+					entry,
+				)) ?? resolveRunGuards(options.limits)
 			// The same prelude a turn runs, and for the same reasons: a lapsed
 			// OAuth token has to be renewed before the provider is used, and the
 			// fallback chain has to be built AFTER that so its members do not
@@ -2548,6 +2557,7 @@ export async function createAgentSession(
 			}
 			delegatedResumeHandlers.set(entry.runId, resumeHandler)
 			delegationScopes.set(entry.runId, { ...entry, topicId: scope.topicId })
+			delegationLimits.set(entry.runId, resumedLimits)
 			const runTaskStore = selectTaskStore(entry.runId, {
 				...entry,
 				topicId: scope.topicId,
@@ -2613,9 +2623,7 @@ export async function createAgentSession(
 						model,
 						...(nativeWebSearch ? { webSearch: nativeWebSearch } : {}),
 						...(sandbox.provider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
-						timeoutMs: options.limits?.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
-						tokenBudget: options.limits?.tokenBudget ?? 0,
-						maxIterations: options.limits?.maxIterations ?? 50,
+						...resumedLimits,
 						maxResponseTokens: 8192,
 						permissionMode: 'auto',
 					},
@@ -2654,6 +2662,7 @@ export async function createAgentSession(
 				if (delegatedResumeHandlers.get(entry.runId) === resumeHandler) {
 					delegatedResumeHandlers.delete(entry.runId)
 					delegationScopes.delete(entry.runId)
+					delegationLimits.delete(entry.runId)
 					await subagentRuntime?.releaseRun(entry.runId)
 				}
 			}
@@ -2847,6 +2856,7 @@ export async function createAgentSession(
 				(async function* () {
 					const selectTaskStore = beginTaskStoreReadout()
 					const runId = opts?.runId ?? generateRunId()
+					const turnLimits = resolveRunGuards(options.limits, opts?.limits)
 					const turnOpts: SendOptions = { ...opts, runId, signal }
 					let runTools = registry
 					const resumeHandler = makeResumeHandler(
@@ -2863,6 +2873,7 @@ export async function createAgentSession(
 					if (opts?.waitForInbound) delegatedInputWaiters.set(runId, opts.waitForInbound)
 					const turnScope = { ...scope }
 					delegationScopes.set(runId, turnScope)
+					delegationLimits.set(runId, turnLimits)
 					try {
 						// Renew a lapsed OAuth token before the turn runs (no-op for valid
 						// tokens and non-subscription credentials).
@@ -3026,7 +3037,7 @@ export async function createAgentSession(
 								pathBuilder,
 								workingDirectory: cwd,
 								...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
-								...(options.limits ? { limits: options.limits } : {}),
+								limits: turnLimits,
 								sandboxWorkspace,
 								rules: options.rules,
 								structuredOutput: options.structuredOutput,
@@ -3091,6 +3102,7 @@ export async function createAgentSession(
 							modelSwitchHandlers.delete(runId)
 							delegatedInputWaiters.delete(runId)
 							delegationScopes.delete(runId)
+							delegationLimits.delete(runId)
 							await subagentRuntime?.releaseRun(runId)
 						}
 					}
@@ -3797,9 +3809,7 @@ async function* runTurn({
 				...(sandboxProvider ? { sandbox: { workspace: sandboxWorkspace } } : {}),
 				...(opts?.effort !== undefined ? { effort: opts.effort } : {}),
 				...(webSearch ? { webSearch } : {}),
-				timeoutMs: limits?.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
-				tokenBudget: limits?.tokenBudget ?? 0,
-				maxIterations: limits?.maxIterations ?? 50,
+				...resolveRunGuards(limits),
 				maxResponseTokens: 8192,
 				permissionMode: 'auto',
 			},

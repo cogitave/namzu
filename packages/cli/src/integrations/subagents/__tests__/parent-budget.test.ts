@@ -15,7 +15,11 @@ afterEach(() => {
 
 describe('CLI delegation uses the parent token limit', () => {
 	it.each([
+		{ maxIterations: undefined, requests: 43, success: true },
 		{ maxIterations: 0, requests: 43, success: true },
+		{ maxIterations: 2, override: 0, requests: 43, success: true },
+		{ maxIterations: 2, override: 0, launchCaps: true, requests: 43, success: true },
+		{ maxIterations: 0, override: 2, requests: 2, success: false },
 		{ maxIterations: 2, requests: 2, success: false },
 	])('parallel children honor explicit limits and retain receipts: %j', async (test) => {
 		const cwd = mkdtempSync(join(tmpdir(), 'namzu-unlimited-children-'))
@@ -26,9 +30,12 @@ describe('CLI delegation uses the parent token limit', () => {
 		const runtime = await createSubagentRuntime({
 			cwd,
 			model: 'mock',
-			tokenBudget: 0,
+			tokenBudget: 'launchCaps' in test ? 1 : 0,
+			...('launchCaps' in test ? { timeoutMs: 1 } : {}),
 			maxIterations: test.maxIterations,
-			timeoutMs: 0,
+			...('override' in test
+				? { resolveLimits: () => ({ maxIterations: test.override, tokenBudget: 0, timeoutMs: 0 }) }
+				: {}),
 			resolveResumeHandler: () => async (request) =>
 				request.type === 'tool_review' ? { action: 'approve_tools' } : { action: 'continue' },
 			resolveParent: parent.resolveParent,
@@ -95,7 +102,7 @@ describe('CLI delegation uses the parent token limit', () => {
 				const run = JSON.parse(readFileSync(join(stateRoot, path), 'utf8'))
 				expect(run.metadata.config).toMatchObject({
 					tokenBudget: 0,
-					maxIterations: test.maxIterations,
+					maxIterations: ('override' in test ? test.override : test.maxIterations) ?? 0,
 					timeoutMs: 0,
 				})
 				expect(run.budget).toMatchObject({

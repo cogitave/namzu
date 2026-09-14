@@ -1267,7 +1267,7 @@ describe('/config entry', () => {
 		expect(runSlash('/config sources', ctx)).toEqual(runSlash('/status config', ctx))
 		expect(runSlash('/config unknown', ctx)).toMatchObject({
 			kind: 'message',
-			content: expect.stringContaining('/config [sources]'),
+			content: expect.stringContaining('/config [sources|limits]'),
 		})
 	})
 })

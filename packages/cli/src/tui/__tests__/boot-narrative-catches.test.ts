@@ -138,21 +138,31 @@ describe('agent.ts:713 — the token-refresh rebuild catch', () => {
 		open.push(s)
 
 		const records = capturingSink()
-		// `resumeDurable` calls `refreshTokenIfNeeded()` as its first
-		// statement, before anything else — same prelude `send()` runs, and
+		// After admitting the run address and any stored limits,
+		// `resumeDurable` calls `refreshTokenIfNeeded()` — the same prelude `send()` runs, and
 		// the one reachable from this test without driving a full turn
 		// through `query()`. What `resumeRun` itself does with an
 		// intentionally-bare fixture afterward is irrelevant to this
 		// assertion, hence the swallowed rejection.
 		await s
 			.resumeDurable({
-				entry: { tenantId: 't', projectId: 'p', sessionId: 's' } as never,
+				entry: {
+					tenantId: '718db4df-d6c8-4848-9759-fba6d5d05c4d',
+					projectId: 'fd1a6491-e04f-49cb-a66e-57ea25906471',
+					sessionId: 'd6cc2c60-0628-4d8a-a15a-98361233a4e5',
+					runId: 'b0c50e25-d850-45ee-bfb5-9c546aa1b94c',
+				} as never,
 				checkpointStore: {} as never,
 			})
 			.catch(() => {})
 		await s
 			.resumeDurable({
-				entry: { tenantId: 't', projectId: 'p', sessionId: 's' } as never,
+				entry: {
+					tenantId: '718db4df-d6c8-4848-9759-fba6d5d05c4d',
+					projectId: 'fd1a6491-e04f-49cb-a66e-57ea25906471',
+					sessionId: 'd6cc2c60-0628-4d8a-a15a-98361233a4e5',
+					runId: 'b0c50e25-d850-45ee-bfb5-9c546aa1b94c',
+				} as never,
 				checkpointStore: {} as never,
 			})
 			.catch(() => {})

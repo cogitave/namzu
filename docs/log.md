@@ -2,6 +2,8 @@
 
 ## 2026-09-14
 
+- **Update** [CLI run limits](cli/run-limits.md) default to unlimited tokens, iterations and duration. `/config` now edits per-session limits for future turns and their built-in children while retaining usage accounting and the active run’s captured limits. SDK embedding defaults remain unchanged.
+
 - **Update** Allow explicit unlimited [CLI run limits](cli/run-limits.md) and [SDK iteration/time guards](sdk/token-budgets.md#limits-of-the-guarantee), preserving usage accounting and cancellation while forwarding configured limits to built-in children.
 
 - **Update** Preserve [Zen Responses turns without tools](sdk/zen.md#turns-that-disable-tools) by omitting tool definitions and tool choice, correcting a Muse HTTP 400 observed during live finalization.

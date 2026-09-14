@@ -72,6 +72,8 @@ import {
 	requireOpenProject,
 } from '@namzu/sdk'
 
+import { resolveRunGuards } from '../../config/run-limits.js'
+import type { RunLimitsConfig } from '../../config/schema.js'
 import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import {
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
@@ -145,9 +147,11 @@ export interface SubagentRuntimeOptions {
 	readonly model: string
 	/** Aggregate parent-and-descendant limit; absent or zero means unlimited. */
 	readonly tokenBudget?: number
-	/** Main-loop iterations for built-in children. Default 40; 0 is unlimited. */
+	/** Immutable settings captured by the invoking run, including TUI overrides. */
+	readonly resolveLimits?: (runId: RunId) => RunLimitsConfig | undefined
+	/** Main-loop iterations for built-in children. Omitted or 0 is unlimited. */
 	readonly maxIterations?: number
-	/** Run duration for children in milliseconds. Default one hour; 0 is unlimited. */
+	/** Run duration for children in milliseconds. Omitted or 0 is unlimited. */
 	readonly timeoutMs?: number
 	/** Durable layout for child runs; omitted preserves the SDK default. */
 	readonly pathBuilder?: PathBuilder
@@ -467,7 +471,7 @@ export async function createSubagentRuntime(
 						sessionId: parent.sessionId,
 						runId,
 					},
-					limit: opts.tokenBudget ?? 0,
+					limit: resolveRunGuards(opts, opts.resolveLimits?.(runId)).tokenBudget,
 					pathBuilder: opts.pathBuilder,
 					workingDirectory: opts.cwd,
 				})
@@ -654,7 +658,7 @@ export async function createSubagentRuntime(
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		timeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS),
 		async execute(input, context) {
 			const {
 				description,
@@ -744,7 +748,7 @@ export async function createSubagentRuntime(
 			// longer be proved.
 			const resumeHandler = opts.resolveResumeHandler?.(context.runId) ?? refuseUnownedChildReview
 			const configOverrides = {
-				tokenBudget: opts.tokenBudget ?? 0,
+				...resolveRunGuards(opts, opts.resolveLimits?.(context.runId)),
 				...(selection ? { model: selection.model, effort: selection.effort } : {}),
 				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
 				resumeHandler,
@@ -909,7 +913,7 @@ export async function createSubagentRuntime(
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
-		timeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+		timeoutMs: opts.resolveLimits ? 0 : (opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS),
 		async execute(input, context) {
 			const gateway = await gatewayForRun(context.runId)
 			let taskId: TaskId
@@ -1328,6 +1332,10 @@ function buildDefinition(
 		// erased Agent<BaseAgentConfig,…>. configBuilder supplies the richer config.
 		typedAgent: agent as unknown as CoreAgent<BaseAgentConfig, BaseAgentResult>,
 		configBuilder: async (options): Promise<ReactiveAgentConfig> => {
+			const limits = resolveRunGuards(
+				opts,
+				options.parentRunId ? opts.resolveLimits?.(asRunId(options.parentRunId)) : undefined,
+			)
 			// Resolved HERE, per child, rather than captured once for the session:
 			// what day it is and which branch is checked out can both have changed
 			// since the parent started, and a sub-agent asserting the stale answer
@@ -1346,7 +1354,7 @@ function buildDefinition(
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
 				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
-				maxIterations: opts.maxIterations ?? 40,
+				maxIterations: limits.maxIterations,
 				provider,
 				...(webSearch ? { webSearch } : {}),
 				...(selection?.effort ? { effort: selection.effort } : {}),

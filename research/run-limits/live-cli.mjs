@@ -14,13 +14,13 @@ const model = 'muse-spark-1.3-contributor-free'
 const report = { root, model, effort: 'low', cases: [], passed: false }
 console.log(JSON.stringify({ root }))
 try {
-  for (const name of ['config', 'flags']) {
+  for (const name of ['defaults', 'config', 'flags'].filter(name => !process.argv.includes('--defaults-only') || name === 'defaults')) {
     const home = join(root, name, 'home'), cwd = join(root, name, 'workspace')
     await mkdir(home, { recursive: true, mode: 0o700 })
     await mkdir(cwd)
     await writeFile(join(home, 'preferences.json'), JSON.stringify({ version: 3, providers: [{ id: 'zen', model }], subagents: { active: [] } }))
     await writeFile(join(home, 'config.yaml'), 'web:\n  search: off\nsandbox:\n  enabled: false\n')
-    await writeFile(join(cwd, 'namzu.config.json'), JSON.stringify({ limits: { tokenBudget: name === 'config' ? 0 : 1, maxIterations: name === 'config' ? 0 : 1, timeoutMs: 0 } }))
+    if (name !== 'defaults') await writeFile(join(cwd, 'namzu.config.json'), JSON.stringify({ limits: { tokenBudget: name === 'config' ? 0 : 1, maxIterations: name === 'config' ? 0 : 1, timeoutMs: 0 } }))
     await writeFile(join(cwd, 'receipt.txt'), 'RUN_LIMITS_READY\n')
     const args = [join(repo, 'packages/cli/dist/bin.js'), '--quiet', 'run', 'Read receipt.txt using the read tool, then reply only with its single line. Do not change files or use other tools.', '--trust', '--cwd', cwd, '--provider', 'zen', '--model', model, '--effort', 'low']
     if (name === 'flags') args.push('--token-budget', '0', '--max-iterations', '0')

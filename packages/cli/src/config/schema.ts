@@ -57,11 +57,11 @@ export type HooksConfig = ShellHooksConfig
 
 /** See `NamzuCliConfig.limits`. */
 export interface RunLimitsConfig {
-	/** Main-loop iterations one run may make. Default 50; 0 disables this guard. */
+	/** Main-loop iterations one run may make. Omitted or 0 means unlimited. */
 	readonly maxIterations?: number
 	/** Aggregate prompt and completion tokens for the run and descendants. Omitted or 0 means unlimited. */
 	readonly tokenBudget?: number
-	/** Total run duration in milliseconds. Default one hour; 0 disables the run deadline. */
+	/** Total run duration in milliseconds. Omitted or 0 means unlimited. */
 	readonly timeoutMs?: number
 	/**
 	 * Milliseconds a headless run may spend waiting out provider pauses — a
@@ -192,8 +192,8 @@ export interface NamzuCliConfig {
 	/**
 	 * How far one run may go before the kernel stops it. Headless `run` and
 	 * `run-stream` read these; `--max-iterations` and `--token-budget` override
-	 * them for one run. Absent means the defaults a chat turn gets: 50 model
-	 * calls and no cumulative token limit. Explicit token budgets cover descendants.
+	 * them for one run. Absent means unlimited tokens, iterations and run duration.
+	 * Explicit token budgets cover descendants.
 	 */
 	readonly limits?: RunLimitsConfig
 	/**

@@ -1,3 +1,5 @@
+import { type RunGuardKey, type RunGuards, resolveRunGuards } from '../config/run-limits.js'
+import { RUN_LIMIT_FIELDS, runLimitCommands } from './run-limits-settings.js'
 import { CliPathBuilder } from '../integrations/sessions/paths.js'
 /**
  * TUI root. Composes the banner, transcript, composer, status bar, and
@@ -306,6 +308,8 @@ type TextPromptState = {
 		| 'user-question'
 		| 'goal-create'
 		| 'goal-edit'
+		| 'run-limit'
+	readonly limitKey?: RunGuardKey
 	readonly title: string
 	readonly placeholder: string
 	readonly emptyNotice: string
@@ -859,6 +863,7 @@ export function App({
 	)
 	const [reasoningEffort, setReasoningEffortState] = useState<ReasoningEffort | undefined>()
 	const reasoningEffortRef = useRef<ReasoningEffort | undefined>(undefined)
+	const runLimitsOverrideRef = useRef<Partial<RunGuards>>({})
 	const setReasoningEffort = useCallback((next: ReasoningEffort | undefined) => {
 		reasoningEffortRef.current = next
 		setReasoningEffortState(next)
@@ -3624,6 +3629,11 @@ export function App({
 				)
 				return
 			}
+			if (prompt.kind === 'run-limit') {
+				const field = RUN_LIMIT_FIELDS.find((field) => field.key === prompt.limitKey)
+				if (field) commandPickerSubmitRef.current(`/config limits ${field.name} ${value.trim()}`)
+				return
+			}
 			if (prompt.kind === 'goal-create' || prompt.kind === 'goal-edit') {
 				if (value.trim())
 					commandPickerSubmitRef.current(
@@ -4669,6 +4679,7 @@ export function App({
 			activeTurnInboxRef.current = inbox
 			const turnPermissionMode = permissionModeRef.current
 			const turnReasoningEffort = reasoningEffortRef.current
+			const turnRunLimits = resolveRunGuards(ctxRef.current.limits, runLimitsOverrideRef.current)
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
 			// launched with --yolo later return to prompt mode truthfully.
@@ -4734,6 +4745,7 @@ export function App({
 						signal: ac.signal,
 						runId,
 						permissionMode: turnPermissionMode,
+						limits: turnRunLimits,
 						...(turnReasoningEffort !== undefined ? { effort: turnReasoningEffort } : {}),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
@@ -5298,6 +5310,48 @@ export function App({
 						if (state !== 'idle' || permission || choicePickerRef.current) { pushMessage('system', 'Provider setup is available once the active turn and prompts finish.'); return }
 						setProviderSetup(true)
 						return
+					case 'run-limits-set':
+					case 'run-limit-editor':
+					case 'run-limits-picker': {
+						const currentLimits = resolveRunGuards(ctxRef.current.limits, runLimitsOverrideRef.current)
+						if (slash.kind === 'run-limit-editor') {
+							const scope = scopeRef.current
+							if (!scope) {
+								pushMessage('system', 'Run limits are available after the session starts.')
+								return
+							}
+							const field = RUN_LIMIT_FIELDS.find((field) => field.key === slash.key)!
+							textPromptTokenRef.current += 1
+							setTextPrompt({
+								token: textPromptTokenRef.current,
+								kind: 'run-limit',
+								limitKey: slash.key,
+								title: `${field.label} (${slash.key === 'timeoutMs' ? 'ms; ' : ''}0 = unlimited)`,
+								placeholder: field.hint,
+								emptyNotice: 'Enter a value, or Esc to keep the current limit.',
+								initialValue: String(currentLimits[slash.key]),
+								sessionId: scope.sessionId,
+							})
+							return
+						}
+						if (slash.kind === 'run-limits-set') {
+							runLimitsOverrideRef.current = { ...runLimitsOverrideRef.current, ...slash.limits }
+						}
+						const commands = runLimitCommands(resolveRunGuards(currentLimits, runLimitsOverrideRef.current))
+						setSelectedChoice(0)
+						setChoicePicker({
+							kind: 'command',
+							title: 'Run limits',
+							notice: `${slash.kind === 'run-limits-set' ? 'Updated. ' : ''}This session · new turns and their agents. Existing runs keep their limits.`,
+							values: commands,
+							options: commands.map((command) => ({
+								label: command.label,
+								description: command.description,
+							})),
+							windowSize: 5,
+						})
+						return
+					}
 					case 'settings-picker': {
 						const commands: (CommandPickerEntry & { label: string })[] = [
 							{
@@ -5319,6 +5373,14 @@ export function App({
 								description: `${permissionModeLabel(effectivePermissionMode(permissionModeRef.current, session?.approvalLatched() ?? false))} · this session.`,
 							},
 							{
+								name: 'config limits',
+								label: 'Run limits',
+								description: runLimitCommands(resolveRunGuards(ctxRef.current.limits, runLimitsOverrideRef.current))
+									.slice(0, 3)
+									.map((field) => `${field.label}: ${field.description}`)
+									.join(' · '),
+							},
+							{
 								name: 'status',
 								label: 'Web & session',
 								description: `${session?.webSearchSummary ?? 'Not resolved'} · view tools, workspace and usage.`,
@@ -5334,7 +5396,7 @@ export function App({
 						setChoicePicker({
 							kind: 'command',
 							title: 'Configuration',
-							notice: 'Model, reasoning and permission changes apply to this session.',
+							notice: 'Model, reasoning, permission and run-limit changes apply to this session.',
 							values: commands,
 							options: commands.map((command) => ({
 								label: command.label,

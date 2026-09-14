@@ -1,4 +1,5 @@
 import { installationRows } from '../installation.js'
+import { type RunLimitsAction, runLimitsAction } from './run-limits-settings.js'
 import { statusCard } from './status-card.js'
 /**
  * Slash command registry + parser. Pure logic — no React. Unit-tested.
@@ -69,6 +70,7 @@ export type SlashAction =
 	/** Observe child runs retained by this TUI conversation. */
 	| { kind: 'agent-cockpit' }
 	| { kind: 'settings-picker' }
+	| RunLimitsAction
 	| { kind: 'provider-setup' }
 	| { kind: 'goal-picker' }
 	| { kind: 'goal-editor'; edit: boolean }
@@ -655,19 +657,28 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'config',
-		description: 'View configuration and open model, reasoning and permission controls.',
-		help: { usage: ['/config', '/config sources'] },
+		description: 'View configuration and change model, reasoning, permissions and run limits.',
+		help: {
+			usage: [
+				'/config',
+				'/config sources',
+				'/config limits [tokens|iterations|time] [value]',
+				'/config limits unlimited',
+			],
+		},
 		action: (ctx, args) =>
 			args.length === 0
 				? { kind: 'settings-picker' }
-				: {
-						kind: 'message',
-						role: 'system',
-						content:
-							args.join(' ') === 'sources'
-								? renderConfigDebug(ctx.configDebug)
-								: 'Usage: /config [sources]',
-					},
+				: args[0] === 'limits'
+					? runLimitsAction(args.slice(1))
+					: {
+							kind: 'message',
+							role: 'system',
+							content:
+								args.join(' ') === 'sources'
+									? renderConfigDebug(ctx.configDebug)
+									: 'Usage: /config [sources|limits]',
+						},
 	},
 	{
 		name: 'settings',

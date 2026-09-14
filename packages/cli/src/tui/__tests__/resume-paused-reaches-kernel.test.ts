@@ -9,14 +9,15 @@
  * ending with an error, not silence, when there was nothing to resume.
  */
 
-import { mkdtempSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { RunEvent } from '@namzu/sdk'
+import { type RunEvent, asRunId } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
 import type { DetectedProvider, Preferences } from '../../integrations/providers/index.js'
+import { CliPathBuilder } from '../../integrations/sessions/paths.js'
 import { openSessions, startConversation } from '../../integrations/sessions/store.js'
 
 const resumeCalls: Record<string, unknown>[] = []
@@ -93,6 +94,66 @@ async function openSession() {
 }
 
 describe('resuming this session’s own paused run', () => {
+	it.each([
+		{ tokenBudget: 12000, maxIterations: 7, timeoutMs: 120000 },
+		{ tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
+	])('reopens a paused run with its recorded limits: %j', async (limits) => {
+		const { session, stateRoot, scope } = await openSession()
+		const runId = asRunId('3b0329bb-f60a-48dc-9552-1b386c52cfe8')
+		const dir = new CliPathBuilder(stateRoot).runDir(scope.projectId, scope.sessionId, runId)
+		mkdirSync(dir, { recursive: true })
+		writeFileSync(
+			join(dir, 'run.json'),
+			JSON.stringify({
+				schemaVersion: 1,
+				id: runId,
+				metadata: { scope: { ...scope, runId }, config: limits },
+			}),
+		)
+		try {
+			for await (const event of session.resumePaused({
+				runId,
+				checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+			})) {
+				if (event.kind === 'error') throw new Error(event.message)
+			}
+			expect(resumeCalls[0]?.runConfig).toMatchObject(limits)
+		} finally {
+			await session.close()
+		}
+	})
+
+	it('refuses a stored limit record from another scope instead of replacing it with unlimited defaults', async () => {
+		const { session, stateRoot, scope } = await openSession()
+		const runId = asRunId('3b0329bb-f60a-48dc-9552-1b386c52cfe8')
+		const dir = new CliPathBuilder(stateRoot).runDir(scope.projectId, scope.sessionId, runId)
+		mkdirSync(dir, { recursive: true })
+		writeFileSync(
+			join(dir, 'run.json'),
+			JSON.stringify({
+				schemaVersion: 1,
+				id: runId,
+				metadata: {
+					scope: { ...scope, runId, tenantId: 'someone-else' },
+					config: { tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
+				},
+			}),
+		)
+		const errors: string[] = []
+		try {
+			for await (const event of session.resumePaused({
+				runId,
+				checkpointId: 'f0d1dd26-fd58-4593-b904-7817c789af26',
+			})) {
+				if (event.kind === 'error') errors.push(event.message)
+			}
+			expect(errors.join(' ')).toContain('scope')
+			expect(resumeCalls).toHaveLength(0)
+		} finally {
+			await session.close()
+		}
+	})
+
 	it('addresses the run under the session’s ids, at the checkpoint named, in the turn’s store', async () => {
 		const { session, stateRoot, scope } = await openSession()
 		const texts: string[] = []

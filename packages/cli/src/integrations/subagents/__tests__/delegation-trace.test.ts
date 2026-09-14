@@ -132,11 +132,11 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 		}
 	})
 
-	it('aligns the tool, scheduler and child run on the interactive deadline', async () => {
+	it('defaults the tool, scheduler and child run to no deadline', async () => {
 		const { agentTool, close, gateway, registered } = await buildAgentTool()
 		try {
 			expect(agentTool.timeoutMs).toBe(CLI_INTERACTIVE_RUN_TIMEOUT_MS)
-			expect(agentTool.timeoutMs).toBeGreaterThan(120_000)
+			expect(agentTool.timeoutMs).toBe(0)
 
 			const manager = Object.values(gateway as unknown as Record<string, unknown>).find(
 				(value) => value instanceof AgentManager,

@@ -20,7 +20,7 @@ explain why they cannot run and are checked again when selected.
 | --- | --- |
 | `/help [command]` | Search commands and choose an action, or read one command's usage without running it. |
 | `/setup` | Check optional Codex, Claude Code and OpenCode installations separately from credential availability. Confirm an npm installation, cancel it, recheck, or open provider connection. |
-| `/config`, `/settings` | View the current model, reasoning effort and permission mode; open their controls or configuration-source details. |
+| `/config`, `/settings` | View and edit model, reasoning effort, permission mode and run limits; inspect configuration sources. |
 | `/feedback` | Rate the last answer; choose good/bad or add an optional note. |
 | `/clear` | Clear the terminal and start a fresh conversation. |
 | `/new` | Start a fresh conversation without clearing the terminal. |
@@ -86,7 +86,12 @@ path and resumes only if that change succeeds, including in Windows PowerShell
 5.1. Users exiting from Git Bash can run the labelled command in PowerShell.
 
 `/config` (also available as `/settings`) shows Model, Reasoning effort and
-Permissions with their effective values, and opens the corresponding controls.
+Permissions and Run limits with their effective values, and opens the corresponding controls.
+Run limits defaults to unlimited tokens, model turns and duration. Enter a value
+for any row; `0` or `unlimited` removes its cap. `/config limits` opens it directly,
+and `/config limits unlimited` removes all three caps for future turns in this
+TUI session. Running work keeps its captured limits and measured usage. See
+[Run limits](run-limits.md) for direct commands and persistent configuration.
 Setting sources opens provenance details; `/config sources` opens it directly.
 Web & session opens the bounded `/status` card with the current search backend,
 workspace, model and usage. The status snapshot is rendered as an Ink card with aligned label/value columns,

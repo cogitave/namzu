@@ -8,8 +8,8 @@ iteration/time guards also prevented expressing an unlimited run through config.
 
 The change accepts zero for `limits.tokenBudget`, `limits.maxIterations` and
 `limits.timeoutMs`. Zero token/iteration flags override finite configuration.
-The SDK gives iteration/time zero the same meaning. Omitted defaults stay as
-before. Built-in children receive explicitly configured limits; specialists
+The SDK gives iteration/time zero the same meaning. At that milestone, omitted defaults stayed as
+before; the subsequent default-policy change is recorded below. Built-in children receive explicitly configured limits; specialists
 keep their own iteration settings. The existing ledger continues to own
 accounting, inheritance, request receipts and cold recovery. No second ledger
 or admission estimator was introduced.
@@ -88,3 +88,47 @@ The full workspace suite passed with 6,870 SDK tests and 3,082 CLI tests (five
 CLI skips). The subsequently added resident unlimited-forwarding case passed
 with its complete 57-test file. Local lint retains existing warnings. Publishing
 checks are separate from these development checks.
+
+
+## Follow-up: unlimited defaults and `/config`
+
+The next user request made unlimited execution the CLI default, with limits
+editable through `/config`. Main and built-in child runs now default to zero
+for all three guards. SDK embedding defaults stay separate. Session edits are
+captured per new run and forwarded to its built-in children; a parked CLI run
+reloads its own scoped metadata. The picker does not rewrite config files.
+
+[New recorded receipts](results/2026-09-14-defaults-and-config.json) cover real
+Muse low calls, separately from the earlier 53,210-token milestone:
+
+| Surface | Effective settings / action | Iterations | Tokens | Result |
+| --- | --- | ---: | ---: | --- |
+| TUI, no limits configured | Read and answer | 2 | 21,260 | Completed |
+| Same TUI, model turns edited to 1 | Read again | 1 | 12,340 | `max_iterations`, displayed as a stopped run |
+| Same TUI, remove all caps | Read and answer again | 2 | 24,599 | Completed |
+| Same TUI, 100,000 tokens and 30m | One-line answer | 1 | 12,802 | Completed; both caps recorded |
+| Headless, no limits configured | Read and answer | 2 | 15,940 | Completed, all guards zero |
+
+New live usage totals **86,941 tokens**. UI changes make no model requests.
+The terminal used an isolated home/workspace at 120×32. `/config` opened a
+Run limits row, each limit was editable, Esc cancelled an uncommitted edit,
+and all four actual TUI runs retained their measured receipts. The external
+headless probe is reproducible with `node research/run-limits/live-cli.mjs
+--live --defaults-only`; omitting `--defaults-only` also runs the earlier
+explicit-zero config and flag cases.
+
+Deterministic CLI regressions cover default children exceeding 40 calls,
+per-parent overrides removing all three finite launch caps, finite iteration
+stops, value validation, the real App picker-to-send path, and paused-run
+reopening with recorded finite/unlimited limits and scope mismatch refusal.
+No long-running soak, provider quota removal, or strict billing cap is claimed.
+
+
+Follow-up validation: workspace typecheck, lint and build passed; documentation
+conformance/fences and signature exports passed. The CLI suite passed **3,112
+tests, five skipped, across 343 files** with four workers. Earlier default-worker
+runs exposed a timing-sensitive existing goal-status screen assertion; its
+12-test file passed independently and the full four-worker run passed without
+changing that goal test. New picker tests wait for visible state before typing.
+The workspace run also passed the SDK's 6,870 tests and the other package suites.
+No release/push or complete release-gate claim is made by this record.

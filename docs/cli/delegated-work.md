@@ -100,9 +100,12 @@ dependencies.
 
 Built-in children use the configured [run limits](run-limits.md), including
 explicit unlimited values. `limits.maxIterations` now reaches built-in children
-as well as the parent; absent means the existing 40-iteration child default.
-`limits.timeoutMs` controls the child run deadline and the `Agent`/`wait_for_task`
-execution deadline. Zero removes these deadlines while preserving cancellation.
+as well as the parent; absent or zero means unlimited. Built-in children also
+default to unlimited run duration. `/config` → Run limits changes these values
+for newly started turns and their children without changing already running work.
+`limits.timeoutMs` controls the parent and child run deadlines. Delegation waits
+remain cancellable and are governed by those runs, so a session-wide tool
+deadline cannot override a later `/config` change. Zero removes the run deadlines.
 File-defined agents keep their own iteration settings and remain subject to the
 shared token ledger. Disabling a local token cap cannot remove a finite ancestor
 allowance.
