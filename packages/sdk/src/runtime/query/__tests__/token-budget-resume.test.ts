@@ -40,7 +40,7 @@ function usage(tokens: number): TokenUsage {
 	}
 }
 
-async function fixture() {
+async function fixture(limit = 1_000) {
 	const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-ledger-resume-'))
 	directories.push(workingDirectory)
 	const rootScope: TokenBudgetScope = {
@@ -50,7 +50,7 @@ async function fixture() {
 		runId: generateRunId(),
 	}
 	const store = new DiskTokenBudgetStore({ baseDir: join(workingDirectory, 'ledgers') })
-	const root = await openTokenBudget({ store, scope: rootScope, limit: 1_000 })
+	const root = await openTokenBudget({ store, scope: rootScope, limit })
 	const scope: RunStateScope = { ...rootScope, topicId: generateTopicId() }
 	const checkpointStore = new InMemoryCheckpointStore()
 	const provider = new MockLLMProvider({ turns: [{ text: 'continued', usage: usage(50) }] })
@@ -91,6 +91,40 @@ function checkpoint(
 }
 
 describe('checkpoint resume keeps the latest token authority', () => {
+	it('reopens an unlimited run after long elapsed time without losing measured spend', async () => {
+		const f = await fixture(0)
+		f.root.recordUsage(usage(300_000))
+		await f.root.flush()
+		await f.checkpointStore.writeCheckpoint(f.scope, {
+			...checkpoint(f.root, f.scope, 300_000),
+			iteration: 500,
+			guardState: { iterationCount: 500, elapsedMs: 24 * 60 * 60 * 1000 },
+		})
+		const outcome = await resumeRun({
+			...f.params,
+			runConfig: { model: 'mock', tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
+		})
+		expect(outcome.resumed).toBe(true)
+		if (!outcome.resumed) throw new Error('resume unexpectedly refused')
+		expect(outcome.run.stopReason).toBe('end_turn')
+		expect(f.provider.requests).toHaveLength(1)
+		expect(outcome.run.budget).toMatchObject({
+			limit: 0,
+			ownTokens: 300_050,
+			treeTokens: 300_050,
+			remainingTokens: null,
+		})
+		const reopened = await openTokenBudget({
+			store: f.store,
+			scope: f.rootScope,
+			requireExisting: true,
+		})
+		expect(reopened.summary()).toMatchObject({
+			limit: 0,
+			ownTokens: 300_050,
+			remainingTokens: null,
+		})
+	})
 	it('applies a narrower run cap to a supplied root authority', async () => {
 		const f = await fixture()
 		const resolved = await resolveQueryBudget(

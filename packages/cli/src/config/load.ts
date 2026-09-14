@@ -731,15 +731,22 @@ const CONFIG_READERS: ConfigReaders = {
 	limits: (v, context) => {
 		if (!isConfigMapping(v)) return invalidConfigValue(context, [], 'must be a mapping')
 		for (const key of Object.keys(v)) {
-			if (key !== 'maxIterations' && key !== 'tokenBudget' && key !== 'waitForProviderMs')
+			if (!['maxIterations', 'tokenBudget', 'timeoutMs', 'waitForProviderMs'].includes(key))
 				return invalidConfigValue(
 					context,
 					[key],
-					'is not a limit (maxIterations, tokenBudget, waitForProviderMs)',
+					'is not a limit (maxIterations, tokenBudget, timeoutMs, waitForProviderMs)',
 				)
 			const value = (v as Record<string, unknown>)[key]
-			if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0)
-				return invalidConfigValue(context, [key], 'must be a whole number above zero')
+			const minimum = key === 'waitForProviderMs' ? 1 : 0
+			if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < minimum)
+				return invalidConfigValue(context, [key], `must be a safe whole number at least ${minimum}`)
+			if (key === 'timeoutMs' && value > 2_147_483_647)
+				return invalidConfigValue(
+					context,
+					[key],
+					'must be at most 2147483647 milliseconds; use 0 for unlimited',
+				)
 		}
 		return v as RunLimitsConfig
 	},

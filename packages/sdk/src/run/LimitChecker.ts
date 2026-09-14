@@ -31,7 +31,7 @@ export function checkLimitsDetailed(
 		return { type: 'hard_stop', reason: 'cancelled' }
 	}
 
-	if (Date.now() - state.startTime > config.timeoutMs) {
+	if (config.timeoutMs !== 0 && Date.now() - state.startTime > config.timeoutMs) {
 		return { type: 'hard_stop', reason: 'timeout' }
 	}
 
@@ -55,7 +55,7 @@ export function checkLimitsDetailed(
 		}
 	}
 
-	if (state.currentIteration >= config.maxIterations) {
+	if (config.maxIterations !== 0 && state.currentIteration >= config.maxIterations) {
 		return { type: 'hard_stop', reason: 'max_iterations' }
 	}
 
@@ -75,7 +75,7 @@ export function checkLimitsDetailed(
 
 	const timeElapsed = Date.now() - state.startTime
 	const timeRatio = timeElapsed / config.timeoutMs
-	if (timeRatio >= config.budgetWarningThreshold) {
+	if (config.timeoutMs > 0 && timeRatio >= config.budgetWarningThreshold) {
 		return { type: 'warning', reason: 'timeout' }
 	}
 

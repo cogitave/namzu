@@ -105,8 +105,9 @@ That comparison used the interactive context profile. These tasks needed no
 optional tool, so the result does not measure discovery's
 extra round trip or establish a general performance gain.
 
-Iteration and token limits apply **per SDK step**, not cumulatively across a
-resident's lifetime. `--max-steps` bounds the number of admitted steps. Provider
+Iteration, token and run-time limits apply **per SDK step**, not cumulatively across a
+resident's lifetime. Explicit zeros in [run limits](run-limits.md) remove those
+per-step caps while retaining measured usage. `--max-steps` bounds the number of admitted steps. Provider
 failures and interrupted steps can consume tokens without settling a step.
 The read-only lifetime projection below does not enforce a separate lifetime credit limit.
 

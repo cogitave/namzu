@@ -57,10 +57,12 @@ export type HooksConfig = ShellHooksConfig
 
 /** See `NamzuCliConfig.limits`. */
 export interface RunLimitsConfig {
-	/** Model calls one run may make. Default 50. */
+	/** Main-loop iterations one run may make. Default 50; 0 disables this guard. */
 	readonly maxIterations?: number
-	/** Aggregate prompt and completion tokens for the run and descendants. Omitted means unlimited. */
+	/** Aggregate prompt and completion tokens for the run and descendants. Omitted or 0 means unlimited. */
 	readonly tokenBudget?: number
+	/** Total run duration in milliseconds. Default one hour; 0 disables the run deadline. */
+	readonly timeoutMs?: number
 	/**
 	 * Milliseconds a headless run may spend waiting out provider pauses — a
 	 * rate limit, an outage — resuming from its checkpoint after each, before

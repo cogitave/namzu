@@ -145,6 +145,10 @@ export interface SubagentRuntimeOptions {
 	readonly model: string
 	/** Aggregate parent-and-descendant limit; absent or zero means unlimited. */
 	readonly tokenBudget?: number
+	/** Main-loop iterations for built-in children. Default 40; 0 is unlimited. */
+	readonly maxIterations?: number
+	/** Run duration for children in milliseconds. Default one hour; 0 is unlimited. */
+	readonly timeoutMs?: number
 	/** Durable layout for child runs; omitted preserves the SDK default. */
 	readonly pathBuilder?: PathBuilder
 	/** Root every child allocation at the session workspace or a fresh temp tree. */
@@ -383,7 +387,7 @@ export async function createSubagentRuntime(
 		const manager = new AgentManager(
 			registry,
 			{
-				childTimeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+				childTimeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 				capacityBehavior: 'queue',
 			},
 			{
@@ -650,7 +654,7 @@ export async function createSubagentRuntime(
 		readOnly: false,
 		destructive: false,
 		concurrencySafe: true,
-		timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+		timeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 		async execute(input, context) {
 			const {
 				description,
@@ -905,7 +909,7 @@ export async function createSubagentRuntime(
 		readOnly: true,
 		destructive: false,
 		concurrencySafe: true,
-		timeoutMs: CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+		timeoutMs: opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
 		async execute(input, context) {
 			const gateway = await gatewayForRun(context.runId)
 			let taskId: TaskId
@@ -1341,8 +1345,8 @@ function buildDefinition(
 			return {
 				model: options.model ?? model,
 				tokenBudget: options.tokenBudget ?? opts.tokenBudget ?? 0,
-				timeoutMs: options.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
-				maxIterations: 40,
+				timeoutMs: options.timeoutMs ?? opts.timeoutMs ?? CLI_INTERACTIVE_RUN_TIMEOUT_MS,
+				maxIterations: opts.maxIterations ?? 40,
 				provider,
 				...(webSearch ? { webSearch } : {}),
 				...(selection?.effort ? { effort: selection.effort } : {}),

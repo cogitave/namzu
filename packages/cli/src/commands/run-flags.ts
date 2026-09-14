@@ -28,11 +28,11 @@ import type { ReasoningEffort, ReviewAnswer } from '@namzu/sdk'
 import type { Preferences, ProviderChoice, ProviderId } from '../integrations/providers/index.js'
 import { durationMs } from './provider-wait.js'
 
-/** A whole number above zero, or a thrown message naming the flag. */
-function positiveInteger(value: string, flag: string): number {
+/** A nonnegative safe integer; zero disables the corresponding run guard. */
+function runLimit(value: string, flag: string): number {
 	const n = Number(value.trim())
-	if (!Number.isInteger(n) || n <= 0)
-		throw new Error(`${flag} takes a whole number above zero, got ${value}`)
+	if (!value.trim() || !Number.isSafeInteger(n) || n < 0)
+		throw new Error(`${flag} takes a safe whole number at least 0 (unlimited), got ${value}`)
 	return n
 }
 
@@ -64,9 +64,9 @@ export interface RunFlags {
 	/** --resume <id>: pick up this conversation and no other. */
 	resume: string | null
 	skills: string[]
-	/** `--max-iterations <n>`: model calls this run may make before it is stopped. */
+	/** `--max-iterations <n>`: main-loop iterations; 0 is unlimited. */
 	maxIterations: number | null
-	/** `--token-budget <n>`: total tokens this run may spend before it is stopped. */
+	/** `--token-budget <n>`: cumulative token limit; 0 is unlimited. */
 	tokenBudget: number | null
 	/**
 	 * `--wait-for-provider <duration>`: how long the run may spend waiting out
@@ -194,7 +194,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				a,
 				'max-iterations',
 				(v) => {
-					out.maxIterations = positiveInteger(v, '--max-iterations')
+					out.maxIterations = runLimit(v, '--max-iterations')
 				},
 				idx,
 			)
@@ -205,7 +205,7 @@ export function parseRunFlags(rawArgs: readonly string[]): RunFlags {
 				a,
 				'token-budget',
 				(v) => {
-					out.tokenBudget = positiveInteger(v, '--token-budget')
+					out.tokenBudget = runLimit(v, '--token-budget')
 				},
 				idx,
 			)

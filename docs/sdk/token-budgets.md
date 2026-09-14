@@ -24,7 +24,7 @@ cannot both claim the same available tokens. They are persisted before the
 child starts. A smaller effective child cap narrows its reservation; a builder
 cannot remove or widen the inherited cap.
 
-For an account with limit `L`, measured subtree usage `U`, and open child
+For a finite account with limit `L`, measured subtree usage `U`, and open child
 allowances `A_i` with subtree usage `U_i`, its unreserved allowance is:
 
 ```text
@@ -86,9 +86,10 @@ grant is the smaller of the existing `maxBudgetFraction` ceiling and the
 available allowance divided by the remaining live slots plus one parent share.
 For an unspent one-million-token root with eight slots, each initial child
 receives 111,111 tokens and the parent retains 111,112. Actual parent usage
-before admission reduces those amounts. Unlimited roots keep finite child
-grants. The SDK's default rejection policy retains its existing allocation
-formula.
+before admission reduces those amounts. Under unlimited roots, omitted SDK child
+allocations retain the 200,000-token fallback; an explicit child limit of `0`
+creates an unlimited account. The CLI supplies that explicit zero by default.
+The SDK's default rejection policy retains its existing allocation formula.
 
 This parent share permits coordination while children are working; it is not
 an additional allowance. Further requests and overruns can still consume it.
@@ -169,6 +170,22 @@ hosts must establish exclusive root ownership before moving it to another
 process. Checkpoint claims alone do not fence an independent ledger backend.
 
 ## Limits of the guarantee
+
+`AgentRunConfig.maxIterations: 0` disables the iteration guard, and `timeoutMs: 0`
+disables the total run deadline. These do not disable token accounting or change
+omitted defaults: `query` still defaults to 200 iterations, and `runAgent` to 16
+iterations, 200,000 tokens and five minutes. To run `runAgent` without those three
+caps, explicitly set `tokenBudget`, `maxIterations` and `timeoutMs` to `0`.
+Cancellation, per-tool deadlines, provider stream-silence detection and any
+configured cost limit remain independent. A resumed unlimited run retains its
+usage and elapsed time without interpreting zero as an immediate timeout.
+Optional provider context-window discovery falls back after five seconds when
+the run has no deadline; sandbox acquisition remains cancellable without a run
+timer.
+
+Migration: zero iteration/time values previously stopped progress. Hosts using
+them to refuse execution should instead refuse admission or supply an
+already-aborted signal. Positive limits keep their existing meaning.
 
 Admission is based on measured tokens. An already admitted response can exceed
 its remaining allowance, and multiple admitted sibling requests may finish

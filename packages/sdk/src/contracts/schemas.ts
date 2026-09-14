@@ -13,7 +13,7 @@ export const RunConfigSchema = z
 		temperature: z.number().min(0).max(2).optional(),
 		tokenBudget: z.number().int().nonnegative().optional(),
 		maxResponseTokens: z.number().int().positive().optional(),
-		timeoutMs: z.number().int().positive().max(3_600_000).optional(),
+		timeoutMs: z.number().int().nonnegative().max(3_600_000).optional(),
 		streamIdleTimeoutMs: z.number().int().nonnegative().max(3_600_000).optional(),
 		maxRequestRichContentBytes: z
 			.number()

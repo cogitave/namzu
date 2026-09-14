@@ -10,24 +10,53 @@ generated: { by: human:bahadirarda, at: 2026-09-04T00:00:00Z }
 
 # Run limits
 
-CLI runs default to 50 main-loop iterations and no cumulative token limit. Set a token budget explicitly to bound measured usage across the parent and its descendants. Token exhaustion remains distinct from successful completion.
+CLI runs default to 50 main-loop iterations, a one-hour run deadline and no cumulative token limit. Set a token budget explicitly to bound measured usage across the parent and its descendants. Token exhaustion remains distinct from successful completion.
 
-- **`limits`** in `namzu.config.json` or `~/.namzu/config.yaml`: `{ "maxIterations": 400, "tokenBudget": 5000000 }`. Either key may be omitted. Whole numbers above zero.
+- **`limits`** in `namzu.config.json` or `~/.namzu/config.yaml`: `{ "maxIterations": 400, "tokenBudget": 5000000, "timeoutMs": 3600000 }`. Keys may be omitted. Nonnegative safe integers; `0` disables the corresponding run guard. A positive `timeoutMs` must be at most 2,147,483,647 milliseconds to fit platform timers.
 - **`--max-iterations <n>`** and **`--token-budget <n>`** on `run` and `run-stream` override the file for one run.
 
-The TUI also applies `limits.maxIterations` and `limits.tokenBudget` from the
+To remove all three run caps explicitly, put this in the workspace's
+`namzu.config.json` (or the equivalent `limits` mapping in the user YAML file):
+
+```json
+{
+  "limits": {
+    "tokenBudget": 0,
+    "maxIterations": 0,
+    "timeoutMs": 0
+  }
+}
+```
+
+Zero is an explicit setting, so it can remove a cap inherited from user
+configuration. `namzu run --token-budget 0 --max-iterations 0 "continue the work"`
+removes those two caps for that headless invocation; its configured run deadline
+still applies. `timeoutMs` is configured in the file, not a headless flag.
+
+Unlimited execution still records measured own-run and descendant usage and
+stops on completion or operator cancellation. It does not disable permissions,
+context compaction, request output limits, per-tool deadlines, stream-silence
+detection or unresolved-receipt handling. Provider quotas also remain external
+constraints. Optional provider context-window discovery uses a five-second
+fallback deadline when the run itself has no deadline.
+
+The TUI also applies `limits.maxIterations`, `limits.tokenBudget` and `limits.timeoutMs` from the
 resolved configuration, including when resuming a conversation or rebuilding
 the session after a model change. User settings apply at launch; project
 settings apply after workspace trust is established. Each ordinary new user
 turn opens a run with these limits; durable recovery preserves the existing
 run's ledger. `limits.waitForProviderMs` remains a headless wait policy.
 
-Earlier TUI launches ignored configured limits. To retain unlimited cumulative
-tokens in interactive use, omit `limits.tokenBudget` from the effective config
-and use `--token-budget` for individual headless runs. The omitted defaults stay
-50 iterations and no cumulative token cap.
+To retain unlimited cumulative tokens in interactive use, omit `limits.tokenBudget`
+from the effective config or set it to `0`. The omitted defaults stay
+50 iterations, one hour and no cumulative token cap.
 
-Interactive and headless sessions use the same token-budget default. Children also have no implicit token cap when the tree is unlimited; their iteration and cancellation boundaries remain active. Context size is a separate matter and is governed by [compaction](context-and-compaction.md), which keeps the working set under the model's window however long the run goes.
+Interactive and headless sessions use the same token-budget default. Built-in
+children inherit explicitly configured iteration and time limits, including `0`;
+without those settings they retain 40 iterations and one hour. Their tokens
+remain constrained by any finite ancestor allowance. File-defined specialist
+agents retain their own iteration configuration. Context size is separate and
+is governed by [compaction](context-and-compaction.md).
 
 ## Reasoning effort and budget enforcement
 

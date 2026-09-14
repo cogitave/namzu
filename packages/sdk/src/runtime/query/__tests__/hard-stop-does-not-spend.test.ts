@@ -123,10 +123,16 @@ it.each(['warning', 'empty'] as const)(
 )
 
 describe('a hard stop starts no closing model request', () => {
-	it('makes zero requests when no iterations were granted', async () => {
-		const { result, provider } = await run([{ text: 'should not run' }], { maxIterations: 0 })
+	it('makes zero requests when the host cancels an unlimited run before admission', async () => {
+		const controller = new AbortController()
+		controller.abort()
+		const { result, provider } = await run(
+			[{ text: 'should not run' }],
+			{ maxIterations: 0 },
+			{ signal: controller.signal },
+		)
 		expect(provider.requests).toHaveLength(0)
-		expect(result.stopReason).toBe('max_iterations')
+		expect(result.stopReason).toBe('cancelled')
 		expect(result.tokenUsage.totalTokens).toBe(0)
 	})
 

@@ -47,6 +47,11 @@ them does not create Project, Topic or Session records in a session store.
 A host using store-backed delegation supplies the identity from its actual
 records.
 
+`runAgent` defaults to 16 main-loop iterations, 200,000 cumulative tokens and
+five minutes. Set `maxIterations: 0`, `tokenBudget: 0` and `timeoutMs: 0` to
+disable those guards explicitly. Usage and cancellation remain active; see
+[Token budgets](token-budgets.md) for descendant accounting and receipt handling.
+
 To continue a conversation, spread the returned `identity` into the next
 `runAgent` call and pass the prior `run.messages` plus a new user message as
 `prompt`. Reusing identity alone does not load history. Omitting identity starts

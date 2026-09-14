@@ -64,17 +64,18 @@ function capturingSink(): LogRecord[] {
 }
 
 describe('agent.ts:810 — the sub-agent runtime catch', () => {
-	it('passes the operator token budget into the delegation runtime', async () => {
+	it.each([
+		{ tokenBudget: 1_000, maxIterations: 5, timeoutMs: 1000 },
+		{ tokenBudget: 0, maxIterations: 0, timeoutMs: 0 },
+	])('passes the operator limits into the delegation runtime: %j', async (limits) => {
 		const session = await createAgentSession(
 			{ version: 3, providers: [{ id: 'anthropic' }] } as never,
 			[detectedAnthropic] as never,
-			{ cwd: cwd(), limits: { tokenBudget: 1_000 } },
+			{ cwd: cwd(), limits },
 		)
 		open.push(session)
 
-		expect(createSubagentRuntime).toHaveBeenCalledWith(
-			expect.objectContaining({ tokenBudget: 1_000 }),
-		)
+		expect(createSubagentRuntime).toHaveBeenCalledWith(expect.objectContaining(limits))
 		expect(session.agentIds.length).toBeGreaterThan(0)
 	})
 

@@ -96,6 +96,17 @@ chat; Enter inspects a child transcript, Esc goes back and `q` returns from the
 child to the parent. Workflows and phases remain navigation groups, not execution
 dependencies.
 
+## Run limits
+
+Built-in children use the configured [run limits](run-limits.md), including
+explicit unlimited values. `limits.maxIterations` now reaches built-in children
+as well as the parent; absent means the existing 40-iteration child default.
+`limits.timeoutMs` controls the child run deadline and the `Agent`/`wait_for_task`
+execution deadline. Zero removes these deadlines while preserving cancellation.
+File-defined agents keep their own iteration settings and remain subject to the
+shared token ledger. Disabling a local token cap cannot remove a finite ancestor
+allowance.
+
 ## Child model selection
 
 `Agent` accepts optional `model`, `provider` and `effort` fields. With no selection,

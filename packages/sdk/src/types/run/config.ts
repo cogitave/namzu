@@ -8,6 +8,7 @@ import type { CheckpointStore } from './checkpoint-store.js'
 
 export interface AgentRunConfig {
 	model: string
+	/** Total run duration in milliseconds; 0 disables the run deadline. */
 	timeoutMs: number
 	/**
 	 * Maximum silence between provider stream chunks, in milliseconds.
@@ -67,8 +68,10 @@ export interface AgentRunConfig {
 	effort?: import('../provider/index.js').ReasoningEffort
 	/** Provider-hosted search for this run. Explicit opt-in; no local network permission. */
 	webSearch?: import('../provider/index.js').ChatCompletionParams['webSearch']
+	/** Cumulative parent-and-descendant tokens; 0 is unlimited with usage accounting. */
 	tokenBudget: number
 	costLimitUsd?: number
+	/** Main-loop iterations; 0 disables this guard. Omitted defaults depend on the entry point. */
 	maxIterations?: number
 	temperature?: number
 	env?: Record<string, string>

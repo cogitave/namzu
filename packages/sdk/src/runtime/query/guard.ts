@@ -83,6 +83,7 @@ export class GuardCoordinator {
 	 * on the RUN rather than on the process now hosting it.
 	 */
 	remainingBeforeFinalizeMs(): number {
+		if (this.limitConfig.timeoutMs === 0) return Number.POSITIVE_INFINITY
 		const finalizeAt = this.limitConfig.timeoutMs * this.limitConfig.budgetWarningThreshold
 		return Math.max(0, finalizeAt - (Date.now() - this.startTime))
 	}
@@ -96,6 +97,7 @@ export class GuardCoordinator {
 	 * deadline around such work instead of inventing a second clock.
 	 */
 	remainingUntilTimeoutMs(): number {
+		if (this.limitConfig.timeoutMs === 0) return Number.POSITIVE_INFINITY
 		return Math.max(0, this.limitConfig.timeoutMs - (Date.now() - this.startTime))
 	}
 

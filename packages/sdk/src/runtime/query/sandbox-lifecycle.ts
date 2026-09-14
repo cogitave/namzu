@@ -138,6 +138,9 @@ export async function acquireSandbox(options: {
 		runSignal.addEventListener('abort', onAbort, { once: true })
 	})
 	const timedOut = new Promise<{ readonly kind: 'timed_out'; readonly error: Error }>((resolve) => {
+		// An unlimited run still observes cancellation; Infinity must never reach
+		// setTimeout, where Node would coerce it to a one-millisecond deadline.
+		if (options.timeoutMs === Number.POSITIVE_INFINITY) return
 		timer = setTimeout(() => {
 			timeoutError = acquisitionTimeoutError(options.timeoutMs)
 			operationController.abort(timeoutError)

@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
+import { TokenBudget } from '../../../run/token-budget.js'
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
@@ -21,6 +22,7 @@ import type {
 import { RunCancelled } from '../../../types/run/cancel-cause.js'
 import type { RunEvent } from '../../../types/run/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import { generateRunId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 
 const dirs: string[] = []
@@ -402,11 +404,16 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 		expect(JSON.stringify(run.messages)).not.toContain('provider-rejected')
 	})
 
-	it('issues no image-recovery request when the iteration budget is exhausted', async () => {
+	it('issues no image-recovery request when the inherited token account is exhausted', async () => {
 		const provider = new RejectsOneImageProvider()
 		const events: RunEvent[] = []
+		const runId = generateRunId()
+		const budget = TokenBudget.create(100_000, runId)
+		budget.recordUsage({ ...ZERO_USAGE, promptTokens: 100_000, totalTokens: 100_000 })
 		const run = await drainQuery(
 			{
+				runId,
+				budget,
 				provider,
 				tools: new ToolRegistry(),
 				retry: { maxRetries: 0 },
@@ -414,7 +421,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 					model: 'vision-model',
 					timeoutMs: 5_000,
 					tokenBudget: 100_000,
-					maxIterations: 0,
+					maxIterations: 1,
 					maxResponseTokens: 256,
 				},
 				agentId: 'agent_image_recovery_final',
@@ -434,7 +441,7 @@ describe('a provider-rejected image is recovered once and suppressed durably', (
 		)
 
 		expect(provider.requests).toHaveLength(0)
-		expect(run.stopReason).toBe('max_iterations')
+		expect(run.stopReason).toBe('token_budget')
 		expect(JSON.stringify(run.messages)).toContain('aW52YWxpZC1pbWFnZQ==')
 		expect(JSON.stringify(run.messages)).not.toContain('provider-rejected')
 		expect(

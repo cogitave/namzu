@@ -231,6 +231,15 @@ describe('normal CLI runtime reaches a resident admission', () => {
 		await expect(stat(f.options.artifactsRoot)).rejects.toMatchObject({ code: 'ENOENT' })
 	})
 
+	it('keeps explicit unlimited guards on an admitted resident step', async () => {
+		const limits = { tokenBudget: 0, maxIterations: 0, timeoutMs: 0 }
+		const f = await fixture({ limits })
+		expect(await new ResidentHost(f.agenda, f.step()).run({ signal, maxSteps: 1 })).toMatchObject({
+			stepsSettled: 1,
+		})
+		expect(creationOptions().limits).toEqual(limits)
+	})
+
 	it('forwards the whole configured session and flag overrides, with isolated run identity', async () => {
 		const config: NamzuCliConfig = {
 			permissions: { bash: 'deny' },

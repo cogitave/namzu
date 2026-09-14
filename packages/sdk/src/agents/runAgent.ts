@@ -109,8 +109,11 @@ export interface RunAgentOptions extends AgentIdentity {
 	/** Optional checkpoint store; omitted uses the resolved disk layout. */
 	checkpointStore?: QueryParams['checkpointStore']
 
+	/** Default 16 main-loop iterations; 0 disables the iteration guard. */
 	maxIterations?: number
+	/** Default 200,000 cumulative tokens; 0 is unlimited and still metered. */
 	tokenBudget?: number
+	/** Default five minutes; 0 disables the run deadline. */
 	timeoutMs?: number
 	/** Maximum provider-stream silence; defaults to five minutes. `0` disables. */
 	streamIdleTimeoutMs?: number

@@ -1,0 +1,124 @@
+{
+  "date": "2026-09-14",
+  "baseRevision": "2869fbec",
+  "tested": "working-tree changes; built CLI",
+  "provider": "zen",
+  "model": "muse-spark-1.3-contributor-free",
+  "effort": "low",
+  "results": [
+    {
+      "surface": "CLI config",
+      "configuredLimits": {
+        "tokenBudget": 0,
+        "maxIterations": 0,
+        "timeoutMs": 0
+      },
+      "overrideFlags": [],
+      "effectiveLimits": {
+        "tokenBudget": 0,
+        "maxIterations": 0,
+        "timeoutMs": 0
+      },
+      "iterations": 2,
+      "output": "RUN_LIMITS_READY",
+      "stopReason": "end_turn",
+      "usage": {
+        "promptTokens": 15801,
+        "completionTokens": 247,
+        "totalTokens": 16048,
+        "cachedTokens": 7665,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 171
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 16048,
+        "treeTokens": 16048,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "surface": "CLI flags",
+      "configuredLimits": {
+        "tokenBudget": 1,
+        "maxIterations": 1,
+        "timeoutMs": 0
+      },
+      "overrideFlags": [
+        "--token-budget",
+        "0",
+        "--max-iterations",
+        "0"
+      ],
+      "effectiveLimits": {
+        "tokenBudget": 0,
+        "maxIterations": 0,
+        "timeoutMs": 0
+      },
+      "iterations": 2,
+      "output": "RUN_LIMITS_READY",
+      "stopReason": "end_turn",
+      "usage": {
+        "promptTokens": 15748,
+        "completionTokens": 199,
+        "totalTokens": 15947,
+        "cachedTokens": 7665,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 123
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 15947,
+        "treeTokens": 15947,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      }
+    },
+    {
+      "surface": "TUI 120x32 PTY",
+      "effortCommand": "/effort low",
+      "effectiveLimits": {
+        "tokenBudget": 0,
+        "maxIterations": 0,
+        "timeoutMs": 0
+      },
+      "iterations": 2,
+      "output": "RUN_LIMITS_READY",
+      "stopReason": "end_turn",
+      "usage": {
+        "promptTokens": 20977,
+        "completionTokens": 238,
+        "totalTokens": 21215,
+        "cachedTokens": 10225,
+        "cacheWriteTokens": 0,
+        "reasoningTokens": 158
+      },
+      "budget": {
+        "limit": 0,
+        "ownTokens": 21215,
+        "treeTokens": 21215,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "initialDisplay": "RUNLIMITSREADY",
+      "displayAfterParserFixAndResume": "RUN_LIMITS_READY",
+      "resumeMadeModelCalls": false
+    }
+  ],
+  "recordedTotalTokens": 53210,
+  "priceClaim": null,
+  "rawEvidenceRoot": "/tmp/namzu-unlimited-live-YDtbQ2"
+}

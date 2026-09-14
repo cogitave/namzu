@@ -940,11 +940,10 @@ async function resolveProviderContextWindow(
 		onAbort = () => resolve(interrupted)
 		resolverSignal.addEventListener('abort', onAbort, { once: true })
 	})
-	// Wire and directory config validation already limit this field to one
-	// hour. The clamp also keeps a direct QueryParams caller from triggering
-	// Node's >2^31-1 one-millisecond timer coercion and turning a huge run
-	// budget into an immediate metadata fallback.
-	const deadlineMs = Math.min(Math.max(0, timeoutMs), 2_147_483_647)
+	// Direct QueryParams callers can supply a large run deadline. The clamp
+	// avoids Node's >2^31-1 one-millisecond timer coercion during metadata lookup.
+	// Metadata discovery remains optional and bounded even without a run deadline.
+	const deadlineMs = timeoutMs === 0 ? 5_000 : Math.min(Math.max(0, timeoutMs), 2_147_483_647)
 	const timer = setTimeout(() => {
 		deadline.abort(new Error(`Provider context-window lookup exceeded ${deadlineMs}ms`))
 	}, deadlineMs)

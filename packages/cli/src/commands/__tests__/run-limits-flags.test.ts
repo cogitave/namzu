@@ -17,10 +17,25 @@ describe('--max-iterations and --token-budget', () => {
 	})
 
 	it('refuse anything else, naming the flag', () => {
-		expect(() => parseRunFlags(['--max-iterations', '0'])).toThrow(/--max-iterations/)
+		expect(() => parseRunFlags(['--max-iterations', '-1'])).toThrow(/--max-iterations/)
 		expect(() => parseRunFlags(['--token-budget', 'lots'])).toThrow(/--token-budget/)
 		expect(() => parseRunFlags(['--max-iterations', '1.5'])).toThrow(/--max-iterations/)
 	})
+	it('accepts explicit zero without treating it as an absent override', () => {
+		expect(parseRunFlags(['--max-iterations=0', '--token-budget', '0', 'go'])).toMatchObject({
+			maxIterations: 0,
+			tokenBudget: 0,
+			rest: ['go'],
+		})
+	})
+	it.each(['', ' ', '-1', '0.5', 'Infinity', '9007199254740992'])(
+		'rejects invalid unlimited spellings and unsafe amounts: %j',
+		(value) => {
+			for (const flag of ['--max-iterations', '--token-budget']) {
+				expect(() => parseRunFlags([`${flag}=${value}`])).toThrow(flag)
+			}
+		},
+	)
 })
 
 describe('--wait-for-provider', () => {

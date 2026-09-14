@@ -109,6 +109,29 @@ async function within<T>(promise: Promise<T>, label: string): Promise<T> {
 }
 
 describe('sandbox lifecycle belongs to the run', () => {
+	it('an unlimited run acquires its sandbox without creating an overflowing timer', async () => {
+		const create = vi.fn(async () => {
+			await new Promise((resolve) => setTimeout(resolve, 15))
+			return boundary(async () => {})
+		})
+		const model = new MockLLMProvider({ turns: [{ text: 'done' }] })
+		const run = await drainQuery(
+			await params({
+				provider: model,
+				runTimeoutMs: 0,
+				sandboxProvider: {
+					id: 'unlimited',
+					name: 'Unlimited',
+					environment: 'basic',
+					create,
+				},
+			}),
+		)
+		expect(run.stopReason).toBe('end_turn')
+		expect(run.result).toBe('done')
+		expect(create).toHaveBeenCalledOnce()
+	})
+
 	it('does not start sandbox or model work for a pre-cancelled run', async () => {
 		const create = vi.fn(async () => boundary(async () => {}))
 		const sandboxProvider: SandboxProvider = {
@@ -132,53 +155,61 @@ describe('sandbox lifecycle belongs to the run', () => {
 		expect(model.requests).toHaveLength(0)
 	})
 
-	it('settles a cancelled run even when create ignores its signal forever', async () => {
-		let markStarted!: () => void
-		const started = new Promise<void>((resolve) => {
-			markStarted = resolve
-		})
-		let createSignal: AbortSignal | undefined
-		const create = vi.fn((config?: SandboxCreateConfig) => {
-			createSignal = config?.signal
-			markStarted()
-			return new Promise<Sandbox>(() => {})
-		})
-		const sandboxProvider = {
-			id: 'held-create',
-			name: 'Held create',
-			environment: 'basic',
-			create,
-		} satisfies SandboxProvider
-		const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
-		const caller = new AbortController()
-		const events: RunEvent[] = []
-		const pending = drainQuery(
-			await params({ provider: model, sandboxProvider, signal: caller.signal }),
-			(event) => {
-				events.push(event)
-			},
-		)
+	it.each([0, 20_000])(
+		'settles cancellation even when create ignores its signal, timeout=%s',
+		async (runTimeoutMs) => {
+			let markStarted!: () => void
+			const started = new Promise<void>((resolve) => {
+				markStarted = resolve
+			})
+			let createSignal: AbortSignal | undefined
+			const create = vi.fn((config?: SandboxCreateConfig) => {
+				createSignal = config?.signal
+				markStarted()
+				return new Promise<Sandbox>(() => {})
+			})
+			const sandboxProvider = {
+				id: 'held-create',
+				name: 'Held create',
+				environment: 'basic',
+				create,
+			} satisfies SandboxProvider
+			const model = new MockLLMProvider({ turns: [{ text: 'must not run' }] })
+			const caller = new AbortController()
+			const events: RunEvent[] = []
+			const pending = drainQuery(
+				await params({
+					provider: model,
+					sandboxProvider,
+					signal: caller.signal,
+					runTimeoutMs,
+				}),
+				(event) => {
+					events.push(event)
+				},
+			)
 
-		await started
-		const reason = new RunCancelled('user')
-		caller.abort(reason)
-		const run = await within(pending, 'held sandbox create pinned drainQuery')
+			await started
+			const reason = new RunCancelled('user')
+			caller.abort(reason)
+			const run = await within(pending, 'held sandbox create pinned drainQuery')
 
-		expect(run.status).toBe('cancelled')
-		expect(run.stopReason).toBe('cancelled')
-		expect(create).toHaveBeenCalledTimes(1)
-		expect(createSignal).toBeDefined()
-		expect(createSignal).not.toBe(caller.signal)
-		expect(createSignal?.aborted).toBe(true)
-		expect(createSignal?.reason).toBe(reason)
-		expect(model.requests).toHaveLength(0)
-		expect(events.some((event) => event.type === 'sandbox_created')).toBe(false)
-		expect(events.some((event) => event.type === 'sandbox_destroyed')).toBe(false)
-		expect(events.find((event) => event.type === 'run_completed')).toMatchObject({
-			type: 'run_completed',
-			cancelCause: 'user',
-		})
-	})
+			expect(run.status).toBe('cancelled')
+			expect(run.stopReason).toBe('cancelled')
+			expect(create).toHaveBeenCalledTimes(1)
+			expect(createSignal).toBeDefined()
+			expect(createSignal).not.toBe(caller.signal)
+			expect(createSignal?.aborted).toBe(true)
+			expect(createSignal?.reason).toBe(reason)
+			expect(model.requests).toHaveLength(0)
+			expect(events.some((event) => event.type === 'sandbox_created')).toBe(false)
+			expect(events.some((event) => event.type === 'sandbox_destroyed')).toBe(false)
+			expect(events.find((event) => event.type === 'run_completed')).toMatchObject({
+				type: 'run_completed',
+				cancelCause: 'user',
+			})
+		},
+	)
 
 	it('keeps cancellation as the first cause when transport rejects AbortError', async () => {
 		let markStarted!: () => void
