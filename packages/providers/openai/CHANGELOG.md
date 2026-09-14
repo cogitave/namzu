@@ -1,5 +1,23 @@
 # Changelog
 
+## 3.1.1
+
+### Patch Changes
+
+- 2a1e0e5: Preserve provider-identified public assistant message items through streaming,
+  settlement and conversation persistence. The SDK adds optional `textParts`
+  snapshots, `textPart` delta metadata and `selectAssistantText`. Completed content
+  selects explicitly final answers instead of concatenating intermediate progress
+  into the answer; ordinary unphased streams retain their existing behavior.
+
+  The Codex subscription driver maps native message phases and verifies the original
+  public parts before native replay. The CLI exposes optional item metadata on
+  delta events, separates streamed item bubbles and uses the settled answer for
+  turn completion. Consumers that manually concatenate deltas should use completed
+  content when they want the final answer; deltas still contain public progress.
+
+- eb2e7ba: Preserve Codex native response items when the subscription stream sends them as completed output-item events but leaves the final response output empty. Newly recorded conversations now retain those reasoning and tool-call items for eligible tool continuations and resume. The same correction retains hosted citations and reports tool-call finish reasons correctly. Existing route and message-integrity checks remain in force; native state already discarded by older versions cannot be recovered by upgrading.
+
 ## 3.1.0
 
 ### Minor Changes
