@@ -150,6 +150,7 @@ export const residentCommand: CommandDef = {
 		'  --permission-mode <mode> (default: plan, read-only), --skills <a,b>,',
 		'  --max-iterations <n>, --token-budget <n> (limits apply per SDK step),',
 		'  --tool-loading eager|deferred (default: eager; defer optional schemas per step),',
+		'  --learning-disclosure on-demand|eager (default: on-demand; evaluated skills),',
 		'  --context-profile resident|interactive (default: resident; bounded-step guidance),',
 		'  --gate <command>, --gate-retries <n>, --max-idle-ms <n> (default: 60000).',
 		'Run and start require a finite --max-steps. No OS service is installed.',
@@ -354,6 +355,7 @@ export const residentCommand: CommandDef = {
 						flags: flags.run,
 						toolLoading: flags.toolLoading,
 						contextProfile: flags.contextProfile,
+						learningDisclosure: flags.learningDisclosure,
 						verification,
 						artifactsRoot: resident.artifactsRoot,
 					})
@@ -364,6 +366,7 @@ export const residentCommand: CommandDef = {
 							flags: flags.run,
 							toolLoading: flags.toolLoading,
 							contextProfile: flags.contextProfile,
+							learningDisclosure: flags.learningDisclosure,
 							verification,
 							maxSteps: flags.maxSteps,
 							maxIdleMs: flags.maxIdleMs,

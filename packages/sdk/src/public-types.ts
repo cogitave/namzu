@@ -380,6 +380,8 @@ export type {
 	PromptContributionContext,
 	PromptPlacement,
 	ResidentStepPromptOptions,
+	ResidentStepContextOptions,
+	ResidentStepContextBundle,
 } from './prompt/index.js'
 
 export type {

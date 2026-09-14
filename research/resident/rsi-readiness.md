@@ -155,3 +155,14 @@ to label persistence or a single accepted skill as that result.
 ## Learning discovery follow-up
 
 [Retained-failure discovery](learning-discovery.md) now selects an eligible observation, claims one experiment atomically and reuses the verified learning cycle. A sequential Muse low study produced 6/10 to 10/10 on verification and 7/10 to 10/10 on fresh confirmation. This is a narrow result from retained failure plus host correction; the meta-level selection procedure remains engineered, not learned.
+
+## Transfer boundary
+
+[Cross-task guidance diagnostics](learning-transfer.md) found that the same
+accepted skill can add unnecessary tools and cause a bounded task failure when
+inserted into unrelated work. On-demand resident disclosure now allows relevant
+skill selection while keeping source-revision checks and admitted-run ownership.
+The live follow-up includes an unresolved provider request and a TUI case that
+still over-explored. These are explicit limits, not a general transfer success
+claim. Protected tasks from other families must be included in future learning
+acceptance studies before broad activation.

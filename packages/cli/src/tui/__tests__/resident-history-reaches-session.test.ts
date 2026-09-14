@@ -10,6 +10,7 @@ import {
 	createUserMessage,
 	generateRunId,
 	generateSessionId,
+	hashResidentSkill,
 } from '@namzu/sdk'
 import { afterEach, expect, it, vi } from 'vitest'
 import { removeTempDir } from '../../__fixtures__/temp-dir.js'
@@ -216,4 +217,146 @@ it('does not mount resident recall for an ordinary conversation', async () => {
 	opened.push(session)
 	expect(session.toolNames()).not.toContain('search_resident_history')
 	expect(session.toolNames()).not.toContain('read_resident_history')
+})
+
+it('loads only requested resident guidance, rejects foreign and settled runs, and leaves the next send clean', async () => {
+	const cwd = await mkdtemp(join(tmpdir(), 'namzu-resident-skills-session-'))
+	roots.push(cwd)
+	const sessions = await openSessions(cwd, { stateRoot: join(cwd, 'state') })
+	const agenda = new DiskResidentAgenda(join(cwd, 'resident'), {
+		tenantId: sessions.tenantId,
+		agentKey: 'test',
+	})
+	const pursuit = await agenda.add(
+		await agenda.create('Inspect current evidence.'),
+		'Verify the receipt.',
+	)
+	const candidate = {
+		name: 'receipt-review',
+		description: 'Verify a receipt.',
+		body: 'UNIQUE_LEARNED_BODY: retain the complete receipt identifier.',
+	}
+	const hash = hashResidentSkill(candidate)
+	const evidence = {
+		key: 'host-fixture',
+		source: 'test',
+		reason: 'Test fixture, not measured model improvement.',
+	}
+	const learning = {
+		revision: 1,
+		preferences: [],
+		skills: [
+			{
+				...candidate,
+				hash,
+				evidence,
+				verification: {
+					baselineHash: 'none' as const,
+					candidateHash: hash,
+					evidenceDigest: 'a'.repeat(64),
+					verificationTasks: 5,
+					confirmationTasks: 5,
+				},
+			},
+		],
+		lastChange: evidence,
+	}
+	const runId = generateRunId()
+	const script = new MockLLMProvider({
+		turns: [
+			{
+				toolCalls: [
+					{ id: 'load-skill', name: 'read_resident_skill', args: { name: candidate.name } },
+				],
+			},
+			{ text: 'Receipt inspected.' },
+			{ text: 'Ordinary conversation.' },
+		],
+	})
+	let checkedForeign = false
+	const provider: LLMProvider = {
+		id: 'learning-test',
+		name: 'Learning test',
+		async *chatStream(params) {
+			if (!checkedForeign) {
+				const tool = registries.get(runId)?.get('read_resident_skill')
+				expect(tool).toBeDefined()
+				const result = await tool!.execute(
+					{ name: candidate.name },
+					{
+						runId: generateRunId(),
+						workingDirectory: cwd,
+						abortSignal: new AbortController().signal,
+						env: {},
+						log() {},
+					},
+				)
+				expect(result.success).toBe(false)
+				expect(result.output).not.toContain(candidate.body)
+				checkedForeign = true
+			}
+			yield* script.chatStream(params)
+		},
+	}
+	vi.spyOn(ProviderRegistry, 'create').mockReturnValue({ provider } as never)
+	const session = await createAgentSession(preferences, detected, {
+		cwd,
+		stateRoot: sessions.root,
+		scope: {
+			sessionId: generateSessionId(),
+			topicId: sessions.topicId,
+			tenantId: sessions.tenantId,
+			projectId: sessions.projectId,
+		},
+		permissionMode: 'plan',
+		toolLoading: 'deferred',
+		sandbox: { enabled: false },
+	})
+	opened.push(session)
+	const events = []
+	for await (const event of session.send(
+		[createUserMessage('Use receipt-review to inspect the receipt.')],
+		{
+			runId,
+			permissionMode: 'plan',
+			residentLearningDisclosure: 'on-demand',
+			residentContext: {
+				state: pursuit.state,
+				learning,
+				outputInstructions: 'Return the receipt.',
+			},
+		},
+	))
+		events.push(event)
+	expect(events.filter((event) => event.kind === 'error')).toEqual([])
+	expect(events.find((event) => event.kind === 'done')).toMatchObject({ stopReason: 'end_turn' })
+	expect(JSON.stringify(script.requests[0]!.messages)).not.toContain(candidate.body)
+	expect(JSON.stringify(script.requests[1]!.messages)).toContain(candidate.body)
+	expect(script.requests[0]!.tools?.map((t) => t.function.name)).toContain('read_resident_skill')
+	expect(session.toolNames()).not.toContain('read_resident_skill')
+	const stale = await registries
+		.get(runId)!
+		.get('read_resident_skill')!
+		.execute(
+			{ name: candidate.name },
+			{
+				runId,
+				workingDirectory: cwd,
+				abortSignal: new AbortController().signal,
+				env: {},
+				log() {},
+			},
+		)
+	expect(stale.success).toBe(false)
+	const nextId = generateRunId()
+	for await (const _event of session.send([createUserMessage('Hello.')], {
+		runId: nextId,
+		permissionMode: 'plan',
+	})) {
+		/* drain */
+	}
+	expect(registries.get(nextId)?.get('read_resident_skill')).toBeUndefined()
+	expect(script.requests[2]!.tools?.map((t) => t.function.name)).not.toContain(
+		'read_resident_skill',
+	)
 })

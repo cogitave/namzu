@@ -104,6 +104,7 @@ import {
 	createFileReadTracker,
 	createMemoryPromoter,
 	createMemoryRecallStep,
+	createResidentStepContext,
 	createResidentStepContributions,
 	createReviewHandler,
 	createToolPresenter,
@@ -517,6 +518,7 @@ export interface SendOptions {
 	readonly extraSystem?: string
 	/** Host-bound resident admission; uses SDK static policy and dynamic continuity snapshots. */
 	readonly residentContext?: ResidentStepPromptOptions
+	readonly residentLearningDisclosure?: 'eager' | 'on-demand'
 	/**
 	 * Receives the settled conversation projection exactly as the kernel will
 	 * replay it on a later turn.
@@ -2940,10 +2942,25 @@ export async function createAgentSession(
 							})
 						const residentContext = opts?.residentContext
 						if (residentContext) {
-							for (const contribution of createResidentStepContributions({
+							const contextOptions = {
 								...residentContext,
 								readOnly: (opts?.permissionMode ?? options.permissionMode) === 'plan',
-							}))
+							}
+							const bundle =
+								opts?.residentLearningDisclosure === 'on-demand'
+									? createResidentStepContext({
+											...contextOptions,
+											authorizeLearningRead: (context) =>
+												context.runId === runId &&
+												delegationScopes.get(context.runId) === turnScope,
+										})
+									: { contributions: createResidentStepContributions(contextOptions), tools: [] }
+							if (bundle.tools.length) {
+								// Per-send membership: neither another send nor delegated runs inherit this tool.
+								runTools = runTools.fork()
+								for (const tool of bundle.tools) runTools.register(tool)
+							}
+							for (const contribution of bundle.contributions)
 								promptContributions.register(contribution)
 							// These are invocation snapshots, not the stable working policy.
 							const invocationContext = [environmentPrompt, memoryPrompt, opts?.extraSystem]

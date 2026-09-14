@@ -1,0 +1,302 @@
+{
+  "study": "/tmp/namzu-disclosure-tui-HoydBc",
+  "mode": "real interactive TUI launching foreground resident commands, one reviewed Bash call per parent turn",
+  "dimensions": {
+    "columns": 120,
+    "rows": 34
+  },
+  "learningFrom": "aa433b22-2b28-4cd8-a27f-1f6ccdb176f6",
+  "prompts": [
+    "Hazırdaki document resident’ını bir adım çalıştır, sonucunu kısaca söyle.",
+    "Şimdi hazırdaki source resident’ını bir adım çalıştır, sonucunu kısaca söyle."
+  ],
+  "records": [
+    {
+      "runId": "ba8ba6a9-2f08-4b9c-a15f-555618164985",
+      "sessionId": "3e3947b0-87ef-4dea-81e4-d84d85503a2f",
+      "model": "muse-spark-1.3-contributor-free",
+      "effort": "low",
+      "stopReason": "end_turn",
+      "tokens": 68968,
+      "budget": {
+        "limit": 0,
+        "ownTokens": 68968,
+        "treeTokens": 68968,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "calls": [
+        {
+          "tool": "glob",
+          "input": {
+            "pattern": "*",
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace"
+          }
+        },
+        {
+          "tool": "bash",
+          "input": {
+            "command": "pwd; ls -R; echo ---; cat docs/oncall.md 2>&1 || echo MISSING; echo ---; which namzu; namzu --help 2>&1 | head -n 100",
+            "timeout": 120000
+          }
+        },
+        {
+          "tool": "glob",
+          "input": {
+            "pattern": "**/*",
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace"
+          }
+        },
+        {
+          "tool": "read",
+          "input": {
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace/docs/oncall.md"
+          }
+        },
+        {
+          "tool": "read",
+          "input": {
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace/README.md"
+          }
+        },
+        {
+          "tool": "read",
+          "input": {
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace/AGENTS.md"
+          }
+        },
+        {
+          "tool": "read_resident_skill",
+          "input": {
+            "name": "workspace-source-selection"
+          }
+        },
+        {
+          "tool": "read",
+          "input": {
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace/.meta/authority.json"
+          }
+        },
+        {
+          "tool": "read",
+          "input": {
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace/docs/settings.txt"
+          }
+        },
+        {
+          "tool": "read",
+          "input": {
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace/records/current.txt"
+          }
+        }
+      ],
+      "results": [
+        {
+          "tool": "glob",
+          "output": "./README.md\n./AGENTS.md",
+          "isError": false
+        },
+        {
+          "tool": "bash",
+          "output": "Error: Tool \"bash\" was not executed. Refused: plan mode is read-only. Explore with the reading tools, then present the plan as your reply — what you would change, in which files, and in what order. The user will switch out of plan mode to have it carried out.",
+          "isError": true
+        },
+        {
+          "tool": "glob",
+          "output": "./records/current.txt\n./docs/oncall.md\n./docs/settings.txt\n./README.md\n./AGENTS.md",
+          "isError": false
+        },
+        {
+          "tool": "read",
+          "output": "1\t# On-call\n2\tThis week: Deniz.\n3\t",
+          "isError": false
+        },
+        {
+          "tool": "read",
+          "output": "1\tFor release_channel see docs/settings.txt.\n2\t",
+          "isError": false
+        },
+        {
+          "tool": "read",
+          "output": "1\tThis is an isolated resident CLI test. The namzu command on PATH points to the current built CLI. The document and source residents have been prepared. To execute one resident step use namzu resident run --agent NAME --trust --max-steps 1 --effort low. Use the specified resident only. Do not edit files or start a learning experiment.\n2\t",
+          "isError": false
+        },
+        {
+          "tool": "read_resident_skill",
+          "output": "{\"kind\":\"evaluated-guidance\",\"name\":\"workspace-source-selection\",\"description\":\"Use the authority source map to select the current source for each workspace question.\",\"body\":\"For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.\",\"hash\":\"dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103\",\"evidence\":{\"key\":\"fixture-import-document\",\"source\":\"retained:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"reason\":\"Import the previously evaluated fixed skill into an isolated TUI test fixture; no new learning claim.\"}}",
+          "isError": false
+        },
+        {
+          "tool": "read",
+          "output": "1\t{\"release_channel\":{\"path\":\"records/current.txt\",\"key\":\"release_channel\"}}",
+          "isError": false
+        },
+        {
+          "tool": "read",
+          "output": "1\trelease_channel=retired-tui\n2\t",
+          "isError": false
+        },
+        {
+          "tool": "read",
+          "output": "1\trelease_channel=active-tui\n2\t",
+          "isError": false
+        }
+      ],
+      "transcript": "/tmp/namzu-disclosure-tui-HoydBc/home/sessions/3e3947b0-87ef-4dea-81e4-d84d85503a2f/runs/ba8ba6a9-2f08-4b9c-a15f-555618164985/transcript.jsonl",
+      "sha256": "87adf9461f85dc718e786530462ee974274850f3f425ba570a2629bc7bafd98f"
+    },
+    {
+      "runId": "4ce2dfb7-575a-4fff-b555-e15cf608937d",
+      "sessionId": "5253457e-0e74-419d-a2d5-02665d441e47",
+      "model": "muse-spark-1.3-contributor-free",
+      "effort": "low",
+      "stopReason": "end_turn",
+      "tokens": 38461,
+      "budget": {
+        "limit": 0,
+        "ownTokens": 38461,
+        "treeTokens": 38461,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "calls": [
+        {
+          "tool": "read_resident_skill",
+          "input": {
+            "name": "workspace-source-selection"
+          }
+        },
+        {
+          "tool": "read",
+          "input": {
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace/.meta/authority.json"
+          }
+        },
+        {
+          "tool": "read",
+          "input": {
+            "path": "/tmp/namzu-disclosure-tui-HoydBc/workspace/records/current.txt"
+          }
+        }
+      ],
+      "results": [
+        {
+          "tool": "read_resident_skill",
+          "output": "{\"kind\":\"evaluated-guidance\",\"name\":\"workspace-source-selection\",\"description\":\"Use the authority source map to select the current source for each workspace question.\",\"body\":\"For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.\",\"hash\":\"dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103\",\"evidence\":{\"key\":\"fixture-import-source\",\"source\":\"retained:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"reason\":\"Import the previously evaluated fixed skill into an isolated TUI test fixture; no new learning claim.\"}}",
+          "isError": false
+        },
+        {
+          "tool": "read",
+          "output": "1\t{\"release_channel\":{\"path\":\"records/current.txt\",\"key\":\"release_channel\"}}",
+          "isError": false
+        },
+        {
+          "tool": "read",
+          "output": "1\trelease_channel=active-tui\n2\t",
+          "isError": false
+        }
+      ],
+      "transcript": "/tmp/namzu-disclosure-tui-HoydBc/home/sessions/5253457e-0e74-419d-a2d5-02665d441e47/runs/4ce2dfb7-575a-4fff-b555-e15cf608937d/transcript.jsonl",
+      "sha256": "466070532ca0ef1b6bb38d0e0568cbedcf3220b6c8601829e44a79e11739abed"
+    },
+    {
+      "runId": "2c134d8e-95bb-4ce4-845d-3d518f47777c",
+      "sessionId": "88c1cf1c-f99f-4329-b6c4-3873b24ffd23",
+      "model": "muse-spark-1.3-contributor-free",
+      "effort": "low",
+      "stopReason": "end_turn",
+      "tokens": 22813,
+      "budget": {
+        "limit": 0,
+        "ownTokens": 22813,
+        "treeTokens": 22813,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "calls": [
+        {
+          "tool": "bash",
+          "input": {
+            "command": "pwd; ls; namzu resident run --agent document --trust --max-steps 1 --effort low",
+            "timeout": 120000
+          }
+        }
+      ],
+      "results": [
+        {
+          "tool": "bash",
+          "output": "STDOUT:\n/tmp/namzu-disclosure-tui-HoydBc/workspace\nAGENTS.md\nREADME.md\ndocs\nrecords\nResident · document\nDirectory: /tmp/namzu-disclosure-tui-HoydBc/workspace\nAdmission: open\nRunner: stopped · foreground\n  1b6f9360-5de1-403c-aa83-104cdd600992 · 1 step(s) authorized · PID 775250\n  Last outcome: limit\n\ncomplete · Read docs/oncall.md. Report this week's on-call name and finish.\n  4c7396ff-eaa4-446d-832d-d5bd9194cd39 · 1 step(s) admitted\n  This week's on-call name from docs/oncall.md is Deniz. Checked .meta/authority.json per workspace-source-selection skill: it only maps release_channel -> records/current.txt, with no on-call entry, so docs/oncall.md remains the authoritative source for this question. No mutation needed; objective achieved.\n\nRun: limit · 1 step(s) settled\n\n\nSTDERR:\n     +0ms  boot          namzu starting\n     +0ms  config        Configuration resolved\n     +0ms  telemetry     no LoggerProvider/TracerProvider registered; trace_id will be absent from every record this process emits\n   +237ms  provider      provider chain resolved\n     +1ms  sandbox     ! Sandbox off by configuration: commands run in this process, with this shell's environment, against the real working directory. Remove `sandbox.enabled: false` to turn it back on.\n    +49ms  discovery     discovery complete\n     +1ms  capability    sandbox no · files yes · computer-use no · telemetry yes\n     +2ms  boot          agent session ready\nresident step 1 · Zen · muse-spark-1.3-contributor-free · plan\nproject instructions: AGENTS.md\nglob Find * in /tmp/namzu-disclosure-tui-HoydBc/workspace\nbash pwd; ls -R; echo ---; cat docs/oncall.md 2>&1 || echo MISSING; echo ---; which namzu; namzu --help 2>&1 | head -n 100\nglob Find **/* in /tmp/namzu-disclosure-tui-HoydBc/workspace\nread Read /tmp/namzu-disclosure-tui-HoydBc/workspace/docs/oncall.md\nread Read /tmp/namzu-disclosure-tui-HoydBc/workspace/README.md\nread Read /tmp/namzu-disclosure-tui-HoydBc/workspace/AGENTS.md\nread_resident_skill workspace-source-selection\nread Read /tmp/namzu-disclosure-tui-HoydBc/workspace/.meta/authority.json\nread Read /tmp/namzu-disclosure-tui-HoydBc/workspace/docs/settings.txt\nread Read /tmp/namzu-disclosure-tui-HoydBc/workspace/records/current.txt\n",
+          "isError": false
+        }
+      ],
+      "transcript": "/tmp/namzu-disclosure-tui-HoydBc/home/sessions/88c1cf1c-f99f-4329-b6c4-3873b24ffd23/runs/2c134d8e-95bb-4ce4-845d-3d518f47777c/transcript.jsonl",
+      "sha256": "bf6119af1808d6422efad1ef8b8c0c0efb2e9def47399e81c5e364735432c2e8"
+    },
+    {
+      "runId": "9a6b970c-6963-490c-8cbf-f6a3581c4aa4",
+      "sessionId": "88c1cf1c-f99f-4329-b6c4-3873b24ffd23",
+      "model": "muse-spark-1.3-contributor-free",
+      "effort": "low",
+      "stopReason": "end_turn",
+      "tokens": 26867,
+      "budget": {
+        "limit": 0,
+        "ownTokens": 26867,
+        "treeTokens": 26867,
+        "reservedTokens": 0,
+        "remainingTokens": null,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "calls": [
+        {
+          "tool": "bash",
+          "input": {
+            "command": "namzu resident run --agent source --trust --max-steps 1 --effort low",
+            "timeout": 120000
+          }
+        }
+      ],
+      "results": [
+        {
+          "tool": "bash",
+          "output": "STDOUT:\nResident · source\nDirectory: /tmp/namzu-disclosure-tui-HoydBc/workspace\nAdmission: open\nRunner: stopped · foreground\n  ef3b4980-8d8d-4b6c-951e-b5d2171d9ed8 · 1 step(s) authorized · PID 775469\n  Last outcome: limit\n\ncomplete · Determine the current release_channel for this workspace from current source evidence and finish.\n  aa6f9ee1-ccd1-4128-a80d-7cd412e67416 · 1 step(s) admitted\n  release_channel is active-tui. Evidence: .meta/authority.json maps release_channel to records/current.txt; records/current.txt contains release_channel=active-tui. Answered from current source per workspace-source-selection skill, not from stale docs.\n\nRun: limit · 1 step(s) settled\n\n\nSTDERR:\n     +0ms  boot          namzu starting\n     +1ms  config        Configuration resolved\n     +0ms  telemetry     no LoggerProvider/TracerProvider registered; trace_id will be absent from every record this process emits\n   +239ms  provider      provider chain resolved\n     +0ms  sandbox     ! Sandbox off by configuration: commands run in this process, with this shell's environment, against the real working directory. Remove `sandbox.enabled: false` to turn it back on.\n    +52ms  discovery     discovery complete\n     +0ms  capability    sandbox no · files yes · computer-use no · telemetry yes\n     +3ms  boot          agent session ready\nresident step 1 · Zen · muse-spark-1.3-contributor-free · plan\nproject instructions: AGENTS.md\nread_resident_skill workspace-source-selection\nread Read /tmp/namzu-disclosure-tui-HoydBc/workspace/.meta/authority.json\nread Read /tmp/namzu-disclosure-tui-HoydBc/workspace/records/current.txt\n",
+          "isError": false
+        }
+      ],
+      "transcript": "/tmp/namzu-disclosure-tui-HoydBc/home/sessions/88c1cf1c-f99f-4329-b6c4-3873b24ffd23/runs/9a6b970c-6963-490c-8cbf-f6a3581c4aa4/transcript.jsonl",
+      "sha256": "a3424d309f66cf6a849eac64135310a23f55e9154f76b5d4394bea4b422287d4"
+    }
+  ],
+  "recordedTokens": 157109,
+  "terminalSha256": "0c01e9eb0e3cfedc74f9c2a136a9603812097b2bfadf110b7557a20fdf1d998f",
+  "outcomes": {
+    "document": "complete; Deniz",
+    "source": "complete; active-tui"
+  },
+  "limitations": [
+    "The document resident also loaded the broadly described source-selection skill and read unrelated files. On-demand access did not prevent over-exploration.",
+    "Both TUI parent turns and both resident child runs are included in usage. Prices unavailable, not zero billing.",
+    "Initial invocation with unsupported global --cwd failed before startup; corrected by starting the TUI in its working directory.",
+    "PATH was intentionally restricted to the built CLI and standard Unix binaries; the TUI reported the unrelated absence of Windows PowerShell computer-use support.",
+    "Test fixtures import an already evaluated candidate; these invocations are not new learning or transfer confirmations."
+  ]
+}

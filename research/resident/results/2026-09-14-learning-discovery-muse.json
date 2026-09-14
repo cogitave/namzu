@@ -823,5 +823,23 @@
     }
   ],
   "integrationPassed": true,
-  "limitation": "One retained failure plus an authoritative host correction; five narrow task families, not general intelligence or learned meta-optimization."
+  "limitation": "One retained failure plus an authoritative host correction; five narrow task families, not general intelligence or learned meta-optimization.",
+  "acceptedSkill": {
+    "name": "workspace-source-selection",
+    "description": "Use the authority source map to select the current source for each workspace question.",
+    "body": "For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.",
+    "hash": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+    "evidence": {
+      "key": "aa433b22-2b28-4cd8-a27f-1f6ccdb176f6",
+      "source": "resident-learning-cycle:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6",
+      "reason": "Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a."
+    },
+    "verification": {
+      "baselineHash": "none",
+      "candidateHash": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+      "evidenceDigest": "f504e2123af0273ecb08bbf9a103db37e4feeff25cc09a7d58a11093308e3919",
+      "verificationTasks": 5,
+      "confirmationTasks": 5
+    }
+  }
 }

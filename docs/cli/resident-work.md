@@ -48,6 +48,20 @@ memory recall and host instructions outside the stable prefix. These snapshots
 are captured for each admitted invocation and remain present on every model
 iteration, including after compaction.
 
+Evaluated learning defaults to `--learning-disclosure on-demand`. The model sees
+bounded skill descriptions, then calls `read_resident_skill` for guidance relevant
+to the task. Availability does not establish applicability: unrelated guidance
+can add unnecessary work or degrade an answer. Full bodies are not loaded merely
+because an earlier experiment accepted them. The selected guidance is checked
+against declared source revisions before each request. A changed or unavailable
+source withholds it; an earlier tool result remains historical evidence.
+
+Use `--learning-disclosure eager` to keep automatic inclusion of accepted learning.
+This setting applies to `run` and `start`, including the background worker; it is
+not persisted by `add`. It is independent of tool schema loading and is rejected
+with the `interactive` context profile, which keeps its existing prompt behavior.
+These are learned resident instructions, separate from filesystem/plugin skills.
+
 Project instructions and tool permission enforcement use their existing paths.
 The resident profile also distinguishes historical answers from current-state
 questions and asks for labelled alternatives or clarification when a reference

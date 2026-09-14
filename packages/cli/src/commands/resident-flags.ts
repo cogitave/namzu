@@ -27,6 +27,7 @@ export interface ResidentFlags {
 	readonly maxIdleMs: number
 	readonly toolLoading: 'eager' | 'deferred'
 	readonly contextProfile: 'resident' | 'interactive'
+	readonly learningDisclosure: 'eager' | 'on-demand'
 	readonly verification: string | null
 	readonly claim: string | null
 	readonly revision: number | null
@@ -73,6 +74,7 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 				'--max-idle-ms',
 				'--tool-loading',
 				'--context-profile',
+				'--learning-disclosure',
 				'--verify',
 				'--claim',
 				'--revision',
@@ -129,11 +131,18 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 	const toolLoading = own.get('--tool-loading') ?? 'eager'
 	const verification = own.get('--verify') ?? null
 	if (!execution && verification) throw new Error('--verify applies to resident run or start.')
+	const learningDisclosure = own.get('--learning-disclosure') ?? 'on-demand'
+	if (learningDisclosure !== 'eager' && learningDisclosure !== 'on-demand')
+		throw new Error('--learning-disclosure must be eager or on-demand.')
+	if (!execution && own.has('--learning-disclosure'))
+		throw new Error('--learning-disclosure applies to resident run or start.')
 	const contextProfile = own.get('--context-profile') ?? 'resident'
 	if (contextProfile !== 'resident' && contextProfile !== 'interactive')
 		throw new Error('--context-profile must be resident or interactive.')
 	if (!execution && own.has('--context-profile'))
 		throw new Error('--context-profile applies to resident run or start.')
+	if (contextProfile === 'interactive' && own.has('--learning-disclosure'))
+		throw new Error('--learning-disclosure requires the resident context profile.')
 	if (toolLoading !== 'eager' && toolLoading !== 'deferred')
 		throw new Error('--tool-loading must be eager or deferred.')
 	if (!execution && own.has('--tool-loading'))
@@ -207,6 +216,7 @@ export function parseResidentFlags(raw: readonly string[]): ResidentFlags {
 		maxIdleMs,
 		toolLoading,
 		contextProfile,
+		learningDisclosure,
 		verification,
 		claim,
 		revision,

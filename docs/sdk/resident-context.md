@@ -9,6 +9,62 @@ status: draft
 
 # Resident step context
 
+For on-demand learned guidance, use `createResidentStepContext(options)`. Mount
+**both** its `tools` and `contributions` on the admitted run. It accepts
+`ResidentStepContextOptions`: the options below plus a required synchronous
+`authorizeLearningRead(context): boolean` callback. Only `true` authorizes a read;
+the host checks the run identity and that admission is still active. The bundle
+does not enforce a tenant boundary without that host check.
+
+```ts
+import {
+  createResidentStepContext, PromptContributionRegistry, ToolRegistry,
+  type ResidentStepPromptOptions, type RunId,
+} from '@namzu/sdk'
+
+export function contextForAdmission(
+  options: ResidentStepPromptOptions, runId: RunId, isActive: () => boolean,
+) {
+  const bundle = createResidentStepContext({
+    ...options,
+    authorizeLearningRead: context => context.runId === runId && isActive(),
+  })
+  const tools = new ToolRegistry()
+  for (const tool of bundle.tools) tools.register(tool)
+  const promptContributions = new PromptContributionRegistry()
+  for (const contribution of bundle.contributions) promptContributions.register(contribution)
+  return { tools, promptContributions }
+}
+```
+
+`ResidentStepContextBundle` contains a short metadata catalogue and the
+`read_resident_skill({name})` tool. The model chooses applicability; the SDK does
+not guess from keywords, call another model, or treat acceptance on one task
+family as evidence of general usefulness. Each read returns the complete bounded
+skill and its evidence; it grants no permissions and performs no filesystem or
+network operations. Unknown names, failed authorization and unverified source
+bindings disclose no instructions. A cancelled call does not select a skill.
+
+Create a fresh bundle for each admission and keep its tools out of other runs.
+Selection is not persisted. Descriptions are limited to 160 Unicode code points
+each (16 skills maximum); full descriptions are retained in the read result.
+Selected bodies use the remaining part of the existing 12,000-character learning
+budget after profile entries. A single tool read has a separate 12,000-character
+cap. Individual entries are never partially injected. The catalogue is additional
+context; these limits do not cap the complete model request.
+
+The `resolveLearningSources` callback is checked at read time and before every
+following request containing selected guidance. Withheld guidance is accompanied
+by a notice to recheck current evidence. Earlier tool results remain in history:
+this is current-request invalidation, not deletion of model-visible history.
+
+The [transfer diagnostic](../../research/resident/learning-transfer.md) compares
+fixed learned guidance with fresh unrelated tasks and exercises this path in
+the real CLI/TUI. It also records a case where the model still loaded unrelated
+guidance; disclosure is not a semantic applicability guarantee.
+
+The older factory below retains eager disclosure for existing SDK hosts.
+
 `createResidentStepContributions(options)` builds context for one admitted
 [resident step](resident-agents.md). It returns two `PromptContribution` objects
 for the existing `PromptContributionRegistry`. Register them on the registry

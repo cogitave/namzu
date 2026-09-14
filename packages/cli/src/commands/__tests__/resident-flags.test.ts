@@ -141,3 +141,19 @@ describe('resident command argument boundaries', () => {
 		expect(() => parseResidentFlags(['resume', '--executor-stopped'])).toThrow('apply to reconcile')
 	})
 })
+
+it('selects lazy learned guidance by default and preserves explicit eager execution', () => {
+	for (const action of ['run', 'start']) {
+		expect(parseResidentFlags([action, '--max-steps', '1']).learningDisclosure).toBe('on-demand')
+		expect(
+			parseResidentFlags([action, '--max-steps', '1', '--learning-disclosure=eager'])
+				.learningDisclosure,
+		).toBe('eager')
+	}
+	for (const args of [
+		['status', '--learning-disclosure', 'eager'],
+		['run', '--learning-disclosure', 'unknown'],
+		['run', '--context-profile', 'interactive', '--learning-disclosure', 'on-demand'],
+	])
+		expect(() => parseResidentFlags(args)).toThrow('--learning-disclosure')
+})

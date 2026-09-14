@@ -1,0 +1,1199 @@
+{
+  "study": "/tmp/namzu-learning-transfer-gjBHMi",
+  "live": false,
+  "spec": {
+    "version": 2,
+    "model": "muse-spark-1.3-contributor-free",
+    "effort": "low",
+    "candidate": {
+      "name": "workspace-source-selection",
+      "description": "Use the authority source map to select the current source for each workspace question.",
+      "body": "For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path."
+    },
+    "candidateRevision": "dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103",
+    "arms": [
+      "baseline",
+      "eager",
+      "on-demand"
+    ],
+    "cases": [
+      {
+        "id": "document-0",
+        "family": "document",
+        "files": {
+          "docs/oncall.md": "# On-call rotation\n\nHistorical contact: Robin (ended last month).\n\n| Week | Current primary |\n| --- | --- |\n| This week | Deniz |\n"
+        },
+        "prompt": "Read docs/oncall.md and return only the name of this week's primary contact.",
+        "expected": "Deniz",
+        "requiredRead": "docs/oncall.md"
+      },
+      {
+        "id": "config-0",
+        "family": "config",
+        "files": {
+          "defaults.json": "{\"port\":3000,\"logLevel\":\"info\",\"retries\":3}",
+          "local.json": "{\"port\":7351,\"logLevel\":\"debug\"}"
+        },
+        "prompt": "Read defaults.json and local.json. Local values override defaults; absent local keys retain defaults. Return the effective port as digits only.",
+        "expected": "7351",
+        "requiredRead": "local.json"
+      },
+      {
+        "id": "ledger-0",
+        "family": "ledger",
+        "files": {
+          "ledger.csv": "id,status,currency,amount\na,paid,EUR,23\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+        },
+        "prompt": "Read ledger.csv. Sum amount for rows with status paid and currency EUR, including negative amounts. Return the integer only.",
+        "expected": "27",
+        "requiredRead": "ledger.csv"
+      },
+      {
+        "id": "edit-0",
+        "family": "edit",
+        "files": {
+          "notes.txt": "Welcome.\nManual note: keep this exact sentence.\n",
+          "unrelated.txt": "Do not change this file.\n"
+        },
+        "prompt": "Append exactly one line \"Check 1 complete.\" to notes.txt; preserve all existing text and the unrelated file. Return only done.",
+        "expected": "done",
+        "requiredRead": "notes.txt",
+        "after": {
+          "notes.txt": "Welcome.\nManual note: keep this exact sentence.\nCheck 1 complete.\n",
+          "unrelated.txt": "Do not change this file.\n"
+        }
+      },
+      {
+        "id": "source-0",
+        "family": "source",
+        "files": {
+          "README.md": "See docs/settings.txt for the current release_channel.\n",
+          "docs/settings.txt": "release_channel=retired-transfer-0\n",
+          ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/active-0.txt\",\"key\":\"release_channel\"}}",
+          "records/active-0.txt": "release_channel=current-transfer-0\n"
+        },
+        "prompt": "What is the current release_channel for this workspace? Return only its value.",
+        "expected": "current-transfer-0",
+        "requiredRead": "records/active-0.txt"
+      },
+      {
+        "id": "source-1",
+        "family": "source",
+        "files": {
+          "README.md": "See docs/settings.txt for the current release_channel.\n",
+          "docs/settings.txt": "release_channel=retired-transfer-1\n",
+          ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/active-1.txt\",\"key\":\"release_channel\"}}",
+          "records/active-1.txt": "release_channel=current-transfer-1\n"
+        },
+        "prompt": "What is the current release_channel for this workspace? Return only its value.",
+        "expected": "current-transfer-1",
+        "requiredRead": "records/active-1.txt"
+      }
+    ],
+    "instructions": "Complete the requested task using available tools. Follow the user's scope. Verify claims from successful tool results, preserve unrelated file content, and return only the requested answer.",
+    "limits": {
+      "iterations": 8,
+      "tokens": 24000,
+      "timeoutMs": 120000
+    },
+    "order": "rotate arm order by case index; sequential requests; no retries",
+    "criteria": "end_turn + settled usage + exact answer + successful required read + exact complete file manifest",
+    "limitations": "Small isolated fixtures; diagnostic only. Fixed prior accepted candidate, no tuning, no new activation. Provider noise and simple-task ceiling limit generalization."
+  },
+  "specSha256": "79f18c22f7d1d3b2311fc0a110b6516e1264c791eb21176059a93b1106484fce",
+  "runsSha256": "d700d1e624f017479887664c8b06daa0c1972ba1b5c1187538b05741fa1d0583",
+  "summary": {
+    "baseline": {
+      "passes": 6,
+      "total": 6,
+      "recordedTokens": 0,
+      "unknownReceipts": 0,
+      "toolCalls": 7,
+      "failedTools": 0,
+      "skillReads": 0
+    },
+    "eager": {
+      "passes": 6,
+      "total": 6,
+      "recordedTokens": 0,
+      "unknownReceipts": 0,
+      "toolCalls": 13,
+      "failedTools": 4,
+      "skillReads": 0
+    },
+    "on-demand": {
+      "passes": 6,
+      "total": 6,
+      "recordedTokens": 0,
+      "unknownReceipts": 0,
+      "toolCalls": 9,
+      "failedTools": 0,
+      "skillReads": 2
+    }
+  },
+  "records": [
+    {
+      "case": "document-0",
+      "family": "document",
+      "arm": "baseline",
+      "runId": "0d77a53a-ded0-47de-aba5-6fcd31c916b3",
+      "output": "Deniz",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 43,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call rotation\n2\t\n3\tHistorical contact: Robin (ended last month).\n4\t\n5\t| Week | Current primary |\n6\t| --- | --- |\n7\t| This week | Deniz |\n8\t",
+          "data": {
+            "totalLines": 8,
+            "returnedLines": 8,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/document-0/baseline/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call rotation\n\nHistorical contact: Robin (ended last month).\n\n| Week | Current primary |\n| --- | --- |\n| This week | Deniz |\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "document-0",
+      "family": "document",
+      "arm": "eager",
+      "runId": "555f8890-6186-4289-a794-7905ce191b6f",
+      "output": "Deniz",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 39,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": false,
+          "output": "",
+          "error": "read failed: ENOENT: no such file or directory, open '/tmp/namzu-learning-transfer-gjBHMi/document-0/eager/.meta/authority.json'"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call rotation\n2\t\n3\tHistorical contact: Robin (ended last month).\n4\t\n5\t| Week | Current primary |\n6\t| --- | --- |\n7\t| This week | Deniz |\n8\t",
+          "data": {
+            "totalLines": 8,
+            "returnedLines": 8,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/document-0/eager/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call rotation\n\nHistorical contact: Robin (ended last month).\n\n| Week | Current primary |\n| --- | --- |\n| This week | Deniz |\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "document-0",
+      "family": "document",
+      "arm": "on-demand",
+      "runId": "7ce27e87-9fa2-426b-8e12-2015baf61527",
+      "output": "Deniz",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 25,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "docs/oncall.md"
+          },
+          "success": true,
+          "output": "1\t# On-call rotation\n2\t\n3\tHistorical contact: Robin (ended last month).\n4\t\n5\t| Week | Current primary |\n6\t| --- | --- |\n7\t| This week | Deniz |\n8\t",
+          "data": {
+            "totalLines": 8,
+            "returnedLines": 8,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/document-0/on-demand/docs/oncall.md"
+          }
+        }
+      ],
+      "after": {
+        "docs/oncall.md": "# On-call rotation\n\nHistorical contact: Robin (ended last month).\n\n| Week | Current primary |\n| --- | --- |\n| This week | Deniz |\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "config-0",
+      "family": "config",
+      "arm": "eager",
+      "runId": "a1c13dbd-8f06-49e8-b7a7-8696f3736c1d",
+      "output": "7351",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 36,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": false,
+          "output": "",
+          "error": "read failed: ENOENT: no such file or directory, open '/tmp/namzu-learning-transfer-gjBHMi/config-0/eager/.meta/authority.json'"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7351,\"logLevel\":\"debug\"}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/config-0/eager/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"logLevel\":\"info\",\"retries\":3}",
+        "local.json": "{\"port\":7351,\"logLevel\":\"debug\"}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "config-0",
+      "family": "config",
+      "arm": "on-demand",
+      "runId": "d27e6bc9-2ea1-456f-ab76-8010b8e683e0",
+      "output": "7351",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 26,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7351,\"logLevel\":\"debug\"}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/config-0/on-demand/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"logLevel\":\"info\",\"retries\":3}",
+        "local.json": "{\"port\":7351,\"logLevel\":\"debug\"}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "config-0",
+      "family": "config",
+      "arm": "baseline",
+      "runId": "2b30cf80-dfcb-4368-8305-d2ceb338e561",
+      "output": "7351",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 27,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "local.json"
+          },
+          "success": true,
+          "output": "1\t{\"port\":7351,\"logLevel\":\"debug\"}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/config-0/baseline/local.json"
+          }
+        }
+      ],
+      "after": {
+        "defaults.json": "{\"port\":3000,\"logLevel\":\"info\",\"retries\":3}",
+        "local.json": "{\"port\":7351,\"logLevel\":\"debug\"}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "ledger-0",
+      "family": "ledger",
+      "arm": "on-demand",
+      "runId": "e1cf24ee-61ad-4d8e-89a1-e6b6cae9f839",
+      "output": "27",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 25,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,23\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/ledger-0/on-demand/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,23\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "ledger-0",
+      "family": "ledger",
+      "arm": "baseline",
+      "runId": "c0b252c9-4817-4893-a337-8ba6261f16c5",
+      "output": "27",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 24,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,23\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/ledger-0/baseline/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,23\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "ledger-0",
+      "family": "ledger",
+      "arm": "eager",
+      "runId": "c43f1644-b8e3-4ece-a3be-308699f89dc6",
+      "output": "27",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 33,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": false,
+          "output": "",
+          "error": "read failed: ENOENT: no such file or directory, open '/tmp/namzu-learning-transfer-gjBHMi/ledger-0/eager/.meta/authority.json'"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "ledger.csv"
+          },
+          "success": true,
+          "output": "1\tid,status,currency,amount\n2\ta,paid,EUR,23\n3\tb,pending,EUR,900\n4\tc,paid,USD,800\n5\td,paid,EUR,-3\n6\te,paid,EUR,7\n7\t",
+          "data": {
+            "totalLines": 7,
+            "returnedLines": 7,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/ledger-0/eager/ledger.csv"
+          }
+        }
+      ],
+      "after": {
+        "ledger.csv": "id,status,currency,amount\na,paid,EUR,23\nb,pending,EUR,900\nc,paid,USD,800\nd,paid,EUR,-3\ne,paid,EUR,7\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "edit-0",
+      "family": "edit",
+      "arm": "baseline",
+      "runId": "775a506f-696d-48df-9247-3562527e60c4",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 40,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: keep this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/edit-0/baseline/notes.txt"
+          }
+        },
+        {
+          "name": "write",
+          "input": {
+            "path": "notes.txt",
+            "content": "Welcome.\nManual note: keep this exact sentence.\nCheck 1 complete.\n"
+          },
+          "success": true,
+          "output": "Updated /tmp/namzu-learning-transfer-gjBHMi/edit-0/baseline/notes.txt (+1 -0) · 66 bytes",
+          "data": {
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/edit-0/baseline/notes.txt",
+            "size": 66,
+            "fileChange": {
+              "operation": "replace",
+              "preview": {
+                "before": "",
+                "after": "Check 1 complete.\n"
+              },
+              "bytes": 66,
+              "sha256": "bb7874866b498af29476d1cce8a093960e92a45a6ce35a1d20c37efe0421c294",
+              "added": 1,
+              "removed": 0,
+              "newlineChanged": false
+            }
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: keep this exact sentence.\nCheck 1 complete.\n",
+        "unrelated.txt": "Do not change this file.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "edit-0",
+      "family": "edit",
+      "arm": "eager",
+      "runId": "8d1eb108-1657-4a54-9ced-dfc0680ceb94",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 47,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": false,
+          "output": "",
+          "error": "read failed: ENOENT: no such file or directory, open '/tmp/namzu-learning-transfer-gjBHMi/edit-0/eager/.meta/authority.json'"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: keep this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/edit-0/eager/notes.txt"
+          }
+        },
+        {
+          "name": "write",
+          "input": {
+            "path": "notes.txt",
+            "content": "Welcome.\nManual note: keep this exact sentence.\nCheck 1 complete.\n"
+          },
+          "success": true,
+          "output": "Updated /tmp/namzu-learning-transfer-gjBHMi/edit-0/eager/notes.txt (+1 -0) · 66 bytes",
+          "data": {
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/edit-0/eager/notes.txt",
+            "size": 66,
+            "fileChange": {
+              "operation": "replace",
+              "preview": {
+                "before": "",
+                "after": "Check 1 complete.\n"
+              },
+              "bytes": 66,
+              "sha256": "bb7874866b498af29476d1cce8a093960e92a45a6ce35a1d20c37efe0421c294",
+              "added": 1,
+              "removed": 0,
+              "newlineChanged": false
+            }
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: keep this exact sentence.\nCheck 1 complete.\n",
+        "unrelated.txt": "Do not change this file.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "edit-0",
+      "family": "edit",
+      "arm": "on-demand",
+      "runId": "da762094-8391-4bf0-b60d-2df4aa90991c",
+      "output": "done",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 37,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "notes.txt"
+          },
+          "success": true,
+          "output": "1\tWelcome.\n2\tManual note: keep this exact sentence.\n3\t",
+          "data": {
+            "totalLines": 3,
+            "returnedLines": 3,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/edit-0/on-demand/notes.txt"
+          }
+        },
+        {
+          "name": "write",
+          "input": {
+            "path": "notes.txt",
+            "content": "Welcome.\nManual note: keep this exact sentence.\nCheck 1 complete.\n"
+          },
+          "success": true,
+          "output": "Updated /tmp/namzu-learning-transfer-gjBHMi/edit-0/on-demand/notes.txt (+1 -0) · 66 bytes",
+          "data": {
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/edit-0/on-demand/notes.txt",
+            "size": 66,
+            "fileChange": {
+              "operation": "replace",
+              "preview": {
+                "before": "",
+                "after": "Check 1 complete.\n"
+              },
+              "bytes": 66,
+              "sha256": "bb7874866b498af29476d1cce8a093960e92a45a6ce35a1d20c37efe0421c294",
+              "added": 1,
+              "removed": 0,
+              "newlineChanged": false
+            }
+          }
+        }
+      ],
+      "after": {
+        "notes.txt": "Welcome.\nManual note: keep this exact sentence.\nCheck 1 complete.\n",
+        "unrelated.txt": "Do not change this file.\n"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "source-0",
+      "family": "source",
+      "arm": "eager",
+      "runId": "4a8a8ebd-48a7-43ae-b31c-3cb8617df358",
+      "output": "current-transfer-0",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 34,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": true,
+          "output": "1\t{\"release_channel\":{\"path\":\"records/active-0.txt\",\"key\":\"release_channel\"}}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/source-0/eager/.meta/authority.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "records/active-0.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=current-transfer-0\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/source-0/eager/records/active-0.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/active-0.txt": "release_channel=current-transfer-0\n",
+        "docs/settings.txt": "release_channel=retired-transfer-0\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/active-0.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "source-0",
+      "family": "source",
+      "arm": "on-demand",
+      "runId": "3d80ee7a-87a6-4e37-831b-26c2700fdbde",
+      "output": "current-transfer-0",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 35,
+      "tools": [
+        {
+          "name": "read_resident_skill",
+          "input": {
+            "name": "workspace-source-selection"
+          },
+          "success": true,
+          "output": "{\"kind\":\"evaluated-guidance\",\"name\":\"workspace-source-selection\",\"description\":\"Use the authority source map to select the current source for each workspace question.\",\"body\":\"For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.\",\"hash\":\"dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103\",\"evidence\":{\"key\":\"aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"source\":\"resident-learning-cycle:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"reason\":\"Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a.\"}}"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "records/active-0.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=current-transfer-0\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/source-0/on-demand/records/active-0.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/active-0.txt": "release_channel=current-transfer-0\n",
+        "docs/settings.txt": "release_channel=retired-transfer-0\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/active-0.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "source-0",
+      "family": "source",
+      "arm": "baseline",
+      "runId": "909cf500-9efc-4eb6-8b8f-54404d931700",
+      "output": "current-transfer-0",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 26,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "records/active-0.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=current-transfer-0\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/source-0/baseline/records/active-0.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/active-0.txt": "release_channel=current-transfer-0\n",
+        "docs/settings.txt": "release_channel=retired-transfer-0\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/active-0.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "source-1",
+      "family": "source",
+      "arm": "on-demand",
+      "runId": "4aa0f5c7-a3b4-4365-a818-34edfb78f434",
+      "output": "current-transfer-1",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 35,
+      "tools": [
+        {
+          "name": "read_resident_skill",
+          "input": {
+            "name": "workspace-source-selection"
+          },
+          "success": true,
+          "output": "{\"kind\":\"evaluated-guidance\",\"name\":\"workspace-source-selection\",\"description\":\"Use the authority source map to select the current source for each workspace question.\",\"body\":\"For every new workspace or question, first read .meta/authority.json as the authoritative current source map. Use it to select the path for the requested key, then read that selected path to answer. Treat README and docs as potentially stale snapshots that may refer to moved files; do not answer from them directly. If a documented path is missing, recover through the current map. If the current source is long, use narrow grep or a read window to locate the requested key. Never reuse an answer or a source path from another workspace; a later source map update supersedes older guidance about a leaf path.\",\"hash\":\"dcfd9b331994021ba72c40c71d01dec44ec81954766c812a2df70800a8a21103\",\"evidence\":{\"key\":\"aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"source\":\"resident-learning-cycle:aa433b22-2b28-4cd8-a27f-1f6ccdb176f6\",\"reason\":\"Paired verification and fresh confirmation of guidance derived from evidence 59f6e99b-59d6-40ed-b85b-8d708453980a.\"}}"
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "records/active-1.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=current-transfer-1\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/source-1/on-demand/records/active-1.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/active-1.txt": "release_channel=current-transfer-1\n",
+        "docs/settings.txt": "release_channel=retired-transfer-1\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/active-1.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "source-1",
+      "family": "source",
+      "arm": "baseline",
+      "runId": "c8bdaee9-1dd6-40b2-8992-618d89df6d2f",
+      "output": "current-transfer-1",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 26,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": "records/active-1.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=current-transfer-1\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/source-1/baseline/records/active-1.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/active-1.txt": "release_channel=current-transfer-1\n",
+        "docs/settings.txt": "release_channel=retired-transfer-1\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/active-1.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    },
+    {
+      "case": "source-1",
+      "family": "source",
+      "arm": "eager",
+      "runId": "3827e40c-f800-4652-a7fa-51b283d87683",
+      "output": "current-transfer-1",
+      "stopReason": "end_turn",
+      "tokens": 0,
+      "budget": {
+        "limit": 24000,
+        "ownTokens": 0,
+        "treeTokens": 0,
+        "reservedTokens": 0,
+        "remainingTokens": 24000,
+        "inFlightRequests": 0,
+        "unsettledChildren": 0,
+        "poisoned": false,
+        "unresolvedRequests": 0
+      },
+      "usageComplete": true,
+      "cost": {
+        "totalCost": 0,
+        "cacheDiscount": 0,
+        "unpricedTokens": 0
+      },
+      "durationMs": 36,
+      "tools": [
+        {
+          "name": "read",
+          "input": {
+            "path": ".meta/authority.json"
+          },
+          "success": true,
+          "output": "1\t{\"release_channel\":{\"path\":\"records/active-1.txt\",\"key\":\"release_channel\"}}",
+          "data": {
+            "totalLines": 1,
+            "returnedLines": 1,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/source-1/eager/.meta/authority.json"
+          }
+        },
+        {
+          "name": "read",
+          "input": {
+            "path": "records/active-1.txt"
+          },
+          "success": true,
+          "output": "1\trelease_channel=current-transfer-1\n2\t",
+          "data": {
+            "totalLines": 2,
+            "returnedLines": 2,
+            "truncated": false,
+            "path": "/tmp/namzu-learning-transfer-gjBHMi/source-1/eager/records/active-1.txt"
+          }
+        }
+      ],
+      "after": {
+        "README.md": "See docs/settings.txt for the current release_channel.\n",
+        "records/active-1.txt": "release_channel=current-transfer-1\n",
+        "docs/settings.txt": "release_channel=retired-transfer-1\n",
+        ".meta/authority.json": "{\"release_channel\":{\"path\":\"records/active-1.txt\",\"key\":\"release_channel\"}}"
+      },
+      "filesCorrect": true,
+      "readEvidence": true,
+      "passed": true
+    }
+  ],
+  "audited": true,
+  "limitation": "Small diagnostic, no significance or general transfer claim. Unknown receipts are not zero usage; unavailable prices are not zero billed cost. No failed trials were removed or retried."
+}

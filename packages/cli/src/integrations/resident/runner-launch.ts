@@ -24,6 +24,7 @@ export interface ResidentWorkerLaunch {
 	readonly flags: RunFlags
 	readonly toolLoading?: 'eager' | 'deferred'
 	readonly contextProfile?: 'resident' | 'interactive'
+	readonly learningDisclosure?: 'eager' | 'on-demand'
 	readonly verification?: ResidentVerificationSpec
 	readonly maxIdleMs: number
 }
@@ -35,6 +36,7 @@ export async function startResidentRunner(options: {
 	readonly flags: RunFlags
 	readonly toolLoading?: 'eager' | 'deferred'
 	readonly contextProfile?: 'resident' | 'interactive'
+	readonly learningDisclosure?: 'eager' | 'on-demand'
 	readonly verification?: ResidentVerificationSpec
 	readonly maxSteps: number
 	readonly maxIdleMs: number
@@ -64,6 +66,7 @@ export async function startResidentRunner(options: {
 		flags: options.flags,
 		toolLoading: options.toolLoading,
 		contextProfile: options.contextProfile,
+		learningDisclosure: options.learningDisclosure,
 		verification: options.verification,
 		maxIdleMs: options.maxIdleMs,
 	}

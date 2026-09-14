@@ -76,6 +76,7 @@ export interface ResidentSessionStepOptions {
 	readonly toolLoading?: 'eager' | 'deferred'
 	/** Resident policy with layered snapshots by default; interactive preserves the earlier prompt. */
 	readonly contextProfile?: 'resident' | 'interactive'
+	readonly learningDisclosure?: 'eager' | 'on-demand'
 	readonly verification?: ResidentVerificationSpec
 	/** Private, host-owned directory for per-claim receipts. */
 	readonly artifactsRoot: string
@@ -430,6 +431,7 @@ export function createResidentSessionStep(
 								),
 							}
 						: {
+								residentLearningDisclosure: options.learningDisclosure ?? 'on-demand',
 								residentContext: {
 									state: pursuit.state,
 									learning: context.learning,
