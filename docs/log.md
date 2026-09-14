@@ -2,6 +2,8 @@
 
 ## 2026-09-14
 
+- **Creation** Add optional [environment exploration](sdk/resident-exploration.md) before resident skill generation, retaining observation evidence and usage through the existing SQLite journal and explicit CLI learning host.
+
 - **Update** Classify [background job observation](cli/background-jobs.md) per action, support input-dependent read-only declarations in the [SDK tool builder](sdk/tool-execution.md), and preserve explicit [review rules](sdk/review-policy.md) through CLI compilation and durable review.
 
 - **Update** Require predeclared [preservation tasks](sdk/harness-verification.md#declared-preservation-tasks) for resident learning and direct skill promotion, retain the plan with activation evidence, and show each round’s control status in [CLI learning inspection](cli/resident-work.md#explicit-learning-experiments).

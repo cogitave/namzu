@@ -129,6 +129,101 @@ async function fixture() {
 }
 
 describe('resident learning cycle', () => {
+	it('retains independent exploration before generation without disclosing evaluation tasks', async () => {
+		const f = await fixture()
+		const observations = { evidence, trace: 'tool probe(input=7) returned 21' }
+		const outcome = await runResidentLearningCycle({
+			...f.options,
+			explore: async (context) => {
+				expect(context).not.toHaveProperty('protection')
+				expect(context).not.toHaveProperty('candidate')
+				expect(context.stage).toBe('explore')
+				await context.recordUsage({ runId: randomUUID(), tokens: 7, costUsd: null })
+				return { observations, usageComplete: true }
+			},
+			generate: async (context) => {
+				expect(f.events.some((e) => e.kind === 'exploration')).toBe(true)
+				observations.trace = 'later mutation'
+				expect(context.exploration?.trace).toBe('tool probe(input=7) returned 21')
+				expect(Object.isFrozen(context.exploration?.evidence)).toBe(true)
+				expect(context).not.toHaveProperty('protection')
+				return f.options.generate(context)
+			},
+		})
+		expect(outcome.status).toBe('activated')
+		expect(outcome.consumption.tokens).toBe(52)
+		expect(f.events.filter((e) => e.kind === 'stage-started').map((e) => e.stage)).toEqual([
+			'explore',
+			'generate',
+			'verification',
+			'confirmation',
+		])
+		expect(f.events.find((e) => e.kind === 'exploration')?.data).toMatchObject({
+			observations: { trace: 'tool probe(input=7) returned 21' },
+			digest: createHash('sha256')
+				.update(JSON.stringify({ evidence, trace: 'tool probe(input=7) returned 21' }))
+				.digest('hex'),
+		})
+	})
+	it.each(['unknown', 'exhausted', 'unsettled', 'missing'] as const)(
+		'stops before generation when exploration usage is %s',
+		async (kind) => {
+			const f = await fixture()
+			const result = await runResidentLearningCycle({
+				...f.options,
+				explore: async (context) => {
+					if (kind !== 'missing')
+						await context.recordUsage({
+							runId: randomUUID(),
+							tokens: kind === 'unknown' ? null : kind === 'exhausted' ? 100 : 5,
+							costUsd: null,
+						})
+					return {
+						observations: { evidence, trace: 'Actual probe output.' },
+						usageComplete: kind !== 'unsettled',
+					}
+				},
+			})
+			expect(result.status).toBe('inconclusive')
+			expect(f.stages).toEqual([])
+			expect(f.events.some((e) => e.kind === 'exploration')).toBe(true)
+			expect((await snapshot(f.agenda)).learning).toBeUndefined()
+		},
+	)
+	it.each(['', 'x'.repeat(32_001)])(
+		'refuses missing or oversized exploration instead of trusting a summary',
+		async (trace) => {
+			const f = await fixture()
+			const result = await runResidentLearningCycle({
+				...f.options,
+				explore: async (context) => {
+					await context.recordUsage({ runId: randomUUID(), tokens: 5, costUsd: null })
+					return { observations: { evidence, trace }, usageComplete: true }
+				},
+			})
+			expect(result.status).toBe('failed')
+			expect(f.stages).toEqual([])
+		},
+	)
+	it('does not synthesize after cancellation or evidence-journal failure', async () => {
+		for (const cancel of [true, false]) {
+			const f = await fixture()
+			const outcome = await runResidentLearningCycle({
+				...f.options,
+				explore: async (context) => {
+					await context.recordUsage({ runId: randomUUID(), tokens: 5, costUsd: null })
+					if (cancel) f.controller.abort()
+					return { observations: { evidence, trace: 'Actual output.' }, usageComplete: true }
+				},
+				record: async (event) => {
+					if (event.kind === 'exploration') throw new Error('journal unavailable')
+					await f.options.record(event)
+				},
+			})
+			expect(outcome.status).toBe(cancel ? 'cancelled' : 'failed')
+			expect(f.stages).toEqual([])
+		}
+	})
 	it('validates protection before inference and does not expose or allow generation to replace it', async () => {
 		const f = await fixture()
 		await expect(

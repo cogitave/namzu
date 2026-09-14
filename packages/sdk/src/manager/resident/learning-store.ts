@@ -427,12 +427,13 @@ export class SqliteResidentLearningStore {
 					'stage-started',
 					'stage-finished',
 					'usage',
+					'exploration',
 					'candidate',
 					'evaluation',
 					'activation-requested',
 					'finished',
 				]),
-				stage: z.enum(['generate', 'verification', 'confirmation']).optional(),
+				stage: z.enum(['explore', 'generate', 'verification', 'confirmation']).optional(),
 				data: z.record(z.unknown()),
 			})
 			.parse(input)

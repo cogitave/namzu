@@ -57,6 +57,34 @@ const result = (cycleId: string, tokens = 0): ResidentLearningCycleResult => ({
 })
 
 describe('SQLite resident learning journal', () => {
+	it('reopens exploration evidence and its usage stage without replaying execution', async () => {
+		const f = fixture()
+		await f.store.append(f.start)
+		const observation: ResidentLearningCycleEvent = {
+			cycleId: f.cycleId,
+			sequence: 2,
+			kind: 'exploration',
+			stage: 'explore',
+			data: {
+				observations: {
+					evidence: { key: 'probe', source: 'tool', reason: 'Observed result.' },
+					trace: 'input: 7, output: 21',
+				},
+				digest: 'retained-digest',
+			},
+		}
+		await f.store.append(observation)
+		await f.store.append({
+			cycleId: f.cycleId,
+			sequence: 3,
+			kind: 'usage',
+			stage: 'explore',
+			data: { receipt: { runId: randomUUID(), tokens: 7, costUsd: null } },
+		})
+		const reader = new SqliteResidentLearningStore({ ...f.options, readOnly: true })
+		expect(await reader.events(f.cycleId, { after: 1 })).toContainEqual(observation)
+		expect((await reader.get(f.cycleId))?.recordedUsage.tokens).toBe(7)
+	})
 	it('commits journal and query projection together, preserves failed usage and reopens read-only', async () => {
 		const f = fixture()
 		await f.store.append(f.start)

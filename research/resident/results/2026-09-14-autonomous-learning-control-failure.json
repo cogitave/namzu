@@ -1,0 +1,11 @@
+{
+  "mode": "scripted-control",
+  "learningEvidence": false,
+  "outcome": "failed before rollback due to development-script argument error",
+  "error": "[\n  {\n    \"code\": \"invalid_type\",\n    \"expected\": \"object\",\n    \"received\": \"undefined\",\n    \"path\": [],\n    \"message\": \"Required\"\n  }\n]",
+  "errorSha256": "62493adc9b57187907f01197738126c8a18983aeee9df53323eabd36f776766a",
+  "reportSha256": "ea55f4a6f5367faa706fef10054f83584bd80de2e5aae1467e54ead86a2eae5c",
+  "retainedRoot": "/tmp/namzu-autonomous-learning-yRErfc",
+  "liveRuns": 0,
+  "resolution": "Passed the required fromRevision argument to rollbackSkill; subsequent scripted control completed before preparing live study."
+}

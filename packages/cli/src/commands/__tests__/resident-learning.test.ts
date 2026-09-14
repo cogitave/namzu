@@ -152,6 +152,35 @@ it('runs the host factory through the real SDK gate, persists both batches and i
 	expect(readFileSync(join(home, 'state', 'learning.sqlite'))).toEqual(before)
 })
 
+it('forwards optional environment exploration and retains its evidence before synthesis', async () => {
+	await command(['add', '--trust', 'Explore the local service.'])
+	const path = moduleFile()
+	writeFileSync(
+		path,
+		readFileSync(path, 'utf8').replace(
+			'generate:async context=>{',
+			`explore:async context=>{
+   await context.recordUsage({runId:randomUUID(),tokens:7,costUsd:null});
+   return {observations:{evidence:{key:'probe',source:'service-output',reason:'Observed.'},trace:'preview returned a destination'},usageComplete:true};
+  },
+  generate:async context=>{if(context.exploration?.trace!=='preview returned a destination')throw new Error('exploration missing');`,
+		),
+	)
+	const response = await command(['learn', path, '--trust'])
+	expect(response.errors).toEqual([])
+	expect(response.code).toBe(0)
+	const store = residentLearningStore(await resident(), true)
+	if (!store) throw new Error('Expected learning store.')
+	const cycle = (await store.list())[0]
+	if (!cycle) throw new Error('Expected cycle.')
+	expect(cycle.result?.consumption.tokens).toBe(52)
+	expect(
+		(await store.events(cycle.cycleId)).some(
+			(event) => event.kind === 'exploration' && event.stage === 'explore',
+		),
+	).toBe(true)
+})
+
 it('retains evaluator failure and partial usage without activating a skill', async () => {
 	await command(['add', '--trust', 'Inspect sources.'])
 	const response = await command(['learn', moduleFile(true), '--trust'])

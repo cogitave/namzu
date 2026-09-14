@@ -472,12 +472,18 @@ file with a default factory. There is no automatic module discovery or replay.
 The factory receives `{cwd, tenantId, projectId, agentKey, signal, store}` and
 returns `Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>`.
 It should only configure callbacks and read retained evidence: all model and
-review calls belong inside the charged `generate` and `evaluate` callbacks.
+review calls belong inside the charged `explore`, `generate` and `evaluate` callbacks.
 The CLI supplies the bound agenda, cancellation and durable journal. The factory
 chooses its own installed SDK providers, exact models, effort, tools, per-run
 budgets and independent scoring. It does not inherit an interactive model or
 silently choose one. A factory can save run traces with
 `store.putArtifact(context.cycleId, name, value)` after the cycle starts.
+
+The optional [`explore` callback](../sdk/resident-exploration.md) lets a model
+choose tool experiments before generating guidance. The CLI displays
+`exploring environment` and retains the bounded observations in the learning
+journal. No supplied correction is required. This is an explicitly invoked
+host capability; ordinary conversations do not automatically start experiments.
 
 A host may instead return
 `Omit<ResidentLearningDiscoveryOptions, 'agenda' | 'signal'>` with `evaluators`

@@ -21,7 +21,7 @@ import {
 import { ResidentConflictError } from './store.js'
 
 /** @experimental One explicitly requested experiment; callbacks own inference and evaluation. */
-export type ResidentLearningStage = 'generate' | 'verification' | 'confirmation'
+export type ResidentLearningStage = 'explore' | 'generate' | 'verification' | 'confirmation'
 
 const receiptSchema = z.object({
 	runId: z.string().uuid(),
@@ -51,6 +51,7 @@ export interface ResidentLearningCycleEvent {
 		| 'stage-started'
 		| 'stage-finished'
 		| 'usage'
+		| 'exploration'
 		| 'candidate'
 		| 'evaluation'
 		| 'activation-requested'
@@ -70,10 +71,21 @@ export interface ResidentLearningCycleContext {
 }
 
 /** @experimental Original failure and active baseline; never contains confirmation tasks. */
-export interface ResidentLearningGenerationContext extends ResidentLearningCycleContext {
+export interface ResidentLearningExplorationContext extends ResidentLearningCycleContext {
 	readonly skillName: string
 	readonly failure: Readonly<{ evidence: ResidentLearningEvidence; trace: string }>
 	readonly baseline: ResidentSkillCandidate | null
+}
+
+/** @experimental Host-retained environment observations, not a model's claim of success. */
+export interface ResidentLearningExploration {
+	readonly evidence: ResidentLearningEvidence
+	readonly trace: string
+}
+
+/** @experimental Generation sees completed exploration, never held-out evaluation cases. */
+export interface ResidentLearningGenerationContext extends ResidentLearningExplorationContext {
+	readonly exploration?: Readonly<ResidentLearningExploration>
 }
 
 /** @experimental The host supplies independently scored, retained traces for these exact revisions. */
@@ -96,6 +108,11 @@ export interface ResidentLearningCycleOptions {
 	/** Stops subsequent stages/activation after observed excess; callbacks enforce in-flight limits. */
 	readonly resources: { readonly unit: 'tokens' | 'usd'; readonly maxUnits: number }
 	readonly record: (event: ResidentLearningCycleEvent) => Promise<void>
+	/** Optional active tool exploration before synthesis; the host retains actual observations. */
+	readonly explore?: (context: ResidentLearningExplorationContext) => Promise<{
+		readonly observations: ResidentLearningExploration
+		readonly usageComplete: boolean
+	}>
 	readonly generate: (context: ResidentLearningGenerationContext) => Promise<{
 		readonly candidate: ResidentSkillCandidate
 		/** All executions, including failures and side calls, have supplied receipts. */
@@ -238,6 +255,7 @@ export async function runResidentLearningCycle(
 			failure,
 			resources,
 			protection,
+			...(options.explore ? { explorationEnabled: true } : {}),
 			...(parentCycleId ? { parentCycleId } : {}),
 		})
 		const check = async () => {
@@ -313,8 +331,39 @@ export async function runResidentLearningCycle(
 				open = false
 			}
 		}
+		let exploration: Readonly<ResidentLearningExploration> | undefined
+		if (options.explore) {
+			const explore = options.explore
+			const observed = await stage('explore', (context) =>
+				explore(Object.freeze({ ...context, skillName, failure, baseline })),
+			)
+			exploration = Object.freeze({
+				evidence: Object.freeze(
+					residentLearningEvidenceSchema.parse(observed.observations.evidence),
+				),
+				trace: z.string().trim().min(1).max(32_000).parse(observed.observations.trace),
+			})
+			await append(
+				'exploration',
+				{
+					observations: exploration,
+					digest: createHash('sha256').update(JSON.stringify(exploration)).digest('hex'),
+				},
+				'explore',
+			)
+			const problem = resourceProblem(true)
+			if (problem) return result('inconclusive', problem)
+		}
 		const generated = await stage('generate', (context) =>
-			options.generate(Object.freeze({ ...context, skillName, failure, baseline })),
+			options.generate(
+				Object.freeze({
+					...context,
+					skillName,
+					failure,
+					baseline,
+					...(exploration ? { exploration } : {}),
+				}),
+			),
 		)
 		candidateRevision = hashResidentSkill(generated.candidate)
 		candidate = normalizeResidentSkill(generated.candidate)

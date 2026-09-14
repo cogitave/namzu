@@ -30,6 +30,11 @@ signal, a resource policy, a `protection` plan and three callbacks:
 - `generate` receives the failure, active baseline and stage context. It returns
   a candidate with the requested name and an explicit `usageComplete` declaration.
   It can use normal `runAgent` or another host-owned execution path.
+- Optional [`explore`](resident-exploration.md) runs first, using normal tools to
+  collect model-selected environment experiments. It retains observed outputs
+  before synthesis; `generate` receives them through `context.exploration`.
+  This path requires no hand-authored correction and shares the cycle's usage,
+  cancellation, journal and preservation contracts.
 - `evaluate` receives the exact candidate and baseline, their hashes, and the
   stage (`verification` or `confirmation`). It runs and retains its own cases,
   scoring and trace attribution, then returns a `HarnessVerificationBatch` and

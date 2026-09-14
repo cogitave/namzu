@@ -1,0 +1,23 @@
+[
+  {
+    "repo": "MineDojo/Voyager",
+    "path": "voyager/voyager.py",
+    "commit": "12025800790e16ddc9e4f61de18863859b4edf31",
+    "url": "https://github.com/MineDojo/Voyager/blob/12025800790e16ddc9e4f61de18863859b4edf31/voyager/voyager.py",
+    "sha256": "4051b817ac3b044de12d456e03f162869715e675f5f8b2bd372491662710a59c"
+  },
+  {
+    "repo": "facebookresearch/Hyperagents",
+    "path": "generate_loop.py",
+    "commit": "8172fedda690dcc8347996fd12da2fdc9bb098a3",
+    "url": "https://github.com/facebookresearch/Hyperagents/blob/8172fedda690dcc8347996fd12da2fdc9bb098a3/generate_loop.py",
+    "sha256": "dc9951becd15661fb454d42035f997b4d29ad38d1bb94592c58e0fe1635bec68"
+  },
+  {
+    "repo": "gepa-ai/gepa",
+    "path": "src/gepa/proposer/reflective_mutation/reflective_mutation.py",
+    "commit": "ef525a44626a725b6987a35b4a75e36fbfaf0e25",
+    "url": "https://github.com/gepa-ai/gepa/blob/ef525a44626a725b6987a35b4a75e36fbfaf0e25/src/gepa/proposer/reflective_mutation/reflective_mutation.py",
+    "sha256": "2fcc6681d3498700a4a6b79297c98e0fcfc8601503cc019dca56681f51e4eb5d"
+  }
+]

@@ -238,10 +238,21 @@ export async function residentLearningCommand({
 			| Omit<ResidentLearningCycleOptions, 'agenda' | 'signal' | 'record'>
 			| Omit<ResidentLearningDiscoveryOptions, 'agenda' | 'signal'>
 		controller.signal.throwIfAborted()
+		const explore = options.explore
 		const execution = {
 			...options,
 			agenda: resident.agenda,
 			signal: controller.signal,
+			...(explore
+				? {
+						explore: async (
+							context: Parameters<NonNullable<ResidentLearningCycleOptions['explore']>>[0],
+						) => {
+							ctx.formatter.info(`Learning · ${line(context.skillName)} · exploring environment`)
+							return explore(context)
+						},
+					}
+				: {}),
 			generate: async (context: Parameters<ResidentLearningCycleOptions['generate']>[0]) => {
 				ctx.formatter.info(`Learning · ${line(context.skillName)} · generating guidance`)
 				return options.generate(context)

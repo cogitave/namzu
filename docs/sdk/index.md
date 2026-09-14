@@ -12,6 +12,7 @@ The kernel.
 
 * [Structured output review](structured-output-review.md) - Parsed-result validation, bounded corrections and checkpoint recovery.
 * [Tool call budgets](tool-call-budget.md) - Durable per-run admissions, batch limits and recovery accounting.
+* [Environment exploration before learning](resident-exploration.md) - Active tool experiments and retained observations before independent skill evaluation.
 
 * [Tool discovery](tool-discovery.md) - Verified active matches, bounded deferred activation and allowed-tool filtering.
 

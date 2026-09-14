@@ -1,0 +1,91 @@
+{
+  "date": "2026-09-14",
+  "workspaceTestsPassed": 11468,
+  "sdkProcessTestsPassed": 269,
+  "environmentTestsPassed": 2,
+  "fullReleaseGatesRun": false,
+  "logs": {
+    "lint.log": {
+      "sha256": "cb3fa36ee3cb9ac1626685f834142837cd3677615141f2b33914702cab10a81c",
+      "summaries": [
+        "packages/sdk lint: Found 43 warnings.",
+        "packages/cli lint: Found 13 warnings."
+      ]
+    },
+    "tests.log": {
+      "sha256": "05d2a3628395e708b9fdb7137e8e51a19c4c58d306ef0344c359f1b64a6a038e",
+      "summaries": [
+        "packages/files test:  Test Files  3 passed | 1 skipped (4)",
+        "packages/files test:       Tests  48 passed | 11 skipped (59)",
+        "packages/sdk test:  Test Files  689 passed (689)",
+        "packages/sdk test:       Tests  6917 passed (6917)",
+        "packages/computer-use test:  Test Files  11 passed (11)",
+        "packages/computer-use test:       Tests  67 passed (67)",
+        "packages/live test:  Test Files  3 passed (3)",
+        "packages/live test:       Tests  24 passed (24)",
+        "packages/ag-ui test:  Test Files  5 passed (5)",
+        "packages/ag-ui test:       Tests  121 passed (121)",
+        "packages/lsp test:  Test Files  2 passed (2)",
+        "packages/lsp test:       Tests  27 passed (27)",
+        "packages/providers/bedrock test:  Test Files  12 passed (12)",
+        "packages/providers/bedrock test:       Tests  114 passed (114)",
+        "packages/providers/deepseek test:  Test Files  5 passed (5)",
+        "packages/providers/deepseek test:       Tests  42 passed (42)",
+        "packages/providers/anthropic test:  Test Files  18 passed | 2 skipped (20)",
+        "packages/providers/anthropic test:       Tests  207 passed | 40 skipped (247)",
+        "packages/providers/google test:  Test Files  3 passed (3)",
+        "packages/providers/google test:       Tests  25 passed (25)",
+        "packages/providers/lmstudio test:  Test Files  5 passed (5)",
+        "packages/providers/lmstudio test:       Tests  28 passed (28)",
+        "packages/providers/http test:  Test Files  8 passed (8)",
+        "packages/providers/http test:       Tests  60 passed | 10 skipped (70)",
+        "packages/providers/ollama test:  Test Files  7 passed (7)",
+        "packages/providers/ollama test:       Tests  34 passed (34)",
+        "packages/providers/openrouter test:  Test Files  9 passed (9)",
+        "packages/providers/openrouter test:       Tests  40 passed (40)",
+        "packages/providers/zen test:  Test Files  10 passed (10)",
+        "packages/providers/zen test:       Tests  124 passed (124)",
+        "packages/providers/openai test:  Test Files  9 passed (9)",
+        "packages/providers/openai test:       Tests  123 passed (123)",
+        "packages/telemetry test:  Test Files  4 passed (4)",
+        "packages/telemetry test:       Tests  33 passed (33)",
+        "packages/sandbox test:  Test Files  23 passed (23)",
+        "packages/sandbox test:       Tests  304 passed (304)",
+        "packages/cli test:  Test Files  346 passed (346)",
+        "packages/cli test:       Tests  3130 passed | 5 skipped (3135)"
+      ]
+    },
+    "proc.log": {
+      "sha256": "47ba9cc6fd137f7de8f4b373c246c74e23d2fbbbd66f0fc9088c12ac240e167b",
+      "summaries": [
+        " Test Files  41 passed (41)",
+        "      Tests  269 passed (269)"
+      ]
+    },
+    "fences.log": {
+      "sha256": "50c278e12a6ad3fec57ceb9fc244dead7982cf7760489e7b699338188bb84a82",
+      "summaries": [
+        "           20 publishable package README(s) compiled alongside docs/",
+        "           0 file(s) under docs/ outside FENCE_CONFORMING"
+      ]
+    },
+    "docs.log": {
+      "sha256": "e6b7deec5b1e803ac604b23e44a770d6f104e2ed9cb278137513d46e63f920cd",
+      "summaries": [
+        "OKF v0.2 gate passed: 77 file(s) under docs"
+      ]
+    },
+    "build.log": {
+      "sha256": "2d1acc7f4c7e6a0c3be23cbe4d33df9cc38e76a502a521a6047baf0117349a14",
+      "summaries": []
+    }
+  },
+  "additionalPassed": [
+    "pnpm typecheck",
+    "signature-type exports",
+    "SDK test presence",
+    "project references",
+    "git diff --check"
+  ],
+  "limitation": "Existing lint warnings retained; this local validation is not a release or registry verification."
+}

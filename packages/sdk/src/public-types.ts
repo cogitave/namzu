@@ -542,6 +542,8 @@ export type {
 	ResidentLearningCycleEvent,
 	ResidentLearningCycleContext,
 	ResidentLearningGenerationContext,
+	ResidentLearningExplorationContext,
+	ResidentLearningExploration,
 	ResidentLearningEvaluationContext,
 	ResidentLearningCycleOptions,
 	ResidentLearningCycleResult,
