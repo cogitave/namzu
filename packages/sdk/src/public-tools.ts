@@ -133,5 +133,18 @@ export {
 } from './connector/tools/index.js'
 
 export { createFileReadTracker } from './tools/file-read-tracker.js'
+export type { LedgerReplayReport } from './runtime/query/file-evidence-replay.js'
+/**
+ * Rebuild a tracker from a conversation's own history, for a host that keeps
+ * one per conversation across turns and has just restored one from a store.
+ * Reads no file's content — only the paths the history names, canonicalized
+ * the way the built-in tools canonicalize them so that the entries land where
+ * those tools will look for them. See the SDK's tool-execution documentation
+ * for what a replayed observation does and does not establish.
+ */
+export {
+	type ObservationSeedContext,
+	seedObservationLedger,
+} from './runtime/query/file-evidence-seed.js'
 
 export { buildResidentToolEvidenceTools } from './tools/resident-tool-evidence.js'

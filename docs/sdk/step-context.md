@@ -150,6 +150,20 @@ do not match the ledger's canonical key receive no optimization. Full-file
 `read` reconstruction is not performed by this projection: a body that arrived
 as a read result establishes no entry, edited or not.
 
+The ledger these entries are checked against is scoped to a conversation, and a
+conversation that is resumed rebuilds it by replaying its own restored history
+once, before the first request — see
+[the observation ledger](tool-execution.md#file-changes-between-observation-and-edit). So a
+resumed run's first request can carry entries for files it wrote before the
+session closed, and it can carry them only for paths the replay reconstructed
+exactly. A path it could not reconstruct is left out of the ledger altogether
+rather than entered without a fingerprint, so the read-before-overwrite refusal
+still stands over it. A replayed entry is a claim derived from history and is
+still checked against the real file at mutation time: a file that moved while the
+session was closed is refused there and its entry withdrawn, exactly as a
+mid-session change would be. The preamble says so, so the model does not read a
+replayed observation as a live one.
+
 Likewise, a delivered worker result is not a verified answer to the user's
 original request. The projection directs the model to incorporate available
 results alongside steering unless the operator cancels or changes the request.

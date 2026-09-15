@@ -3,11 +3,13 @@ import type { Message } from '../../types/message/index.js'
 import type { FileReadTracker } from '../../types/tool/index.js'
 import {
 	MAX_EDIT_CALLS,
+	MAX_WITNESSED_PATHS,
 	type ReplayBudget,
 	type VisibleHistory,
 	createReplayBudget,
 	indexVisibleHistory,
 	knownStale,
+	lexicalFileKeys,
 	replayHop,
 	spend,
 	visibleEdit,
@@ -30,7 +32,11 @@ export function describeVisibleFileEvidence(
 ): string | undefined {
 	// Execution-owned witnesses survive transparent wrappers; a name alone proves nothing.
 	if (!tracker.writeCallId || !tracker.fingerprint) return
-	const history = indexVisibleHistory(messages, workingDirectory, sandboxed)
+	// Lexical, as this projection has always looked entries up: a spelling that
+	// does not resolve to the tool's canonical key finds nothing and the path is
+	// simply not admitted. Writing the ledger is the side that has to key the
+	// way the tools do — see `file-evidence-seed.ts`.
+	const history = indexVisibleHistory(messages, lexicalFileKeys(workingDirectory, sandboxed))
 	const budget = createReplayBudget()
 	const files = new Map<string, FileEvidence>()
 	for (const [id, call] of history.calls) {
@@ -44,13 +50,13 @@ export function describeVisibleFileEvidence(
 			if (!admitted) continue
 			files.delete(admitted.key)
 			files.set(admitted.key, admitted.evidence)
-			if (files.size > 6) files.delete(files.keys().next().value as string)
+			if (files.size > MAX_WITNESSED_PATHS) files.delete(files.keys().next().value as string)
 		} catch {
 			// Malformed retained inputs or a custom tracker cannot establish evidence.
 		}
 	}
 	if (files.size === 0) return
-	return `Visible file evidence (this request only): each entry's current body is the complete body in the named successful write call, with the edit calls in editsInCalls — when present — applied in that order. This runtime performed that reconstruction and checked it against its own file observation; it is not a derivation left to you. Reuse the body for a targeted edit; a read solely to recall it is unnecessary. This is NOT a fresh disk check. Built-in edit/write still compare the disk body at mutation admission and refuse observed drift; on refusal inspect the current file and replan. Missing entries establish nothing.\n${JSON.stringify([...files.values()])}`
+	return `Visible file evidence (this request only): each entry's current body is the complete body in the named successful write call, with the edit calls in editsInCalls — when present — applied in that order. This runtime performed that reconstruction and checked it against its own file observation; it is not a derivation left to you. Reuse the body for a targeted edit; a read solely to recall it is unnecessary. This is NOT a fresh disk check, and after a resume the observation behind an entry may itself have been rebuilt from this conversation's own earlier calls rather than made while this process ran. Built-in edit/write still compare the disk body at mutation admission and refuse observed drift; on refusal inspect the current file and replan. Missing entries establish nothing.\n${JSON.stringify([...files.values()])}`
 }
 
 /** A full body that arrived whole in one call and is still the file's body. */

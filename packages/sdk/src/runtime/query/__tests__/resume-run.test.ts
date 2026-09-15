@@ -1,16 +1,22 @@
-import { mkdtemp } from 'node:fs/promises'
+import { mkdtemp, readFile, realpath, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
+import { clearToolResult } from '../../../compaction/tool-result-editing.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemoryCheckpointStore as RealInMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { EditTool } from '../../../tools/builtins/edit.js'
+import { ReadFileTool } from '../../../tools/builtins/read-file.js'
+import { WriteFileTool } from '../../../tools/builtins/write-file.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import {
+	type Message,
+	type ToolMessage,
 	createAssistantMessage,
 	createToolMessage,
 	createUserMessage,
@@ -114,7 +120,10 @@ afterEach(async () => {
 async function mkWorkdir(): Promise<string> {
 	const dir = await mkdtemp(join(tmpdir(), 'namzu-resume-run-'))
 	workdirs.push(dir)
-	return dir
+	// Canonical, because the tools key the observation ledger canonically and
+	// `os.tmpdir()` is itself a symlink on macOS. A run whose working directory
+	// is a link is a run whose ledger nothing here would find.
+	return realpath(dir)
 }
 
 /**
@@ -484,5 +493,136 @@ describe('a resume carries the claim it was given', () => {
 		expect(outcome.resumed).toBe(true)
 		if (!outcome.resumed) return
 		expect(outcome.run.status).not.toBe('failed')
+	})
+})
+
+/**
+ * A resumed run used to forget every file the conversation had written.
+ *
+ * The observation ledger is process memory: `resumeRun` restored the history,
+ * the budgets and the working state, and then handed the run an empty tracker.
+ * So the projection admitted nothing, and the first thing a resumed agent did
+ * was read back a file whose whole body was in the transcript it had just been
+ * given. These cover the rebuild, and the refusal that has to survive it.
+ */
+describe('a resumed run remembers the files this conversation wrote', () => {
+	const written = 'alpha\nbeta\n'
+
+	function wroteInHistory(path: string) {
+		const call = {
+			id: 'w1',
+			type: 'function' as const,
+			function: { name: 'write', arguments: JSON.stringify({ path, content: written }) },
+		}
+		return [
+			createUserMessage('write note.txt'),
+			createAssistantMessage('writing', [call]),
+			createToolMessage(`Created ${path}`, call.id),
+		]
+	}
+
+	function fileTools(): ToolRegistry {
+		const tools = new ToolRegistry()
+		tools.register(WriteFileTool)
+		tools.register(EditTool)
+		tools.register(ReadFileTool)
+		return tools
+	}
+
+	it('carries the written body into the first resumed request instead of re-reading it', async () => {
+		const store = new InMemoryCheckpointStore()
+		await store.writeCheckpoint(SCOPE, checkpoint({ messages: wroteInHistory('note.txt') }))
+		const requests: Message[][] = []
+		const base = await baseParams(store)
+		const provider = new MockLLMProvider({
+			onRequest: ({ messages }) => requests.push([...messages]),
+			turns: [{ text: 'already know what is in it' }],
+		})
+
+		const outcome = await resumeRun({
+			...base,
+			provider,
+			tools: fileTools(),
+			runConfig: { ...base.runConfig, maxIterations: 4 },
+		})
+
+		expect(outcome.resumed).toBe(true)
+		const first = requests[0]?.map((m) => String(m.content)).join('\n') ?? ''
+		expect(first).toContain('Visible file evidence')
+		expect(first).toContain('"bodyInCall":"w1"')
+		// And it got there without going back to disk for it.
+		expect(
+			outcome.resumed &&
+				outcome.run.messages.some((m) =>
+					m.role === 'assistant'
+						? (m.toolCalls ?? []).some((c) => c.function.name === 'read')
+						: false,
+				),
+		).toBe(false)
+	})
+
+	it('still refuses an edit against a file that moved while the session was closed', async () => {
+		// The point of restoring a fingerprint rather than a permission: it is a
+		// claim derived from history, and the mutation check still compares it
+		// with the real file. A file somebody else changed in between is refused
+		// exactly as it would be mid-session, and the refusal then withdraws the
+		// projection's entry for that path.
+		const store = new InMemoryCheckpointStore()
+		const base = await baseParams(store)
+		const path = join(base.workingDirectory, 'note.txt')
+		await writeFile(path, 'somebody else wrote this\n')
+		await store.writeCheckpoint(SCOPE, checkpoint({ messages: wroteInHistory(path) }))
+		const requests: Message[][] = []
+		const provider = new MockLLMProvider({
+			onRequest: ({ messages }) => requests.push([...messages]),
+			turns: [
+				{ toolCalls: [{ name: 'edit', args: { path, old_string: 'alpha', new_string: 'gamma' } }] },
+				{ text: 'it moved; re-reading' },
+			],
+		})
+
+		const outcome = await resumeRun({
+			...base,
+			provider,
+			tools: fileTools(),
+			runConfig: { ...base.runConfig, maxIterations: 4 },
+		})
+
+		expect(outcome.resumed).toBe(true)
+		if (!outcome.resumed) return
+		const refusal = outcome.run.messages.find(
+			(m) => m.role === 'tool' && String(m.content).includes('changed on disk'),
+		)
+		expect(refusal).toBeDefined()
+		// The first request offered the body; the one after the refusal does not.
+		expect(requests[0]?.map((m) => String(m.content)).join('\n')).toContain('"bodyInCall":"w1"')
+		expect(requests[1]?.map((m) => String(m.content)).join('\n')).not.toContain('"bodyInCall":"w1"')
+		// Untouched: a refused edit writes nothing.
+		expect(await readFile(path, 'utf-8')).toBe('somebody else wrote this\n')
+	})
+
+	it('offers nothing for a write whose receipt compaction had already cleared', async () => {
+		const store = new InMemoryCheckpointStore()
+		const messages = wroteInHistory('note.txt')
+		messages[2] = clearToolResult(messages[2] as ToolMessage, 'write').message
+		await store.writeCheckpoint(SCOPE, checkpoint({ messages }))
+		const requests: Message[][] = []
+		const base = await baseParams(store)
+		const provider = new MockLLMProvider({
+			onRequest: ({ messages: sent }) => requests.push([...sent]),
+			turns: [{ text: 'nothing to go on' }],
+		})
+
+		const outcome = await resumeRun({
+			...base,
+			provider,
+			tools: fileTools(),
+			runConfig: { ...base.runConfig, maxIterations: 4 },
+		})
+
+		expect(outcome.resumed).toBe(true)
+		expect(requests[0]?.map((m) => String(m.content)).join('\n')).not.toContain(
+			'Visible file evidence',
+		)
 	})
 })

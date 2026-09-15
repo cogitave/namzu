@@ -2386,6 +2386,18 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					})
 				}
 
+				// The ledger is process state and a resumed run starts with an empty
+				// one, so until something reads a file again this run knows nothing
+				// about files the conversation already wrote in full — and re-reads
+				// them. Rebuilt from the REPAIRED history, which is what the model
+				// is about to be shown, rather than from the checkpoint's own
+				// messages. Reads no file's content: every fingerprint recovered
+				// here is still checked against the real one at mutation time.
+				await toolExecutor.seedFileObservations(
+					restoredMessages,
+					params.sandboxProvider !== undefined,
+				)
+
 				for (const msg of restoredMessages) {
 					if (msg.role === 'system') {
 						// Re-push the FRESH static/dynamic floor (done above) but PRESERVE

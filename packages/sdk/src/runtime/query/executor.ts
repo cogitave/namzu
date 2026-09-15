@@ -51,6 +51,7 @@ import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
+import { seedObservationLedger } from './file-evidence-seed.js'
 import type { ToolResultObservation } from './project-instructions.js'
 import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
 import {
@@ -524,6 +525,8 @@ export class ToolExecutor {
 	/** Set per turn by the orchestrator; see {@link setStepAllowedTools}. */
 	private stepAllowedTools?: readonly string[]
 	private readonly fileReadTracker: FileReadTracker
+	/** A ledger is rebuilt from history at most once; a second pass would re-append its chains. */
+	private fileObservationsSeeded = false
 
 	constructor(
 		config: ToolExecutorConfig,
@@ -555,6 +558,39 @@ export class ToolExecutor {
 
 	setSandbox(sandbox: Sandbox): void {
 		this.config = { ...this.config, sandbox }
+	}
+
+	/**
+	 * Rebuild this run's observation ledger from history a resume restored.
+	 *
+	 * Once, and only from a history that has already been repaired — the ledger
+	 * has to describe what the model is about to be shown, not what was
+	 * checkpointed before the repair removed an abandoned call. `sandboxed` is
+	 * passed rather than read off this executor's config because a resumed run
+	 * restores its history before it acquires a sandbox, so the config does not
+	 * know yet what the run's tool paths will be keyed on.
+	 *
+	 * Awaited, and the only filesystem work anywhere in this feature: the seed
+	 * has to write its entries under the keys the mutation tools will look them
+	 * up under, which on a host means resolving each path through its symlinks
+	 * the way `write` and `edit` do. No file's content is read.
+	 */
+	async seedFileObservations(messages: readonly Message[], sandboxed: boolean): Promise<void> {
+		if (this.fileObservationsSeeded) return
+		this.fileObservationsSeeded = true
+		const report = await seedObservationLedger(messages, this.fileReadTracker, {
+			workingDirectory: this.config.workingDirectory,
+			...(this.config.additionalDirectories
+				? { additionalDirectories: this.config.additionalDirectories }
+				: {}),
+			sandboxed,
+		})
+		this.log.info('Rebuilt the file observation ledger from restored history', {
+			[NAMZU.RUN_ID]: this.config.runId,
+			'namzu.files.witnessed': report.pathsWitnessed,
+			'namzu.files.seen': report.pathsSeen,
+			'namzu.files.replayed_units': report.unitsReplayed,
+		})
 	}
 
 	/** Request-only evidence from the same ledger used by mutation admission. No filesystem I/O. */

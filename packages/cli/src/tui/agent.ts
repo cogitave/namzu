@@ -117,6 +117,7 @@ import {
 	isReviewExempt,
 	query,
 	resumeRun,
+	seedObservationLedger,
 	webGuidanceContribution,
 	withProviderFallback,
 } from '@namzu/sdk'
@@ -1408,14 +1409,54 @@ export async function createAgentSession(
 	options: AgentSessionOptions = {},
 ): Promise<AgentSession> {
 	const scope = options.scope ?? mintScope()
-	const fileObservations = new Map<SessionId, ReturnType<typeof createFileReadTracker>>()
-	const observationsFor = (id: SessionId) => {
-		let tracker = fileObservations.get(id)
-		if (!tracker) {
-			tracker = createFileReadTracker()
-			fileObservations.set(id, tracker)
+	const fileObservations = new Map<SessionId, Promise<ReturnType<typeof createFileReadTracker>>>()
+	/**
+	 * This process's observation ledger for one conversation, seeded from that
+	 * conversation's own history the first time it is asked for.
+	 *
+	 * The ledger is memory, and a resumed conversation used to get an empty one:
+	 * the agent re-read files it had written in full before the session closed,
+	 * every time. `prior` is the history the caller is about to send, so a
+	 * resumed session seeds from what it restored and a forked one from its own
+	 * copied messages — never from the conversation it was branched out of.
+	 *
+	 * Keyed on first use of a session id rather than on process start, because
+	 * the TUI switches ids mid-process: `/resume` and a new conversation both
+	 * arrive as an id this map has not seen. The map holds the seeding itself
+	 * rather than its result, so the entry is in place before the first `await`
+	 * inside it: a second turn that starts while the first is still seeding
+	 * waits for that same ledger instead of building a second one.
+	 */
+	const observationsFor = (id: SessionId, prior: readonly Message[]) => {
+		let seeded = fileObservations.get(id)
+		if (!seeded) {
+			seeded = (async () => {
+				const tracker = createFileReadTracker()
+				try {
+					const report = await seedObservationLedger(prior, tracker, {
+						workingDirectory: cwd,
+						...(directories.length > 0 ? { additionalDirectories: [...directories] } : {}),
+						sandboxed: sandbox.provider !== undefined,
+					})
+					cliLogger().debug('file observation ledger rebuilt', {
+						'namzu.files.witnessed': report.pathsWitnessed,
+						'namzu.files.seen': report.pathsSeen,
+						'namzu.files.replayed_units': report.unitsReplayed,
+					})
+				} catch (error) {
+					// A ledger that could not be rebuilt is the empty one every resume
+					// used to get, so the turn proceeds without its witnesses — but it
+					// says so, because a seeding that failed and one that found nothing
+					// are otherwise the same silence.
+					cliLogger().debug('file observation ledger not rebuilt', {
+						'namzu.files.error': error instanceof Error ? error.message : String(error),
+					})
+				}
+				return tracker
+			})()
+			fileObservations.set(id, seeded)
 		}
-		return tracker
+		return seeded
 	}
 	const requestedCwd = resolve(options.cwd ?? process.cwd())
 	let cwd: string
@@ -3028,7 +3069,7 @@ export async function createAgentSession(
 						try {
 							yield* runTurn({
 								provider: providerForSession(turnScope.sessionId),
-								fileReadTracker: observationsFor(turnScope.sessionId),
+								fileReadTracker: await observationsFor(turnScope.sessionId, messages),
 								compactionConfig: compactionConfigFor(options.compaction),
 								retainedToolPreviewChars: options.conversationSessions
 									? (options.compaction?.retainedToolPreviewChars ?? 4_000)

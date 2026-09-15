@@ -181,10 +181,92 @@ can reference a successful write's visible body when it matches this ledger;
 that reference does not skip mutation-time disk checks.
 
 The CLI shares a tracker between ordinary turns for each conversation within a
-live agent session. These observations are not persisted: restarting the CLI
-or rebuilding the agent session (including model changes) starts a new ledger.
-Durable resume does not restore this ledger from transcript text. Shell writes
-and third-party tools that do not record observations are outside this contract.
+live agent session, and seeds it from that conversation's own messages the
+first time a turn asks for it. A resumed conversation, a `--resume` or
+`--continue` run, and a fork all arrive as a conversation the process has not
+served before, so each is seeded from the history it was given and never from
+another conversation's. The ledger itself is still not persisted: nothing is
+written to a session store, and a restarted CLI rebuilds what it can by
+replaying the transcript rather than by reading a ledger back.
+
+`seedObservationLedger(messages, tracker, { workingDirectory, additionalDirectories, sandboxed })`
+is that replay, exported for a host that keeps a tracker per conversation and
+has just restored one. It walks the history under the same visibility rules and the
+same bounds the [derived work context](step-context.md#derived-work-context)
+applies — one implementation, so a path one of them establishes is a path the
+other admits. A `write` whose call and successful receipt are both intact
+restores its body and its witness, and the `edit` calls above it are replayed
+hop by hop to restore the chain. A `read` never supplies a body: the line
+numbering is not undone to recover one. It can only settle a body already
+reconstructed, by rendering that body forward through the read tool's own
+renderer and comparing the whole rendering against the receipt — so a read
+showing exactly that body keeps the witness, and a read that was windowed, that
+shows something else, or whose receipt compaction cleared withdraws it. On the
+mutation side a cleared receipt, a hop that no longer applies, a body past the
+bounds and a call whose arguments run past what a replay reads as evidence each
+withdraw whatever the pass was holding for that path, and so do the two cases
+where the transcript settles no outcome at all. A call it never answered —
+including the unknown-outcome result the runtime's own repair writes for one —
+may have landed with the file half written, and nobody can say. A mutation it
+refused is a tool's own report about that path, a drift refusal above all, made
+after reading the disk and finding the body this ledger holds is not the body
+there; restoring that fingerprint would undo a safety observation the transcript
+is still carrying in words. Each of those costs the path it names and no other.
+
+Replay reads no file's CONTENT; every body it restores is one the visible calls
+rebuild exactly. The one thing it does touch the filesystem for is the key each
+entry is filed under. A ledger entry identifies a file, not a spelling, so
+`read`, `write` and `edit` all key on the path canonicalized through its
+symlinks — and a seed has to file its entries where those tools will come
+looking, or the fingerprint it restores is one no mutation ever checks and no
+drift refusal can ever withdraw. So the paths named in the history are resolved
+the way the tools resolve them, before the walk; a path that no longer resolves
+inside the directories this run may reach is left unkeyed, and the mutation that
+named it stops the pass rather than being filed somewhere approximate. Under a
+sandbox the keys are the paths as written, as they are for the tools, and no
+host path is consulted. That flag describes the run doing the seeding rather
+than each turn in the history: a conversation whose earlier turns ran without a
+sandbox and is resumed into one is keyed in the space its current tools use, so
+the fingerprints it restores describe the other filesystem's files, and the
+first mutation of each path is where that is caught.
+
+A fingerprint restored this way is a claim derived from history, and the
+mutation checks above still compare it with the real file before anything is
+written: a file changed while the session was closed is refused there, and that
+refusal's drift flag withdraws the path from the projection.
+
+Content-backed observations, and only those. A path whose body could not be
+reconstructed is left OUT of the ledger rather than entered without a
+fingerprint: `hasRead` is the read-before-overwrite refusal, and granting it with
+no body to compare would admit a full overwrite of a file that may have changed
+while the session was closed. A seeded ledger is therefore never weaker than the
+empty one a resume starts from — every path it does not restore behaves exactly
+as it does with no seeding at all. A path the conversation only ever READ
+establishes nothing either, because a window proves nothing about the rest of
+the file.
+
+Three things seed nothing at all, each leaving the conversation the empty ledger
+it has always had. A history naming more than 1,024 distinct path spellings —
+the ones only `read` names included, and two spellings of one file counting
+twice — which is resolved whole or not at all rather than in a prefix that
+cannot say what a mutation replaced. A tool call id claimed by two calls or
+answered by two receipts — `read` included, because the receipt that was hidden
+could be the observation that withdrew a claim. And a mutation no path can be
+recovered from, whatever the transcript says came back to it: one declaring no
+`path`, one whose path no longer resolves inside the directories this run may
+reach — a refused write to a path outside them is one of these, since a key is
+what withdrawing one path rather than the whole pass takes — or one the provider
+stream cut off mid-JSON, whose arguments are recorded as `{}` with the raw
+buffer kept only as `metadata.partialArguments`, what the model was saying
+rather than what ran. A merely LARGE call is none of these: the argument bound
+governs what may be believed, not what may be attributed, so an oversize `write`
+withdraws its own path's body and leaves every other witness in the conversation
+standing.
+
+`resumeRun` and `query`'s checkpoint path do the same for a run, from the
+history as repaired rather than as checkpointed, so the ledger describes what
+the model is about to be shown. Shell writes and third-party tools that do not
+record observations are outside this contract.
 The runtime checks the body read at admission, under its own mutation lock; an
 external writer can still race after that read. This is not filesystem-level
 compare-and-swap or continuous file watching.
