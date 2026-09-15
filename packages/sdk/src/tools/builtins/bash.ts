@@ -57,13 +57,13 @@ const inputSchema = z.object({
 			z.number().positive().max(MAX_BASH_TIMEOUT_MS).default(DEFAULT_BASH_TIMEOUT_MS),
 		)
 		.describe(
-			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, set run_in_background and poll with the \`job\` tool, rather than holding the turn open.`,
+			`Command timeout in milliseconds. Default: ${DEFAULT_BASH_TIMEOUT_MS}, maximum: ${MAX_BASH_TIMEOUT_MS}. For work that legitimately runs longer than the maximum, set run_in_background and await it with \`wait_for_job\`, rather than holding the turn open.`,
 		),
 	run_in_background: z
 		.boolean()
 		.optional()
 		.describe(
-			'Start the command as a background job and return its id immediately, instead of waiting. The turn is not held open; read its output with the `job` tool. Use for watchers, dev servers and long builds. Do NOT write `cmd &` yourself — under the sandbox the shell that backgrounds it exits immediately and takes the job with it.',
+			'Start the command as a background job and return its id immediately, instead of waiting. The turn is not held open; await its completion with `wait_for_job` — one call, no waiting turns. Use `job` with action "read" only for incremental output while it keeps running, or to pick up after a `wait_for_job` call times out. Use for watchers, dev servers and long builds. Do NOT write `cmd &` yourself — under the sandbox the shell that backgrounds it exits immediately and takes the job with it.',
 		),
 })
 
@@ -343,7 +343,7 @@ export const BashTool = defineTool({
 				})
 				return {
 					success: true,
-					output: `Started background job ${job.id}. Read its output with the \`job\` tool: {"action":"read","id":"${job.id}"}.`,
+					output: `Started background job ${job.id}. Await its completion with wait_for_job: {"id":"${job.id}"}. Use job with action "read" only for output while it keeps running.`,
 					data: { jobId: job.id, background: true },
 				}
 			} catch (err) {
