@@ -132,6 +132,26 @@ runtime observations through the same request-only context channel:
   until the next full write or content observation — fail-closed by design. A
   tracker without the optional `editChain`/`recordEdit` methods establishes no
   chains and keeps the write-only behavior exactly.
+- **A whole-file read's own receipt:** a built-in `read` that returned the file
+  WHOLE — nothing narrowed by `readRange`, `offset` or `limit` — witnesses itself
+  in the ledger, and the projection emits that call as an entry marked
+  `kind: "read"` whose body is the receipt, rendered with every line behind its
+  own `N<tab>` prefix. The witness is the fingerprint of what the tool emitted,
+  so the entry stands only while the receipt in this request is byte-for-byte
+  that: a result the output budget elided or spilled, one compaction cleared, or
+  one changed in any other way withholds the path. Nothing recovers a body by
+  undoing the numbering. A receipt over 32,000 UTF-16 units is not read at all —
+  the same class of bound as the one on a write call's arguments — so a larger
+  file is not admitted this way and is read again as it is today. A read roots no
+  chain: such an entry never carries `editsInCalls`, and the first `edit` on the
+  path withdraws it, because a body that exists only as a rendering is not
+  something the kernel may replay onto. Read-rooted entries count against the
+  same six paths, and a write-rooted entry keeps a path both could claim. A
+  windowed read witnesses nothing, and still advances the observation fingerprint
+  for the whole file exactly as before. A tracker without the optional
+  `readWitness`/`recordFullRead` methods establishes no read entries, and neither
+  does a resumed conversation until something reads a file again: the replay
+  below rebuilds bodies from `write` and `edit` calls only.
 - **Owned delegated work:** `CompletionInbox.describeOwnedWork()` observes up to
   sixteen recently launched tasks without claiming or draining them. It reports
   scheduler state, child run status, any stop reason and whether the result was delivered to
@@ -146,9 +166,7 @@ check remains authoritative; a changed file is refused and must be inspected
 before replanning. That refusal also withdraws the path's entry: the tool read
 the real file in order to refuse, and the projection stops referencing the body
 until the ledger's next content observation re-baselines it. Symlink paths that
-do not match the ledger's canonical key receive no optimization. Full-file
-`read` reconstruction is not performed by this projection: a body that arrived
-as a read result establishes no entry, edited or not.
+do not match the ledger's canonical key receive no optimization.
 
 The ledger these entries are checked against is scoped to a conversation, and a
 conversation that is resumed rebuilds it by replaying its own restored history
@@ -163,6 +181,15 @@ still checked against the real file at mutation time: a file that moved while th
 session was closed is refused there and its entry withdrawn, exactly as a
 mid-session change would be. The preamble says so, so the model does not read a
 replayed observation as a live one.
+
+None of this duplicates conversation retrieval. `search_conversation` and
+`read_conversation`, and the resident [retained tool
+evidence](retained-tool-evidence.md) subsystem, are tools the model invokes to
+reach content that compaction or a restart has taken out of the request. This
+projection invokes nothing and reaches nothing: every entry points at a call
+whose arguments or receipt are already in the request being sent, and its whole
+effect is that the model does not spend a turn re-reading what is in front of it.
+A call that is no longer visible produces no entry rather than a retrieval.
 
 Likewise, a delivered worker result is not a verified answer to the user's
 original request. The projection directs the model to incorporate available

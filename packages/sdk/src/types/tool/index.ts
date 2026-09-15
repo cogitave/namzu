@@ -192,6 +192,41 @@ export interface FileReadTracker {
 	 */
 	recordEdit?(key: string, content: string, callId: string): void
 	/**
+	 * Optional witness of a read that returned the file WHOLE, with the
+	 * fingerprint of the rendering it returned.
+	 *
+	 * Does everything `recordRead(key, content)` does, and additionally records
+	 * that the body is visible in `callId`'s receipt — not as text this ledger
+	 * holds, but as the exact rendering `callId` emitted, so a consumer can
+	 * check the receipt it can see against `renderedFingerprint` before
+	 * referencing it. A partial read never calls this: a window proves nothing
+	 * about the rest of the file. Pass `ToolContext.toolUseId` and the
+	 * fingerprint of the tool's own output string.
+	 *
+	 * The witness is recorded only where no write witness or chain survives the
+	 * observation, because a write-rooted body is one the model composed and
+	 * can be replayed through. It is cleared by exactly what clears a write
+	 * witness — different or unknown content — and additionally by any
+	 * `recordEdit`, because a read roots no chain: the body it witnesses exists
+	 * only as a rendering, and nothing may be replayed on top of it.
+	 */
+	recordFullRead?(key: string, content: string, callId: string, renderedFingerprint: string): void
+	/**
+	 * Optional witness of the full read above: the call whose receipt holds the
+	 * body, and the fingerprint of what that call emitted.
+	 *
+	 * `renderedFingerprint` is deliberately not the body's fingerprint —
+	 * `fingerprint(key)` is that. It describes the RECEIPT, so a consumer
+	 * admits the reference only while the receipt it can see is byte-for-byte
+	 * what the tool returned; an elided, spilled or cleared one is not.
+	 *
+	 * The derived work context asks a tracker for `writeCallId` and
+	 * `fingerprint` before it reads any witness at all — a name alone does not
+	 * say the ledger is the one execution wrote — so a tracker implementing
+	 * this pair and neither of those still establishes nothing.
+	 */
+	readWitness?(key: string): { callId: string; renderedFingerprint: string } | undefined
+	/**
 	 * Optional note that a built-in mutation has just refused this path because
 	 * the body on disk differs from the fingerprint above.
 	 *
@@ -199,10 +234,10 @@ export interface FileReadTracker {
 	 * here is the disagreement — recording the body it found would re-baseline
 	 * the drift check and admit the very mutation that was refused. An
 	 * implementation must therefore leave `fingerprint`, `hasRead`,
-	 * `writeCallId` and `editChain` exactly as they were, and any later content
-	 * observation clears the flag. It exists so a consumer that cannot read the
-	 * filesystem — the derived work context — can stop referencing a body it
-	 * has been told is stale, without a check of its own.
+	 * `writeCallId`, `editChain` and `readWitness` exactly as they were, and any
+	 * later content observation clears the flag. It exists so a consumer that
+	 * cannot read the filesystem — the derived work context — can stop
+	 * referencing a body it has been told is stale, without a check of its own.
 	 */
 	recordDriftObserved?(key: string): void
 	/** Whether a refused mutation has reported this path stale since the last observation. */

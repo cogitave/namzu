@@ -1,11 +1,13 @@
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { clearToolResult } from '../../../compaction/tool-result-editing.js'
+import { clearStaleToolResults, clearToolResult } from '../../../compaction/tool-result-editing.js'
 import { fingerprintContent } from '../../../tools/builtins/content-fingerprint.js'
+import { type ReadWindowRequest, renderNumberedRead } from '../../../tools/builtins/read-render.js'
 import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
 import type { Message, ToolMessage } from '../../../types/message/index.js'
 import type { FileReadTracker } from '../../../types/tool/index.js'
 import { describeVisibleFileEvidence } from '../file-evidence-context.js'
+import { applyToolOutputBudget } from '../tool-output-budget.js'
 
 const cwd = resolve('workspace')
 const body = 'Merhaba!\n'
@@ -471,5 +473,242 @@ describe('a path a refused mutation reported stale', () => {
 			writeCallId: () => 'write-1',
 		}
 		expect(describeVisibleFileEvidence(history(), older, cwd, false)).toContain('"write-1"')
+	})
+})
+
+/**
+ * A `read` call and the receipt the tool returns for it.
+ *
+ * The receipt is produced by the tool's own renderer rather than written out by
+ * hand, because that is the whole claim being made: the body the entry points
+ * at is the receipt, byte for byte.
+ */
+function readHistory(
+	id: string,
+	path = 'note.txt',
+	content = body,
+	window: ReadWindowRequest = {},
+): Message[] {
+	return [
+		{
+			role: 'assistant',
+			content: null,
+			toolCalls: [
+				{
+					id,
+					type: 'function',
+					function: { name: 'read', arguments: JSON.stringify({ path, ...window }) },
+				},
+			],
+		},
+		{
+			role: 'tool',
+			toolCallId: id,
+			content: renderNumberedRead(content, window).output,
+			isError: false,
+		},
+	]
+}
+
+/** Record one read into `tracker` the way `read` records it, and show the call. */
+function observed(
+	tracker: FileReadTracker,
+	id: string,
+	path = 'note.txt',
+	content = body,
+	window: ReadWindowRequest = {},
+): Message[] {
+	const rendered = renderNumberedRead(content, window)
+	const key = resolve(cwd, path)
+	if (rendered.partial) tracker.recordRead(key, content)
+	else tracker.recordFullRead?.(key, content, id, fingerprintContent(rendered.output))
+	return readHistory(id, path, content, window)
+}
+
+function read(content = body, window: ReadWindowRequest = {}) {
+	const tracker = createFileReadTracker()
+	const messages = observed(tracker, 'read-1', 'note.txt', content, window)
+	return {
+		tracker,
+		messages,
+		describe: (m: Message[]) => describeVisibleFileEvidence(m, tracker, cwd, false),
+	}
+}
+
+describe('a read that returned the whole file', () => {
+	it('names the call whose receipt is the body, and says the body is line-numbered', () => {
+		const r = read()
+		const original = structuredClone(r.messages)
+		const output = r.describe(r.messages) as string
+
+		expect(JSON.parse(output.split('\n').at(-1) as string)).toEqual([
+			{
+				path: 'note.txt',
+				kind: 'read',
+				bodyInCall: 'read-1',
+				observedFingerprint: fingerprintContent(body),
+			},
+		])
+		expect(output).toContain('N<tab>')
+		// The receipt is the body; the projection does not copy it out, and it
+		// does not touch the transcript to check it either.
+		expect(output).not.toContain(body)
+		expect(r.messages).toEqual(original)
+	})
+	it('withholds a windowed read, whose receipt shows a fragment', () => {
+		const lines = Array.from({ length: 6 }, (_, i) => `satir${i + 1}`).join('\n')
+		for (const window of [{ readRange: [2, 4] as [number, number] }, { offset: 1 }, { limit: 3 }]) {
+			const r = read(lines, window)
+			expect(r.tracker.readWitness?.(key)).toBeUndefined()
+			// The drift guard still holds the WHOLE file, exactly as before.
+			expect(r.tracker.fingerprint?.(key)).toBe(fingerprintContent(lines))
+			expect(r.describe(r.messages)).toBeUndefined()
+		}
+	})
+	it('withholds a receipt the output budget elided or compaction cleared', () => {
+		const long = `${Array.from({ length: 400 }, (_, i) => `satir${i + 1}`).join('\n')}\n`
+		const r = read(long)
+		expect(r.describe(r.messages)).toContain('"kind":"read"')
+
+		const receipt = r.messages[1] as ToolMessage
+		const elided = applyToolOutputBudget({
+			toolName: 'read',
+			toolUseId: 'read-1',
+			output: receipt.content as string,
+			maxChars: 120,
+		})
+		expect(elided.truncated).toBe(true)
+		expect(
+			r.describe([r.messages[0] as Message, { ...receipt, content: elided.output }]),
+		).toBeUndefined()
+
+		// Not a hand-written placeholder: the real compaction pass, with a
+		// window small enough that this result is stale rather than recent.
+		const cleared = clearStaleToolResults(r.messages, {
+			keepRecentToolResults: 0,
+			minCharsToClear: 1,
+		})
+		expect(cleared.clearedCount).toBe(1)
+		expect(r.describe(cleared.messages)).toBeUndefined()
+		expect(
+			r.describe([r.messages[0] as Message, clearToolResult(receipt, 'read').message]),
+		).toBeUndefined()
+	})
+	it('withholds a receipt one character away from what the tool emitted', () => {
+		const r = read()
+		const receipt = r.messages[1] as ToolMessage
+		const shown = receipt.content as string
+		for (const changed of [`${shown} `, shown.replace('1\t', '1 '), shown.slice(0, -1)])
+			expect(
+				r.describe([r.messages[0] as Message, { ...receipt, content: changed }]),
+			).toBeUndefined()
+	})
+	it('withholds a receipt past the size it will read', () => {
+		// Whole-file by the tool's own reckoning — well under the 2,000-line
+		// window — and still more receipt than an entry may point at.
+		const wide = `${Array.from({ length: 100 }, () => 'x'.repeat(400)).join('\n')}\n`
+		const r = read(wide)
+		expect(String((r.messages[1] as ToolMessage).content).length).toBeGreaterThan(32_000)
+		expect(r.tracker.readWitness?.(key)?.callId).toBe('read-1')
+		expect(r.describe(r.messages)).toBeUndefined()
+	})
+	it('withholds a path longer than an entry goes out with', () => {
+		// The bound is on the SPELLING an entry emits, as it is for a write: the
+		// work context drops a contribution whole, so one pathological path must
+		// not be able to take the request's other entries with it.
+		const tracker = createFileReadTracker()
+		const overlong = `${'g'.repeat(600)}.txt`
+		const messages = observed(tracker, 'read-1', overlong)
+		expect(tracker.readWitness?.(resolve(cwd, overlong))?.callId).toBe('read-1')
+		expect(describeVisibleFileEvidence(messages, tracker, cwd, false)).toBeUndefined()
+
+		// Its neighbours in the same request are untouched, and a path at the
+		// bound still goes out.
+		const atBound = `${'g'.repeat(508)}.txt`
+		messages.push(...observed(tracker, 'read-2', atBound))
+		const output = describeVisibleFileEvidence(messages, tracker, cwd, false) as string
+		expect(JSON.parse(output.split('\n').at(-1) as string)).toEqual([
+			{
+				path: atBound,
+				kind: 'read',
+				bodyInCall: 'read-2',
+				observedFingerprint: fingerprintContent(body),
+			},
+		])
+	})
+	it('roots no chain: an edit on top of it withdraws the entry and leaves writes alone', () => {
+		const tracker = createFileReadTracker()
+		const messages = observed(tracker, 'read-1')
+		expect(describeVisibleFileEvidence(messages, tracker, cwd, false)).toContain('"kind":"read"')
+
+		messages.push(...editHistory('e1', { old_string: 'Merhaba', new_string: 'Selam' }))
+		tracker.recordEdit?.(key, 'Selam!\n', 'e1')
+		expect(tracker.readWitness?.(key)).toBeUndefined()
+		expect(tracker.editChain?.(key)).toBeUndefined()
+		expect(describeVisibleFileEvidence(messages, tracker, cwd, false)).toBeUndefined()
+
+		// A witnessed write elsewhere in the same history is untouched by any
+		// of that, chain and all.
+		const stacked = stackOnto(tracker, [{ id: 's1', args: hop, produced: 'Selam!\n' }], {
+			path: 'other.txt',
+			writeId: 'write-2',
+			content: body,
+		})
+		const output = describeVisibleFileEvidence([...messages, ...stacked], tracker, cwd, false)
+		expect(output).toContain('"bodyInCall":"write-2"')
+		expect(output).toContain('"editsInCalls":["s1"]')
+		expect(output).not.toContain('"kind":"read"')
+	})
+	it('does not take a path back from the write that already holds it', () => {
+		const f = fixture()
+		const messages = [...history(), ...observed(f.tracker, 'read-1')]
+		// The read saw exactly what the write wrote, so the observation is
+		// unchanged and the write witness survives it — and the ledger declines
+		// to record a read witness underneath one.
+		expect(f.tracker.writeCallId?.(key)).toBe('write-1')
+		expect(f.tracker.readWitness?.(key)).toBeUndefined()
+		const output = f.describe(messages) as string
+		expect(output).toContain('"bodyInCall":"write-1"')
+		expect(output).not.toContain('"kind":"read"')
+
+		// And the other order: the read witnesses first, the write takes over.
+		const tracker = createFileReadTracker()
+		const before = observed(tracker, 'read-1', 'note.txt', 'onceki\n')
+		tracker.recordRead(key, body, 'write-1')
+		const both = describeVisibleFileEvidence(
+			[...before, ...history()],
+			tracker,
+			cwd,
+			false,
+		) as string
+		expect(JSON.parse(both.split('\n').at(-1) as string)).toEqual([
+			{ path: 'note.txt', bodyInCall: 'write-1', observedFingerprint: fingerprintContent(body) },
+		])
+	})
+	it('counts against the same six paths as the writes', () => {
+		const tracker = createFileReadTracker()
+		const messages: Message[] = []
+		for (let i = 0; i < 9; i++) messages.push(...observed(tracker, `r${i}`, `n${i}`))
+		const output = describeVisibleFileEvidence(messages, tracker, cwd, false) as string
+		const entries = JSON.parse(output.split('\n').at(-1) as string) as { path: string }[]
+		expect(entries).toHaveLength(6)
+		expect(entries.map((entry) => entry.path)).toEqual(['n3', 'n4', 'n5', 'n6', 'n7', 'n8'])
+	})
+	it('is withheld while a refused mutation reports the path stale', () => {
+		const r = read()
+		r.tracker.recordDriftObserved?.(key)
+		expect(r.tracker.readWitness?.(key)?.callId).toBe('read-1')
+		expect(r.describe(r.messages)).toBeUndefined()
+		r.tracker.recordRead(key, body)
+		expect(r.describe(r.messages)).toContain('"kind":"read"')
+	})
+	it('is not established by a tracker that cannot witness a read', () => {
+		const older: FileReadTracker = {
+			recordRead() {},
+			hasRead: () => true,
+			fingerprint: () => fingerprintContent(body),
+			writeCallId: () => undefined,
+		}
+		expect(describeVisibleFileEvidence(readHistory('read-1'), older, cwd, false)).toBeUndefined()
 	})
 })

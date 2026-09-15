@@ -1,4 +1,5 @@
 import { fingerprintContent } from '../../tools/builtins/content-fingerprint.js'
+import { ReadFileTool } from '../../tools/builtins/read-file.js'
 import type { Message } from '../../types/message/index.js'
 import type { FileReadTracker } from '../../types/tool/index.js'
 import {
@@ -12,12 +13,36 @@ import {
 	lexicalFileKeys,
 	replayHop,
 	spend,
+	visibleCall,
 	visibleEdit,
 	visibleWrite,
 } from './file-evidence-replay.js'
 
+/**
+ * Receipt text a read entry may point at.
+ *
+ * The same class of bound as the one on a write call's arguments, and set to
+ * the same number for the same reason: past it the text is not read at all. A
+ * bigger file is simply not admitted this way — the model re-reads it, which is
+ * what it does today.
+ */
+const MAX_RECEIPT_UNITS = 32_000
+
+/**
+ * Path length a read entry may go out with.
+ *
+ * The same bound `file-evidence-replay.ts` puts on the spelling a write entry
+ * emits, restated here because a read is the other thing that puts a path in
+ * this message and the constant is that module's own. A contribution is dropped
+ * WHOLE when it runs past the work context's limit, so one pathological
+ * spelling must not be able to take the request's other entries with it.
+ */
+const MAX_PATH_UNITS = 512
+
 interface FileEvidence {
 	readonly path: string
+	/** Absent on the write-rooted entries; `'read'` on a body that is a receipt. */
+	readonly kind?: 'read'
 	readonly bodyInCall: string
 	readonly editsInCalls?: readonly string[]
 	readonly observedFingerprint: string
@@ -41,13 +66,21 @@ export function describeVisibleFileEvidence(
 	const files = new Map<string, FileEvidence>()
 	for (const [id, call] of history.calls) {
 		const name = call?.function.name
-		if (name !== 'write' && name !== 'edit') continue
+		if (name !== 'write' && name !== 'edit' && name !== 'read') continue
 		try {
 			const admitted =
 				name === 'write'
 					? writeEvidence(id, tracker, history)
-					: chainEvidence(id, tracker, history, budget)
+					: name === 'edit'
+						? chainEvidence(id, tracker, history, budget)
+						: readEvidence(id, tracker, history)
 			if (!admitted) continue
+			// A write-rooted entry outranks a read of the same file: it names a
+			// body the model composed itself, and edits can be replayed onto it.
+			// The ledger already withholds a read witness where one survives; this
+			// keeps a read that ran BEFORE the write from taking the path back.
+			const held = files.get(admitted.key)
+			if (admitted.evidence.kind === 'read' && held && held.kind !== 'read') continue
 			files.delete(admitted.key)
 			files.set(admitted.key, admitted.evidence)
 			if (files.size > MAX_WITNESSED_PATHS) files.delete(files.keys().next().value as string)
@@ -56,7 +89,7 @@ export function describeVisibleFileEvidence(
 		}
 	}
 	if (files.size === 0) return
-	return `Visible file evidence (this request only): each entry's current body is the complete body in the named successful write call, with the edit calls in editsInCalls — when present — applied in that order. This runtime performed that reconstruction and checked it against its own file observation; it is not a derivation left to you. Reuse the body for a targeted edit; a read solely to recall it is unnecessary. This is NOT a fresh disk check, and after a resume the observation behind an entry may itself have been rebuilt from this conversation's own earlier calls rather than made while this process ran. Built-in edit/write still compare the disk body at mutation admission and refuse observed drift; on refusal inspect the current file and replan. Missing entries establish nothing.\n${JSON.stringify([...files.values()])}`
+	return `Visible file evidence (this request only): each entry's current body is the complete body in the named successful write call, with the edit calls in editsInCalls — when present — applied in that order. An entry marked kind:"read" instead names a successful read call whose own receipt shows the file WHOLE, rendered with every line behind its own N<tab> prefix; that receipt is the body, and such an entry never carries editsInCalls. This runtime performed that reconstruction and checked it against its own file observation; it is not a derivation left to you. Reuse the body for a targeted edit; a read solely to recall it is unnecessary. This is NOT a fresh disk check, and after a resume the observation behind an entry may itself have been rebuilt from this conversation's own earlier calls rather than made while this process ran. Built-in edit/write still compare the disk body at mutation admission and refuse observed drift; on refusal inspect the current file and replan. Missing entries establish nothing.\n${JSON.stringify([...files.values()])}`
 }
 
 /** A full body that arrived whole in one call and is still the file's body. */
@@ -135,6 +168,51 @@ function chainEvidence(
 			path: root.path,
 			bodyInCall: rootId,
 			editsInCalls: [...chain.editCallIds],
+			observedFingerprint: observed,
+		},
+	}
+}
+
+/**
+ * A body the model can still see because a read of the whole file put it there.
+ *
+ * Structurally unlike the two above, and deliberately so. They name a body the
+ * model itself composed, in arguments this projection can parse and replay; this
+ * names a RESULT, and the only thing anyone is allowed to do with it is compare
+ * it. The tool fingerprinted the exact string it emitted, and the entry is
+ * admitted only while the receipt still fingerprints to that — so a receipt the
+ * output budget elided or spilled, one compaction cleared, or one changed in any
+ * other way withholds the path rather than pointing the model at a body that is
+ * no longer in front of it. Nothing here undoes the line numbering to recover
+ * text: the numbering is what makes the comparison conclusive, not an encoding
+ * to be reversed.
+ *
+ * No chain, ever. A read roots nothing, so an entry here is the file as that one
+ * call showed it, and the ledger drops the witness the moment an edit lands.
+ */
+function readEvidence(
+	id: string,
+	tracker: FileReadTracker,
+	history: VisibleHistory,
+): { key: string; evidence: FileEvidence } | undefined {
+	if (!tracker.readWitness) return
+	const call = visibleCall(history, id, 'read')
+	const shown = history.results.get(id)?.content
+	if (!call || typeof shown !== 'string' || shown.length > MAX_RECEIPT_UNITS) return
+	const input = ReadFileTool.inputSchema.safeParse(JSON.parse(call.function.arguments))
+	if (!input.success || input.data.path.length > MAX_PATH_UNITS) return
+	const key = history.keyOf(input.data.path)
+	if (key === undefined || knownStale(tracker, key)) return
+	const witness = tracker.readWitness(key)
+	const observed = tracker.fingerprint?.(key)
+	if (!witness || witness.callId !== id || observed === undefined) return
+	if (fingerprintContent(shown) !== witness.renderedFingerprint) return
+	return {
+		key,
+		evidence: {
+			path: input.data.path,
+			kind: 'read',
+			bodyInCall: id,
 			observedFingerprint: observed,
 		},
 	}

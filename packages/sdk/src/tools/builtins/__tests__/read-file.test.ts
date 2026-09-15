@@ -2,17 +2,33 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import type { ToolContext } from '../../../types/tool/index.js'
+import type { Sandbox } from '../../../types/sandbox/index.js'
+import type { FileReadTracker, ToolContext } from '../../../types/tool/index.js'
+import { createFileReadTracker } from '../../file-read-tracker.js'
+import { fingerprintContent } from '../content-fingerprint.js'
 import { ReadFileTool } from '../read-file.js'
+import { renderNumberedRead } from '../read-render.js'
 
-function makeContext(workingDirectory: string): ToolContext {
+function makeContext(workingDirectory: string, extras: Partial<ToolContext> = {}): ToolContext {
 	return {
 		runId: '4adf3fdd-2823-4640-be0a-5d21fe28b6d2' as ToolContext['runId'],
 		workingDirectory,
 		abortSignal: new AbortController().signal,
 		env: {},
 		log: () => {},
+		...extras,
 	}
+}
+
+/** A sandbox whose only file is `body`, whatever path is asked for. */
+function sandboxOver(body: string): Sandbox {
+	return {
+		id: 'f0f0d1d0-6a4c-4a3f-9ba7-2f8a7cf6b1c4' as Sandbox['id'],
+		status: 'ready',
+		rootDir: '/sandbox',
+		environment: 'basic',
+		readFile: async () => Buffer.from(body, 'utf-8'),
+	} as unknown as Sandbox
 }
 
 describe('ReadFileTool', () => {
@@ -67,5 +83,98 @@ describe('ReadFileTool', () => {
 		expect(result.output).toContain('DOCX document package')
 		expect(result.output).toContain('python-docx')
 		expect(result.data).toMatchObject({ binary: true })
+	})
+})
+
+/**
+ * What the ledger learns from a read, which is two separate things.
+ *
+ * The fingerprint is of the FILE and is the drift guard's — a window must not
+ * move it, or the next edit is checked against a fragment. The witness is of
+ * this CALL's rendering and only a whole-file read has one, because a window
+ * shows a fragment and no fingerprint of the file says which.
+ */
+describe('what a read tells the observation ledger', () => {
+	const body = ['one', 'two', 'three', 'four'].join('\n')
+
+	for (const [branch, contextFor] of [
+		[
+			'on the host',
+			(dir: string, tracker: FileReadTracker) => {
+				writeFileSync(join(dir, 'doc.md'), body)
+				return makeContext(dir, { fileReadTracker: tracker, toolUseId: 'call-1' })
+			},
+		],
+		[
+			'in a sandbox',
+			(dir: string, tracker: FileReadTracker) =>
+				makeContext(dir, {
+					fileReadTracker: tracker,
+					toolUseId: 'call-1',
+					sandbox: sandboxOver(body),
+				}),
+		],
+	] as const) {
+		it(`fingerprints the whole file and witnesses only the unwindowed read ${branch}`, async () => {
+			const dir = mkdtempSync(join(tmpdir(), 'namzu-read-ledger-'))
+			const key = branch === 'in a sandbox' ? 'doc.md' : join(dir, 'doc.md')
+
+			for (const window of [
+				{ readRange: [2, 3] as [number, number] },
+				{ offset: 1 },
+				{ limit: 2 },
+			]) {
+				const tracker = createFileReadTracker()
+				const result = await ReadFileTool.execute(
+					{ path: 'doc.md', ...window },
+					contextFor(dir, tracker),
+				)
+				expect(result.data).toMatchObject({ truncated: true })
+				expect(tracker.fingerprint?.(key)).toBe(fingerprintContent(body))
+				expect(tracker.readWitness?.(key)).toBeUndefined()
+			}
+
+			const tracker = createFileReadTracker()
+			const whole = await ReadFileTool.execute({ path: 'doc.md' }, contextFor(dir, tracker))
+			expect(whole.data).toMatchObject({ truncated: false })
+			expect(tracker.fingerprint?.(key)).toBe(fingerprintContent(body))
+			// The witness is of what the model will SEE, not of the body: the
+			// receipt is the only place that body still exists for a later turn.
+			expect(tracker.readWitness?.(key)).toEqual({
+				callId: 'call-1',
+				renderedFingerprint: fingerprintContent(whole.output),
+			})
+			expect(fingerprintContent(whole.output)).toBe(
+				fingerprintContent(renderNumberedRead(body, {}).output),
+			)
+		})
+	}
+
+	it('records an ordinary observation against a tracker that cannot hold a witness', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-ledger-'))
+		writeFileSync(join(dir, 'doc.md'), body)
+		const seen = new Map<string, string | undefined>()
+		const older: FileReadTracker = {
+			recordRead: (key, content) => void seen.set(key, content),
+			hasRead: (key) => seen.has(key),
+		}
+
+		await ReadFileTool.execute(
+			{ path: 'doc.md' },
+			makeContext(dir, { fileReadTracker: older, toolUseId: 'call-1' }),
+		)
+
+		expect(seen.get(join(dir, 'doc.md'))).toBe(body)
+	})
+
+	it('witnesses nothing when the executor gave the call no id', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-ledger-'))
+		writeFileSync(join(dir, 'doc.md'), body)
+		const tracker = createFileReadTracker()
+
+		await ReadFileTool.execute({ path: 'doc.md' }, makeContext(dir, { fileReadTracker: tracker }))
+
+		expect(tracker.fingerprint?.(join(dir, 'doc.md'))).toBe(fingerprintContent(body))
+		expect(tracker.readWitness?.(join(dir, 'doc.md'))).toBeUndefined()
 	})
 })

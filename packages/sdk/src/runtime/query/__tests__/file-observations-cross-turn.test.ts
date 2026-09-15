@@ -186,9 +186,13 @@ it('carries a write and the edits on top of it into the next turn, and withdraws
 		// it is no longer the file's body and the entry claims that it is.
 		expect(entriesIn(requestsAfterDrift[1])).toBeUndefined()
 		// The model then reads the file, which re-baselines the fingerprint and
-		// clears the flag with it. Still no entry — a read is not a write
-		// witness — but the path is now out on its own terms, not held out.
-		expect(entriesIn(requestsAfterDrift[2])).toBeUndefined()
+		// clears the flag with it. The chain is gone for good — a read roots
+		// none — and what comes back is the read's own entry, naming the receipt
+		// the current body is visible in.
+		expect(entriesIn(requestsAfterDrift[2])).toEqual([
+			{ path, kind: 'read', bodyInCall: 'r', observedFingerprint: expect.any(String) },
+		])
+		expect(fileReadTracker.editChain?.(path)).toBeUndefined()
 		expect(fileReadTracker.driftObserved?.(path)).toBe(false)
 		expect(fileReadTracker.fingerprint?.(path)).toBe(fingerprintContent('ALPHA\ngamma\n'))
 	} finally {

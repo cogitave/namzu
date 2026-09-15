@@ -1,9 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { extname } from 'node:path'
 import { z } from 'zod'
+import type { ToolContext } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
-import { renderNumberedRead } from './read-render.js'
+import { fingerprintContent } from './content-fingerprint.js'
+import { type RenderedRead, renderNumberedRead } from './read-render.js'
 
 const inputSchema = z.object({
 	path: z.string().describe('Path to the file to read (absolute or relative)'),
@@ -61,11 +63,7 @@ export const ReadFileTool = defineTool({
 			}
 			const content = buffer.toString('utf-8')
 			const rendered = renderNumberedRead(content, input)
-
-			// The WHOLE body, not the selected window: a later edit is checked
-			// against the file, and a partial read must not fingerprint a
-			// fragment as if it were the file.
-			context.fileReadTracker?.recordRead(input.path, content)
+			recordObservedRead(context, input.path, content, rendered)
 
 			return {
 				success: true,
@@ -95,8 +93,7 @@ export const ReadFileTool = defineTool({
 		}
 		const content = buffer.toString('utf-8')
 		const rendered = renderNumberedRead(content, input)
-
-		context.fileReadTracker?.recordRead(filePath, content)
+		recordObservedRead(context, filePath, content, rendered)
 
 		return {
 			success: true,
@@ -110,6 +107,36 @@ export const ReadFileTool = defineTool({
 		}
 	},
 })
+
+/**
+ * Put this read on the observation ledger.
+ *
+ * Always the WHOLE body, not the selected window: a later edit is checked
+ * against the file, and a partial read must not fingerprint a fragment as if it
+ * were the file.
+ *
+ * A read that returned the file whole additionally witnesses itself, so the
+ * derived work context can reference the body without the model reading it
+ * again. The witness is the fingerprint of the RENDERING — this call's own
+ * `output`, byte for byte — because the rendering is what the receipt carries,
+ * and the body is in front of the model only while the receipt is still exactly
+ * that. A windowed read witnesses nothing: it shows a fragment, and the
+ * fingerprint of the file cannot say which one.
+ */
+function recordObservedRead(
+	context: ToolContext,
+	key: string,
+	content: string,
+	rendered: RenderedRead,
+): void {
+	const tracker = context.fileReadTracker
+	if (!tracker) return
+	if (!rendered.partial && tracker.recordFullRead && context.toolUseId) {
+		tracker.recordFullRead(key, content, context.toolUseId, fingerprintContent(rendered.output))
+		return
+	}
+	tracker.recordRead(key, content)
+}
 
 function describeStructuredBinaryRead(path: string, buffer: Buffer): string | null {
 	const ext = extname(path).toLowerCase()

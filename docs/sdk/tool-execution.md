@@ -162,14 +162,31 @@ and is defined exactly when `writeCallId(key)` is not, because an edited body is
 no longer the write call's body. A full-body write starts a fresh chain, and a
 later observation that clears the witness clears the chain with it.
 
+A successful built-in `read` that returned the file WHOLE calls the optional
+`recordFullRead(key, content, toolUseId, renderedFingerprint)`, and
+`recordRead(key, content)` where the tracker does not implement it or the call
+has no id. It advances the observation exactly as `recordRead(key, content)`
+does — always with the whole file, never the window — and additionally records
+that the body is visible in that call's receipt. `renderedFingerprint` is of the
+tool's own `output` string, not of the body: the body survives only as the
+line-numbered rendering the receipt carries, so a consumer checks the receipt it
+can see against this before referencing it. `readWitness(key)` reports
+`{ callId, renderedFingerprint }`. A windowed read never calls this — a window
+proves nothing about the rest of the file — and the witness is recorded only
+where no write witness or chain survives the observation, because a write-rooted
+body is one the model composed and the chain can be replayed onto. It is cleared
+by exactly what clears a write witness, and additionally by any `recordEdit`: a
+read roots no chain, so there is nothing to carry the body forward through an
+edit. Trackers may omit both methods and keep their existing behavior.
+
 A mutation refused for drift — `edit` on either branch, and `write`'s
 fresh-overwrite check — calls the optional `recordDriftObserved(key)` before it
 returns the refusal. That branch has just read the real file, so it is the one
 place the disagreement is known for free; it records no body, because writing
 what it read would re-baseline the very comparison that refused. The flag leaves
-`fingerprint`, `hasRead`, `writeCallId` and `editChain` exactly as they were, so
-the next mutation is refused on the same comparison, and any later observation
-clears it. `driftObserved(key)` reports the flag, which is how the
+`fingerprint`, `hasRead`, `writeCallId`, `editChain` and `readWitness` exactly as
+they were, so the next mutation is refused on the same comparison, and any later
+observation clears it. `driftObserved(key)` reports the flag, which is how the
 [derived work context](step-context.md#derived-work-context) stops referencing a
 body it has been told is behind disk without a filesystem check of its own.
 Trackers may omit both methods and keep their existing behavior.
