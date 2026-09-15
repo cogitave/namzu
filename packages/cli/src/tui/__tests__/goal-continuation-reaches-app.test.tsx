@@ -160,16 +160,30 @@ function deferred(): {
 	}
 }
 
+// `until`/`untilAsync` poll a rendered frame or a durable store read after a
+// driven event rather than sleeping a fixed delay, but the poll itself still
+// needs a ceiling to fail instead of hanging forever. 5s was tuned against an
+// idle machine; under a CPU-starved full-suite run the same setTimeout/promise
+// callbacks this loop depends on land late, so the ceiling can be reached
+// before the render or disk write it is waiting on has actually failed — the
+// assertion below then fires early on a system that would have passed given a
+// few more seconds. 20s keeps that assertion, not vitest's own `testTimeout`,
+// as the thing that fails a genuine hang; each `it` in this file raises its
+// own timeout to 30s (see the trailing argument on every test below) so the
+// package's global 15s default (packages/cli/vitest.config.ts) cannot cut a
+// slow-but-correct run off first.
+const UNTIL_TIMEOUT_MS = 20_000
+
 async function until(check: () => boolean, why: string): Promise<void> {
 	const started = performance.now()
-	while (!check() && performance.now() - started < 5_000) await tick()
+	while (!check() && performance.now() - started < UNTIL_TIMEOUT_MS) await tick()
 	expect(check(), why).toBe(true)
 }
 
 async function untilAsync(check: () => Promise<boolean>, why: string): Promise<void> {
 	const started = performance.now()
 	let matched = await check()
-	while (!matched && performance.now() - started < 5_000) {
+	while (!matched && performance.now() - started < UNTIL_TIMEOUT_MS) {
 		await tick()
 		matched = await check()
 	}
@@ -283,7 +297,7 @@ it('continues across admitted rounds, completes through run authority, and persi
 	expect(harness.lastFrame()).not.toContain('Admitted session goal round')
 	await tick(100)
 	expect(calls).toHaveLength(2)
-})
+}, 30_000)
 
 it('keeps a human prompt ahead of a goal admission that returns later', async () => {
 	const admissionEntered = deferred()
@@ -349,7 +363,7 @@ it('keeps a human prompt ahead of a goal admission that returns later', async ()
 			.filter((message) => message.role === 'user')
 			.map((message) => message.source?.type ?? 'human'),
 	).toEqual(['human', 'human', 'goal-round'])
-})
+}, 30_000)
 
 it('does not start an admitted old-conversation round after /new crosses the boundary', async () => {
 	const admissionEntered = deferred()
@@ -381,7 +395,7 @@ it('does not start an admitted old-conversation round after /new crosses the bou
 	await tick(150)
 
 	expect(sends).toEqual([])
-})
+}, 30_000)
 
 it('rechecks ownership after durable evidence and before creating the provider generator', async () => {
 	const evidenceEntered = deferred()
@@ -410,7 +424,7 @@ it('rechecks ownership after durable evidence and before creating the provider g
 	await tick(160)
 
 	expect(sends).toBe(0)
-})
+}, 30_000)
 
 it('disarms after an abnormal turn and requires an explicit /goal resume', async () => {
 	let calls = 0
@@ -459,7 +473,7 @@ it('disarms after an abnormal turn and requires an explicit /goal resume', async
 	await until(() => calls === 2, 'explicit resume did not admit another round')
 	await tick(100)
 	expect(calls).toBe(2)
-})
+}, 30_000)
 
 it('does not let an abnormal automatic goal round pause queued human work', async () => {
 	const goalEntered = deferred()
@@ -486,7 +500,7 @@ it('does not let an abnormal automatic goal round pause queued human work', asyn
 
 	expect(order).toEqual(['goal', 'human'])
 	expect(harness.frames.join('\n')).not.toContain('paused after a failed turn')
-})
+}, 30_000)
 
 it('durably blocks at the configured cap instead of starting an unbounded turn', async () => {
 	const originalCreate = DiskSessionGoalStore.prototype.createGoal
@@ -518,7 +532,7 @@ it('durably blocks at the configured cap instead of starting an unbounded turn',
 		roundsAdmitted: 1,
 		blockedReason: { code: 'round-limit' },
 	})
-})
+}, 30_000)
 
 it('fails closed when goal-turn evidence cannot be published', async () => {
 	vi.spyOn(DiskConversationEvidence.prototype, 'recordTurnStarted').mockRejectedValueOnce(
@@ -548,7 +562,7 @@ it('fails closed when goal-turn evidence cannot be published', async () => {
 		() => harness.frames.join('\n').includes('Automatic continuation: paused'),
 		'the failed evidence boundary did not disarm automatic work',
 	)
-})
+}, 30_000)
 
 it('disarms when admitted messages cannot be persisted', async () => {
 	vi.spyOn(SqliteSessionStore.prototype, 'appendMessage').mockRejectedValueOnce(
@@ -574,7 +588,7 @@ it('disarms when admitted messages cannot be persisted', async () => {
 		() => harness.frames.join('\n').includes('Automatic continuation: paused'),
 		'the persistence failure did not revoke automatic continuation',
 	)
-})
+}, 30_000)
 
 it('suppresses per-round settled notifications while automatic work continues', async () => {
 	let sends = 0
@@ -592,7 +606,7 @@ it('suppresses per-round settled notifications while automatic work continues', 
 	await until(() => sends === 1, 'the admitted round never ran')
 	await tick(120)
 	expect(notificationRequests).toEqual([])
-})
+}, 30_000)
 
 it.each(['resume', 'later'] as const)('asks before activating a resumed goal: %s', async (decision) => {
  const root = await mkdtemp(join(tmpdir(), 'namzu-goal-resume-choice-'))
@@ -616,4 +630,4 @@ it.each(['resume', 'later'] as const)('asks before activating a resumed goal: %s
  harness.stdin.write('\r')
  if (decision === 'resume') await until(() => resumedRounds === 1, 'goal did not resume')
  else { await tick(100); expect(resumedRounds).toBe(0); expect(harness.lastFrame()).toContain('Goal paused (/goal resume)') }
-})
+}, 30_000)
