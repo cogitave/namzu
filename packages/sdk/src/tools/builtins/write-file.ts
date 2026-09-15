@@ -204,6 +204,11 @@ function enforceFreshOverwrite(
 	// fingerprint the host never promised to capture.
 	const observed = context.fileReadTracker?.fingerprint?.(key)
 	if (observed !== undefined && observed !== fingerprintContent(currentContent)) {
+		// The disk has just been read and found moved. Say so — without saying
+		// what was found, which would re-baseline the comparison right above —
+		// so a reader that cannot touch the filesystem stops referencing this
+		// path. Optional on the interface; an older tracker keeps its behavior.
+		context.fileReadTracker?.recordDriftObserved?.(key)
 		return { success: false, output: '', error: staleFileError(key, 'write') }
 	}
 	return null

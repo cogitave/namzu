@@ -151,6 +151,29 @@ or a successful result alone cannot supply it. An identical later observation
 preserves the witness; a changed or unknown observation clears it. Custom
 trackers may omit this method and retain their existing mutation checks.
 
+A successful built-in edit calls the optional `recordEdit(key, content, toolUseId)`
+instead, and `recordRead(key, content)` where the tracker does not implement it
+or the call has no id. `recordEdit` advances the observation the same way, and
+additionally appends the call to the path's chain — but only where the ledger
+already held a fingerprint for the content this edit ran against and a write
+witness beneath it; otherwise the chain is cleared and the observation stands
+alone. `editChain(key)` reports that chain as `{ rootWriteCallId, editCallIds }`
+and is defined exactly when `writeCallId(key)` is not, because an edited body is
+no longer the write call's body. A full-body write starts a fresh chain, and a
+later observation that clears the witness clears the chain with it.
+
+A mutation refused for drift — `edit` on either branch, and `write`'s
+fresh-overwrite check — calls the optional `recordDriftObserved(key)` before it
+returns the refusal. That branch has just read the real file, so it is the one
+place the disagreement is known for free; it records no body, because writing
+what it read would re-baseline the very comparison that refused. The flag leaves
+`fingerprint`, `hasRead`, `writeCallId` and `editChain` exactly as they were, so
+the next mutation is refused on the same comparison, and any later observation
+clears it. `driftObserved(key)` reports the flag, which is how the
+[derived work context](step-context.md#derived-work-context) stops referencing a
+body it has been told is behind disk without a filesystem check of its own.
+Trackers may omit both methods and keep their existing behavior.
+
 A later `recordRead(key)` without content clears the old fingerprint and witness while
 retaining path membership. Unknown newer content cannot establish that an older
 body is still the latest observation. The runtime's [derived work context](step-context.md#derived-work-context)

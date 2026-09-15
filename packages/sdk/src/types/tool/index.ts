@@ -154,6 +154,48 @@ export interface FileReadTracker {
 	 */
 	writeCallId?(key: string): string | undefined
 	/**
+	 * Optional chain of calls whose bodies compose the current content: the
+	 * full-body write that started it, then the successful edits applied on
+	 * top of it, in order.
+	 *
+	 * Defined only while at least one edit sits on a witnessed write — exactly
+	 * when `writeCallId` is not. An edited file's body is no longer the write
+	 * call's body, and a consumer that knows only `writeCallId` has to keep
+	 * seeing nothing there rather than a claim that has quietly stopped being
+	 * true. The chain names INPUTS: reconstructing the body means replaying
+	 * those calls' visible arguments and checking the result against
+	 * `fingerprint(key)`, never asserting it.
+	 */
+	editChain?(key: string): { rootWriteCallId: string; editCallIds: readonly string[] } | undefined
+	/**
+	 * Optional record of a successful edit's resulting content, with the call
+	 * that produced it.
+	 *
+	 * Does everything `recordRead(key, content)` does, and additionally extends
+	 * the chain when this edit ran against content the ledger already had a
+	 * fingerprint for and a witnessed write underneath it — the two facts that
+	 * make the replay reproducible. Missing either, it is an ordinary
+	 * observation of a body nobody can replay: the fingerprint advances and the
+	 * chain is cleared. Pass ToolContext.toolUseId only after the edit succeeded.
+	 */
+	recordEdit?(key: string, content: string, callId: string): void
+	/**
+	 * Optional note that a built-in mutation has just refused this path because
+	 * the body on disk differs from the fingerprint above.
+	 *
+	 * Not an observation. The refusing tool read the disk, but all it reports
+	 * here is the disagreement — recording the body it found would re-baseline
+	 * the drift check and admit the very mutation that was refused. An
+	 * implementation must therefore leave `fingerprint`, `hasRead`,
+	 * `writeCallId` and `editChain` exactly as they were, and any later content
+	 * observation clears the flag. It exists so a consumer that cannot read the
+	 * filesystem — the derived work context — can stop referencing a body it
+	 * has been told is stale, without a check of its own.
+	 */
+	recordDriftObserved?(key: string): void
+	/** Whether a refused mutation has reported this path stale since the last observation. */
+	driftObserved?(key: string): boolean
+	/**
 	 * Fingerprint of the body captured at the last read, when one was.
 	 *
 	 * A file mutation is computed against what the agent READ, and between

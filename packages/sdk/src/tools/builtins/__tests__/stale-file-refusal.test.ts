@@ -336,6 +336,83 @@ describe('an atomic commit writes through a symlink rather than over it', () => 
 	})
 })
 
+describe('a refusal reports the drift it just saw, and nothing more', () => {
+	/**
+	 * `trackerOver` deliberately has no `recordDriftObserved` — every other
+	 * test in this file is the proof that an older tracker is not refused for
+	 * lacking it. This one adds it, so the call can be seen.
+	 */
+	function noticing(): FileReadTracker & { readonly drifted: string[] } {
+		const drifted: string[] = []
+		return {
+			...trackerOver(new Map()),
+			drifted,
+			recordDriftObserved: (key) => {
+				drifted.push(key)
+			},
+		}
+	}
+
+	it('names the host path on both mutations, without moving the fingerprint that refused', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-drift-note-'))
+		const file = join(dir, 'doc.md')
+		writeFileSync(file, 'alpha\nbeta\n')
+		const tracker = noticing()
+		tracker.recordRead(file, 'alpha\nbeta\n')
+		writeFileSync(file, 'ALPHA\nbeta\n')
+
+		const context = contextWith(dir, tracker)
+		expect(
+			(await EditTool.execute({ path: file, old_string: 'beta', new_string: 'gamma' }, context))
+				.success,
+		).toBe(false)
+		expect(
+			(await WriteFileTool.execute({ path: file, content: 'replacement\n' }, context)).success,
+		).toBe(false)
+		expect(tracker.drifted).toEqual([file, file])
+		// The note carries no body. Recording what these two just read would
+		// re-baseline the comparison that refused them and let the third
+		// attempt through against a file nobody observed.
+		expect(tracker.fingerprint?.(file)).toBe(fingerprintContent('alpha\nbeta\n'))
+	})
+
+	it('names the sandbox path on both mutations', async () => {
+		const backend = sandboxOver('alpha\nbeta\n')
+		const tracker = noticing()
+		tracker.recordRead('doc.md', 'alpha\nbeta\n')
+		const context = contextWith('/host-is-not-the-sandbox', tracker, backend.sandbox)
+		backend.externalWrite('ALPHA\nbeta\n')
+
+		expect(
+			(await EditTool.execute({ path: 'doc.md', old_string: 'beta', new_string: 'gamma' }, context))
+				.success,
+		).toBe(false)
+		expect(
+			(await WriteFileTool.execute({ path: 'doc.md', content: 'replacement\n' }, context)).success,
+		).toBe(false)
+		expect(tracker.drifted).toEqual(['doc.md', 'doc.md'])
+		expect(backend.writes()).toBe(0)
+	})
+
+	it('says nothing when the refusal was not about drift', async () => {
+		const dir = mkdtempSync(join(tmpdir(), 'namzu-drift-note-'))
+		const file = join(dir, 'doc.md')
+		writeFileSync(file, 'alpha\nbeta\n')
+		const tracker = noticing()
+		tracker.recordRead(file, 'alpha\nbeta\n')
+
+		// A wrong anchor against a file nobody touched. The path is not stale,
+		// and withdrawing its evidence would send the model to re-read a file
+		// it can still see.
+		const result = await EditTool.execute(
+			{ path: file, old_string: 'nowhere', new_string: 'x' },
+			contextWith(dir, tracker),
+		)
+		expect(result.success).toBe(false)
+		expect(tracker.drifted).toEqual([])
+	})
+})
+
 describe('drift admission precedes anchor matching', () => {
 	it('refuses when someone changed an unrelated part of the file', async () => {
 		const dir = mkdtempSync(join(tmpdir(), 'namzu-stale-'))

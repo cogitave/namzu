@@ -2,6 +2,8 @@
 
 ## 2026-09-15
 
+- **Update** Admit verified edit chains as [visible file evidence](sdk/step-context.md#derived-work-context): the observation ledger keeps a write's witness across the edits applied to it (`FileReadTracker.editChain`/`recordEdit` in [tool execution](sdk/tool-execution.md)), and the projection replays those calls through the tool's own apply core, admitting a path only when the replay matches the ledger's fingerprint, under an eight-call chain bound and a per-request ceiling of 262,144 UTF-16 code units charged from a prediction, made before each hop is replayed, that bounds the largest body the hop would build. A mutation refused for drift now reports it through the optional `FileReadTracker.recordDriftObserved`, and the projection withdraws that path until the ledger's next content observation.
+
 - **Update** Add `wait_for_job` to [background jobs in the CLI](cli/background-jobs.md): blocks on a job's exit under a run/idle bound and returns its output in one call, instead of `job read` polled in a loop. `job`'s own description now points at it instead of instructing polling.
 
 - **Update** Deliver the [repeat-call advisory](sdk/tool-execution.md#repeat-call-advisory) for structured tool results as its own `runtime-context` message after the batch, since `attachRepeatNotice`'s inline slot only ever existed for a plain-string result and silently dropped the notice otherwise.

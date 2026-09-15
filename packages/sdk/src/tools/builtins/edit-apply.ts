@@ -304,3 +304,131 @@ export function replayEditCall(
 	}
 	return result
 }
+
+/**
+ * An upper bound on the longest string `replayEditCall` will build, without
+ * building it.
+ *
+ * A caller replaying a visible call against a budget has to refuse before the
+ * work, not after: measuring the post-image by building it is exactly the cost
+ * the budget exists to bound. `allowance` is that caller's remaining room, and
+ * it stops the occurrence scan the moment one more match would carry the
+ * prediction past it — counting out every occurrence of a one-character string
+ * in a large file is itself the work being avoided. The number returned once
+ * the allowance is passed is therefore a lower bound on the real length and
+ * only good for refusing.
+ *
+ * Here rather than in the caller because the prediction has to see the same
+ * line-ending reconciliation `applyOne` sees. An `old_string` written with LF
+ * against a CRLF file matches after normalization and not before, and a
+ * predictor blind to that would count zero occurrences for a replacement that
+ * was going to succeed.
+ *
+ * Exact for a call carrying one operation, which is the shape almost every
+ * call has. A batch folds each operation into the one its predecessor
+ * produced, and those intermediates are strings this function never sees — so
+ * from the second operation on it BOUNDS rather than counts, and the answer
+ * covers the largest intermediate rather than the body the fold ends on. A
+ * batch that grows a file to twenty megabytes and then deletes it all has
+ * still built the twenty megabytes, and a caller told only the final length
+ * would pay nothing for them. The cost is that a batch whose later hunks could
+ * multiply is refused even where it would in fact have fitted; that is the
+ * direction a bound is allowed to be wrong in.
+ */
+export function predictReplayLength(
+	content: string,
+	rawArguments: unknown,
+	allowance: number,
+): number {
+	const normalized = normalizeEditInput(rawArguments as EditInput)
+	// A shape this cannot normalize is one `replayEditCall` throws on. Predict
+	// no growth and let the caller meet that throw where it already handles it,
+	// rather than inventing a second refusal for the same input.
+	if (!normalized.success) return content.length
+
+	let length = content.length
+	let peak = 0
+	for (const [index, operation] of normalized.operations.entries()) {
+		if (peak > allowance) return peak
+		if (operation.operation === 'insert') {
+			// `applyLineInsert` splits the inserted text into lines and joins it
+			// back with the rest, which costs the text itself plus the one
+			// separator that joins it to its neighbour — and a trailing newline
+			// in the text is consumed as that separator rather than added to it.
+			length += operation.newString.length + (operation.newString.endsWith('\n') ? 0 : 1)
+		} else if (index === 0) {
+			// The one operation whose subject this function is holding: counted
+			// against the real string, reconciled the way `applyOne` will.
+			const { oldString, newString } = normalizeLineEndings(content, operation)
+			const growth = newString.length - oldString.length
+			if (operation.replace_all) {
+				const room = Math.max(allowance - length, 0)
+				const cap = growth > 0 ? Math.floor(room / growth) + 1 : content.length
+				length += countOccurrences(content, oldString, cap) * growth
+			} else {
+				// A single replacement, because `applyOne` refuses a second match.
+				length += growth
+			}
+		} else {
+			length += boundedGrowth(operation, length, allowance - length)
+		}
+		// A length is never negative, and an `old_string` longer than the text
+		// it is applied to can make the arithmetic above one. That call is going
+		// to throw on replay, but not before the caller has charged this — and a
+		// negative charge would hand back room the request never had.
+		length = Math.max(length, 0)
+		peak = Math.max(peak, length)
+	}
+	// `peak` covers every string the fold builds; `length` covers the call that
+	// builds none — an empty `edits` list, which the tool's schema refuses and
+	// this entry point still has to answer for.
+	return Math.max(peak, length)
+}
+
+/**
+ * The most one operation past the first can add to a string of `length`.
+ *
+ * Everything after the first operation is applied to an intermediate this
+ * module's caller never handed over, so neither the matches nor the
+ * reconciliation are knowable here: the anchor may be collapsed to LF, the
+ * replacement expanded to CRLF, and the text being searched is not the one in
+ * hand. Bounding all three — the shortest the anchor can be, the longest the
+ * replacement can be, and at most one non-overlapping match per anchor-length
+ * window of the string — keeps the answer above whatever the fold does.
+ */
+function boundedGrowth(
+	operation: Extract<NormalizedEditInput, { operation: 'replace' }>,
+	length: number,
+	room: number,
+): number {
+	const oldLength = operation.oldString.replaceAll('\r\n', '\n').length
+	const newLength = operation.newString.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n').length
+	const growth = newLength - oldLength
+	// One match, because `applyOne` refuses a second.
+	if (!operation.replace_all) return growth
+	// A replacement no longer than its anchor cannot make the string longer,
+	// however many times it matches, so there is nothing to bound.
+	if (growth <= 0) return 0
+	const matches = Math.min(
+		Math.floor(length / Math.max(oldLength, 1)),
+		// Past the caller's room the exact count stops mattering: one more than
+		// fits is already a refusal.
+		Math.floor(Math.max(room, 0) / growth) + 1,
+	)
+	return matches * growth
+}
+
+/** Non-overlapping matches, up to `cap`, counted the way `split` counts them. */
+function countOccurrences(content: string, needle: string, cap: number): number {
+	// `split('')` yields one part per character; scanning for it would never
+	// advance. Neither shape reaches here through the tool's schema, which
+	// requires a non-empty `old_string`.
+	if (needle.length === 0) return Math.min(Math.max(content.length - 1, 0), cap)
+	let count = 0
+	let index = content.indexOf(needle)
+	while (index !== -1 && count < cap) {
+		count += 1
+		index = content.indexOf(needle, index + needle.length)
+	}
+	return count
+}

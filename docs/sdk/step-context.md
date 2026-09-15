@@ -110,6 +110,26 @@ runtime observations through the same request-only context channel:
   wrappers preserve the witness through `ToolContext.toolUseId`. The content is referenced, not copied. Missing,
   cleared, truncated, ambiguous or changed evidence produces no entry. Custom
   tools named `write` and trackers without a write-call witness do not establish this contract.
+  An entry whose file has since been edited carries `editsInCalls`, the ordered
+  built-in `edit` calls applied on top of `bodyInCall`. Each of those hops must
+  pass the same visibility checks as the write, the kernel replays them through
+  the same apply core the tool ran, and the entry appears only when the replayed
+  result matches the ledger's observation fingerprint — which the replay is
+  compared against and never sets. A chain is bounded to eight edit calls, and
+  one request may replay 262,144 UTF-16 code units of content in total — string
+  length, not bytes on disk. Each hop is charged against a length predicted from
+  its own operations before it is replayed; for a batch that prediction covers
+  the largest body the batch would build rather than the one it ends on, so a
+  batch whose later hunks could multiply is refused even where its result would
+  have fitted. A hop that either bound refuses is charged nothing, so the paths
+  behind it keep their room. A path over either bound, or with any hop missing,
+  cleared, truncated, errored, naming another file or no longer applying, is
+  withheld whole rather than in part. An `edit` dispatched by a program or
+  another tool rather than by the model carries a nested call id that appears
+  in no assistant message, so the hop is invisible and the path is withheld
+  until the next full write or content observation — fail-closed by design. A
+  tracker without the optional `editChain`/`recordEdit` methods establishes no
+  chains and keeps the write-only behavior exactly.
 - **Owned delegated work:** `CompletionInbox.describeOwnedWork()` observes up to
   sixteen recently launched tasks without claiming or draining them. It reports
   scheduler state, child run status, any stop reason and whether the result was delivered to
@@ -121,9 +141,12 @@ the most recent filesystem observation, and current disk state. Matching the
 existing 64-bit observation fingerprint does not perform a fresh read or prove
 byte equality against a concurrent writer. The built-in mutation admission
 check remains authoritative; a changed file is refused and must be inspected
-before replanning. Symlink paths that do not match the ledger's canonical key
-receive no optimization. Full-file `read` reconstruction and edit-chain
-reconstruction are not performed by this projection.
+before replanning. That refusal also withdraws the path's entry: the tool read
+the real file in order to refuse, and the projection stops referencing the body
+until the ledger's next content observation re-baselines it. Symlink paths that
+do not match the ledger's canonical key receive no optimization. Full-file
+`read` reconstruction is not performed by this projection: a body that arrived
+as a read result establishes no entry, edited or not.
 
 Likewise, a delivered worker result is not a verified answer to the user's
 original request. The projection directs the model to incorporate available

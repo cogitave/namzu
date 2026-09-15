@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 
 import { z } from 'zod'
-import type { ToolResult } from '../../types/tool/index.js'
+import type { ToolContext, ToolResult } from '../../types/tool/index.js'
 import { defineTool } from '../defineTool.js'
 import { resolveWithinAnyReal, toolRoots } from '../paths.js'
 import { atomicWriteFile } from './atomic-write-file.js'
@@ -245,6 +245,39 @@ const modelInputSchema: Record<string, unknown> = {
 	additionalProperties: false,
 }
 
+/**
+ * Advance the ledger to the body this edit just wrote.
+ *
+ * `recordEdit` where the host's tracker offers it, so the observation carries
+ * the call that produced it and the path keeps a chain back to the write it
+ * started from; `recordRead` otherwise, which is exactly what this line did
+ * before chains existed — and what it still does when no call id is in hand,
+ * since a hop nobody can name is a hop nobody can replay. Both advance the
+ * fingerprint, which is what the next mutation's drift check reads.
+ */
+function recordEditedContent(context: ToolContext, key: string, content: string): void {
+	const tracker = context.fileReadTracker
+	if (!tracker) return
+	if (tracker.recordEdit && context.toolUseId) {
+		tracker.recordEdit(key, content, context.toolUseId)
+		return
+	}
+	tracker.recordRead(key, content)
+}
+
+/**
+ * Tell the ledger the path it holds is behind the disk, on the way out.
+ *
+ * This branch has just read the real file and found it moved, which is the
+ * one moment a reader with no filesystem of its own can learn that for free.
+ * The flag carries no body: recording what was found here would re-baseline
+ * the comparison directly above and admit the mutation it is refusing. It is
+ * optional on the interface, so a tracker without it keeps today's behavior.
+ */
+function recordDrift(context: ToolContext, key: string): void {
+	context.fileReadTracker?.recordDriftObserved?.(key)
+}
+
 export const EditTool = defineTool({
 	name: 'edit',
 	description:
@@ -352,6 +385,7 @@ export const EditTool = defineTool({
 				const content = buffer.toString('utf-8')
 				const seen = context.fileReadTracker?.fingerprint?.(parsed.data.path)
 				if (seen !== undefined && seen !== fingerprintContent(content)) {
+					recordDrift(context, parsed.data.path)
 					return { success: false as const, output: '', error: staleFileError(parsed.data.path) }
 				}
 				const result = applyEdit(content, normalized.operations)
@@ -360,7 +394,7 @@ export const EditTool = defineTool({
 				}
 
 				await context.sandbox.writeFile(parsed.data.path, result.content)
-				context.fileReadTracker?.recordRead(parsed.data.path, result.content)
+				recordEditedContent(context, parsed.data.path, result.content)
 				return {
 					success: true as const,
 					output: `Edited ${parsed.data.path}: ${result.replacements} replacement(s) [sandboxed]`,
@@ -373,6 +407,7 @@ export const EditTool = defineTool({
 
 			const seen = context.fileReadTracker?.fingerprint?.(hostPath)
 			if (seen !== undefined && seen !== fingerprintContent(content)) {
+				recordDrift(context, hostPath)
 				return { success: false as const, output: '', error: staleFileError(hostPath) }
 			}
 			const result = applyEdit(content, normalized.operations)
@@ -385,7 +420,7 @@ export const EditTool = defineTool({
 			// This runtime is now the last writer, so the next edit in the same
 			// turn compares against what we just wrote rather than the read
 			// before it.
-			context.fileReadTracker?.recordRead(hostPath, result.content)
+			recordEditedContent(context, hostPath, result.content)
 			return {
 				success: true as const,
 				output: `Edited ${hostPath}: ${result.replacements} replacement(s)`,
