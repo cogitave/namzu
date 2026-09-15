@@ -225,12 +225,13 @@ describe.each(['messages', 'chat'] as const)('%s mid-stream error classification
 							{ headers: { 'content-type': 'text/event-stream' } },
 						),
 			)
+			const model = protocol === 'messages' ? base.model : 'glm-5.3-flash'
 			const chunks: StreamChunk[] = []
 			let caught: unknown
 			try {
 				for await (const chunk of new ZenProvider({ apiKey }).chatStream({
 					...base,
-					model: protocol === 'messages' ? base.model : 'glm-5.3-flash',
+					model,
 				}))
 					chunks.push(chunk)
 			} catch (error) {
@@ -238,9 +239,11 @@ describe.each(['messages', 'chat'] as const)('%s mid-stream error classification
 			}
 			expect(chunks.some((chunk) => chunk.delta.content === 'Partial reply')).toBe(true)
 			expect(chunks.some((chunk) => chunk.finishReason !== undefined)).toBe(false)
+			// `detail` names the model the failure happened on, ahead of the
+			// provider's own words — see `ZenProvider.failure()`'s `named()`.
 			expect(caught).toMatchObject({
 				kind,
-				detail: 'Service rejected [REDACTED:api-key]',
+				detail: `model "${model}": Service rejected [REDACTED:api-key]`,
 			})
 			expect(caught).toBeInstanceOf(Error)
 			expect(JSON.stringify(caught)).not.toContain(apiKey)

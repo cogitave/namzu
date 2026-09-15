@@ -422,7 +422,7 @@ export class ZenProvider implements LLMProvider {
 		} catch (error) {
 			if (params.signal?.aborted) throw params.signal.reason
 			if (isProviderRequestError(error)) throw error
-			throw this.failure(error)
+			throw this.failure(error, model)
 		} finally {
 			controller.abort()
 			if (reader) {
@@ -480,28 +480,79 @@ export class ZenProvider implements LLMProvider {
 		return findZenModel(this.service, model)?.contextWindow
 	}
 
-	private failure(error: unknown): ProviderRequestError {
+	/**
+	 * Classify a caught throwable into a `ProviderRequestError`.
+	 *
+	 * `model`, when given, names the request that failed: a driver-level
+	 * detail like "the operation was aborted due to timeout" says nothing
+	 * about WHICH model was unreachable, and an operator watching a run that
+	 * spans several models (a fallback chain, `resolveContextWindow`, a
+	 * chat vs. a catalogue call) needs that in the one sentence the error
+	 * carries, not just in a status line above it that a log line will not
+	 * repeat. `listModels()` has no single model to name and omits it.
+	 */
+	private failure(error: unknown, model?: string): ProviderRequestError {
 		const scrub = (text: string) =>
 			this.anonymous ? text : text.split(this.apiKey).join('[REDACTED:api-key]')
-		if (APICallError.isInstance(error))
-			return providerHttpError({
-				providerId: this.id,
-				status: error.statusCode ?? 502,
-				body: scrub(error.responseBody ?? error.message),
-				retryAfter: error.responseHeaders?.['retry-after'],
+		// Fold the model into `detail` — never into `providerId`, which pricing,
+		// telemetry and route-equality checks key on as an exact 'zen'/'zen-go'
+		// literal — by rebuilding the classified error with the same kind,
+		// status and code, so `.message` and `.detail` both name the model
+		// alongside whatever the provider (or the transport) said.
+		const named = (err: ProviderRequestError): ProviderRequestError => {
+			if (!model) return err
+			return new ProviderRequestError({
+				kind: err.kind,
+				providerId: err.providerId,
+				...(err.providerCode !== undefined ? { providerCode: err.providerCode } : {}),
+				...(err.status !== undefined ? { status: err.status } : {}),
+				...(err.retryAfterMs !== undefined ? { retryAfterMs: err.retryAfterMs } : {}),
+				detail: err.detail ? `model "${model}": ${err.detail}` : `model "${model}"`,
 			})
+		}
+		// `APICallError` also wraps a TRANSPORT failure — a connection the
+		// vendor SDK never got a response on at all, e.g. `ECONNREFUSED` — and
+		// on those `error.statusCode` is `undefined`. The `?? 502` that used to
+		// sit here manufactured an HTTP 502 for a request that never reached
+		// the wire: `classifyProviderHttpStatus` reads that as a genuine
+		// upstream 5xx and reports `kind: 'server'` — "the provider is failing
+		// on its own side, resume once it recovers" — when what actually
+		// happened is this host could not open the connection at all, which is
+		// `kind: 'network'`'s story ("check network reachability … "), not the
+		// server's. A real status is still handled exactly as before.
+		if (APICallError.isInstance(error) && error.statusCode !== undefined)
+			return named(
+				providerHttpError({
+					providerId: this.id,
+					status: error.statusCode,
+					body: scrub(error.responseBody ?? error.message),
+					retryAfter: error.responseHeaders?.['retry-after'],
+				}),
+			)
+		if (APICallError.isInstance(error))
+			return named(
+				providerVendorError({
+					providerId: this.id,
+					// A fresh Error, not the `APICallError` itself: only the
+					// scrubbed message crosses this boundary, never its
+					// `responseBody`/`responseHeaders`/`cause`.
+					error: new Error(scrub(error.message)),
+				}),
+			)
 		// Native streaming adapters can emit plain error envelopes after HTTP 200.
 		// Keep only classification fields; never attach the original error/cause.
 		const envelope = safeErrorEnvelope(error)
 		const body = scrub(JSON.stringify(envelope))
 		if (envelope.status !== undefined)
-			return providerHttpError({ providerId: this.id, status: envelope.status, body })
-		return providerVendorError({
-			providerId: this.id,
-			error: Object.assign(new Error(body), {
-				...(envelope.code !== undefined ? { code: scrub(envelope.code) } : {}),
+			return named(providerHttpError({ providerId: this.id, status: envelope.status, body }))
+		return named(
+			providerVendorError({
+				providerId: this.id,
+				error: Object.assign(new Error(body), {
+					...(envelope.code !== undefined ? { code: scrub(envelope.code) } : {}),
+				}),
 			}),
-		})
+		)
 	}
 }
 
@@ -517,9 +568,22 @@ function safeErrorEnvelope(error: unknown): {
 	message: string
 	status?: number
 } {
+	// Plain property access, not `Object.getOwnPropertyDescriptor`: `message`
+	// and `name` are defined on the PROTOTYPE for platform error classes like
+	// `DOMException` (what `fetch`'s own `AbortSignal.timeout` rejects with),
+	// so an own-property-only read silently came back `undefined` for every
+	// field on exactly the errors this branch exists to describe — a client
+	// timeout or an aborted connection — and fell through to the hardcoded
+	// "The model stream failed." This does not touch the safety property: the
+	// five fields read here (type/code/message/status/statusCode) are the
+	// same ones a JSON vendor envelope would carry as OWN properties, and
+	// normal property access reads a vendor object's own fields exactly as
+	// `own` did — it only additionally reaches a HOST class's prototype
+	// accessors, never anything nested or secret-shaped that the type/length
+	// guards below would not already exclude.
 	const own = (value: unknown, key: string): unknown =>
 		typeof value === 'object' && value !== null
-			? Object.getOwnPropertyDescriptor(value, key)?.value
+			? (value as Record<string, unknown>)[key]
 			: undefined
 	const nested = own(error, 'error')
 	const source = typeof nested === 'object' && nested !== null ? nested : error
