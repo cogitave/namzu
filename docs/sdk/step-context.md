@@ -117,12 +117,14 @@ runtime observations through the same request-only context channel:
   result matches the ledger's observation fingerprint — which the replay is
   compared against and never sets. A chain is bounded to eight edit calls, and
   one request may replay 262,144 UTF-16 code units of content in total — string
-  length, not bytes on disk. Each hop is charged against a length predicted from
-  its own operations before it is replayed; for a batch that prediction covers
-  the largest body the batch would build rather than the one it ends on, so a
-  batch whose later hunks could multiply is refused even where its result would
-  have fitted. A hop that either bound refuses is charged nothing, so the paths
-  behind it keep their room. A path over either bound, or with any hop missing,
+  length, not bytes on disk. A hop is replayed one operation at a time: each
+  operation's post-image length is worked out exactly from the body it is about
+  to be applied to, compared against what the request has left, and only then
+  built — so nothing over the ceiling is materialised, and nothing under it is
+  refused for a bound that guessed high. The charge is the largest body the hop
+  actually built, which for a batch is the largest intermediate of the fold
+  rather than the body it ends on. An operation the ceiling refuses is charged
+  nothing, so the paths behind it keep their room. A path over either bound, or with any hop missing,
   cleared, truncated, errored, naming another file or no longer applying, is
   withheld whole rather than in part. An `edit` dispatched by a program or
   another tool rather than by the model carries a nested call id that appears

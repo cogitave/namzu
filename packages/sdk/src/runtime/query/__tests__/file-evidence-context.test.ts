@@ -92,7 +92,11 @@ function stackOnto(
 }
 function chained(hops: readonly Hop[], content = body) {
 	const tracker = createFileReadTracker()
-	const messages = stackOnto(tracker, hops, { path: 'note.txt', writeId: 'write-1', content })
+	const messages = stackOnto(tracker, hops, {
+		path: 'note.txt',
+		writeId: 'write-1',
+		content,
+	})
 	return {
 		tracker,
 		describe: (m: Message[]) => describeVisibleFileEvidence(m, tracker, cwd, false),
@@ -316,6 +320,37 @@ describe('a chain of visible edits on a visible write', () => {
 		expect(output).toContain('"bodyInCall":"write-2"')
 		expect(output).toContain('"editsInCalls":["s1"]')
 	})
+	it('admits a rename hunk after the first for what it builds, not what a fold assumed', () => {
+		// The narrowing the per-operation walk removes. A hunk past the first
+		// used to be bounded without the body it would run against in hand — one
+		// match per anchor-length window, 7,127 renames of a four-character
+		// identifier rather than the 1,900 there are — so the batch was charged
+		// 285,080 units of growth for the 76,000 it really adds, and refused.
+		const replacement = `name${'_long'.repeat(8)}`
+		const source = `${'const name = 1\n'.repeat(1_900)}// header\n`
+		const renamed = source.replace('// header', '// HEADER').replaceAll('name', replacement)
+		const rename = chained(
+			[
+				{
+					id: 'r1',
+					args: {
+						edits: [
+							{ old_string: '// header', new_string: '// HEADER' },
+							{
+								old_string: 'name',
+								new_string: replacement,
+								replace_all: true,
+							},
+						],
+					},
+					produced: renamed,
+				},
+			],
+			source,
+		)
+		expect(rename.describe(rename.messages)).toContain('"editsInCalls":["r1"]')
+	})
+
 	it('charges a batch for the largest body it builds, not the one it ends on', () => {
 		// Each hunk works on what the one before it produced: the middle one
 		// multiplies what the first wrote and the last throws all of it away,
@@ -325,7 +360,11 @@ describe('a chain of visible edits on a visible write', () => {
 		const fold = (scale: number) => ({
 			edits: [
 				{ old_string: 'X', new_string: 'a'.repeat(scale) },
-				{ old_string: 'a', new_string: 'b'.repeat(scale / 5), replace_all: true },
+				{
+					old_string: 'a',
+					new_string: 'b'.repeat(scale / 5),
+					replace_all: true,
+				},
 				{ old_string: 'b', new_string: '', replace_all: true },
 			],
 		})
@@ -342,7 +381,11 @@ describe('a chain of visible edits on a visible write', () => {
 		expect(longId.describe(longId.messages)).toBeUndefined()
 		const wide = 'x'.repeat(33_000)
 		const longArguments = chained([
-			{ id: 'e1', args: { old_string: 'Merhaba', new_string: wide }, produced: `${wide}!\n` },
+			{
+				id: 'e1',
+				args: { old_string: 'Merhaba', new_string: wide },
+				produced: `${wide}!\n`,
+			},
 		])
 		expect(longArguments.describe(longArguments.messages)).toBeUndefined()
 	})

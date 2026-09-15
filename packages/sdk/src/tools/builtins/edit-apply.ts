@@ -53,7 +53,10 @@ export function normalizeEditInput(
 
 	const newString = input.new_string ?? input.newStr
 	if (typeof newString !== 'string') {
-		return { success: false, error: 'Either new_string or newStr is required.' }
+		return {
+			success: false,
+			error: 'Either new_string or newStr is required.',
+		}
 	}
 
 	if (input.insertLine !== undefined) {
@@ -74,7 +77,10 @@ export function normalizeEditInput(
 
 	const oldString = input.old_string ?? input.oldStr
 	if (typeof oldString !== 'string') {
-		return { success: false, error: 'Either old_string/oldStr or insertLine is required.' }
+		return {
+			success: false,
+			error: 'Either old_string/oldStr or insertLine is required.',
+		}
 	}
 	return {
 		success: true,
@@ -151,10 +157,7 @@ export function applyEdit(
 		if (!result.success) {
 			return {
 				success: false,
-				error:
-					operations.length === 1
-						? result.error
-						: `edits[${index}] of ${operations.length}: ${result.error} Nothing was written — the whole batch is refused, so the file is exactly as it was.`,
+				error: framedError(result.error, index, operations.length),
 			}
 		}
 		current = result.content
@@ -279,44 +282,127 @@ function normalizeLineEndings(
 	return input
 }
 
+/** The batch framing an operation's own error is reported under. */
+function framedError(error: string, index: number, total: number): string {
+	if (total === 1) return error
+	return `edits[${index}] of ${total}: ${error} Nothing was written — the whole batch is refused, so the file is exactly as it was.`
+}
+
+/**
+ * What a bounded replay did, and what it cost.
+ *
+ * A union rather than a throw because all three outcomes are ordinary answers
+ * to a caller replaying somebody else's call: it applied, it would have built
+ * more than the caller has room for, or it no longer applies to the content it
+ * was handed. Only the first carries a body; the other two carry the charge so
+ * the caller can settle the room the attempt actually used.
+ */
+export type BoundedReplay =
+	| {
+			readonly outcome: 'replayed'
+			readonly content: string
+			readonly charged: number
+			readonly replacements: number
+	  }
+	| { readonly outcome: 'refused'; readonly charged: number }
+	| {
+			readonly outcome: 'failed'
+			readonly charged: number
+			readonly error: string
+	  }
+
 /**
  * The single door a caller outside this module uses.
  *
  * Runs a visible call's arguments through the same normalize-then-apply path
  * `EditTool.execute` runs at mutation time, against a content string the
- * caller already has in hand — never the filesystem. Throws rather than
- * returning a result union because every failure here (a malformed shape,
- * an old_string that no longer matches) means the replay could not be
- * trusted, and a caller building a projection from it wants that to abort
- * the attempt rather than be checked at every call site.
+ * caller already has in hand — never the filesystem — and under an
+ * `allowance`: the largest string the caller is willing to have built on its
+ * behalf.
+ *
+ * The allowance is honoured one OPERATION at a time. Each operation's
+ * post-image length is worked out exactly from the content it is about to be
+ * applied to, compared against the allowance, and only then applied — so
+ * nothing over the ceiling is ever materialised, and nothing under it is
+ * refused for a bound that guessed high. An earlier shape predicted the whole
+ * call up front, which meant folding operations after the first against a
+ * string it had never seen: a rename hunk at index 1 was charged one match per
+ * anchor-length window of the file, and batches that would have fitted were
+ * turned away for a number nothing had built.
+ *
+ * `charged` is the longest string this call actually materialised, which is
+ * the one the caller paid for holding. It is the post-image length exactly for
+ * the single-operation shape almost every call has; for a batch it is the
+ * largest intermediate the fold built rather than the body it ends on, because
+ * a batch that grows a file to twenty megabytes and then deletes every
+ * character has still built the twenty megabytes. An operation that is refused
+ * or fails is charged nothing — it built nothing — while the ones before it in
+ * the same batch are charged, having run.
  */
-export function replayEditCall(
+export function replayEditCallWithin(
 	content: string,
 	rawArguments: unknown,
-): { success: true; content: string; replacements: number } {
+	allowance: number,
+): BoundedReplay {
 	const normalized = normalizeEditInput(rawArguments as EditInput)
-	if (!normalized.success) {
-		throw new Error(normalized.error)
-	}
-	const result = applyEdit(content, normalized.operations)
-	if (!result.success) {
-		throw new Error(result.error)
-	}
-	return result
+	// A shape this cannot normalize is one the tool itself would have refused.
+	// Reported as a failure rather than a throw, and charged nothing: no
+	// operation ran, so nothing was built.
+	if (!normalized.success) return { outcome: 'failed', charged: 0, error: normalized.error }
+	return replayOperationsWithin(content, normalized.operations, allowance)
 }
 
 /**
- * An upper bound on the longest string `replayEditCall` will build, without
- * building it.
+ * The same walk, entered with the operations already normalized.
  *
- * A caller replaying a visible call against a budget has to refuse before the
- * work, not after: measuring the post-image by building it is exactly the cost
- * the budget exists to bound. `allowance` is that caller's remaining room, and
- * it stops the occurrence scan the moment one more match would carry the
- * prediction past it — counting out every occurrence of a one-character string
- * in a large file is itself the work being avoided. The number returned once
- * the allowance is passed is therefore a lower bound on the real length and
- * only good for refusing.
+ * Separate from the entry point above so the equivalence with {@link applyEdit}
+ * can be exercised operation by operation — `replayOperationsWithin(c, [op], ∞)`
+ * is `applyOne(c, op)` plus its exact predicted length — rather than only in
+ * the aggregate, where a prediction that is wrong in two places by the same
+ * amount would pass.
+ */
+export function replayOperationsWithin(
+	content: string,
+	operations: readonly NormalizedEditInput[],
+	allowance: number,
+): BoundedReplay {
+	let current = content
+	let replacements = 0
+	// The largest body this call has built so far, which is what it has cost
+	// the caller. Zero until an operation applies: a call refused at its first
+	// operation built nothing and owes nothing.
+	let charged = 0
+
+	for (const [index, operation] of operations.entries()) {
+		const predicted = predictOne(current, operation, allowance)
+		if (predicted > allowance) return { outcome: 'refused', charged }
+		const applied = applyOne(current, operation)
+		if (!applied.success) {
+			return {
+				outcome: 'failed',
+				charged,
+				error: framedError(applied.error, index, operations.length),
+			}
+		}
+		current = applied.content
+		replacements += applied.replacements
+		charged = Math.max(charged, current.length)
+	}
+
+	return { outcome: 'replayed', content: current, charged, replacements }
+}
+
+/**
+ * The exact length `applyOne` would produce, without producing it.
+ *
+ * Exact and not a bound, because the content it is measured against is the
+ * real one the operation is about to be applied to. The one place it stops
+ * short is the occurrence scan for `replace_all`: counting out every match of
+ * a one-character anchor in a large file is itself the work the allowance
+ * exists to avoid, so the scan stops as soon as one more match would carry the
+ * result past `allowance`. The number returned from a stopped scan is a lower
+ * bound on the real length and above the allowance, which is all a refusal
+ * needs.
  *
  * Here rather than in the caller because the prediction has to see the same
  * line-ending reconciliation `applyOne` sees. An `old_string` written with LF
@@ -324,98 +410,34 @@ export function replayEditCall(
  * predictor blind to that would count zero occurrences for a replacement that
  * was going to succeed.
  *
- * Exact for a call carrying one operation, which is the shape almost every
- * call has. A batch folds each operation into the one its predecessor
- * produced, and those intermediates are strings this function never sees — so
- * from the second operation on it BOUNDS rather than counts, and the answer
- * covers the largest intermediate rather than the body the fold ends on. A
- * batch that grows a file to twenty megabytes and then deletes it all has
- * still built the twenty megabytes, and a caller told only the final length
- * would pay nothing for them. The cost is that a batch whose later hunks could
- * multiply is refused even where it would in fact have fitted; that is the
- * direction a bound is allowed to be wrong in.
+ * An operation that is not going to apply at all — an anchor that is missing,
+ * or matches twice where one match was required — gets a number that means
+ * nothing, and it is never used for anything but the comparison above: the
+ * apply immediately after this reports the real refusal.
  */
-export function predictReplayLength(
-	content: string,
-	rawArguments: unknown,
-	allowance: number,
-): number {
-	const normalized = normalizeEditInput(rawArguments as EditInput)
-	// A shape this cannot normalize is one `replayEditCall` throws on. Predict
-	// no growth and let the caller meet that throw where it already handles it,
-	// rather than inventing a second refusal for the same input.
-	if (!normalized.success) return content.length
-
-	let length = content.length
-	let peak = 0
-	for (const [index, operation] of normalized.operations.entries()) {
-		if (peak > allowance) return peak
-		if (operation.operation === 'insert') {
-			// `applyLineInsert` splits the inserted text into lines and joins it
-			// back with the rest, which costs the text itself plus the one
-			// separator that joins it to its neighbour — and a trailing newline
-			// in the text is consumed as that separator rather than added to it.
-			length += operation.newString.length + (operation.newString.endsWith('\n') ? 0 : 1)
-		} else if (index === 0) {
-			// The one operation whose subject this function is holding: counted
-			// against the real string, reconciled the way `applyOne` will.
-			const { oldString, newString } = normalizeLineEndings(content, operation)
-			const growth = newString.length - oldString.length
-			if (operation.replace_all) {
-				const room = Math.max(allowance - length, 0)
-				const cap = growth > 0 ? Math.floor(room / growth) + 1 : content.length
-				length += countOccurrences(content, oldString, cap) * growth
-			} else {
-				// A single replacement, because `applyOne` refuses a second match.
-				length += growth
-			}
-		} else {
-			length += boundedGrowth(operation, length, allowance - length)
-		}
-		// A length is never negative, and an `old_string` longer than the text
-		// it is applied to can make the arithmetic above one. That call is going
-		// to throw on replay, but not before the caller has charged this — and a
-		// negative charge would hand back room the request never had.
-		length = Math.max(length, 0)
-		peak = Math.max(peak, length)
+function predictOne(content: string, operation: NormalizedEditInput, allowance: number): number {
+	if (operation.operation === 'insert') {
+		// `applyLineInsert` splits the inserted text into lines and joins it back
+		// with the rest, which costs the text itself plus the one separator that
+		// joins it to its neighbour — and a trailing newline in the text is
+		// consumed as that separator rather than added to it.
+		return (
+			content.length + operation.newString.length + (operation.newString.endsWith('\n') ? 0 : 1)
+		)
 	}
-	// `peak` covers every string the fold builds; `length` covers the call that
-	// builds none — an empty `edits` list, which the tool's schema refuses and
-	// this entry point still has to answer for.
-	return Math.max(peak, length)
-}
-
-/**
- * The most one operation past the first can add to a string of `length`.
- *
- * Everything after the first operation is applied to an intermediate this
- * module's caller never handed over, so neither the matches nor the
- * reconciliation are knowable here: the anchor may be collapsed to LF, the
- * replacement expanded to CRLF, and the text being searched is not the one in
- * hand. Bounding all three — the shortest the anchor can be, the longest the
- * replacement can be, and at most one non-overlapping match per anchor-length
- * window of the string — keeps the answer above whatever the fold does.
- */
-function boundedGrowth(
-	operation: Extract<NormalizedEditInput, { operation: 'replace' }>,
-	length: number,
-	room: number,
-): number {
-	const oldLength = operation.oldString.replaceAll('\r\n', '\n').length
-	const newLength = operation.newString.replaceAll('\r\n', '\n').replaceAll('\n', '\r\n').length
-	const growth = newLength - oldLength
-	// One match, because `applyOne` refuses a second.
-	if (!operation.replace_all) return growth
-	// A replacement no longer than its anchor cannot make the string longer,
-	// however many times it matches, so there is nothing to bound.
-	if (growth <= 0) return 0
-	const matches = Math.min(
-		Math.floor(length / Math.max(oldLength, 1)),
-		// Past the caller's room the exact count stops mattering: one more than
-		// fits is already a refusal.
-		Math.floor(Math.max(room, 0) / growth) + 1,
-	)
-	return matches * growth
+	const { oldString, newString, replace_all } = normalizeLineEndings(content, operation)
+	const growth = newString.length - oldString.length
+	// A single replacement, because `applyOne` refuses a second match. The
+	// clamp is for an anchor longer than the whole content: that operation is
+	// about to fail, and a negative length would be a charge handing the caller
+	// back room it never had.
+	if (!replace_all) return Math.max(content.length + growth, 0)
+	const room = Math.max(allowance - content.length, 0)
+	// One past what fits is already a refusal, so the scan never needs to see
+	// the match after that. A replacement no longer than its anchor cannot grow
+	// the string however often it matches, so there is nothing to stop for.
+	const cap = growth > 0 ? Math.floor(room / growth) + 1 : content.length
+	return Math.max(content.length + countOccurrences(content, oldString, cap) * growth, 0)
 }
 
 /** Non-overlapping matches, up to `cap`, counted the way `split` counts them. */
