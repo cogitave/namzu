@@ -5,6 +5,7 @@ import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { DANGEROUS_PATTERNS } from '../../constants/tools/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { subscribeToAbort } from '../../utils/abort.js'
+import { readPositiveIntEnv } from '../../utils/env.js'
 import { defineTool } from '../defineTool.js'
 import { scrubInheritedEnv } from '../env-scrub.js'
 
@@ -538,11 +539,4 @@ function describeWithheldEnv(dropped: readonly string[]): string {
 	const rest = dropped.length - WITHHELD_ENV_PREVIEW
 	const names = rest > 0 ? `${shown}, and ${rest} more` : shown
 	return `NOTE: ${dropped.length} credential-shaped environment variable(s) were withheld from this command and are unset rather than empty: ${names}. A host that means this command to have one passes it explicitly.`
-}
-
-function readPositiveIntEnv(key: string, fallback: number): number {
-	const value = process.env[key]?.trim()
-	if (!value) return fallback
-	const parsed = Number(value)
-	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
 }

@@ -8,6 +8,7 @@ import type { ResumeHandler } from '../../types/hitl/index.js'
 import type { RunId, TaskId } from '../../types/ids/index.js'
 import type { TaskStore } from '../../types/task/index.js'
 import type { ToolDefinition } from '../../types/tool/index.js'
+import { readPositiveIntEnv } from '../../utils/env.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { asTaskId } from '../../utils/id.js'
 import { defineTool } from '../defineTool.js'
@@ -373,13 +374,6 @@ export const DELEGATION_TIMEOUT_MS = 60 * 60 * 1000
  * `TaskScheduler.onTaskProgress`.
  */
 export const DELEGATION_IDLE_MS = readPositiveIntEnv('NAMZU_DELEGATION_IDLE_MS', 5 * 60 * 1000)
-
-function readPositiveIntEnv(key: string, fallback: number): number {
-	const value = process.env[key]?.trim()
-	if (!value) return fallback
-	const parsed = Number(value)
-	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
-}
 
 /**
  * The answer a delegated child produced, as the string a parent model reads.
