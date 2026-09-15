@@ -1,3 +1,4 @@
+import { createRuntimeContextMessage } from '../../types/message/index.js'
 import type { Message } from '../../types/message/index.js'
 import { stableStringify } from './tool-grants.js'
 
@@ -128,17 +129,32 @@ export class RepeatCallTracker {
 }
 
 /**
- * Rides the notice out on the last `tool_result` of the batch.
+ * Rides the notice out on the last `tool_result` of the batch, same slot
+ * steering uses: a `tool_use` block must be answered by a `tool_result` with
+ * the same id, so a user message wedged between them is rejected by the
+ * provider outright.
  *
- * The same and only legal slot steering uses: a `tool_use` block must be
- * answered by a `tool_result` with the same id, so a user message wedged
- * between them is rejected by the provider outright.
+ * That slot only exists when the trailing result's content is plain text. A
+ * result answered with structured content (an image, a document, an MCP
+ * block) has a shape the model reads positionally, and appending a string to
+ * it is either dropped or corrupts the block — this used to mean the notice
+ * was simply dropped, on the theory that an advisory costs nothing to lose.
+ * It costs more than a refusal would: `RepeatCallTracker.record` already
+ * marked the threshold as announced the moment it fired, so a notice lost
+ * here never comes back, unlike steering, which can requeue and wait for a
+ * later plain-text result. The fallback instead rides out as its own
+ * `runtime-context` message placed AFTER the complete tool-result batch —
+ * never between a `tool_use` and its `tool_result`, so provider-required
+ * adjacency still holds — carrying that provenance so it is never mistaken
+ * for operator input (see `isOperatorUserMessage` in `steering.ts`).
  */
 export function attachRepeatNotice(
 	messages: readonly Message[],
 	notices: readonly RepeatCallNotice[],
 ): readonly Message[] {
 	if (notices.length === 0) return messages
+
+	const noticeText = notices.map((n) => n.text).join('\n')
 
 	let lastToolIndex = -1
 	for (let index = messages.length - 1; index >= 0; index--) {
@@ -147,19 +163,13 @@ export function attachRepeatNotice(
 			break
 		}
 	}
-	if (lastToolIndex === -1) return messages
+	const target = lastToolIndex === -1 ? undefined : (messages[lastToolIndex] as Message)
 
-	const target = messages[lastToolIndex] as Message
-	// Text only, for the reason `attachSteering` gives: a result answered
-	// with structured content has a shape the model reads positionally, and
-	// appending a string to it is either dropped or corrupts the block. The
-	// notice is advisory, so dropping it costs nothing a refusal would.
-	if (typeof target.content !== 'string') return messages
-
-	const next = [...messages]
-	next[lastToolIndex] = {
-		...target,
-		content: `${target.content}\n\n${notices.map((n) => n.text).join('\n')}`,
+	if (target && typeof target.content === 'string') {
+		const next = [...messages]
+		next[lastToolIndex] = { ...target, content: `${target.content}\n\n${noticeText}` }
+		return next
 	}
-	return next
+
+	return [...messages, createRuntimeContextMessage(noticeText, 'repeat-call')]
 }

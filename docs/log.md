@@ -4,6 +4,8 @@
 
 - **Update** Add `wait_for_job` to [background jobs in the CLI](cli/background-jobs.md): blocks on a job's exit under a run/idle bound and returns its output in one call, instead of `job read` polled in a loop. `job`'s own description now points at it instead of instructing polling.
 
+- **Update** Deliver the [repeat-call advisory](sdk/tool-execution.md#repeat-call-advisory) for structured tool results as its own `runtime-context` message after the batch, since `attachRepeatNotice`'s inline slot only ever existed for a plain-string result and silently dropped the notice otherwise.
+
 ## 2026-09-14
 
 - **Update** Add bounded [derived work context](sdk/step-context.md#derived-work-context) for visible write evidence and owned worker outcomes, preserving mutation freshness checks and separating result delivery from user-facing completion.

@@ -208,3 +208,25 @@ question's tool, even if its event store is unavailable. It does not authorize
 re-entry of interrupted siblings. Tools using `requestPause` must make their
 own pre-pause work safe to re-enter; a question answer cannot undo an external
 effect. An ordinary tool approval does not override a recorded unknown outcome.
+
+## Repeat-call advisory
+
+`RepeatCallTracker` (`runtime/query/repeat-call.ts`) watches every tool call by
+`(name, stableStringify(input))` and is enabled by default (opt out with
+`repeatCallAdvisory: false`). At `notifyAfter` identical calls (default 3) it
+attaches a mild note; at `escalateAfter` (default 5) the wording escalates.
+Neither ever refuses: polling for a long-running job to finish is the same
+call by design, so a repeat that keeps succeeding is only ever noticed. A
+repeat that keeps FAILING identically is different — after
+`refuseFailedAfter` consecutive identical failures (default 4) the next
+identical call is refused instead of run; a success resets that count.
+
+Delivery rides the last `tool_result` of the settled batch, the same slot
+steering notes use, appending the advisory text to that result's content —
+when that content is a plain string. A structured result (an image, a
+document, an MCP resource block) has no string slot to append to, so the
+advisory instead arrives as its own message immediately after the complete
+tool-result batch, carrying `runtime-context` provenance
+(`{ type: 'runtime-context', kind: 'repeat-call' }`) rather than an empty
+`source`, so it is never mistaken for operator input on export, resume or in
+a previous-prompt editor.

@@ -13,6 +13,8 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Automatic continuation'
 		case 'limit-finalization':
 			return 'Limit finalization request'
+		case 'repeat-call':
+			return 'Repeat-call advisory'
 		case 'steering':
 			return 'Runtime steering'
 		case 'structured-output':
