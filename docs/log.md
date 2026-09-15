@@ -2,6 +2,8 @@
 
 ## 2026-09-15
 
+- **Update** Correct two citations in [cancellation and timeouts](sdk/cancellation-and-timeouts.md#todays-three-layers-briefly): the `"is checked between agent iterations…"` quote is `streamIdleTimeoutMs`'s own doc comment contrasting itself against `timeoutMs`, not `timeoutMs`'s (`packages/sdk/src/types/run/config.ts:17-18`), and the `cancelled-provider-receipts.test.ts` describe/it pair is at 17-18, not 16-18.
+
 - **Update** Recount [learning that a background job ended](cli/background-jobs.md#learning-that-it-ended) to four paths, not three: `deliverArrivedJobExits`, run as part of `settleOutstandingWork`, catches an awaited job's exit that lands after the suspend's grace already ran out but before the run finishes settling, delivering it instead of naming the job on `abandonedJobIds`. Names the window between that delivery and the CLI clearing `abortRef` (`App.tsx` ~4867) as a known, narrow case nothing announces.
 
 - **Creation** Add a draft note on [cancellation and timeouts](sdk/cancellation-and-timeouts.md): the composition-order trap a naive whole-run deadline decorator would hit against retry and fallback, the CLI's own extra `AbortSignal` layer, the RAG embedding provider's separate timeout surface, the two independently-defaulted idle-timeout mechanisms, and the reader-cleanup inconsistency across fetch-based provider drivers. Findings and open options, not a committed design.

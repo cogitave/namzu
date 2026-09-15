@@ -37,9 +37,10 @@ mechanisms, composed in sequence:
   `idleTimeoutMs <= 0`.
 
 `AgentRunConfig.timeoutMs` is a fourth, separate concept: a whole-run
-wall-clock budget. Its own doc comment says plainly that it "is checked
+wall-clock budget. The adjacent `streamIdleTimeoutMs` field's doc comment
+contrasts itself against it, saying plainly that `timeoutMs` "is checked
 between agent iterations and cannot settle a provider iterator whose pending
-`next()` never returns" (`packages/sdk/src/types/run/config.ts:11-22`), and
+`next()` never returns" (`packages/sdk/src/types/run/config.ts:17-18`), and
 the only two call sites that enforce it —
 `packages/sdk/src/runtime/query/iteration/index.ts:473` and `:2733` — are
 both between-iteration checks in `GuardCoordinator.beforeIteration`
@@ -120,7 +121,7 @@ Two shapes avoid this, and neither is exotic in this codebase:
 - **Abort the run's own `AbortController`.** Reuse the Stop path exactly —
   the run already settles as `cancelled` with partial spend persisted while
   the provider remains blocked, per the existing kernel-level test
-  (`packages/sdk/src/runtime/query/__tests__/cancelled-provider-receipts.test.ts:16-18`).
+  (`packages/sdk/src/runtime/query/__tests__/cancelled-provider-receipts.test.ts:17-18`).
   A deadline cut would need a distinct stop reason so an operator can tell
   "the model stopped it" apart from "the clock did," but the settlement,
   persistence and retry/fallback bypass are already correct because
