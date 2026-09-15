@@ -101,6 +101,139 @@ previous host and golden-image pair available together for rollback. Rolling
 back only one side is intentionally rejected at readiness, so a mismatched
 guest never accepts work under an unverified wire contract.
 
+## Guest agent transports and the per-instance token
+
+The microVM guest agent picks its listen socket from the environment, in a
+fixed order: `NAMZU_AGENT_UNIX_PATH` for a unix-domain socket, then an
+inherited descriptor for the vsock bridge named by `NAMZU_AGENT_VSOCK_PORT`,
+then `NAMZU_AGENT_TCP_PORT` for a TCP listener on `0.0.0.0`. The third mode is
+for a deployment that reaches the guest over a routed network — one sandbox per
+pod on a container orchestrator — instead of over a host-local socket. Framing,
+ops, execution leases, terminals, loopback TCP and file IO are identical on all
+three; only the listen address differs. A guest whose environment configures
+none of them still refuses to start, naming all three. `NAMZU_AGENT_TCP_PORT=0`
+binds an ephemeral port, which is what the suites use; a deployment names a
+fixed port, because nothing in front of the guest can be configured to reach a
+port that is only chosen at startup.
+
+A routed listener is reachable by whatever the network admits, so that
+deployment also gives the agent a per-instance credential. With
+`NAMZU_AGENT_BIND_TOKEN` set, every op except `healthz` must present exactly
+that token in its request envelope, from the first frame of the connection; a
+missing, empty or different token is answered `unauthorized` and the connection
+is closed before any handler runs. The token is compared in constant time
+against a fixed-width digest, so neither its value nor its length is learnable
+by probing. `NAMZU_AGENT_REQUIRE_TOKEN` is the fallback for a deployment that
+cannot inject a token: the agent binds to the first token it is shown and
+refuses every other one for the life of the process. With neither variable set
+the agent authenticates nothing, which is what the host-local vsock and unix
+transports have always done and what they keep doing. `healthz` never requires
+a token and never echoes one, so readiness probing needs no secret and leaks
+nothing beyond liveness and the protocol version.
+
+The TCP mode fails closed. `NAMZU_AGENT_TCP_PORT` set with neither
+`NAMZU_AGENT_BIND_TOKEN` nor `NAMZU_AGENT_REQUIRE_TOKEN` is refused at startup,
+naming both, rather than binding an unauthenticated listener on `0.0.0.0`; the
+unix and inherited-descriptor modes keep requiring no token, because their
+control channel is host↔guest only. `NAMZU_AGENT_BIND_TOKEN` set to the empty
+string is refused at startup in **every** mode: that is the shape a
+downward-API injection takes when it resolved to nothing, and honouring it
+would open precisely the hole the variable was set to close.
+
+Because the credential rides inside the request envelope, the gate cannot run
+until a whole frame has been parsed — so what an unauthenticated peer may spend
+in that window is bounded rather than trusted, and in the token modes only:
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `NAMZU_AGENT_MAX_FRAME_BYTES` | 256 MiB | The largest length any frame header may announce, on every listen mode. The 8-hex prefix otherwise permits 4 GiB, which the reader used to honour. Sized for the largest frame the host legitimately writes: a `write-file` carries the whole base64 body in one envelope. |
+| `NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES` | 8 MiB | The same ceiling for a connection that has not yet presented the token, clamped to the one above. Token modes only. It is also the `write-file` ceiling on a token path — see below. |
+| `NAMZU_AGENT_MAX_PREAUTH_CONNECTIONS` | 64 | How many connections may be unauthenticated at once. Token modes only. Every bound above is per connection, so without this one they could be paid again on the next connection. A full pool evicts its **oldest** unauthenticated member and serves the arrival — see below for why that direction. |
+| `NAMZU_AGENT_MAX_PREAUTH_BUFFER_BYTES` | 32 MiB | What all unauthenticated connections may buffer **between them**, never less than one pre-auth frame. Token modes only. The count above bounds sockets; this bounds the heap behind them, and the heap is what runs out first. |
+| `NAMZU_AGENT_PREAUTH_IDLE_TIMEOUT_MS` | 10000 | How long a connection may stay unauthenticated while **quiet**. Every byte received resets it, so it retires the connection that says nothing, not the one that says too little. Token modes only, cleared the moment a connection authenticates. |
+| `NAMZU_AGENT_PREAUTH_DEADLINE_MS` | 10000 | How long a connection may stay unauthenticated **at all**, measured from accept and reset by nothing. Token modes only, cleared the moment a connection authenticates, so no long-lived terminal, `tcp-connect` or streaming `execute` is ever measured against it. |
+| `NAMZU_AGENT_REFUSAL_FLUSH_GRACE_MS` | 1000 | How long a refusal frame may take to reach the wire before the socket is destroyed anyway. Every listen mode. A backstop against a peer that has stopped reading, not a budget anything normally spends. |
+
+So the most an unauthenticated peer can make the agent hold is
+`NAMZU_AGENT_MAX_PREAUTH_BUFFER_BYTES`, spread over at most
+`NAMZU_AGENT_MAX_PREAUTH_CONNECTIONS` sockets, and both are tunable against the
+pod's memory limit. Resident memory settles somewhat above that while the
+allocator catches up; what it does not do is keep climbing. Note what a shared
+budget means when it is exhausted: the connection refused is whichever one asks
+next, which may be a legitimate caller rather than the peer holding the budget.
+That is the trade a global bound makes — a refused request is recoverable, an
+exhausted pod is not.
+
+A header above either ceiling is answered `frame_too_large`, naming the
+announced length, the limit, and the variable that governs it, because a caller
+told only a number cannot tell which of the two ceilings it hit. A fourth bound
+needs no variable: a frame header is exactly nine bytes, eight hex digits and a
+newline, so a peer streaming bytes that contain no newline at all is refused on
+the ninth of them rather than buffered against a newline that is never coming.
+A refused connection — for any of these, or for `unauthorized` — is
+**destroyed**, not `end()`ed: ending a socket closes only its writable half, so
+a refused peer used to be able to keep streaming into the agent's frame buffer
+for as long as it liked.
+
+Two of those bounds exist because the others do not answer a slow loris, and in
+one earlier shape made each other worse. An idle timeout is reset by every
+byte, so a peer that trickles one byte every few seconds stays unauthenticated
+for as long as it cares to; `NAMZU_AGENT_PREAUTH_DEADLINE_MS` is what bounds
+it, because it runs from accept and nothing resets it. And a full pool that
+refused the **newest** connection handed exactly those peers the power to
+decide who else got served: enough of them locked out every later caller,
+including the credential-exempt `healthz` probe that a readiness check cannot
+do without. So a full pool evicts its oldest unauthenticated member instead,
+answers it `too_many_unauthenticated_connections`, and serves the arrival — the
+oldest unauthenticated connection being, by construction, the one that has had
+the longest to present a token and has not.
+
+What none of this does is stop a peer that can reach the port from causing
+churn. It can still open connections, hold slots until the deadline, and make
+the agent evict and re-accept; what it cannot do is hold a slot indefinitely or
+starve a probe. That residual is deliberate, and it is the division of labour
+this design rests on: the NetworkPolicy ingress rule in front of the agent port
+is the boundary that decides who may reach it at all, and the token and these
+bounds are defence in depth behind it, for a peer already inside that rule.
+
+One consequence is worth naming, because it is the price of putting the
+credential in the envelope rather than in a handshake: a `write-file` body
+travels in the same first frame as the token, so in a token mode the pre-auth
+cap **is** the ceiling on that body — about 6 MiB of file content at the
+default, since the body travels base64-encoded. A deployment that writes larger
+files raises `NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES` to suit, trading pre-auth
+buffer budget for body size. Nothing on the Firecracker path is affected: no
+token mode is active there, so no pre-auth cap applies and a `write-file` frame
+of any size up to `NAMZU_AGENT_MAX_FRAME_BYTES` is accepted exactly as before.
+
+None of this is a wire change. `token` is an optional envelope field, so the
+guest protocol version is deliberately unchanged and no host and no golden
+image has to roll together with this release.
+
+What the token is not: a boundary against the sandbox's own workload. Once the
+image entrypoint deprivileges, the agent and the workload share a uid, so a
+workload process can read the agent's own `/proc/<pid>/environ`. It is
+per-instance for exactly that reason — a workload that steals its own
+instance's token gains nothing it does not already have inside that instance,
+and there is no shared pool secret whose theft would reach the other instances.
+The boundary that keeps other tenants out is the network rule in front of the
+agent port; the token is defence in depth behind it. What the guest does
+guarantee is narrower and exact: every process it starts to serve a request —
+an `execute` command, a `terminal` shell, the resize helper behind that
+terminal — is handed an environment stripped of every `NAMZU_AGENT_*` and
+`NAMZU_SANDBOX_*` variable, so the token and the agent's own configuration
+never enter the workload's environment through the environment it is given.
+Reading them out of `/proc` is the exposure above, and it is why the token is
+per-instance.
+
+That scrub is a **behaviour change** for the `terminal` op, not only a new
+guarantee. A terminal shell used to be handed the agent's whole `process.env`;
+it now gets the scrubbed environment an `execute` child has always had, and so
+does the `stty` resize helper behind it. A terminal session therefore no longer
+sees the agent's own settings — `NAMZU_SANDBOX_WORKSPACE` among them. A
+workload that needs a value in its terminal passes it in `env` on the
+`openTerminal` call, which still wins over everything else, `TERM` included.
+
 ## Firecracker workspace channels
 
 The Firecracker backend exposes two optional same-sandbox channels. Call

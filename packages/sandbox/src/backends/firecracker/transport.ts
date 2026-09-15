@@ -73,6 +73,7 @@ import {
 	RemoteProtocolError,
 } from '../remote-execution-controller.js'
 import {
+	type AgentRequestCredential,
 	type ExecRequest,
 	ExecResultAccumulator,
 	type ReadFileRequest,
@@ -174,7 +175,7 @@ export type WireSandboxAgentHandle =
  * used the URL path (`/execute`, `/read-file`, `/write-file`,
  * `/healthz`) — over vsock the same selector rides in the framed JSON.
  */
-export type AgentRequest =
+export type AgentRequest = (
 	| { readonly op: 'execute'; readonly body: ExecRequest }
 	| { readonly op: 'reserve-execution' }
 	| {
@@ -186,6 +187,12 @@ export type AgentRequest =
 	| { readonly op: 'terminal'; readonly body: TerminalOpenRequest }
 	| { readonly op: 'tcp-connect'; readonly body: TcpConnectRequest }
 	| { readonly op: 'healthz' }
+) &
+	// Intersected, not repeated per arm: the credential is orthogonal to
+	// the op, and every arm may carry it. Optional and additive, so a host
+	// that writes no token speaks the wire it always did — see
+	// {@link AgentRequestCredential}.
+	AgentRequestCredential
 
 export interface VsockTransportOptions {
 	/** Per-attempt connect + handshake timeout. Default 5000ms. */

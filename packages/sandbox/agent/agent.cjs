@@ -20,7 +20,7 @@
  *   reply (execute): a SEQUENCE of framed NDJSON lines, then a
  *                    zero-length frame terminator
  *
- * ## Transport selection (vsock in prod, unix in dev/test)
+ * ## Transport selection (vsock or tcp in prod, unix in dev/test)
  *   - AF_VSOCK: when `NAMZU_AGENT_VSOCK_PORT` is set and the host
  *     exposes the firecracker vsock device, the agent listens on the
  *     guest AF_VSOCK port. Node has no AF_VSOCK socket family, so the
@@ -32,6 +32,13 @@
  *     loopback peer) the agent listens on that unix-domain socket. The
  *     framing/exec/file-IO/reseed code is identical — only the listen
  *     address differs.
+ *   - TCP: when `NAMZU_AGENT_TCP_PORT` is set the agent listens on that
+ *     port on `0.0.0.0`, for a deployment where the host reaches the
+ *     guest over a routed network (one pod per sandbox on a container
+ *     orchestrator) instead of a host-local socket. Same framing, same
+ *     handlers; what changes is that the listener is now reachable by
+ *     anything the network lets through, which is why this mode is the
+ *     one that pairs with a credential (below).
  *
  * ## Resume invariant (FC #4713 / loopholelabs reproducer)
  * On resume the guest vsock driver closes all open connections and the
@@ -44,15 +51,69 @@
  *      regenerating machine-id / host keys / app secrets — the
  *      readiness fence is the security fence (§7 risk #4).
  *
- * Authn: none. The vsock control channel is host↔guest only; it never
- * traverses the guest egress netns.
+ * ## Authn (opt-in, and absent on the vsock path)
+ * The vsock control channel is host↔guest only and never traverses the
+ * guest egress netns, so it carries no credential: with neither
+ * `NAMZU_AGENT_BIND_TOKEN` nor `NAMZU_AGENT_REQUIRE_TOKEN` set the
+ * agent authenticates nothing, exactly as it always has. A routed
+ * transport has no such boundary, so a pod-network deployment sets
+ * `NAMZU_AGENT_BIND_TOKEN` to a per-instance secret — the pod's own
+ * `metadata.uid`, injected by the downward API and learned by the host
+ * from the API server — and every op but `healthz` must present it in
+ * the request envelope's optional `token` field, from the very first
+ * frame. `NAMZU_AGENT_REQUIRE_TOKEN` is the fallback for a deployment
+ * that cannot inject one: the agent binds to the first token it is
+ * shown and refuses every other one for the life of the process.
+ *
+ * `token` is an OPTIONAL envelope field, so the wire format is
+ * unchanged and {@link FIRECRACKER_AGENT_PROTOCOL_VERSION} is
+ * deliberately NOT bumped: no host and no golden image has to roll with
+ * this change.
+ *
+ * Because the credential rides inside the envelope, the gate cannot run
+ * until a whole frame has been parsed, so an unauthenticated peer is
+ * bounded rather than trusted: a small pre-auth cap on the length a
+ * frame header may announce (`NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES`), an
+ * ABSOLUTE deadline from accept that no byte resets
+ * (`NAMZU_AGENT_PREAUTH_DEADLINE_MS`), an idle timeout beside it
+ * (`NAMZU_AGENT_PREAUTH_IDLE_TIMEOUT_MS`), a pre-auth pool that EVICTS
+ * ITS OLDEST member rather than turning the newest arrival away
+ * (`NAMZU_AGENT_MAX_PREAUTH_CONNECTIONS`), and a refusal that DESTROYS
+ * the connection instead of half-closing it. All of them are confined
+ * to the token modes; a connection on the vsock or unix path sees none
+ * of them. A global ceiling on the announced frame length
+ * (`NAMZU_AGENT_MAX_FRAME_BYTES`) applies on every mode, because the
+ * 8-hex prefix otherwise lets any peer, authenticated or not, name 4 GiB.
+ *
+ * The deadline and the eviction are the two that answer a slow loris,
+ * and neither is optional. An idle timer cannot: every byte resets it,
+ * so a peer trickling one byte every few seconds holds its slot for as
+ * long as it likes. A pool that refused the NEWEST connection made that
+ * worse rather than better — a poolful of such peers locked out every
+ * later caller, the credential-exempt `healthz` probe included. What no
+ * bound here can do is stop a peer that can reach the port from causing
+ * churn, and that is the point of the division of labour: the network
+ * rule in front of the port is the boundary, and all of this is defence
+ * in depth behind it.
+ *
+ * A TCP listener with neither credential variable set is refused at
+ * startup rather than bound unauthenticated, and so is an empty
+ * `NAMZU_AGENT_BIND_TOKEN`, in any mode.
+ *
+ * What the token is not: a boundary against the sandbox's own workload.
+ * After the image entrypoint deprivileges, the agent and the workload
+ * share a uid, so a workload process can read the agent's own
+ * `/proc/<pid>/environ`. It is per-instance for exactly that reason —
+ * stealing it wins nothing the thief does not already have inside that
+ * instance, and there is no shared pool secret whose theft would reach
+ * the others.
  */
 
 'use strict'
 
 const net = require('node:net')
 const { spawn } = require('node:child_process')
-const { randomUUID } = require('node:crypto')
+const { createHash, randomUUID, timingSafeEqual } = require('node:crypto')
 const fs = require('node:fs/promises')
 const { constants: osConstants } = require('node:os')
 const path = require('node:path')
@@ -106,6 +167,88 @@ const CANCEL_CONFIRM_TIMEOUT_MS = positiveIntegerConfig(
 const EXECUTION_ID_PATTERN =
 	/^exec_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
+// The largest frame length a peer may ANNOUNCE in the 8-hex prefix. The
+// prefix itself allows 0xffffffff — 4 GiB — and the reader used to honour
+// it, so one peer could name a length and stream toward it while the agent
+// concatenated every byte into one heap buffer. The ceiling has to clear
+// the largest frame the host legitimately writes, and that is a
+// `write-file`: transport.ts sends the WHOLE body base64-encoded in a
+// single envelope (`writeFile`, backends/firecracker/transport.ts), with no
+// chunking anywhere on the path. 256 MiB of base64 is a ~192 MiB file —
+// orders of magnitude above anything the Firecracker suites send and far
+// below what the prefix would otherwise permit.
+const MAX_FRAME_BYTES = positiveIntegerConfig('NAMZU_AGENT_MAX_FRAME_BYTES', 256 * 1024 * 1024)
+// The same ceiling for a connection that has not yet presented the token,
+// and only in the modes where a token is required at all. The gate cannot
+// run until a whole frame has been parsed, because the credential rides
+// inside the envelope, so without this an UNAUTHENTICATED peer got the
+// full post-auth budget.
+//
+// Sized by what it would otherwise break rather than by what a request
+// envelope costs: a `write-file` body travels in the same first frame as
+// the token, so this cap IS the write-file ceiling on a token path —
+// 8 MiB of frame is a ~6 MiB file. A deployment that writes larger files
+// raises the variable; a host that learns to chunk a body across frames
+// would let it come back down. See the README.
+//
+// Clamped to the global ceiling, because a pre-auth budget above the
+// post-auth one is not a budget — it reads as a bug the first time
+// someone hits the smaller number after authenticating.
+const MAX_PREAUTH_FRAME_BYTES = Math.min(
+	positiveIntegerConfig('NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES', 8 * 1024 * 1024),
+	MAX_FRAME_BYTES,
+)
+// How many connections may be unauthenticated AT ONCE, in a token mode.
+// The cap above bounds what one unauthenticated peer may hold; without
+// this it could hold it many times over, once per connection. A
+// connection leaves the pool the moment it authenticates, which on a
+// healthy host is one round trip after it was accepted, so 64 is far
+// above anything a host legitimately has in flight.
+//
+// A FULL pool gives up its oldest member rather than refusing the
+// arrival. Refusing the newest is what makes a connection cap a denial
+// of service in its own right: peers that hold their slots without ever
+// authenticating then decide who else may be served, and `healthz` is
+// answered on a connection like any other. The oldest unauthenticated
+// connection is by construction the one that has had the longest to
+// present a token and has not.
+const MAX_PREAUTH_CONNECTIONS = positiveIntegerConfig('NAMZU_AGENT_MAX_PREAUTH_CONNECTIONS', 64)
+// What every unauthenticated connection may buffer BETWEEN THEM, in a
+// token mode. The count above bounds sockets; this bounds the heap, and
+// the heap is what runs out first: 64 connections each holding a frame
+// just under the pre-auth cap is 64 x 8 MiB, which is a bound but not a
+// survivable one for a pod. Charged against what the readers actually
+// hold rather than against what was announced, so the ordinary case —
+// many small envelopes in flight — spends almost none of it, and the
+// default still leaves room for four concurrent maximum-size ones. Never
+// smaller than one pre-auth frame, or a single legitimate write-file
+// could not fit inside the budget it has to pass through.
+const MAX_PREAUTH_BUFFER_BYTES = Math.max(
+	positiveIntegerConfig('NAMZU_AGENT_MAX_PREAUTH_BUFFER_BYTES', 32 * 1024 * 1024),
+	MAX_PREAUTH_FRAME_BYTES,
+)
+// How long a connection in a token mode may stay unauthenticated while
+// QUIET. This is an IDLE timeout: every byte received resets it, so on its
+// own it retires only the connection that opens and then says nothing, or
+// says too little to parse. It is kept because that connection should go
+// early, not because it bounds anything.
+const PREAUTH_IDLE_TIMEOUT_MS = positiveIntegerConfig('NAMZU_AGENT_PREAUTH_IDLE_TIMEOUT_MS', 10_000)
+// How long a connection in a token mode may stay unauthenticated AT ALL.
+// Measured from accept and reset by nothing — this is the bound the idle
+// timer above is not. Without it a peer trickling a byte every few seconds
+// pushed the idle timer out forever and held its slot indefinitely; enough
+// such peers filled the pre-auth pool and, while the pool refused the
+// newest arrival rather than evicting its oldest member, starved every
+// later caller including `healthz`. A connection clears the deadline the
+// moment it authenticates, so no long-lived terminal, `tcp-connect` or
+// streaming `execute` is ever measured against it.
+const PREAUTH_DEADLINE_MS = positiveIntegerConfig('NAMZU_AGENT_PREAUTH_DEADLINE_MS', 10_000)
+// How long a refusal may take to reach the wire before the socket is
+// destroyed anyway. The refusal is one small frame on an otherwise idle
+// socket, so this is a backstop against a peer that has stopped reading,
+// not a budget anything normally uses.
+const REFUSAL_FLUSH_GRACE_MS = positiveIntegerConfig('NAMZU_AGENT_REFUSAL_FLUSH_GRACE_MS', 1_000)
+
 // --- framing (matches transport.ts byte-for-byte) --------------------------
 
 function frame(payload) {
@@ -126,31 +269,156 @@ function writeTerminator(socket) {
 	socket.write(Buffer.from('00000000\n', 'ascii'))
 }
 
+const EMPTY_CHUNK = Buffer.alloc(0)
+
+// A frame header is exactly nine bytes: eight hex digits and a newline.
+// Nothing longer is one, which is what lets the reader decide on the ninth
+// byte that a peer streaming bytes with no newline in them is never going
+// to produce a header.
+const FRAME_HEADER_BYTES = LENGTH_PREFIX_HEX + 1
+
+/**
+ * Split a byte stream into `<8-hex length>\n<payload>` frames.
+ *
+ * The reader is the agent's memory-bounding component: everything an
+ * unauthenticated peer can make the agent hold, it holds here. So it
+ * keeps arrived chunks as a queue and copies each frame exactly once,
+ * rather than concatenating every chunk into one growing buffer — which
+ * cost O(n²) in the bytes a peer sent, and handed anyone who could reach
+ * the port an amplifier.
+ *
+ * Two bounds keep the queue small. A header may not announce more than
+ * `maxFrameBytes`, and no header may take more than nine bytes to arrive.
+ */
 class FrameReader {
-	constructor() {
-		this.buf = Buffer.alloc(0)
+	/**
+	 * @param maxFrameBytes the largest length a header may announce. A
+	 * header above it stops the reader dead: nothing further is parsed and
+	 * nothing further is buffered, which is what keeps a peer from naming
+	 * a length and streaming toward it. The bound is a mutable field
+	 * rather than a constructor-fixed one because a connection's budget
+	 * legitimately changes — see `handleConnection`, which starts a
+	 * token-gated connection at the pre-auth cap and raises it once the
+	 * connection has authenticated.
+	 */
+	constructor(maxFrameBytes = MAX_FRAME_BYTES) {
+		/** Arrived chunks, oldest first, starting on a frame boundary. */
+		this.chunks = []
+		/** What `chunks` holds, so a length check costs no walking. */
+		this.length = 0
+		this.maxFrameBytes = maxFrameBytes
+		/**
+		 * `{ announced, limit }` once a header has asked for more than the
+		 * cap allowed, otherwise undefined.
+		 */
+		this.overflow = undefined
 	}
 	push(chunk) {
-		this.buf = this.buf.length === 0 ? chunk : Buffer.concat([this.buf, chunk])
+		// An overflowing reader takes no more bytes. Re-pushing after the
+		// caller has raised `maxFrameBytes` and cleared `overflow` re-parses
+		// what is already buffered.
+		if (this.overflow) return []
+		if (chunk.length > 0) {
+			this.chunks.push(chunk)
+			this.length += chunk.length
+		}
 		const out = []
 		for (;;) {
-			const nl = this.buf.indexOf(0x0a)
-			if (nl < 0) break
-			if (nl < LENGTH_PREFIX_HEX) throw new Error(`malformed frame header (newline at ${nl})`)
-			const header = this.buf.subarray(0, nl).toString('ascii')
-			if (!/^[0-9a-fA-F]{8}$/.test(header)) {
-				throw new Error(`invalid frame length header ${JSON.stringify(header)}`)
+			if (this.length < FRAME_HEADER_BYTES) break
+			const header = this.peek(FRAME_HEADER_BYTES)
+			const nl = header.indexOf(0x0a)
+			if (nl !== LENGTH_PREFIX_HEX) {
+				// Deciding this here, on the ninth byte, is the whole reason the
+				// header is read as a fixed width. Waiting for a newline instead
+				// meant a peer who never sent one was never wrong, and every byte
+				// it sent was buffered while the agent kept waiting — reachable
+				// before any credential had been checked.
+				throw new Error(
+					nl < 0
+						? `malformed frame header (no newline in the first ${FRAME_HEADER_BYTES} bytes)`
+						: `malformed frame header (newline at ${nl})`,
+				)
 			}
-			const len = Number.parseInt(header, 16)
-			if (!Number.isInteger(len) || len < 0) {
-				throw new Error(`invalid frame length header ${JSON.stringify(header)}`)
+			const prefix = header.subarray(0, LENGTH_PREFIX_HEX).toString('ascii')
+			if (!/^[0-9a-fA-F]{8}$/.test(prefix)) {
+				throw new Error(`invalid frame length header ${JSON.stringify(prefix)}`)
 			}
-			const start = nl + 1
-			if (this.buf.length < start + len) break
-			out.push(this.buf.subarray(start, start + len).toString('utf8'))
-			this.buf = this.buf.subarray(start + len)
+			const len = Number.parseInt(prefix, 16)
+			if (len > this.maxFrameBytes) {
+				// Recorded rather than thrown: whole frames already parsed out
+				// of this same chunk are still valid, and one of them may be
+				// the frame that authenticates the connection and raises the
+				// cap this header just exceeded.
+				this.overflow = { announced: len, limit: this.maxFrameBytes }
+				break
+			}
+			if (this.length < FRAME_HEADER_BYTES + len) break
+			this.consume(FRAME_HEADER_BYTES)
+			out.push(this.take(len).toString('utf8'))
 		}
 		return out
+	}
+	/**
+	 * The first `n` buffered bytes as one contiguous buffer, left in the
+	 * queue. Only ever called for a header, and a header almost always
+	 * lies inside the chunk it arrived in, so the copy is the rare path.
+	 */
+	peek(n) {
+		const first = this.chunks[0]
+		if (first.length >= n) return first.subarray(0, n)
+		const head = Buffer.allocUnsafe(n)
+		let filled = 0
+		for (const chunk of this.chunks) {
+			const take = Math.min(n - filled, chunk.length)
+			chunk.copy(head, filled, 0, take)
+			filled += take
+			if (filled === n) break
+		}
+		return head
+	}
+	/** Drop the first `n` buffered bytes. */
+	consume(n) {
+		let left = n
+		while (left > 0) {
+			const first = this.chunks[0]
+			if (first.length > left) {
+				this.chunks[0] = first.subarray(left)
+				break
+			}
+			left -= first.length
+			this.chunks.shift()
+		}
+		this.length -= n
+	}
+	/** Take the first `n` buffered bytes out, as one contiguous buffer. */
+	take(n) {
+		if (n === 0) return EMPTY_CHUNK
+		const first = this.chunks[0]
+		if (first.length >= n) {
+			const head = first.subarray(0, n)
+			if (first.length === n) this.chunks.shift()
+			else this.chunks[0] = first.subarray(n)
+			this.length -= n
+			return head
+		}
+		const out = Buffer.allocUnsafe(n)
+		let filled = 0
+		while (filled < n) {
+			const chunk = this.chunks[0]
+			const take = Math.min(n - filled, chunk.length)
+			chunk.copy(out, filled, 0, take)
+			filled += take
+			if (take === chunk.length) this.chunks.shift()
+			else this.chunks[0] = chunk.subarray(take)
+		}
+		this.length -= n
+		return out
+	}
+	/** Drop everything buffered. Used when a connection is given up on. */
+	reset() {
+		this.chunks = []
+		this.length = 0
+		this.overflow = undefined
 	}
 }
 
@@ -232,6 +500,15 @@ function resolveTimeoutMs(rawTimeoutMs) {
 	return timeoutMs
 }
 
+/**
+ * The environment for a process started to serve a request. Every
+ * `NAMZU_AGENT_*` and `NAMZU_SANDBOX_*` variable is dropped, so the
+ * agent's own configuration — the bind token among it — never enters
+ * the workload's environment. Every process the agent starts to serve
+ * a request — an `execute` command, a `terminal` shell, the resize
+ * helper behind it — goes through here, with the caller's own `env`
+ * layered on top.
+ */
 function childEnvironment(requested) {
 	const inherited = {}
 	for (const key of Object.keys(process.env)) {
@@ -807,6 +1084,9 @@ function resizePty(slavePath, cols, rows) {
 			'/usr/bin/stty',
 			['-F', slavePath, 'rows', String(rows), 'cols', String(cols)],
 			{
+				// Scrubbed too: resize is caller-triggered, and stty needs
+				// none of the agent's own configuration to set a winsize.
+				env: childEnvironment(),
 				stdio: 'ignore',
 			},
 		)
@@ -878,7 +1158,12 @@ function handleTerminal(socket, body) {
 		const commandLine = ['exec', shellQuote(command), ...args.map(shellQuote)].join(' ')
 		child = spawn('/usr/bin/script', ['-qefc', commandLine, '/dev/null'], {
 			cwd,
-			env: { ...process.env, TERM: 'xterm-256color', ...(body.env || {}) },
+			// Scrubbed exactly like an `execute` child. An interactive shell
+			// is the shortest path from the workload to the agent's own
+			// configuration — including its bind token — so the terminal
+			// never inherits process.env raw. Precedence is unchanged: TERM
+			// is a default the caller's own env may override.
+			env: childEnvironment({ TERM: 'xterm-256color', ...(body.env || {}) }),
 			detached: true,
 			stdio: ['pipe', 'pipe', 'pipe'],
 		})
@@ -1013,41 +1298,356 @@ function handleTcpConnect(socket, body) {
 	}
 }
 
+// --- per-instance credential gate ------------------------------------------
+
+/**
+ * The token this process is bound to, once one exists. Only the
+ * trust-on-first-use fallback ever writes it — with
+ * `NAMZU_AGENT_BIND_TOKEN` preset the expected value is the
+ * environment's and no request can change it. Once bound it is never
+ * rebound: a genuinely new instance is a new process (a resumed pod
+ * runs a fresh agent), so a rebind could only ever serve a caller that
+ * failed the first check.
+ */
+let boundToken
+
+/**
+ * Length- and timing-safe token comparison. `timingSafeEqual` throws on
+ * operands of unequal length, and returning early on a length mismatch
+ * would leak the bound token's length, so both sides are reduced to a
+ * fixed-width digest first and the digests are compared.
+ */
+function tokensMatch(expected, presented) {
+	return timingSafeEqual(
+		createHash('sha256').update(expected, 'utf8').digest(),
+		createHash('sha256').update(presented, 'utf8').digest(),
+	)
+}
+
+/**
+ * Whether this process requires a credential at all. False is the
+ * Firecracker vsock/unix deployment, where the gate, the pre-auth frame
+ * cap and the pre-auth idle timeout are all absent and a connection
+ * behaves byte-for-byte as it did before any of them existed.
+ */
+function credentialGateActive() {
+	return Boolean(process.env.NAMZU_AGENT_BIND_TOKEN || process.env.NAMZU_AGENT_REQUIRE_TOKEN)
+}
+
+/**
+ * Refuse to start on a credential configuration that would silently
+ * authenticate nothing.
+ *
+ * A TCP listener is reachable by whatever the network admits, so an
+ * unauthenticated one is never what the operator meant; the agent used
+ * to bind it anyway and say nothing. And `NAMZU_AGENT_BIND_TOKEN` set
+ * to the empty string is the shape a downward-API injection takes when
+ * it resolves to nothing — accepting it would open exactly the hole the
+ * variable was set to close, in every listen mode, so it is refused in
+ * every listen mode.
+ *
+ * The unix and inherited-fd paths are otherwise untouched: their
+ * control channel is host↔guest only and they still require no token.
+ */
+function assertCredentialConfiguration(listenMode) {
+	const preset = process.env.NAMZU_AGENT_BIND_TOKEN
+	if (preset !== undefined && preset.length === 0) {
+		throw new Error(
+			'agent: NAMZU_AGENT_BIND_TOKEN is set but empty — unset it to run without a credential, or set it to a per-instance secret',
+		)
+	}
+	if (listenMode === 'tcp' && !credentialGateActive()) {
+		throw new Error(
+			'agent: NAMZU_AGENT_TCP_PORT is a routed listener and needs a credential — set NAMZU_AGENT_BIND_TOKEN to a per-instance secret, or NAMZU_AGENT_REQUIRE_TOKEN to bind the first token seen',
+		)
+	}
+}
+
+/**
+ * Whether one framed request may run. Three modes, chosen by the
+ * environment the agent was started in:
+ *
+ *   - Neither variable set — every request is authorized. This is the
+ *     vsock/unix path, whose control channel is host↔guest only; the
+ *     behaviour here is byte-identical to the agent before the gate.
+ *   - `NAMZU_AGENT_BIND_TOKEN` set — every request must present that
+ *     exact token from its first frame.
+ *   - `NAMZU_AGENT_REQUIRE_TOKEN` set with no preset token — the
+ *     fallback: bind to the first token seen, refuse every other.
+ *
+ * `healthz` never reaches here. Readiness probing must work without a
+ * secret, and its reply carries nothing but liveness and the protocol
+ * version.
+ */
+function authorizeRequest(req) {
+	const preset = process.env.NAMZU_AGENT_BIND_TOKEN
+	if (!credentialGateActive()) return true
+	const presented = typeof req?.token === 'string' ? req.token : ''
+	// An empty token is not a credential: accepting one would let an
+	// unauthenticated caller take the first-use binding for itself.
+	if (!presented) return false
+	const expected = preset || boundToken
+	if (!expected) {
+		boundToken = presented
+		return true
+	}
+	return tokensMatch(expected, presented)
+}
+
 // --- connection dispatch ---------------------------------------------------
 
+/**
+ * The accepted connections that are in a token mode and have not yet
+ * presented a credential, OLDEST FIRST — a Set iterates in insertion
+ * order, which is the whole of the ordering the eviction needs. See
+ * {@link MAX_PREAUTH_CONNECTIONS}: the per-connection cap bounds what one
+ * unauthenticated peer may hold, and the size of this bounds how many
+ * times it may hold it.
+ *
+ * Each member is the connection's own `{ evict }` handle, so evicting one
+ * runs its own refusal against its own socket, reader and timers rather
+ * than reaching into them from outside.
+ */
+const preAuthPool = new Set()
+
+/**
+ * What those connections are holding in their frame readers, in bytes.
+ * See {@link MAX_PREAUTH_BUFFER_BYTES}.
+ */
+let preAuthBufferedBytes = 0
+
 function handleConnection(socket) {
-	const reader = new FrameReader()
+	// The gate is read once per connection, not once per frame: a
+	// connection's budget must not change underneath it because something
+	// edited the environment mid-flight.
+	const gated = credentialGateActive()
+	const reader = new FrameReader(gated ? MAX_PREAUTH_FRAME_BYTES : MAX_FRAME_BYTES)
 	let dispatched = false
+	let authorized = !gated
 	let activeStream
-	socket.on('data', (chunk) => {
-		let frames
-		try {
-			frames = reader.push(chunk)
-		} catch {
+	let abandoned = false
+	let counted = gated
+	let chargedBytes = 0
+	/** Undefined outside a token mode: nothing else arms a deadline. */
+	let deadlineTimer
+	// `evict` is a hoisted declaration below; the handle is built here so
+	// this connection joins the pool at accept, where its age starts.
+	const poolEntry = { evict }
+	if (counted) preAuthPool.add(poolEntry)
+
+	/**
+	 * Give this connection's place in the pre-auth budgets back — its slot
+	 * and every byte it had charged. Called when it authenticates, when it
+	 * is given up on, and when it closes, whichever happens first; the flag
+	 * makes the rest no-ops.
+	 */
+	function release() {
+		if (!counted) return
+		counted = false
+		preAuthPool.delete(poolEntry)
+		preAuthBufferedBytes -= chargedBytes
+		chargedBytes = 0
+		// The deadline dies with the pre-auth state it bounds, so an
+		// authenticated connection — a terminal, a `tcp-connect`, a
+		// long-running `execute` — is never measured against it.
+		if (deadlineTimer !== undefined) {
+			clearTimeout(deadlineTimer)
+			deadlineTimer = undefined
+		}
+	}
+
+	/**
+	 * Stop taking bytes from this peer. Detaching the reader is the point:
+	 * while it stayed attached, every chunk a refused peer sent was still
+	 * concatenated into its buffer.
+	 */
+	function abandon() {
+		if (abandoned) return
+		abandoned = true
+		release()
+		socket.removeListener('data', onData)
+		socket.pause()
+		socket.setTimeout(0)
+		reader.reset()
+	}
+
+	/**
+	 * Answer a peer we are not going to serve, then take the connection
+	 * down.
+	 *
+	 * A refusal used to `end()` the socket, which half-closes it: only the
+	 * writable side went away, the readable side stayed open, and a
+	 * refused peer could keep streaming into the agent for as long as it
+	 * liked. So the readable side is stopped first, the one refusal frame
+	 * is flushed, and the socket is destroyed the moment that write
+	 * completes — or after a short grace, for a peer that has stopped
+	 * reading and would otherwise hold the write open.
+	 */
+	function refuse(reply) {
+		abandon()
+		if (socket.writableEnded) {
+			// A `healthz` on this connection has already ended the writable
+			// half, so there is nowhere to put the refusal: `end()` here would
+			// be a write-after-end whose error arrives asynchronously and tells
+			// nobody anything, and 'finish' has already fired, so the teardown
+			// would fall back to the grace timer. Take it down now instead.
 			socket.destroy()
 			return
 		}
-		for (const payload of frames) {
-			if (dispatched) {
-				activeStream?.onFrame(payload)
-				continue
-			}
-			dispatched = true
-			let req
+		const flushTimer = setTimeout(() => socket.destroy(), REFUSAL_FLUSH_GRACE_MS)
+		if (typeof flushTimer.unref === 'function') flushTimer.unref()
+		socket.once('close', () => clearTimeout(flushTimer))
+		socket.once('finish', () => socket.destroy())
+		try {
+			socket.end(frame(JSON.stringify(reply)))
+		} catch {
+			socket.destroy()
+		}
+	}
+
+	/**
+	 * Give this connection's pre-auth slot to a newer arrival, because the
+	 * pool was full and this is its oldest member.
+	 *
+	 * Told, not dropped in silence: an evicted caller that is named the
+	 * bound it lost to can raise it, and the frame costs a few dozen bytes
+	 * on a connection that is going away either way. `refuse` is what makes
+	 * it go away — the readable side stops, the reader is detached, and the
+	 * socket is destroyed as soon as that one frame is on the wire or the
+	 * flush grace expires.
+	 */
+	function evict() {
+		refuse({
+			ok: false,
+			error: `too_many_unauthenticated_connections: limit ${MAX_PREAUTH_CONNECTIONS} (NAMZU_AGENT_MAX_PREAUTH_CONNECTIONS)`,
+		})
+	}
+
+	function onData(chunk) {
+		if (abandoned) return
+		let pending = chunk
+		for (;;) {
+			let frames
 			try {
-				req = JSON.parse(payload)
+				frames = reader.push(pending)
 			} catch {
+				abandon()
 				socket.destroy()
 				return
 			}
-			activeStream = dispatch(socket, req)
+			pending = EMPTY_CHUNK
+			for (const payload of frames) {
+				if (dispatched) {
+					activeStream?.onFrame(payload)
+					continue
+				}
+				dispatched = true
+				let req
+				try {
+					req = JSON.parse(payload)
+				} catch {
+					abandon()
+					socket.destroy()
+					return
+				}
+				// `healthz` is exempt from the gate so readiness probing needs
+				// no secret — and, for the same reason, exempt from LIFTING
+				// it: an unauthenticated probe must not buy itself the
+				// post-auth frame budget.
+				if (req?.op !== 'healthz') {
+					if (!authorizeRequest(req)) {
+						refuse({ ok: false, error: 'unauthorized' })
+						return
+					}
+					authorized = true
+					release()
+					reader.maxFrameBytes = MAX_FRAME_BYTES
+					socket.setTimeout(0)
+				}
+				activeStream = dispatch(socket, req)
+			}
+			if (counted) {
+				// What this connection holds, against what every unauthenticated
+				// connection may hold between them. Charged after the fact, so a
+				// peer overshoots by at most the chunk that took it over.
+				preAuthBufferedBytes += reader.length - chargedBytes
+				chargedBytes = reader.length
+				if (preAuthBufferedBytes > MAX_PREAUTH_BUFFER_BYTES) {
+					refuse({
+						ok: false,
+						error: `preauth_buffer_exhausted: limit ${MAX_PREAUTH_BUFFER_BYTES} bytes (NAMZU_AGENT_MAX_PREAUTH_BUFFER_BYTES)`,
+					})
+					return
+				}
+			}
+			if (!reader.overflow) return
+			// The frame that raised the cap may have been in this same chunk,
+			// ahead of the header that overflowed the old one. Re-parse under
+			// the new budget rather than refusing a legitimate peer.
+			if (reader.overflow.announced <= reader.maxFrameBytes) {
+				reader.overflow = undefined
+				continue
+			}
+			// Named, not just numbered: the cap a caller trips is almost always
+			// the pre-auth one, and an operator who is told only a number
+			// cannot tell which of the two ceilings to raise.
+			const variable = authorized
+				? 'NAMZU_AGENT_MAX_FRAME_BYTES'
+				: 'NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES'
+			refuse({
+				ok: false,
+				error: `frame_too_large: announced ${reader.overflow.announced} bytes, limit ${reader.overflow.limit} (${variable})`,
+			})
+			return
 		}
+	}
+
+	socket.on('data', onData)
+	socket.on('close', () => {
+		release()
+		activeStream?.onClose()
 	})
-	socket.on('close', () => activeStream?.onClose())
 	socket.on('error', () => {
 		// A severed connection is not fatal — the listener stays up and
 		// the next dial lands fresh (resume invariant).
 	})
+	if (gated) {
+		// Both timers are armed only in a token mode and both are cleared
+		// the moment a connection authenticates, so no long-lived terminal,
+		// `tcp-connect` or streaming `execute` — on this path or on the
+		// Firecracker one — can be aged out by either.
+		//
+		// The deadline runs from accept and NOTHING resets it. That is the
+		// entire point of having it beside an idle timer: `socket.setTimeout`
+		// is idle-based, so a peer that trickles a byte every few seconds
+		// pushes it out forever and never ages out. The idle timer stays
+		// because it retires a silent connection sooner than the deadline
+		// would.
+		deadlineTimer = setTimeout(() => {
+			if (authorized) return
+			abandon()
+			socket.destroy()
+		}, PREAUTH_DEADLINE_MS)
+		if (typeof deadlineTimer.unref === 'function') deadlineTimer.unref()
+		socket.setTimeout(PREAUTH_IDLE_TIMEOUT_MS)
+		socket.on('timeout', () => {
+			if (authorized) return
+			abandon()
+			socket.destroy()
+		})
+		// A full pool gives up its oldest member instead of turning this one
+		// away; see {@link MAX_PREAUTH_CONNECTIONS}. The pool can be over its
+		// limit by exactly one here — this connection joined it at the top of
+		// this same synchronous accept, and nothing else has run since — so
+		// one eviction is the whole of it, and skipping `poolEntry` means a
+		// pool holding only this connection evicts nobody.
+		if (preAuthPool.size > MAX_PREAUTH_CONNECTIONS) {
+			const oldest = preAuthPool.values().next().value
+			// Freed synchronously, so this connection is inside the bound
+			// before it has read a byte.
+			if (oldest !== undefined && oldest !== poolEntry) oldest.evict()
+		}
+	}
 }
 
 function dispatch(socket, req) {
@@ -1061,6 +1661,10 @@ function dispatch(socket, req) {
 		socket.end()
 		return
 	}
+	// The credential gate is NOT here. It runs in `handleConnection`, on
+	// the connection's first frame, because refusing a caller has to take
+	// the whole connection down and only the connection owns the pieces
+	// that takes — its reader, its data handler, its pre-auth timer.
 	if (op === 'cancel-execution') {
 		handleCancelExecution(socket, req.body)
 			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
@@ -1132,31 +1736,79 @@ async function reseedEntropy() {
 
 let server
 
+/**
+ * Bind the listen socket for whichever transport this deployment
+ * configured, in a fixed precedence: unix path, then the inherited
+ * vsock fd, then a TCP port. Resolves with the listening `net.Server`
+ * so a caller (and the loopback suites) can read the bound address —
+ * a TCP deployment may ask for port 0 and learn the port afterwards.
+ *
+ * Rejects rather than binds when the configuration would serve a
+ * routed listener with no credential; see
+ * {@link assertCredentialConfiguration}.
+ */
 function startListening() {
 	return new Promise((resolve, reject) => {
-		server = net.createServer(handleConnection)
-		server.on('error', reject)
 		const unixPath = process.env.NAMZU_AGENT_UNIX_PATH
 		const vsockPort = process.env.NAMZU_AGENT_VSOCK_PORT
-		if (unixPath) {
+		const tcpPort = process.env.NAMZU_AGENT_TCP_PORT
+		// Every rejection below happens before a `net.Server` exists, so a
+		// refused startup leaves no listener object behind to leak or to
+		// close.
+		if (!unixPath && !vsockPort && !tcpPort) {
+			reject(
+				new Error(
+					'agent: none of NAMZU_AGENT_UNIX_PATH, NAMZU_AGENT_VSOCK_PORT or NAMZU_AGENT_TCP_PORT set',
+				),
+			)
+			return
+		}
+		const listenMode = unixPath ? 'unix' : vsockPort ? 'vsock' : 'tcp'
+		let port
+		if (listenMode === 'tcp') {
+			port = Number(tcpPort)
+			if (!Number.isInteger(port) || port < 0 || port > 65535) {
+				reject(
+					new Error(
+						`agent: NAMZU_AGENT_TCP_PORT must be an integer port in [0, 65535], got ${JSON.stringify(tcpPort)}`,
+					),
+				)
+				return
+			}
+		}
+		try {
+			assertCredentialConfiguration(listenMode)
+		} catch (error) {
+			reject(error)
+			return
+		}
+		server = net.createServer(handleConnection)
+		server.on('error', reject)
+		if (listenMode === 'unix') {
 			// Dev + test loopback peer: plain unix-domain socket.
 			fs.rm(unixPath, { force: true })
 				.catch(() => {})
 				.finally(() => {
-					server.listen(unixPath, () => resolve())
+					server.listen(unixPath, () => resolve(server))
 				})
 			return
 		}
-		if (vsockPort) {
+		if (listenMode === 'vsock') {
 			// Production: AF_VSOCK port. Node exposes no AF_VSOCK family,
 			// so the rootfs runs the agent behind the kernel vsock→stream
 			// bridge that terminates on the host UDS the dialer connects
 			// to. From here it is a stream listener on a fd the init
 			// service passes in (fd 3) — listen on the inherited handle.
-			server.listen({ fd: 3 }, () => resolve())
+			server.listen({ fd: 3 }, () => resolve(server))
 			return
 		}
-		reject(new Error('agent: neither NAMZU_AGENT_UNIX_PATH nor NAMZU_AGENT_VSOCK_PORT set'))
+		// Routed network: one sandbox per pod, the host dials
+		// <podIP>:<port>. Bound on 0.0.0.0 because the pod's address
+		// is assigned to it at admission and is not knowable here.
+		// A routable listener is not a trust boundary, which is why
+		// `assertCredentialConfiguration` has already refused this mode
+		// unless a credential is configured for it.
+		server.listen(port, '0.0.0.0', () => resolve(server))
 	})
 }
 

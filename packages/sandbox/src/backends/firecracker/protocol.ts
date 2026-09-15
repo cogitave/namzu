@@ -20,6 +20,33 @@ import type { SandboxExecOptions, SandboxExecResult } from '@namzu/sdk'
 import { RemoteCommandError, RemoteProtocolError } from '../remote-execution-controller.js'
 
 // ---------------------------------------------------------------------------
+// Credential — the one optional field every request envelope may carry
+// ---------------------------------------------------------------------------
+
+/**
+ * The per-instance credential a framed request may present, mixed into
+ * the request envelope alongside its `op`.
+ *
+ * Absent on the vsock and unix transports: that control channel is
+ * host↔guest only and never traverses guest egress, so the guest agent
+ * authenticates nothing there and this field is simply never written.
+ * A guest reached over a ROUTED network has no such boundary, so it is
+ * started with a per-instance token (`NAMZU_AGENT_BIND_TOKEN`, fed the
+ * pod's own identity by its orchestrator) and refuses every op but
+ * `healthz` that does not present exactly that value — from the first
+ * frame, since the agent dispatches a connection on its first frame and
+ * there is no handshake to defer the check to.
+ *
+ * The field is OPTIONAL and additive, so a host that never sets it
+ * speaks the same wire it always did and
+ * `FIRECRACKER_AGENT_PROTOCOL_VERSION` is deliberately unchanged: this
+ * needs no coupled golden-image and host rollout.
+ */
+export interface AgentRequestCredential {
+	readonly token?: string
+}
+
+// ---------------------------------------------------------------------------
 // Exec — request + the NDJSON event shapes (verbatim from worker/server.js)
 // ---------------------------------------------------------------------------
 
