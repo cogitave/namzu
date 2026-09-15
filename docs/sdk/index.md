@@ -69,3 +69,5 @@ The kernel.
 * [Assistant text phases](assistant-text.md) - Preserve public progress items while selecting settled answers and native replay.
 
 * [Automatic resident tool evidence recall](resident-evidence-recall.md) - Bounded historical tool retrieval across settled resident admissions.
+
+* [Cancellation and timeouts](cancellation-and-timeouts.md) - Findings and open composition options for provider-request cancellation, the whole-run timeout gap, and the two idle-timeout mechanisms.
