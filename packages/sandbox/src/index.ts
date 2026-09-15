@@ -44,6 +44,10 @@ import type {
 import { buildAciStandbyPoolBackend } from './backends/aci-standby-pool/index.js'
 import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
 import { buildFirecrackerBackend } from './backends/firecracker/index.js'
+import {
+	type KubernetesClusterAccess,
+	buildKubernetesBackend,
+} from './backends/kubernetes/index.js'
 
 // Re-export the layout types so consumers of `@namzu/sandbox` can
 // import them without also depending on `@namzu/sdk`. The canonical
@@ -84,6 +88,11 @@ export {
 	VsockAgentTransport,
 } from './backends/firecracker/transport.js'
 
+// Kubernetes (agent-sandbox on any cluster) public surface. The access union
+// is named by `KubernetesBackendConfig.access`, so a host that builds its own
+// credential callback can name what it is passing.
+export type { KubernetesClusterAccess } from './backends/kubernetes/index.js'
+
 // ---------------------------------------------------------------------------
 // Backend strategy
 // ---------------------------------------------------------------------------
@@ -120,6 +129,7 @@ export type SandboxBackendConfig =
 	| ContainerBackendConfig
 	| ACIStandbyPoolBackendConfig
 	| MicroVMBackendConfig
+	| KubernetesBackendConfig
 
 /**
  * Azure Container Instances Standby Pool backend. Container tier,
@@ -376,6 +386,73 @@ export interface AgentSnapshotRef {
 }
 
 /**
+ * `microvm` tier, against a Kubernetes cluster running the agent-sandbox
+ * controller (kubernetes-sigs/agent-sandbox) with a VM-isolating
+ * RuntimeClass such as Kata.
+ *
+ * `microvm` because the tier names the strength of the boundary rather than
+ * the orchestrator behind it: a pod scheduled onto a Kata RuntimeClass runs
+ * in a hardware-virtualized guest, and the same field on the same tier is how
+ * a host says "give me a VM, I do not care who starts it".
+ *
+ * Sandboxes are claimed out of a `SandboxWarmPool` when {@link warmPoolName}
+ * names one, which is what makes the acquire sub-second; without it every
+ * create is a `Sandbox` built from {@link sandboxTemplateName}'s podTemplate
+ * and pays a full pod start. This package speaks the API server with bare
+ * `fetch` and carries no Kubernetes client dependency: credentials arrive
+ * through {@link access}, and kubeconfig parsing (context merging,
+ * exec credential plugins) stays in the host that owns it.
+ */
+export interface KubernetesBackendConfig {
+	readonly tier: 'microvm'
+	readonly service: 'kubernetes'
+	/** Namespace the claims, sandboxes and their pods live in. */
+	readonly namespace: string
+	/**
+	 * How to reach the API server. `{ inCluster: true }` reads the projected
+	 * ServiceAccount volume and the kubelet's `KUBERNETES_SERVICE_*` env, which
+	 * is the production path; otherwise the host supplies the server URL, an
+	 * optional cluster CA and a `getToken()` callback — the same boundary this
+	 * package already draws for ACI's `getArmToken` and Firecracker's
+	 * `getToken`.
+	 */
+	readonly access: KubernetesClusterAccess
+	/**
+	 * `SandboxTemplate` whose `podTemplate` a POOL-LESS create copies into the
+	 * `Sandbox` it posts. Required because `Sandbox.spec` has no `templateRef`
+	 * — only a `SandboxWarmPool` references a template — so the pod spec has to
+	 * be carried across by the client. The warm path does not read it; the
+	 * pool's own `sandboxTemplateRef` decides there.
+	 */
+	readonly sandboxTemplateName: string
+	/**
+	 * `SandboxWarmPool` to claim from. Absent → every create posts a `Sandbox`
+	 * directly, because `SandboxClaim.spec.warmPoolRef` is a required field and
+	 * a pool-less claim does not exist in the API.
+	 */
+	readonly warmPoolName?: string
+	/** TCP port the in-pod guest agent listens on. Default 1024. */
+	readonly agentPort?: number
+	/** Delay between readiness polls. Default 50ms. */
+	readonly readyPollIntervalMs?: number
+	/** Total deadline from create to an addressed, Ready sandbox. Default 60000ms. */
+	readonly readyTimeoutMs?: number
+	/**
+	 * Wall-clock lifetime written into every object this backend creates, so a
+	 * host that dies mid-run costs the cluster one expiry rather than a leaked
+	 * sandbox. Default 3600.
+	 */
+	readonly claimTtlSeconds?: number
+	/**
+	 * RuntimeClass for a POOL-LESS create. Refused together with
+	 * {@link warmPoolName}: a pooled sandbox is already running under the
+	 * RuntimeClass its `SandboxTemplate` named, and a claim cannot change it —
+	 * so accepting it there would quietly drop the choice of VM boundary.
+	 */
+	readonly runtimeClassName?: string
+}
+
+/**
  * Egress allowlist resolution. Host-supplied policy decides whether
  * an outbound request is allowed before the proxy opens a socket.
  *
@@ -507,6 +584,9 @@ export type SandboxProviderConfig =
 	  })
 	| (SandboxProviderConfigBase & {
 			readonly backend: MicroVMBackendConfig
+	  })
+	| (SandboxProviderConfigBase & {
+			readonly backend: KubernetesBackendConfig
 	  })
 
 interface SandboxProviderConfigBase {
@@ -685,6 +765,31 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.mtls !== undefined ? { mtls: backend.mtls } : {}),
 			...(backend.controlPlaneMtls !== undefined
 				? { controlPlaneMtls: backend.controlPlaneMtls }
+				: {}),
+		})
+	}
+	// `microvm:kubernetes` — agent-sandbox on any cluster. Reached through a
+	// real arm of `SandboxProviderConfig`, so `backend` narrows here and every
+	// field below is read off the narrowed type. The ACI branch above still
+	// needs two `as unknown as` casts because its config shape was never added
+	// to that union; that gap is pre-existing and deliberately not touched
+	// here, but it is the reason this arm exists rather than a fourth cast.
+	if (backend.tier === 'microvm' && backend.service === 'kubernetes') {
+		return buildKubernetesBackend({
+			access: backend.access,
+			namespace: backend.namespace,
+			sandboxTemplateName: backend.sandboxTemplateName,
+			...(backend.warmPoolName !== undefined ? { warmPoolName: backend.warmPoolName } : {}),
+			...(backend.agentPort !== undefined ? { agentPort: backend.agentPort } : {}),
+			...(backend.readyPollIntervalMs !== undefined
+				? { readyPollIntervalMs: backend.readyPollIntervalMs }
+				: {}),
+			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
+			...(backend.claimTtlSeconds !== undefined
+				? { claimTtlSeconds: backend.claimTtlSeconds }
+				: {}),
+			...(backend.runtimeClassName !== undefined
+				? { runtimeClassName: backend.runtimeClassName }
 				: {}),
 		})
 	}

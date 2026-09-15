@@ -37,6 +37,7 @@ import {
 import {
 	ContainerSandboxLayoutValidationError,
 	SandboxBackendNotImplementedError,
+	type SandboxProviderConfig,
 	type SerializedSandboxError,
 	createSandboxProvider,
 	serializeSandboxError,
@@ -117,6 +118,75 @@ describe('createSandboxProvider', () => {
 			expect.unreachable('a tier with no backend must not construct')
 		} catch (err) {
 			expect(err).toBeInstanceOf(SandboxBackendNotImplementedError)
+		}
+	})
+
+	it('builds the kubernetes microVM backend through a real union arm, with no cast', () => {
+		// The point of this test is the TYPE, not the runtime: this object
+		// literal is accepted by `SandboxProviderConfig` directly. The sibling
+		// ACI shape is not in that union and is reached inside `pickBackend`
+		// through two `as unknown as` casts, so a host writing one has to lie
+		// to the compiler. Adding the arm is what keeps this one honest.
+		const provider = createSandboxProvider({
+			backend: {
+				tier: 'microvm',
+				service: 'kubernetes',
+				namespace: 'namzu-sandboxes',
+				access: { server: 'https://cluster.example:6443', getToken: async () => 'token' },
+				sandboxTemplateName: 'namzu-task',
+				warmPoolName: 'namzu-task-pool',
+			},
+		})
+
+		expect(provider.id).toBe('namzu-microvm-kubernetes')
+		expect(provider.name).toContain('microvm:kubernetes')
+	})
+
+	it('accepts the in-cluster access arm, and says so when it is not in a cluster', () => {
+		// The arm needs neither a server URL nor a token callback, which is the
+		// type-level assertion. At runtime the bootstrap is resolved during
+		// wiring rather than on the first create, so a host that configured
+		// in-cluster access outside a pod learns it while it is still starting
+		// up — the same reason the readiness bounds are validated here.
+		const config = {
+			backend: {
+				tier: 'microvm',
+				service: 'kubernetes',
+				namespace: 'namzu-sandboxes',
+				access: { inCluster: true },
+				sandboxTemplateName: 'namzu-task',
+			},
+		} as const satisfies SandboxProviderConfig
+
+		expect(() => createSandboxProvider(config)).toThrow(/KUBERNETES_SERVICE_HOST/)
+	})
+
+	it('forwards and validates kubernetes readiness options at the public boundary', () => {
+		expect(() =>
+			createSandboxProvider({
+				backend: {
+					tier: 'microvm',
+					service: 'kubernetes',
+					namespace: 'ns',
+					access: { inCluster: true },
+					sandboxTemplateName: 'namzu-task',
+					readyTimeoutMs: 12.5,
+				},
+			}),
+		).toThrow(/kubernetes\.readyTimeoutMs/)
+	})
+
+	it('refuses a microvm service it does not implement, by name', () => {
+		// The union now has two microvm arms, so this is the case that proves
+		// the refusal still reaches an untyped caller inventing a third.
+		try {
+			createSandboxProvider({
+				backend: { tier: 'microvm', service: 'nomad' },
+			} as never)
+			expect.unreachable('a service with no backend must not construct')
+		} catch (err) {
+			expect(err).toBeInstanceOf(SandboxBackendNotImplementedError)
+			expect((err as Error).message).toContain('microvm:nomad')
 		}
 	})
 
