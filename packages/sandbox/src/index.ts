@@ -44,6 +44,7 @@ import type {
 import { buildAciStandbyPoolBackend } from './backends/aci-standby-pool/index.js'
 import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
 import { buildFirecrackerBackend } from './backends/firecracker/index.js'
+import type { KubernetesEgressConfig } from './backends/kubernetes/egress-policy.js'
 import {
 	type KubernetesClusterAccess,
 	buildKubernetesBackend,
@@ -92,6 +93,12 @@ export {
 // is named by `KubernetesBackendConfig.access`, so a host that builds its own
 // credential callback can name what it is passing.
 export type { KubernetesClusterAccess } from './backends/kubernetes/index.js'
+// Egress translation types named by `KubernetesBackendConfig.egress` — see
+// `backends/kubernetes/egress-policy.ts` for what each engine can express.
+export type {
+	KubernetesEgressConfig,
+	KubernetesEgressEngine,
+} from './backends/kubernetes/egress-policy.js'
 
 // ---------------------------------------------------------------------------
 // Backend strategy
@@ -450,6 +457,23 @@ export interface KubernetesBackendConfig {
 	 * so accepting it there would quietly drop the choice of VM boundary.
 	 */
 	readonly runtimeClassName?: string
+	/**
+	 * Egress policy this backend expects an operator to have applied as a
+	 * `NetworkPolicy` (or, under `engine: 'cilium'`, a `CiliumNetworkPolicy`)
+	 * scoped to every Sandbox this backend produces. Unset means this backend
+	 * neither computes nor checks one — the cluster's default posture (the
+	 * `SandboxTemplate`'s own managed `NetworkPolicy`) is all that applies.
+	 *
+	 * This is a CONFIG-level, whole-backend policy, not a per-`create()` one:
+	 * `SandboxBackendOptions.egress` is still refused by name (see
+	 * `backends/kubernetes/index.ts`'s `assertEnforceable`), because the
+	 * enforcement point is one object attached to the template and cannot be
+	 * rewritten per running sandbox. `static` and `resolver` — hostname
+	 * allowlists — throw a named error at construction unless `engine` is
+	 * `'cilium'`: core `NetworkPolicy` has no FQDN concept at all. See
+	 * `docs/sdk/kubernetes-sandbox.md`'s egress section.
+	 */
+	readonly egress?: KubernetesEgressConfig
 }
 
 /**
@@ -791,6 +815,7 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.runtimeClassName !== undefined
 				? { runtimeClassName: backend.runtimeClassName }
 				: {}),
+			...(backend.egress !== undefined ? { egress: backend.egress } : {}),
 		})
 	}
 	throw new SandboxBackendNotImplementedError(describeBackend(backend))

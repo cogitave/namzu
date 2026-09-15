@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Kubernetes sandboxes
-description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, and what this first batch does not carry yet.
+description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, egress policy translation and verify-not-trust, and what this first batch does not carry yet.
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
@@ -17,9 +17,10 @@ acquire stays inside a second, and the pod runs under whatever `RuntimeClass`
 the cluster's `SandboxTemplate` names — a Kata class makes the boundary a
 hardware-virtualized guest rather than a namespace.
 
-**This page describes a first batch.** Acquire, readiness, address resolution
-and teardown are implemented. The execution surface is not: see
-[what is not here yet](#what-is-not-here-yet) before wiring this into a host.
+**This page describes a first batch.** Acquire, readiness, address resolution,
+teardown and egress translation/verification are implemented. The execution
+surface is not: see [what is not here yet](#what-is-not-here-yet) before
+wiring this into a host.
 
 ## Configure a provider
 
@@ -166,34 +167,124 @@ and it refuses them by name rather than accepting and dropping them:
 - `env`, `memoryLimitMb`, `maxProcesses` — these would have to ride on the
   claim, and a claim that carries them cold-starts. They belong on the
   `SandboxTemplate` the pool is built from.
-- `egress` — egress here is a `NetworkPolicy` attached to that template, which
-  cannot be rewritten per running sandbox. The container tier's habit of
-  emitting proxy environment variables as a substitute is not repeated.
+- `egress` — this is a PER-CREATE override, and egress here is a
+  `NetworkPolicy` attached to that template, which cannot be rewritten per
+  running sandbox. The container tier's habit of emitting proxy environment
+  variables as a substitute is not repeated. The backend-wide policy every
+  sandbox gets is a separate, config-level knob — see [Egress](#egress) below.
 
 `runtimeClassName` together with `warmPoolName` is refused at construction: a
 pooled sandbox is already running under the `RuntimeClass` its template named,
 and a claim cannot change it, so accepting it would quietly drop the choice of
 VM boundary.
 
+## Egress
+
+`config.egress` is optional and, unlike `SandboxBackendOptions.egress` above,
+applies to every sandbox this backend produces — because the enforcement
+point is one `NetworkPolicy` object, not something a per-`create()` call could
+rewrite:
+
+```ts
+import { createSandboxProvider } from '@namzu/sandbox'
+
+const provider = createSandboxProvider({
+  backend: {
+    tier: 'microvm',
+    service: 'kubernetes',
+    namespace: 'namzu-sandboxes',
+    access: { inCluster: true },
+    sandboxTemplateName: 'namzu-task',
+    warmPoolName: 'namzu-task-pool',
+    egress: {
+      policy: { kind: 'deny-all' },
+      // networkPolicyName defaults to `${sandboxTemplateName}-egress`.
+      // engine defaults to 'core'.
+    },
+  },
+})
+```
+
+### What core `NetworkPolicy` can express, and what it cannot
+
+Core Kubernetes `NetworkPolicy` has exactly three ways to name a destination —
+`ipBlock` (CIDR), `podSelector`, `namespaceSelector` — and no hostname or FQDN
+concept anywhere in the resource. Of the four `EgressPolicy` kinds:
+
+| Kind | Under `engine: 'core'` (default) | Under `engine: 'cilium'` |
+|---|---|---|
+| `deny-all` | A `NetworkPolicy` allowing only the cluster's own DNS (UDP/TCP 53 to `kube-system`) and nothing else. | Same — `engine` only changes the outcome for `static`/`resolver`. |
+| `allow-all` | A `NetworkPolicy` with one unrestricted egress rule. | Same. |
+| `static` / `resolver` | **Refused at construction**, before any API call: core `NetworkPolicy` cannot express a hostname allowlist at all. | A `CiliumNetworkPolicy` with a `toFQDNs` entry for every allowed host, preceded by the DNS-visibility rule Cilium's own `toFQDNs` examples require. |
+
+The refusal is a limitation stated plainly, not a footnote: **do not read
+`engine: 'cilium'` as this package adding Cilium support in general** — it is
+one translation for one CNI's CRD, chosen because Cilium is the FQDN-capable
+engine this batch verified a shape against. A cluster running a different
+FQDN-capable engine (e.g. Calico) needs its own translation before it can take
+a `static`/`resolver` policy through this config; declaring `engine: 'cilium'`
+against a cluster that does not run Cilium applies a manifest nothing
+enforces.
+
+**This backend never emits `HTTP_PROXY`/`HTTPS_PROXY` as a substitute.** Those
+variables are advisory — a process that ignores them is not bounded by
+them — and the container tier's still-open gap in that shape is not repeated
+here behind a Kubernetes-looking manifest.
+
+### The label every translated policy selects by
+
+Every Sandbox this backend creates carries the label
+`sandbox.namzu.ai/template: <sandboxTemplateName>` on its pod, and the
+translated `NetworkPolicy`'s `podSelector` (or, under `engine: 'cilium'`, the
+`CiliumNetworkPolicy`'s `endpointSelector`) matches that label. This backend
+adds the label itself for a Sandbox it creates directly — agent-sandbox's own
+controller-owned `agents.x-k8s.io/sandbox-template-ref-hash` label is written
+only on a Sandbox **adopted** out of a `SandboxWarmPool`, never on one this
+backend POSTs directly.
+
+**A `SandboxTemplate` a `SandboxWarmPool` is built from must carry the same
+label on its own `podTemplate.metadata.labels`** (value = that template's own
+name), or a pooled sandbox's pod will not match the translated policy at all —
+this backend has no path to add the label to a pool's pods after the fact.
+`packages/sandbox/k8s/manifests/sandboxtemplate-task.yaml` (a later change)
+carries it; a hand-written `SandboxTemplate` must add it too.
+
+### Verify, never trust
+
+This backend never CREATES the `NetworkPolicy` (or `CiliumNetworkPolicy`) —
+like the docker backend's network, egress here is operator-applied so the
+network boundary gets reviewed by whoever has cluster-admin, not by whatever
+created the ServiceAccount token this backend runs with. Instead, the first
+`create()` after construction (never `createSandboxProvider` itself, which
+still contacts nothing) `GET`s the object named by `networkPolicyName`
+(default `${sandboxTemplateName}-egress`) and asserts its `podSelector` /
+`endpointSelector`, `policyTypes` and `egress` rules match the translation
+exactly. A missing object or a mismatched one fails that `create()` with a
+named error identifying which field is wrong, and no sandbox is claimed —
+this check never trusts that an object with the right name does what config
+says. It runs once per backend, not once per `create()`; a failed attempt is
+not cached, so fixing the cluster and calling `create()` again retries it.
+
 ## RBAC
 
 The ServiceAccount the host runs as needs, in the sandbox namespace:
 `create`/`get`/`delete` on `sandboxclaims`, `create`/`get`/`delete` on
-`sandboxes`, `get` on `sandboxtemplates`, and `get`/`list` on `pods`. No
-consumer role is published upstream. A `403` surfaces as an error naming the
-verb and the resource and never the token.
+`sandboxes`, `get` on `sandboxtemplates`, `get`/`list` on `pods`, and — only
+when `config.egress` is set — `get` on `networkpolicies` (`networking.k8s.io`)
+or, under `engine: 'cilium'`, `get` on `ciliumnetworkpolicies` (`cilium.io`).
+No consumer role is published upstream. A `403` surfaces as an error naming
+the verb and the resource and never the token.
 
 ## What is not here yet
 
 This batch delivers the config type, both acquire paths, readiness, address
-resolution and teardown. Still to come, each in its own change:
+resolution, teardown and egress translation/verification. Still to come, each
+in its own change:
 
 - **The execution surface.** `exec`, `readFile`, `writeFile` and `listFiles`
   currently throw `KubernetesAgentTransportPendingError`, which names the
   missing transport rather than failing as an absent method. `destroy()` is
   real today.
 - **Workspace lifecycle.** Suspend, resume, and a persistent block-mode disk.
-- **Egress mapping.** Which `EgressPolicy` shapes a cluster can express, and
-  which are refused because core `NetworkPolicy` has no hostname concept.
 - **Cluster manifests.** The image, the `RuntimeClass`, `SandboxTemplate`,
   `SandboxWarmPool`, `NetworkPolicy` and RBAC the above assumes.

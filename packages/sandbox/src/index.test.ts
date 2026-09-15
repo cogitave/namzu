@@ -176,6 +176,43 @@ describe('createSandboxProvider', () => {
 		).toThrow(/kubernetes\.readyTimeoutMs/)
 	})
 
+	it('accepts config.egress through the public union, with no cast', () => {
+		// Same point as the union-arm test above, for the field this workstream
+		// adds: `egress` type-checks directly on `KubernetesBackendConfig`
+		// without reaching for `as unknown as` anywhere.
+		const config = {
+			backend: {
+				tier: 'microvm',
+				service: 'kubernetes',
+				namespace: 'namzu-sandboxes',
+				access: { inCluster: true },
+				sandboxTemplateName: 'namzu-task',
+				egress: { policy: { kind: 'deny-all' } },
+			},
+		} as const satisfies SandboxProviderConfig
+
+		// `access: { inCluster: true }` outside a pod fails wiring before egress
+		// is even reached — proves the field reached `buildKubernetesBackend`
+		// rather than being silently dropped along the way, without needing a
+		// cluster or a fake API server here.
+		expect(() => createSandboxProvider(config)).toThrow(/KUBERNETES_SERVICE_HOST/)
+	})
+
+	it('refuses a hostname-allowlist egress policy at construction, with no FQDN-capable engine declared', () => {
+		expect(() =>
+			createSandboxProvider({
+				backend: {
+					tier: 'microvm',
+					service: 'kubernetes',
+					namespace: 'namzu-sandboxes',
+					access: { server: 'https://cluster.example:6443', getToken: async () => 'token' },
+					sandboxTemplateName: 'namzu-task',
+					egress: { policy: { kind: 'static', allowedHosts: ['a.example'] } },
+				},
+			}),
+		).toThrow(/FQDN-capable policy engine/)
+	})
+
 	it('refuses a microvm service it does not implement, by name', () => {
 		// The union now has two microvm arms, so this is the case that proves
 		// the refusal still reaches an untyped caller inventing a third.

@@ -442,6 +442,73 @@ describe('cold acquire, with no pool configured', () => {
 		await warm.destroy()
 	})
 
+	it('labels the pod template with the template name, since a direct Sandbox is never adopted', async () => {
+		// agent-sandbox's own controller-owned
+		// `agents.x-k8s.io/sandbox-template-ref-hash` label is written only on
+		// bind out of a pool. A Sandbox this backend POSTs directly is never
+		// adopted, so without a label of its own a translated NetworkPolicy's
+		// podSelector (see `egress-policy.ts`) would have nothing to match it
+		// by.
+		server = await coldServer()
+		const sandbox = await backend().create({ workingDirectory: '/workspace' })
+
+		const body = server.matching('POST', '/sandboxes')[0]?.body as {
+			spec: { podTemplate: { metadata?: { labels?: Record<string, string> } } }
+		}
+		expect(body.spec.podTemplate.metadata?.labels).toEqual({
+			'sandbox.namzu.ai/template': 'namzu-task',
+		})
+		await sandbox.destroy()
+	})
+
+	it('preserves labels already on the copied template, alongside its own', async () => {
+		server = await startFakeApiServer((req) => {
+			if (req.method === 'GET' && req.path.includes('/sandboxtemplates/')) {
+				return {
+					status: 200,
+					body: {
+						metadata: { name: 'namzu-task', namespace: NAMESPACE },
+						spec: {
+							service: true,
+							podTemplate: {
+								metadata: { labels: { team: 'agents' } },
+								spec: { containers: [{ name: 'main', image: 'namzu/agent:test' }] },
+							},
+						},
+					},
+				}
+			}
+			if (req.method === 'POST' && req.path.endsWith('/sandboxes')) {
+				return { status: 201, body: {} }
+			}
+			if (req.method === 'GET' && req.path.includes('/sandboxes/')) {
+				const name = req.path.split('/sandboxes/')[1] ?? ''
+				return {
+					status: 200,
+					body: {
+						metadata: { name },
+						status: { conditions: [readyCondition()], serviceFQDN: `${name}.ns.svc` },
+					},
+				}
+			}
+			if (req.method === 'GET' && req.path.includes('/pods/')) {
+				return { status: 200, body: { metadata: { uid: POD_UID } } }
+			}
+			if (req.method === 'DELETE') return { status: 200, body: {} }
+			return { status: 404, body: {} }
+		})
+
+		const sandbox = await backend().create({ workingDirectory: '/workspace' })
+		const body = server.matching('POST', '/sandboxes')[0]?.body as {
+			spec: { podTemplate: { metadata?: { labels?: Record<string, string> } } }
+		}
+		expect(body.spec.podTemplate.metadata?.labels).toEqual({
+			team: 'agents',
+			'sandbox.namzu.ai/template': 'namzu-task',
+		})
+		await sandbox.destroy()
+	})
+
 	it('applies a runtime class it was given, because this path builds the pod spec', async () => {
 		server = await coldServer()
 		const sandbox = await buildKubernetesBackend({

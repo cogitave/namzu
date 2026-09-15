@@ -55,6 +55,17 @@
  * ACI polls `provisioningState`. A watch would buy nothing on a path whose
  * whole budget is under a second, and would cost resourceVersion tracking,
  * bookmarks, 410-relist and reconnect backoff.
+ *
+ * ## Egress
+ *
+ * `config.egress` is optional and, when set, translated and VERIFIED — never
+ * created — by `egress-policy.ts`. Verification happens once, lazily, on the
+ * first `create()`, so `buildKubernetesBackend` itself still contacts
+ * nothing. Every Sandbox this file creates directly (`buildSandboxBody`)
+ * carries {@link sandboxTemplateLabel} on its podTemplate specifically so
+ * that translated policy's `podSelector` has something stable to match —
+ * see `objects.ts`'s doc comment on that label for why agent-sandbox's own
+ * controller-owned label does not cover this path.
  */
 
 import type {
@@ -76,6 +87,13 @@ import {
 	resolveReadinessOptions,
 	runFailureCleanup,
 } from '../readiness.js'
+import {
+	type KubernetesEgressConfig,
+	assertEgressPolicyIsEnforceable,
+	defaultEgressPolicyName,
+	translateEgressPolicy,
+	verifyEgressPolicyApplied,
+} from './egress-policy.js'
 import {
 	type KubernetesAccess,
 	KubernetesAlreadyGoneError,
@@ -100,8 +118,11 @@ import {
 	podPath,
 	sandboxCollectionPath,
 	sandboxPath,
+	sandboxTemplateLabel,
 	sandboxTemplatePath,
 } from './objects.js'
+
+export type { KubernetesEgressConfig, KubernetesEgressEngine } from './egress-policy.js'
 
 /**
  * How the backend reaches the API server. Two sources, neither needing a YAML
@@ -141,6 +162,14 @@ export interface KubernetesBackendInternalConfig {
 	 * SandboxTemplate and cannot be chosen per claim.
 	 */
 	readonly runtimeClassName?: string
+	/**
+	 * Egress policy this backend's `NetworkPolicy` (or `CiliumNetworkPolicy`,
+	 * under `engine: 'cilium'`) is expected to carry. Unset means this backend
+	 * neither computes nor verifies one — the cluster's default posture (the
+	 * SandboxTemplate's own managed NetworkPolicy) is all that applies. See
+	 * `egress-policy.ts`.
+	 */
+	readonly egress?: KubernetesEgressConfig
 }
 
 /**
@@ -286,15 +315,61 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 		{ timeoutMs: DEFAULT_READY_TIMEOUT_MS, pollIntervalMs: DEFAULT_READY_POLL_MS },
 	)
 	assertRuntimeClassIsApplicable(config)
+	// A hostname allowlist with no FQDN-capable engine declared is a
+	// configuration error, not a runtime one — it can be decided from
+	// `config.egress.policy.kind` alone, with no API call, so it is refused
+	// here, synchronously, the same moment the two checks above are.
+	if (config.egress) {
+		assertEgressPolicyIsEnforceable(config.egress.policy, config.egress.engine ?? 'core')
+	}
 	const client = createKubernetesClient(clientAccess(config))
+	// Verify-not-trust runs once, lazily, on the first `create()` — never here,
+	// because `buildKubernetesBackend` is documented to contact nothing. A
+	// failed attempt is not cached: a transient API error should not wedge
+	// every later create() behind the same stale rejection forever.
+	let egressVerification: Promise<void> | undefined
 	return {
 		tier: 'microvm',
 		name: 'kubernetes',
 		async create(options: SandboxBackendOptions): Promise<Sandbox> {
+			if (config.egress) {
+				egressVerification ??= verifyEgressPolicyConfigured(
+					client,
+					config.namespace,
+					config.sandboxTemplateName,
+					config.egress,
+					options.signal,
+				).catch((err: unknown) => {
+					egressVerification = undefined
+					throw err
+				})
+				await egressVerification
+			}
 			const acquisition = await acquireKubernetesSandbox(client, config, options, readiness)
 			return buildAcquiredSandbox(acquisition, options)
 		},
 	}
+}
+
+/**
+ * Translate `egress.policy` and confirm an operator applied a matching
+ * object — the whole verify-not-trust step, isolated so `create()` above
+ * stays about ONE thing (memoize-once-per-backend) rather than two.
+ */
+async function verifyEgressPolicyConfigured(
+	client: KubernetesClient,
+	namespace: string,
+	sandboxTemplateName: string,
+	egress: KubernetesEgressConfig,
+	signal?: AbortSignal,
+): Promise<void> {
+	const engine = egress.engine ?? 'core'
+	const translated = await translateEgressPolicy(egress.policy, engine, {
+		namespace,
+		name: egress.networkPolicyName ?? defaultEgressPolicyName(sandboxTemplateName),
+		sandboxTemplateName,
+	})
+	await verifyEgressPolicyApplied(client, translated, signal)
 }
 
 function clientAccess(config: KubernetesBackendInternalConfig): KubernetesAccess {
@@ -373,6 +448,7 @@ export async function acquireKubernetesSandbox(
 					await deadline.run((signal) => readPodTemplate(client, namespace, config, signal)),
 					shutdownTime,
 					config.runtimeClassName,
+					config.sandboxTemplateName,
 				)
 
 	try {
@@ -468,6 +544,17 @@ function buildClaimBody(
  * `service: true` is forced rather than inherited: a Sandbox without a Service
  * has no `status.serviceFQDN`, and then the only address left is a pod IP that
  * changes on every resume.
+ *
+ * The podTemplate's metadata gains {@link sandboxTemplateLabel}: this Sandbox
+ * is created DIRECTLY, never adopted out of a pool, so it never gets
+ * agent-sandbox's own controller-owned
+ * `agents.x-k8s.io/sandbox-template-ref-hash` label (that is written only on
+ * bind). Without a label of its own a direct Sandbox's pod would carry
+ * nothing `egress-policy.ts`'s translated `NetworkPolicy` could select it
+ * by. Existing labels on the copied template are preserved — this ADDS to
+ * them rather than replacing the object outright — but this backend's own
+ * key always wins if the template happened to set it too, since this is the
+ * label the translated policy is built to match.
  */
 function buildSandboxBody(
 	namespace: string,
@@ -475,11 +562,16 @@ function buildSandboxBody(
 	podTemplate: SandboxPodTemplate,
 	shutdownTime: string,
 	runtimeClassName: string | undefined,
+	sandboxTemplateName: string,
 ): Record<string, unknown> {
 	const spec =
 		runtimeClassName !== undefined
 			? { ...podTemplate.spec, runtimeClassName }
 			: { ...podTemplate.spec }
+	const metadata = {
+		...podTemplate.metadata,
+		labels: { ...podTemplate.metadata?.labels, ...sandboxTemplateLabel(sandboxTemplateName) },
+	}
 	return {
 		apiVersion: `${SANDBOX_API_GROUP}/${SANDBOX_API_VERSION}`,
 		kind: 'Sandbox',
@@ -489,7 +581,7 @@ function buildSandboxBody(
 			service: true,
 			shutdownTime,
 			shutdownPolicy: 'Delete',
-			podTemplate: { ...podTemplate, spec },
+			podTemplate: { ...podTemplate, metadata, spec },
 		},
 	}
 }

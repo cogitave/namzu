@@ -1,0 +1,13 @@
+---
+"@namzu/sandbox": minor
+---
+
+The Kubernetes backend's `KubernetesBackendConfig` gains an optional `egress` block: `{ policy: EgressPolicy; networkPolicyName?: string; engine?: 'core' | 'cilium' }` (`engine` defaults to `'core'`). New exported types `KubernetesEgressConfig` and `KubernetesEgressEngine`. Nothing existing changes shape — `egress` is additive and optional, and every Sandbox this backend produces now carries a `sandbox.namzu.ai/template` label it did not carry before, which is additive metadata rather than a behavior change for an existing caller.
+
+**What it does.** `deny-all` and `allow-all` translate into a `NetworkPolicy` (egress rules that always leave the cluster's own DNS reachable, even under `deny-all`). `static` and `resolver` — hostname allowlists — are **refused at construction**, before any API call, naming the policy kind and what the cluster needs: core Kubernetes `NetworkPolicy` has no FQDN concept at all. Declaring `engine: 'cilium'` turns that refusal into an emission: a `CiliumNetworkPolicy` with a `toFQDNs` entry for every allowed host. This backend never emits `HTTP_PROXY`/`HTTPS_PROXY` as a substitute for an unenforceable policy — that is the container tier's still-open gap, not repeated here.
+
+**Verify, never trust.** This backend never creates the `NetworkPolicy`/`CiliumNetworkPolicy` itself — like the docker backend's network, it is operator-applied. The first `create()` after construction (not `createSandboxProvider`, which still contacts nothing) `GET`s the object named by `networkPolicyName` (default `${sandboxTemplateName}-egress`) and refuses to proceed on a 404 or a shape mismatch, naming the field that is wrong. It runs once per backend and is not cached across a failure, so fixing the cluster and creating again retries it.
+
+**Take this upgrade for the label, even without using `egress`.** Every Sandbox this backend creates directly now carries `sandbox.namzu.ai/template: <sandboxTemplateName>` on its pod — agent-sandbox's own controller-owned template label is written only on a Sandbox adopted out of a `SandboxWarmPool`, never on one this backend POSTs directly, so a `NetworkPolicy` an operator writes against a direct Sandbox should select by this new label. A `SandboxWarmPool`'s own `SandboxTemplate` needs the same label added to its `podTemplate.metadata.labels` for a pooled sandbox to match it too — this backend has no path to add it after the fact.
+
+RBAC: when `config.egress` is set, the ServiceAccount also needs `get` on `networkpolicies` (`networking.k8s.io`), or `get` on `ciliumnetworkpolicies` (`cilium.io`) under `engine: 'cilium'`.

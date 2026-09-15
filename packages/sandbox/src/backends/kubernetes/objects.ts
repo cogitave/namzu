@@ -182,6 +182,57 @@ export interface PodListResource {
 	readonly items?: readonly PodResource[]
 }
 
+/**
+ * Backend-owned pod label naming which `SandboxTemplate` a Sandbox's pod was
+ * built from.
+ *
+ * agent-sandbox's OWN template-adoption controller selects pods by a
+ * controller-owned label, `agents.x-k8s.io/sandbox-template-ref-hash` — but
+ * that label is written only onto a Sandbox ADOPTED out of a
+ * `SandboxWarmPool` (the controller re-parents ownership and re-labels on
+ * bind). A Sandbox this backend POSTs directly (the pool-less path in
+ * `index.ts`'s `buildSandboxBody`) is never adopted, so it never gets that
+ * label — a direct Sandbox's pod would carry nothing a `NetworkPolicy`
+ * could reliably select it by. This backend writes its own label instead, on
+ * every Sandbox it creates, pooled or direct, so `egress-policy.ts`'s
+ * translated `NetworkPolicy` has one selector that always matches.
+ *
+ * `namzu.ai` matches the published domain (`packages/cli/package.json`'s
+ * `homepage`); there is no pre-existing Kubernetes label or annotation
+ * prefix anywhere in this repo to follow instead — the closest existing
+ * convention, `NAMZU_AGENT_*` / `NAMZU_SANDBOX_*` env vars, is not a
+ * label-safe shape.
+ *
+ * W8's `SandboxTemplate` manifests MUST set this same label (value = the
+ * template's own name) on their `podTemplate.metadata.labels`, so a POOLED
+ * sandbox's pod carries it too — the pool's pods are built from that
+ * template's `podTemplate` directly, not through `buildSandboxBody`, so
+ * nothing here can put it there for them. Skipping that step means a
+ * translated `NetworkPolicy`'s `podSelector` matches only sandboxes this
+ * backend created directly and none of the pooled ones — see
+ * `docs/sdk/kubernetes-sandbox.md`'s egress section.
+ */
+export const SANDBOX_TEMPLATE_LABEL_KEY = 'sandbox.namzu.ai/template'
+
+/** `{ [SANDBOX_TEMPLATE_LABEL_KEY]: sandboxTemplateName }`, as a matchLabels-ready object. */
+export function sandboxTemplateLabel(
+	sandboxTemplateName: string,
+): Readonly<Record<string, string>> {
+	return { [SANDBOX_TEMPLATE_LABEL_KEY]: sandboxTemplateName }
+}
+
+/** Core `NetworkPolicy` — a stock resource, no CRD. */
+export const CORE_NETWORK_POLICY_API_GROUP = 'networking.k8s.io'
+export const CORE_NETWORK_POLICY_API_VERSION = 'v1'
+
+/**
+ * Cilium's FQDN-capable policy CRD. Only reached when
+ * `KubernetesEgressConfig.engine` is explicitly `'cilium'` — see
+ * `egress-policy.ts`.
+ */
+export const CILIUM_NETWORK_POLICY_API_GROUP = 'cilium.io'
+export const CILIUM_NETWORK_POLICY_API_VERSION = 'v2'
+
 function segment(value: string): string {
 	return encodeURIComponent(value)
 }
@@ -212,4 +263,12 @@ export function podPath(namespace: string, name: string): string {
 
 export function podListPath(namespace: string, labelSelector: string): string {
 	return `/api/v1/namespaces/${segment(namespace)}/pods?labelSelector=${encodeURIComponent(labelSelector)}`
+}
+
+export function networkPolicyPath(namespace: string, name: string): string {
+	return `/apis/${CORE_NETWORK_POLICY_API_GROUP}/${CORE_NETWORK_POLICY_API_VERSION}/namespaces/${segment(namespace)}/networkpolicies/${segment(name)}`
+}
+
+export function ciliumNetworkPolicyPath(namespace: string, name: string): string {
+	return `/apis/${CILIUM_NETWORK_POLICY_API_GROUP}/${CILIUM_NETWORK_POLICY_API_VERSION}/namespaces/${segment(namespace)}/ciliumnetworkpolicies/${segment(name)}`
 }
