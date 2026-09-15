@@ -607,6 +607,10 @@ export type SandboxProviderConfig =
 			readonly layout: ContainerSandboxLayout
 	  })
 	| (SandboxProviderConfigBase & {
+			readonly backend: ACIStandbyPoolBackendConfig
+			readonly layout: ContainerSandboxLayout
+	  })
+	| (SandboxProviderConfigBase & {
 			readonly backend: MicroVMBackendConfig
 	  })
 	| (SandboxProviderConfigBase & {
@@ -684,6 +688,40 @@ export function createSandboxProvider(config: SandboxProviderConfig): SandboxPro
 
 function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 	const backend = config.backend
+	// Checked ahead of the `docker` default below: `ACIStandbyPoolBackendConfig`
+	// is a real arm of `SandboxProviderConfig` (see the discriminated union
+	// above), discriminated from `ContainerBackendConfig` by `runtime`. A
+	// plain equality check here narrows `backend` to the ACI shape with no
+	// cast, and — because this branch always returns — narrows it AWAY for
+	// every check below, so the `docker` branch's `backend.runtime ?? 'docker'`
+	// still sees only `ContainerBackendConfig`.
+	if (backend.tier === 'container' && backend.runtime === 'aci-standby-pool') {
+		const layout = (config as Extract<SandboxProviderConfig, { layout: ContainerSandboxLayout }>)
+			.layout
+		const resolved = resolveLayout(layout)
+		return buildAciStandbyPoolBackend({
+			subscriptionId: backend.subscriptionId,
+			resourceGroup: backend.resourceGroup,
+			location: backend.location,
+			standbyPoolResourceId: backend.standbyPoolResourceId,
+			containerGroupProfileResourceId: backend.containerGroupProfileResourceId,
+			...(backend.containerGroupProfileRevision !== undefined
+				? { containerGroupProfileRevision: backend.containerGroupProfileRevision }
+				: {}),
+			layout: resolved,
+			getArmToken: backend.getArmToken,
+			...(backend.subnetId !== undefined ? { subnetId: backend.subnetId } : {}),
+			...(backend.readyPollIntervalMs !== undefined
+				? { readyPollIntervalMs: backend.readyPollIntervalMs }
+				: {}),
+			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
+			...(backend.workerPort !== undefined ? { workerPort: backend.workerPort } : {}),
+			...(backend.armApiVersion !== undefined ? { armApiVersion: backend.armApiVersion } : {}),
+			...(backend.containerNamePrefix !== undefined
+				? { containerNamePrefix: backend.containerNamePrefix }
+				: {}),
+		})
+	}
 	if (backend.tier === 'container' && (backend.runtime ?? 'docker') === 'docker') {
 		// `layout` is required for container-tier backends by the
 		// discriminated union — narrow safely without a non-null
@@ -707,41 +745,6 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.network !== undefined ? { network: backend.network } : {}),
 			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
-		})
-	}
-	if (
-		backend.tier === 'container' &&
-		(backend as unknown as { runtime?: string }).runtime === 'aci-standby-pool'
-	) {
-		const aciBackend = backend as unknown as ACIStandbyPoolBackendConfig
-		const layout = (config as Extract<SandboxProviderConfig, { layout: ContainerSandboxLayout }>)
-			.layout
-		const resolved = resolveLayout(layout)
-		return buildAciStandbyPoolBackend({
-			subscriptionId: aciBackend.subscriptionId,
-			resourceGroup: aciBackend.resourceGroup,
-			location: aciBackend.location,
-			standbyPoolResourceId: aciBackend.standbyPoolResourceId,
-			containerGroupProfileResourceId: aciBackend.containerGroupProfileResourceId,
-			...(aciBackend.containerGroupProfileRevision !== undefined
-				? { containerGroupProfileRevision: aciBackend.containerGroupProfileRevision }
-				: {}),
-			layout: resolved,
-			getArmToken: aciBackend.getArmToken,
-			...(aciBackend.subnetId !== undefined ? { subnetId: aciBackend.subnetId } : {}),
-			...(aciBackend.readyPollIntervalMs !== undefined
-				? { readyPollIntervalMs: aciBackend.readyPollIntervalMs }
-				: {}),
-			...(aciBackend.readyTimeoutMs !== undefined
-				? { readyTimeoutMs: aciBackend.readyTimeoutMs }
-				: {}),
-			...(aciBackend.workerPort !== undefined ? { workerPort: aciBackend.workerPort } : {}),
-			...(aciBackend.armApiVersion !== undefined
-				? { armApiVersion: aciBackend.armApiVersion }
-				: {}),
-			...(aciBackend.containerNamePrefix !== undefined
-				? { containerNamePrefix: aciBackend.containerNamePrefix }
-				: {}),
 		})
 	}
 	if (backend.tier === 'container' && backend.runtime === 'runsc') {
@@ -794,10 +797,8 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 	}
 	// `microvm:kubernetes` — agent-sandbox on any cluster. Reached through a
 	// real arm of `SandboxProviderConfig`, so `backend` narrows here and every
-	// field below is read off the narrowed type. The ACI branch above still
-	// needs two `as unknown as` casts because its config shape was never added
-	// to that union; that gap is pre-existing and deliberately not touched
-	// here, but it is the reason this arm exists rather than a fourth cast.
+	// field below is read off the narrowed type, same as the ACI and docker
+	// branches above.
 	if (backend.tier === 'microvm' && backend.service === 'kubernetes') {
 		return buildKubernetesBackend({
 			access: backend.access,

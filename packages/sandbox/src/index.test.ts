@@ -123,10 +123,8 @@ describe('createSandboxProvider', () => {
 
 	it('builds the kubernetes microVM backend through a real union arm, with no cast', () => {
 		// The point of this test is the TYPE, not the runtime: this object
-		// literal is accepted by `SandboxProviderConfig` directly. The sibling
-		// ACI shape is not in that union and is reached inside `pickBackend`
-		// through two `as unknown as` casts, so a host writing one has to lie
-		// to the compiler. Adding the arm is what keeps this one honest.
+		// literal is accepted by `SandboxProviderConfig` directly, with no
+		// cast required to reach `KubernetesBackendConfig`.
 		const provider = createSandboxProvider({
 			backend: {
 				tier: 'microvm',
@@ -140,6 +138,33 @@ describe('createSandboxProvider', () => {
 
 		expect(provider.id).toBe('namzu-microvm-kubernetes')
 		expect(provider.name).toContain('microvm:kubernetes')
+	})
+
+	it('builds the ACI standby-pool backend through a real union arm, with no cast', () => {
+		// The point of this test is the TYPE, not the runtime: this object
+		// literal is accepted by `SandboxProviderConfig` directly — no
+		// `as unknown as` needed to reach `ACIStandbyPoolBackendConfig`, which
+		// `pickBackend` used to bridge with two such casts because the shape
+		// was missing from the union. `provider.id`/`name` below come off the
+		// backend `pickBackend` actually returned, so a passing assertion
+		// proves dispatch reached `buildAciStandbyPoolBackend` rather than
+		// falling through to `SandboxBackendNotImplementedError`.
+		const provider = createSandboxProvider({
+			backend: {
+				tier: 'container',
+				runtime: 'aci-standby-pool',
+				subscriptionId: 'sub',
+				resourceGroup: 'rg',
+				location: 'westeurope',
+				standbyPoolResourceId: '/pools/p',
+				containerGroupProfileResourceId: '/profiles/p',
+				getArmToken: async () => 'token',
+			},
+			layout: validLayout(),
+		})
+
+		expect(provider.id).toBe('namzu-container-aci-standby-pool')
+		expect(provider.name).toContain('container:aci-standby-pool')
 	})
 
 	it('accepts the in-cluster access arm, and says so when it is not in a cluster', () => {
