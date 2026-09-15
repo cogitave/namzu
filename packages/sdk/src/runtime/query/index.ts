@@ -1035,6 +1035,56 @@ function withoutOwnedResumeTurn(
 	)
 }
 
+/**
+ * The history plus the part of the owned resume turn that already RAN, for the
+ * observation ledger to be seeded from.
+ *
+ * `withoutOwnedResumeTurn` takes that turn out so generic repair cannot answer
+ * it, and the plan re-appends it much later — after the sandbox exists, after
+ * the input guardrails, immediately before the loop. Seeding from the list the
+ * model finally sees would therefore have to happen after `applyPendingResume`,
+ * and that is the wrong seam for a reason that is not about ordering: the plan
+ * does not merely re-append the turn, it EXECUTES the calls in it that never
+ * started. Those tools read the ledger this seeding builds, so a seed placed
+ * after them would refuse the very write the resume exists to carry out — no
+ * `hasRead` for a file the conversation had read three turns earlier.
+ *
+ * So the turn is folded in here instead, and only as far as it actually got.
+ * A call `recoverCompletedCalls` found an outcome for is one that ran: its
+ * receipt goes in beside it, and the walk reads it exactly as it reads any
+ * other — a completed `write` restores the body it put there, and the
+ * unknown-outcome result the recovery writes for an interrupted one withdraws
+ * the path instead. A call ABSENT from that map is absent because a complete
+ * scan proved it has no recorded start, so the file it names is untouched and
+ * the claim history established for it still stands; leaving it out is what
+ * lets it execute in a moment. Without any of this the seed never saw the
+ * turn at all, and an executed write inside it left the pre-write body standing
+ * as a claim until the next mutation's drift check happened to catch it.
+ */
+function withOwnedResumeOutcomes(
+	messages: readonly Message[],
+	assistant: AssistantMessage,
+	recovered: ReadonlyMap<string, { result: string; isError: boolean }>,
+): Message[] {
+	const ran = (assistant.toolCalls ?? []).flatMap((call) => {
+		const outcome = recovered.get(call.id)
+		return outcome ? [{ call, outcome }] : []
+	})
+	if (ran.length === 0) return [...messages]
+	return [
+		...messages,
+		{ ...assistant, toolCalls: ran.map(({ call }) => call) },
+		...ran.map(
+			({ call, outcome }): Message => ({
+				role: 'tool',
+				toolCallId: call.id,
+				content: outcome.result,
+				isError: outcome.isError,
+			}),
+		),
+	]
+}
+
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
 	assertMaxToolCalls(params.maxToolCalls)
 	// Required types do not protect JavaScript callers. Reject missing scope
@@ -2391,12 +2441,31 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				// about files the conversation already wrote in full — and re-reads
 				// them. Rebuilt from the REPAIRED history, which is what the model
 				// is about to be shown, rather than from the checkpoint's own
-				// messages. Reads no file's content: every fingerprint recovered
-				// here is still checked against the real one at mutation time.
-				await toolExecutor.seedFileObservations(
-					restoredMessages,
-					params.sandboxProvider !== undefined,
-				)
+				// messages — plus whatever of the owned resume turn actually ran,
+				// which the repaired list does not carry; see
+				// `withOwnedResumeOutcomes`. Reads no file's content: every
+				// fingerprint recovered here is still checked against the real one
+				// at mutation time.
+				try {
+					await toolExecutor.seedFileObservations(
+						pendingResume
+							? withOwnedResumeOutcomes(restoredMessages, pendingResume.assistant, recoveredResults)
+							: restoredMessages,
+						params.sandboxProvider !== undefined,
+					)
+				} catch (err: unknown) {
+					// A ledger that could not be rebuilt is the empty one every resume
+					// used to get, so the run continues without its witnesses and the
+					// model reads what it needs. Failing the resume over it would trade
+					// a conversation that works for one that does not, to protect an
+					// optimisation. Said out loud all the same, because a seeding that
+					// failed and one that found nothing are otherwise the same silence.
+					ctx.log.debug('Could not rebuild the file observation ledger on resume', {
+						[NAMZU.RUN_ID]: ctx.runMgr.id,
+						'namzu.checkpoint.id': checkpoint.id,
+						'exception.message': err instanceof Error ? err.message : String(err),
+					})
+				}
 
 				for (const msg of restoredMessages) {
 					if (msg.role === 'system') {

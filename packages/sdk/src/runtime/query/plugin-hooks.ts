@@ -59,3 +59,23 @@ export function applyLifecycleHookResults(
 	}
 	return annotations
 }
+
+/**
+ * What a `pre_tool_use` hook's SKIP goes back to the model as.
+ *
+ * A function rather than a template at the one call site, because the text is
+ * a SIGNAL as well as prose. A skipped call gets a non-error receipt — the
+ * hook refused it, nothing failed — so the transcript's only record that the
+ * tool never ran is this sentence. `file-evidence-replay.ts` reads it back to
+ * keep a skipped `write` from being replayed as a body the file now holds,
+ * and it can only do that while one function owns both the writing and the
+ * recognising.
+ */
+export function skippedToolResultText(toolName: string, reason: string): string {
+	return `Tool ${toolName} skipped by plugin: ${reason}`
+}
+
+/** Whether `content` is the receipt {@link skippedToolResultText} writes for `toolName`. */
+export function isSkippedToolResult(toolName: string, content: string): boolean {
+	return content.startsWith(skippedToolResultText(toolName, ''))
+}

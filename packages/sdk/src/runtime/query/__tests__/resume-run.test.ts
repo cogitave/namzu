@@ -9,9 +9,11 @@ import { clearToolResult } from '../../../compaction/tool-result-editing.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { InMemoryCheckpointStore as RealInMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js'
+import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { EditTool } from '../../../tools/builtins/edit.js'
 import { ReadFileTool } from '../../../tools/builtins/read-file.js'
 import { WriteFileTool } from '../../../tools/builtins/write-file.js'
+import { createFileReadTracker } from '../../../tools/file-read-tracker.js'
 import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import {
@@ -599,6 +601,105 @@ describe('a resumed run remembers the files this conversation wrote', () => {
 		expect(requests[1]?.map((m) => String(m.content)).join('\n')).not.toContain('"bodyInCall":"w1"')
 		// Untouched: a refused edit writes nothing.
 		expect(await readFile(path, 'utf-8')).toBe('somebody else wrote this\n')
+	})
+
+	it("carries the interrupted turn's own write instead of the body it replaced", async () => {
+		// The turn a resume plan still OWNS is taken out of the history before
+		// repair and put back long afterwards, so the seeding never saw it. A
+		// write inside it that DID land — its receipt recovered from the run's
+		// own transcript — had therefore changed the file while the ledger went
+		// on holding the body from the turn before, and nothing took that claim
+		// back until the next mutation happened to be refused for drift. The
+		// seed folds the part of that turn which actually ran back in.
+		const store = new InMemoryCheckpointStore()
+		const base = await baseParams(store)
+		const path = join(base.workingDirectory, 'note.txt')
+		const replaced = 'the turn that was interrupted wrote this\n'
+		const interrupted = {
+			id: 'w2',
+			type: 'function' as const,
+			function: { name: 'write', arguments: JSON.stringify({ path, content: replaced }) },
+		}
+		await store.writeCheckpoint(
+			SCOPE,
+			checkpoint({
+				messages: [...wroteInHistory(path), createAssistantMessage('and again', [interrupted])],
+			}),
+		)
+		// The transcript says that write completed; the process died before its
+		// result reached the history.
+		const runStore = new InMemoryRunStore()
+		await runStore.initRun(SCOPE.runId)
+		for (const event of [
+			// From the beginning, because recovery refuses a log it cannot see
+			// the start of — a partial one proves nothing about what ran.
+			{ type: 'run_started', runId: SCOPE.runId },
+			{ type: 'tool_executing', runId: SCOPE.runId, toolUseId: 'w2', toolName: 'write', input: {} },
+			{
+				type: 'tool_completed',
+				runId: SCOPE.runId,
+				toolUseId: 'w2',
+				toolName: 'write',
+				result: `Created ${path}`,
+				isError: false,
+			},
+		] as RunEvent[]) {
+			await runStore.appendEvent(event)
+		}
+		const requests: Message[][] = []
+		const provider = new MockLLMProvider({
+			onRequest: ({ messages }) => requests.push([...messages]),
+			turns: [{ text: 'the newer body, then' }],
+		})
+
+		const outcome = await resumeRun({
+			...base,
+			provider,
+			runStore,
+			tools: fileTools(),
+			runConfig: { ...base.runConfig, maxIterations: 4 },
+		})
+
+		expect(outcome.resumed).toBe(true)
+		const first = requests[0]?.map((m) => String(m.content)).join('\n') ?? ''
+		// The body the interrupted turn put there, and not the one it replaced.
+		expect(first).toContain('"bodyInCall":"w2"')
+		expect(first).not.toContain('"bodyInCall":"w1"')
+	})
+
+	it('stays resumable when the seeding itself throws', async () => {
+		// A rebuilt ledger is an optimisation over the empty one every resume
+		// used to get. Letting it fail the resume would trade a conversation
+		// that works for one that does not, so the failure is logged and the
+		// run continues with no witnesses — the model reads what it needs.
+		const store = new InMemoryCheckpointStore()
+		await store.writeCheckpoint(SCOPE, checkpoint({ messages: wroteInHistory('note.txt') }))
+		const requests: Message[][] = []
+		const base = await baseParams(store)
+		const provider = new MockLLMProvider({
+			onRequest: ({ messages }) => requests.push([...messages]),
+			turns: [{ text: 'no witnesses, then' }],
+		})
+
+		const outcome = await resumeRun({
+			...base,
+			provider,
+			tools: fileTools(),
+			fileReadTracker: {
+				...createFileReadTracker(),
+				recordRead: () => {
+					throw new Error('the ledger refused the entry')
+				},
+			},
+			runConfig: { ...base.runConfig, maxIterations: 4 },
+		})
+
+		expect(outcome.resumed).toBe(true)
+		if (!outcome.resumed) return
+		expect(outcome.run.status).not.toBe('failed')
+		expect(requests[0]?.map((m) => String(m.content)).join('\n')).not.toContain(
+			'Visible file evidence',
+		)
 	})
 
 	it('offers nothing for a write whose receipt compaction had already cleared', async () => {

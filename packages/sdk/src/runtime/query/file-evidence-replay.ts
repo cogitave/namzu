@@ -11,6 +11,7 @@ import {
 import { WriteFileTool } from '../../tools/builtins/write-file.js'
 import type { Message, ToolCall } from '../../types/message/index.js'
 import type { FileReadTracker } from '../../types/tool/index.js'
+import { isSkippedToolResult } from './plugin-hooks.js'
 
 /**
  * Reconstructing a file's body from calls the conversation can still see.
@@ -73,6 +74,64 @@ const MAX_CALL_ID_UNITS = 256
  * in the work-context message, and the constant belongs to this module.
  */
 export const MAX_PATH_UNITS = 512
+
+/**
+ * Arguments this module will not read as JSON at all, at any bound.
+ *
+ * {@link MAX_ARGUMENT_UNITS} governs what may be BELIEVED about a call, and
+ * deliberately leaves attribution unbounded so that one large `write` cannot
+ * cost a conversation every other witness in it. Unbounded is still not free:
+ * `JSON.parse` over a multi-megabyte body is real work, and it was being done
+ * up to three times for one call — once to collect the paths, once to key the
+ * mutation, once to read the call as evidence. Two of those are gone: the
+ * attribution answer is now memoised for the whole pass (see
+ * {@link PathAttributions}), and the evidence read never reaches a call past
+ * the far smaller bound above. What is left is this ceiling on the single
+ * remaining parse.
+ *
+ * About a megabyte, some thirty times the evidence bound, because the rule is
+ * that an oversize-but-ORDINARY write stays attributable — a generated file, a
+ * bundled config, a long document — while the pathological input is refused. A
+ * call past it is attributable to nothing, and the walk treats it exactly as
+ * it treats one that names no `path`: there is no key to withdraw, so the
+ * whole pass is abandoned and the conversation keeps the empty ledger a resume
+ * has always started from.
+ */
+const MAX_ATTRIBUTION_UNITS = 1024 * 1024
+
+/**
+ * One pass's answer to "which file did this call touch", memoised.
+ *
+ * Keyed on the call OBJECT rather than on its id: an id claimed by two calls
+ * is an ambiguity this module refuses to settle by position, and settling it
+ * by cache hit instead would be the same mistake wearing a different hat. A
+ * `WeakMap` because the entries are worth exactly as long as the transcript
+ * they describe, and the value is the declared path or `null` for a call that
+ * declares none — `undefined` means only "not asked yet".
+ */
+export type PathAttributions = WeakMap<ToolCall, string | null>
+
+export function createPathAttributions(): PathAttributions {
+	return new WeakMap()
+}
+
+/**
+ * A call's arguments as JSON, or `undefined` for arguments this module will
+ * not read.
+ *
+ * Every `JSON.parse` of a tool call in this file goes through here, so the
+ * ceiling is one rule rather than one rule per reader, and malformed input is
+ * a value the callers test rather than an exception they have to be wrapped
+ * against.
+ */
+function parseArguments(call: ToolCall): unknown {
+	if (call.function.arguments.length > MAX_ATTRIBUTION_UNITS) return undefined
+	try {
+		return JSON.parse(call.function.arguments)
+	} catch {
+		return undefined
+	}
+}
 
 /**
  * The ledger key a tool-call path belongs to, or `undefined` for a path this
@@ -153,7 +212,10 @@ export function indexVisibleHistory(
  * witness in it. The bounds belong to what may be believed; the path is read
  * here out of the same field the walk reads it from, under no bound at all.
  */
-export function collectObservedPaths(messages: readonly Message[]): readonly string[] {
+export function collectObservedPaths(
+	messages: readonly Message[],
+	attributions: PathAttributions = createPathAttributions(),
+): readonly string[] {
 	const paths = new Set<string>()
 	let mutated = false
 	for (const message of messages) {
@@ -162,7 +224,7 @@ export function collectObservedPaths(messages: readonly Message[]): readonly str
 			const name = call.function.name
 			if (name !== 'write' && name !== 'edit' && name !== 'read') continue
 			if (name !== 'read') mutated = true
-			const path = declaredPath(call)
+			const path = declaredPath(call, attributions)
 			if (path !== undefined) paths.add(path)
 		}
 	}
@@ -185,17 +247,22 @@ export function collectObservedPaths(messages: readonly Message[]): readonly str
  * buffer moves to `metadata.partialArguments`, which is what the model was
  * saying rather than what ran — a `repairToolCall` hook may have rewritten the
  * arguments before execution. So a truncated call is attributable to nothing,
- * and the walk treats it as such.
+ * and the walk treats it as such. So is a call whose arguments run past
+ * {@link MAX_ATTRIBUTION_UNITS}, which this does not read at all.
+ *
+ * Answered once per pass and remembered. The path collection and the walk ask
+ * the same question of the same calls, and a `write` carries a whole file body
+ * in the string being parsed to answer it.
  */
-function declaredPath(call: ToolCall): string | undefined {
-	try {
-		const parsed: unknown = JSON.parse(call.function.arguments)
-		if (typeof parsed !== 'object' || parsed === null) return undefined
-		const path = (parsed as { path?: unknown }).path
-		return typeof path === 'string' && path.length > 0 ? path : undefined
-	} catch {
-		return undefined
-	}
+function declaredPath(call: ToolCall, attributions: PathAttributions): string | undefined {
+	const remembered = attributions.get(call)
+	if (remembered !== undefined) return remembered ?? undefined
+	const parsed = parseArguments(call)
+	const declared =
+		typeof parsed === 'object' && parsed !== null ? (parsed as { path?: unknown }).path : undefined
+	const path = typeof declared === 'string' && declared.length > 0 ? declared : null
+	attributions.set(call, path)
+	return path ?? undefined
 }
 
 /**
@@ -206,6 +273,14 @@ function declaredPath(call: ToolCall): string | undefined {
  * or arrived truncated, reconstructs nothing at all — so the whole path is
  * withheld rather than emitted as the part still visible, which would name a
  * body the model cannot rebuild.
+ *
+ * A call a `pre_tool_use` hook SKIPPED is the one refusal that does not arrive
+ * as an error. The hook declined the call; nothing failed, so the receipt is a
+ * plain success carrying the sentence `plugin-hooks.ts` writes for it, and
+ * reading that as a `write` would hand back a body the tool was never allowed
+ * to put on disk — a fingerprint for a file that still holds whatever it held
+ * before, and a spurious drift refusal on the next edit. Recognised through
+ * the same function that writes the sentence, so the two cannot drift apart.
  */
 export function visibleCall(
 	history: VisibleHistory,
@@ -224,7 +299,8 @@ export function visibleCall(
 		receipt.role !== 'tool' ||
 		receipt.isError ||
 		typeof receipt.content !== 'string' ||
-		isClearedToolResult(receipt.content)
+		isClearedToolResult(receipt.content) ||
+		isSkippedToolResult(name, receipt.content)
 	)
 		return undefined
 	return call
@@ -237,7 +313,7 @@ export function visibleWrite(
 ): { readonly path: string; readonly key: string; readonly body: string } | undefined {
 	const call = visibleCall(history, id, 'write')
 	if (!call) return
-	const input = WriteFileTool.inputSchema.safeParse(JSON.parse(call.function.arguments))
+	const input = WriteFileTool.inputSchema.safeParse(parseArguments(call))
 	if (!input.success || input.data.path.length > MAX_PATH_UNITS) return
 	const body = input.data.content ?? input.data.newStr
 	if (typeof body !== 'string') return
@@ -259,7 +335,7 @@ export function visibleEdit(
 ): { readonly key: string; readonly input: unknown } | undefined {
 	const call = visibleCall(history, id, 'edit')
 	if (!call) return
-	const input = EditTool.inputSchema.safeParse(JSON.parse(call.function.arguments))
+	const input = EditTool.inputSchema.safeParse(parseArguments(call))
 	if (!input.success) return
 	const key = history.keyOf(input.data.path)
 	if (key === undefined) return
@@ -378,9 +454,10 @@ type LedgerStep =
  * hands back its body and its witness; the edits on top of it are replayed
  * hop by hop and extend the chain. Anything else about a path the conversation
  * mutated — a receipt compaction cleared, a call the transcript never answered,
- * a mutation it refused, a hop that no longer applies, a body past the bounds, a
- * call too long to quote back — withdraws whatever this pass was holding for
- * that path and writes NOTHING for it.
+ * a mutation it refused, one a `pre_tool_use` hook skipped before it ever ran,
+ * a hop that no longer applies, a body past the bounds, a call too long to
+ * quote back — withdraws whatever this pass was holding for that path and
+ * writes NOTHING for it.
  *
  * Content-backed observations only, and that is the whole of what a resume
  * restores. A path in the ledger with no fingerprint is a path `write` lets
@@ -417,6 +494,7 @@ export function replayObservationLedger(
 	messages: readonly Message[],
 	tracker: FileReadTracker,
 	keyOf: FileKeyResolver,
+	attributions: PathAttributions = createPathAttributions(),
 ): LedgerReplayReport {
 	const history = indexVisibleHistory(messages, keyOf)
 	const budget = createReplayBudget()
@@ -444,7 +522,7 @@ export function replayObservationLedger(
 				// can neither confirm what this pass holds nor contradict it. And a
 				// read changes no file, so a claim left standing across one is still a
 				// claim about the same bytes.
-				if (answered) observeRead(history, call, claims, budget)
+				if (answered) observeRead(history, call, claims, withBody, budget)
 				continue
 			}
 			// One id claimed by two calls hides which of them ran. On a path this
@@ -465,7 +543,7 @@ export function replayObservationLedger(
 			// it names — and only that path. A mutation attributable to no path at all
 			// is still the one thing that stops the pass, because then there is no
 			// path to withdraw.
-			const key = mutatedKey(history, call)
+			const key = mutatedKey(history, call, attributions)
 			if (key === undefined) return commit(tracker, new Map(), budget)
 			const claim: Claim = answered
 				? mutate(history, call, name, key, claims.get(key), budget)
@@ -541,7 +619,10 @@ function mutate(
 		// the stream truncated, a path longer than an entry goes out with, a key
 		// the call and the ledger disagree about. Each of those withdraws the
 		// body and keeps the walk going — what was on this path is now unknown,
-		// which is a statement about one path rather than a reason to stop.
+		// which is a statement about one path rather than a reason to stop. A
+		// call a hook SKIPPED lands here too, from the other direction: that one
+		// never ran, so the file holds whatever it held before and this pass
+		// cannot say what that was either.
 		if (!written || written.key !== key) return { kind: 'seen' }
 		if (!spend(budget, written.body.length)) return { kind: 'seen' }
 		// A full body replaces everything under it, chain included.
@@ -588,6 +669,7 @@ function observeRead(
 	history: VisibleHistory,
 	call: ToolCall,
 	claims: Map<string, Claim>,
+	withBody: Set<string>,
 	budget: ReplayBudget,
 ): void {
 	const read = readWindow(history, call)
@@ -613,6 +695,12 @@ function observeRead(
 		}
 	}
 	claims.set(read.key, { kind: 'seen' })
+	// Off the held list as well as out of the claim. A withdrawn path is one
+	// this pass is no longer carrying a body for, so counting it against the
+	// eviction bound would have a later mutation evict a path that IS still
+	// holding one — the pass would then write fewer witnesses than the
+	// projection can emit, and the one it dropped was admissible.
+	withBody.delete(read.key)
 }
 
 /**
@@ -664,8 +752,12 @@ function lineNumberUnits(lines: number): number {
  * those, stop the pass — a refused call included, because a refusal this pass
  * cannot place is a refusal it cannot act on either.
  */
-function mutatedKey(history: VisibleHistory, call: ToolCall): string | undefined {
-	const path = declaredPath(call)
+function mutatedKey(
+	history: VisibleHistory,
+	call: ToolCall,
+	attributions: PathAttributions,
+): string | undefined {
+	const path = declaredPath(call, attributions)
 	return path === undefined ? undefined : history.keyOf(path)
 }
 
@@ -674,15 +766,11 @@ function readWindow(
 	history: VisibleHistory,
 	call: ToolCall,
 ): { readonly key: string; readonly window: ReadWindowRequest } | undefined {
-	try {
-		const input = ReadFileTool.inputSchema.safeParse(JSON.parse(call.function.arguments))
-		if (!input.success) return undefined
-		const key = history.keyOf(input.data.path)
-		// A read this pass cannot key cannot contradict a claim either: the only
-		// claims it holds came from mutations, and a mutation whose path would
-		// not resolve stopped the pass before it made one.
-		return key === undefined ? undefined : { key, window: input.data }
-	} catch {
-		return undefined
-	}
+	const input = ReadFileTool.inputSchema.safeParse(parseArguments(call))
+	if (!input.success) return undefined
+	const key = history.keyOf(input.data.path)
+	// A read this pass cannot key cannot contradict a claim either: the only
+	// claims it holds came from mutations, and a mutation whose path would
+	// not resolve stopped the pass before it made one.
+	return key === undefined ? undefined : { key, window: input.data }
 }

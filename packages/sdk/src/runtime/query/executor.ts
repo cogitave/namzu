@@ -52,6 +52,7 @@ import { compressShellOutput } from '../../utils/shell-compress.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
+import { skippedToolResultText } from './plugin-hooks.js'
 import type { ToolResultObservation } from './project-instructions.js'
 import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
 import {
@@ -2312,7 +2313,7 @@ export class ToolExecutor {
 					return {
 						kind: 'skip',
 						input: currentInput,
-						output: `Tool ${toolName} skipped by plugin: ${result.reason}`,
+						output: skippedToolResultText(toolName, result.reason),
 					}
 				case 'error':
 					return {

@@ -228,7 +228,14 @@ may have landed with the file half written, and nobody can say. A mutation it
 refused is a tool's own report about that path, a drift refusal above all, made
 after reading the disk and finding the body this ledger holds is not the body
 there; restoring that fingerprint would undo a safety observation the transcript
-is still carrying in words. Each of those costs the path it names and no other.
+is still carrying in words. A call a `pre_tool_use` hook SKIPPED withdraws the
+path too, and is the one refusal that does not arrive as an error: the hook
+declined the call, so nothing failed and the receipt is an ordinary success. It
+is recognised by the sentence the runtime writes for a skip, through the same
+function that writes it, because a skipped `write` read as a successful one
+would restore a body that never reached the disk and have the next edit refused
+for a drift the ledger itself invented. Each of those costs the path it names
+and no other.
 
 Replay reads no file's CONTENT; every body it restores is one the visible calls
 rebuild exactly. The one thing it does touch the filesystem for is the key each
@@ -278,12 +285,28 @@ buffer kept only as `metadata.partialArguments`, what the model was saying
 rather than what ran. A merely LARGE call is none of these: the argument bound
 governs what may be believed, not what may be attributed, so an oversize `write`
 withdraws its own path's body and leaves every other witness in the conversation
-standing.
+standing. Attribution is not unbounded, though — it is reading JSON, and for a
+`write` the string being read is a whole file body. Each call's path is read at
+most once per seeding and never at all past about a megabyte of arguments, some
+thirty times the evidence bound: an oversize-but-ordinary write stays
+attributable and the pathological one is a mutation that can be placed nowhere,
+which is the third case above.
 
 `resumeRun` and `query`'s checkpoint path do the same for a run, from the
 history as repaired rather than as checkpointed, so the ledger describes what
-the model is about to be shown. Shell writes and third-party tools that do not
-record observations are outside this contract.
+the model is about to be shown — plus whatever of an owned resume turn already
+ran. That turn is held out of the repaired history because the resume plan still
+owns it, and it is put back at the end; but the plan does not merely re-append
+it, it EXECUTES the calls in it that never started, and those tools read this
+ledger. So the seeding cannot wait for the turn to be re-appended — it would
+refuse the very write the resume exists to carry out — and folds in instead
+exactly the calls a completed scan recovered an outcome for. A recovered `write`
+restores what it put there; the unknown-outcome result written for an
+interrupted one withdraws the path; and a call the scan proved never started is
+left out, because the file it names is untouched and it is about to run. A
+seeding that fails does not fail the resume: the run continues with the empty
+ledger it would have had, and says so at debug. Shell writes and third-party
+tools that do not record observations are outside this contract.
 The runtime checks the body read at admission, under its own mutation lock; an
 external writer can still race after that read. This is not filesystem-level
 compare-and-swap or continuous file watching.

@@ -4,7 +4,9 @@ import type { FileReadTracker } from '../../types/tool/index.js'
 import {
 	type FileKeyResolver,
 	type LedgerReplayReport,
+	type PathAttributions,
 	collectObservedPaths,
+	createPathAttributions,
 	replayObservationLedger,
 } from './file-evidence-replay.js'
 
@@ -71,15 +73,23 @@ export interface ObservationSeedContext {
  * {@link MAX_RESOLVED_PATHS} distinct path spellings, one whose ids are
  * ambiguous, and one holding a mutation no path can be recovered from —
  * whatever the transcript says came back to that mutation, since a key is what
- * withdrawing one path rather than the whole pass takes.
+ * withdrawing one path rather than the whole pass takes. A call whose arguments
+ * are too long to read as JSON at all is one of that last kind; the replay
+ * states the ceiling.
  */
 export async function seedObservationLedger(
 	messages: readonly Message[],
 	tracker: FileReadTracker,
 	context: ObservationSeedContext,
 ): Promise<LedgerReplayReport> {
-	const keyOf = await resolveObservedFileKeys(messages, context)
-	return keyOf ? replayObservationLedger(messages, tracker, keyOf) : NOTHING
+	// One attribution cache across both halves. The path collection and the
+	// walk ask the same question of the same calls — which file did this touch
+	// — and answering it means reading a string that, for a `write`, is a whole
+	// file body. Asking once per seeding rather than once per half is why the
+	// replay's own ceiling on that read can be as generous as it is.
+	const attributions = createPathAttributions()
+	const keyOf = await resolveObservedFileKeys(messages, context, attributions)
+	return keyOf ? replayObservationLedger(messages, tracker, keyOf, attributions) : NOTHING
 }
 
 /**
@@ -95,8 +105,9 @@ export async function seedObservationLedger(
 async function resolveObservedFileKeys(
 	messages: readonly Message[],
 	context: ObservationSeedContext,
+	attributions: PathAttributions,
 ): Promise<FileKeyResolver | undefined> {
-	const paths = collectObservedPaths(messages)
+	const paths = collectObservedPaths(messages, attributions)
 	if (paths.length === 0 || paths.length > MAX_RESOLVED_PATHS) return undefined
 	// A sandbox has its own root and its own resolver, and the tools key on the
 	// path as written there. Canonicalizing it against the host filesystem would

@@ -24,6 +24,7 @@ import {
 } from '../file-evidence-replay.js'
 import { seedObservationLedger } from '../file-evidence-seed.js'
 import { drainQuery } from '../index.js'
+import { skippedToolResultText } from '../plugin-hooks.js'
 
 /**
  * The ledger is process state, and a resumed conversation used to get an empty
@@ -303,6 +304,86 @@ describe('a ledger rebuilt from a conversation it did not run', () => {
 		expect(rebuilt.tracker.hasRead(resolve(cwd, 'f1.txt'))).toBe(false)
 		expect(rebuilt.tracker.writeCallId?.(resolve(cwd, 'f4.txt'))).toBeUndefined()
 		expect(rebuilt.tracker.writeCallId?.(resolve(cwd, 'f8.txt'))).toBe('w8')
+	})
+
+	it('stops counting a path against the eviction bound once a read withdraws it', () => {
+		// Six writes is exactly what the pass may hold, and the read in the
+		// middle shows f2.txt holding something other than what the walk built
+		// for it — so that path is withdrawn, and a withdrawn path is not one
+		// this pass is still carrying a body for. Leaving it on the held list
+		// anyway had the seventh write evict f0.txt, whose body was perfectly
+		// good, and the ledger came out a witness short of what the projection
+		// can emit.
+		const messages: Message[] = []
+		for (let i = 0; i < 6; i++) messages.push(...wrote(`w${i}`, `body ${i}\n`, `f${i}.txt`))
+		messages.push(...readOf('r2', 'someone else rewrote this\n', {}, 'f2.txt'))
+		messages.push(...wrote('w6', 'body 6\n', 'f6.txt'))
+
+		const rebuilt = rebuild(messages)
+		expect(rebuilt.report).toMatchObject({ pathsWitnessed: 6, pathsSeen: 1 })
+		// The oldest path still holding a body keeps it; the read's own path is
+		// the only one the pass gives up.
+		expect(rebuilt.tracker.writeCallId?.(resolve(cwd, 'f0.txt'))).toBe('w0')
+		expect(rebuilt.tracker.writeCallId?.(resolve(cwd, 'f6.txt'))).toBe('w6')
+		expect(rebuilt.tracker.hasRead(resolve(cwd, 'f2.txt'))).toBe(false)
+	})
+
+	it('treats a write a plugin hook skipped as a mutation it cannot replay', () => {
+		// A `pre_tool_use` hook that SKIPs is the one refusal that does not
+		// arrive as an error: the hook declined the call, nothing failed, so the
+		// receipt is an ordinary success. Read as a write it would fingerprint a
+		// body that never reached the disk, and the next edit would be refused
+		// for a drift this ledger had invented. The call did not run, so the
+		// file holds what it held before — which this pass cannot say either.
+		const rebuilt = rebuild([
+			...wrote('w1', body),
+			call('w2', 'write', { path: 'note.txt', content: 'never reached the disk\n' }),
+			receipt('w2', skippedToolResultText('write', 'this session is read-only')),
+		])
+		expect(rebuilt.tracker.hasRead(key)).toBe(false)
+		expect(rebuilt.tracker.fingerprint?.(key)).toBeUndefined()
+		expect(rebuilt.evidence()).toBeUndefined()
+		expect(rebuilt.report).toMatchObject({ pathsWitnessed: 0, pathsSeen: 1 })
+	})
+
+	it('leaves a body standing across a read that came back refused, or not at all', () => {
+		// A read changes no file, and one that saw no body can neither confirm
+		// what this pass holds nor contradict it. Withdrawal is for the read
+		// that DID come back and showed something else — the case above.
+		const refused = rebuild([
+			...wrote(),
+			call('r1', 'read', { path: 'note.txt' }),
+			receipt('r1', 'note.txt: permission denied', true),
+		])
+		expect(refused.tracker.writeCallId?.(key)).toBe('w1')
+		expect(refused.tracker.fingerprint?.(key)).toBe(fingerprintContent(body))
+
+		const unanswered = rebuild([...wrote(), call('r1', 'read', { path: 'note.txt' })])
+		expect(unanswered.tracker.writeCallId?.(key)).toBe('w1')
+	})
+
+	it('reads the path off an oversize write, and off nothing larger than that', () => {
+		// Two bounds, and the distance between them is what one of them is for.
+		// Past the EVIDENCE bound a write is no longer quoted back, but its path
+		// is still read: it withdraws its own body and every other witness in
+		// the conversation stands. Past the far larger bound on reading the
+		// arguments as JSON at all there is no path either, and a mutation this
+		// cannot place is one it cannot act on — so the pass establishes nothing
+		// rather than carry a body that write may have replaced.
+		const attributable = rebuild([
+			...wrote('w1', `oversize\n${'x'.repeat(100_000)}\n`, 'big.txt'),
+			...wrote('w2', body),
+		])
+		expect(attributable.report).toMatchObject({ pathsWitnessed: 1, pathsSeen: 1 })
+		expect(attributable.tracker.writeCallId?.(key)).toBe('w2')
+		expect(attributable.tracker.hasRead(resolve(cwd, 'big.txt'))).toBe(false)
+
+		const unreadable = rebuild([
+			...wrote('w1', 'x'.repeat(1024 * 1024 + 1), 'big.txt'),
+			...wrote('w2', body),
+		])
+		expect(unreadable.report).toMatchObject({ pathsWitnessed: 0, pathsSeen: 0 })
+		expect(unreadable.tracker.hasRead(key)).toBe(false)
 	})
 
 	it('stays inside its replay ceiling over a history far larger than the caps', () => {
