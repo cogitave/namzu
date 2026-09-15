@@ -128,6 +128,18 @@ export interface BackgroundJobRegistryRef {
 		status: string
 		exitCode?: number
 	}>
+	/**
+	 * Say that the model is waiting on this job, so the run stays open for it
+	 * when the model stops calling tools.
+	 *
+	 * Called by `wait_for_job` and nothing else. The kernel holds a finishing
+	 * run open — bounded, and for no model tokens — only for a job marked
+	 * here; a job nobody marked never delays a run, which is what a dev server
+	 * or a watcher needs. Optional for the reason `waitForExit` is: a host
+	 * implementing this interface directly may have nowhere to record the
+	 * intent, and then there is simply no hold.
+	 */
+	markAwaited?(id: string): void
 }
 
 /**

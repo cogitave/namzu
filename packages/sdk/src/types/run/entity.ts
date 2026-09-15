@@ -123,6 +123,20 @@ export interface Run {
 	 */
 	abandonedTaskIds?: readonly string[]
 
+	/**
+	 * Background jobs the model was waiting on that were still running when
+	 * this run ended.
+	 *
+	 * Only jobs `wait_for_job` named: a dev server nobody awaited is not work
+	 * this run walked away from, it is work it deliberately left behind. The
+	 * run holds itself open for these, bounded, and names the ones the bound
+	 * ran out on — the same honesty `abandonedTaskIds` owes for a delegated
+	 * worker, and with the same limit: naming a job is not stopping it. A
+	 * run-owned job is still stopped by the run's own teardown; one bound to
+	 * the host's session keeps running, which is what it was started for.
+	 */
+	abandonedJobIds?: readonly string[]
+
 	parentRunId?: RunId
 
 	depth?: number

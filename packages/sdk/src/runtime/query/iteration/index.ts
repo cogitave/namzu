@@ -69,7 +69,7 @@ import {
 	markProviderRejectedImage,
 	projectRequestRichContent,
 } from '../request-rich-content.js'
-import { formatSteeringNote, isOperatorUserMessage } from '../steering.js'
+import { formatJobNote, formatSteeringNote, isOperatorUserMessage } from '../steering.js'
 import { parseNativeCandidate } from './native-output.js'
 import { runAdvisoryPhase } from './phases/advisory.js'
 import { runIterationCheckpoint } from './phases/checkpoint.js'
@@ -179,6 +179,44 @@ export function settleGraceMs(remainingBeforeFinalizeMs: number): number {
 		Math.floor(remainingBeforeFinalizeMs * SETTLE_GRACE_FRACTION),
 		DELEGATION_TIMEOUT_MS,
 	)
+}
+
+/**
+ * The ceiling on the job half of that grace, in milliseconds.
+ *
+ * `DELEGATION_TIMEOUT_MS` is the wrong ceiling for a shell job, and the gap
+ * only opens where it matters most: a run with no `timeoutMs` — the CLI's
+ * shipping default, `No run deadline by default` — has infinite time before
+ * it must start finishing, so `settleGraceMs` returns the ceiling flat. For a
+ * delegated task that is sound, because the hour is the longest the task
+ * itself may live: the hold cannot outlast the work. A background job has no
+ * such bound. `tail -f`, a watcher and a dev server all outlive any hold, so
+ * the same arithmetic parks an interactive session for an hour on a job that
+ * was never going to exit.
+ *
+ * So the job leg gets its own bound, and it is sized to what the wait buys
+ * rather than to how long a job may live: a turn in which to use the exit.
+ * A model that already waited its `wait_for_job` bound out and saw nothing is
+ * not usually two minutes from an exit, and the run ending is not the news
+ * being lost — with no run in flight the session announces the exit itself
+ * (`docs/cli/background-jobs.md`, *Learning that it ended*), which is the
+ * cheaper of the two places to hear it.
+ */
+const DEFAULT_JOB_HOLD_MAX_MS = 2 * 60 * 1000
+
+/**
+ * The same share of the run, under {@link DEFAULT_JOB_HOLD_MAX_MS}.
+ *
+ * `NAMZU_JOB_HOLD_MAX_MS` overrides the ceiling for a host that wants a
+ * longer or shorter park, the way `NAMZU_JOB_WAIT_TIMEOUT_MS` overrides
+ * `wait_for_job`'s own bound. Read per call rather than at module load, so a
+ * host that sets it after import is not ignored.
+ */
+export function awaitedJobGraceMs(remainingBeforeFinalizeMs: number): number {
+	const configured = Number(process.env.NAMZU_JOB_HOLD_MAX_MS?.trim())
+	const ceiling =
+		Number.isSafeInteger(configured) && configured > 0 ? configured : DEFAULT_JOB_HOLD_MAX_MS
+	return Math.min(settleGraceMs(remainingBeforeFinalizeMs), ceiling)
 }
 
 export class IterationOrchestrator {
@@ -1782,30 +1820,63 @@ export class IterationOrchestrator {
 	}
 
 	/**
-	 * Hold the run open for a worker that has not finished, and deliver it.
+	 * Hold the run open for work that has not finished, and deliver it.
 	 *
-	 * Returns whether a completion or operator message entered the transcript —
-	 * the caller continues on `true`, so the model gets a turn to respond.
-	 * That turn is the entire justification for waiting, which
+	 * Returns whether a completion, a job exit or an operator message entered
+	 * the transcript — the caller continues on `true`, so the model gets a turn
+	 * to respond. That turn is the entire justification for waiting, which
 	 * is why only the exits that can still take one call this.
 	 *
-	 * Bounded by `settleGraceMs` and by `maxIterations`, so a worker that never
-	 * finishes cannot keep the run open.
+	 * Two kinds of work qualify and they are raced together, because a run has
+	 * one settle point and one grace period to spend at it:
+	 *
+	 *  - a delegated task the `CompletionInbox` is still expecting;
+	 *  - a background job the model told `wait_for_job` it is waiting on.
+	 *
+	 * The job half is deliberately narrow. Intent comes from the wait and from
+	 * nothing else — a dev server the model started and never waited on is
+	 * running because somebody wanted it running, and a hold for it would add
+	 * the grace period to the end of every turn for the rest of the session.
+	 *
+	 * Each leg is opened only when it has something pending: both
+	 * `waitForArrival` implementations resolve immediately when their own side
+	 * is idle, so racing an idle one would end the hold before it began.
+	 *
+	 * Bounded by `settleGraceMs` and by `maxIterations`, so work that never
+	 * finishes cannot keep the run open. On a run with a deadline the grace is
+	 * a share of what is LEFT of it rather than a fresh allowance, so a
+	 * `wait_for_job` call that already spent minutes has shortened this hold
+	 * by the same minutes. On a run without one — the CLI's default — there is
+	 * no remainder to take a share of, and the job leg's own ceiling
+	 * (`awaitedJobGraceMs`) is what keeps a timed-out wait from being followed
+	 * by an hour of silence.
 	 */
 	private async *holdForOutstandingWork(
 		iterationNum: number,
 		hasToolCalls: boolean,
 	): AsyncGenerator<RunEvent, boolean> {
-		if (!this.ctx.completionInbox?.hasPendingWork) return false
+		const inbox = this.ctx.completionInbox?.hasPendingWork ? this.ctx.completionInbox : undefined
+		const jobs = this.ctx.awaitedJobs?.hasPendingWork ? this.ctx.awaitedJobs : undefined
+		if (!inbox && !jobs) return false
 
 		// Read HERE rather than from `forceFinalize`, which was sampled at the
 		// top of the iteration: one that has since crossed the finalize point
 		// must not open a wait against a reserve it has already entered.
-		const graceMs = settleGraceMs(this.ctx.guard.remainingBeforeFinalizeMs())
-		this.ctx.log.info('Holding the run open for a background task', {
+		const remainingMs = this.ctx.guard.remainingBeforeFinalizeMs()
+		// One deadline for the race, and it is the LONGEST ceiling any pending
+		// leg justifies. A leg resolving on its own timer ends the whole race,
+		// so handing the job leg its shorter ceiling while a task was also
+		// outstanding would cut the task's hold down to the job's — a run
+		// walking away from a worker it had time for, because a job happened
+		// to be running. A job therefore never shortens a wait, and it never
+		// lengthens one either: where a task is outstanding too, that is how
+		// long this run was waiting anyway.
+		const graceMs = inbox ? settleGraceMs(remainingMs) : awaitedJobGraceMs(remainingMs)
+		this.ctx.log.info('Holding the run open for outstanding work', {
 			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
 			[NAMZU.ITERATION]: iterationNum,
 			'namzu.runtime.grace_ms': graceMs,
+			'namzu.runtime.awaited_jobs': jobs?.outstandingJobIds ?? [],
 		})
 		// User input releases this wait without cancelling any child. Both waits
 		// share a disposable signal so the losing arrival listener cannot leak.
@@ -1816,7 +1887,8 @@ export class IterationOrchestrator {
 		if (runSignal.aborted) cancelWait()
 		try {
 			await Promise.race([
-				this.ctx.completionInbox.waitForArrival(graceMs, waiting.signal),
+				...(inbox ? [inbox.waitForArrival(graceMs, waiting.signal)] : []),
+				...(jobs ? [jobs.waitForArrival(graceMs, waiting.signal)] : []),
 				...(this.ctx.waitForInbound ? [this.ctx.waitForInbound(waiting.signal)] : []),
 			])
 		} catch (error) {
@@ -1827,14 +1899,15 @@ export class IterationOrchestrator {
 		}
 		runSignal.throwIfAborted()
 
-		const arrived = this.ctx.completionInbox.drain()
+		const arrived = this.ctx.completionInbox?.drain() ?? []
 		if (arrived.length > 0) {
 			this.ctx.runMgr.pushMessage(
 				createRuntimeContextMessage(formatCompletionNotification(arrived), 'task-completion'),
 			)
 		}
+		const exited = this.deliverAwaitedJobExits()
 		const inbound = this.deliverInbound()
-		if (arrived.length === 0 && inbound === 0) return false
+		if (arrived.length === 0 && !exited && inbound === 0) return false
 		await this.ctx.emitEvent({
 			type: 'iteration_completed',
 			runId: this.ctx.runMgr.id,
@@ -1842,6 +1915,41 @@ export class IterationOrchestrator {
 			hasToolCalls,
 		})
 		yield* this.ctx.drainPending()
+		return true
+	}
+
+	/**
+	 * Put the job exits this hold was waiting for in front of the model.
+	 *
+	 * Through `jobNotices`, which is the channel a job exit already travels on
+	 * — `attachNotice` rides it out on the next tool result — rather than a
+	 * second one built for this path. A turn that called no tools has no such
+	 * result, so the queued text becomes a `runtime-context` message instead,
+	 * exactly as `deliverInbound` does for steering that found no tool result
+	 * to attach to.
+	 *
+	 * That drain is also what keeps one exit from being delivered twice: the
+	 * channel hands its text over once, so an exit already attached to a tool
+	 * result earlier in the turn leaves nothing here, and this returns `false`
+	 * rather than buying a turn to re-read what the model has read.
+	 *
+	 * The channel is not per-job, so the text taken here can include a notice
+	 * for a job nobody awaited that ended while the hold was open. Delivering
+	 * it is right — it is unread either way, and the alternative is stranding
+	 * it — but it is not a reason to WAIT, which is why what opens this hold
+	 * is `AwaitedJobs`, and the two are asked separately.
+	 */
+	private deliverAwaitedJobExits(): boolean {
+		const exited = this.ctx.awaitedJobs?.drain() ?? []
+		if (exited.length === 0) return false
+		const notice = this.ctx.jobNotices?.drain()
+		if (!notice) return false
+
+		this.ctx.log.info('Delivering a background job exit the run held open for', {
+			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+			'namzu.runtime.jobs': exited.map((job) => job.id),
+		})
+		this.ctx.runMgr.pushMessage(createRuntimeContextMessage(formatJobNote(notice), 'job-exit'))
 		return true
 	}
 
@@ -1877,13 +1985,26 @@ export class IterationOrchestrator {
 	/** Delegated work this run walked away from. See {@link settleOutstandingWork}. */
 	private recordAbandonedWork(): void {
 		const abandoned = this.ctx.completionInbox?.outstandingTaskIds ?? []
-		if (abandoned.length === 0) return
+		if (abandoned.length > 0) {
+			this.ctx.log.warn('Run ended with delegated work still running', {
+				[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+				'namzu.runtime.tasks': abandoned,
+			})
+			this.ctx.runMgr.setAbandonedTaskIds(abandoned)
+		}
 
-		this.ctx.log.warn('Run ended with delegated work still running', {
+		// The same statement for a job the model was waiting on when the grace
+		// ran out. Only awaited ones: a job nobody waited for was never work
+		// this run was holding, so naming it would report an abandonment that
+		// did not happen.
+		const abandonedJobs = this.ctx.awaitedJobs?.outstandingJobIds ?? []
+		if (abandonedJobs.length === 0) return
+
+		this.ctx.log.warn('Run ended with an awaited background job still running', {
 			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
-			'namzu.runtime.tasks': abandoned,
+			'namzu.runtime.jobs': abandonedJobs,
 		})
-		this.ctx.runMgr.setAbandonedTaskIds(abandoned)
+		this.ctx.runMgr.setAbandonedJobIds(abandonedJobs)
 	}
 
 	private deliverArrivedCompletions(): void {

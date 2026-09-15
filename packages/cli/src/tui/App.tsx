@@ -888,10 +888,16 @@ export function App({
 		summaries: 0,
 		reclaimedTokens: 0,
 	})
-	// Jobs that ended while no turn was running. The kernel's notice needs a
-	// tool result to ride on, so between turns the exit is held here and
-	// handed to the next send as part of the system text; the transcript
-	// row is written at once.
+	// Jobs that ended while no turn was running.
+	//
+	// Only those: an exit that lands mid-turn belongs to the kernel, which
+	// rides it out on the next tool result or, for a job the model awaited,
+	// delivers it as the message that releases its own suspend. Queueing one
+	// here as well would announce the same exit twice, so the `abortRef`
+	// check below is the boundary between the two owners rather than an
+	// optimisation. Between turns the kernel is not listening, so the exit is
+	// held here and handed to the next send as part of the system text; the
+	// transcript row is written at once.
 	const idleJobNoticesRef = useRef<string[]>([])
 	const drainIdleJobNotices = (): string | undefined => {
 		if (idleJobNoticesRef.current.length === 0) return undefined

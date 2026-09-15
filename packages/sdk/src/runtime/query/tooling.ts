@@ -38,6 +38,8 @@ export interface ToolingBootstrapConfig {
 	backgroundJobs?: BackgroundJobRegistry
 	/** See `QueryParams.backgroundJobOwner`. */
 	backgroundJobOwner?: string
+	/** Where `wait_for_job` records wait-intent; see the executor's own field. */
+	onJobAwaited?: (id: string) => void
 	/** Where the `skill` tool reads from. */
 	skills?: SkillRegistryRef
 	/** How this run reaches the web. */
@@ -85,6 +87,7 @@ export class ToolingBootstrap {
 				pluginManager: config.pluginManager,
 				...(config.backgroundJobs ? { backgroundJobs: config.backgroundJobs } : {}),
 				...(config.backgroundJobOwner ? { backgroundJobOwner: config.backgroundJobOwner } : {}),
+				...(config.onJobAwaited ? { onJobAwaited: config.onJobAwaited } : {}),
 				...(config.skills ? { skills: config.skills } : {}),
 				...(config.web ? { web: config.web } : {}),
 				...(config.toolTimeoutMs !== undefined ? { toolTimeoutMs: config.toolTimeoutMs } : {}),

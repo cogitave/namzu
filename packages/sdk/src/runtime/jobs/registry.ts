@@ -437,6 +437,17 @@ export function bindOwner(
 			readonly workingDirectory: string
 			readonly env?: Record<string, string>
 		}) => JobProcess
+		/**
+		 * Be told that the model said it is waiting on a job's exit.
+		 *
+		 * The registry does not keep this: wait-intent belongs to the RUN that
+		 * expressed it, not to a registry a host may share across runs and
+		 * sessions. The run passes its own recorder here — `AwaitedJobs`, which
+		 * is what the iteration loop holds open for. Absent means nobody is
+		 * listening, and `markAwaited` is then absent from the bound ref rather
+		 * than present and silently doing nothing.
+		 */
+		readonly onAwaited?: (id: string) => void
 	} = {},
 ) {
 	const mine = (id: string): BackgroundJob => {
@@ -474,6 +485,14 @@ export function bindOwner(
 			mine(id)
 			return registry.waitForExit(id, opts ?? {})
 		},
+		...(defaults.onAwaited
+			? {
+					markAwaited: (id: string) => {
+						mine(id)
+						defaults.onAwaited?.(id)
+					},
+				}
+			: {}),
 		kill: async (id: string) => {
 			mine(id)
 			return await registry.kill(id)

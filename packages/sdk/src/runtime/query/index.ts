@@ -112,6 +112,7 @@ import { toErrorMessage } from '../../utils/error.js'
 import { generateCheckpointId, generateRunId } from '../../utils/id.js'
 import { errorAttributes } from '../../utils/log/exception.js'
 import type { Logger } from '../../utils/logger.js'
+import { AwaitedJobs } from '../jobs/awaited-jobs.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { AUTO_APPROVE_POLICY_NAME, createRunApprovalPolicy } from './approval-policy.js'
 import { CheckpointManager } from './checkpoint.js'
@@ -1734,6 +1735,23 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		return source
 	}
 
+	// Whose jobs this run speaks for: its own by default, the session's when
+	// the host said so. Resolved before the tools are built, because the
+	// wait-intent recorder below is bound into them.
+	const jobOwner = params.backgroundJobOwner ?? ctx.runId
+	// What the model reads when a job ends. Built up here, ahead of the
+	// subscription that fills it below, because the wait-intent recorder needs
+	// to ask whether its text has been read yet.
+	const jobNotices = params.backgroundJobs ? new SteeringBinding() : undefined
+	// Jobs the model told `wait_for_job` it is waiting on, which is the only
+	// thing that can hold this run open for a job. Built only where there is a
+	// registry, so a host with no background mode carries no recorder and the
+	// bound ref has no `markAwaited` to offer.
+	const awaitedJobs = params.backgroundJobs
+		? new AwaitedJobs(params.backgroundJobs, jobOwner, () => jobNotices?.pending ?? false)
+		: undefined
+	awaitedJobs?.attach()
+
 	const toolExecutor = ToolingBootstrap.init(
 		{
 			tools: params.tools,
@@ -1750,6 +1768,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			pluginManager: params.pluginManager,
 			...(params.backgroundJobs ? { backgroundJobs: params.backgroundJobs } : {}),
 			...(params.backgroundJobOwner ? { backgroundJobOwner: params.backgroundJobOwner } : {}),
+			...(awaitedJobs ? { onJobAwaited: (id: string) => awaitedJobs.expect(id) } : {}),
 			// The `skill` tool's registry. Threaded from the run rather than
 			// held by the tool, because a tool that reached for a module-level
 			// registry would answer about whatever the last run configured.
@@ -1809,8 +1828,6 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	// result, and the host as an event — without either polling. Subscribed
 	// for the owner the run's jobs are bound to, so a session-owned job that
 	// ends during this run is reported here too.
-	const jobOwner = params.backgroundJobOwner ?? ctx.runId
-	const jobNotices = params.backgroundJobs ? new SteeringBinding() : undefined
 	const unsubscribeJobExits = params.backgroundJobs?.onExit((job) => {
 		if (job.owner !== jobOwner) return
 		const outcome =
@@ -2010,6 +2027,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		promptContributions,
 		...(params.steering ? { steering: params.steering } : {}),
 		...(jobNotices ? { jobNotices } : {}),
+		...(awaitedJobs ? { awaitedJobs } : {}),
 		checkpointMgr,
 		planManager: ctx.planManager,
 		taskGateway: taskScheduler,
@@ -2878,6 +2896,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// Awaited, and its failure swallowed. A job that would not die is
 			// worth a log line, and is not worth retracting a run's answer.
 			unsubscribeJobExits?.()
+			// The wait-intent recorder listens on the same shared registry and
+			// leaks the same way if it is left attached.
+			awaitedJobs?.close()
 			// Only jobs bound to this run. Jobs a host bound to its session are
 			// the host's to stop, when the session ends.
 			if (params.backgroundJobs && (params.backgroundJobOwner ?? ctx.runId) === ctx.runId) {

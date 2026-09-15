@@ -35,6 +35,7 @@ import type { StructuredOutputConfig } from '../../../../types/structured-output
 import type { TaskStore } from '../../../../types/task/index.js'
 import type { ToolRegistryContract } from '../../../../types/tool/index.js'
 import type { Logger } from '../../../../utils/logger.js'
+import type { AwaitedJobs } from '../../../jobs/awaited-jobs.js'
 import type { CheckpointManager } from '../../checkpoint.js'
 import type { EmitEvent } from '../../events.js'
 import type { ToolExecutor } from '../../executor.js'
@@ -136,6 +137,15 @@ export interface IterationContext {
 	readonly onSteeringDelivered?: (text: string) => void
 	/** Exit notices for the run's background jobs, drained into the next tool result. */
 	readonly jobNotices?: SteeringChannel
+	/**
+	 * Background jobs the model said it is waiting on, which is the only kind
+	 * the loop holds a finishing run open for.
+	 *
+	 * Absent means the loop behaves exactly as it did before this existed: a
+	 * job's exit still reaches the model as a notice on the next tool result,
+	 * and a run whose model stopped calling tools settles without waiting.
+	 */
+	readonly awaitedJobs?: AwaitedJobs
 	readonly checkpointMgr: CheckpointManager
 	readonly planManager: PlanManager
 

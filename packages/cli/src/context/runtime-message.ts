@@ -11,6 +11,8 @@ export function runtimeContextLabel(kind: RuntimeContextMessageKind): string {
 			return 'Answer review feedback'
 		case 'auto-continuation':
 			return 'Automatic continuation'
+		case 'job-exit':
+			return 'Background job exit'
 		case 'limit-finalization':
 			return 'Limit finalization request'
 		case 'repeat-call':

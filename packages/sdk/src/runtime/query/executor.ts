@@ -334,6 +334,16 @@ export interface ToolExecutorConfig {
 	 * session and stops them itself when the session ends.
 	 */
 	backgroundJobOwner?: string
+	/**
+	 * Where `wait_for_job` records that the model is waiting on a job.
+	 *
+	 * A callback rather than the recorder itself: the executor's part is to
+	 * hand the tools a bound ref, and what the run does with the intent —
+	 * hold itself open for the job — is the iteration loop's business. Absent
+	 * means the bound ref has no `markAwaited` at all, so a host that wires no
+	 * recorder gets no hold rather than a marking call that goes nowhere.
+	 */
+	onJobAwaited?: (id: string) => void
 
 	/**
 	 * Where the `skill` tool reads from.
@@ -1342,6 +1352,7 @@ export class ToolExecutor {
 												) as JobProcess,
 										}
 									: {}),
+								...(this.config.onJobAwaited ? { onAwaited: this.config.onJobAwaited } : {}),
 							},
 						),
 					}

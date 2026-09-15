@@ -246,6 +246,7 @@ export const RUNTIME_CONTEXT_MESSAGE_KINDS = [
 	'advisory',
 	'answer-review',
 	'auto-continuation',
+	'job-exit',
 	'limit-finalization',
 	'repeat-call',
 	'steering',

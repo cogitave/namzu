@@ -121,6 +121,14 @@ export const WaitForJobTool = defineTool({
 			}
 		}
 
+		// The wait IS the intent, so it is recorded before the bounds are: a
+		// call that gives up at `timeout_ms` with the job still running is the
+		// case the kernel's hold exists to back up, and one that started the
+		// wait and then ended its turn is the same case a beat later. Nothing
+		// infers this from the job's existence — a dev server the model never
+		// waited on never holds a run open. See `runtime/jobs/awaited-jobs.ts`.
+		jobs.markAwaited?.(input.id)
+
 		let outcome: Awaited<ReturnType<typeof waitForJobWithBounds>>
 		try {
 			outcome = await waitForJobWithBounds(jobs, input.id, {

@@ -489,6 +489,18 @@ export class RunPersistence {
 		this.run.abandonedTaskIds = [...taskIds]
 	}
 
+	/**
+	 * Name the awaited background jobs this run ended without waiting for.
+	 *
+	 * See {@link Run.abandonedJobIds}. The same rule as the task list above:
+	 * recording, never stopping — what happens to a job is decided by whoever
+	 * owns it, not by the run that gave up waiting.
+	 */
+	setAbandonedJobIds(jobIds: readonly string[]): void {
+		if (jobIds.length === 0) return
+		this.run.abandonedJobIds = [...jobIds]
+	}
+
 	setSteps(steps: readonly StepResult[]): void {
 		this.run.steps = steps
 	}
