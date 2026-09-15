@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process'
 import { SANDBOX_KILL_GRACE_MS } from '../../constants/sandbox/index.js'
 import { killTree } from '../../process/kill-tree.js'
 import { scrubInheritedEnv } from '../../tools/env-scrub.js'
+import { awaitWithAbort } from '../../utils/await-with-abort.js'
 
 /**
  * Work that outlives a tool call, owned by whoever started it.
@@ -311,6 +312,32 @@ export class BackgroundJobRegistry {
 	}
 
 	/**
+	 * Await one job's exit — the public counterpart to `onExit`, for a
+	 * caller that wants a single result rather than a standing
+	 * subscription. Resolves at once for a job that has already stopped, so
+	 * a caller that lost the race against a fast-finishing job never blocks
+	 * on a promise that would otherwise never settle.
+	 *
+	 * `signal` is honoured: an aborted wait rejects and detaches rather than
+	 * holding the internal exit promise's continuation open for a job that
+	 * may run for another hour. That only ends the WAIT — the job itself is
+	 * untouched either way, exactly as a timed-out `kill`-less wait leaves
+	 * it. See `wait-for-job-bounds.ts`, the first caller.
+	 */
+	waitForExit(id: string, opts: { signal?: AbortSignal } = {}): Promise<BackgroundJob> {
+		const entry = this.jobs.get(id)
+		if (!entry) throw new UnknownBackgroundJobError({ id })
+		if (entry.record.status !== 'running') return Promise.resolve(entry.record)
+		// `entry` is the same object the `finalize` closure in `start()`
+		// mutates in place, so reading `entry.record` after `exit` settles
+		// sees the final status — the same trick `kill()` already relies on.
+		return awaitWithAbort(
+			entry.exit.then(() => entry.record),
+			opts.signal,
+		)
+	}
+
+	/**
 	 * Output since `fromOffset`, with what the cap dropped stated.
 	 *
 	 * Offsets count the whole stream rather than the retained buffer, so a
@@ -442,6 +469,10 @@ export function bindOwner(
 		read: (id: string, opts?: { fromOffset?: number }) => {
 			mine(id)
 			return registry.read(id, opts ?? {})
+		},
+		waitForExit: (id: string, opts?: { signal?: AbortSignal }) => {
+			mine(id)
+			return registry.waitForExit(id, opts ?? {})
 		},
 		kill: async (id: string) => {
 			mine(id)

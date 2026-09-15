@@ -33,7 +33,18 @@ const detected: DetectedProvider[] = [
 		alternatives: [],
 	},
 ]
-const core = ['bash', 'edit', 'glob', 'grep', 'job', 'read', 'write', 'web_search', 'web_fetch']
+const core = [
+	'bash',
+	'edit',
+	'glob',
+	'grep',
+	'job',
+	'wait_for_job',
+	'read',
+	'write',
+	'web_search',
+	'web_fetch',
+]
 const save = {
 	title: 'Fixture fact',
 	summary: 'Exact evidence',
@@ -132,7 +143,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 					expect.arrayContaining([...core, 'Agent', 'save_memory', 'task_create', 'task_list']),
 				)
 				expect(names(requests[0])).not.toContain('search_tools')
-				expect(names(requests[0])).toHaveLength(23)
+				expect(names(requests[0])).toHaveLength(24)
 				expect(JSON.stringify(requests[0].messages)).not.toContain(
 					'Before using a tool listed under',
 				)
@@ -158,6 +169,7 @@ describe('explicit tool loading reaches the real session and query', () => {
 				'job',
 				'read',
 				'search_tools',
+				'wait_for_job',
 				'write',
 			])
 		} finally {

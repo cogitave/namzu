@@ -158,6 +158,7 @@ describe('computer use session reachability', () => {
 				'glob',
 				'grep',
 				'job',
+				'wait_for_job',
 				'read',
 				'write',
 				'search_memory',

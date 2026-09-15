@@ -43,6 +43,11 @@ export { GrepTool } from './tools/builtins/grep.js'
 // capability: an id with nothing that reads it is the unbacked suggestion
 // that was removed from bash's schema.
 export { JobTool } from './tools/builtins/job.js'
+// Blocks until a job `JobTool` started ends, instead of reading it in a
+// loop. Ships in the default builtin set alongside `job` and `bash`, for
+// the same reason `job` does: a job with nothing that can block on it is
+// the same unbacked suggestion `job` itself exists to fix.
+export { WaitForJobTool } from './tools/builtins/wait-for-job.js'
 // Loads a skill's instructions, and adopts the tool scope it declares.
 // NOT in the default builtin set: a run with no skills has nothing for it
 // to do, and offering a tool that can only refuse is worse than not

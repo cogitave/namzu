@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-15
+
+- **Update** Add `wait_for_job` to [background jobs in the CLI](cli/background-jobs.md): blocks on a job's exit under a run/idle bound and returns its output in one call, instead of `job read` polled in a loop. `job`'s own description now points at it instead of instructing polling.
+
 ## 2026-09-14
 
 - **Update** Add bounded [derived work context](sdk/step-context.md#derived-work-context) for visible write evidence and owned worker outcomes, preserving mutation freshness checks and separating result delivery from user-facing completion.

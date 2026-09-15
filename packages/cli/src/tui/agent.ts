@@ -1140,6 +1140,7 @@ const EAGER_TOOLS_WHEN_DEFERRED = [
 	'edit',
 	'bash',
 	'job',
+	'wait_for_job',
 	'web_search',
 	'web_fetch',
 	'search_conversation',
@@ -1232,7 +1233,9 @@ function builtinTools(backgroundJobs: boolean): ToolDefinition[] {
 			? { ...source, executionBarrier: true }
 			: source
 		if (backgroundJobs) return [tool]
-		if (tool.name === 'job') return []
+		// `wait_for_job` is as useless as `job` itself with no registry to
+		// back it — both refuse every call, so neither ships.
+		if (tool.name === 'job' || tool.name === 'wait_for_job') return []
 		return [tool.name === 'bash' ? foregroundOnlyBash(tool) : tool]
 	})
 }

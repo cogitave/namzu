@@ -113,6 +113,21 @@ export interface BackgroundJobRegistryRef {
 	}
 	kill(id: string): Promise<{ id: string; status: string }>
 	list(): readonly { id: string; command: string; status: string }[]
+	/**
+	 * Await this job's exit instead of reading it in a loop; resolves at
+	 * once for a job that has already stopped. Optional, and added after
+	 * the rest of this surface: a host implementing this interface directly
+	 * rather than through `bindOwner` may not have it yet, so `wait_for_job`
+	 * checks for it and says so rather than assuming every host can wait.
+	 */
+	waitForExit?(
+		id: string,
+		opts?: { signal?: AbortSignal },
+	): Promise<{
+		id: string
+		status: string
+		exitCode?: number
+	}>
 }
 
 /**

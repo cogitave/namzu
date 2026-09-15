@@ -6,6 +6,7 @@ export { GlobTool } from './glob.js'
 export { LSP_TOOL_NAME, LspTool, getCodeNavigationTools } from './lsp.js'
 export { GrepTool } from './grep.js'
 export { JobTool } from './job.js'
+export { WaitForJobTool } from './wait-for-job.js'
 export { SKILL_TOOL_NAME, SkillTool, parseAllowedTools } from './skill.js'
 export {
 	WEB_FETCH_TOOL_NAME,
@@ -29,6 +30,7 @@ import { GrepTool } from './grep.js'
 import { JobTool } from './job.js'
 import { ReadFileTool } from './read-file.js'
 import { VerifyOutputsTool } from './verify-outputs.js'
+import { WaitForJobTool } from './wait-for-job.js'
 import { WriteFileTool } from './write-file.js'
 // Note: createStructuredOutputTool is not included in getBuiltinTools()
 // because it requires a schema parameter and is created per-use case.
@@ -46,10 +48,13 @@ export function getBuiltinTools(): ToolDefinition[] {
 	// `job` ships alongside `bash` rather than being opt-in, because the two
 	// are one capability. `bash run_in_background` returns an id, and an id
 	// with no tool that reads it is the exact shape of the suggestion that
-	// was removed from bash's schema for being unbacked.
+	// was removed from bash's schema for being unbacked. `wait_for_job`
+	// ships with it for the same reason `job` does: a job with nothing that
+	// can block on it is a suggestion with the same missing half.
 	//
-	// It costs nothing where the host provides no registry: the tool refuses
-	// and says so, which is a truthful answer rather than a missing one.
+	// It costs nothing where the host provides no registry: both tools
+	// refuse and say so, which is a truthful answer rather than a missing
+	// one.
 	return [
 		BashTool,
 		EditTool,
@@ -58,6 +63,7 @@ export function getBuiltinTools(): ToolDefinition[] {
 		JobTool,
 		ReadFileTool,
 		VerifyOutputsTool,
+		WaitForJobTool,
 		WriteFileTool,
 	]
 }
