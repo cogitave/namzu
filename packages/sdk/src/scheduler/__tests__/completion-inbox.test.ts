@@ -80,6 +80,103 @@ describe('owned-work request projection', () => {
 		expect(inbox.describeOwnedWork()).not.toContain('token_budget')
 		inbox.close()
 	})
+
+	it('keeps a task launched first visible after twenty later tasks launch and settle', () => {
+		// The bug this closes: the old projection was a single FIFO over every
+		// owned task, so a long-running task launched early was bumped out by
+		// LAUNCH COUNT alone, whether or not the newer tasks had even finished.
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		inbox.launched('first' as TaskId) // never settles — still running below
+
+		for (let i = 0; i < 20; i++) {
+			const id = `later${i}`
+			inbox.launched(id as TaskId)
+			f.settle(handleFor(id, `result ${i}`))
+		}
+
+		const snapshot = inbox.describeOwnedWork() as string
+		expect(snapshot).toContain('"taskId":"first"')
+		inbox.close()
+	})
+
+	it('lists every running task before any settled one', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+
+		for (let i = 0; i < 5; i++) {
+			const id = `settled${i}`
+			inbox.launched(id as TaskId)
+			f.settle(handleFor(id, `r${i}`))
+		}
+		for (let i = 0; i < 5; i++) inbox.launched(`running${i}` as TaskId)
+
+		const snapshot = inbox.describeOwnedWork() as string
+		const { tasks } = JSON.parse(snapshot.slice(snapshot.indexOf('{'))) as {
+			tasks: { taskId: string }[]
+		}
+		const order = tasks.map((t) => t.taskId)
+		expect(order.filter((id) => id.startsWith('running'))).toHaveLength(5)
+		expect(order.filter((id) => id.startsWith('settled'))).toHaveLength(5)
+		const lastRunning = Math.max(...order.map((id, idx) => (id.startsWith('running') ? idx : -1)))
+		const firstSettled = order.findIndex((id) => id.startsWith('settled'))
+		expect(lastRunning).toBeLessThan(firstSettled)
+		inbox.close()
+	})
+
+	it('states the overflow honestly when more tasks are running than fit', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		for (let i = 0; i < 20; i++) inbox.launched(`run${i}` as TaskId)
+
+		const snapshot = inbox.describeOwnedWork() as string
+		const { tasks } = JSON.parse(snapshot.slice(snapshot.indexOf('{'))) as { tasks: unknown[] }
+		expect(tasks).toHaveLength(16)
+		expect(snapshot).toContain('and 4 more still running')
+		inbox.close()
+	})
+
+	it('fills remaining slots with settled tasks, preserving the delivered/undelivered distinction', () => {
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		inbox.launched('active' as TaskId) // running: leaves room for settled entries
+
+		const claimed = handleFor('claimed', 'seen')
+		inbox.launched(claimed.taskId)
+		f.settle(claimed)
+		inbox.claim(claimed.taskId)
+
+		const unclaimed = handleFor('unclaimed', 'not seen')
+		inbox.launched(unclaimed.taskId)
+		f.settle(unclaimed)
+
+		const snapshot = inbox.describeOwnedWork() as string
+		const { tasks } = JSON.parse(snapshot.slice(snapshot.indexOf('{'))) as {
+			tasks: { taskId: string; resultDelivery: string }[]
+		}
+		const byId = Object.fromEntries(tasks.map((t) => [t.taskId, t.resultDelivery]))
+		expect(byId.active).toBe('not-delivered')
+		expect(byId.claimed).toBe('delivered-to-history')
+		expect(byId.unclaimed).toBe('not-delivered')
+		inbox.close()
+	})
+
+	it('keeps the projection under the request-context size gate at the display cap with overflow', () => {
+		// Mirrors appendWorkContext's admission gate (runtime/query/iteration/index.ts):
+		// a contribution over 8,000 UTF-16 units is dropped outright rather than truncated.
+		const f = fakeGateway()
+		const inbox = new CompletionInbox()
+		inbox.attach(f.gateway)
+		for (let i = 0; i < 20; i++) inbox.launched(`task-with-a-realistic-id-${i}` as TaskId)
+
+		const snapshot = inbox.describeOwnedWork() as string
+		expect(snapshot.length).toBeLessThan(8_000)
+		inbox.close()
+	})
 })
 
 /**

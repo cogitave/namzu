@@ -27,6 +27,23 @@ import { type Logger, resolveLogger } from '../utils/logger.js'
 const UNOWNED_BUFFER_LIMIT = 32
 
 /**
+ * How many owned tasks {@link CompletionInbox.describeOwnedWork} can name at
+ * once.
+ *
+ * Unrelated to {@link UNOWNED_BUFFER_LIMIT} — that one bounds a memory leak;
+ * this one bounds a request payload. `describeOwnedWork`'s output is admitted
+ * into the request through `appendWorkContext`'s 8,000-character / ~2,000-token
+ * gate (`runtime/query/iteration/index.ts`), and 16 tasks' worth of scheduler
+ * state fits that with room to spare, including the overflow note below.
+ *
+ * Running tasks fill these slots first — see {@link CompletionInbox.runningOwned}
+ * — so a task still going is never bumped out by launch count alone the way a
+ * single FIFO over every owned task used to bump it. Only once every running
+ * task has a slot do the most recently SETTLED tasks take what is left.
+ */
+const OWNED_WORK_DISPLAY_LIMIT = 16
+
+/**
  * Completions that finished with nobody left to hear them.
  *
  * A worker's result reaches the supervisor as the `tool_result` of the
@@ -77,7 +94,30 @@ export class CompletionInbox {
 	 * takes one, and a host that owns a gateway naturally reuses it.
 	 */
 	private readonly ours = new Set<TaskId>()
-	private readonly recentOwned: TaskId[] = []
+	/**
+	 * Owned tasks not yet observed to have settled, in launch order.
+	 *
+	 * A `Set`'s iteration order is insertion order, so the most recently
+	 * launched entry is always last — {@link describeOwnedWork} reads that
+	 * order back to front. An id leaves this set the moment its completion is
+	 * observed, by whichever of the three paths sees it first: the gateway's
+	 * broadcast, an announcement recovered from {@link unowned}, or a launch
+	 * that finds the task already terminal. It is never evicted for any other
+	 * reason, so a long-running task stays in here — and therefore visible —
+	 * for exactly as long as it is actually running, regardless of how many
+	 * other tasks this run launches meanwhile.
+	 */
+	private readonly runningOwned = new Set<TaskId>()
+	/**
+	 * Owned tasks observed to have settled, oldest first, bounded to
+	 * {@link OWNED_WORK_DISPLAY_LIMIT}.
+	 *
+	 * This bound is display-driven, not a memory concern the way
+	 * {@link UNOWNED_BUFFER_LIMIT} is: a settled task's own result already
+	 * reached the model once (inline or as a notification), so dropping it
+	 * from here loses a convenience, not the only record of it.
+	 */
+	private readonly settledOwned: TaskId[] = []
 	/**
 	 * Announcements that arrived before anyone said whose task it was.
 	 *
@@ -130,6 +170,7 @@ export class CompletionInbox {
 			// finished its wait faster than the listener ran — is already
 			// delivered. Nothing to queue.
 			this.outstanding.delete(handle.taskId)
+			this.markSettled(handle.taskId)
 			if (this.claimed.has(handle.taskId)) return
 			this.unheard.set(handle.taskId, handle)
 			for (const wake of this.arrivals) wake()
@@ -193,23 +234,47 @@ export class CompletionInbox {
 	launched(taskId: TaskId): void {
 		if (this.ours.has(taskId)) return
 		this.ours.add(taskId)
-		this.recentOwned.push(taskId)
-		if (this.recentOwned.length > 16) this.recentOwned.shift()
 
-		if (this.claimed.has(taskId) || this.unheard.has(taskId)) return
+		if (this.claimed.has(taskId) || this.unheard.has(taskId)) {
+			this.markSettled(taskId)
+			return
+		}
 
 		const parked = this.unowned.get(taskId)
 		if (parked) {
 			this.unowned.delete(taskId)
 			this.unheard.set(taskId, parked)
+			this.markSettled(taskId)
 			for (const wake of [...this.arrivals]) wake()
 			return
 		}
 
 		const settled = this.gateway?.getTask(taskId)
-		if (!settled || !isTerminalAgentTaskState(settled.state)) return
+		if (!settled || !isTerminalAgentTaskState(settled.state)) {
+			// Not observed terminal by any of the checks above: still running,
+			// as far as this inbox knows.
+			this.runningOwned.add(taskId)
+			return
+		}
 		this.unheard.set(taskId, settled)
+		this.markSettled(taskId)
 		for (const wake of [...this.arrivals]) wake()
+	}
+
+	/**
+	 * Move an owned task from {@link runningOwned} to {@link settledOwned}.
+	 *
+	 * Idempotent: `claim` and the completion listener can both observe the
+	 * same settlement (the race either can win), and re-marking a task that
+	 * is already in {@link settledOwned} moves it to the most-recently-settled
+	 * end rather than duplicating it there.
+	 */
+	private markSettled(taskId: TaskId): void {
+		this.runningOwned.delete(taskId)
+		const at = this.settledOwned.indexOf(taskId)
+		if (at !== -1) this.settledOwned.splice(at, 1)
+		this.settledOwned.push(taskId)
+		if (this.settledOwned.length > OWNED_WORK_DISPLAY_LIMIT) this.settledOwned.shift()
 	}
 
 	/**
@@ -274,6 +339,13 @@ export class CompletionInbox {
 		this.claimed.add(taskId)
 		this.unheard.delete(taskId)
 		this.outstanding.delete(taskId)
+		// A tool only claims a result it is already holding, so a claim is
+		// itself proof of settlement — independent of whether the gateway's
+		// own broadcast has reached this inbox yet. Without this, a task
+		// claimed ahead of its announcement (see the race above) stayed in
+		// {@link runningOwned} until that announcement arrived, understating
+		// its own "still running" count in the meantime.
+		this.markSettled(taskId)
 	}
 
 	/** Whether anything is waiting to be told. */
@@ -281,10 +353,29 @@ export class CompletionInbox {
 		return this.unheard.size > 0
 	}
 
-	/** Bounded, non-consuming scheduler observations. Delivery never establishes user-facing completion. */
+	/**
+	 * Bounded, non-consuming scheduler observations. Delivery never
+	 * establishes user-facing completion.
+	 *
+	 * Running tasks — most recently launched first, matching the order the
+	 * rest of this projection has always used — fill the {@link
+	 * OWNED_WORK_DISPLAY_LIMIT} slots first, so a task still going is named
+	 * here for as long as it keeps running, no matter how many other tasks
+	 * this run has since launched. The most recently SETTLED tasks fill
+	 * whatever slots running tasks leave over. A settled task bumped out
+	 * entirely is not reported missing — its own result already reached the
+	 * model once — but a RUNNING task that does not fit is: the preamble
+	 * says exactly how many, so the model never mistakes the cap for the
+	 * task having ended.
+	 */
 	describeOwnedWork(): string | undefined {
 		if (this.ours.size === 0) return
-		const ids = this.recentOwned
+		const running = [...this.runningOwned].reverse()
+		const shownRunning = running.slice(0, OWNED_WORK_DISPLAY_LIMIT)
+		const stillRunningNotShown = running.length - shownRunning.length
+		const settled = [...this.settledOwned].reverse()
+		const shownSettled = settled.slice(0, OWNED_WORK_DISPLAY_LIMIT - shownRunning.length)
+		const ids = [...shownRunning, ...shownSettled]
 		const tasks = ids.map((taskId) => {
 			let handle = this.unheard.get(taskId)
 			try {
@@ -300,7 +391,11 @@ export class CompletionInbox {
 				resultDelivery: this.claimed.has(taskId) ? 'delivered-to-history' : 'not-delivered',
 			}
 		})
-		return `Owned delegated work (current scheduler observations). Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.\n${JSON.stringify({ tasks, omitted: this.ours.size - ids.length })}`
+		const overflow =
+			stillRunningNotShown > 0
+				? ` ${shownRunning.length} running tasks are shown below, and ${stillRunningNotShown} more still running.`
+				: ''
+		return `Owned delegated work (current scheduler observations).${overflow} Result delivery is not proof that you answered the original request. Answer the latest operator message and complete the requested synthesis of available results unless the operator cancelled or changed that request. Reuse delivered results when sufficient; do not relaunch completed work. If a delivered result is no longer visible, retrieve it by task ID. A terminal state with a non-end_turn stop reason is not successful task completion. Do not repeat a synthesis already given.\n${JSON.stringify({ tasks, omitted: this.ours.size - ids.length })}`
 	}
 
 	/**
@@ -391,7 +486,8 @@ export class CompletionInbox {
 		this.unheard.clear()
 		this.outstanding.clear()
 		this.ours.clear()
-		this.recentOwned.length = 0
+		this.runningOwned.clear()
+		this.settledOwned.length = 0
 		this.claimed.clear()
 		this.unowned.clear()
 		// Release anyone still waiting. A closed inbox would otherwise hold

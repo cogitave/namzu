@@ -155,10 +155,16 @@ runtime observations through the same request-only context channel:
   does a resumed conversation until something reads a file again: the replay
   below rebuilds bodies from `write` and `edit` calls only.
 - **Owned delegated work:** `CompletionInbox.describeOwnedWork()` observes up to
-  sixteen recently launched tasks without claiming or draining them. It reports
-  scheduler state, child run status, any stop reason and whether the result was delivered to
-  history. Unknown scheduler state stays unknown. Other runs' tasks and worker
-  result bodies are excluded; an omitted count covers older owned tasks.
+  sixteen owned tasks without claiming or draining them. Tasks still running fill
+  these slots first, most recently launched first, so a long-running task stays
+  named for as long as it keeps running regardless of how many other tasks this
+  run has since launched; the most recently settled tasks fill whatever slots
+  running tasks leave over. It reports scheduler state, child run status, any
+  stop reason and whether the result was delivered to history. Unknown
+  scheduler state stays unknown. Other runs' tasks and worker result bodies are
+  excluded; an omitted count covers tasks left out entirely, and a running task
+  that does not fit is additionally named in the preamble as still running
+  rather than folded silently into that count.
 
 These projections distinguish three questions: content visible to this request,
 the most recent filesystem observation, and current disk state. Matching the

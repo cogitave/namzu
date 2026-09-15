@@ -2,6 +2,8 @@
 
 ## 2026-09-15
 
+- **Update** Reorder the [owned delegated work projection](sdk/step-context.md#derived-work-context): `CompletionInbox.describeOwnedWork()` used to keep a single FIFO over every owned task, so a still-running task launched early fell out of the model's visibility once sixteen more tasks were merely LAUNCHED, whether or not any had finished. It now lists running tasks first (most recently launched first) and fills remaining slots with the most recently settled ones, still bounded to sixteen; a running task that does not fit is named honestly in the preamble ("and N more still running") instead of disappearing without a trace. Settled tasks bumped out are not individually counted — their result already reached the model once.
+
 - **Update** Refresh two more citations in [cancellation and timeouts](sdk/cancellation-and-timeouts.md#todays-three-layers-briefly): the two `GuardCoordinator.beforeIteration` call sites enforcing `timeoutMs` are now at `packages/sdk/src/runtime/query/iteration/index.ts:474` and `:2786`, not `:473` and `:2733`.
 
 - **Update** Correct the [whole-file read witness](sdk/step-context.md#derived-work-context) gate wording: a `read` witnesses itself when its window *covered the whole file* (`rendered.partial` false), not when `readRange`, `offset` and `limit` were all absent — a call that passes one of those and still reaches every line still witnesses. Aligns `docs/sdk/step-context.md`, `.changeset/full-read-witnesses.md` and `read-file.ts`'s own helper comment, which all said the stricter thing; no behavior changed.
