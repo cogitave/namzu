@@ -188,13 +188,22 @@ describe('finding what a 2020-12 wire will refuse', () => {
 })
 
 describe('the round trip a real tool takes', () => {
-	it('renders a Zod tuple as draft-07 and converts it clean', () => {
-		// The actual defect, end to end: this is what `read.readRange` is.
+	it('has nothing left to convert, because the renderer no longer emits a tuple', () => {
+		// This assertion used to be its opposite: `read.readRange` was a
+		// `z.tuple`, the renderer emitted `items: [a, b]`, and the dialect
+		// conversion was the only thing standing between that and a 400 — on
+		// the three drivers out of ten that call it. The fix moved upstream:
+		// the renderer now emits the INTERSECTION of the two dialects, so every
+		// driver is safe including the seven that convert nothing.
+		//
+		// The conversion itself is not dead, and the rest of this file still
+		// tests it: a driver can be handed a `parameters` object namzu never
+		// rendered, and the mechanism is what answers for that one.
 		const rendered = renderToolSchema(
 			z.object({ readRange: z.tuple([z.number(), z.number()]).optional() }),
 		)
 
-		expect(findDraft07Only(rendered)).not.toEqual([])
-		expect(findDraft07Only(toSchemaDialect(rendered, '2020-12'))).toEqual([])
+		expect(findDraft07Only(rendered)).toEqual([])
+		expect(toSchemaDialect(rendered, '2020-12')).toEqual(rendered)
 	})
 })

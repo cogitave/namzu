@@ -9,8 +9,18 @@ import { type RenderedRead, renderNumberedRead } from './read-render.js'
 
 const inputSchema = z.object({
 	path: z.string().describe('Path to the file to read (absolute or relative)'),
+	// A two-element ARRAY, not a `z.tuple`, and the distinction is the whole
+	// reason this comment exists. Both members carry the identical constraint,
+	// so the tuple bought nothing — and it rendered as the draft-07 tuple
+	// `items: [a, b]`, which a wire that validates against JSON Schema 2020-12
+	// refuses outright. It was the only tuple in the first-party tool surface,
+	// and it took down every other tool in the same request with it. The
+	// spelling below means the same thing to the model (`[10, 40]` either way)
+	// and to the parser, and reads identically in both dialects. See
+	// `registry/tool/portable.ts`.
 	readRange: z
-		.tuple([z.coerce.number().int().min(1), z.coerce.number().int().min(1)])
+		.array(z.coerce.number().int().min(1))
+		.length(2)
 		.optional()
 		.describe(
 			'Optional 1-indexed inclusive line range, e.g. [10, 40]. When provided it takes precedence over offset/limit.',

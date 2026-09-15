@@ -2,6 +2,8 @@ import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { findPortableSchemaViolations } from '../../../registry/tool/portable.js'
+import { renderToolSchema } from '../../../registry/tool/schema.js'
 import type { Sandbox } from '../../../types/sandbox/index.js'
 import type { FileReadTracker, ToolContext } from '../../../types/tool/index.js'
 import { createFileReadTracker } from '../../file-read-tracker.js'
@@ -30,6 +32,58 @@ function sandboxOver(body: string): Sandbox {
 		readFile: async () => Buffer.from(body, 'utf-8'),
 	} as unknown as Sandbox
 }
+
+describe("read's window, as the model is shown it", () => {
+	/**
+	 * `readRange` was the only `z.tuple` in the first-party tool surface, and
+	 * it rendered as the draft-07 tuple `items: [a, b]` — which the Zen Console
+	 * gateway, validating `parameters` against the JSON Schema 2020-12
+	 * metaschema, refused with
+	 *
+	 *     [{'minimum': 1, 'type': 'integer'}, {'minimum': 1, 'type': 'integer'}]
+	 *     is not of type 'object', 'boolean'
+	 *
+	 * taking every other tool in the request down with it. The parameter is now
+	 * a length-pinned array of the same element, which both dialects spell
+	 * identically. What the model writes did not change.
+	 */
+	it('spells the range as one element schema plus a pinned length', () => {
+		const rendered = renderToolSchema(ReadFileTool.inputSchema) as {
+			properties: { readRange: Record<string, unknown> }
+		}
+
+		expect(rendered.properties.readRange).toMatchObject({
+			type: 'array',
+			items: { type: 'integer', minimum: 1 },
+			minItems: 2,
+			maxItems: 2,
+		})
+		expect(Array.isArray(rendered.properties.readRange.items)).toBe(false)
+		expect(findPortableSchemaViolations(rendered)).toEqual([])
+	})
+
+	it.each([
+		[[10, 40], true],
+		[['10', '40'], true],
+		[[10], false],
+		[[10, 20, 30], false],
+		[['a', 'b'], false],
+		[[0, 5], false],
+		[[1.5, 2], false],
+		[[], false],
+	])('parses %j exactly as the tuple did (%s)', (readRange, accepted) => {
+		// The model-facing contract, pinned against the shape it replaced. A
+		// wire schema that describes a looser parameter than the parser accepts
+		// is a hint the model can only get wrong once.
+		const result = ReadFileTool.inputSchema.safeParse({ path: 'a.txt', readRange })
+		expect(result.success).toBe(accepted)
+		if (result.success) expect(result.data.readRange).toEqual([10, 40])
+	})
+
+	it('still describes the range to the model as [start, end]', () => {
+		expect(ReadFileTool.description).toContain('readRange ([start,end], 1-indexed inclusive)')
+	})
+})
 
 describe('ReadFileTool', () => {
 	it('accepts readRange as a 1-indexed inclusive line range', async () => {

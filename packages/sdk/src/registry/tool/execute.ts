@@ -20,7 +20,7 @@ import type {
 import { toErrorMessage } from '../../utils/error.js'
 import { cloneJsonValue as clonePreparedInput } from '../../utils/json-snapshot.js'
 import { ManagedRegistry } from '../ManagedRegistry.js'
-import { renderToolSchema } from './schema.js'
+import { renderToolSchema, toolWireSchema } from './schema.js'
 import { ToolResultHalted, screenToolResult } from './screen.js'
 
 export type { ToolExecutionResult }
@@ -461,9 +461,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				function: {
 					name: tool.name,
 					description: describeWithOutput(description, tool.outputSchema),
-					parameters:
-						(tool.modelInputSchema ? structuredClone(tool.modelInputSchema) : undefined) ??
-						renderToolSchema(tool.inputSchema),
+					parameters: toolWireSchema(tool),
 				},
 			}
 		})

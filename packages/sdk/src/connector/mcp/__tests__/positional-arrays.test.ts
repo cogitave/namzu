@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import { toSchemaDialect } from '../../../registry/tool/dialect.js'
+import { findPortableSchemaViolations } from '../../../registry/tool/portable.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
 import type { MCPJsonSchema } from '../../../types/connector/index.js'
 import { mcpJsonSchemaToZod } from '../adapter.js'
@@ -17,6 +18,15 @@ import { mcpJsonSchemaToZod } from '../adapter.js'
  *    a rejected tool schema fails the WHOLE request rather than degrading one
  *    tool. So a faithful conversion that cannot be sent is worse than a lossy
  *    one that can, which is why the tuple gate is narrow rather than eager.
+ *
+ * The second of those got its answer the expensive way, and this file changed
+ * with it. NO positional spelling is accepted everywhere: a 2020-12 wire
+ * refuses `items: [a, b]`, a draft-07 one silently ignores `prefixItems`, and
+ * seven of the ten drivers convert neither. So the rendering boundary collapses
+ * every tuple to a uniform array, and the positions travel to the model in the
+ * description instead — the one channel every wire carries intact. What the
+ * assertions below pin is that both halves survive: the shape is portable, and
+ * the order is still stated.
  */
 
 function wire(schema: MCPJsonSchema): Record<string, unknown> {
@@ -31,8 +41,8 @@ function wire(schema: MCPJsonSchema): Record<string, unknown> {
 const wrap = (a: Record<string, unknown>): MCPJsonSchema =>
 	({ type: 'object', properties: { a }, required: ['a'] }) as unknown as MCPJsonSchema
 
-describe('a server that pinned its positions gets a tuple', () => {
-	it('carries the draft-07 spelling through to bounded prefixItems', () => {
+describe('a server that pinned its positions is carried, portably', () => {
+	it('sends the draft-07 spelling as a bounded uniform array', () => {
 		expect(
 			wire(
 				wrap({
@@ -47,7 +57,8 @@ describe('a server that pinned its positions gets a tuple', () => {
 			type: 'array',
 			minItems: 2,
 			maxItems: 2,
-			prefixItems: [{ type: 'string' }, { type: 'number' }],
+			items: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+			description: 'Positional array — [0] string, [1] number.',
 		})
 	})
 
@@ -68,8 +79,44 @@ describe('a server that pinned its positions gets a tuple', () => {
 			type: 'array',
 			minItems: 2,
 			maxItems: 2,
-			prefixItems: [{ type: 'string' }, { type: 'number' }],
+			items: { anyOf: [{ type: 'string' }, { type: 'number' }] },
+			description: 'Positional array — [0] string, [1] number.',
 		})
+	})
+
+	it('still parses positionally, which is where the order is enforced', () => {
+		// The wire shape accepts `[1, 'a']`; the parser does not. Losing the
+		// order on the wire is a weaker HINT, not a weaker contract — the call
+		// is still refused, with a message the model can act on.
+		const zod = mcpJsonSchemaToZod(
+			wrap({
+				type: 'array',
+				items: [{ type: 'string' }, { type: 'number' }],
+				additionalItems: false,
+				minItems: 2,
+				maxItems: 2,
+			}),
+		)
+
+		expect(zod.safeParse({ a: ['x', 1] }).success).toBe(true)
+		expect(zod.safeParse({ a: [1, 'x'] }).success).toBe(false)
+		expect(zod.safeParse({ a: ['x'] }).success).toBe(false)
+	})
+
+	it('leaves nothing on the wire for a dialect to disagree about', () => {
+		const rendered = renderToolSchema(
+			mcpJsonSchemaToZod(
+				wrap({
+					type: 'array',
+					items: [{ type: 'string' }, { type: 'number' }],
+					additionalItems: false,
+					minItems: 2,
+					maxItems: 2,
+				}),
+			),
+		)
+
+		expect(findPortableSchemaViolations(rendered)).toEqual([])
 	})
 })
 

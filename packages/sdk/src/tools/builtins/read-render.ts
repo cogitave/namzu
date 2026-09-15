@@ -20,7 +20,17 @@ export const DEFAULT_READ_LINES = 2000
 
 /** The window fields of `read`'s input; the path plays no part in rendering. */
 export interface ReadWindowRequest {
-	readonly readRange?: readonly [number, number]
+	/**
+	 * `[start, end]`, 1-indexed inclusive.
+	 *
+	 * Typed as a number array rather than a pair because the tool's schema
+	 * pins the length at two with `.length(2)` instead of a `z.tuple` — a
+	 * tuple renders as draft-07 `items: [a, b]`, which a 2020-12 wire refuses.
+	 * The parse still rejects any other length, so a caller reaching here has
+	 * two numbers; `resolveReadWindow` reads them defensively anyway, because
+	 * this interface is also implemented by hand elsewhere in the kernel.
+	 */
+	readonly readRange?: readonly number[]
 	readonly offset?: number
 	readonly limit?: number
 }
@@ -79,8 +89,8 @@ export function resolveReadWindow(
 	input: ReadWindowRequest,
 	totalLines: number,
 ): { start: number; end: number } {
-	if (input.readRange) {
-		const [first, last] = input.readRange
+	const [first, last] = input.readRange ?? []
+	if (first !== undefined && last !== undefined) {
 		const start = Math.max(0, first - 1)
 		const end = Math.min(totalLines, Math.max(start, last))
 		return { start, end }

@@ -1,5 +1,9 @@
 # Documentation update log
 
+## 2026-09-16
+
+- **Creation** Add [portable tool schemas](sdk/tool-schema-portability.md): the kernel now renders every tool schema in the INTERSECTION of JSON Schema draft-07 and 2020-12, so no driver has to convert a dialect for it. `read`'s `readRange` was the only `z.tuple` in the first-party tool surface and rendered as the draft-07 tuple `items: [a, b]`, which a wire validating `parameters` against the 2020-12 metaschema refuses — rejecting the whole request, every other tool in it included. It is now a length-2 array of positive integers; `[10, 40]` is still exactly what a model writes and what the parser accepts. New on the SDK's public surface: `findPortableSchemaViolations`, `toPortableToolSchema`, `toolWireSchema` and `PortableSchemaViolation`. A bridged MCP tool's positional array now reaches the model as a uniform array plus a description naming each position, rather than as `prefixItems`.
+
 ## 2026-09-15
 
 - **Update** Reorder the [owned delegated work projection](sdk/step-context.md#derived-work-context): `CompletionInbox.describeOwnedWork()` used to keep a single FIFO over every owned task, so a still-running task launched early fell out of the model's visibility once sixteen more tasks were merely LAUNCHED, whether or not any had finished. It now lists running tasks first (most recently launched first) and fills remaining slots with the most recently settled ones, still bounded to sixteen; a running task that does not fit is named honestly in the preamble ("and N more still running") instead of disappearing without a trace. Settled tasks bumped out are not individually counted — their result already reached the model once.

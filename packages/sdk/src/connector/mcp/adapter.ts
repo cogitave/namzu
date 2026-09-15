@@ -338,11 +338,20 @@ const MAX_TUPLE_ARITY = 32
  * down every run that offered the toolset. A faithful conversion that cannot
  * be sent is strictly worse than a lossy one that can.
  *
- * Hence the narrow gate. A tuple is emitted only where the server itself
- * pinned the arity and closed the tail, because that renders as bounded
- * `prefixItems` — the one positional shape measured as accepted, and the same
- * shape a first-party builtin already ships. Everything else keeps the
- * permissive array and gains the positional shape in its description.
+ * NO positional shape is a construct every wire accepts. That was measured the
+ * expensive way: `items: [a, b]` is refused by a wire validating against JSON
+ * Schema 2020-12, `prefixItems: [a, b]` is unknown to a draft-07 one — which
+ * DROPS it silently rather than complaining — and only three of the ten
+ * drivers convert between them. So the rendering boundary now collapses every
+ * tuple to a uniform array (`registry/tool/portable.ts`), and this function's
+ * job changed with it: the tuple it returns is the PARSER, which still refuses
+ * a wrongly-typed or wrongly-ordered call, while the positions reach the model
+ * as prose in the description — the one channel every wire carries intact.
+ *
+ * Hence the narrow gate, which still matters: a tuple is a parser strict
+ * enough to reject a shorter array, so it is built only where the server
+ * itself pinned the arity and closed the tail. Everything else keeps the
+ * permissive array. Either way the positional shape is described.
  *
  * The subtlety worth stating, because it inverts the intuition: positional
  * `items`/`prefixItems` does not constrain LENGTH. Without `minItems` the
@@ -372,7 +381,12 @@ function positionalToZod(
 	const members = positional.map((member) => jsonSchemaPropertyToZod(member, depth + 1))
 	// Never `.rest()`. It renders a tail schema this wire has not been measured
 	// against, and the gate above has already established there is no tail.
-	return z.tuple(members as [z.ZodType, ...z.ZodType[]])
+	//
+	// Described as well as parsed: the rendering collapses the tuple to a
+	// uniform array, so without this sentence the model would be shown "two of
+	// string-or-number" for a schema the parser reads as "a string then a
+	// number" — and would learn the difference only from a rejected call.
+	return z.tuple(members as [z.ZodType, ...z.ZodType[]]).describe(describePositional(positional))
 }
 
 /** The positional shape in prose, for the cases a tuple cannot carry. */

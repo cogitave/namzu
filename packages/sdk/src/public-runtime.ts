@@ -274,9 +274,17 @@ export {
 // parses, which is the wire's property. Rendered once, converted at the driver.
 export { findDraft07Only, toSchemaDialect } from './registry/tool/dialect.js'
 export type { JsonSchemaDialect } from './registry/tool/dialect.js'
+// Better than converting per wire: emit the INTERSECTION of the dialects, so
+// there is nothing left for a driver to convert and an unmeasured wire is safe
+// by construction. Exported so a driver or a CI gate can assert it.
+export {
+	findPortableSchemaViolations,
+	toPortableToolSchema,
+} from './registry/tool/portable.js'
+export type { PortableSchemaViolation } from './registry/tool/portable.js'
 // The renderer itself, so a driver or a contract test can ask what a tool will
 // actually put on the wire without reaching into the registry.
-export { renderToolSchema } from './registry/tool/schema.js'
+export { renderToolSchema, toolWireSchema } from './registry/tool/schema.js'
 export type { StrictSchemaViolation } from './provider/strict-schema.js'
 export type { ModelIdGrammar, ModelVersion } from './provider/model-version.js'
 export { drainQuery, query } from './runtime/query/index.js'

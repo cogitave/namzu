@@ -18,9 +18,11 @@ import type { ComputerUseHost } from '@namzu/sdk'
  * objects and were rejected by the wire:
  *
  *   - `edit.insertLine` used `oneOf`, which strict tool use refuses.
- *   - `read.readRange` is a Zod tuple, which renders draft-07 `items: [a, b]`
+ *   - `read.readRange` was a Zod tuple, which renders draft-07 `items: [a, b]`
  *     while this wire requires draft 2020-12 — rejected with `strict` unset,
- *     so a guard scoped to strict never saw it.
+ *     so a guard scoped to strict never saw it. The kernel no longer emits a
+ *     tuple for any tool; the probes below still ask the wire what it does
+ *     with one, because that is the fact the fix rests on.
  *
  * Neither could fail offline, because neither was wrong offline. So this one
  * talks to the real API.
@@ -335,12 +337,29 @@ describe('what can be checked without a key', () => {
 		}
 	})
 
-	it('still finds one before conversion, so the sweep is not vacuous', () => {
-		// `read` renders a Zod tuple. If this ever stops finding anything, the
-		// test above has quietly become a tautology.
+	it('finds nothing to convert, because the kernel stopped emitting one', () => {
+		// This used to assert the opposite — that `read` DID render a tuple —
+		// as proof the sweep above was not a tautology. It is a tautology now,
+		// and deliberately: the kernel renders the intersection of draft-07 and
+		// 2020-12, so there is nothing left for any driver to convert. The
+		// guarantee moved upstream rather than disappearing.
 		const withTuple = getBuiltinTools().filter(
 			(t) => !t.modelInputSchema && findDraft07Only(renderToolSchema(t.inputSchema)).length > 0,
 		)
-		expect(withTuple.map((t) => t.name)).toContain('read')
+		expect(withTuple.map((t) => t.name)).toEqual([])
+	})
+
+	it('still converts a tuple it is HANDED, which is what the sweep is for', () => {
+		// The non-vacuous half, moved to where it is still true. A driver can
+		// be given a `parameters` object this kernel never rendered — a host
+		// passing `ChatCompletionParams` straight in, or a schema built by
+		// hand — and the conversion is what answers for that one.
+		const handed = {
+			type: 'object',
+			properties: { f: { type: 'array', items: [{ type: 'integer' }, { type: 'integer' }] } },
+		}
+
+		expect(findDraft07Only(handed)).toEqual(['properties.f.items'])
+		expect(findDraft07Only(toSchemaDialect(handed, '2020-12'))).toEqual([])
 	})
 })
