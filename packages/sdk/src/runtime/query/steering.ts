@@ -100,6 +100,16 @@ export function attachNotice(
 	messages: readonly Message[],
 	channel: SteeringChannel | undefined,
 	format: (text: string) => string,
+	/**
+	 * Told only when the text actually landed on a result the model will read.
+	 *
+	 * Not on the two paths above it: a batch with no tool result leaves the
+	 * notice queued, and a result whose content is not a string puts it back.
+	 * Draining is therefore not delivery, which matters to the caller that
+	 * keeps its own record of what the text accounts for — `AwaitedJobs`
+	 * drops an exit's entry here, and a premature drop would strand the exit.
+	 */
+	onDelivered?: () => void,
 ): readonly Message[] {
 	if (!channel?.pending) return messages
 	let lastToolIndex = -1
@@ -119,6 +129,7 @@ export function attachNotice(
 	}
 	const next = [...messages]
 	next[lastToolIndex] = { ...target, content: target.content + format(text) }
+	onDelivered?.()
 	return next
 }
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
@@ -72,6 +72,7 @@ const WAIT_BRIEFLY = {
 
 const leftRunning: { registry: BackgroundJobRegistry; owner: string }[] = []
 afterEach(async () => {
+	vi.unstubAllEnvs()
 	for (const { registry, owner } of leftRunning.splice(0)) {
 		await registry.killOwner(owner).catch(() => {})
 	}
@@ -194,6 +195,80 @@ describe('a run suspends for a job the model awaited, and pays no tokens for it'
 		// exited during, `job_2` on the message the hold delivered.
 		expect(notices.filter((content) => content.includes('job_1')).length).toBe(1)
 		expect(notices.filter((content) => content.includes('job_2')).length).toBe(1)
+	}, 60_000)
+
+	it('delivers an exit that lands in the moment the run is settling', async () => {
+		// The grace boundary. The hold asks for an exit, the job has not ended
+		// yet, and the wait is over; the job then ends a tick later, which
+		// takes it off the outstanding list on its way past. So the run had
+		// not delivered it — the hold had already looked — and could not
+		// honestly name it on `abandonedJobIds` either, because it did not
+		// walk away from a job that finished. The session's own announcer is
+		// no help: it speaks only for an exit that lands with no run in
+		// flight, and this one is still in flight. The exit belonged to
+		// nobody.
+		//
+		// A tick is not something a timer can be aimed at, so this sits in it
+		// instead: `drainQuery` awaits its listener between yields, which
+		// parks the run on the last event the loop emits before it settles.
+		vi.stubEnv('NAMZU_JOB_HOLD_MAX_MS', '50')
+		const backgroundJobs = new BackgroundJobRegistry()
+		const provider = new MockLLMProvider({
+			turns: [
+				{ toolCalls: [{ id: 'c1', name: 'start', args: { command: 'sleep 30' } }] },
+				WAIT_BRIEFLY,
+				{ text: 'it is still going' },
+			],
+		})
+
+		let ended = false
+		const run = await drainQuery(
+			{
+				provider,
+				tools: tools(),
+				agentId: 'job-hold-fixture',
+				agentName: 'Job hold fixture',
+				messages: [createUserMessage('start the job and tell me when it ends')],
+				workingDirectory: process.cwd(),
+				...ids(),
+				runConfig: {
+					model: 'mock',
+					maxIterations: 6,
+					tokenBudget: 200_000,
+					// No deadline, so the job ceiling stubbed above is what ends
+					// the hold — the CLI's configuration, and the one where the
+					// boundary is reached rather than the run's own clock.
+					timeoutMs: 0,
+				},
+				backgroundJobs,
+			},
+			async (event) => {
+				// The turn that called no tools is the one the hold ran on, and
+				// this event is emitted after it gave up and before the run
+				// settles.
+				if (ended || event.type !== 'iteration_completed' || event.hasToolCalls) return
+				ended = true
+				await backgroundJobs.kill('job_1')
+			},
+		)
+
+		expect(ended, 'the run never reached the turn the hold gives up on').toBe(true)
+		expect(run.status).toBe('completed')
+		// Nobody was waiting on it by then, so this bought no turn: three
+		// scripted turns, three requests.
+		expect(provider.requests.length).toBe(3)
+		// Named as abandoned would be a false claim — it ended.
+		expect(run.abandonedJobIds).toBeUndefined()
+		// And the exit is in the transcript the host reads, not lost between
+		// the two layers that each thought the other had it.
+		const notices = (run.messages as { content: unknown }[])
+			.map((message) => (typeof message.content === 'string' ? message.content : ''))
+			.filter((content) => content.includes('[Background job update]'))
+		expect(notices.length).toBe(1)
+		expect(notices[0]).toContain('job_1')
+		// Appended after the final assistant turn, so the run's own answer has
+		// to have been fixed before it went on.
+		expect(run.result).toContain('it is still going')
 	}, 60_000)
 
 	it('leaves a job nobody awaited to run, and ends the run at once', async () => {

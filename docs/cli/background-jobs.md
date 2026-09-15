@@ -46,7 +46,7 @@ permission policy.
 - **At the end of a turn**, for a job the model awaited, the run suspends rather than settling over it; the same line arrives as a `runtime-context` message (`{ type: 'runtime-context', kind: 'job-exit' }`) when the wait releases. See *Waiting at the end of a turn* below.
 - **Between turns**, the session hears the exit itself: the `⚙` row appears at once, and the next message to the model opens with the jobs that ended since its last turn.
 
-Exactly one of the three announces any given exit. The first two are the kernel's, and each drains the notice as it delivers it, so an exit already attached to a tool result is not delivered again by the suspend. The third is the session's, and it only ever sees an exit that landed with no run open — the case the kernel is not there to hear.
+Exactly one of the three announces any given exit. The first two are the kernel's, and each drains the notice as it delivers it and drops its record of the exit that notice accounts for, so an exit already attached to a tool result is neither delivered again by the suspend nor counted as a reason to open one. The third is the session's, and it only ever sees an exit that landed with no run open — the case the kernel is not there to hear.
 
 None of them knows a `wait_for_job` call is already blocked on the same job: unlike the delegated-task inbox, which lets a blocking `wait_for_task` claim a completion so it is not also announced, nothing here suppresses the notice for a job `wait_for_job` is about to report on its own. A job that exits during a `wait_for_job` call can therefore surface twice — once as that call's own result, once as the `[Background job update]` line on the same or a later tool result. Redundant, not contradictory: both describe the same exit.
 
@@ -59,6 +59,8 @@ So the kernel suspends instead. When the model stops calling tools and a job it 
 - **the job exits** → the notice is delivered and the model gets one more turn to use it;
 - **the operator types** → the message is delivered and the model gets that turn instead; the job is untouched, because ending a wait is not ending the work;
 - **the grace runs out** → the run settles and names the job on the run's `abandonedJobIds`, which is a statement, not a stop.
+
+A job that ends in the moment between the last of those and the run settling is delivered on the way out, as the same `runtime-context` message on `Run.messages`, and is not named on `abandonedJobIds` — it finished, so claiming the run walked away from it would be false. That moment is the kernel's alone: the session announces only exits that land with no run in flight, and this one lands while the run is still finishing.
 
 The grace is half of what the run has left before it must start finishing — the same grace a delegated task gets, since one wait covers both — under a ceiling of its own for the job half: **two minutes**, or `NAMZU_JOB_HOLD_MAX_MS`.
 

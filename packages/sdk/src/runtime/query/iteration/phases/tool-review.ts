@@ -150,6 +150,10 @@ export async function* runToolReview(
 				attachSteering(batch.messages, ctx.steering, ctx.onSteeringDelivered),
 				ctx.jobNotices,
 				formatJobNote,
+				// The exits that text accounts for have now been read, so the
+				// record of them stops being pending work. Left standing, it
+				// buys the model a turn the next time any job queues a notice.
+				() => ctx.awaitedJobs?.noticesDelivered(),
 			),
 			notices,
 		)) {

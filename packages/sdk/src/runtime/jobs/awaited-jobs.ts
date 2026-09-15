@@ -9,6 +9,14 @@ import type { BackgroundJob, BackgroundJobRegistry } from './registry.js'
  */
 export type AwaitedJobSource = Pick<BackgroundJobRegistry, 'get' | 'onExit'>
 
+/** Exits and the text that puts them in front of the model. See {@link AwaitedJobs.takeDelivery}. */
+export interface DeliverableJobExits {
+	/** The notice text, already queued by the exit that produced it. */
+	readonly text: string
+	/** The exits that text accounts for, taken from the record. */
+	readonly exits: readonly BackgroundJob[]
+}
+
 /**
  * Background jobs the model SAID it is waiting on.
  *
@@ -47,16 +55,23 @@ export class AwaitedJobs {
 		private readonly owner: string,
 		/**
 		 * Whether the exit notice this run queues for the model is still
-		 * unread.
+		 * unread. A second opinion on {@link noticesDelivered}, and it can
+		 * only ever narrow what counts as pending.
 		 *
 		 * An exit is work only until the model has seen it, and this adapter is
 		 * not what shows it: the text rides out on the next tool result
 		 * (`attachNotice`), which is what normally happens, long before any
-		 * hold opens. Without this the queue entry left behind by that delivery
-		 * would keep {@link hasPendingWork} true and make {@link waitForArrival}
-		 * resolve at once — and since the hold races its legs, an entry for an
-		 * exit the model read ten minutes ago would end the wait the delegated
-		 * task leg had just opened for work that really was outstanding.
+		 * hold opens. {@link noticesDelivered} is how that delivery says so,
+		 * and it is the per-job record — the entry goes, so nothing can count
+		 * it again.
+		 *
+		 * This stays because the two answer different questions. That one is
+		 * reported BY a delivery site, so it is only as good as the sites that
+		 * remember to call it; this reads the channel itself, and a channel
+		 * with nothing queued cannot have news in it whatever the record says.
+		 * It is also safe in one direction only: it can suppress a hold, never
+		 * open one, so a stale `true` here is not a turn the model gets to
+		 * spend — which is the failure this pair exists to prevent.
 		 *
 		 * `CompletionInbox.claim` draws the same line on the task side. It can
 		 * name the task, because the call that delivers a completion knows
@@ -121,8 +136,11 @@ export class AwaitedJobs {
 	/**
 	 * Recorded exits the model has not been shown yet.
 	 *
-	 * See the `unreadNotice` constructor argument: a queued exit whose notice
-	 * has already been delivered is history, not pending work.
+	 * Both halves of the same question: {@link noticesDelivered} drops the
+	 * entry when its notice goes out, and the `unreadNotice` constructor
+	 * argument asks the channel whether anything is still queued. A queued
+	 * exit whose notice has already been delivered is history, not pending
+	 * work, and an exit nobody awaited is not this adapter's news to carry.
 	 */
 	private get unreadExits(): boolean {
 		if (this.exits.length === 0) return false
@@ -166,11 +184,54 @@ export class AwaitedJobs {
 	}
 
 	/**
+	 * Say that the queued exit notices have been put in front of the model.
+	 *
+	 * Called by the tool-result delivery (`attachNotice`), which is where an
+	 * exit normally reaches the model; {@link takeDelivery} does the same for
+	 * the hold's own path by taking the entries as it delivers them.
+	 *
+	 * Every recorded exit goes, and that is per-job rather than a blunt
+	 * clear: the channel hands over ALL its queued text at once, and an exit
+	 * is recorded here in the same synchronous announcement that queues its
+	 * notice, so the text just delivered is exactly the notices of the exits
+	 * in hand. An exit recorded after this call keeps its entry, because its
+	 * notice was queued after that text was taken.
+	 *
+	 * Without it the entry outlived the delivery, and the channel-level gate
+	 * above was the only thing standing between a read exit and a model turn
+	 * — a gate that reopens the moment ANY later job, awaited or not, queues
+	 * a notice of its own.
+	 */
+	noticesDelivered(): void {
+		this.exits = []
+	}
+
+	/**
+	 * Take the recorded exits together with the text that delivers them, or
+	 * take neither.
+	 *
+	 * The pairing is the whole method. Draining the exits first and then
+	 * asking for the notice loses them on the branch that finds none: the
+	 * records are gone, no text was written, and the exit the run held itself
+	 * open for is delivered by nobody. So {@link drain} is not called until
+	 * the delivery is certain, and an exit this could not deliver stays in
+	 * hand for the next one.
+	 */
+	takeDelivery(notice: () => string | undefined): DeliverableJobExits | undefined {
+		if (this.exits.length === 0) return undefined
+		const text = notice()
+		if (text === undefined) return undefined
+		return { text, exits: this.drain() }
+	}
+
+	/**
 	 * Take every exit recorded since the last call, leaving none behind.
 	 *
 	 * Draining rather than peeking, for the reason `CompletionInbox.drain`
 	 * gives: an exit that stays queued after being delivered is a duplicate
-	 * waiting to happen.
+	 * waiting to happen. Callers that are delivering want
+	 * {@link takeDelivery}, which will not take them without the notice that
+	 * accounts for them.
 	 */
 	drain(): readonly BackgroundJob[] {
 		if (this.exits.length === 0) return []

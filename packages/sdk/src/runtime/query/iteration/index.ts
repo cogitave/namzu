@@ -51,6 +51,7 @@ import type {
 } from '../../../types/run/index.js'
 import type { Skill } from '../../../types/skills/index.js'
 import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
+import { readPositiveIntEnv } from '../../../utils/env.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { stableDigest } from '../../../utils/hash.js'
 import { generateMessageId } from '../../../utils/id.js'
@@ -209,13 +210,13 @@ const DEFAULT_JOB_HOLD_MAX_MS = 2 * 60 * 1000
  *
  * `NAMZU_JOB_HOLD_MAX_MS` overrides the ceiling for a host that wants a
  * longer or shorter park, the way `NAMZU_JOB_WAIT_TIMEOUT_MS` overrides
- * `wait_for_job`'s own bound. Read per call rather than at module load, so a
- * host that sets it after import is not ignored.
+ * `wait_for_job`'s own bound — and it is the same parse, so a value that is
+ * not a positive whole number of milliseconds leaves the default standing
+ * rather than holding a run for `NaN`. Called here rather than at module
+ * load, because a host that sets it after import is not ignored.
  */
 export function awaitedJobGraceMs(remainingBeforeFinalizeMs: number): number {
-	const configured = Number(process.env.NAMZU_JOB_HOLD_MAX_MS?.trim())
-	const ceiling =
-		Number.isSafeInteger(configured) && configured > 0 ? configured : DEFAULT_JOB_HOLD_MAX_MS
+	const ceiling = readPositiveIntEnv('NAMZU_JOB_HOLD_MAX_MS', DEFAULT_JOB_HOLD_MAX_MS)
 	return Math.min(settleGraceMs(remainingBeforeFinalizeMs), ceiling)
 }
 
@@ -1575,8 +1576,10 @@ export class IterationOrchestrator {
 					// returned — which is what makes a terminal submit_answer tool
 					// usable without discarding its output.
 					if (await this.shouldStop()) {
-						// Outstanding delegated work outranks the host's stop
-						// predicate, exactly once.
+						// Outstanding work outranks the host's stop predicate —
+						// a delegated task the completion inbox is expecting, or
+						// a background job the model told `wait_for_job` it is
+						// waiting on.
 						//
 						// This is a precedence rule chosen here, not something
 						// `stopWhen` implies — a stop predicate is a programmable
@@ -1585,13 +1588,20 @@ export class IterationOrchestrator {
 						// tool or a captured structured output. Those decide the
 						// result, so no turn follows and a hold would buy nothing.
 						// This one only says "stop", and stopping one turn later
-						// with the worker's result in hand is a better reading of
-						// the host's intent than stopping now and discarding it.
+						// with the result in hand is a better reading of the
+						// host's intent than stopping now and discarding it.
 						//
-						// Bounded: after the notification is delivered the inbox
-						// is drained, so the predicate fires again next turn with
-						// nothing pending and the run stops. Exactly one extra
-						// turn, and `maxIterations` bounds it regardless.
+						// Bounded by what is left to deliver, not by a count.
+						// Each delivery consumes what it delivered — the inbox is
+						// drained, and a job exit's notice is taken with the
+						// record of the exits it accounts for — so the predicate
+						// is asked again next turn against whatever is still
+						// outstanding. One task deferred it once; two awaited
+						// jobs exiting a minute apart defer it twice, each time
+						// for a turn the model spends on news it has not read.
+						// `maxIterations` and the run's own deadline bound all of
+						// it regardless, and a leg with nothing pending never
+						// opens a hold at all.
 						if (yield* this.holdForOutstandingWork(iterationNum, true)) {
 							// Remember WHY the next turn exists, so the turn that
 							// ends the run can name the host's decision instead of
@@ -1930,8 +1940,13 @@ export class IterationOrchestrator {
 	 *
 	 * That drain is also what keeps one exit from being delivered twice: the
 	 * channel hands its text over once, so an exit already attached to a tool
-	 * result earlier in the turn leaves nothing here, and this returns `false`
-	 * rather than buying a turn to re-read what the model has read.
+	 * result earlier in the turn leaves nothing here — and the record of it
+	 * went with that delivery, so this returns `false` rather than buying a
+	 * turn to re-read what the model has read.
+	 *
+	 * `takeDelivery` is what pairs the two. Taking the exits first and then
+	 * finding no notice would discard them, which is the one way this path
+	 * can lose an exit outright; neither is taken unless both are there.
 	 *
 	 * The channel is not per-job, so the text taken here can include a notice
 	 * for a job nobody awaited that ended while the hold was open. Delivering
@@ -1940,22 +1955,22 @@ export class IterationOrchestrator {
 	 * is `AwaitedJobs`, and the two are asked separately.
 	 */
 	private deliverAwaitedJobExits(): boolean {
-		const exited = this.ctx.awaitedJobs?.drain() ?? []
-		if (exited.length === 0) return false
-		const notice = this.ctx.jobNotices?.drain()
-		if (!notice) return false
+		const delivered = this.ctx.awaitedJobs?.takeDelivery(() => this.ctx.jobNotices?.drain())
+		if (!delivered) return false
 
 		this.ctx.log.info('Delivering a background job exit the run held open for', {
 			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
-			'namzu.runtime.jobs': exited.map((job) => job.id),
+			'namzu.runtime.jobs': delivered.exits.map((job) => job.id),
 		})
-		this.ctx.runMgr.pushMessage(createRuntimeContextMessage(formatJobNote(notice), 'job-exit'))
+		this.ctx.runMgr.pushMessage(
+			createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'),
+		)
 		return true
 	}
 
 	/**
-	 * Account for delegated work on the way out: deliver what arrived, and say
-	 * what did not.
+	 * Account for outstanding work on the way out: deliver what arrived, and
+	 * say what did not.
 	 *
 	 * A run that ends with a worker outstanding must not leave the impression
 	 * that the worker's result was delivered. There are exactly two honest
@@ -1979,10 +1994,11 @@ export class IterationOrchestrator {
 	 */
 	private settleOutstandingWork(): void {
 		this.deliverArrivedCompletions()
+		this.deliverArrivedJobExits()
 		this.recordAbandonedWork()
 	}
 
-	/** Delegated work this run walked away from. See {@link settleOutstandingWork}. */
+	/** Work this run walked away from. See {@link settleOutstandingWork}. */
 	private recordAbandonedWork(): void {
 		const abandoned = this.ctx.completionInbox?.outstandingTaskIds ?? []
 		if (abandoned.length > 0) {
@@ -2036,6 +2052,43 @@ export class IterationOrchestrator {
 		})
 		this.ctx.runMgr.pushMessage(
 			createRuntimeContextMessage(formatCompletionNotification(unheard), 'task-completion'),
+		)
+	}
+
+	/**
+	 * The job half of {@link deliverArrivedCompletions}: an exit that arrived
+	 * too late to earn a turn is still delivered on the way out.
+	 *
+	 * The window this closes is one tick wide and it is nobody else's. An
+	 * awaited job that exits between the hold's grace expiring and the run
+	 * settling was never delivered — the hold had already looked — and is no
+	 * longer named either, because the exit took it off the outstanding list
+	 * on its way past, so `abandonedJobIds` would be lying to claim it. The
+	 * host's own listener is no help: the CLI queues an exit for the next
+	 * turn only when no run is in flight, and this one is still in flight.
+	 * Delivered here it reaches `Run.messages`, so the transcript has it and
+	 * a continued thread opens with it.
+	 *
+	 * Before `recordAbandonedWork`, which then reports only what is still
+	 * running, and after `deliverArrivedCompletions`, so the two appended
+	 * messages land in the order the work finished in.
+	 */
+	private deliverArrivedJobExits(): void {
+		const delivered = this.ctx.awaitedJobs?.takeDelivery(() => this.ctx.jobNotices?.drain())
+		if (!delivered) return
+
+		// Fix the run's answer BEFORE appending anything after it — the same
+		// `resolveResult` tail walk `deliverArrivedCompletions` explains just
+		// above, and the same guard against pinning an empty one.
+		const answer = this.ctx.runMgr.materializeResult()
+		if (answer.length > 0) this.ctx.runMgr.setResult(answer)
+
+		this.ctx.log.info('Delivering a background job exit the run would have settled over', {
+			[NAMZU.RUN_ID]: this.ctx.runMgr.id,
+			'namzu.runtime.jobs': delivered.exits.map((job) => job.id),
+		})
+		this.ctx.runMgr.pushMessage(
+			createRuntimeContextMessage(formatJobNote(delivered.text), 'job-exit'),
 		)
 	}
 

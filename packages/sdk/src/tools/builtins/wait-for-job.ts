@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { readPositiveIntEnv } from '../../utils/env.js'
 import { defineTool } from '../defineTool.js'
 import { describeJobWaitTimeout, waitForJobWithBounds } from './wait-for-job-bounds.js'
 
@@ -31,13 +32,6 @@ const DEFAULT_IDLE_TIMEOUT_MS = readPositiveIntEnv('NAMZU_JOB_WAIT_IDLE_MS', 2 *
  * for the same trade.
  */
 const MAX_WAIT_MS = readPositiveIntEnv('NAMZU_JOB_WAIT_MAX_MS', 60 * 60 * 1000)
-
-function readPositiveIntEnv(key: string, fallback: number): number {
-	const value = process.env[key]?.trim()
-	if (!value) return fallback
-	const parsed = Number(value)
-	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback
-}
 
 const inputSchema = z.object({
 	id: z.string().describe('The job id, as returned by bash with run_in_background.'),

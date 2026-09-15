@@ -121,6 +121,65 @@ describe('an awaited job is the only thing that is outstanding', () => {
 		expect(awaited.hasPendingWork).toBe(false)
 	})
 
+	it('drops a delivered exit, so a later job’s notice cannot revive it', () => {
+		// The channel gate alone is not enough, because the channel is shared.
+		// An exit whose notice went out leaves a record behind, and the gate
+		// only asks whether ANY notice is queued — so the next job to end,
+		// awaited or not, made that record read as news again and bought the
+		// model a turn to re-read an exit it had already been shown.
+		const registry = source([job({ id: 'job_1' }), job({ id: 'job_2' })])
+		let unread = true
+		const awaited = new AwaitedJobs(registry.api, 'run_1', () => unread)
+		awaited.attach()
+		awaited.expect('job_1')
+		registry.announce(job({ id: 'job_1', status: 'exited', exitCode: 0 }))
+
+		expect(awaited.hasPendingWork, 'an exit nobody has read yet is work').toBe(true)
+
+		// It rides out on a tool result, which is where an exit normally
+		// reaches the model, and the delivery says so.
+		unread = false
+		awaited.noticesDelivered()
+
+		// `job_2` is a dev server nobody awaited: its exit is none of this
+		// adapter's business, but its notice goes on the same channel.
+		registry.announce(job({ id: 'job_2', status: 'exited', exitCode: 0 }))
+		unread = true
+
+		expect(awaited.hasPendingWork).toBe(false)
+		expect(awaited.drain()).toEqual([])
+	})
+
+	it('keeps an exit it has no notice to deliver with', () => {
+		// The pairing in `takeDelivery`. Taking the exits before knowing
+		// whether there is text to carry them discards them on the branch
+		// that finds none — nothing delivered, and no record left that the
+		// next delivery could carry instead.
+		const registry = source([job({ id: 'job_1' })])
+		const awaited = new AwaitedJobs(registry.api, 'run_1')
+		awaited.attach()
+		awaited.expect('job_1')
+		registry.announce(job({ id: 'job_1', status: 'exited', exitCode: 0 }))
+
+		expect(awaited.takeDelivery(() => undefined)).toBeUndefined()
+
+		const delivered = awaited.takeDelivery(() => 'job_1 exited with code 0')
+		expect(delivered?.text).toBe('job_1 exited with code 0')
+		expect(delivered?.exits.map((entry) => entry.id)).toEqual(['job_1'])
+
+		// And once delivered they are gone, without the channel being drained
+		// to find that out: a notice taken here would be one no tool result
+		// ever shows.
+		let asked = 0
+		expect(
+			awaited.takeDelivery(() => {
+				asked += 1
+				return 'job_1 exited with code 0'
+			}),
+		).toBeUndefined()
+		expect(asked, 'drained the notice channel with nothing to deliver').toBe(0)
+	})
+
 	it('goes on waiting for a running job while a read exit sits in the queue', async () => {
 		const registry = source([job({ id: 'job_1' }), job({ id: 'job_2' })])
 		let unread = true
@@ -139,6 +198,35 @@ describe('an awaited job is the only thing that is outstanding', () => {
 			}),
 		])
 		expect(early, 'a delivered exit ended the wait for a job still running').toBe('waiting')
+
+		registry.announce(job({ id: 'job_2', status: 'exited', exitCode: 0 }))
+		await expect(waited).resolves.toBeUndefined()
+	})
+
+	it('goes on waiting for a running job after an unawaited job ends', async () => {
+		// The same regression as the delivered-record case above, seen from
+		// the wait: `job_1` was read, `job_3` was never awaited, and `job_2`
+		// is the one this run is actually waiting for.
+		const registry = source([job({ id: 'job_1' }), job({ id: 'job_2' }), job({ id: 'job_3' })])
+		let unread = true
+		const awaited = new AwaitedJobs(registry.api, 'run_1', () => unread)
+		awaited.attach()
+		awaited.expect('job_1')
+		awaited.expect('job_2')
+		registry.announce(job({ id: 'job_1', status: 'exited', exitCode: 0 }))
+		unread = false
+		awaited.noticesDelivered()
+		registry.announce(job({ id: 'job_3', status: 'exited', exitCode: 0 }))
+		unread = true
+
+		const waited = awaited.waitForArrival(10_000)
+		const early = await Promise.race([
+			waited.then(() => 'returned' as const),
+			new Promise<'waiting'>((resolve) => {
+				setTimeout(() => resolve('waiting'), 25).unref?.()
+			}),
+		])
+		expect(early, 'a job nobody awaited ended the wait for one this run was').toBe('waiting')
 
 		registry.announce(job({ id: 'job_2', status: 'exited', exitCode: 0 }))
 		await expect(waited).resolves.toBeUndefined()
