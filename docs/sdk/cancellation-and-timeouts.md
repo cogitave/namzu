@@ -42,7 +42,7 @@ contrasts itself against it, saying plainly that `timeoutMs` "is checked
 between agent iterations and cannot settle a provider iterator whose pending
 `next()` never returns" (`packages/sdk/src/types/run/config.ts:17-18`), and
 the only two call sites that enforce it —
-`packages/sdk/src/runtime/query/iteration/index.ts:473` and `:2733` — are
+`packages/sdk/src/runtime/query/iteration/index.ts:474` and `:2786` — are
 both between-iteration checks in `GuardCoordinator.beforeIteration`
 (`packages/sdk/src/runtime/query/guard.ts:104-147`, confirmed as the only two
 call sites by a full-tree grep). A single turn that keeps producing chunks,

@@ -2,6 +2,8 @@
 
 ## 2026-09-15
 
+- **Update** Refresh two more citations in [cancellation and timeouts](sdk/cancellation-and-timeouts.md#todays-three-layers-briefly): the two `GuardCoordinator.beforeIteration` call sites enforcing `timeoutMs` are now at `packages/sdk/src/runtime/query/iteration/index.ts:474` and `:2786`, not `:473` and `:2733`.
+
 - **Update** Correct the [whole-file read witness](sdk/step-context.md#derived-work-context) gate wording: a `read` witnesses itself when its window *covered the whole file* (`rendered.partial` false), not when `readRange`, `offset` and `limit` were all absent — a call that passes one of those and still reaches every line still witnesses. Aligns `docs/sdk/step-context.md`, `.changeset/full-read-witnesses.md` and `read-file.ts`'s own helper comment, which all said the stricter thing; no behavior changed.
 
 - **Update** Correct two citations in [cancellation and timeouts](sdk/cancellation-and-timeouts.md#todays-three-layers-briefly): the `"is checked between agent iterations…"` quote is `streamIdleTimeoutMs`'s own doc comment contrasting itself against `timeoutMs`, not `timeoutMs`'s (`packages/sdk/src/types/run/config.ts:17-18`), and the `cancelled-provider-receipts.test.ts` describe/it pair is at 17-18, not 16-18.
