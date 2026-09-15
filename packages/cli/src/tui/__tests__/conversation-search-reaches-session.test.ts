@@ -1638,6 +1638,17 @@ it('keeps changing inventory after history on both native provider wires', async
 	expect(script.requests).toHaveLength(3)
 	const second = script.requests[1]!
 	const third = script.requests[2]!
+	const isStepContext = (m: Message) =>
+		m.role === 'user' && m.source?.type === 'runtime-context' && m.source.kind === 'step-context'
+	// The kernel's own file-evidence step-context message (WS2/WS3's
+	// appendWorkContext) rides the same runtime-context/step-context channel
+	// as the CLI's context-inventory step and is appended after it, so more
+	// than one step-context message per request is expected, not a bug.
+	const withoutTrailingStepContext = (messages: readonly Message[]) => {
+		let end = messages.length
+		while (end > 0 && isStepContext(messages[end - 1]!)) end--
+		return messages.slice(0, end)
+	}
 	for (const request of [second, third]) {
 		expect(
 			request.messages
@@ -1645,27 +1656,25 @@ it('keeps changing inventory after history on both native provider wires', async
 				.map((m) => m.content)
 				.join('\n'),
 		).toContain(CONVERSATION_EVIDENCE_GUIDANCE)
-		const tail = request.messages.at(-1)!
-		expect(tail).toMatchObject({
-			role: 'user',
-			source: { type: 'runtime-context', kind: 'step-context' },
-		})
-		expect(tail.content).toContain('Context inventory')
+		const inventoryMessages = request.messages.filter(
+			(m) =>
+				isStepContext(m) &&
+				typeof m.content === 'string' &&
+				m.content.includes('Context inventory'),
+		)
+		expect(inventoryMessages).toHaveLength(1)
+		const inventoryMessage = inventoryMessages[0]!
+		const history = withoutTrailingStepContext(request.messages)
+		expect(request.messages.indexOf(inventoryMessage)).toBeGreaterThanOrEqual(history.length)
 		expect(
 			request.messages
 				.filter((m) => m.role === 'system')
 				.some((m) => m.content?.includes('Context inventory')),
 		).toBe(false)
-		expect(
-			request.messages.filter(
-				(m) =>
-					m.role === 'user' &&
-					m.source?.type === 'runtime-context' &&
-					m.source.kind === 'step-context',
-			),
-		).toHaveLength(1)
 	}
-	expect(third.messages.slice(0, second.messages.length - 1)).toEqual(second.messages.slice(0, -1))
+	const secondHistory = withoutTrailingStepContext(second.messages)
+	const thirdHistory = withoutTrailingStepContext(third.messages)
+	expect(thirdHistory.slice(0, secondHistory.length)).toEqual(secondHistory)
 
 	async function wire(kind: 'codex' | 'anthropic', params: ChatCompletionParams) {
 		let body: Record<string, unknown> = {}
@@ -1702,11 +1711,23 @@ it('keeps changing inventory after history on both native provider wires', async
 			content?: unknown
 		}[]
 		expect(inputs.at(-1)?.role).toBe('user')
-		expect(JSON.stringify(inputs.at(-1))).toContain('Context inventory')
+		expect(JSON.stringify(inputs)).toContain('Context inventory')
 		expect(JSON.stringify(inputs)).toContain('Observed inventory payload.')
 		if (kind === 'anthropic') {
-			expect(JSON.stringify(inputs.at(-1))).not.toContain('cache_control')
-			expect(JSON.stringify(inputs.at(-2))).toContain('cache_control')
+			const inventoryIndex = inputs.findIndex((m) =>
+				JSON.stringify(m).includes('Context inventory'),
+			)
+			expect(inventoryIndex).toBeGreaterThan(-1)
+			// The context-inventory message and the kernel's file-evidence
+			// message after it both change every turn, so neither is cached —
+			// the breakpoint sits on the stable prefix before that trailing span.
+			for (const message of inputs.slice(inventoryIndex))
+				expect(JSON.stringify(message)).not.toContain('cache_control')
+			expect(
+				inputs
+					.slice(0, inventoryIndex)
+					.some((message) => JSON.stringify(message).includes('cache_control')),
+			).toBe(true)
 		}
 	}
 })
