@@ -120,8 +120,8 @@ export const ReadFileTool = defineTool({
  * again. The witness is the fingerprint of the RENDERING — this call's own
  * `output`, byte for byte — because the rendering is what the receipt carries,
  * and the body is in front of the model only while the receipt is still exactly
- * that. A windowed read witnesses nothing: it shows a fragment, and the
- * fingerprint of the file cannot say which one.
+ * that. A read whose window left any of the file out witnesses nothing: it
+ * shows a fragment, and the fingerprint of the file cannot say which one.
  */
 function recordObservedRead(
 	context: ToolContext,

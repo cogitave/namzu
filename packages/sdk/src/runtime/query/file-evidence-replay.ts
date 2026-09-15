@@ -65,8 +65,14 @@ const MAX_ARGUMENT_UNITS = 32_000
 /** Call ids longer than any provider mints. */
 const MAX_CALL_ID_UNITS = 256
 
-/** Path lengths a `write` entry may go out with. */
-const MAX_PATH_UNITS = 512
+/**
+ * Path lengths a `write` entry may go out with.
+ *
+ * Exported because `file-evidence-context.ts` puts the same bound on the
+ * spelling a `read` entry emits — a read is the other thing that puts a path
+ * in the work-context message, and the constant belongs to this module.
+ */
+export const MAX_PATH_UNITS = 512
 
 /**
  * The ledger key a tool-call path belongs to, or `undefined` for a path this

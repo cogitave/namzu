@@ -4,6 +4,7 @@ import type { Message } from '../../types/message/index.js'
 import type { FileReadTracker } from '../../types/tool/index.js'
 import {
 	MAX_EDIT_CALLS,
+	MAX_PATH_UNITS,
 	MAX_WITNESSED_PATHS,
 	type ReplayBudget,
 	type VisibleHistory,
@@ -27,17 +28,6 @@ import {
  * what it does today.
  */
 const MAX_RECEIPT_UNITS = 32_000
-
-/**
- * Path length a read entry may go out with.
- *
- * The same bound `file-evidence-replay.ts` puts on the spelling a write entry
- * emits, restated here because a read is the other thing that puts a path in
- * this message and the constant is that module's own. A contribution is dropped
- * WHOLE when it runs past the work context's limit, so one pathological
- * spelling must not be able to take the request's other entries with it.
- */
-const MAX_PATH_UNITS = 512
 
 interface FileEvidence {
 	readonly path: string

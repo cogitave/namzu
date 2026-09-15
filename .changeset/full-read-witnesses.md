@@ -12,8 +12,9 @@ always with the whole file, never the window — and additionally records that t
 body is visible in that call's receipt; `readWitness(key)` reports
 `{ callId, renderedFingerprint }`. Both are optional, so a custom tracker that
 implements neither keeps its behavior exactly, and `createFileReadTracker()`
-implements both. The built-in `read` calls `recordFullRead` only when nothing
-narrowed the read, and falls back to `recordRead` for a tracker without it.
+implements both. The built-in `read` calls `recordFullRead` only when the
+window covered the whole file, and falls back to `recordRead` for a tracker
+without it.
 
 `renderedFingerprint` is of the tool's own output string, not of the file's
 body: a read's body survives only as the line-numbered rendering its receipt

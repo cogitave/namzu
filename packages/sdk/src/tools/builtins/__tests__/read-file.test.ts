@@ -1,4 +1,4 @@
-import { mkdtempSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -87,6 +87,16 @@ describe('ReadFileTool', () => {
 })
 
 /**
+ * Canonical, because the tool keys the observation ledger through
+ * `resolveWithinAnyReal` (realpath) and `os.tmpdir()` is itself a symlink on
+ * macOS — a host-branch expectation keyed on the raw temp dir would find
+ * nothing there.
+ */
+function mkRealTempDir(prefix: string): string {
+	return realpathSync(mkdtempSync(join(tmpdir(), prefix)))
+}
+
+/**
  * What the ledger learns from a read, which is two separate things.
  *
  * The fingerprint is of the FILE and is the drift guard's — a window must not
@@ -116,7 +126,7 @@ describe('what a read tells the observation ledger', () => {
 		],
 	] as const) {
 		it(`fingerprints the whole file and witnesses only the unwindowed read ${branch}`, async () => {
-			const dir = mkdtempSync(join(tmpdir(), 'namzu-read-ledger-'))
+			const dir = mkRealTempDir('namzu-read-ledger-')
 			const key = branch === 'in a sandbox' ? 'doc.md' : join(dir, 'doc.md')
 
 			for (const window of [
@@ -151,7 +161,7 @@ describe('what a read tells the observation ledger', () => {
 	}
 
 	it('records an ordinary observation against a tracker that cannot hold a witness', async () => {
-		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-ledger-'))
+		const dir = mkRealTempDir('namzu-read-ledger-')
 		writeFileSync(join(dir, 'doc.md'), body)
 		const seen = new Map<string, string | undefined>()
 		const older: FileReadTracker = {
@@ -168,7 +178,7 @@ describe('what a read tells the observation ledger', () => {
 	})
 
 	it('witnesses nothing when the executor gave the call no id', async () => {
-		const dir = mkdtempSync(join(tmpdir(), 'namzu-read-ledger-'))
+		const dir = mkRealTempDir('namzu-read-ledger-')
 		writeFileSync(join(dir, 'doc.md'), body)
 		const tracker = createFileReadTracker()
 
