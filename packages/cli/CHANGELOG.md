@@ -1,5 +1,70 @@
 # @namzu/cli
 
+## 25.0.1
+
+### Patch Changes
+
+- f33c62b: A run now suspends for a background job the model said it was waiting on, instead of settling over it. When the model stops calling tools and a job named by `wait_for_job` is still running, the run waits — no provider request, no tokens — for the job's exit, an operator message, or the settle grace, whichever comes first. On an exit the model gets one more turn with the `[Background job update]` line in front of it; on neither, the run settles and names the job.
+
+  This is the same bounded, zero-token wait `CompletionInbox` already gave a delegated task, and it shares the delegated task's grace — half of what the run has left before it must start finishing — under a ceiling of its own: two minutes, or `NAMZU_JOB_HOLD_MAX_MS`. On a run with a `timeoutMs` the grace comes out of what is left rather than being added to it, so time a `wait_for_job` call already spent shortens the hold by the same amount. On a run WITHOUT one — no run deadline, which is what the CLI ships — there is no remainder to take a share of, and the task ceiling would be a flat hour; that hour is sound for a task, which cannot outlive it, and wrong for a job, which can run forever. The two-minute job ceiling is what bounds that case, so a `wait_for_job` that ran its own bound out is followed by two more minutes at most, not by a second hour. The iteration limit still bounds all of it, and the wait starts nothing and stops nothing.
+
+  **Wait-intent is explicit.** Only a job `wait_for_job` named is awaited, and only for the rest of the run that named it. A job nobody waited on — a dev server, a watcher — never holds a run open, and there is no opt-in flag on `bash run_in_background` that changes that.
+
+  **Why this is `minor` and not `major`.** The signal is new: no run that exists today can have an awaited job, because nothing before this could mark one. A host that never calls `wait_for_job` sees the loop it saw before, so no default changes and no existing behaviour is withdrawn.
+
+  Additive API:
+
+  - `Run.abandonedJobIds` — awaited jobs still running when the run ended, the job-side counterpart to `abandonedTaskIds`. Naming them is not stopping them: a run-owned job is still stopped by the run's own teardown, and one bound to the host's session keeps running.
+  - `RUNTIME_CONTEXT_MESSAGE_KINDS` gains `'job-exit'`, the provenance on the message that carries an exit delivered by the wait. Consumers that exhaustively switch on `RuntimeContextMessageKind` need a case for it.
+  - `BackgroundJobRegistryRef` gains an optional `markAwaited(id)`, and `bindOwner`'s options take an `onAwaited(id)` callback that backs it. Both are optional; a host that wires neither gets the previous behaviour, which is no hold.
+  - `NAMZU_JOB_HOLD_MAX_MS` sets the job ceiling above, in milliseconds, beside the `NAMZU_JOB_WAIT_*` knobs `wait_for_job` already reads. Unset is two minutes.
+
+- 6ae4072: The repeat-call advisory (notices, then escalates, when a tool is called with identical arguments over and over) now reaches the model even when the repeated tool's result is structured content — an image, a document, an MCP resource block — rather than plain text. `attachRepeatNotice` previously required the trailing tool result to be a string and silently dropped the notice otherwise; it now falls back to delivering the advisory as its own runtime-context message immediately after the tool-result batch. No thresholds changed, and a repeat that keeps succeeding is still only ever noticed, never refused.
+
+  `RuntimeContextMessageKind` gains a `'repeat-call'` member for this fallback message. A consumer that exhaustively switches over the union (the CLI's transcript labeling did) needs a case for it; `@namzu/cli` adds one in this release.
+
+- 92ab1d9: A resumed conversation keeps the file witnesses it earned. The observation ledger is process memory, and every resume path handed the run an empty one: the derived work context could admit nothing, and the first thing a resumed agent did was read back a file whose whole body was in the transcript it had just been given.
+
+  The new export `seedObservationLedger(messages, tracker, { workingDirectory, additionalDirectories, sandboxed })` rebuilds a ledger from a conversation's own history. `resumeRun` and `query`'s checkpoint resume call it for you, from the history as repaired rather than as checkpointed, so the ledger describes exactly what the model is about to be shown; the CLI calls it the first time a turn asks for a conversation's tracker, which covers `/resume`, `namzu run --resume`/`--continue`, and a forked conversation — each seeded from its own messages, once. Call it directly if you keep a tracker per conversation and restore one yourself. Nothing is persisted and no session-store schema changes; a host that does nothing sees exactly today's behaviour.
+
+  What a replay may conclude is what the projection would admit, by the same predicates and the same bounded replay. A `write` whose call and successful receipt are both intact restores its body and its witness; the `edit` calls above it are replayed hop by hop and restore the chain. A `read` never supplies a body — the line numbering is never undone to recover one — and can only confirm one already reconstructed, by rendering it forward through the read tool's own renderer and comparing the whole rendering with the receipt. A windowed read, a read that shows something else, a cleared receipt, a hop that no longer applies, a body past the bounds and a call whose arguments run past what a replay reads as evidence each withdraw whatever the pass held for that path. So do the two cases where the transcript settles no outcome: a call it never answered — the unknown-outcome result the kernel's own repair writes for one included — may have landed with the file half written, and a mutation it refused is a tool's own report about that path, a drift refusal above all, made after reading the disk. Each of those costs the path it names and no other. A path whose walk ends holding no body is entered in the ledger nowhere, and a path this conversation only ever read establishes nothing.
+
+  No file's content is read. The one thing the seed does touch the filesystem for is the key each entry is filed under: a ledger entry identifies a file rather than a spelling, so `read`, `write` and `edit` all key on the path canonicalized through its symlinks, and entries filed any other way would be entries no mutation ever checks and no drift refusal can ever withdraw. The paths named in the history are therefore resolved exactly as the tools resolve them — `additionalDirectories` included — before the walk begins. Under a sandbox the keys are the paths as written and no host path is consulted.
+
+  Only content-backed observations are restored, so a seeded ledger is never weaker than the empty one a resume starts from. A path whose body could not be reconstructed is left OUT of the ledger rather than entered without a fingerprint: `hasRead` is the read-before-overwrite refusal, and granting it with no body to compare would let a full overwrite of a file that changed while the session was closed through with nothing checked. Every path the replay does not restore therefore behaves exactly as it does today. A fingerprint it does restore is a claim derived from history and is still compared with the real file at mutation time, so a file changed while the session was closed is refused there and the refusal withdraws the path from the projection.
+
+  Three things seed nothing at all, each leaving today's empty ledger: a history naming more than 1,024 distinct path spellings — the ones only `read` names included, and two spellings of one file counting twice — which is resolved whole or not at all rather than in a prefix that cannot say what a mutation replaced; a tool call id claimed by two calls or answered by two receipts, `read` included, since the receipt that was hidden could be the observation that withdrew a claim; and a mutation no path can be recovered from, whatever came back to it — one declaring no `path`, one whose path no longer resolves inside the directories the run may reach (a refused write to a path outside them is one of these: a key is what withdrawing one path rather than the whole pass takes), or one the provider stream cut off mid-JSON, whose arguments are recorded as `{}`. A merely large call is none of these: the argument bound governs what may be believed, not what may be attributed, so an oversize `write` withdraws its own path's body and leaves every other witness standing.
+
+  `read`'s numbering and windowing move to `tools/builtins/read-render.ts` as pure functions, which is what lets the forward-render comparison run the tool's own renderer rather than a copy of it. The tool's output is unchanged, byte for byte.
+
+- 7ca8c7d: Add a `wait_for_job` builtin tool: it blocks on a background job's exit under a run-length bound and an idle bound that resets on new output, and returns the job's accumulated output in one call — the shell-job counterpart to the existing `wait_for_task`. Neither bound stops the job; a timeout reports which clock ran out and the output read so far, with a `next_offset` to resume from. Ships by default alongside `job` and `bash`, and refuses cleanly on a host with no background job registry.
+
+  `job`'s own description no longer instructs polling with `action: "read"` in a loop; it now points at `wait_for_job` instead. `read` and `list` are unchanged.
+
+  `BackgroundJobRegistry` gains a public `waitForExit(id, { signal })`, resolving immediately for a job that has already exited and honouring an abort signal. `BackgroundJobRegistryRef` (the tool-context surface) gains an optional `waitForExit` of the same shape — additive, so an existing host implementing this interface directly keeps working without it; `wait_for_job` refuses cleanly when it is absent.
+
+- Updated dependencies [68e535b]
+- Updated dependencies [a9e4b19]
+- Updated dependencies [a54dc71]
+- Updated dependencies [86a3818]
+- Updated dependencies [03630cd]
+- Updated dependencies [f33c62b]
+- Updated dependencies [a8df193]
+- Updated dependencies [8bfe291]
+- Updated dependencies [6ae4072]
+- Updated dependencies [dd8702d]
+- Updated dependencies [92ab1d9]
+- Updated dependencies [e6d6d1e]
+- Updated dependencies [7ca8c7d]
+- Updated dependencies [6551d15]
+  - @namzu/sdk@40.0.0
+  - @namzu/zen@1.0.2
+  - @namzu/computer-use@1.4.2
+  - @namzu/anthropic@5.1.1
+  - @namzu/ollama@2.2.2
+  - @namzu/openai@3.1.1
+  - @namzu/openrouter@2.4.0
+
 ## 25.0.0
 
 ### Major Changes
