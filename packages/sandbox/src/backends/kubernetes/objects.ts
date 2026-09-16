@@ -48,6 +48,12 @@ export interface KubernetesObjectMeta {
 	readonly namespace?: string
 	readonly uid?: string
 	/**
+	 * RFC 3339, written by the API server on admission and never by a client.
+	 * Read only to report how old a workspace is — see
+	 * `workspace.ts`'s `listKubernetesWorkspaces`.
+	 */
+	readonly creationTimestamp?: string
+	/**
 	 * Set the moment a DELETE is accepted, long before the object goes away.
 	 * A pod that carries one is on its way out and must never be bound to —
 	 * see {@link isPodLive}.
@@ -207,6 +213,17 @@ export interface SandboxResource {
 	readonly status?: SandboxResourceStatus
 }
 
+/**
+ * A `GET` of the sandboxes COLLECTION. `items` is the only field anything
+ * here reads: this backend does no watch, so `metadata.resourceVersion` and
+ * `continue` have nothing to feed — the namespace a deployment gives its
+ * sandboxes holds tens of objects, not the thousands that would make a page
+ * boundary a real answer rather than a truncated one.
+ */
+export interface SandboxListResource {
+	readonly items?: readonly SandboxResource[]
+}
+
 export interface SandboxTemplateResource {
 	readonly metadata?: KubernetesObjectMeta
 	readonly spec?: {
@@ -302,6 +319,36 @@ export function isPodStopped(pod: PodResource | undefined): boolean {
  * `docs/sdk/kubernetes-sandbox.md`'s egress section.
  */
 export const SANDBOX_TEMPLATE_LABEL_KEY = 'sandbox.namzu.ai/template'
+
+/**
+ * Backend-owned annotation naming when a Sandbox's `spec.operatingMode` was
+ * last changed BY THIS BACKEND, RFC 3339.
+ *
+ * It exists because nothing already on the object answers the question, and
+ * an inventory that never wakes a workspace is the reason to ask it: a
+ * retention pass deleting the workspaces nobody has resumed for a month reads
+ * this and `metadata.creationTimestamp` and nothing else.
+ *
+ * The obvious candidate is the controller's own `Suspended` condition and its
+ * `lastTransitionTime`, and upstream's `sandbox_types.go` rules it out in the
+ * same breath it documents it: "the controller does not currently remove this
+ * condition when the Sandbox is resumed", so after a resume the condition is
+ * still True and its timestamp still names the suspend that preceded it. The
+ * `Ready` condition's timestamp is no better — it moves for every pod that
+ * comes and goes, a crash-restart included, and a workspace whose pod
+ * restarted has not changed operating mode at all.
+ *
+ * So the two patches that DO change the mode stamp the moment they were sent,
+ * and the value is exactly that: the host's clock at the moment it asked, not
+ * the cluster's at the moment it applied. It is an inventory column, never a
+ * lock or an ordering, and nothing in this backend reads it back to make a
+ * decision. A Sandbox whose mode has never been changed since it was created
+ * carries no annotation at all, and is reported without one rather than with
+ * a guess.
+ *
+ * Same prefix as {@link SANDBOX_TEMPLATE_LABEL_KEY}, for the same reason.
+ */
+export const OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY = 'sandbox.namzu.ai/operating-mode-changed-at'
 
 /** `{ [SANDBOX_TEMPLATE_LABEL_KEY]: sandboxTemplateName }`, as a matchLabels-ready object. */
 export function sandboxTemplateLabel(

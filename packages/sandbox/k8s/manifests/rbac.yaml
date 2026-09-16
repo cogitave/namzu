@@ -8,8 +8,8 @@
 # this repo's own minimal grant, read off two places:
 #   - The backend's own call sites (packages/sandbox/src/backends/
 #     kubernetes/{index,workspace,egress-policy}.ts via k8s-client.ts):
-#     sandboxclaims create/get/patch/delete, sandboxes create/get/patch/
-#     delete, sandboxtemplates get, pods get/list, and — only when a
+#     sandboxclaims create/get/patch/delete, sandboxes create/get/list/
+#     patch/delete, sandboxtemplates get, pods get/list, and — only when a
 #     deployment configures `config.egress` — networkpolicies get (or, under
 #     `engine: 'cilium'`, ciliumnetworkpolicies get instead — both are
 #     granted below; a cluster with no Cilium CRDs installed simply never
@@ -36,9 +36,13 @@ rules:
   - apiGroups: [extensions.agents.x-k8s.io]
     resources: [sandboxclaims]
     verbs: [create, get, patch, delete]
+  # `list` is the workspace inventory's alone: listKubernetesWorkspaces
+  # reads the sandboxes collection so a retention pass can see every
+  # workspace without resuming one. Nothing else in the backend lists
+  # sandboxes — every other read is a GET by a name it already knows.
   - apiGroups: [agents.x-k8s.io]
     resources: [sandboxes]
-    verbs: [create, get, patch, delete]
+    verbs: [create, get, list, patch, delete]
   - apiGroups: [extensions.agents.x-k8s.io]
     resources: [sandboxtemplates]
     verbs: [get]

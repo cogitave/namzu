@@ -250,7 +250,12 @@ describe('rbac.yaml', () => {
 			}
 		}
 		expect(byResource.get('sandboxclaims')).toEqual(new Set(['create', 'get', 'patch', 'delete']))
-		expect(byResource.get('sandboxes')).toEqual(new Set(['create', 'get', 'patch', 'delete']))
+		// `list` is listKubernetesWorkspaces's, and only its: a workspace
+		// inventory has to read the collection, while every other read in the
+		// backend is a GET by a name it already knows.
+		expect(byResource.get('sandboxes')).toEqual(
+			new Set(['create', 'get', 'list', 'patch', 'delete']),
+		)
 		expect(byResource.get('sandboxtemplates')).toEqual(new Set(['get']))
 		expect(byResource.get('sandboxwarmpools')).toEqual(new Set(['get']))
 		expect(byResource.get('pods')).toEqual(new Set(['get', 'list']))

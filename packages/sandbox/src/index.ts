@@ -53,7 +53,12 @@ import {
 import {
 	type KubernetesWorkspace,
 	type KubernetesWorkspaceOptions,
+	type KubernetesWorkspaceSummary,
+	type KubernetesWorkspaceTransitionOptions,
 	createKubernetesWorkspace as buildKubernetesWorkspace,
+	deleteKubernetesWorkspace as deleteWorkspaceOnCluster,
+	listKubernetesWorkspaces as listWorkspacesOnCluster,
+	suspendKubernetesWorkspace as suspendWorkspaceOnCluster,
 } from './backends/kubernetes/workspace.js'
 
 // Re-export the layout types so consumers of `@namzu/sandbox` can
@@ -144,6 +149,8 @@ export type {
 	KubernetesWorkspaceDestroyOptions,
 	KubernetesWorkspaceOptions,
 	KubernetesWorkspaceOrigin,
+	KubernetesWorkspaceSummary,
+	KubernetesWorkspaceSuspensionNotice,
 	KubernetesWorkspaceTransitionOptions,
 } from './backends/kubernetes/workspace.js'
 export {
@@ -924,6 +931,70 @@ export async function createKubernetesWorkspace(
 	options: KubernetesWorkspaceOptions,
 ): Promise<KubernetesWorkspace> {
 	return await buildKubernetesWorkspace(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * Every workspace this backend owns in the namespace, read off the objects
+ * and waking none of them.
+ *
+ * The inventory {@link createKubernetesWorkspace} cannot give you: it adopts
+ * AND resumes, so taking stock through it would start a pod for every
+ * suspended workspace it looked at. This issues one GET of the sandboxes
+ * collection and sends no PATCH and no DELETE — a suspended workspace is
+ * still suspended afterwards.
+ *
+ * Needs `list` on `sandboxes` in the namespace, which is the one RBAC verb
+ * the task path did not already require.
+ */
+export async function listKubernetesWorkspaces(
+	config: KubernetesBackendConfig,
+	options?: KubernetesWorkspaceTransitionOptions,
+): Promise<readonly KubernetesWorkspaceSummary[]> {
+	return await listWorkspacesOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * Delete a workspace by id — the Sandbox, and with it the Pod, the Service
+ * and the PVC — without adopting or resuming it first.
+ *
+ * Exactly what `destroy({ deleteDisk: true })` does to the cluster, with the
+ * same guarantees: an object already gone counts as deleted, and a DELETE
+ * that fails rejects and stays retryable. The files are gone and nothing
+ * brings them back.
+ *
+ * It is the retention verb. Removing a month-old suspended workspace through
+ * a handle meant starting its pod and probing it purely to tell it to go
+ * away; the name is deterministic, so the object never needed opening.
+ */
+export async function deleteKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	workspaceId: string,
+	options?: KubernetesWorkspaceTransitionOptions,
+): Promise<void> {
+	await deleteWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
+}
+
+/**
+ * Suspend a workspace by id: send the `operatingMode: Suspended` patch and
+ * wait for the pod to actually stop, without adopting the workspace.
+ *
+ * Resolves only once the pod is gone or in a terminal phase — a suspend is a
+ * promise that the disk is quiesced, and the patch being accepted says only
+ * that the controller has been asked. A pod that outlives `readyTimeoutMs`
+ * rejects with `KubernetesWorkspaceSuspendTimeoutError`, leaving the object
+ * as the patch left it.
+ *
+ * A handle another process is holding is not told. It finds out on its next
+ * call — which fails at the transport and is re-read into a
+ * `KubernetesWorkspaceSuspendedError` — or when that process calls
+ * `refresh()`.
+ */
+export async function suspendKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	workspaceId: string,
+	options?: KubernetesWorkspaceTransitionOptions,
+): Promise<void> {
+	await suspendWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
 }
 
 /**

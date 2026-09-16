@@ -44,6 +44,7 @@ import {
 	type FakeApiReply,
 	type FakeApiServer,
 	type RecordedRequest,
+	operatingModePatchBody,
 	readyCondition,
 	startFakeApiServer,
 } from './fixtures/fake-api-server.js'
@@ -291,7 +292,7 @@ describe('suspend', () => {
 		// Deep equality, not a property check: a patch that also carried
 		// `shutdownTime` or a podTemplate would change something nobody asked
 		// to change, and a merge patch applies whatever it is given.
-		expect(patches[0]?.body).toEqual({ spec: { operatingMode: 'Suspended' } })
+		expect(patches[0]?.body).toEqual(operatingModePatchBody('Suspended'))
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
 		expect(workspace.suspended).toBe(true)
 	})
@@ -431,7 +432,7 @@ describe('resume', () => {
 		await workspace.resume()
 
 		const resumePatch = server.requests.filter((r) => r.method === 'PATCH').at(-1)
-		expect(resumePatch?.body).toEqual({ spec: { operatingMode: 'Running' } })
+		expect(resumePatch?.body).toEqual(operatingModePatchBody('Running'))
 		expect(workspace.suspended).toBe(false)
 		expect(workspace.status).toBe('ready')
 
@@ -572,7 +573,7 @@ describe('a pod that stops being able to say what happened to a command', () => 
 		// the disk: exactly the patch `suspend()` sends.
 		const patches = server.matching('PATCH', '/sandboxes/')
 		expect(patches).toHaveLength(1)
-		expect(patches[0]?.body).toEqual({ spec: { operatingMode: 'Suspended' } })
+		expect(patches[0]?.body).toEqual(operatingModePatchBody('Suspended'))
 
 		// So the workspace is where a suspend would have left it: admitting
 		// nothing, saying why, and one resume() away from a fresh pod.

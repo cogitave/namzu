@@ -37,6 +37,7 @@ import {
 	type FakeApiReply,
 	type FakeApiServer,
 	type RecordedRequest,
+	operatingModePatchBody,
 	readyCondition,
 	startFakeApiServer,
 } from './fixtures/fake-api-server.js'
@@ -315,7 +316,7 @@ describe('adopting a workspace that is still draining', () => {
 		// rethrows. Nothing is ever deleted on a failure path.
 		const patches = server.requests.filter((r) => r.method === 'PATCH')
 		expect(patches).toHaveLength(1)
-		expect(patches[0]?.body).toEqual({ spec: { operatingMode: 'Suspended' } })
+		expect(patches[0]?.body).toEqual(operatingModePatchBody('Suspended'))
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
 	}, 20_000)
 
@@ -366,7 +367,7 @@ describe('how the handle came by its workspace', () => {
 		expect(workspace.suspended).toBe(false)
 		const patches = server.requests.filter((r) => r.method === 'PATCH')
 		expect(patches).toHaveLength(1)
-		expect(patches[0]?.body).toEqual({ spec: { operatingMode: 'Running' } })
+		expect(patches[0]?.body).toEqual(operatingModePatchBody('Running'))
 		expect(drainingAttempts).toBe(0)
 		expect(presentedTokens().at(-1)).toBe(NEW_POD_UID)
 	}, 20_000)

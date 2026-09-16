@@ -35,6 +35,7 @@ import {
 	type FakeApiReply,
 	type FakeApiServer,
 	type RecordedRequest,
+	operatingModePatchBody,
 	readyCondition,
 	startFakeApiServer,
 } from './fixtures/fake-api-server.js'
@@ -381,7 +382,7 @@ describe('reattaching to a workspace that already exists', () => {
 
 		const patches = server.requests.filter((r) => r.method === 'PATCH')
 		expect(patches).toHaveLength(1)
-		expect(patches[0]?.body).toEqual({ spec: { operatingMode: 'Running' } })
+		expect(patches[0]?.body).toEqual(operatingModePatchBody('Running'))
 		expect(workspace.id).toBe(WORKSPACE_NAME)
 		expect(workspace.suspended).toBe(false)
 		// Nothing was deleted and re-created: the disk is the whole point.
@@ -519,7 +520,7 @@ describe('reattaching to a workspace that already exists', () => {
 
 		const patches = server.requests.filter((r) => r.method === 'PATCH')
 		expect(patches).toHaveLength(1)
-		expect(patches[0]?.body).toEqual({ spec: { operatingMode: 'Running' } })
+		expect(patches[0]?.body).toEqual(operatingModePatchBody('Running'))
 		expect(workspace.suspended).toBe(false)
 	})
 })
@@ -536,7 +537,7 @@ describe('destroy', () => {
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
 		const patches = server.requests.filter((r) => r.method === 'PATCH')
 		expect(patches).toHaveLength(1)
-		expect(patches[0]?.body).toEqual({ spec: { operatingMode: 'Suspended' } })
+		expect(patches[0]?.body).toEqual(operatingModePatchBody('Suspended'))
 		expect(workspace.suspended).toBe(true)
 	})
 

@@ -10,6 +10,8 @@
 import { type Server, createServer } from 'node:http'
 import type { AddressInfo } from 'node:net'
 
+import { expect } from 'vitest'
+
 export interface RecordedRequest {
 	readonly method: string
 	/** Path plus query string, exactly as the client sent it. */
@@ -82,5 +84,30 @@ export function readyCondition(status: 'True' | 'False' | 'Unknown' = 'True'): {
 		reason: status === 'True' ? 'DependenciesReady' : 'Pending',
 		message: status === 'True' ? 'Pod is Ready; Service Exists' : 'waiting',
 		lastTransitionTime: '2026-09-15T00:00:00Z',
+	}
+}
+
+/**
+ * The exact merge-patch body an `operatingMode` transition sends, for the
+ * suites that assert it by deep equality.
+ *
+ * The equality is the point — a patch that also carried `shutdownTime` or a
+ * podTemplate would change something nobody asked to change, and a merge
+ * patch applies whatever it is given — so the annotation the transition
+ * stamps has to be part of the expected shape rather than loosening it away.
+ * Only its VALUE is wildcarded: it is the host's wall clock at the moment the
+ * patch was built.
+ *
+ * The annotation key is written out here rather than imported from
+ * `objects.ts` deliberately: it is a name that goes onto a cluster object and
+ * is read back by a later release, so a rename has to break a test rather
+ * than follow the constant silently.
+ */
+export function operatingModePatchBody(mode: 'Running' | 'Suspended'): Record<string, unknown> {
+	return {
+		metadata: {
+			annotations: { 'sandbox.namzu.ai/operating-mode-changed-at': expect.any(String) },
+		},
+		spec: { operatingMode: mode },
 	}
 }

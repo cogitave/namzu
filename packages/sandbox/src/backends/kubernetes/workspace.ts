@@ -62,6 +62,36 @@
  * the pod — so the call would hang until a connect timeout with nothing in
  * the failure naming the suspend.
  *
+ * Both patches also stamp
+ * {@link OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY}. Nothing in this module
+ * reads it back; it exists so that an inventory can say when a workspace was
+ * last put to sleep without waking it up to ask, which the controller's own
+ * lingering `Suspended` condition cannot answer. See
+ * {@link listKubernetesWorkspaces}.
+ *
+ * ## Three verbs that never open a workspace, and one that notices
+ *
+ * {@link createKubernetesWorkspace} adopts AND resumes, which is right for a
+ * host about to USE a workspace and wrong for everything else. Deleting a
+ * month-old suspended workspace through it means starting a pod, probing it
+ * and deleting it again; taking an inventory means waking every suspended
+ * object in the namespace. So the three operations that are about the OBJECT
+ * are reachable without a handle — {@link listKubernetesWorkspaces},
+ * {@link deleteKubernetesWorkspace} and {@link suspendKubernetesWorkspace} —
+ * and none of them creates a pod, dials an agent or resumes anything.
+ *
+ * The other half of the same problem is the handle that was already open when
+ * somebody else did one of those. A workspace id is a name, not a lock, so a
+ * second process can suspend the workspace this one is holding, and this
+ * handle's `state` is a record of what THIS process did. Two things fix that,
+ * and both re-read the object rather than guessing:
+ * {@link KubernetesWorkspace.refresh} when the caller asks, and the re-read
+ * after a call that FAILED at the transport — which is how it would otherwise
+ * be found out, as a connect refusal or a flat `unauthorized` naming nothing.
+ * Either one records the suspension as UNCONFIRMED (`suspending`, not
+ * `suspended`): what was observed is the object's mode, not the pod stopping,
+ * and only a wait this process performed can promise the disk is quiesced.
+ *
  * ## Adoption is checked against the object, not against the caller
  *
  * A create that collides with an existing object of the same name ADOPTS it,
@@ -105,9 +135,10 @@
  * {@link createKubernetesWorkspace}), and a pod that stops being able to say
  * what happened to a command — the shared execution controller's unconfirmed
  * cancellation, which retires a task sandbox by DELETING it — is retired here
- * by that same suspend patch (see {@link retireSession}). Exactly one DELETE
- * is reachable from this module, and it is the one `deleteDisk: true` asks
- * for.
+ * by that same suspend patch (see {@link retireSession}). Exactly two DELETEs
+ * are reachable from this module and both are ASKED FOR by name — the one
+ * `deleteDisk: true` sends and the one {@link deleteKubernetesWorkspace} is;
+ * no failure path, no `finally`, and no default reaches either.
  *
  * ## A state is committed when the cluster confirms it, never before
  *
@@ -167,8 +198,10 @@ import {
 	createKubernetesClient,
 } from './k8s-client.js'
 import {
+	OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY,
 	type PodResource,
 	SANDBOX_TEMPLATE_LABEL_KEY,
+	type SandboxListResource,
 	type SandboxPodTemplate,
 	type SandboxResource,
 	type SandboxVolumeClaimTemplate,
@@ -249,11 +282,32 @@ export class KubernetesWorkspaceMismatchError extends Error {
 }
 
 /**
+ * How a caller came to be told a workspace is suspended.
+ *
+ *  - `admission` — the handle knew before the call, so nothing was dialed.
+ *    Every suspend this handle performed, and every one it has already
+ *    noticed, lands here.
+ *  - `transport` — the call went out and failed, and the re-read that
+ *    followed found the object `Suspended`. Somebody ELSE suspended this
+ *    workspace while this handle was holding it; the failure that prompted
+ *    the re-read is on `cause`.
+ */
+export type KubernetesWorkspaceSuspensionNotice = 'admission' | 'transport'
+
+/**
  * Thrown by every operation on a workspace that is currently suspended.
  *
  * Distinct from {@link KubernetesSandboxDestroyedError} because the state is
- * RECOVERABLE and the advice is one word: call `resume()`. Nothing is dialed
- * before it is thrown.
+ * RECOVERABLE and the advice is one word: call `resume()`.
+ *
+ * `noticedBy` says which of the two ways the caller got here, and the message
+ * changes with it, because "nothing was dialed" is a promise the first one
+ * keeps and the second one cannot. A workspace another process suspended is
+ * discovered by a call FAILING — the pod is gone, so the dial is refused, or
+ * the replacement pod's agent refuses this handle's token — and the reason
+ * that is worth converting into this error rather than passing on is that the
+ * raw failure names nothing: a flat `unauthorized`, or a connect error against
+ * an address that still resolves because the Service outlives the pod.
  */
 export class KubernetesWorkspaceSuspendedError extends Error {
 	override readonly name = 'KubernetesWorkspaceSuspendedError'
@@ -262,9 +316,15 @@ export class KubernetesWorkspaceSuspendedError extends Error {
 		readonly operation: string,
 		readonly workspaceId: string,
 		readonly sandboxName: string,
+		/** See {@link KubernetesWorkspaceSuspensionNotice}. Defaults to `admission`. */
+		readonly noticedBy: KubernetesWorkspaceSuspensionNotice = 'admission',
+		options?: ErrorOptions,
 	) {
 		super(
-			`kubernetes workspace ${workspaceId} (Sandbox ${sandboxName}) is suspended; ${operation}() cannot be admitted and nothing was dialed. Its pod is deleted and its disk is intact — call resume() to get a new pod, a new address and a new agent token, then retry.`,
+			noticedBy === 'admission'
+				? `kubernetes workspace ${workspaceId} (Sandbox ${sandboxName}) is suspended; ${operation}() cannot be admitted and nothing was dialed. Its pod is deleted and its disk is intact — call resume() to get a new pod, a new address and a new agent token, then retry.`
+				: `kubernetes workspace ${workspaceId} (Sandbox ${sandboxName}) is suspended; ${operation}() was admitted, failed at the transport, and a re-read of the Sandbox found spec.operatingMode: Suspended — another process suspended this workspace while this handle was holding it. The transport failure is on \`cause\`; it names nothing useful on its own, because the Service outlives the pod and the address still resolves. The disk is intact — call resume() to get a new pod, a new address and a new agent token, then retry.`,
+			options,
 		)
 	}
 }
@@ -301,7 +361,15 @@ export class KubernetesWorkspaceSuspendTimeoutError extends Error {
 	}
 }
 
-/** Authority for one lifecycle transition, owned independently of the run. */
+/**
+ * Authority for one workspace operation, owned independently of the run.
+ *
+ * Carried by the handle's transitions and by the three verbs that reach a
+ * workspace without opening one ({@link listKubernetesWorkspaces},
+ * {@link deleteKubernetesWorkspace}, {@link suspendKubernetesWorkspace}) —
+ * one shape rather than four, because a cancellation scope is the only thing
+ * any of them takes.
+ */
 export interface KubernetesWorkspaceTransitionOptions {
 	readonly signal?: AbortSignal
 }
@@ -375,6 +443,33 @@ export interface KubernetesWorkspace extends Sandbox {
 	readonly suspended: boolean
 	openTerminal(options: OpenTerminalOptions): Promise<TerminalSession>
 	openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection>
+	/**
+	 * Re-read `spec.operatingMode` and believe it: a workspace ANOTHER
+	 * process suspended reports `suspended: true` afterwards, and `resume()`
+	 * brings it back on the same disk.
+	 *
+	 * A workspace id is a name, not a lock — two host processes can hold
+	 * handles to one workspace — and everything else on this handle reports
+	 * what THIS process did. Without this verb the second process has no way
+	 * to ask, and its handle goes on claiming to be running with no pod
+	 * behind it until a call fails.
+	 *
+	 * The foreign suspend is recorded as UNCONFIRMED, not as finished: what
+	 * was observed is the object's mode, not the pod stopping, so a later
+	 * `suspend()` on this handle still sends its own patch and waits for the
+	 * pod rather than returning on what this read saw. Every terminal this
+	 * handle handed out is killed, because the pod they live in is being
+	 * taken away.
+	 *
+	 * It notices a suspension and nothing else. A workspace that reads
+	 * `Running` while this handle is suspended is NOT taken back — coming
+	 * back means binding a new pod, reading its token and probing it, which
+	 * is what `resume()` is. A workspace somebody DELETED rejects with the
+	 * client's already-gone error and changes nothing here: there is no state
+	 * on this handle that means "another process deleted it", and inventing
+	 * one to report it is a larger change than this verb.
+	 */
+	refresh(options?: KubernetesWorkspaceTransitionOptions): Promise<void>
 	/**
 	 * Give the compute back and keep the disk. Idempotent: suspending a
 	 * workspace whose suspend has been CONFIRMED sends nothing.
@@ -790,7 +885,7 @@ async function adoptExistingWorkspace(
 	// this name is on its way out.
 	const drainingPodUid = await readDrainingPodUid(client, namespace, name, signal)
 	if (resumed) {
-		await client.request('PATCH', sandboxPath(namespace, name), RESUME_PATCH, signal)
+		await client.request('PATCH', sandboxPath(namespace, name), resumePatch(), signal)
 	}
 	return { resumed, ...(drainingPodUid !== undefined ? { drainingPodUid } : {}) }
 }
@@ -846,9 +941,34 @@ async function readDrainingPodUid(
 	return typeof uid === 'string' && uid !== '' ? uid : undefined
 }
 
-/** The two merge patches this module sends, and the only two. */
-const SUSPEND_PATCH = { spec: { operatingMode: 'Suspended' } } as const
-const RESUME_PATCH = { spec: { operatingMode: 'Running' } } as const
+/**
+ * The two merge patches this module sends, and the only two.
+ *
+ * Built per call rather than held as constants because each one stamps
+ * {@link OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY} with the moment it was
+ * sent. That annotation is what
+ * {@link listKubernetesWorkspaces} reports as `operatingModeChangedAt`, and
+ * the patch is the only place the fact exists: the controller's `Suspended`
+ * condition lingers True across a resume, so neither its presence nor its
+ * `lastTransitionTime` can be read as "when did this change" — see the
+ * annotation's own comment.
+ *
+ * The body stays otherwise minimal, and a JSON merge patch (RFC 7386, which
+ * is what `k8s-client.ts` sends) recurses into `metadata.annotations` rather
+ * than replacing the map, so a Sandbox carrying annotations somebody else put
+ * there keeps them.
+ */
+function operatingModePatch(mode: 'Running' | 'Suspended'): Record<string, unknown> {
+	return {
+		metadata: {
+			annotations: { [OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY]: new Date().toISOString() },
+		},
+		spec: { operatingMode: mode },
+	}
+}
+
+const suspendPatch = (): Record<string, unknown> => operatingModePatch('Suspended')
+const resumePatch = (): Record<string, unknown> => operatingModePatch('Running')
 
 /**
  * Which pod one bind attempt may settle on, and what a read that finds no
@@ -896,6 +1016,302 @@ interface PodBindPolicy {
 /** Shared tail of every bind timeout but the resume-specific one. */
 const NO_BINDABLE_POD_ADVICE =
 	"A pod's uid is the agent's bind token, so a pod carrying a deletionTimestamp — or one in a terminal phase — is never bound to: its uid is a token the pod's replacement will refuse. The Ready condition cannot be waited on instead, because the controller leaves it standing across a transition. Raise readyTimeoutMs, or look at why the controller has not brought a pod up."
+
+/**
+ * True once the pod has actually stopped. The POD is asked, and nothing else
+ * is consulted or believed.
+ *
+ * The cheap-looking alternative — the Sandbox's own `Suspended` condition —
+ * is unusable, and upstream says so itself: "the controller does not
+ * currently remove this condition when the Sandbox is resumed, so a stale
+ * Suspended condition may linger after operatingMode returns to Running.
+ * Consumers should treat Ready as the authoritative signal and not infer the
+ * live operating state from the mere presence of this condition"
+ * (`sandbox_types.go`). Reading it would make the second and every later
+ * suspend of the same workspace return immediately, on a True left behind by
+ * the previous one, while the guest was still running and still writing to
+ * the caller's disk — and a `resume()` issued straight after such a false
+ * suspend could bind to the pod that is about to be deleted.
+ *
+ * A `deletionTimestamp` is not the answer either: it is set the moment the
+ * DELETE is accepted, and the container goes on running until it exits or
+ * `terminationGracePeriodSeconds` expires. Gone (404) or stopped
+ * ({@link isPodStopped}) — those are the only two states that mean the disk
+ * is quiesced.
+ */
+async function isPodRetired(
+	client: KubernetesClient,
+	namespace: string,
+	name: string,
+	signal?: AbortSignal,
+): Promise<boolean> {
+	try {
+		const pod = await client.request<PodResource>(
+			'GET',
+			podPath(namespace, name),
+			undefined,
+			signal,
+		)
+		return isPodStopped(pod)
+	} catch (err) {
+		if (err instanceof KubernetesAlreadyGoneError) return true
+		throw err
+	}
+}
+
+/**
+ * Poll {@link isPodRetired} until it answers true, or refuse with
+ * {@link KubernetesWorkspaceSuspendTimeoutError}.
+ *
+ * At module scope, and taking its subject as arguments, because BOTH suspend
+ * paths owe the caller the same wait: the handle's `suspend()`, which has a
+ * session to tear down first, and {@link suspendKubernetesWorkspace}, which
+ * has no handle at all. A suspend that resolved on the patch alone would
+ * promise a quiesced disk it had not waited for, and that promise must not
+ * depend on which entry point was used.
+ */
+async function awaitPodRetired(
+	client: KubernetesClient,
+	namespace: string,
+	name: string,
+	workspaceId: string,
+	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
+	signal?: AbortSignal,
+): Promise<void> {
+	const deadline = new OperationDeadline(
+		readiness.timeoutMs,
+		`kubernetes workspace ${name} suspend`,
+		signal,
+	)
+	while (deadline.remainingMs() > 0) {
+		try {
+			if (
+				await deadline.run(
+					async (pollSignal) => await isPodRetired(client, namespace, name, pollSignal),
+				)
+			)
+				return
+			await deadline.delay(readiness.pollIntervalMs)
+		} catch (err) {
+			if (err instanceof OperationDeadlineExpired) break
+			throw err
+		}
+	}
+	throw new KubernetesWorkspaceSuspendTimeoutError(workspaceId, name, readiness.timeoutMs)
+}
+
+/**
+ * What `spec.operatingMode` says RIGHT NOW, read off the object and nothing
+ * else.
+ *
+ * `Running` when the field is absent, which is the CRD's own default. Every
+ * Sandbox this backend creates sets it explicitly, so an absent value means
+ * an object somebody else made — and the API's default for it is Running.
+ */
+async function readOperatingMode(
+	client: KubernetesClient,
+	namespace: string,
+	name: string,
+	signal?: AbortSignal,
+): Promise<'Running' | 'Suspended'> {
+	const sandbox = await client.request<SandboxResource>(
+		'GET',
+		sandboxPath(namespace, name),
+		undefined,
+		signal,
+	)
+	return sandbox?.spec?.operatingMode === 'Suspended' ? 'Suspended' : 'Running'
+}
+
+/**
+ * One workspace as an INVENTORY reads it: enough to decide what to do with
+ * it, and not one field that required waking it up.
+ *
+ * Everything here comes off the Sandbox object itself. No pod is read, no
+ * agent is dialed, and no transport exists — which is the whole point, since
+ * the caller this exists for is a retention pass over workspaces that have
+ * been asleep for a month and must stay asleep.
+ */
+export interface KubernetesWorkspaceSummary {
+	/** The caller's own id — the Sandbox's name with `namzu-ws-` taken off. */
+	readonly workspaceId: string
+	/**
+	 * `spec.operatingMode`, verbatim. NOT "is a pod running": a `Running`
+	 * workspace whose pod is still being created, or has just crashed, reads
+	 * `Running` here, because this is the mode the object was last asked to
+	 * be in.
+	 */
+	readonly operatingMode: 'Running' | 'Suspended'
+	/** The `SandboxTemplate` this workspace was built from — the pod label. */
+	readonly template: string
+	/**
+	 * `metadata.creationTimestamp`, RFC 3339. Optional only because it is
+	 * read off an object rather than promised by this type: the API server
+	 * always sets it.
+	 */
+	readonly createdAt?: string
+	/**
+	 * When this backend last patched `spec.operatingMode`, RFC 3339 — the
+	 * {@link OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY} annotation.
+	 *
+	 * ABSENT on a workspace whose mode has never been changed since it was
+	 * created, and on one created before this backend started stamping it.
+	 * It is reported absent rather than defaulted to `createdAt`, because a
+	 * retention rule that deletes "anything not touched for 30 days" must be
+	 * able to tell "never suspended" from "suspended a month ago".
+	 */
+	readonly operatingModeChangedAt?: string
+}
+
+/**
+ * Every workspace this backend owns in the namespace, WITHOUT waking one.
+ *
+ * The verb retention needs. Deleting a workspace nobody has resumed since
+ * last month, or reporting what a namespace is holding, used to require
+ * {@link createKubernetesWorkspace} — which adopts AND resumes: the inventory
+ * pass would start a pod for every suspended workspace it looked at, probe
+ * each one, and then have to put them all back. This issues exactly one GET
+ * of the sandboxes collection and reads the objects.
+ *
+ * ## What counts as a workspace
+ *
+ * Two things together, and both are this backend's own marks:
+ *
+ *  - the `namzu-ws-` name prefix — {@link workspaceSandboxName}'s contract,
+ *    and the only thing that makes a `workspaceId` recoverable from a
+ *    Sandbox at all;
+ *  - {@link SANDBOX_TEMPLATE_LABEL_KEY} on `spec.podTemplate.metadata.labels`,
+ *    which says this object was built by this backend and names the template
+ *    it came from.
+ *
+ * The filtering happens HERE rather than in a `labelSelector` on the request,
+ * and the reason is where that label lives. It is a POD label — the one an
+ * egress `NetworkPolicy`'s `podSelector` matches — written onto
+ * `spec.podTemplate`, while a `labelSelector` on the sandboxes collection
+ * matches the Sandbox's OWN `metadata.labels`, which this backend has never
+ * written. Stamping a second copy up there to make a server-side selector
+ * work would leave every workspace created before that change invisible to
+ * this call, and an inventory that silently omits the oldest objects is worse
+ * than no inventory at all — those are exactly the ones a retention pass is
+ * looking for.
+ *
+ * ## What it never does
+ *
+ * No PATCH, no DELETE, no pod read, no dial. A workspace that was suspended
+ * before this call is suspended after it, and a running one is untouched. The
+ * order is the API server's own (name order); the caller sorts if it cares.
+ */
+export async function listKubernetesWorkspaces(
+	config: KubernetesBackendInternalConfig,
+	options?: KubernetesWorkspaceTransitionOptions,
+): Promise<readonly KubernetesWorkspaceSummary[]> {
+	options?.signal?.throwIfAborted()
+	const namespace = config.namespace
+	const client = createKubernetesClient(clientAccess(config))
+	const list = await client.request<SandboxListResource>(
+		'GET',
+		sandboxCollectionPath(namespace),
+		undefined,
+		options?.signal,
+	)
+	const summaries: KubernetesWorkspaceSummary[] = []
+	for (const sandbox of list?.items ?? []) {
+		const name = sandbox?.metadata?.name
+		if (typeof name !== 'string' || !name.startsWith(WORKSPACE_NAME_PREFIX)) continue
+		const template = sandbox?.spec?.podTemplate?.metadata?.labels?.[SANDBOX_TEMPLATE_LABEL_KEY]
+		if (typeof template !== 'string' || template === '') continue
+		const createdAt = sandbox?.metadata?.creationTimestamp
+		const changedAt = sandbox?.metadata?.annotations?.[OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY]
+		summaries.push({
+			workspaceId: name.slice(WORKSPACE_NAME_PREFIX.length),
+			operatingMode: sandbox?.spec?.operatingMode === 'Suspended' ? 'Suspended' : 'Running',
+			template,
+			...(typeof createdAt === 'string' && createdAt !== '' ? { createdAt } : {}),
+			...(typeof changedAt === 'string' && changedAt !== ''
+				? { operatingModeChangedAt: changedAt }
+				: {}),
+		})
+	}
+	return summaries
+}
+
+/**
+ * DELETE a workspace by id, without ever adopting or resuming it.
+ *
+ * The same thing `destroy({ deleteDisk: true })` does to the cluster — one
+ * DELETE of the Sandbox, which cascades to the Pod, the Service and the PVC
+ * through ownerReferences — with the same two guarantees: an object already
+ * gone counts as deleted, that being the state DELETE was asking for, and a
+ * DELETE that FAILS rejects and stays retryable, because nothing here records
+ * a state a retry could early-return on.
+ *
+ * What it does NOT do is the point. Removing a month-old suspended workspace
+ * through a handle meant starting a pod for it first, probing it, and then
+ * deleting the pod again — compute spent, and a guest woken, purely to be
+ * told to go away. The DELETE never needed any of that: the name is
+ * deterministic, so the object can be addressed without being opened.
+ *
+ * It is not gated on the workspace being suspended, and deliberately: a
+ * running workspace's DELETE takes its pod down with it, which is what
+ * deleting a workspace means. A caller that wants the disk quiesced first
+ * calls {@link suspendKubernetesWorkspace} and then this.
+ */
+export async function deleteKubernetesWorkspace(
+	config: KubernetesBackendInternalConfig,
+	workspaceId: string,
+	options?: KubernetesWorkspaceTransitionOptions,
+): Promise<void> {
+	options?.signal?.throwIfAborted()
+	const namespace = config.namespace
+	const name = workspaceSandboxName(workspaceId)
+	const client = createKubernetesClient(clientAccess(config))
+	try {
+		await client.request('DELETE', sandboxPath(namespace, name), undefined, options?.signal)
+	} catch (err) {
+		if (!(err instanceof KubernetesAlreadyGoneError)) throw err
+	}
+}
+
+/**
+ * Suspend a workspace by id, without ever adopting it: send the patch, then
+ * wait for the pod to actually stop.
+ *
+ * The handle's own `suspend()` does three things — reap the terminals it
+ * handed out, stop admitting calls, and patch-and-wait. Only the third is
+ * about the CLUSTER, and it is the only one a process holding no handle can
+ * do or needs to. So this is that third thing on its own, for the operator
+ * putting somebody else's workspace to sleep.
+ *
+ * It resolves only once the pod is gone or in a terminal phase, for the same
+ * reason the handle's does: a suspend is a promise that the disk is quiesced,
+ * and the patch being accepted says only that the controller has been asked.
+ * A pod that outlives `readyTimeoutMs` rejects with
+ * {@link KubernetesWorkspaceSuspendTimeoutError} and the object is left
+ * exactly as the patch left it — the next call patches and waits again.
+ *
+ * A workspace that no longer exists rejects with the client's own
+ * already-gone error rather than resolving. Unlike a DELETE, this asks for a
+ * state that cannot be reached: there is no object to suspend, and nothing
+ * the caller believed about it holds.
+ *
+ * Any HANDLE another process is holding on this workspace is not told. It
+ * finds out on its next call, which fails at the transport and is re-read
+ * into a {@link KubernetesWorkspaceSuspendedError} — or the moment that
+ * process calls `refresh()`. See {@link KubernetesWorkspace.refresh}.
+ */
+export async function suspendKubernetesWorkspace(
+	config: KubernetesBackendInternalConfig,
+	workspaceId: string,
+	options?: KubernetesWorkspaceTransitionOptions,
+): Promise<void> {
+	options?.signal?.throwIfAborted()
+	const namespace = config.namespace
+	const name = workspaceSandboxName(workspaceId)
+	const readiness = resolveKubernetesReadiness(config)
+	const client = createKubernetesClient(clientAccess(config))
+	await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), options?.signal)
+	await awaitPodRetired(client, namespace, name, workspaceId, readiness, options?.signal)
+}
 
 interface WorkspaceHandleOptions {
 	readonly client: KubernetesClient
@@ -1202,9 +1618,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * task sandbox retiring IS deleting, because the object is disposable and
 	 * its disk is scratch. Here it is not: the DELETE cascades to the PVC, and
 	 * a cancel that went unconfirmed for eight seconds would take a month of
-	 * the caller's files with it. `deleteDisk: true` is the only thing in this
-	 * module that removes a disk, and a failure path is not allowed to become
-	 * a second one — that is the invariant the whole file is built around.
+	 * the caller's files with it. Only a caller naming a disk removes one —
+	 * `deleteDisk: true`, or {@link deleteKubernetesWorkspace} — and a failure
+	 * path is not allowed to join them: that is the invariant the whole file
+	 * is built around.
 	 *
 	 * So the pod is retired the way `suspend()` retires one, with the same
 	 * `operatingMode: Suspended` patch, and the workspace is left
@@ -1243,65 +1660,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// not decoration — a detached chain that rejects with no handler takes
 		// the host process down with it.
 		void reapTerminals().catch(() => undefined)
-		await client.request('PATCH', sandboxPath(namespace, name), SUSPEND_PATCH, signal)
+		await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), signal)
 		// The patch landed, so the controller is taking this pod away and the
 		// next resume must see it replaced rather than bind it.
 		retiredPodUid = podUid
-	}
-
-	/**
-	 * True once the pod has actually stopped. The POD is asked, and nothing
-	 * else is consulted or believed.
-	 *
-	 * The cheap-looking alternative — the Sandbox's own `Suspended` condition
-	 * — is unusable, and upstream says so itself: "the controller does not
-	 * currently remove this condition when the Sandbox is resumed, so a stale
-	 * Suspended condition may linger after operatingMode returns to Running.
-	 * Consumers should treat Ready as the authoritative signal and not infer
-	 * the live operating state from the mere presence of this condition"
-	 * (`sandbox_types.go`). Reading it would make the second and every later
-	 * suspend of the same workspace return immediately, on a True left behind
-	 * by the previous one, while the guest was still running and still
-	 * writing to the caller's disk — and a `resume()` issued straight after
-	 * such a false suspend could bind to the pod that is about to be deleted.
-	 *
-	 * A `deletionTimestamp` is not the answer either: it is set the moment the
-	 * DELETE is accepted, and the container goes on running until it exits or
-	 * `terminationGracePeriodSeconds` expires. Gone (404) or stopped
-	 * ({@link isPodStopped}) — those are the only two states that mean the
-	 * disk is quiesced.
-	 */
-	const isPodRetired = async (signal?: AbortSignal): Promise<boolean> => {
-		try {
-			const pod = await client.request<PodResource>(
-				'GET',
-				podPath(namespace, name),
-				undefined,
-				signal,
-			)
-			return isPodStopped(pod)
-		} catch (err) {
-			if (err instanceof KubernetesAlreadyGoneError) return true
-			throw err
-		}
-	}
-
-	const awaitPodRetired = async (signal?: AbortSignal): Promise<void> => {
-		const deadline = new OperationDeadline(
-			readiness.timeoutMs,
-			`kubernetes workspace ${name} suspend`,
-			signal,
-		)
-		while (deadline.remainingMs() > 0) {
-			try {
-				if (await deadline.run(isPodRetired)) return
-				await deadline.delay(readiness.pollIntervalMs)
-			} catch (err) {
-				if (err instanceof OperationDeadlineExpired) break
-				throw err
-			}
-		}
-		throw new KubernetesWorkspaceSuspendTimeoutError(workspaceId, name, readiness.timeoutMs)
 	}
 
 	/**
@@ -1333,7 +1695,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// straight back.
 		state = 'suspending'
 		try {
-			await client.request('PATCH', sandboxPath(namespace, name), SUSPEND_PATCH, signal)
+			await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), signal)
 		} catch (err) {
 			// Nothing was changed on the cluster, so nothing is changed here:
 			// the pod is still running and this handle can still serve it.
@@ -1349,7 +1711,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// not the wait below is still around when it goes.
 		retiredPodUid = podUid
 		session = undefined
-		await awaitPodRetired(signal)
+		await awaitPodRetired(client, namespace, name, workspaceId, readiness, signal)
 		state = 'suspended'
 	}
 
@@ -1361,7 +1723,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// `retiredPodUid`. Where there is none to exclude this is one poll
 		// plus one read, exactly as it is on create.
 		const replacing = retiredPodUid
-		await client.request('PATCH', sandboxPath(namespace, name), RESUME_PATCH, signal)
+		await client.request('PATCH', sandboxPath(namespace, name), resumePatch(), signal)
 		session = await startSessionOrSuspend(
 			{
 				transition: 'resume',
@@ -1504,7 +1866,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			session = undefined
 			let retired = false
 			await runFailureCleanup(async (cleanupSignal) => {
-				await client.request('PATCH', sandboxPath(namespace, name), SUSPEND_PATCH, cleanupSignal)
+				await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), cleanupSignal)
 				retired = true
 			})
 			// Only when the patch came back. A resume that got as far as
@@ -1523,6 +1885,84 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			throw new KubernetesWorkspaceSuspendedError(operation, workspaceId, name)
 		}
 		return session
+	}
+
+	/**
+	 * Adopt a suspension this handle did not perform, if the object really is
+	 * suspended. Answers whether it was.
+	 *
+	 * Recorded as `suspending` rather than `suspended`, and the distinction is
+	 * the same one the whole module turns on: what was observed is the
+	 * object's MODE, not the pod stopping. The other process's wait may still
+	 * be running, or may have run out. A `suspended` mark here would let this
+	 * handle's next `suspend()` return on it and promise a quiesced disk
+	 * nobody in this process ever waited for.
+	 *
+	 * `retiredPodUid` is set for the same reason `suspendNow` sets it: a
+	 * suspend patch has landed — somebody else's — so the controller is taking
+	 * this pod away, and the resume that follows must see it REPLACED rather
+	 * than bind the uid the new agent will refuse.
+	 *
+	 * It never touches the transition queue, and must not: the call-failure
+	 * path below runs inside a rejecting `exec()`, and that exec can be the
+	 * privilege probe of a resume that is currently HOLDING the queue. The
+	 * `state !== 'running'` guard is what keeps it out of a transition's way —
+	 * every transition leaves `running` before it does anything.
+	 */
+	const noticeSuspendedElsewhere = async (signal?: AbortSignal): Promise<boolean> => {
+		if (state !== 'running') return false
+		if ((await readOperatingMode(client, namespace, name, signal)) !== 'Suspended') return false
+		if (state !== 'running') return false
+		state = 'suspending'
+		session = undefined
+		retiredPodUid = podUid
+		// Killed but not awaited, exactly as `retireSession` does it and for
+		// the same reason: the frames go to a pod that is being deleted, and
+		// `exited` would otherwise resolve only when TCP notices. The `catch`
+		// is not decoration — a detached chain that rejects with no handler
+		// takes the host process down.
+		void reapTerminals().catch(() => undefined)
+		return true
+	}
+
+	/**
+	 * Run one admitted call and, if it fails, ask ONCE whether the workspace
+	 * has been suspended out from under this handle.
+	 *
+	 * The failure a foreign suspend produces is not recognisable on its own.
+	 * The pod is gone, so the dial is refused — against an address that still
+	 * resolves, because the Service outlives the pod — or, if a replacement
+	 * pod is already up, the guest answers a flat `unauthorized` because this
+	 * handle is presenting the retired pod's uid. Neither says "suspended",
+	 * and a caller looking at either has no reason to try `resume()`.
+	 *
+	 * So the object is re-read, and only then: once per failed call, never
+	 * speculatively, and never on a call that succeeded. The re-read is a
+	 * diagnostic and behaves like one — it runs without the caller's signal
+	 * (which is quite possibly what aborted the call in the first place), and
+	 * a re-read that itself fails hands back the caller's own error rather
+	 * than replacing it with a second one about the API server.
+	 */
+	const admitted = async <T>(
+		operation: string,
+		run: (handle: KubernetesSandboxHandle) => Promise<T>,
+	): Promise<T> => {
+		const current = admit(operation)
+		try {
+			return await run(current)
+		} catch (err) {
+			if (state !== 'running') throw err
+			let suspended = false
+			try {
+				suspended = await noticeSuspendedElsewhere()
+			} catch {
+				throw err
+			}
+			if (!suspended) throw err
+			throw new KubernetesWorkspaceSuspendedError(operation, workspaceId, name, 'transport', {
+				cause: err,
+			})
+		}
 	}
 
 	/**
@@ -1588,23 +2028,26 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			argv?: string[],
 			execOptions?: SandboxExecOptions,
 		): Promise<SandboxExecResult> {
-			return await admit('exec').exec(command, argv, execOptions)
+			return await admitted('exec', async (handle) => await handle.exec(command, argv, execOptions))
 		},
 
 		async writeFile(path: string, content: string | Buffer): Promise<void> {
-			await admit('writeFile').writeFile(path, content)
+			await admitted('writeFile', async (handle) => await handle.writeFile(path, content))
 		},
 
 		async readFile(path: string): Promise<Buffer> {
-			return await admit('readFile').readFile(path)
+			return await admitted('readFile', async (handle) => await handle.readFile(path))
 		},
 
 		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
-			return await admit('listFiles').listFiles(rootPath)
+			return await admitted('listFiles', async (handle) => await handle.listFiles(rootPath))
 		},
 
 		async openTerminal(terminalOptions: OpenTerminalOptions): Promise<TerminalSession> {
-			const terminal = await admit('openTerminal').openTerminal(terminalOptions)
+			const terminal = await admitted(
+				'openTerminal',
+				async (handle) => await handle.openTerminal(terminalOptions),
+			)
 			// Tracked HERE as well as by the inner handle, because a suspend
 			// reaps terminals without going through the inner handle's
 			// `destroy()` — the pod is being deleted, and a caller left holding
@@ -1625,7 +2068,20 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		async openTcpConnection(
 			connectOptions: SandboxTcpConnectOptions,
 		): Promise<SandboxTcpConnection> {
-			return await admit('openTcpConnection').openTcpConnection(connectOptions)
+			return await admitted(
+				'openTcpConnection',
+				async (handle) => await handle.openTcpConnection(connectOptions),
+			)
+		},
+
+		async refresh(transitionOptions?: KubernetesWorkspaceTransitionOptions): Promise<void> {
+			// Serialised, unlike the call-failure path, because nothing calls
+			// this from inside a transition: it is a caller's own verb, and
+			// running it between transitions rather than through one keeps it
+			// from reading a mode a resume is halfway through changing.
+			await serialise(async () => {
+				await noticeSuspendedElsewhere(transitionOptions?.signal)
+			})
 		},
 
 		async suspend(transitionOptions?: KubernetesWorkspaceTransitionOptions): Promise<void> {

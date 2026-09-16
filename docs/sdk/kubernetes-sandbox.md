@@ -539,8 +539,10 @@ await workspace.destroy({ deleteDisk: true }) // deletes the Sandbox and the dis
 ```
 
 `createKubernetesWorkspace` returns a `KubernetesWorkspace`: the SDK's
-`Sandbox`, plus `suspend()`, `resume()`, a `suspended` flag and a `destroy()`
-that takes `deleteDisk`. Those live on a type exported from `@namzu/sandbox`
+`Sandbox`, plus `suspend()`, `resume()`, `refresh()`, a `suspended` flag and a
+`destroy()` that takes `deleteDisk`. Listing, deleting and suspending a
+workspace [without opening one](#managing-workspaces-without-waking-them) are
+verbs of their own, because none of them needs a guest. Those live on a type exported from `@namzu/sandbox`
 and **not** on the SDK's `Sandbox` — they are backend capabilities, and
 putting them on the shared contract would make every other backend answer for
 a lifecycle it does not have.
@@ -592,7 +594,10 @@ create it again.
 **A workspace id is a name, not a lock.** Nothing stops two host processes from
 adopting the same running workspace; each gets its own handle over the same
 pod, and either one's `destroy()` suspends the pod the other is executing in.
-That coordination is the caller's, and this backend does not pretend to it.
+That coordination is the caller's, and this backend does not pretend to it —
+but a handle can at least [find out](#a-handle-notices-a-suspend-it-did-not-perform)
+that somebody else suspended its workspace, rather than reporting
+`suspended: false` over a pod that is gone.
 
 **An adopt can land mid-transition, and waits rather than failing.** The
 second process to reach a workspace arrives at a moment the first one did not
@@ -687,8 +692,10 @@ abandoned one, which is the trade: the leak is deliberate and named.
 
 ### Resume changes the address and the token
 
-`suspend()` merge-PATCHes `spec.operatingMode: Suspended` — that exact body
-and nothing else — and resolves only once the pod has actually stopped, not
+`suspend()` merge-PATCHes `spec.operatingMode: Suspended` — that, and the
+`sandbox.namzu.ai/operating-mode-changed-at` annotation the
+[inventory](#managing-workspaces-without-waking-them) reads, and nothing else
+— and resolves only once the pod has actually stopped, not
 once the patch is accepted. The controller deletes only the Pod and reconciles
 PVCs unconditionally on every pass, so the disk survives with the same UID. A
 guest whose PID 1 ignores `SIGTERM` rides out its
@@ -763,7 +770,7 @@ controller was asked for that deletion either way, so a resume issued next
 arrives mid-drain, finds no live pod of that name at all, and has to keep
 reading rather than fail on the first answer. Every patch that lands is
 recorded that way — an explicit `suspend()`, the retirement of a pod that
-[stopped answering](#nothing-but-deletedisk-deletes), and the cleanup after a
+[stopped answering](#nothing-but-an-explicit-delete-deletes), and the cleanup after a
 failed create or resume, which swallows its own failure so the primary error
 stays primary and therefore records only when the request actually came back.
 A pod nobody asked the controller to remove has no replacement to wait for, so
@@ -782,6 +789,143 @@ resolves; a dial would hang on a connect timeout that names nothing.
 members and none of them is "suspended", and `destroyed` is the only one
 meaning "cannot serve a call". The `suspended` flag is what tells the
 recoverable state from the final one.
+
+### Managing workspaces without waking them
+
+`createKubernetesWorkspace` adopts **and** resumes. That is right for a host
+about to use a workspace and wrong for every operation that is about the
+object rather than the guest: taking an inventory through it starts a pod for
+every suspended workspace it looks at, and deleting a month-old one means
+waking it up to tell it to go away. So the three operations that never need a
+guest reach the object without opening it:
+
+```ts
+import {
+  deleteKubernetesWorkspace,
+  listKubernetesWorkspaces,
+  suspendKubernetesWorkspace,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000
+for (const workspace of await listKubernetesWorkspaces(cluster)) {
+  if (workspace.operatingMode !== 'Suspended') continue
+  const asleepSince = workspace.operatingModeChangedAt
+  if (asleepSince === undefined || Date.parse(asleepSince) > cutoff) continue
+  await deleteKubernetesWorkspace(cluster, workspace.workspaceId)
+}
+```
+
+None of the three creates a pod, dials an agent or resumes anything.
+
+| Verb | What it sends | What it never does |
+|---|---|---|
+| `listKubernetesWorkspaces(config, { signal })` | One `GET` of the `sandboxes` collection | No `PATCH`, no `DELETE`, no pod read: a suspended workspace is still suspended afterwards |
+| `deleteKubernetesWorkspace(config, workspaceId, { signal })` | One `DELETE` of `namzu-ws-<id>` | Never adopts, never resumes — the deterministic name is enough to address the object |
+| `suspendKubernetesWorkspace(config, workspaceId, { signal })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own |
+
+`listKubernetesWorkspaces` returns a `KubernetesWorkspaceSummary` per
+workspace — `workspaceId`, `operatingMode`, `template`, `createdAt` and
+`operatingModeChangedAt` — in the API server's own order. `operatingMode` is
+`spec.operatingMode` verbatim and not "is a pod running": a `Running`
+workspace whose pod is being created, or has just crashed, reads `Running`.
+
+**What counts as a workspace** is two of this backend's own marks together:
+the `namzu-ws-` name prefix, which is the only thing that makes a
+`workspaceId` recoverable from a `Sandbox` at all, and the
+`sandbox.namzu.ai/template` label on `spec.podTemplate`. Task sandboxes carry
+the label and not the prefix; an object wearing the prefix without the label
+was not built here and is left alone. The filtering happens in the client
+rather than as a `labelSelector` on the request because that label is a **pod**
+label — the one an egress `NetworkPolicy` matches — and a `labelSelector` on
+the sandboxes collection matches the `Sandbox`'s own `metadata.labels`, which
+this backend has never written. Stamping a second copy up there to enable a
+server-side selector would leave every workspace created before that change
+invisible, and those are exactly the ones a retention pass is looking for.
+
+**`operatingModeChangedAt` is an annotation this backend stamps**,
+`sandbox.namzu.ai/operating-mode-changed-at`, written by the suspend and
+resume patches with the host's clock at the moment each was sent. Nothing
+already on the object answers the question: the controller's own `Suspended`
+condition lingers `True` across a resume — upstream's `sandbox_types.go` says
+it "does not currently remove this condition when the Sandbox is resumed" — so
+neither its presence nor its `lastTransitionTime` says when the mode last
+changed, and `Ready`'s timestamp moves for every pod that comes and goes, a
+crash-restart included. A workspace whose mode has never changed since it was
+created carries no annotation and is reported **without** one rather than
+defaulted to `createdAt`, because a retention rule has to tell "never
+suspended" from "suspended a month ago".
+
+`deleteKubernetesWorkspace` gives the same two guarantees
+`destroy({ deleteDisk: true })` does: an object already gone counts as
+deleted, that being the state `DELETE` was asking for, and a `DELETE` that
+fails **rejects and stays retryable** — nothing records the workspace as
+deleted on a request that did not land. It is not gated on the workspace being
+suspended; deleting a running one takes its pod with it, which is what
+deleting a workspace means. A caller that wants the disk quiesced first calls
+`suspendKubernetesWorkspace` and then this.
+
+`suspendKubernetesWorkspace` resolves only once the pod is **gone or in a
+terminal phase**, for the same reason the handle's `suspend()` does: the patch
+being accepted says only that the controller has been asked. A pod that
+outlives `readyTimeoutMs` rejects with
+`KubernetesWorkspaceSuspendTimeoutError` and leaves the object as the patch
+left it. A workspace that does not exist rejects rather than resolving —
+unlike a `DELETE`, this asks for a state that cannot be reached.
+
+All three take a `workspaceId`, not a `Sandbox` name, and refuse an id that
+could not be one before sending anything.
+
+### A handle notices a suspend it did not perform
+
+A workspace id is a name, not a lock, so the process that suspends a workspace
+is often not the one holding a handle to it. That handle's state is a record
+of what **its** process did, and left alone it would go on reporting
+`suspended: false` with no pod behind it.
+
+Two things correct it, and both re-read `spec.operatingMode` rather than
+guessing:
+
+- **`refresh()`**, on demand and before anything has failed. A workspace
+  another process suspended reports `suspended: true` afterwards, and
+  `resume()` brings it back on the same disk.
+- **The re-read after a failed call.** The failure a foreign suspend produces
+  names nothing on its own: the pod is gone, so the dial is refused against an
+  address that still resolves — the Service outlives the pod — or, if a
+  replacement is already up, its agent answers a flat `unauthorized` because
+  this handle is presenting the retired pod's uid. So a call that fails while
+  the handle believes it is running re-reads the object **once**, and if it
+  really is `Suspended` the caller gets `KubernetesWorkspaceSuspendedError`
+  with the transport failure on `cause` instead.
+
+`KubernetesWorkspaceSuspendedError.noticedBy` tells the two apart:
+`'admission'` means the handle knew and nothing was dialed, `'transport'`
+means the call went out, failed, and the re-read found the suspension.
+
+The re-read is a diagnostic and behaves like one. It runs at most once per
+failed call, never on a call that succeeded, and never speculatively; it does
+not use the caller's `AbortSignal`, which is quite possibly what ended the
+call; and a re-read that itself fails hands back the caller's own error rather
+than replacing it with a second one about the API server. A workspace that
+reads `Running` leaves everything exactly as it was — including the failure,
+which travels out untouched.
+
+**A foreign suspend is recorded as unconfirmed.** What was observed is the
+object's mode, not the pod stopping, and the other process's wait may have run
+out — so this handle's own `suspend()` still sends its patch and waits for the
+pod rather than returning on what the re-read saw. `refresh()` notices a
+suspension and nothing else: a workspace that reads `Running` while this
+handle is suspended is not taken back, because coming back means binding a new
+pod, reading its token and probing it, which is what `resume()` is. A
+workspace somebody deleted rejects with the client's already-gone error and
+changes nothing on the handle.
 
 ### Egress covers a workspace too
 
@@ -860,7 +1004,7 @@ it is a suspend. The shared request runs under the **first** caller's
 first rejects everyone waiting on it. That is what sharing one request means,
 and a caller who needs its own cancellation scope needs its own transition.
 
-### Nothing but `deleteDisk` deletes
+### Nothing but an explicit delete deletes
 
 No failure path in the workspace code ever deletes. A create or a resume that
 fails after the object exists — a readiness timeout, a probe refusal —
@@ -885,9 +1029,13 @@ sends. The `exec()` still rejects, carrying `retirement: { accepted: true }`
 once that patch lands (and `accepted: false`, with the error, when it does
 not); the workspace then reads `suspended: true`, admits nothing, and
 `resume()` brings up a fresh pod on the same disk. An eight-second
-cancellation window is not a reason to erase a month of a caller's files, and
-`destroy({ deleteDisk: true })` stays the only thing in this backend that
-removes a disk.
+cancellation window is not a reason to erase a month of a caller's files.
+
+Only a caller naming a disk removes one. There are exactly two ways to —
+`destroy({ deleteDisk: true })` and
+[`deleteKubernetesWorkspace`](#managing-workspaces-without-waking-them) — and
+both have to be typed: no failure path, no `finally` and no default reaches
+either.
 
 ## What it refuses
 
@@ -1002,15 +1150,19 @@ because a workspace never passes through the provider.
 
 The ServiceAccount the host runs as needs, in the sandbox namespace:
 `create`/`get`/`patch`/`delete` on `sandboxclaims`,
-`create`/`get`/`patch`/`delete` on `sandboxes`, `get` on `sandboxtemplates`,
-`get`/`list` on `pods`, and — only
+`create`/`get`/`list`/`patch`/`delete` on `sandboxes`, `get` on
+`sandboxtemplates`, `get`/`list` on `pods`, and — only
 when `config.egress` is set — `get` on `networkpolicies` (`networking.k8s.io`)
 or, under `engine: 'cilium'`, `get` on `ciliumnetworkpolicies` (`cilium.io`).
 No consumer role is published upstream. A `403` surfaces as an error naming
 the verb and the resource and never the token.
-[Workspaces](#persistent-workspaces) need nothing beyond this list: they use
-`create`/`get`/`patch`/`delete` on `sandboxes`, `get` on `sandboxtemplates`
-and `get`/`list` on `pods`, which the task path already required.
+[Workspaces](#persistent-workspaces) add exactly one verb to that list:
+`list` on `sandboxes`, which
+[`listKubernetesWorkspaces`](#managing-workspaces-without-waking-them) needs
+to read the collection. Every other read in this backend is a `GET` by a name
+it already knows, and the rest of what a workspace uses —
+`create`/`get`/`patch`/`delete` on `sandboxes`, `get` on `sandboxtemplates`,
+`get`/`list` on `pods` — the task path already required.
 
 ## Deployment
 
