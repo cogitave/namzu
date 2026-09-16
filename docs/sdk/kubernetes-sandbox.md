@@ -210,6 +210,58 @@ whose base64 body would exceed it throws `AgentPreauthFrameTooLargeError`
 Roughly: bodies above ~5.9 MiB raw do not fit. Chunking a large body across
 frames is not implemented; raise the deployment's ceiling or split the write.
 
+## Running the conformance suite
+
+The table above is a claim about the `Sandbox` contract, and until this batch
+nothing checked that claim against more than one backend. `defineSandboxConformance`
+(`packages/sandbox/src/testing/sandbox-conformance.ts`) is a suite any `Sandbox`
+implementation can be run against — `exec`'s exit codes and streamed output,
+the `AbortSignal` contract (the process is genuinely terminated, never a
+resolved result that looks like an unaborted success), a `writeFile`/`readFile`
+round trip including binary content, `listFiles`, `openTerminal` ownership on
+`destroy()`, `openTcpConnection` to guest loopback and its refusal of a
+non-loopback host, destroy idempotence, and every call failing once destroyed.
+`openTerminal` and `openTcpConnection` are optional on the SDK's own contract,
+so a factory whose sandbox omits either capability skips that section rather
+than failing it.
+
+It ships in `@namzu/sandbox`, not `@namzu/sdk/testing` — this package has no
+`testing` subpath of its own yet, and this batch does not add one. Within the
+monorepo a backend's own test file imports it by relative path, the same way
+`backends/kubernetes/__tests__/conformance.test.ts` and
+`backends/firecracker/__tests__/conformance.test.ts` do:
+
+```ts sketch
+import { defineSandboxConformance } from '../../../testing/sandbox-conformance.js'
+import { describe, expect, it } from 'vitest'
+
+defineSandboxConformance({
+  describe,
+  it,
+  expect,
+  label: 'my-backend',
+  // Called once per case — no case may depend on another's writes, aborts
+  // or destroys.
+  makeSandbox: async () => ({
+    sandbox: await myBackend.create({ workingDirectory: someTempDir }),
+    dispose: async () => {
+      /* close whatever fixtures `makeSandbox` stood up */
+    },
+  }),
+})
+```
+
+Both shipped backends run it today, against the same kind of fixture this
+page's other tests use: a real `agent/agent.cjs` on a loopback socket, no
+cluster and no microVM. Passing against two independently-implemented
+backends is the point — a suite only ever run against the backend it was
+written next to is bespoke tests wearing a contract's name, not a contract.
+The suite carries its own negative test
+(`packages/sandbox/src/testing/__tests__/conformance-fails-a-broken-sandbox.test.ts`):
+a deliberately wrong `Sandbox` that resolves `exec` after abort, that leaves a
+terminal running on `destroy()`, or that hands back corrupted bytes from
+`readFile`, and each must fail the suite by name.
+
 ## The privilege probe
 
 `create()` does not resolve until the guest has REPORTED, and this backend has
