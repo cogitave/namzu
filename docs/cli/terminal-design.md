@@ -61,7 +61,12 @@ own title is the workflow label every one of its agents shares; when they
 carry none, or carry more than one, the title is a neutral count instead
 (`2 agents · 1 running`) rather than a generic name that described none of
 them in particular. The agent cockpit's per-workflow header follows the same
-rule.
+rule. So does each row of the cockpit's own workflow picker (`Ctrl+T` with two
+or more groups live or retained at once): a group whose agents never set an
+explicit label is named after its own lead agent instead of the generic
+default — that agent's title, plus a `+N` count when the group holds more
+than one — so two unlabelled groups still read as distinct entries rather
+than two identical rows.
 
 ## Compact tool activity
 

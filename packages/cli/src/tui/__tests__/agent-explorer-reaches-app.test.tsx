@@ -1456,6 +1456,32 @@ describe('agent explorer projection', () => {
 			.toEqual([[['first']], [['second']]])
 	})
 
+	it('names an unlabelled group by its own lead agent instead of the generic default', () => {
+		const workflows = agentWorkflows([
+			agent({ viewId: 'first', description: 'Scan release artifacts', batchId: 'batch-one' }),
+			agent({ viewId: 'second', description: 'Verify checksums', batchId: 'batch-two' }),
+		])
+		expect(workflows.map((workflow) => workflow.name)).toEqual([
+			'Scan release artifacts',
+			'Verify checksums',
+		])
+	})
+
+	it('appends a +N suffix to an unlabelled group name once it has more than one member', () => {
+		const workflows = agentWorkflows([
+			agent({ viewId: 'lead', description: 'Verify checksums', batchId: 'batch-two' }),
+			agent({ viewId: 'extra', description: 'Verify signatures', batchId: 'batch-two' }),
+		])
+		expect(workflows.map((workflow) => workflow.name)).toEqual(['Verify checksums +1'])
+	})
+
+	it('falls back to a plain agent count when an unlabelled group has no title to show', () => {
+		const workflows = agentWorkflows([
+			agent({ viewId: 'lead', description: '', agentId: '', batchId: 'batch-two' }),
+		])
+		expect(workflows.map((workflow) => workflow.name)).toEqual(['1 agent'])
+	})
+
 	it('shows queued children as active without claiming that they are working', async () => {
 		const queued = agent({ viewId: 'queued', description: 'Ninth review', status: 'queued', latestActivity: 'Queued' })
 		const running = agent({ viewId: 'running', description: 'Running review' })
@@ -2007,6 +2033,99 @@ describe('rail and cockpit titles', () => {
 		mounted = screen
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('1 agent · 1 running')
+		expect(frame).not.toContain('Delegated work')
+	})
+})
+
+describe('workflow selector pane naming', () => {
+	it('gives two unlabelled groups distinct neutral names so they stay tellable apart', async () => {
+		const first = agent({
+			viewId: 'first-lead',
+			description: 'Scan release artifacts',
+			batchId: 'batch-one',
+		})
+		const second = agent({
+			viewId: 'second-lead',
+			description: 'Verify checksums',
+			batchId: 'batch-two',
+		})
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[first, second]}
+				selectedPhaseId={first.phaseId}
+				selectedId={first.viewId}
+				focus="workflows"
+				terminalRows={24}
+				terminalColumns={110}
+			/>,
+			{ cols: 110, rows: 24 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Scan release artifacts')
+		expect(frame).toContain('Verify checksums')
+		expect(frame).not.toContain('Delegated work')
+	})
+
+	it('adds a +N suffix to an unlabelled group whose name comes from more than one agent', async () => {
+		const solo = agent({
+			viewId: 'solo-lead',
+			description: 'Scan release artifacts',
+			batchId: 'batch-one',
+		})
+		const groupLead = agent({
+			viewId: 'group-lead',
+			description: 'Verify checksums',
+			batchId: 'batch-two',
+		})
+		const groupExtra = agent({
+			viewId: 'group-extra',
+			description: 'Verify signatures',
+			batchId: 'batch-two',
+		})
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[solo, groupLead, groupExtra]}
+				selectedPhaseId={solo.phaseId}
+				selectedId={solo.viewId}
+				focus="workflows"
+				terminalRows={24}
+				terminalColumns={110}
+			/>,
+			{ cols: 110, rows: 24 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Scan release artifacts')
+		expect(frame).toContain('Verify checksums +1')
+		expect(frame).not.toContain('Delegated work')
+	})
+
+	it('names a labelled group by its label beside an unlabelled sibling named neutrally', async () => {
+		const labelled = agent({
+			viewId: 'labelled-lead',
+			workflow: 'Nightly regression sweep',
+		})
+		const unlabelled = agent({
+			viewId: 'unlabelled-lead',
+			description: 'Triage flaky tests',
+			batchId: 'batch-solo',
+		})
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[labelled, unlabelled]}
+				selectedPhaseId={labelled.phaseId}
+				selectedId={labelled.viewId}
+				focus="workflows"
+				terminalRows={24}
+				terminalColumns={110}
+			/>,
+			{ cols: 110, rows: 24 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Nightly regression sweep')
+		expect(frame).toContain('Triage flaky tests')
 		expect(frame).not.toContain('Delegated work')
 	})
 })

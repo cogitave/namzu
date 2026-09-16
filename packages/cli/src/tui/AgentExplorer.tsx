@@ -541,13 +541,32 @@ export function agentWorkflows(agents: readonly SubagentActivity[]): readonly Ag
 	return [...groups]
 		.map(([id, members]) => ({
 			id,
-			name: members[0]?.workflow ?? 'Delegated work',
+			name: workflowGroupName(members),
 			startedAt: Math.min(...members.map((agent) => agent.startedAt)),
 			status: phaseStatus(members),
 			phases: agentPhases(members),
 			agents: members,
 		}))
 		.sort((left, right) => left.startedAt - right.startedAt || left.id.localeCompare(right.id))
+}
+
+/**
+ * A group's display name. An explicit, shared `workflow` label names it
+ * directly; a group whose agents never set one (the unlabelled default —
+ * `agentWorkflows` still groups them by batch, so two unrelated unlabelled
+ * batches are two separate groups here) never uses that default's literal
+ * text, which describes none of them in particular and is indistinguishable
+ * from any other unlabelled group's name. It gets a neutral name built from
+ * its own members instead, so two unlabelled groups stay tellable apart in
+ * a list — the first member's title, plus a `+N` count when there are more,
+ * or a plain agent count when even a title is missing.
+ */
+function workflowGroupName(members: readonly SubagentActivity[]): string {
+	const label = members[0]?.workflow
+	if (label !== undefined && label !== DEFAULT_AGENT_WORKFLOW) return label
+	const title = oneLine(members[0]?.description || members[0]?.agentId || '').trim()
+	if (!title) return `${members.length} agent${members.length === 1 ? '' : 's'}`
+	return members.length > 1 ? `${title} +${members.length - 1}` : title
 }
 
 export function agentWorkflowPageSize(terminalRows: number): number {
