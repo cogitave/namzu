@@ -9,6 +9,7 @@ import type {
 } from '../../types/connector/index.js'
 import type { ToolResultBlock, ToolResultContent } from '../../types/message/index.js'
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
+import { admitMcpAudioBatch } from './audio-admission.js'
 import type { MCPClient } from './client.js'
 import { MCPHttpRedirectError } from './http-redirect.js'
 import { admitMcpImageBatch } from './image-admission.js'
@@ -609,6 +610,11 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 			block.type === 'image',
 	)
 	const imagesAdmitted = admitMcpImageBatch(imageBlocks)
+	const audioBlocks = result.content.filter(
+		(block): block is Extract<(typeof result.content)[number], { type: 'audio' }> =>
+			block.type === 'audio',
+	)
+	const audiosAdmitted = admitMcpAudioBatch(audioBlocks)
 
 	// Non-text blocks used to be filtered out and never seen again: a
 	// bridged MCP server returning a chart, a screenshot or a PDF had that
@@ -617,6 +623,13 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 	// as model-visible content when any are present.
 	const blocks: ToolResultBlock[] = []
 	const pins: WorkingStatePin[] = []
+	// Set only by a block type that has no `ToolResultBlock` shape of its
+	// own and is rendered as a plain text pointer instead (`resource_link`
+	// today). Without this, a result made up entirely of such pointers
+	// would compute `hasRichContent` false — every pushed block LOOKS like
+	// ordinary text — and the whole `content` array, the pointer's only
+	// carrier, would be dropped by the `hasRichContent` gate below.
+	let hasNamedPointer = false
 	for (const block of result.content) {
 		if (block.type === 'resource' && block.resource?.mimeType === WORKING_STATE_MIME) {
 			// A server pins facts by returning them as a resource of this type:
@@ -640,14 +653,31 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 						}
 					: {}),
 			})
+		} else if (block.type === 'resource_link') {
+			// A resource_link never carries content, admitted or not — it is
+			// a pointer the model cannot dereference, so it is named rather
+			// than pretended to be present, exactly like a URI-only embedded
+			// resource just below.
+			blocks.push({
+				type: 'text',
+				text: `[MCP resource link: ${block.name} (${block.uri})]`,
+			})
+			hasNamedPointer = true
 		} else if (block.type === 'resource' && block.resource?.text) {
 			// A resource with inline text is readable content; one that is
-			// only a URI is a pointer the model cannot dereference, so it is
-			// named rather than pretended to be present.
+			// only a URI, or only a `blob`, is a pointer the model cannot
+			// dereference, so it is named rather than pretended to be
+			// present — here, that means it is left out of `blocks`
+			// entirely rather than rendered as fabricated text.
 			blocks.push({ type: 'text', text: block.resource.text })
 		}
+		// `audio` has no `ToolResultBlock` shape of its own today, so it is
+		// summarized into `output` below rather than pushed here — the
+		// same reasoning that keeps a withheld image out of plain text,
+		// applied to a media type this adapter cannot pass through as
+		// bytes at all yet.
 	}
-	const hasRichContent = blocks.some((b) => b.type !== 'text')
+	const hasRichContent = hasNamedPointer || blocks.some((b) => b.type !== 'text')
 
 	// A server may answer with a structured payload and skip the
 	// compatibility text block. Serializing it is the difference between
@@ -662,7 +692,19 @@ export function mcpToolResultToToolResult(result: MCPToolResult): ToolResult {
 		imageBlocks.length > 0 && !imagesAdmitted
 			? '[MCP image batch withheld from model input: one or more blocks are not complete supported raster containers matching their declared media types.]'
 			: ''
-	const output = [visibleText, invalidImageNotice].filter((part) => part.length > 0).join('\n')
+	// Audio has no `ToolResultBlock` carrier, so an admitted clip is named
+	// in `output` by its media type instead of being dumped into `content`
+	// as base64 text — the same mistake this adapter already fixed once for
+	// screenshots. A withheld batch gets the same notice shape as images.
+	const audioNotice =
+		audioBlocks.length === 0
+			? ''
+			: audiosAdmitted
+				? `[MCP audio: ${audioBlocks.map((block) => block.mimeType).join(', ')}]`
+				: '[MCP audio batch withheld from model input: one or more blocks are not complete supported audio containers matching their declared media types.]'
+	const output = [visibleText, invalidImageNotice, audioNotice]
+		.filter((part) => part.length > 0)
+		.join('\n')
 
 	return {
 		...(pins.length > 0 ? { workingState: pins } : {}),

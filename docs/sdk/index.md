@@ -75,3 +75,4 @@ The kernel.
 * [Cancellation and timeouts](cancellation-and-timeouts.md) - Findings and open composition options for provider-request cancellation, the whole-run timeout gap, and the two idle-timeout mechanisms.
 
 * [MCP protocol eras](mcp-protocol-eras.md) - The era model behind MCP negotiation, the single-round-trip legacy handshake across four versions, and why there is no waterfall.
+* [MCP content blocks](mcp-content-blocks.md) - Which tool-result content types reach the model, which protocol revision introduced each, and how audio, resource_link and embedded resources are represented.

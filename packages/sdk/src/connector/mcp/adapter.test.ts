@@ -27,6 +27,13 @@
  *       text in an explicit untrusted-provenance envelope.
  *     - malformed/misdeclared image batches remain exact in `data` and
  *       durable content, but carry a provider-omission marker.
+ *     - an admitted `audio` block is named by its media type in `output`;
+ *       a malformed batch is withheld with a notice, same shape as images.
+ *     - a `resource_link` is named as a pointer, never fabricated as text.
+ *     - a `resource` with only a `blob` (no `text`) is dropped from
+ *       model-visible content without throwing — see `content-blocks.test.ts`
+ *       for the fuller content-block suite (audio, resource_link, blob,
+ *       annotations, and a batch mixing all four).
  *     - error = same joined text when isError, else undefined.
  *   - `toolResultToMCPToolResult`:
  *     - success + output → single text block.
@@ -346,6 +353,35 @@ describe('mcpToolResultToToolResult', () => {
 		})
 		expect(result.success).toBe(false)
 		expect(result.error).toBe('boom')
+	})
+
+	it('names a resource_link as a pointer rather than fabricating its content', () => {
+		const result = mcpToolResultToToolResult({
+			content: [
+				{
+					type: 'resource_link',
+					uri: 'https://example.com/spec.pdf',
+					name: 'spec',
+					description: 'The full spec',
+					mimeType: 'application/pdf',
+				},
+			],
+			isError: false,
+		})
+		expect(result.content).toEqual([
+			{ type: 'text', text: '[MCP resource link: spec (https://example.com/spec.pdf)]' },
+		])
+		expect(result.output).toBe('')
+	})
+
+	it('handles a resource with a blob and no text without throwing', () => {
+		const blob = Buffer.from('binary payload').toString('base64')
+		expect(() =>
+			mcpToolResultToToolResult({
+				content: [{ type: 'resource', resource: { uri: 'file:///x.bin', blob } }],
+				isError: false,
+			}),
+		).not.toThrow()
 	})
 })
 

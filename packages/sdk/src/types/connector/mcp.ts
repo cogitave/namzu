@@ -233,10 +233,38 @@ export interface MCPToolDefinition {
 	annotations?: MCPToolAnnotations
 }
 
+/**
+ * Audience/priority/freshness hints a server may attach to a content block,
+ * part of the schema since 2025-06-18. Advisory only: namzu does not act on
+ * any of these fields today, but drops none of them either — they survive
+ * into `ToolResult.data` for a host that wants to read them.
+ *
+ * Distinct from {@link MCPToolAnnotations}, which describes a TOOL
+ * (read-only, destructive, …); this describes one piece of CONTENT.
+ */
+export interface MCPContentAnnotations {
+	audience?: Array<'user' | 'assistant'>
+	priority?: number
+	lastModified?: string
+}
+
 export type MCPContentBlock =
 	| { type: 'text'; text: string }
 	| { type: 'image'; data: string; mimeType: string }
-	| { type: 'resource'; resource: { uri: string; mimeType?: string; text?: string } }
+	| {
+			type: 'resource'
+			resource: { uri: string; mimeType?: string; text?: string; blob?: string }
+			annotations?: MCPContentAnnotations
+	  }
+	/** Since 2025-03-26. Raw audio bytes, base64-encoded like `image`. */
+	| { type: 'audio'; data: string; mimeType: string }
+	/**
+	 * Since 2025-06-18. A pointer to a resource the server has NOT embedded
+	 * inline — unlike `resource`, which always carries `text` or `blob`.
+	 * Because this block carries no content at all, the adapter names it
+	 * for the model rather than fabricating text the server never sent.
+	 */
+	| { type: 'resource_link'; uri: string; name: string; description?: string; mimeType?: string }
 
 export interface MCPToolResult {
 	content: MCPContentBlock[]
