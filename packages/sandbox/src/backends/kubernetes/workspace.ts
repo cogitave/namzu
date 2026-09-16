@@ -174,6 +174,7 @@ import type {
 } from '@namzu/sdk'
 
 import { OperationDeadline, OperationDeadlineExpired, runFailureCleanup } from '../readiness.js'
+import type { SandboxRetirementObservation } from '../remote-execution-controller.js'
 import { assertEgressPolicyIsEnforceable } from './egress-policy.js'
 import {
 	DEFAULT_AGENT_PORT,
@@ -373,16 +374,84 @@ export class KubernetesWorkspaceSuspendTimeoutError extends Error {
 }
 
 /**
+ * What a start that FAILED is allowed to do to the workspace it was starting
+ * in.
+ *
+ *  - `suspend-if-woken` (the default) — send the `operatingMode: Suspended`
+ *    patch only when this call is the one that moved the mode: it POSTed the
+ *    object, or its Running patch took the object out of `Suspended`. That
+ *    keeps the case the rule exists for — a workspace this call WOKE and then
+ *    failed to start would otherwise be left Running with a pod nobody is
+ *    using, burning a node until somebody notices — while never taking a pod
+ *    away from a holder who was already using it.
+ *  - `leave` — never patch, on any start failure, without exception. For a
+ *    host that keeps its own holder record and sweeps idle workspaces itself:
+ *    the cost of being wrong is one Running workspace nobody is in, which
+ *    that host can already see and already sweeps.
+ *
+ * Read only by the paths that START a session: {@link
+ * createKubernetesWorkspace} and `resume()`. `suspend()`, `refresh()`,
+ * `destroy()` and the three standalone verbs start nothing and ignore it.
+ */
+export type KubernetesWorkspaceStartFailurePolicy = 'suspend-if-woken' | 'leave'
+
+/**
+ * What one bounded `healthz` found after a cancellation went unconfirmed —
+ * the fact the host needs and the error cannot carry.
+ *
+ *  - `ok` — the agent answered and is serving normally. The command whose
+ *    cancellation could not be confirmed may still be running in that pod,
+ *    but nothing is wedged; the workspace goes on working.
+ *  - `retiring` — the agent has FENCED itself: it could not confirm that a
+ *    process group was gone, so it refuses every op but `healthz` and
+ *    `cancel-execution` and will until the pod is replaced. This is the one
+ *    case where `suspend()` then `resume()` is the cure.
+ *  - `unreachable` — the probe could not get an answer at all: the pod is
+ *    gone, the network is out, or the address stopped resolving. Nothing can
+ *    be concluded about the command, and nothing should be done about the
+ *    workspace on this alone — the next call finds out, and a foreign suspend
+ *    is reported as one.
+ */
+export type KubernetesWorkspaceAgentState = 'ok' | 'retiring' | 'unreachable'
+
+/**
+ * What {@link KubernetesWorkspaceOptions.onCancellationUnconfirmed} is told.
+ *
+ * It is a NOTIFICATION, not a decision point: the `exec()` this came from
+ * rejects with `error` whatever the callback does, and nothing the callback
+ * does is awaited by the failing call beyond the moment it returns.
+ */
+export interface KubernetesWorkspaceCancellationNotice {
+	/** The `RemoteCancellationUnknownError` the caller is about to receive. */
+	readonly error: Error
+	/** See {@link KubernetesWorkspaceAgentState}. */
+	readonly agent: KubernetesWorkspaceAgentState
+}
+
+/**
  * Authority for one workspace operation, owned independently of the run.
  *
  * Carried by the handle's transitions and by the three verbs that reach a
  * workspace without opening one ({@link listKubernetesWorkspaces},
  * {@link deleteKubernetesWorkspace}, {@link suspendKubernetesWorkspace}) —
- * one shape rather than four, because a cancellation scope is the only thing
- * any of them takes.
+ * one shape rather than four, because a cancellation scope is what all of
+ * them take and the one verb among them that starts a session takes one
+ * thing more.
  */
 export interface KubernetesWorkspaceTransitionOptions {
 	readonly signal?: AbortSignal
+	/**
+	 * Override, for this call only, what a failed start may do to the
+	 * workspace — see {@link KubernetesWorkspaceStartFailurePolicy}. Defaults
+	 * to whatever the handle was opened with, which defaults to
+	 * `suspend-if-woken`.
+	 *
+	 * `resume()` is the only verb on this shape that reads it, because it is
+	 * the only one that starts a session. It is declared here rather than on
+	 * a resume-only shape so that a host passing one options object to every
+	 * transition does not have to know which verb consults which field.
+	 */
+	readonly onStartFailure?: KubernetesWorkspaceStartFailurePolicy
 }
 
 /**
@@ -591,6 +660,42 @@ export interface KubernetesWorkspaceOptions {
 	 */
 	readonly sandboxTemplateName?: string
 	readonly signal?: AbortSignal
+	/**
+	 * What a failed start may do to the workspace, for this handle and every
+	 * transition on it — see {@link KubernetesWorkspaceStartFailurePolicy}.
+	 * Default: `suspend-if-woken`.
+	 */
+	readonly onStartFailure?: KubernetesWorkspaceStartFailurePolicy
+	/**
+	 * Told when an execution's cancellation could not be CONFIRMED, with
+	 * what a bounded `healthz` found afterwards — see
+	 * {@link KubernetesWorkspaceCancellationNotice}.
+	 *
+	 * Nothing happens to the workspace on this path: the pod keeps running,
+	 * no patch is sent, the handle goes on admitting calls, and the failing
+	 * `exec()` rejects with `RemoteCancellationUnknownError` carrying
+	 * `retirement: { accepted: false, reason: 'workspace-kept' }`. A command
+	 * of unknown state is left in that pod, which is a fact the host has to
+	 * be able to act on — so it is reported here rather than acted on from
+	 * inside a failing call, where the only action available (the Suspended
+	 * patch) would delete the pod out from under every other holder.
+	 *
+	 * A host that wants the old behaviour calls `suspend()` from this
+	 * callback. One that wants it only for a genuinely fenced agent calls it
+	 * when `agent` is `retiring`.
+	 *
+	 * Not only from `exec()`. The acquire-time PRIVILEGE PROBE is itself an
+	 * execution on the same inner handle, so a create or a resume whose probe
+	 * loses its cancellation fires this too — and pays the diagnosis's own
+	 * bound before rejecting. A callback that suspends the workspace is
+	 * therefore reachable from a failing START as well as from a failing
+	 * call, which is worth knowing before it is wired to one.
+	 *
+	 * In the style of `onLeaseRenewalError`: synchronous, never awaited, and
+	 * a callback that throws changes nothing about the error the caller
+	 * receives.
+	 */
+	readonly onCancellationUnconfirmed?: (notice: KubernetesWorkspaceCancellationNotice) => void
 }
 
 /** Prefix every workspace Sandbox's name carries. */
@@ -897,6 +1002,10 @@ export async function createKubernetesWorkspace(
 		readiness,
 		origin: adopted === undefined ? 'created' : adopted.resumed ? 'resumed' : 'adopted-running',
 		...(adopted?.drainingPodUid !== undefined ? { drainingPodUid: adopted.drainingPodUid } : {}),
+		...(options.onStartFailure !== undefined ? { onStartFailure: options.onStartFailure } : {}),
+		...(options.onCancellationUnconfirmed !== undefined
+			? { onCancellationUnconfirmed: options.onCancellationUnconfirmed }
+			: {}),
 		...(options.signal !== undefined ? { signal: options.signal } : {}),
 	})
 }
@@ -1405,12 +1514,51 @@ interface WorkspaceHandleOptions {
 	 * created path, where there is no previous pod at all.
 	 */
 	readonly drainingPodUid?: string
+	/** The handle's default; a transition may override it for one call. */
+	readonly onStartFailure?: KubernetesWorkspaceStartFailurePolicy
+	/** See {@link KubernetesWorkspaceOptions.onCancellationUnconfirmed}. */
+	readonly onCancellationUnconfirmed?: (notice: KubernetesWorkspaceCancellationNotice) => void
 	readonly signal?: AbortSignal
+}
+
+/**
+ * How long the diagnostic `healthz` after an unconfirmed cancellation may
+ * take before the agent is reported `unreachable`.
+ *
+ * Its own clock, short, and unrelated to every other budget on the path. The
+ * caller's deadline has usually already expired by the time this runs — the
+ * shared controller has just spent its whole eight-second cancel-confirm
+ * window — and the readiness budget is for waiting out a pod that is coming
+ * up, which is not what this is asking. This asks one question of a pod that
+ * is already there, and an answer that has not arrived in five seconds is
+ * not going to change what the host does with it.
+ */
+const CANCELLATION_DIAGNOSIS_TIMEOUT_MS = 5_000
+
+/**
+ * The `reason` an unconfirmed cancellation reports on a workspace — see
+ * {@link SandboxRetirementObservation.reason}. Not "the patch failed": no
+ * patch was attempted, and the pod is standing on purpose.
+ */
+const WORKSPACE_KEPT_REASON = 'workspace-kept'
+
+/**
+ * What a failing start is allowed to do, decided BEFORE the start rather
+ * than after it — see {@link startSessionOrSuspend}.
+ */
+interface WakeRecord {
+	/** This call moved `operatingMode`: it POSTed the object, or woke it. */
+	readonly woke: boolean
+	/** The caller's policy for this transition. */
+	readonly policy: KubernetesWorkspaceStartFailurePolicy
 }
 
 async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<KubernetesWorkspace> {
 	const { client, namespace, name, workspaceId, readiness } = options
 	const id = name as SandboxId
+	/** The handle's own policy; a transition may override it for one call. */
+	const defaultStartFailure: KubernetesWorkspaceStartFailurePolicy =
+		options.onStartFailure ?? 'suspend-if-woken'
 
 	let state: WorkspaceState = 'running'
 	let session: KubernetesSandboxHandle | undefined
@@ -1797,6 +1945,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			release: async (releaseSignal) => {
 				await retireSession(own.handle, releaseSignal)
 			},
+			// And `release` is not reached from the unconfirmed-cancellation
+			// path at all any more: this hook answers it instead, keeping the
+			// pod — see {@link keepPodOnUnconfirmedCancellation}.
+			onUnconfirmedCancellation: async (error) =>
+				await keepPodOnUnconfirmedCancellation(transport, error),
 			// No `renew`, and so no lease loop: a workspace carries no expiry.
 		})
 		own.handle = inner
@@ -1832,30 +1985,109 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	}
 
 	/**
+	 * What an execution whose cancellation could not be CONFIRMED does to a
+	 * workspace: nothing to the cluster, and one bounded question to the
+	 * agent.
+	 *
+	 * `buildKubernetesSandbox` used to retire the sandbox here on its own
+	 * initiative — the shared controller's rule is that a command of unknown
+	 * state makes the pod unusable, and on a task sandbox retiring means
+	 * DELETING a disposable object with a scratch disk. On a workspace the
+	 * same decision reached {@link retireSession} and sent an
+	 * `operatingMode: Suspended` patch, which makes the controller delete the
+	 * pod. So eight seconds of network loss under one `exec()` — or a pod
+	 * evicted under an in-flight command, which can never confirm anything —
+	 * took every holder's terminals, dev servers and running commands away,
+	 * on a decision no caller issued and no host-side lock could prevent.
+	 *
+	 * The pod is therefore KEPT, and what the host is told instead is the one
+	 * thing the error cannot carry: whether the agent is still serving
+	 * (`ok`), has fenced itself (`retiring`), or could not be reached at all.
+	 * Today's `healthz()` boolean collapses the last two, which is why this
+	 * asks {@link KubernetesAgentTransport.agentHealth} instead.
+	 *
+	 * The `exec()` still rejects with `RemoteCancellationUnknownError`, now
+	 * carrying `accepted: false` with `reason: 'workspace-kept'` so a host
+	 * cannot read it as a patch that was attempted and failed. A host that
+	 * wants the old behaviour calls `suspend()` from the callback.
+	 */
+	const keepPodOnUnconfirmedCancellation = async (
+		transport: KubernetesAgentTransport,
+		error: Error,
+	): Promise<SandboxRetirementObservation> => {
+		const agent = await diagnoseAgent(transport)
+		try {
+			options.onCancellationUnconfirmed?.({ error, agent })
+		} catch {
+			// A host's callback is not allowed to change the error the caller
+			// is already receiving, and a throwing one must not become an
+			// unaccepted retirement carrying somebody else's failure.
+		}
+		return { accepted: false, reason: WORKSPACE_KEPT_REASON }
+	}
+
+	/**
+	 * One bounded `healthz` over a fresh connection, and never anything else.
+	 *
+	 * Bounded by its own short deadline rather than by the caller's: the
+	 * caller's signal is quite possibly what started the cancellation in the
+	 * first place, and a diagnosis that inherited it would report every
+	 * aborted call as an unreachable agent. Fresh, because every request on
+	 * this transport dials fresh — there is no cached socket to reuse and no
+	 * pooled connection whose state could answer for the pod.
+	 *
+	 * A failure is an ANSWER here, not an error to propagate: an agent that
+	 * cannot be reached is exactly the `unreachable` case, and this whole
+	 * routine exists to report rather than to decide.
+	 *
+	 * `unreachable` also covers a reply that is neither: the agent's
+	 * connection gate refuses a `healthz` that arrived over one
+	 * unauthenticated connection too many with a named `{ ok: false, error }`
+	 * and no fence flag. The probe got no answer about the agent's health
+	 * there, which is what `unreachable` means — reading it as `retiring`
+	 * would advise a `suspend()` on a healthy pod, and as `ok` would claim a
+	 * pod is serving on a reply that said the opposite.
+	 */
+	const diagnoseAgent = async (
+		transport: KubernetesAgentTransport,
+	): Promise<KubernetesWorkspaceAgentState> => {
+		try {
+			const health = await new OperationDeadline(
+				CANCELLATION_DIAGNOSIS_TIMEOUT_MS,
+				`kubernetes workspace ${name} agent diagnosis`,
+			).run(async (deadlineSignal) => await transport.agentHealth(deadlineSignal))
+			return health.retiring ? 'retiring' : health.ok ? 'ok' : 'unreachable'
+		} catch {
+			return 'unreachable'
+		}
+	}
+
+	/**
 	 * Retire one session's pod WITHOUT deleting anything.
 	 *
 	 * This is the inner handle's `release` on a workspace, and the difference
 	 * from the task path is the entire reason that callback is a parameter
-	 * rather than a DELETE both paths share. `buildKubernetesSandbox` calls
-	 * `release` on its own initiative: an execution whose cancellation the
-	 * guest could not confirm (`RemoteCancellationUnknownError` — a wedged
-	 * agent, a partitioned pod) leaves a command of unknown state in that
-	 * pod, so the pod stops being reusable and the handle retires it. For a
-	 * task sandbox retiring IS deleting, because the object is disposable and
-	 * its disk is scratch. Here it is not: the DELETE cascades to the PVC, and
-	 * a cancel that went unconfirmed for eight seconds would take a month of
-	 * the caller's files with it. Only a caller naming a disk removes one —
-	 * `deleteDisk: true`, or {@link deleteKubernetesWorkspace} — and a failure
-	 * path is not allowed to join them: that is the invariant the whole file
-	 * is built around.
+	 * rather than a DELETE both paths share: for a task sandbox retiring IS
+	 * deleting, because the object is disposable and its disk is scratch.
+	 * Here it is not — the DELETE cascades to the PVC, and nothing but a
+	 * caller naming a disk (`deleteDisk: true`, or
+	 * {@link deleteKubernetesWorkspace}) is allowed to remove one. That is the
+	 * invariant the whole file is built around.
 	 *
 	 * So the pod is retired the way `suspend()` retires one, with the same
 	 * `operatingMode: Suspended` patch, and the workspace is left
 	 * `suspending`: nothing is admitted, the disk is untouched, and `resume()`
 	 * brings up a fresh pod. A patch that FAILS is not swallowed — it travels
-	 * back out through `retire()` as `retirement.accepted === false` on the
-	 * error the caller is already receiving, which is what that observation
-	 * exists to say.
+	 * back out through the inner handle's `destroy()` on the error the caller
+	 * is already receiving.
+	 *
+	 * The path that used to reach this — an unconfirmed cancellation — no
+	 * longer does: see {@link keepPodOnUnconfirmedCancellation}. What is left
+	 * is the inner handle's own `destroy()`, and the workspace's delete drops
+	 * the session before it calls that, so in practice this is a guard rather
+	 * than a verb. It stays because the callback is required and because a
+	 * `release` that silently did nothing would be a worse answer than one
+	 * that does the safe thing if a future path ever reaches it.
 	 *
 	 * `retiring` is the handle the callback was built for. When it is not the
 	 * current session there is nothing to retire and this is a no-op: a resume
@@ -1863,9 +2095,9 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * DELETE — which must not be preceded by a suspend patch, and says so by
 	 * dropping it.
 	 *
-	 * It never touches the transition queue, and must not: `retire()` is
-	 * awaited inside the failing `exec()`, and that exec can be the privilege
-	 * probe of the resume currently HOLDING the queue.
+	 * It never touches the transition queue, and must not: it is awaited
+	 * inside a failing call, and that call can be the privilege probe of the
+	 * resume currently HOLDING the queue.
 	 */
 	const retireSession = async (
 		retiring: KubernetesSandboxHandle | undefined,
@@ -1941,7 +2173,26 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		state = 'suspended'
 	}
 
-	const resumeNow = async (signal?: AbortSignal): Promise<void> => {
+	/**
+	 * Wake the workspace if it is asleep, then bring a session up on it.
+	 *
+	 * The mode is READ before the patch rather than patched blind, for the
+	 * same reason {@link adoptExistingWorkspace} reads it: a workspace this
+	 * handle believes is suspended may already have been resumed by another
+	 * process, whose pod is serving its terminals right now. Patching Running
+	 * over Running would change nothing on the cluster but would make this
+	 * call the apparent author of a mode change it did not make — and a start
+	 * that then failed would suspend somebody else's live pod. It also keeps
+	 * {@link OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY} honest: the annotation
+	 * says when the mode last CHANGED, and a no-op patch would restamp it.
+	 *
+	 * The extra GET is one round trip on a rare, explicit transition, which
+	 * is the same trade the adopt path already makes.
+	 */
+	const resumeNow = async (
+		signal?: AbortSignal,
+		onStartFailure: KubernetesWorkspaceStartFailurePolicy = defaultStartFailure,
+	): Promise<void> => {
 		if (state === 'deleted') throw new KubernetesSandboxDestroyedError('resume', name)
 		if (state === 'running') return
 		// The pod a landed suspend patch took away is one this resume must see
@@ -1949,13 +2200,17 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// `retiredPodUid`. Where there is none to exclude this is one poll
 		// plus one read, exactly as it is on create.
 		const replacing = retiredPodUid
-		await client.request('PATCH', sandboxPath(namespace, name), resumePatch(), signal)
+		const woke = (await readOperatingMode(client, namespace, name, signal)) === 'Suspended'
+		if (woke) {
+			await client.request('PATCH', sandboxPath(namespace, name), resumePatch(), signal)
+		}
 		session = await startSessionOrSuspend(
 			{
 				transition: 'resume',
 				awaitReplacement: replacing !== undefined,
 				...(replacing !== undefined ? { retiring: replacing } : {}),
 			},
+			{ woke, policy: onStartFailure },
 			signal,
 		)
 		state = 'running'
@@ -2068,28 +2323,63 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	}
 
 	/**
-	 * Bring a session up, and put the workspace back to sleep if that fails.
+	 * Bring a session up, and put the workspace back to sleep ONLY if this
+	 * call is the one that woke it.
 	 *
-	 * Suspend rather than delete, always: the failure might be a probe refusal
-	 * on a workspace whose disk holds a month of a caller's work, and no
-	 * failure path in this module is allowed to make that decision. The cost
-	 * of being wrong the other way is one suspended Sandbox left standing,
-	 * which the caller finds again under the same deterministic name.
+	 * The failures that reach here are not failures OF the workspace. A
+	 * caller's signal aborting during readiness, one 5xx or 429 on a Sandbox
+	 * or pod GET (the client does not retry), a privilege probe that overran
+	 * its own deadline — every one of them can happen to a second process
+	 * adopting a workspace the first process is happily using, and the patch
+	 * that used to go out on all of them makes the controller delete that
+	 * pod. So the question asked here is not "did the start fail" but "did
+	 * THIS call move `operatingMode`", which is what `woke` carries:
+	 *
+	 *  - a create POSTed the object, so the pod exists because of this call;
+	 *  - an adopt or a `resume()` that found the object `Suspended` sent the
+	 *    Running patch that asked for the pod;
+	 *  - an adopt of an object that was already Running, or a `resume()` that
+	 *    found somebody had already resumed it, moved nothing and so has
+	 *    nothing to put back.
+	 *
+	 * The first two keep suspending, and must: a workspace this call woke and
+	 * then failed to start is left Running with a pod nobody is using,
+	 * burning a node until somebody notices. The third sends nothing and
+	 * rethrows, which is the whole point of the rule.
+	 *
+	 * Suspend rather than delete, always, wherever it does patch: the failure
+	 * might be a probe refusal on a workspace whose disk holds a month of a
+	 * caller's work, and no failure path in this module is allowed to make
+	 * that decision. The cost of being wrong the other way is one suspended
+	 * Sandbox left standing, which the caller finds again under the same
+	 * deterministic name.
+	 *
+	 * The read that decided `woke` and the patch below are deliberately NOT
+	 * one conditional write. Between them another process can change the
+	 * object, and this call would then suspend a mode change it did not make
+	 * after all — a narrow window, and the honest way to close it is a
+	 * condition ON the write rather than a second read here. Until there is
+	 * one, a patch that was not refused is treated as this call's own. This
+	 * comment is the single place a conditional write has to tighten.
 	 */
 	const startSessionOrSuspend = async (
 		policy: PodBindPolicy,
+		wake: WakeRecord,
 		signal?: AbortSignal,
 	): Promise<KubernetesSandboxHandle> => {
 		try {
 			return await startSession(policy, signal)
 		} catch (err) {
-			// `suspending`, not `suspended`: `runFailureCleanup` swallows its
-			// own failures so that the primary error stays primary, which
-			// means this patch may not have landed and this pod may still be
-			// running. The state says the transition is unfinished, so a
-			// later suspend() re-sends it rather than believing this one.
+			// `suspending`, not `suspended`, and set whether or not a patch
+			// goes out below. This handle has no session either way, so it can
+			// serve nothing and `resume()` is the way back — and where a patch
+			// IS sent, `runFailureCleanup` swallows its own failures so that
+			// the primary error stays primary, which means the patch may not
+			// have landed and the pod may still be running. Only a CONFIRMED
+			// suspend is ever recorded as `suspended`.
 			state = 'suspending'
 			dropSession()
+			if (!wake.woke || wake.policy === 'leave') throw err
 			let retired = false
 			await runFailureCleanup(async (cleanupSignal) => {
 				await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), cleanupSignal)
@@ -2223,7 +2513,15 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	// The first session is brought up here so that `createKubernetesWorkspace`
 	// resolves with a workspace that is Ready, addressed and probed — the same
 	// contract `create()` gives a task sandbox.
-	session = await startSessionOrSuspend(initialBindPolicy, options.signal)
+	session = await startSessionOrSuspend(
+		initialBindPolicy,
+		// A create POSTed the object and an adopt that found it `Suspended`
+		// patched it Running; an adopt of an object that was already Running
+		// moved nothing, and a start that fails on it must leave the pod its
+		// holder is using exactly where it found it.
+		{ woke: options.origin !== 'adopted-running', policy: defaultStartFailure },
+		options.signal,
+	)
 	// Whatever the backend's own Sandbox reports, rather than a second copy of
 	// the same constant: it must keep answering after a suspend has taken the
 	// handle it came from away.
@@ -2395,7 +2693,13 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// second caller finds the work done. Give resume a state it
 			// early-returns on before the cluster confirms it and it will need
 			// a slot as much as they do.
-			await serialise(async () => await resumeNow(transitionOptions?.signal))
+			await serialise(
+				async () =>
+					await resumeNow(
+						transitionOptions?.signal,
+						transitionOptions?.onStartFailure ?? defaultStartFailure,
+					),
+			)
 		},
 
 		async destroy(destroyOptions?: KubernetesWorkspaceDestroyOptions): Promise<void> {

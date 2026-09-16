@@ -80,6 +80,43 @@ export class KubernetesAgentUnauthorizedError extends Error {
 }
 
 /**
+ * Thrown when the guest agent refuses a request because it has FENCED
+ * ITSELF: an earlier process group's shutdown could not be confirmed, so it
+ * answers every op but `healthz` and `cancel-execution` with `agent_retiring`
+ * and will go on doing so until the pod is replaced.
+ *
+ * Its own class, and deliberately NOT the Firecracker tier's mapping of the
+ * same refusal. There a fenced agent becomes {@link
+ * RemoteCancellationUnknownError}, which is correct for a disposable microVM:
+ * the shared controller's rule is that the sandbox stops being reusable, and
+ * on that tier retiring one means deleting scratch. On a workspace the same
+ * error would retire the handle and take the pod — and with it every other
+ * holder's terminals, dev servers and running commands — away from callers
+ * who did nothing but share a workspace with the command that wedged.
+ *
+ * So this error refuses the ONE call rather than the workspace: the handle is
+ * not retired, nothing is patched, and every other holder's pod stays where it
+ * was. What it does NOT claim is that the next call will work. The fence is
+ * the GUEST's, and `dispatch` gates it ahead of every data-plane branch, so
+ * `readFile`, `writeFile`, `openTerminal` and `openTcpConnection` meet the
+ * same refusal on the wire — under their own paths' error shapes, since only
+ * the two control ops come through `requestChecked`. Only a new pod clears
+ * it, which is why the message names the verbs that REPLACE the pod, on both
+ * tiers that use this transport, and leaves the timing to the host: on a
+ * workspace those are `suspend()` then `resume()`, and they take the live
+ * sessions in that pod down with them.
+ */
+export class KubernetesAgentRetiringError extends Error {
+	override readonly name = 'KubernetesAgentRetiringError'
+
+	constructor(
+		message = 'kubernetes tcp transport: the guest agent has fenced itself (agent_retiring) because an earlier process group’s shutdown could not be confirmed. A command of unknown state may still be running in that pod and nothing on this side can end it: only a new pod clears the fence, and until the pod is replaced every call except healthz and cancel-execution meets this same refusal — reads, writes, terminals and tcp connections included. Nothing was changed on the cluster by this refusal and this handle was not retired. On a persistent workspace, call suspend() and then resume() when you are ready for the live terminals and background processes in that pod to go down; on a task sandbox, destroy() it and take another.',
+	) {
+		super(message)
+	}
+}
+
+/**
  * Thrown when the agent's address could not be RESOLVED — the dial never
  * reached a socket because the name has no answer here.
  *
@@ -263,14 +300,29 @@ function isMissingNameFailure(error: unknown): boolean {
 
 /** True for the wire shape `agent.cjs` sends when a token is rejected. */
 function isUnauthorized(response: unknown): boolean {
-	if (!response || typeof response !== 'object') return false
-	const value = response as { ok?: unknown; error?: unknown }
-	return value.ok === false && value.error === 'unauthorized'
+	return refusedWith(response, 'unauthorized')
 }
 
 /**
- * One framed control request, with the guest's `unauthorized` refusal
- * turned into {@link KubernetesAgentUnauthorizedError}.
+ * True for the wire shape `agent.cjs` sends when it has fenced itself —
+ * `dispatch`'s gate, and `handleReserveExecution`'s own earlier one.
+ */
+function isAgentRetiring(response: unknown): boolean {
+	return refusedWith(response, 'agent_retiring')
+}
+
+/** One refusal envelope: `{ ok: false, error: <name> }`, and nothing else. */
+function refusedWith(response: unknown, error: string): boolean {
+	if (!response || typeof response !== 'object') return false
+	const value = response as { ok?: unknown; error?: unknown }
+	return value.ok === false && value.error === error
+}
+
+/**
+ * One framed control request, with the guest's two NAMED refusals turned
+ * into errors a caller can catch by class: {@link
+ * KubernetesAgentUnauthorizedError} for a rejected token, and {@link
+ * KubernetesAgentRetiringError} for an agent that has fenced itself.
  *
  * BOTH control requests go through here — `reserve-execution` and
  * `cancel-execution` — because the two are read by the same caller for
@@ -281,6 +333,16 @@ function isUnauthorized(response: unknown): boolean {
  * rejected token read as a transport failure would therefore spend that
  * window re-sending a request that can never succeed, and end by
  * describing a wrong credential as an ambiguous outcome.
+ *
+ * The fenced-agent refusal is the one a SECOND holder meets. `dispatch`
+ * lets `cancel-execution` through the fence and refuses everything else, so
+ * `agent_retiring` reaches here from `reserve-execution` — which without
+ * this mapping is parsed as a reservation and rejected as
+ * `RemoteProtocolError: remote sandbox returned an invalid execution
+ * reservation`, a message about a wire shape for a pod that is telling the
+ * truth about itself. Named here rather than in the shared controller
+ * because the two tiers answer it differently: see {@link
+ * KubernetesAgentRetiringError}.
  */
 async function requestChecked(
 	wire: VsockAgentTransport,
@@ -289,6 +351,7 @@ async function requestChecked(
 ): Promise<unknown> {
 	const response = await wire.request(request, signal)
 	if (isUnauthorized(response)) throw new KubernetesAgentUnauthorizedError()
+	if (isAgentRetiring(response)) throw new KubernetesAgentRetiringError()
 	return response
 }
 
@@ -314,6 +377,34 @@ export interface KubernetesTransportTiming {
 	 * locally, after the peer has nothing left to do.
 	 */
 	readonly drainMs: number
+}
+
+/**
+ * What one `healthz` reply says about the agent, with the fence kept rather
+ * than collapsed into a boolean.
+ *
+ * {@link VsockAgentTransport.healthz} answers `false` both for an agent that
+ * did not reply and for one that replied "I have fenced myself", and those
+ * are opposite facts for a host deciding what to do next: the first is a pod
+ * that may be perfectly fine a second from now, the second is a pod that will
+ * refuse every call until it is replaced.
+ */
+export interface KubernetesAgentHealth {
+	/** The reply's own `ok` — `true` only for an agent serving normally. */
+	readonly ok: boolean
+	/**
+	 * The agent has fenced itself and only a new pod clears it.
+	 *
+	 * Read from the reply's own `retiring` flag and from nothing else. A
+	 * not-`ok` reply without it is NOT inferred to be a fence: the connection
+	 * gate answers a `healthz` that arrived over one unauthenticated
+	 * connection too many, or behind an exhausted pre-auth buffer, with a
+	 * named `{ ok: false, error }` and no flag — and a caller told `retiring`
+	 * there would suspend and resume a perfectly healthy pod. So `ok: false`
+	 * with `retiring: false` is its own answer: this reply says nothing about
+	 * whether the agent is serving.
+	 */
+	readonly retiring: boolean
 }
 
 /**
@@ -908,6 +999,29 @@ export class KubernetesAgentTransport {
 		signal?: AbortSignal,
 	): Promise<void> {
 		return await this.wire.waitForReady(timeoutMs, pollIntervalMs, signal)
+	}
+
+	/**
+	 * Ask the agent how it is, and keep the two "not ok" answers apart —
+	 * see {@link KubernetesAgentHealth}.
+	 *
+	 * Deliberately NOT wrapped in {@link withRebind}: this is a diagnostic
+	 * about the pod this handle is bound to RIGHT NOW, and a rebind would
+	 * silently answer it about a different pod. A caller that wants to know
+	 * whether the agent it was talking to has fenced itself would then be
+	 * told about the replacement, which is a different question with a
+	 * different answer.
+	 *
+	 * It throws whatever the dial or the read threw. An agent that cannot be
+	 * reached has no health to report, and inventing one here would turn
+	 * "unreachable" into "fine".
+	 */
+	async agentHealth(signal?: AbortSignal): Promise<KubernetesAgentHealth> {
+		const reply = await this.wire.request<{ ok?: unknown; retiring?: unknown }>(
+			{ op: 'healthz' },
+			signal,
+		)
+		return { ok: reply?.ok === true, retiring: reply?.retiring === true }
 	}
 
 	/**

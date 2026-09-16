@@ -157,6 +157,11 @@ export {
 } from './backends/kubernetes/sandbox.js'
 export {
 	KubernetesAgentAddressUnresolvableError,
+	// A guest that has fenced itself refuses one CALL here, not the
+	// workspace: the Firecracker tier's mapping of the same refusal retires
+	// the sandbox, which on a workspace would take the pod away from every
+	// other holder. See `backends/kubernetes/transport.ts`.
+	KubernetesAgentRetiringError,
 	KubernetesAgentUnauthorizedError,
 } from './backends/kubernetes/transport.js'
 // A workspace command that can outlive the connection watching it: the
@@ -200,9 +205,12 @@ export { DEFAULT_STREAM_HEARTBEAT_MS } from './backends/kubernetes/index.js'
 // `backends/kubernetes/workspace.ts`.
 export type {
 	KubernetesWorkspace,
+	KubernetesWorkspaceAgentState,
+	KubernetesWorkspaceCancellationNotice,
 	KubernetesWorkspaceDestroyOptions,
 	KubernetesWorkspaceOptions,
 	KubernetesWorkspaceOrigin,
+	KubernetesWorkspaceStartFailurePolicy,
 	KubernetesWorkspaceSummary,
 	KubernetesWorkspaceSuspensionNotice,
 	KubernetesWorkspaceTransitionOptions,

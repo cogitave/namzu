@@ -1131,6 +1131,18 @@ selector can return it beside the new one — binding to its uid produces a
 token the new agent refuses, reported as a flat `unauthorized` with nothing
 pointing at the race.
 
+**A resume reads `spec.operatingMode` before it patches.** A workspace this
+handle believes is asleep may already have been brought back by another
+process whose pod is serving its terminals right now, and patching `Running`
+over `Running` would change nothing on the cluster while making this call the
+apparent author of a mode change it did not make — which is what decides
+whether a start that then fails may [put the pod back to
+sleep](#nothing-but-an-explicit-delete-deletes). It also keeps
+`sandbox.namzu.ai/operating-mode-changed-at` honest: the annotation says when
+the mode last *changed*, and a no-op patch would restamp it. A resume that
+finds the workspace already awake sends no patch and binds the pod that is
+there.
+
 **`Ready` is not a transition signal, so the uid is polled rather than read
 once.** The controller does not take the condition down for a resume any more
 than it takes `Suspended` down, so the first poll after the Running patch can
@@ -1147,10 +1159,12 @@ away, which includes the suspend whose pod outlived its own wait: the
 controller was asked for that deletion either way, so a resume issued next
 arrives mid-drain, finds no live pod of that name at all, and has to keep
 reading rather than fail on the first answer. Every patch that lands is
-recorded that way — an explicit `suspend()`, the retirement of a pod that
-[stopped answering](#nothing-but-an-explicit-delete-deletes), and the cleanup after a
-failed create or resume, which swallows its own failure so the primary error
-stays primary and therefore records only when the request actually came back.
+recorded that way — an explicit `suspend()`, a suspension
+[another process performed](#a-handle-notices-a-suspend-it-did-not-perform),
+and the cleanup after a create or resume that failed [having woken the
+workspace itself](#nothing-but-an-explicit-delete-deletes), which swallows its
+own failure so the primary error stays primary and therefore records only when
+the request actually came back.
 A pod nobody asked the controller to remove has no replacement to wait for, so
 excluding it would time out a resume whose workspace was perfectly usable.
 
@@ -1267,6 +1281,18 @@ A workspace id is a name, not a lock, so the process that suspends a workspace
 is often not the one holding a handle to it. That handle's state is a record
 of what **its** process did, and left alone it would go on reporting
 `suspended: false` with no pod behind it.
+
+Since [no failure path suspends a workspace it did not
+wake](#nothing-but-an-explicit-delete-deletes), an explicit verb somebody
+typed — `suspend()`, `destroy()`, `suspendKubernetesWorkspace` — is now
+essentially the only way a workspace gets suspended out from under a handle.
+That makes this notice a report of another caller's decision rather than of an
+accident. Apart, that is, from the [read-then-patch
+window](#nothing-but-an-explicit-delete-deletes) that decides authorship: a
+`Running` patch the API server did not refuse counts as this call's own wake,
+so a concurrent writer between the read and the patch can still make one
+process the apparent author of a wake it did not perform — and a start that
+then fails suspends on the strength of it.
 
 Two things correct it, and both re-read `spec.operatingMode` rather than
 guessing:
@@ -1538,30 +1564,114 @@ and a caller who needs its own cancellation scope needs its own transition.
 
 ### Nothing but an explicit delete deletes
 
-No failure path in the workspace code ever deletes. A create or a resume that
-fails after the object exists — a readiness timeout, a probe refusal —
-suspends it and rethrows, leaving the disk untouched for the caller to come
-back to under the same deterministic name. That holds even when the failing
-call is the one that POSTed the object and its disk is therefore empty,
-because two processes can be coming up on one name at once and the one that
-got the `201` deleting its "own" object would take the disk of the one that
-adopted it. **The cost is a second named leak**: a create that fails after the
-POST leaves one suspended `Sandbox` and its PVC standing, and — like an
-abandoned workspace — nothing reaps them. Both are found again under the same
-`namzu-ws-<id>` name, and both go away on `destroy({ deleteDisk: true })`.
+No failure path in the workspace code ever deletes, and none of them takes a
+pod away that this call did not ask the cluster for.
 
-That covers the path nobody calls, too. When an execution's cancellation
-cannot be confirmed — the guest wedged, the pod partitioned, the
+**A start that fails suspends only what it woke.** A create that fails after
+its own `POST`, and an adopt or `resume()` whose `Running` patch took the
+object out of `Suspended`, send the `operatingMode: Suspended` patch and
+rethrow — leaving the disk untouched under the same deterministic name. That
+half exists for the inverse hazard: a workspace this call woke and then failed
+to start would otherwise be left `Running` with a pod nobody is using, burning
+a node until somebody notices. **The cost is a named leak**: a create that
+fails after the POST leaves one suspended `Sandbox` and its PVC standing, and
+nothing reaps them. They are found again under the same `namzu-ws-<id>` name
+and go away on `destroy({ deleteDisk: true })`. Deleting the object instead is
+not on offer even there, because two processes can be coming up on one name at
+once and the one that got the `201` deleting its "own" object would take the
+disk of the one that adopted it.
+
+Every other start failure sends **nothing**. An adopt of an object that was
+already `Running`, and a `resume()` that finds another process has already
+brought the workspace back, moved no mode and have none to put back. The
+failures that reach them are not the workspace's: a caller's `signal` aborting
+during readiness, one 5xx or 429 on a Sandbox or pod GET (the client does not
+retry), a privilege probe that overran its own deadline. Patching `Suspended`
+on those made the controller delete a pod the *first* process was executing
+in — every terminal, dev server and running command in it — because a
+*second* process failed to come up. A workspace id is a name and not a lock by
+design, so that second process is the normal case: a restart, or a second
+revision during a rollout.
+
+`onStartFailure` is the knob, on `KubernetesWorkspaceOptions` (the handle's
+default) and on `KubernetesWorkspaceTransitionOptions` (one `resume()`):
+
+| Value | What a failed start writes |
+|---|---|
+| `'suspend-if-woken'` (default) | The `Suspended` patch, and only when this call POSTed the object or woke it |
+| `'leave'` | Nothing, on any start failure, without exception — for a host that keeps its own holder record and sweeps idle workspaces itself |
+
+The read that decides "did this call wake it" and the patch that follows are
+deliberately not one conditional write. Another process can change the object
+between them, and the honest way to close that window is a condition **on**
+the write rather than a second read; until there is one, a patch the API
+server did not refuse is treated as this call's own.
+
+Writing nothing to the cluster is not the same as changing nothing about the
+**handle**. A start that fails leaves this handle with no session either way,
+so after a failed `resume()` that sent no patch `workspace.suspended` reads
+`true` while `spec.operatingMode` is still `Running` and somebody else's pod
+is serving out of it. That flag is this handle's own state, never a claim
+about the cluster, and `refresh()` will not clear it — `refresh()` reports a
+suspension *somebody else* performed, and this was not one. Another `resume()`
+is the way back. On the create path it is not observable at all: a create that
+fails returns no handle.
+
+**An unconfirmed cancellation keeps the pod.** When an execution's
+cancellation cannot be confirmed — the guest wedged, the pod partitioned, the
 `cancel-execution` window closing with no answer — a command of unknown state
 is left in that pod, and the shared execution controller's rule is that the
-pod stops being reusable and is **retired**. A task sandbox is retired by
-being DELETEd, correctly: the object is disposable and its disk is scratch. A
-workspace is retired by the same `operatingMode: Suspended` patch `suspend()`
-sends. The `exec()` still rejects, carrying `retirement: { accepted: true }`
-once that patch lands (and `accepted: false`, with the error, when it does
-not); the workspace then reads `suspended: true`, admits nothing, and
-`resume()` brings up a fresh pod on the same disk. An eight-second
-cancellation window is not a reason to erase a month of a caller's files.
+pod stops being reusable and is **retired**. A task sandbox is retired by being
+DELETEd, correctly: the object is disposable and its disk is scratch. On a
+workspace the equivalent was the `Suspended` patch, and it is the same defect
+one size smaller: eight seconds of network loss under one `exec()` took the
+pod away from every holder. So on a workspace nothing is written at all.
+
+What happens instead:
+
+- the `exec()` still rejects with `RemoteCancellationUnknownError`;
+- it carries `retirement: { accepted: false, reason: 'workspace-kept' }` —
+  `reason` is what stops a host reading it as a patch that was attempted and
+  failed, and `error` is absent because nothing was attempted;
+- the handle is **not** retired: `suspended` stays `false` and the next call is
+  admitted;
+- one bounded `healthz` goes out over a fresh connection, and its result is
+  reported to `onCancellationUnconfirmed({ error, agent })`.
+
+`agent` is the fact the error cannot carry, and the reason the probe is not
+the transport's boolean `healthz()` — that answers `false` both for a fenced
+agent and for one that never replied:
+
+| `agent` | What it means | What a host does |
+|---|---|---|
+| `'ok'` | The agent answered and is serving normally | Nothing; the command may still be running, and the workspace is fine |
+| `'retiring'` | The agent has **fenced itself**: it could not confirm a process group was gone, and refuses every op but `healthz` and `cancel-execution` until the pod is replaced | `suspend()` then `resume()` — when the host is ready for the live sessions in that pod to go down |
+| `'unreachable'` | No answer at all: the pod is gone, the network is out, or the address stopped resolving | Nothing; the next call finds out, and a foreign suspend is [reported as one](#a-handle-notices-a-suspend-it-did-not-perform) |
+
+A host that wants the old behaviour calls `suspend()` from that callback. One
+that wants it only for a genuinely wedged pod calls it when `agent` is
+`'retiring'`.
+
+**A fenced agent is named rather than described as a wire fault.** A second
+holder's next `exec()` on a pod whose agent has fenced itself meets
+`agent_retiring` on the reservation. Unmapped it is parsed as a reservation
+and rejected as `RemoteProtocolError: remote sandbox returned an invalid
+execution reservation` — a message about a wire shape, for a pod telling the
+truth about itself. It is `KubernetesAgentRetiringError` here, it names
+`suspend()` and `resume()` in the order they have to be called, and it does
+**not** retire the handle: the Firecracker tier maps the same refusal to
+`RemoteCancellationUnknownError`, which is right for a disposable microVM and
+would take a workspace's pod away.
+
+What "does not retire the handle" means is that nothing was written and the
+workspace is still `Running` — not that the next call will work. The fence is
+the guest's own and it gates every op but `healthz` and `cancel-execution`, so
+`readFile`, `writeFile`, `openTerminal` and `openTcpConnection` meet it too,
+under whatever error shape their own paths make of an answered refusal. Only a
+new pod clears it. The error says so, and names the verbs that replace the pod
+on both tiers this transport serves — `suspend()` then `resume()` on a
+workspace, `destroy()` and a fresh `create()` on a task sandbox, which has no
+other lifecycle verb.
 
 Only a caller naming a disk removes one. There are exactly two ways to —
 `destroy({ deleteDisk: true })` and

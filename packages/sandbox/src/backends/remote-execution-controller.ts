@@ -43,6 +43,20 @@ export class RemoteProtocolError extends Error {}
 export interface SandboxRetirementObservation {
 	readonly accepted: boolean
 	readonly error?: Error
+	/**
+	 * Why the retirement ended this way, when "the request failed" is not the
+	 * reason — an adapter that DECLINED to retire says so here, so that a host
+	 * reading `accepted: false` does not read it as a teardown that was
+	 * attempted and failed. Absent on every retirement that was actually
+	 * attempted; `error` is what carries a failure.
+	 *
+	 * The vocabulary belongs to the adapter that sets it, not to this
+	 * controller: the only value shipped today is the kubernetes workspace's
+	 * `workspace-kept`, which means the pod was deliberately left standing
+	 * because suspending it would have taken a disk, and every terminal and
+	 * background process in it, away from every other holder.
+	 */
+	readonly reason?: string
 }
 
 export class RemoteCancellationUnknownError extends Error {

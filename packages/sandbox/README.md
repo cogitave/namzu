@@ -76,6 +76,17 @@ microVM; a confirmed stop with an incomplete terminal stream is reported
 separately so callers do not mistake partial output for an unknown process
 outcome.
 
+**One exception, and it is the only object here that is not disposable.** A
+persistent Kubernetes workspace is not retired on an unconfirmed stop: the
+retirement there is the `operatingMode: Suspended` patch, which makes the
+controller delete the pod, and a workspace is held by more than one process by
+design. Nothing is written, the handle goes on serving, the rejection carries
+`retirement: { accepted: false, reason: 'workspace-kept' }`, and a bounded
+health probe reports through `onCancellationUnconfirmed` whether the guest
+agent is serving, has fenced itself, or could not be reached — so the host
+decides when the live sessions in that pod go down. See
+`docs/sdk/kubernetes-sandbox.md`.
+
 Remote peers retain terminal ids briefly for idempotent cancellation, but evict
 the oldest terminal history before refusing new work. If a command leader exits
 while descendants remain, the peer fences itself and retires the whole sandbox

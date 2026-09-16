@@ -116,6 +116,34 @@ interface KubernetesSandboxBaseOptions {
 	readonly transport: KubernetesAgentTransport
 	/** DELETE the object this backend created. Already-gone counts as done. */
 	readonly release: (signal?: AbortSignal) => Promise<void>
+	/**
+	 * Decide what an execution whose cancellation could not be CONFIRMED
+	 * does to this sandbox — called instead of retiring it, and answering
+	 * the {@link SandboxRetirementObservation} that goes onto the error the
+	 * caller is about to receive.
+	 *
+	 * Unset (the task path, and the Firecracker tier through its own
+	 * transport) keeps the shared controller's rule verbatim: a command of
+	 * unknown state is still in that pod, the pod stops being reusable, and
+	 * the handle retires it through {@link release}. That is right for a
+	 * disposable object whose disk is scratch.
+	 *
+	 * It is wrong for an object that is not disposable. On a workspace
+	 * `release` is an `operatingMode: Suspended` patch, which makes the
+	 * controller delete the pod — so eight seconds of network loss under one
+	 * `exec()` would take every other holder's terminals, dev servers and
+	 * running commands with it, and no host-side lock can prevent it because
+	 * no caller issued it. The workspace passes a hook that keeps the pod,
+	 * diagnoses the agent and says `accepted: false` with a `reason` rather
+	 * than letting a decision that large be made from inside a failing call.
+	 *
+	 * It must not reject; one that does is reported as an unaccepted
+	 * retirement carrying its own error, so a broken hook cannot replace the
+	 * error the caller asked about.
+	 */
+	readonly onUnconfirmedCancellation?: (
+		error: RemoteCancellationUnknownError,
+	) => Promise<SandboxRetirementObservation>
 }
 
 /**
@@ -278,6 +306,29 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 		return retirementPromise
 	}
 
+	/**
+	 * What an unconfirmed cancellation does to THIS sandbox: retire it, or
+	 * whatever the owner's hook decided instead — see
+	 * {@link KubernetesSandboxBaseOptions.onUnconfirmedCancellation}.
+	 */
+	const observeUnconfirmedCancellation = async (
+		error: RemoteCancellationUnknownError,
+	): Promise<SandboxRetirementObservation> => {
+		const decide = options.onUnconfirmedCancellation
+		if (decide === undefined) return await retire()
+		try {
+			return await decide(error)
+		} catch (hookError: unknown) {
+			// The caller is already receiving `error`; a hook that threw must
+			// not replace it, and must not be reported as a teardown that was
+			// attempted either.
+			return {
+				accepted: false,
+				error: hookError instanceof Error ? hookError : new Error(String(hookError)),
+			}
+		}
+	}
+
 	const runExecution = async <T>(operation: string, run: () => Promise<T>): Promise<T> => {
 		assertAdmissible(operation)
 		activeExecutions += 1
@@ -285,7 +336,7 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 			return await run()
 		} catch (error) {
 			if (error instanceof RemoteCancellationUnknownError) {
-				error.retirement = await retire()
+				error.retirement = await observeUnconfirmedCancellation(error)
 			}
 			throw error
 		} finally {

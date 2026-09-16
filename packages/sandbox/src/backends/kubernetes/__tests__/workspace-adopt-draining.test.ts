@@ -312,11 +312,13 @@ describe('adopting a workspace that is still draining', () => {
 		expect(server.matching('GET', '/pods?').length).toBeGreaterThanOrEqual(2)
 		// And the read it kept getting is on the error, not thrown away.
 		expect((failure as Error).cause).toBeInstanceOf(Error)
-		// A create or adopt that fails after the object exists suspends it and
-		// rethrows. Nothing is ever deleted on a failure path.
-		const patches = server.requests.filter((r) => r.method === 'PATCH')
-		expect(patches).toHaveLength(1)
-		expect(patches[0]?.body).toEqual(operatingModePatchBody('Suspended'))
+		// And NOTHING was written. This adopt walked in on an object that was
+		// already `Running`, so it moved no mode and has none to put back: the
+		// pod it could not bind to belongs to whoever is using it, and the
+		// suspend patch that used to go out here would have deleted that pod
+		// — every terminal and running command in it — because a SECOND
+		// process failed to come up. See #480.
+		expect(server.requests.filter((r) => r.method === 'PATCH')).toHaveLength(0)
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
 	}, 20_000)
 

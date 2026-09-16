@@ -176,7 +176,11 @@ function handleClusterRequest(req: RecordedRequest): FakeApiReply {
 			status: 200,
 			body: {
 				metadata: { name },
-				spec: { operatingMode: 'Running' },
+				// The mode the last PATCH left, not a constant: a resume reads
+				// `spec.operatingMode` before it patches, so an object that
+				// answered `Running` while its pod was suspended would make
+				// every resume here look like one that woke nothing.
+				spec: { operatingMode: podRunning ? 'Running' : 'Suspended' },
 				status: {
 					conditions: [readyCondition()],
 					podIPs: [STATUS_POD_IP],

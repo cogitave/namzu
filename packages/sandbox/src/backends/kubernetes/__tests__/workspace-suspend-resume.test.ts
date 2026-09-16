@@ -35,7 +35,10 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 // the public `createKubernetesWorkspace` is the surface a host calls, and it
 // maps the exported config shape onto the backend's own.
 import { createKubernetesWorkspace } from '../../../index.js'
+import { KubernetesAgentRetiringError } from '../transport.js'
+import type { KubernetesWorkspace } from '../workspace.js'
 import {
+	type KubernetesWorkspaceCancellationNotice,
 	KubernetesWorkspaceSuspendTimeoutError,
 	KubernetesWorkspaceSuspendedError,
 } from '../workspace.js'
@@ -254,8 +257,14 @@ function handleClusterRequest(req: RecordedRequest): FakeApiReply {
 	return { status: 404, body: { message: 'unexpected' } }
 }
 
-async function openWorkspace(overrides: { readyTimeoutMs?: number } = {}) {
+async function openWorkspace(
+	overrides: {
+		readyTimeoutMs?: number
+		onCancellationUnconfirmed?: (notice: KubernetesWorkspaceCancellationNotice) => void
+	} = {},
+) {
 	if (!server || !agent) throw new Error('fixtures not started')
+	const { onCancellationUnconfirmed, ...backend } = overrides
 	return await createKubernetesWorkspace(
 		{
 			tier: 'microvm',
@@ -266,10 +275,36 @@ async function openWorkspace(overrides: { readyTimeoutMs?: number } = {}) {
 			agentPort: agent.port,
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 5,
-			...overrides,
+			...backend,
 		},
-		{ workspaceId: WORKSPACE_ID, workingDirectory: '/workspace' },
+		{
+			workspaceId: WORKSPACE_ID,
+			workingDirectory: '/workspace',
+			...(onCancellationUnconfirmed !== undefined ? { onCancellationUnconfirmed } : {}),
+		},
 	)
+}
+
+/**
+ * Resolve once the guest has parsed a request with this `op` AFTER `from`.
+ *
+ * Polled rather than awaited on a hook, because what a case needs to know is
+ * that the agent RECEIVED the request — the point after which breaking the
+ * connection breaks a command that is already admitted rather than one that
+ * was never sent.
+ *
+ * `from` is not optional, and that is deliberate: the acquire-time privilege
+ * probe is itself an `execute`, so a search over the whole log answers "yes"
+ * before the case has sent anything, and every case built on this would flip
+ * its switch too early and prove nothing.
+ */
+async function waitForRequest(op: string, from: number, timeoutMs = 2_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs
+	while (Date.now() < deadline) {
+		if (agent?.requests.slice(from).some((request) => request.op === op)) return
+		await new Promise((resolve) => setTimeout(resolve, 5))
+	}
+	throw new Error(`the scripted agent never received a ${op} request`)
 }
 
 /** Every token the guest has seen in a request envelope, in order. */
@@ -544,58 +579,246 @@ describe('resume', () => {
 })
 
 describe('a pod that stops being able to say what happened to a command', () => {
-	it('is retired by a suspend patch, never by deleting the workspace', async () => {
+	it('keeps the pod: no patch, no delete, and the workspace goes on serving', async () => {
 		// The defect this guards is the sharpest one on this path, because
 		// nothing about it is visible from the call that triggers it. The
-		// inner handle retires itself when an execution's cancellation cannot
-		// be confirmed, by calling the `release` it was built with — and on a
-		// task sandbox that release is a DELETE, correctly, because the object
-		// is disposable. Hand a workspace the same callback and a wedged agent
-		// or a partitioned pod DELETEs a Sandbox whose PVC holds every file
-		// the caller has, from inside a failing `exec()`, with `deleteDisk`
-		// never passed by anyone.
-		const workspace = await openWorkspace()
+		// inner handle used to retire itself when an execution's cancellation
+		// could not be confirmed, by calling the `release` it was built with —
+		// and on a task sandbox that release is a DELETE, correctly, because
+		// the object is disposable. Hand a workspace the same callback and a
+		// wedged agent or a partitioned pod DELETEs a Sandbox whose PVC holds
+		// every file the caller has, from inside a failing `exec()`, with
+		// `deleteDisk` never passed by anyone. That was fixed by making the
+		// workspace's release a SUSPEND patch instead — and the patch is the
+		// same defect one size smaller: it makes the controller delete the
+		// pod, so every other holder's terminals, dev servers and running
+		// commands die because ONE command's cancellation went unanswered for
+		// eight seconds. So now nothing at all is written. See #480.
+		const notices: KubernetesWorkspaceCancellationNotice[] = []
+		const workspace = await openWorkspace({
+			onCancellationUnconfirmed: (notice) => notices.push(notice),
+		})
 		if (!server || !agent) throw new Error('fixtures not started')
 		// An agent that admits the command, loses the connection under it, and
-		// then cannot say what became of it.
+		// then cannot say what became of it — which is how the real agent
+		// FENCES itself, so this one does too.
 		agent.setLosingExecutions(true)
 
 		const failure = await workspace.exec('sleep', ['30']).catch((err: unknown) => err)
 		expect((failure as Error).message).toMatch(/outcome is unknown|could not be confirmed/i)
-		// Retired, and the retirement was accepted — the patch landed.
-		expect(failure).toMatchObject({ retirement: { accepted: true } })
+		// Not accepted, and not a patch that failed either: nothing was
+		// attempted, and the `reason` is what stops a host reading it as one.
+		expect(failure).toMatchObject({
+			retirement: { accepted: false, reason: 'workspace-kept' },
+		})
+		expect((failure as { retirement?: { error?: unknown } }).retirement?.error).toBeUndefined()
 
-		// Not one DELETE. That is the whole assertion: a DELETE here cascades
-		// to the PVC through the ownerReferences, and nothing the caller did
-		// asked for their disk.
+		// Not one write of any kind. That is the whole assertion.
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
-		// What it did instead is the verb that takes the pod away and leaves
-		// the disk: exactly the patch `suspend()` sends.
-		const patches = server.matching('PATCH', '/sandboxes/')
-		expect(patches).toHaveLength(1)
-		expect(patches[0]?.body).toEqual(operatingModePatchBody('Suspended'))
+		expect(server.matching('PATCH', '/sandboxes/')).toHaveLength(0)
 
-		// So the workspace is where a suspend would have left it: admitting
-		// nothing, saying why, and one resume() away from a fresh pod.
-		expect(workspace.suspended).toBe(true)
-		await expect(workspace.exec('true')).rejects.toBeInstanceOf(KubernetesWorkspaceSuspendedError)
+		// What the host gets instead is the fact the error cannot carry: this
+		// agent ANSWERED, and what it answered is that it has fenced itself.
+		expect(notices).toHaveLength(1)
+		expect(notices[0]?.agent).toBe('retiring')
+		expect(notices[0]?.error).toBe(failure)
 
+		// And the workspace is exactly where it was: Running, not suspended,
+		// still admitting calls.
+		expect(workspace.suspended).toBe(false)
+		expect(workspace.status).not.toBe('destroyed')
+	}, 20_000)
+
+	it('names the fenced agent on the next call instead of a wire-shape error', async () => {
+		// A fenced agent refuses every op but `healthz` and `cancel-execution`
+		// with `agent_retiring`. Unmapped, the reserve that meets it is parsed
+		// as a reservation and rejected as "an invalid execution reservation"
+		// — a message about a wire shape, for a pod telling the truth about
+		// itself, handed to a SECOND holder that did nothing wrong.
+		const workspace = await openWorkspace()
+		if (!server || !agent) throw new Error('fixtures not started')
+		agent.setLosingExecutions(true)
+		await workspace.exec('sleep', ['30']).catch(() => undefined)
+		agent.setLosingExecutions(false)
+
+		const refused = await workspace.exec('true').catch((err: unknown) => err)
+
+		expect(refused).toBeInstanceOf(KubernetesAgentRetiringError)
+		expect((refused as Error).message).not.toMatch(/invalid execution reservation/)
+		// It says what actually fixes it, in the order it has to be done.
+		expect((refused as Error).message).toMatch(/suspend\(\).*resume\(\)/)
+		// And it does not promise what it cannot: the fence is the guest's and
+		// `dispatch` gates it ahead of read-file, write-file, terminal and
+		// tcp-connect, so telling a host "this handle still works for every
+		// other call" would send it round a loop of identical refusals. What
+		// was left alone is the CLUSTER and this handle's retirement, which is
+		// a different claim.
+		expect((refused as Error).message).toMatch(/every call except healthz and cancel-execution/)
+		expect((refused as Error).message).not.toMatch(/works for every other call/)
+		await expect(workspace.readFile('/workspace/anything')).rejects.toThrow()
+		// And it did not retire the handle: the workspace still admits calls,
+		// still reports itself running, and still wrote nothing.
+		expect(workspace.suspended).toBe(false)
+		expect(server.matching('PATCH', '/sandboxes/')).toHaveLength(0)
+
+		// The cure is the one the error names, and it is the HOST's to choose:
+		// it takes the live terminals in that pod down with it.
 		dnsAddress = SECOND_ADDRESS
 		agent.setToken(SECOND_POD_UID)
-		agent.setLosingExecutions(false)
+		await workspace.suspend()
 		await workspace.resume()
 
 		expect(workspace.suspended).toBe(false)
 		expect((await workspace.exec('true')).exitCode).toBe(0)
-		// The replacement pod, never the one the retirement took away: the
-		// retirement records its uid for the same reason a suspend does.
 		expect(presentedTokens().at(-1)).toBe(SECOND_POD_UID)
+	}, 30_000)
+
+	it('reports an agent it could not reach at all, and keeps the workspace', async () => {
+		// The other outcome, and the one the old `healthz()` boolean could not
+		// tell from the first: every cancel attempt fails to CONNECT for the
+		// whole window. Nothing can be concluded about the command, and
+		// nothing should be concluded about the workspace either — the pod may
+		// be perfectly fine a second from now, and suspending it would be a
+		// network blip deleting a pod.
+		const notices: KubernetesWorkspaceCancellationNotice[] = []
+		const workspace = await openWorkspace({
+			onCancellationUnconfirmed: (notice) => notices.push(notice),
+		})
+		if (!server || !agent) throw new Error('fixtures not started')
+		// The command is ADMITTED first and the network goes afterwards,
+		// which is the order that matters: a reserve that never connected
+		// fails as a reserve, and this case is about a command that was
+		// already running when the host stopped being able to hear about it.
+		agent.setExecuteHangs(true)
+		const sentBefore = agent.requests.length
+		const running = workspace.exec('sleep', ['30']).catch((err: unknown) => err)
+		await waitForRequest('execute', sentBefore)
+		agent.setUnreachable(true)
+
+		const failure = await running
+		expect((failure as Error).message).toMatch(/outcome is unknown|could not be confirmed/i)
+		expect(failure).toMatchObject({
+			retirement: { accepted: false, reason: 'workspace-kept' },
+		})
+		expect(notices).toHaveLength(1)
+		expect(notices[0]?.agent).toBe('unreachable')
+
+		// Nothing written, and the handle still believes what is true.
+		expect(server.matching('PATCH', '/sandboxes/')).toHaveLength(0)
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
-		// And the disk is still the caller's to delete, explicitly.
-		await workspace.destroy({ deleteDisk: true })
-		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(1)
-		// The cancel confirm window is the shared controller's own (8s), and
-		// it is spent for real here rather than mocked away: the retirement
-		// this case is about does not happen until it closes.
-	}, 20_000)
+		expect(workspace.suspended).toBe(false)
+
+		// And when the pod answers again the workspace is simply usable. No
+		// resume, no new pod, no probe: nothing was taken away.
+		agent.setUnreachable(false)
+		agent.setExecuteHangs(false)
+		expect((await workspace.exec('true')).exitCode).toBe(0)
+		expect(server.matching('PATCH', '/sandboxes/')).toHaveLength(0)
+	}, 30_000)
+
+	it("does not read a busy agent's named refusal as a fence", async () => {
+		// The third answer, and the one the classification used to get wrong.
+		// A `healthz` that never reaches `dispatch` — refused by the agent's
+		// connection gate because too many unauthenticated connections are
+		// already open — comes back `{ ok: false }` with a reason of its own
+		// and NO `retiring` flag. Reading any not-`ok` reply as a fence told
+		// the host `agent: 'retiring'`, whose documented cure is `suspend()`
+		// then `resume()`: deleting a pod, and every terminal in it, because
+		// the agent was busy.
+		//
+		// This agent has in fact fenced itself, which is the sharp version of
+		// the point: the flag is the ONLY evidence of a fence, so a reply that
+		// does not carry it is `unreachable` — the probe learned nothing —
+		// however true the guess would have been. Nothing is lost by saying
+		// so, because the next call names the fence itself (see the case
+		// above) and that error carries the cure.
+		const notices: KubernetesWorkspaceCancellationNotice[] = []
+		const workspace = await openWorkspace({
+			onCancellationUnconfirmed: (notice) => notices.push(notice),
+		})
+		if (!server || !agent) throw new Error('fixtures not started')
+		agent.setHealthzRefusal(
+			'too_many_unauthenticated_connections: limit 64 (NAMZU_AGENT_MAX_PREAUTH_CONNECTIONS)',
+		)
+		agent.setLosingExecutions(true)
+
+		const failure = await workspace.exec('sleep', ['30']).catch((err: unknown) => err)
+		expect((failure as Error).message).toMatch(/outcome is unknown|could not be confirmed/i)
+		expect(notices).toHaveLength(1)
+		expect(notices[0]?.agent).toBe('unreachable')
+
+		// And the rule the whole path exists for is unchanged: nothing written.
+		expect(server.matching('PATCH', '/sandboxes/')).toHaveLength(0)
+		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
+		expect(workspace.suspended).toBe(false)
+	}, 30_000)
+
+	it('reports an agent that is still serving, and leaves it alone', async () => {
+		// The third answer, and the only one whose advice is to do nothing.
+		// The agent PROCESS restarted inside the pod: the pod's uid never
+		// changed, so the token still admits and the host is talking to the
+		// right guest — but the execution table went with the old process, so
+		// every cancel is refused with `unknown_execution` and the window
+		// closes unconfirmed. `handleCancelExecution` answers that before it
+		// ever reaches `ensureTermination`, so nothing fenced itself: this is
+		// the case where suspending the pod would delete a healthy one over a
+		// single command's bookkeeping.
+		const notices: KubernetesWorkspaceCancellationNotice[] = []
+		const workspace = await openWorkspace({
+			onCancellationUnconfirmed: (notice) => notices.push(notice),
+		})
+		if (!server || !agent) throw new Error('fixtures not started')
+		agent.setForgetsExecutions(true)
+
+		const failure = await workspace.exec('sleep', ['30']).catch((err: unknown) => err)
+		expect((failure as Error).message).toMatch(/outcome is unknown|could not be confirmed/i)
+		expect(failure).toMatchObject({
+			retirement: { accepted: false, reason: 'workspace-kept' },
+		})
+		expect(notices).toHaveLength(1)
+		expect(notices[0]?.agent).toBe('ok')
+
+		// Nothing written, as on every other branch of this path.
+		expect(server.matching('PATCH', '/sandboxes/')).toHaveLength(0)
+		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
+		expect(workspace.suspended).toBe(false)
+
+		// And the agent really was serving: the next command runs on the same
+		// pod, with no resume, no new pod and no fence to clear.
+		agent.setForgetsExecutions(false)
+		expect((await workspace.exec('true')).exitCode).toBe(0)
+		expect(presentedTokens().at(-1)).toBe(FIRST_POD_UID)
+	}, 30_000)
+
+	it('still lets a caller take the pod away from the callback', async () => {
+		// The restoration path the changeset names: a host that wants the old
+		// behaviour calls suspend() itself. The difference is that it is now
+		// the host's decision, made where the host can see what else is in
+		// that pod.
+		//
+		// A box rather than a `let workspace`, because the callback is handed
+		// over before the handle exists — the same trick `startSession` uses
+		// for the inner handle's own `release`. Nothing can call it in
+		// between: it fires from a failing `exec()`.
+		const held: { workspace?: KubernetesWorkspace } = {}
+		let suspending: Promise<void> | undefined
+		const workspace = await openWorkspace({
+			onCancellationUnconfirmed: () => {
+				suspending = held.workspace?.suspend()
+			},
+		})
+		held.workspace = workspace
+		if (!server || !agent) throw new Error('fixtures not started')
+		agent.setLosingExecutions(true)
+
+		await workspace.exec('sleep', ['30']).catch(() => undefined)
+		await suspending
+
+		const patches = server.matching('PATCH', '/sandboxes/')
+		expect(patches).toHaveLength(1)
+		expect(patches[0]?.body).toEqual(operatingModePatchBody('Suspended'))
+		expect(workspace.suspended).toBe(true)
+		await expect(workspace.exec('true')).rejects.toBeInstanceOf(KubernetesWorkspaceSuspendedError)
+		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(0)
+	}, 30_000)
 })
