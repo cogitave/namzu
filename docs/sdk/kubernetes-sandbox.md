@@ -5,7 +5,7 @@ description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any 
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
-generated: { by: human:bahadirarda, at: 2026-09-16T00:00:00Z }
+generated: { by: human:bahadirarda, at: 2026-09-17T00:00:00Z }
 ---
 
 # Kubernetes sandboxes
@@ -658,6 +658,60 @@ hand-edited manifest that names a device on a non-root pod is refused with a
 clear message (a device without `CAP_SYS_ADMIN` cannot be formatted or
 mounted; see `k8s/entrypoint.sh`) instead of silently serving an unformatted
 directory.
+
+**HOME for the guest agent and its children.** `setpriv --reuid=/--regid=` (the exec both branches end with, above) changes
+only the running process's credentials — it never touches the environment —
+so without an explicit export `HOME` stays whatever it was before the drop.
+On the root path that is `/root`, a directory #469 already verified the
+de-privileged agent uid cannot use: LibreOffice without
+`-env:UserInstallation`, `pip install --user`, npm's cache, and the
+fontconfig and matplotlib caches all write under `HOME` and all failed
+against it. `entrypoint.sh` resolves and exports a writable `HOME` (plus
+`USER`, `LOGNAME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME`) before EITHER exec
+site, and `agent.cjs`'s pre-existing `childEnvironment` — unchanged — carries
+it into every `execute` and terminal child, since none of the five is
+prefixed `NAMZU_AGENT_`/`NAMZU_SANDBOX_`.
+
+Resolution order, decided once per boot and shared by both branches:
+
+1. **`getent passwd "$AGENT_UID"` field 6.** The shipped image's own
+   `useradd --create-home` (`k8s/Dockerfile`) already creates this directory
+   (`/home/namzu` as built) owned by the agent uid, so this is the common
+   case — and `USER`/`LOGNAME` come from the same passwd entry's login name.
+   A missing `getent` (a slimmed derived image), a uid with no passwd entry,
+   an entry naming a directory under `$NAMZU_WORKSPACE_ROOT`, or one this
+   uid still cannot be made to own, is a **fallback trigger, not a
+   failure** — the expected shape for a custom `NAMZU_AGENT_UID` or a
+   stripped passwd db, not something the pod refuses to start over.
+   Usability is decided by adopting the directory (`mkdir -p`, then `chown`
+   it to the agent uid/gid — exactly how `$WORKSPACE_ROOT` is chowned in the
+   device branch — then reading the result back), never by POSIX `-w`: on
+   the root path the script is still root when it runs this check, and `-w`
+   succeeds for root on a directory the agent uid cannot write to at all —
+   precisely the case this exists to catch.
+2. **`/tmp/namzu-home-$AGENT_UID`**, created fresh, mode `0700`, owned by
+   the agent uid, with `USER`/`LOGNAME` set to `namzu`. Deliberately never
+   under `$NAMZU_WORKSPACE_ROOT` — a home there would appear in every
+   `listFiles`/`walkFiles` call and every archive the workspace produces.
+
+Only if both fail does the pod refuse to start — nothing past that point
+works without a writable `HOME` anyway. `getent` itself is deliberately NOT
+among the tools `entrypoint.sh` requires up front: its absence describes a
+slimmed derived image, not a broken one.
+
+**A derived image that changes `AGENT_UID`** (or `NODE_VERSION`, or anything
+else upstream of the base image's own user database) must either ship a
+passwd entry for that uid naming a directory it can own, or accept the
+`/tmp` fallback — both are handled the same way, automatically. A derived
+image that depended on `HOME=/root` (the only thing running as root before
+this fix could have relied on) must set `HOME` itself after its own
+`FROM`, since the entrypoint's resolution now runs unconditionally on every
+boot and always wins.
+
+`k8s/scripts/capability-check.mjs` prints `$HOME`, whether it exists, and
+whether a probe write succeeded, in the same informational style as the
+`Seccomp` line and the set-id file count above: printed and counted, never
+failing the check itself.
 
 **Seccomp on a VM runtime.** `sandboxtemplate-task.yaml`'s `RuntimeDefault`
 profile is a REQUEST, not a guarantee that the guest kernel enforces it: under

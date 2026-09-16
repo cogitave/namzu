@@ -43,6 +43,13 @@
 #      `SIGTERM` to the agent, which still handles it exactly as it always
 #      has (`agent-sigterm.test.ts`).
 #
+# Before either exec, both branches export a writable HOME (plus USER,
+# LOGNAME and the XDG cache/config vars) for the agent uid — `setpriv`
+# changes credentials, never the environment, so without this HOME would
+# stay whatever it was before the drop (`/root` on the root path, which
+# #469 already verified the agent uid cannot use). See "HOME for the
+# guest agent" below for the resolution order.
+#
 # The one destructive mistake this file exists to make impossible: running
 # mkfs unconditionally. A workspace's disk is formatted exactly ONCE, at
 # first bind — every later resume the SandboxTemplate's `Sandbox` mounts the
@@ -74,6 +81,96 @@ if ! command -v setpriv >/dev/null 2>&1; then
 	echo "entrypoint.sh: required tool 'setpriv' not found on PATH ($PATH)" >&2
 	exit 1
 fi
+
+# =============================================================================
+# HOME for the guest agent and its children.
+#
+# `setpriv --reuid=/--regid=` below changes only the running process's
+# credentials — it never touches the environment — so without this step
+# HOME stays whatever it was before the drop (`/root`, since nothing here
+# ever ran as anyone else). `agent.cjs`'s `childEnvironment` copies every
+# `process.env` key that is not `NAMZU_AGENT_*`/`NAMZU_SANDBOX_*` into
+# every `execute` and terminal child, so a broken HOME here reaches every
+# process a task ever starts: LibreOffice without
+# `-env:UserInstallation`, `pip install --user`, npm's cache, fontconfig
+# and matplotlib all write under HOME and all fail against a directory
+# the agent uid cannot use.
+#
+# Resolution order:
+#   1. `getent passwd "$AGENT_UID"` field 6 — `k8s/Dockerfile`'s image
+#      already creates this directory (`/home/namzu`) owned by the agent
+#      uid, so this is the common case. A missing `getent` (a slimmed
+#      derived image), a uid with no passwd entry, an entry naming a
+#      directory under `$WORKSPACE_ROOT`, or one this uid still cannot be
+#      made to own is a FALLBACK TRIGGER, never a failure — the expected
+#      shape for a custom `NAMZU_AGENT_UID` or a stripped passwd db, not
+#      something to report loudly. `getent` is deliberately NOT in the
+#      tool-presence check above: its absence describes a slimmed image,
+#      not a broken one.
+#   2. `/tmp/namzu-home-$AGENT_UID`, created fresh, mode 0700, owned by
+#      the agent uid. Deliberately never under `$WORKSPACE_ROOT` — a home
+#      there would appear in every `listFiles`/`walkFiles` call and every
+#      archive the workspace produces.
+# Only if BOTH fail does this script refuse to start — nothing past this
+# point works without a writable HOME anyway.
+#
+# `resolve_writable_dir` decides usability by ADOPTING the directory
+# (create if missing, `chown` it to the agent uid/gid — exactly how
+# `$WORKSPACE_ROOT` is chowned below — then reading the result back),
+# never by POSIX `-w`: on the root path this script is STILL root when it
+# runs this check, and `-w` succeeds for root on a directory the agent
+# uid cannot write to at all — precisely the case this exists to catch.
+resolve_writable_dir() {
+	RWD_TARGET="$1"
+	RWD_MODE="${2:-}"
+	mkdir -p "$RWD_TARGET" 2>/dev/null || return 1
+	chown "$AGENT_UID:$AGENT_GID" "$RWD_TARGET" 2>/dev/null || return 1
+	if [ -n "$RWD_MODE" ]; then
+		chmod "$RWD_MODE" "$RWD_TARGET" 2>/dev/null || return 1
+	fi
+	RWD_OWNER="$(stat -c '%u' "$RWD_TARGET" 2>/dev/null)" || return 1
+	[ "$RWD_OWNER" = "$AGENT_UID" ]
+}
+
+HOME_DIR=""
+HOME_USER=""
+PASSWD_HOME=""
+PASSWD_USER=""
+if command -v getent >/dev/null 2>&1; then
+	if PASSWD_ENTRY="$(getent passwd "$AGENT_UID")"; then
+		PASSWD_HOME="$(printf '%s' "$PASSWD_ENTRY" | cut -d: -f6)"
+		PASSWD_USER="$(printf '%s' "$PASSWD_ENTRY" | cut -d: -f1)"
+	fi
+fi
+
+case "$PASSWD_HOME" in
+	"")
+		# getent absent, no entry for this uid, or the entry carries no
+		# home field — nothing to adopt, fall through to the fallback.
+		;;
+	"$WORKSPACE_ROOT" | "$WORKSPACE_ROOT"/*)
+		# Never adopt a passwd-resolved home under the workspace root —
+		# see the header comment above. Treated exactly like "unusable".
+		;;
+	*)
+		if resolve_writable_dir "$PASSWD_HOME"; then
+			HOME_DIR="$PASSWD_HOME"
+			HOME_USER="$PASSWD_USER"
+		fi
+		;;
+esac
+
+if [ -z "$HOME_DIR" ]; then
+	FALLBACK_HOME="/tmp/namzu-home-$AGENT_UID"
+	if resolve_writable_dir "$FALLBACK_HOME" 0700; then
+		HOME_DIR="$FALLBACK_HOME"
+		HOME_USER="namzu"
+	else
+		echo "entrypoint.sh: could not provision a writable HOME for uid $AGENT_UID: passwd entry (${PASSWD_HOME:-none}) unusable and fallback $FALLBACK_HOME also unusable; nothing past this point can run" >&2
+		exit 1
+	fi
+fi
+# =============================================================================
 
 # Which branch this pod takes is decided by its ACTUAL uid, not by which
 # template it thinks it is — a pod's securityContext is what actually
@@ -107,6 +204,8 @@ if [ "$CURRENT_UID" -ne 0 ]; then
 	# `allowPrivilegeEscalation: false` (Kubernetes does not guarantee every
 	# runtime maps that field onto the kernel's own no_new_privs bit).
 	export NAMZU_SANDBOX_WORKSPACE="$WORKSPACE_ROOT"
+	export HOME="$HOME_DIR" USER="$HOME_USER" LOGNAME="$HOME_USER" \
+		XDG_CACHE_HOME="$HOME_DIR/.cache" XDG_CONFIG_HOME="$HOME_DIR/.config"
 	exec setpriv --no-new-privs -- /usr/bin/tini -- node /opt/namzu/agent.cjs
 fi
 
@@ -195,6 +294,12 @@ fi
 # once — it does not also have to keep a second env var in the pod spec in
 # sync with it by convention.
 export NAMZU_SANDBOX_WORKSPACE="$WORKSPACE_ROOT"
+
+# Same resolution as the non-root branch above, exported here too so
+# neither exec site can be edited without the other — see "HOME for the
+# guest agent and its children" near the top of this file.
+export HOME="$HOME_DIR" USER="$HOME_USER" LOGNAME="$HOME_USER" \
+	XDG_CACHE_HOME="$HOME_DIR/.cache" XDG_CONFIG_HOME="$HOME_DIR/.config"
 
 # `exec`, not a plain call: this replaces the shell's own process image, so
 # no root process is left resident beside the agent. `setpriv` drops the

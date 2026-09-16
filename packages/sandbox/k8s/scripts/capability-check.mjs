@@ -137,6 +137,31 @@ try {
 		)
 	}
 
+	// HOME for the guest agent and everything it starts (#493): informational,
+	// like Seccomp and the set-id count above — `entrypoint.sh` resolves and
+	// exports this before either of its two exec sites (see
+	// `../__tests__/entrypoint.test.ts` for its own resolution logic), and
+	// this is the independent confirmation from inside a RUNNING guest that
+	// what actually reached the agent's own environment (and so every
+	// `exec` child's, via `agent.cjs`'s `childEnvironment`) is a directory
+	// that really exists and really is writable by this uid — not merely
+	// that the entrypoint intended one to be. Never fails the check itself:
+	// a minimal derived image with no `sh` on PATH would already have
+	// failed the checks above.
+	try {
+		const homeResult = await sandbox.exec('/bin/sh', [
+			'-c',
+			'printf \'HOME=%s\\n\' "$HOME"; ' +
+				'if [ -d "$HOME" ]; then echo HOME_EXISTS=1; else echo HOME_EXISTS=0; fi; ' +
+				'if touch "$HOME/.namzu-capability-check" 2>/dev/null; then ' +
+				'echo HOME_WRITABLE=1; rm -f "$HOME/.namzu-capability-check"; ' +
+				'else echo HOME_WRITABLE=0; fi',
+		])
+		console.log(`  ${homeResult.stdout.trim().split('\n').join(', ')}`)
+	} catch (err) {
+		console.log(`  HOME check: could not run (${err instanceof Error ? err.message : String(err)})`)
+	}
+
 	const mountResult = await sandbox.exec('/bin/sh', [
 		'-c',
 		'mount -t tmpfs tmpfs /tmp 2>&1; echo "namzu-exit:$?"',

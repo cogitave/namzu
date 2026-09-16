@@ -97,3 +97,32 @@ describe('Dockerfile sets no image-level USER (#491)', () => {
 		expect(DOCKERFILE).toMatch(/ARG\s+AGENT_GID=1001\b/)
 	})
 })
+
+describe('Dockerfile gives the agent uid a real, owned home directory (#493)', () => {
+	// The literal invocation, not a bare `line.includes('useradd')` — this
+	// file's own header comment mentions `useradd` in prose first, which a
+	// looser match would find instead of the RUN instruction.
+	const useraddLine = DOCKERFILE.split('\n').find((line) => line.includes('useradd --system'))
+
+	it('the `useradd` step passes `--create-home`, so the agent uid gets a home at all', () => {
+		expect(useraddLine).toBeDefined()
+		expect(useraddLine).toContain('--create-home')
+	})
+
+	it('does not override the home directory to somewhere `entrypoint.sh`\'s HOME resolution would have to special-case', () => {
+		// No `-d`/`--home-dir`: leaving `useradd` to its own default keeps
+		// this test honest about what actually happens (a real home under
+		// `/home`) rather than asserting a literal path this Dockerfile
+		// never actually writes down.
+		expect(useraddLine).toBeDefined()
+		expect(useraddLine).not.toMatch(/(^|\s)(-d|--home-dir)(\s|=)/)
+	})
+
+	it('runs `useradd --create-home` BEFORE `entrypoint.sh`/`agent.cjs` are copied in, so the home exists at image-build time, not first-boot', () => {
+		const useraddIndex = indexOfRunContaining('useradd --system')
+		const entrypointCopyIndex = DOCKERFILE.indexOf('COPY k8s/entrypoint.sh')
+		expect(useraddIndex).toBeGreaterThan(-1)
+		expect(entrypointCopyIndex).toBeGreaterThan(-1)
+		expect(useraddIndex).toBeLessThan(entrypointCopyIndex)
+	})
+})
