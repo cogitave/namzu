@@ -49,6 +49,24 @@
  * claim mutation, so the warm path stays pristine. A resumed pod is a new pod
  * with a new uid, which is correct: it is a new instance.
  *
+ * ## The lease
+ *
+ * The `shutdownTime` acquire stamps is the leak guard AND, unrenewed, a
+ * deadline on the run. The Sandbox handle owns a renewal loop that PATCHes
+ * it forward every half-TTL for as long as the handle is alive, and
+ * `destroy()` stops it — so a live run keeps its pod and a dead host still
+ * costs the cluster exactly one expiry. See `lease.ts`.
+ *
+ * ## The privilege probe
+ *
+ * `create()` does not resolve until the guest has reported — and this
+ * backend has checked — that it is deprivileged: all four capability masks
+ * zero, `NoNewPrivs: 1`, read out of `/proc/self/status` over the agent's
+ * `execute` op, on a clock of its own so a guest that goes quiet is refused
+ * rather than waited on. A refusal destroys the instance and rejects, so no
+ * handle to an under-hardened sandbox escapes. There is no off switch. See
+ * `privilege-probe.ts`.
+ *
  * ## Not watch
  *
  * Readiness is polled against the shared {@link OperationDeadline}, exactly as
@@ -68,16 +86,7 @@
  * controller-owned label does not cover this path.
  */
 
-import type {
-	Sandbox,
-	SandboxDestroyOptions,
-	SandboxEnvironment,
-	SandboxExecOptions,
-	SandboxExecResult,
-	SandboxFileEntry,
-	SandboxId,
-	SandboxStatus,
-} from '@namzu/sdk'
+import type { Sandbox } from '@namzu/sdk'
 import { generateSandboxId } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
@@ -121,6 +130,9 @@ import {
 	sandboxTemplateLabel,
 	sandboxTemplatePath,
 } from './objects.js'
+import { privilegeProbeTimedOut, runPrivilegeProbe } from './privilege-probe.js'
+import { buildKubernetesSandbox } from './sandbox.js'
+import { KubernetesAgentTransport } from './transport.js'
 
 export type { KubernetesEgressConfig, KubernetesEgressEngine } from './egress-policy.js'
 
@@ -154,8 +166,18 @@ export interface KubernetesBackendInternalConfig {
 	readonly agentPort?: number
 	readonly readyPollIntervalMs?: number
 	readonly readyTimeoutMs?: number
-	/** Lifetime bound written into every created object. Default 1 hour. */
+	/**
+	 * Lifetime bound written into every created object, and the amount each
+	 * lease renewal pushes the expiry forward. Default 1 hour.
+	 */
 	readonly claimTtlSeconds?: number
+	/**
+	 * Every lease-renewal failure that is not "the object is already gone".
+	 * `@namzu/sandbox` owns no logger and reads none from module scope, so a
+	 * diagnostic it cannot print is handed to the host that can. Renewal
+	 * retries on the next tick either way; nothing here changes behaviour.
+	 */
+	readonly onLeaseRenewalError?: (error: unknown) => void
 	/**
 	 * RuntimeClass for a POOL-LESS create. Refused together with
 	 * `warmPoolName`: a pooled sandbox's runtime class is fixed by the pool's
@@ -202,8 +224,21 @@ export interface KubernetesAcquisition {
 	readonly agent: KubernetesAgentAddress
 	/** API path of the object THIS backend created — the claim, or the Sandbox. */
 	readonly ownedPath: string
+	/** The TTL acquire stamped, which every renewal re-stamps. */
+	readonly ttlSeconds: number
 	/** DELETE that object. An already-gone object counts as released. */
 	release(signal?: AbortSignal): Promise<void>
+	/**
+	 * Merge-PATCH the created object's expiry forward to `shutdownTime`.
+	 *
+	 * On the acquisition rather than in `lease.ts` because only this path
+	 * knows WHICH object it created and therefore where the field lives: a
+	 * `SandboxClaim` carries it at `spec.lifecycle.shutdownTime`, a directly
+	 * created `Sandbox` at `spec.shutdownTime` (v1beta1 as served keeps it at
+	 * the top of `spec`). A merge patch of the nested object leaves
+	 * `shutdownPolicy` alone.
+	 */
+	renew(shutdownTime: string, signal?: AbortSignal): Promise<void>
 }
 
 /**
@@ -223,6 +258,36 @@ export const DEFAULT_AGENT_PORT = 1024
 const DEFAULT_READY_POLL_MS = 50
 const DEFAULT_READY_TIMEOUT_MS = 60_000
 const DEFAULT_CLAIM_TTL_SECONDS = 3_600
+
+/**
+ * The ceiling on the privilege probe's own clock — see
+ * {@link resolveProbeTimeoutMs} for where the rest of the number comes from.
+ *
+ * The probe is one `cat` of a pseudo-file over an already-established path,
+ * so half a minute would already be generous and a quarter of one is plenty.
+ * The number matters because the alternative is not "a bit longer": with no
+ * clock of its own the probe falls back on the execution controller's generic
+ * defaults — a five-minute execution observation, then a cancel-confirm and a
+ * drain — so a guest that accepts the TCP connection and then stops answering
+ * would keep a 60 s `create()` pending for over six minutes.
+ */
+const PRIVILEGE_PROBE_TIMEOUT_CAP_MS = 15_000
+
+/**
+ * How long the privilege probe may take, given the caller's readiness budget.
+ *
+ * `readyTimeoutMs` bounds the CONTROL plane and has usually expired by the
+ * time the probe starts, so the probe cannot share it — but it is still the
+ * number the caller chose to describe how long an acquire may take, so the
+ * probe is allowed exactly that much again and no more, capped. A caller who
+ * asked for a 500 ms acquire gets a 500 ms probe; one who asked for two
+ * minutes of cold start still gets {@link PRIVILEGE_PROBE_TIMEOUT_CAP_MS}.
+ * Deliberately not a separate config key: a knob whose only correct value is
+ * "long enough for one `cat`" is a knob that only ever gets set wrong.
+ */
+function resolveProbeTimeoutMs(readyTimeoutMs: number): number {
+	return Math.min(readyTimeoutMs, PRIVILEGE_PROBE_TIMEOUT_CAP_MS)
+}
 
 /**
  * Per-sandbox controls this backend cannot apply, and therefore refuses.
@@ -282,25 +347,6 @@ export function assertRuntimeClassIsApplicable(config: {
 }
 
 /**
- * Raised by the Sandbox methods that need the guest agent transport, which
- * lands with the sandbox surface in the next change. Acquire, address
- * resolution, readiness and teardown are real today; execution is not, and
- * says so rather than failing as a `TypeError` on an absent method.
- */
-export class KubernetesAgentTransportPendingError extends Error {
-	override readonly name = 'KubernetesAgentTransportPendingError'
-
-	constructor(
-		readonly operation: string,
-		readonly sandboxName: string,
-	) {
-		super(
-			`kubernetes sandbox ${sandboxName} is acquired and its agent address is resolved, but ${operation}() needs the guest agent transport, which this build of @namzu/sandbox does not wire yet. Acquire, readiness and teardown work; exec, file IO and terminals arrive with the sandbox surface.`,
-		)
-	}
-}
-
-/**
  * Build a {@link SandboxBackend} against a cluster running the agent-sandbox
  * controller. Construction is synchronous and contacts nothing: readiness
  * bounds and the config refusals are validated here so a misconfiguration
@@ -346,7 +392,12 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 				await egressVerification
 			}
 			const acquisition = await acquireKubernetesSandbox(client, config, options, readiness)
-			return buildAcquiredSandbox(acquisition, options)
+			return await admitProbedSandbox(
+				acquisition,
+				config,
+				options,
+				resolveProbeTimeoutMs(readiness.timeoutMs),
+			)
 		},
 	}
 }
@@ -422,6 +473,22 @@ export async function acquireKubernetesSandbox(
 		}
 	}
 
+	// Where the expiry lives differs by KIND, and only this function knows
+	// which kind it created: a claim keeps it under `spec.lifecycle`, a
+	// directly created Sandbox at the top of `spec` (v1beta1 as served has
+	// not moved it under `lifecycle` yet). Merge-patch semantics (RFC 7386,
+	// the only content type this client's PATCH sends) merge the nested
+	// object, so `shutdownPolicy: Delete` survives every renewal.
+	// The parameter is deliberately NOT named `shutdownTime`: the stamp above
+	// is the one the create body carries, and no renewal ever re-sends it.
+	const renew = async (nextShutdownTime: string, signal?: AbortSignal): Promise<void> => {
+		const patch =
+			config.warmPoolName !== undefined
+				? { spec: { lifecycle: { shutdownTime: nextShutdownTime } } }
+				: { spec: { shutdownTime: nextShutdownTime } }
+		await client.request('PATCH', ownedPath, patch, signal)
+	}
+
 	// One clock over the whole path — the create POST included, so a hung API
 	// server cannot leave `create()` pending past the caller's timeout.
 	const deadline = new OperationDeadline(
@@ -494,7 +561,9 @@ export async function acquireKubernetesSandbox(
 			binding,
 			agent: resolveAgentAddress(binding, config.agentPort ?? DEFAULT_AGENT_PORT, token),
 			ownedPath,
+			ttlSeconds,
 			release,
+			renew,
 		}
 	} catch (err) {
 		// One cleanup for every way out of the block above, on its own short
@@ -765,84 +834,86 @@ async function readSandboxSelector(
 	}
 }
 
-function detectEnvironment(): SandboxEnvironment {
-	// The guest runs Linux; the enum describes the host-facing shape of the
-	// worker, not the isolation technology under it. Firecracker's guest
-	// reports the same for the same reason.
-	return 'linux-namespace'
-}
-
 /**
- * The Sandbox handed back by `create()` in THIS build: a real identity, a real
- * status and a real teardown, over an acquired and addressed pod.
+ * Build the Sandbox, prove it is deprivileged, and only then hand it back.
  *
- * The four execution methods throw {@link KubernetesAgentTransportPendingError}
- * because the guest transport is a separate change. That is stated on the
- * docs page and in the changeset rather than left for a caller to discover:
- * the alternative shapes are a method that silently no-ops and a `TypeError`
- * from an absent one, and both teach the wrong thing.
+ * The probe runs BEFORE `create()` resolves, so a caller never holds a
+ * reference to an under-hardened sandbox — a probe that refuses destroys the
+ * instance on a bounded cleanup budget and rethrows, exactly as a readiness
+ * failure does. There is no configuration that skips it: the whole value of
+ * checking the deprivileging on every acquire rather than once by hand is
+ * that it cannot be forgotten, and an off switch is a way to forget it.
+ *
+ * The probe goes through the Sandbox's own `exec`, not the raw transport, so
+ * it traverses the same reserve/admit/stream/confirm path every later call
+ * will. A sandbox that cannot answer the probe is one a caller could not use
+ * either.
+ *
+ * ## And it runs on a clock
+ *
+ * This is the first thing on the acquire path that talks to the GUEST, and
+ * the readiness deadline that bounded everything before it has already
+ * expired. Left unbounded the probe would inherit the execution controller's
+ * generic defaults instead — a five-minute observation, then a cancel-confirm
+ * and a drain — so a pod whose agent has wedged (out of memory, an event loop
+ * the workload blocked) would keep `create()` pending for minutes past the
+ * caller's `readyTimeoutMs` with nothing reported. It gets its own deadline,
+ * whose expiry takes the same cleanup-and-reject path every other refusal
+ * does, in words that name the hang rather than blame a missing `cat`.
  */
-function buildAcquiredSandbox(
+async function admitProbedSandbox(
 	acquisition: KubernetesAcquisition,
+	config: KubernetesBackendInternalConfig,
 	options: SandboxBackendOptions,
-): Sandbox {
-	// The cluster owns this name. Preserving it verbatim as the sandbox id —
-	// as the Firecracker backend preserves its orchestrator's — means a log
-	// line carrying an id is also a `kubectl get sandbox` argument.
-	const id = acquisition.binding.name as SandboxId
-	let destroyed = false
-	let teardownPromise: Promise<void> | undefined
-	const pending = (operation: string): never => {
-		throw new KubernetesAgentTransportPendingError(operation, acquisition.binding.name)
-	}
-
-	return {
-		id,
-		get status(): SandboxStatus {
-			return destroyed ? 'destroyed' : 'ready'
-		},
+	probeTimeoutMs: number,
+): Promise<Sandbox> {
+	const sandbox = buildKubernetesSandbox({
+		name: acquisition.binding.name,
 		rootDir: options.workingDirectory,
-		environment: detectEnvironment(),
-
-		async exec(
-			_command: string,
-			_args?: string[],
-			_opts?: SandboxExecOptions,
-		): Promise<SandboxExecResult> {
-			return pending('exec')
-		},
-
-		async writeFile(_path: string, _content: string | Buffer): Promise<void> {
-			return pending('writeFile')
-		},
-
-		async readFile(_path: string): Promise<Buffer> {
-			return pending('readFile')
-		},
-
-		async listFiles(_rootPath: string): Promise<readonly SandboxFileEntry[]> {
-			return pending('listFiles')
-		},
-
-		async destroy(destroyOptions?: SandboxDestroyOptions): Promise<void> {
-			// Deleting the claim cascades to the sandbox it adopted through the
-			// ownerReferences the controller re-parents on bind, so one DELETE
-			// retires the pod, the Service and the object.
-			if (teardownPromise) return await teardownPromise
-			const attempt = acquisition.release(destroyOptions?.signal).then(
-				() => {
-					destroyed = true
-				},
-				(error: unknown) => {
-					// A failed teardown must stay retryable; keeping the rejected
-					// promise would answer every later destroy() with the same
-					// stale failure.
-					teardownPromise = undefined
-					throw error
-				},
-			)
-			teardownPromise = attempt
-			await attempt
-		},
+		transport: new KubernetesAgentTransport(acquisition.agent),
+		release: acquisition.release,
+		renew: acquisition.renew,
+		ttlSeconds: acquisition.ttlSeconds,
+		...(config.onLeaseRenewalError !== undefined
+			? { onRenewalError: config.onLeaseRenewalError }
+			: {}),
+	})
+	// Labelled with the sandbox, so an expiry read off a log line says which
+	// acquire stopped answering — and so the catch below can tell THIS
+	// deadline from any other that might surface through the same exec.
+	const probeLabel = `kubernetes privilege probe ${acquisition.binding.name}`
+	try {
+		options.signal?.throwIfAborted()
+		// The deadline's signal covers both ways this should stop early: it
+		// aborts on expiry, and it aborts with the caller's own reason when
+		// `options.signal` does. Handing it to `exec` is what releases the
+		// guest-side execution rather than merely abandoning the wait.
+		await new OperationDeadline(probeTimeoutMs, probeLabel, options.signal).run(
+			async (signal) =>
+				await runPrivilegeProbe(
+					async (command, args) => await sandbox.exec(command, args, { signal }),
+					acquisition.binding.name,
+				),
+		)
+		// An abort that lands WHILE the probe is in flight must not leave a
+		// live sandbox behind: the probe itself may well have finished, and
+		// the caller who cancelled is about to stop holding the reference
+		// that could destroy it. Same cleanup, one branch later.
+		options.signal?.throwIfAborted()
+	} catch (err) {
+		await runFailureCleanup(async (signal) => {
+			await sandbox.destroy({ signal })
+		})
+		// A caller who cancelled mid-probe gets THEIR reason, not the probe's
+		// account of a command that was cancelled out from under it.
+		options.signal?.throwIfAborted()
+		// A probe that ran out of time is a probe that could not run, and is
+		// refused in those words: `OperationDeadlineExpired` on its own would
+		// leave a reader guessing which half of the acquire went quiet.
+		if (err instanceof OperationDeadlineExpired && err.label === probeLabel) {
+			throw privilegeProbeTimedOut(acquisition.binding.name, probeTimeoutMs, err)
+		}
+		throw err
 	}
+	return sandbox
 }

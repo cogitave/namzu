@@ -9,7 +9,7 @@
  * before a sandbox is ever handed back.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import { buildKubernetesBackend } from '../index.js'
 import {
@@ -17,16 +17,33 @@ import {
 	readyCondition,
 	startFakeApiServer,
 } from './fixtures/fake-api-server.js'
+import { stubLoopbackDns } from './fixtures/loopback-dns.js'
+import { type ScriptedAgent, startScriptedAgent } from './fixtures/scripted-agent.js'
 
 const NAMESPACE = 'namzu-sandboxes'
 const POOL_SANDBOX_NAME = 'egress-pool-sandbox-1'
 const POD_UID = '5f2c9c9c-0e5d-4a2d-9e2a-19b1c0a8d002'
 
 let server: FakeApiServer | undefined
+// `create()` reaches the guest before it resolves — the acquire-time
+// privilege probe — so these cases need a guest as well as an API server.
+// It answers the probe with a correctly deprivileged /proc/self/status;
+// what THIS file is about is what happens before the probe runs at all.
+let agent: ScriptedAgent | undefined
+let restoreDns: (() => void) | undefined
+
+beforeEach(async () => {
+	agent = await startScriptedAgent({ token: POD_UID })
+	restoreDns = stubLoopbackDns()
+})
 
 afterEach(async () => {
+	restoreDns?.()
+	restoreDns = undefined
 	await server?.close()
+	await agent?.close()
 	server = undefined
+	agent = undefined
 })
 
 /** The exact spec a `deny-all` translation against `namzu-task` produces. */
@@ -74,12 +91,13 @@ function handleWarmAcquire(req: { method: string; path: string }):
 }
 
 function backend() {
-	if (!server) throw new Error('fake API server not started')
+	if (!server || !agent) throw new Error('fixtures not started')
 	return buildKubernetesBackend({
 		access: { server: server.url, getToken: async () => 'sa-token' },
 		namespace: NAMESPACE,
 		sandboxTemplateName: 'namzu-task',
 		warmPoolName: 'namzu-task-pool',
+		agentPort: agent.port,
 		readyTimeoutMs: 2_000,
 		readyPollIntervalMs: 5,
 		egress: { policy: { kind: 'deny-all' } },
@@ -193,6 +211,7 @@ describe('verify-not-trust, against a real fake API server', () => {
 			namespace: NAMESPACE,
 			sandboxTemplateName: 'namzu-task',
 			warmPoolName: 'namzu-task-pool',
+			agentPort: agent?.port ?? 0,
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 5,
 		}).create({ workingDirectory: '/workspace' })

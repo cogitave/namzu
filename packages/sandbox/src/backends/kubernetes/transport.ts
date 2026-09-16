@@ -35,6 +35,7 @@ import type {
 
 import type { ExecRequest } from '../firecracker/protocol.js'
 import {
+	type AgentRequest,
 	type SandboxAgentHandle,
 	VsockAgentTransport,
 	type VsockTransportOptions,
@@ -68,6 +69,30 @@ function isUnauthorized(response: unknown): boolean {
 	if (!response || typeof response !== 'object') return false
 	const value = response as { ok?: unknown; error?: unknown }
 	return value.ok === false && value.error === 'unauthorized'
+}
+
+/**
+ * One framed control request, with the guest's `unauthorized` refusal
+ * turned into {@link KubernetesAgentUnauthorizedError}.
+ *
+ * BOTH control requests go through here — `reserve-execution` and
+ * `cancel-execution` — because the two are read by the same caller for
+ * opposite reasons and neither may mistake a refusal for a blip. The
+ * cancel path is the sharper of the two: {@link RemoteExecutionController}
+ * RETRIES a failed cancellation for its whole confirm window and then
+ * reports the cancellation UNCONFIRMED, which retires the sandbox. A
+ * rejected token read as a transport failure would therefore spend that
+ * window re-sending a request that can never succeed, and end by
+ * describing a wrong credential as an ambiguous outcome.
+ */
+async function requestChecked(
+	wire: VsockAgentTransport,
+	request: AgentRequest,
+	signal?: AbortSignal,
+): Promise<unknown> {
+	const response = await wire.request(request, signal)
+	if (isUnauthorized(response)) throw new KubernetesAgentUnauthorizedError()
+	return response
 }
 
 /**
@@ -147,9 +172,21 @@ export class KubernetesAgentTransport {
 	 * real guest.
 	 */
 	async reserve(signal?: AbortSignal): Promise<unknown> {
-		const response = await this.wire.request({ op: 'reserve-execution' }, signal)
-		if (isUnauthorized(response)) throw new KubernetesAgentUnauthorizedError()
-		return response
+		return await requestChecked(this.wire, { op: 'reserve-execution' }, signal)
+	}
+
+	/**
+	 * The raw `cancel-execution` primitive, exposed for the same reason
+	 * {@link reserve} is: it is a control request with its own refusal
+	 * semantics, and proving those against the real guest should not require
+	 * driving a whole cancelled `exec()` to reach it.
+	 */
+	async cancel(executionId: string, signal?: AbortSignal): Promise<unknown> {
+		return await requestChecked(
+			this.wire,
+			{ op: 'cancel-execution', body: { executionId } },
+			signal,
+		)
 	}
 
 	async writeFile(path: string, content: Buffer): Promise<void> {
@@ -200,15 +237,14 @@ export class KubernetesAgentTransport {
 			reserve: async (signal) => {
 				const startedAt = Date.now()
 				try {
-					const response = await timedWire.request({ op: 'reserve-execution' }, signal)
-					if (isUnauthorized(response)) throw new KubernetesAgentUnauthorizedError()
-					return response
+					return await requestChecked(timedWire, { op: 'reserve-execution' }, signal)
 				} finally {
 					reserveMs += Date.now() - startedAt
 				}
 			},
+			// Checked exactly like `reserve` — see `requestChecked`.
 			cancel: async (executionId, signal) =>
-				await timedWire.request({ op: 'cancel-execution', body: { executionId } }, signal),
+				await requestChecked(timedWire, { op: 'cancel-execution', body: { executionId } }, signal),
 			execute: async (executionId, cmd, execArgv, execOpts, signal, context) => {
 				const startedAt = Date.now()
 				try {

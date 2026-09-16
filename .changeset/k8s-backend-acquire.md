@@ -4,7 +4,7 @@
 
 A Kubernetes backend that claims VM-isolated sandboxes out of an [agent-sandbox](https://github.com/kubernetes-sigs/agent-sandbox) warm pool. New exported types `KubernetesBackendConfig` and `KubernetesClusterAccess`; `SandboxBackendConfig` and `SandboxProviderConfig` each gain an arm for it, so `createSandboxProvider({ backend: { tier: 'microvm', service: 'kubernetes', … } })` type-checks with no cast. Nothing existing changes shape.
 
-**Take this upgrade for the new backend, not for a complete one.** This batch implements acquire, readiness, address resolution and teardown. The execution surface does not exist yet: `exec`, `readFile`, `writeFile` and `listFiles` on a sandbox from this backend throw `KubernetesAgentTransportPendingError`, which names the missing guest transport rather than failing as an absent method. `destroy()` is real. Workspace suspend/resume, egress mapping and the cluster manifests follow in later releases. Every other backend is untouched.
+**Take this upgrade for the new backend, not for a complete one.** This changeset covers acquire, readiness, address resolution and teardown; the execution surface, the acquire-time privilege probe and the lease arrive in the same release under their own changesets, and persistent workspaces (suspend/resume with a block-mode disk) and the cluster manifests follow in later ones. Every other backend is untouched.
 
 What it does today, on a cluster running agent-sandbox v1.0.2 with a VM-isolating `RuntimeClass`:
 

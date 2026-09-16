@@ -83,8 +83,10 @@ export type {
 	OrchestratorTokenProvider,
 } from './backends/firecracker/index.js'
 export {
+	AgentPreauthFrameTooLargeError,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
 	type SandboxAgentHandle,
+	TCP_PREAUTH_FRAME_LIMIT_BYTES,
 	type VsockTransportOptions,
 	VsockAgentTransport,
 } from './backends/firecracker/transport.js'
@@ -99,6 +101,20 @@ export type {
 	KubernetesEgressConfig,
 	KubernetesEgressEngine,
 } from './backends/kubernetes/egress-policy.js'
+// The errors a caller of a kubernetes sandbox has to be able to catch BY
+// CLASS rather than by matching a message: an acquire refused because the
+// guest is not deprivileged, a call after the handle ended (this host
+// destroyed it, or the cluster deleted it), and a rejected agent token.
+export {
+	KubernetesPrivilegeProbeError,
+	type PrivilegeProbeFailure,
+	type ProcStatusPrivileges,
+} from './backends/kubernetes/privilege-probe.js'
+export {
+	KubernetesSandboxDestroyedError,
+	KubernetesSandboxGoneError,
+} from './backends/kubernetes/sandbox.js'
+export { KubernetesAgentUnauthorizedError } from './backends/kubernetes/transport.js'
 
 // ---------------------------------------------------------------------------
 // Backend strategy
@@ -450,6 +466,17 @@ export interface KubernetesBackendConfig {
 	 * sandbox. Default 3600.
 	 */
 	readonly claimTtlSeconds?: number
+	/**
+	 * Every lease-renewal failure that is not "the object is already gone".
+	 *
+	 * The handle renews its own `shutdownTime` every half-TTL for as long as
+	 * it is alive, so a run that outlives `claimTtlSeconds` keeps its pod.
+	 * A failed renewal is retried on the next tick, half a TTL before
+	 * anything expires; this callback is where the diagnostic goes, because
+	 * `@namzu/sandbox` owns no logger and reads none from module scope.
+	 * Setting it changes nothing about behaviour.
+	 */
+	readonly onLeaseRenewalError?: (error: unknown) => void
 	/**
 	 * RuntimeClass for a POOL-LESS create. Refused together with
 	 * {@link warmPoolName}: a pooled sandbox is already running under the
@@ -812,6 +839,9 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
 			...(backend.claimTtlSeconds !== undefined
 				? { claimTtlSeconds: backend.claimTtlSeconds }
+				: {}),
+			...(backend.onLeaseRenewalError !== undefined
+				? { onLeaseRenewalError: backend.onLeaseRenewalError }
 				: {}),
 			...(backend.runtimeClassName !== undefined
 				? { runtimeClassName: backend.runtimeClassName }

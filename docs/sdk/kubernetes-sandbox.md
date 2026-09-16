@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Kubernetes sandboxes
-description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, egress policy translation and verify-not-trust, and what this first batch does not carry yet.
+description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, egress policy translation and verify-not-trust.
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
@@ -17,10 +17,10 @@ acquire stays inside a second, and the pod runs under whatever `RuntimeClass`
 the cluster's `SandboxTemplate` names — a Kata class makes the boundary a
 hardware-virtualized guest rather than a namespace.
 
-**This page describes a first batch.** Acquire, readiness, address resolution,
-teardown and egress translation/verification are implemented. The execution
-surface is not: see [what is not here yet](#what-is-not-here-yet) before
-wiring this into a host.
+Acquire, readiness, address resolution, the execution surface, teardown and
+egress translation/verification are implemented. Persistent workspaces
+(suspend/resume with a block-mode disk) and the cluster manifests are not —
+see [what is not here yet](#what-is-not-here-yet).
 
 ## Configure a provider
 
@@ -90,8 +90,9 @@ reason the Firecracker backend does.
 | `warmPoolName` | unset | Unset means every create is a cold `Sandbox`. |
 | `agentPort` | `1024` | The guest agent's TCP port — same number it uses over vsock on the Firecracker tier. |
 | `readyPollIntervalMs` | `50` | A pool bind lands in ~120 ms; a half-second poll would sleep through the budget. |
-| `readyTimeoutMs` | `60000` | Whole clock from create to an addressed, Ready sandbox. |
-| `claimTtlSeconds` | `3600` | Wall-clock lifetime written into every created object. |
+| `readyTimeoutMs` | `60000` | Whole clock from create to an addressed, Ready sandbox — and then, a second time, the budget the [privilege probe](#the-privilege-probe) may spend on the guest, capped at 15 seconds. A `create()` that goes wrong in both halves therefore takes up to this **plus** `min(this, 15s)`: 75 seconds at the default, 1 second if you set it to 500 ms. |
+| `claimTtlSeconds` | `3600` | Wall-clock lifetime written into every created object, and the amount each [lease renewal](#the-lease) pushes it forward. |
+| `onLeaseRenewalError` | unset | Where a failed lease renewal is reported. Changes no behaviour; see [the lease](#the-lease). |
 | `runtimeClassName` | unset | Pool-less path only — see [refusals](#what-it-refuses). |
 
 ## Two acquire paths
@@ -158,6 +159,165 @@ co-tenant that satisfies that selector. It is **not** a boundary against the
 sandbox's own workload — after deprivileging, the agent and the workload share
 a uid — which is exactly why it must be per-instance and must never be a shared
 secret baked into the pool's template.
+
+## The sandbox surface
+
+`create()` returns a `Sandbox` served over the guest agent (`agent/agent.cjs`,
+the same guest the Firecracker tier bakes into its golden image) on the pod
+network. Every call dials a fresh TCP connection to the sandbox's
+`serviceFQDN` — a name, re-resolved every time, so a pod that comes back at a
+new address costs nothing extra — and presents the pod-uid bind token in the
+request envelope.
+
+| `Sandbox` member | Here | Why |
+|---|---|---|
+| `id` | The cluster's own name for the bound Sandbox | An id in a log line is also a `kubectl get sandbox` argument. |
+| `status` | `ready` / `busy` / `destroyed` | `busy` while a command is in flight. Both ways a sandbox ends read as `destroyed` — see below. |
+| `rootDir`, `environment` | The caller's working directory; `linux-namespace` | The enum is the host-facing worker shape, not the isolation technology. |
+| `exec` | Implemented | Through the shared reserve-before-admission controller, so an `AbortSignal` terminates the guest process and the peer confirms it — never abandons the wait. |
+| `writeFile`, `readFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. See the size limit below. |
+| `listFiles` | Implemented | `find -printf '%p\t%s\n'`, parsed line by line; a root that does not exist is an empty list. |
+| `openTerminal` | Implemented | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. |
+| `openTcpConnection` | Implemented | Guest loopback only. |
+| `destroy` | Implemented | DELETEs the object this backend created, which cascades to the Pod, Service and Sandbox. Idempotent; an object already gone counts as released. |
+| `setNetworkPolicy` | **Omitted** | Egress here is a `NetworkPolicy` attached to the pool's `SandboxTemplate`; there is no per-running-pod knob. The SDK's contract says a backend that cannot enforce one must omit it rather than accept it and quietly not apply it. |
+| `spawnDetached` | **Omitted** | The guest agent has no op that starts a process and hands it back running. A host that needs background jobs is told no. |
+| `walkFiles` | **Omitted** | Not in this batch. A host requiring bounded search refuses an absent method, which is the honest answer today. |
+
+### Two ways a sandbox ends
+
+`SandboxStatus` has four members and this backend adds none, so a destroyed
+sandbox and one the cluster removed both report `destroyed`. They are told
+apart by the error a later call throws:
+
+- `KubernetesSandboxDestroyedError` — this host called `destroy()`.
+- `KubernetesSandboxGoneError` — the object no longer exists on the cluster.
+  Its [lease renewal](#the-lease) found it already deleted: it expired, an
+  operator deleted it, or the controller reaped it.
+
+Both name the operation that was refused, so a log line with no stack still
+says which call it was.
+
+### The write-file size limit
+
+Because every request dials a fresh connection, each request is also that
+connection's first frame — the one the guest has not authenticated yet, since
+the credential rides inside the envelope. It is therefore bounded by the
+guest's pre-auth frame ceiling (`NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES`,
+8 MiB by default) on **every** call, not once on first use. A `writeFile`
+whose base64 body would exceed it throws `AgentPreauthFrameTooLargeError`
+(exported from `@namzu/sandbox`) **before** dialing, naming the limit.
+Roughly: bodies above ~5.9 MiB raw do not fit. Chunking a large body across
+frames is not implemented; raise the deployment's ceiling or split the write.
+
+## The privilege probe
+
+`create()` does not resolve until the guest has REPORTED, and this backend has
+checked, that it is deprivileged. Immediately after readiness, the backend runs
+`cat /proc/self/status` through the sandbox's own `exec` and refuses unless
+**all four** capability masks are zero and `NoNewPrivs` is 1:
+
+```
+CapInh: 0000000000000000
+CapPrm: 0000000000000000
+CapEff: 0000000000000000
+CapBnd: 0000000000000000
+NoNewPrivs: 1
+```
+
+Checking `CapEff` alone would be a true-looking answer: an ordinary
+unprivileged process shows `CapEff: 0000000000000000` whether or not its
+bounding set was ever dropped, so a container running as uid 0 with every
+capability still available would pass. `CapBnd` is the mask that says a
+capability can never be regained.
+
+`execute` is the op used, not `read-file`: the guest resolves every read
+against its workspace root and so cannot reach `/proc` at all, and widening
+that to make one diagnostic work would hand every caller of `readFile` a
+window into the guest's process tree.
+
+**Every failure is a refusal**, and the error text says which kind, because a
+minimal image with no `cat` on `PATH` must be diagnosable as exactly that and
+not read as a hardening failure:
+
+| Situation | `KubernetesPrivilegeProbeError.reason` | Says |
+|---|---|---|
+| The command could not run, or exited non-zero | `probe-failed` | "the privilege probe could not run … a diagnostic failure, not a privilege failure" |
+| It ran, but the output does not parse | `unreadable-output` | which field was missing or unreadable |
+| It ran, it parsed, the guest has capabilities | `privileged` | every offending mask, by name and value |
+
+A refusal destroys the instance before `create()` rejects, so no caller ever
+holds a handle to an under-hardened sandbox. **There is no configuration that
+turns this off** — the value of checking on every acquire rather than once by
+hand is precisely that it cannot be forgotten.
+
+The image's entrypoint is expected to end with
+`exec setpriv --reuid --regid --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- node agent.cjs`.
+Nothing in the agent knows about that, and nothing on the host can see it —
+which is why it is asked, not assumed.
+
+What it is **not**: a boundary against a hostile guest. The probe asks the
+agent to report its own `/proc/self/status`, so an agent that has already been
+compromised can answer with zeros. It catches the failure that actually
+happens — an image built from an older entrypoint, a `RuntimeClass` change, a
+hand-edited `SandboxTemplate`, all of which produce a sandbox that works
+perfectly and is not deprivileged. The boundary itself is the VM and the
+`NetworkPolicy`.
+
+### The probe runs on a clock
+
+A pod whose agent has wedged — out of memory, an event loop the workload
+blocked — still accepts the TCP connection and then says nothing, which is an
+ordinary cluster event rather than an exotic one. The probe therefore has a
+deadline of its own: `min(readyTimeoutMs, 15s)`, because `readyTimeoutMs` has
+already expired bounding the control plane by the time the probe starts, and
+because the number the caller chose to describe an acquire is the right size
+for one `cat` of a pseudo-file. An expiry is a refusal like any other — the
+instance is destroyed, `create()` rejects with a `probe-failed`
+`KubernetesPrivilegeProbeError` — and it says the guest did not answer, rather
+than blaming a `cat` that is not missing. Without it the probe would inherit
+the execution controller's generic defaults (a five-minute observation, then a
+cancel-confirm and a drain) and a one-minute acquire budget would become a
+six-minute hang.
+
+## The lease
+
+The absolute `shutdownTime` acquire stamps is the leak guard, and unrenewed
+it is also a deadline on the RUN: a session outliving `claimTtlSeconds` would
+have its pod deleted underneath it, mid command, with nothing to attribute the
+failure to. So the handle renews its own lease.
+
+Every half TTL (jittered ±10%, so a fleet acquired in the same second does not
+PATCH in lockstep) the handle merge-PATCHes the expiry a full TTL into the
+future — `spec.lifecycle.shutdownTime` on a claim, `spec.shutdownTime` on a
+directly created Sandbox. `shutdownPolicy: Delete` is untouched: it is a merge
+patch, and only the expiry moves.
+
+- `destroy()` stops the loop, so a released sandbox stops being renewed.
+- A failed renewal is **reported to `onLeaseRenewalError` and retried on the
+  next tick**, half a TTL before anything expires. A transient API error does
+  not retire a working sandbox. (`@namzu/sandbox` owns no logger and reads
+  none from module scope, which is why the diagnostic is handed to the host
+  rather than printed.)
+- **Each PATCH runs under its own deadline** — a quarter of the interval,
+  capped at 30 seconds — and an expiry is reported and retried like any other
+  failure. A renewal that HANGS, rather than fails, is the one outcome the
+  loop could not otherwise survive: the next tick is scheduled only after the
+  current one settles, so an API server that accepts the connection and never
+  answers would park the loop forever and let the lease expire in silence.
+- A renewal that finds the object already deleted (404/410) stops the loop and
+  marks the handle gone; every later call throws
+  `KubernetesSandboxGoneError`.
+- The timer is `unref`'d, so a host process that has finished its work exits
+  instead of lingering behind a handle nobody destroyed, and the sandbox then
+  expires on the cluster's clock. Note what that does **not** cover: inside a
+  host that keeps running — a server, say — a handle that is dropped without
+  `destroy()` keeps its closure and its timer alive and renews the object
+  indefinitely. `destroy()` is load-bearing for cleanup in a way it was not
+  before the lease existed.
+
+This is what makes `patch` on `sandboxclaims`/`sandboxes` a required RBAC
+verb — see [RBAC](#rbac).
 
 ## What it refuses
 
@@ -268,8 +428,9 @@ not cached, so fixing the cluster and calling `create()` again retries it.
 ## RBAC
 
 The ServiceAccount the host runs as needs, in the sandbox namespace:
-`create`/`get`/`delete` on `sandboxclaims`, `create`/`get`/`delete` on
-`sandboxes`, `get` on `sandboxtemplates`, `get`/`list` on `pods`, and — only
+`create`/`get`/`patch`/`delete` on `sandboxclaims`,
+`create`/`get`/`patch`/`delete` on `sandboxes`, `get` on `sandboxtemplates`,
+`get`/`list` on `pods`, and — only
 when `config.egress` is set — `get` on `networkpolicies` (`networking.k8s.io`)
 or, under `engine: 'cilium'`, `get` on `ciliumnetworkpolicies` (`cilium.io`).
 No consumer role is published upstream. A `403` surfaces as an error naming
@@ -278,13 +439,9 @@ the verb and the resource and never the token.
 ## What is not here yet
 
 This batch delivers the config type, both acquire paths, readiness, address
-resolution, teardown and egress translation/verification. Still to come, each
-in its own change:
+resolution, the execution surface, the privilege probe, the lease, teardown
+and egress translation/verification. Still to come, each in its own change:
 
-- **The execution surface.** `exec`, `readFile`, `writeFile` and `listFiles`
-  currently throw `KubernetesAgentTransportPendingError`, which names the
-  missing transport rather than failing as an absent method. `destroy()` is
-  real today.
 - **Workspace lifecycle.** Suspend, resume, and a persistent block-mode disk.
 - **Cluster manifests.** The image, the `RuntimeClass`, `SandboxTemplate`,
   `SandboxWarmPool`, `NetworkPolicy` and RBAC the above assumes.

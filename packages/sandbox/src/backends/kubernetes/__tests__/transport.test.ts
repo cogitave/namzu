@@ -209,6 +209,39 @@ describe('KubernetesAgentTransport over a real TCP-listening agent', () => {
 		expect((caught as Error)?.message).toMatch(/unauthorized/i)
 	})
 
+	// `reserve` refusing a wrong token was never enough on its own. The
+	// shared controller RETRIES a failed cancellation for its whole confirm
+	// window and then reports the cancellation UNCONFIRMED — which retires
+	// the sandbox — so a refusal read as a transport blip would describe a
+	// wrong credential as an ambiguous outcome, after spending the window.
+	it('refuses a wrong token on cancel-execution with the same named error as reserve', async () => {
+		const { port } = await startAgent(POD_UID)
+		const authorized = new KubernetesAgentTransport({
+			kind: 'tcp',
+			host: '127.0.0.1',
+			port,
+			token: POD_UID,
+		})
+		const { executionId } = (await authorized.reserve()) as { executionId: string }
+
+		const wrong = new KubernetesAgentTransport({
+			kind: 'tcp',
+			host: '127.0.0.1',
+			port,
+			token: WRONG_UID,
+		})
+		let caught: unknown
+		try {
+			await wrong.cancel(executionId)
+		} catch (error) {
+			caught = error
+		}
+		expect((caught as Error)?.name).toBe('KubernetesAgentUnauthorizedError')
+		// And the authorized caller can still cancel the same execution: the
+		// refusal was about the credential, not about the execution.
+		expect(await authorized.cancel(executionId)).toMatchObject({ ok: true })
+	})
+
 	it('opens a fresh connection per call — two sequential calls, two server connections', async () => {
 		const { port } = await startAgent()
 		let connections = 0

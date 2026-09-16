@@ -13,7 +13,7 @@
  *    warm is the path that runs in production.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
 import {
 	DEFAULT_AGENT_PORT,
@@ -27,24 +27,45 @@ import {
 	readyCondition,
 	startFakeApiServer,
 } from './fixtures/fake-api-server.js'
+import { stubLoopbackDns } from './fixtures/loopback-dns.js'
+import { type ScriptedAgent, startScriptedAgent } from './fixtures/scripted-agent.js'
 
 const NAMESPACE = 'namzu-sandboxes'
 const POOL_SANDBOX_NAME = 'smoke-pool-sandbox-7fb2c'
 const POD_UID = '5f2c9c9c-0e5d-4a2d-9e2a-19b1c0a8d001'
 
 let server: FakeApiServer | undefined
+// `create()` reaches the guest agent before it resolves, for the
+// acquire-time privilege probe, so these cases need a data plane as well as
+// a control plane. The scripted guest answers the probe with a correctly
+// deprivileged /proc/self/status — `privilege-probe.test.ts` owns what
+// happens when it does not — and the DNS stub lets the fixtures keep
+// describing sandboxes the way a cluster does, with real Service FQDNs,
+// instead of rewriting every one of them to a loopback literal.
+let agent: ScriptedAgent | undefined
+let restoreDns: (() => void) | undefined
+
+beforeEach(async () => {
+	agent = await startScriptedAgent({ token: POD_UID })
+	restoreDns = stubLoopbackDns()
+})
 
 afterEach(async () => {
+	restoreDns?.()
+	restoreDns = undefined
 	await server?.close()
+	await agent?.close()
 	server = undefined
+	agent = undefined
 })
 
 function backend(overrides: { warmPoolName?: string } = {}) {
-	if (!server) throw new Error('fake API server not started')
+	if (!server || !agent) throw new Error('fixtures not started')
 	return buildKubernetesBackend({
 		access: { server: server.url, getToken: async () => 'sa-token' },
 		namespace: NAMESPACE,
 		sandboxTemplateName: 'namzu-task',
+		agentPort: agent.port,
 		readyTimeoutMs: 2_000,
 		readyPollIntervalMs: 5,
 		...overrides,
@@ -221,6 +242,7 @@ describe('warm acquire, against a claim the pool adopts', () => {
 			sandboxTemplateName: 'namzu-task',
 			warmPoolName: 'namzu-task-pool',
 			claimTtlSeconds: 120,
+			agentPort: agent?.port ?? 0,
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 5,
 		}).create({ workingDirectory: '/workspace' })
@@ -516,6 +538,7 @@ describe('cold acquire, with no pool configured', () => {
 			namespace: NAMESPACE,
 			sandboxTemplateName: 'namzu-task',
 			runtimeClassName: 'kata-qemu',
+			agentPort: agent?.port ?? 0,
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 5,
 		}).create({ workingDirectory: '/workspace' })
@@ -607,41 +630,6 @@ describe('teardown', () => {
 		})
 		await expect(sandbox.destroy()).resolves.toBeUndefined()
 		expect(sandbox.status).toBe('destroyed')
-	})
-})
-
-describe('the surface that is not wired yet', () => {
-	it('names the missing transport instead of failing as a missing method', async () => {
-		server = await startFakeApiServer((req) => {
-			if (req.method === 'POST') return { status: 201, body: {} }
-			if (req.method === 'GET' && req.path.includes('/sandboxclaims/')) {
-				return {
-					status: 200,
-					body: {
-						status: {
-							conditions: [readyCondition()],
-							sandbox: { name: POOL_SANDBOX_NAME, serviceFQDN: 'sbx.ns.svc.cluster.local' },
-						},
-					},
-				}
-			}
-			if (req.method === 'GET' && req.path.includes('/pods/')) {
-				return { status: 200, body: { metadata: { uid: POD_UID } } }
-			}
-			if (req.method === 'DELETE') return { status: 200, body: {} }
-			return { status: 404, body: {} }
-		})
-
-		const sandbox = await backend({ warmPoolName: 'namzu-task-pool' }).create({
-			workingDirectory: '/workspace',
-		})
-		await expect(sandbox.exec('true')).rejects.toThrow(/guest agent transport/)
-		await expect(sandbox.readFile('/x')).rejects.toThrow(
-			/KubernetesAgentTransportPendingError|guest agent transport/,
-		)
-		await expect(sandbox.writeFile('/x', 'y')).rejects.toThrow(/guest agent transport/)
-		await expect(sandbox.listFiles('/')).rejects.toThrow(/guest agent transport/)
-		await sandbox.destroy()
 	})
 })
 
