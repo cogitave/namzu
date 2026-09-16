@@ -5,7 +5,7 @@ description: The mcpServers config key — how the CLI declares an external MCP 
 resource: packages/cli/src/integrations/mcp/servers.ts
 tags: [cli, config, mcp, tools]
 status: stable
-generated: { by: human:bahadirarda, at: 2026-09-05T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-09-16T00:00:00Z }
 ---
 
 # Tool servers
@@ -41,6 +41,7 @@ An external tool server is declared under `mcpServers` in `namzu.config.json`, o
 | `inheritEnv` | stdio | Names of variables copied from the operator's own environment. The child gets process plumbing plus what is named, never the whole environment — a server that needs one token is granted that token, and a reviewer can see which. |
 | `url`, `headers` | HTTP | The server's endpoint and the headers every request carries. Redirects are refused: a credentialed body is never replayed to a location the config did not name. |
 | `connectTimeoutMs` | both | How long this server has to connect, hand shake and list its tools. Default 10,000 ms. Must be a positive number; anything else is refused with a reason. |
+| `eraProbeTimeoutMs` | both | How long this server's era probe — see below — waits for an answer, in milliseconds. Defaults to the SDK's own `2000`, clamped to `connectTimeoutMs`. Must be a positive number; anything else is refused with a reason. |
 
 An entry names a command or a URL, never both. One that names both is refused rather than guessed at, because picking either would run something the operator did not mean to run.
 
@@ -50,8 +51,12 @@ The default of ten seconds exists for a wedged server: a process that spawns, op
 
 A server whose first spawn is genuinely slow is a different thing. A Python SDK server cold-boots in fifteen to twenty seconds on some machines, and under that default it is a working server the CLI refuses, so a headless run that depends on it stops before its first model call with `server "name" did not answer within 10000ms`. `connectTimeoutMs` raises the bound for that server alone; the others keep the deadline that protects the session. The value is named in the failure, so a deadline that is still too short says so.
 
+### The era probe
+
+Before it offers the legacy `initialize` handshake, `connect()` asks the server `server/discover` to see whether it speaks the modern MCP era instead. First contact with a given origin (HTTP) or resolved command (stdio) pays one extra round trip for this — cached afterward, so it is spent once per server identity, not once per run. Against a server that answers, modern or legacy, that round trip is the only cost. Against a legacy stdio server old enough to stay silent on a method it has never heard of, the probe instead waits out its own timeout once before falling back — `eraProbeTimeoutMs`, above, which is what to lower for a server known to be that old, so the probe gives up sooner and leaves more of `connectTimeoutMs` for the handshake that will actually answer.
+
 ## When a server does not work
 
-Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` was not a positive number. What is done about it differs by surface. A person in the interactive session sees the line and fixes the config. A headless `run` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
+Each failure becomes an entry with a reason: the command could not be spawned, the spec named neither a command nor a URL, the handshake did not answer in time, `connectTimeoutMs` or `eraProbeTimeoutMs` was not a positive number. What is done about it differs by surface. A person in the interactive session sees the line and fixes the config. A headless `run` has nobody to read it, so it refuses to start rather than let the model work without tools it was promised — the hazard this module exists to prevent is the operator who watches the agent struggle and concludes the model is bad at the task.
 
 A stdio server is a child process. The session owns its shutdown: closing the session closes every connected server, bounded at two seconds each, so a one-shot run leaves nothing behind.

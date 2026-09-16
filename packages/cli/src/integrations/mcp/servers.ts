@@ -93,6 +93,22 @@ export interface McpServerSpec {
 	 * that server alone; the others keep the bound that protects the session.
 	 */
 	readonly connectTimeoutMs?: number
+	/**
+	 * How long THIS server's era probe — `connect()`'s `server/discover`
+	 * check for a modern peer, sent before the legacy handshake — waits for
+	 * an answer, in milliseconds. Defaults to the SDK's own
+	 * `MCPClientConfig.eraProbeTimeoutMs` (`2000`, clamped to whichever
+	 * `connectTimeoutMs` this server ends up with).
+	 *
+	 * The probe costs nothing against a server that answers — modern or
+	 * legacy — because either answer settles it immediately. It costs THIS
+	 * long against a legacy server old enough to stay silent on a method it
+	 * has never heard of, once per origin or per resolved command, not once
+	 * per run. Lower it for a stdio server known to be that old and slow to
+	 * connect, so the probe gives up sooner and leaves more of
+	 * `connectTimeoutMs` for the handshake that will actually answer.
+	 */
+	readonly eraProbeTimeoutMs?: number
 }
 
 export type McpServersConfig = Readonly<Record<string, McpServerSpec>>
@@ -205,6 +221,28 @@ export function connectDeadlineFor(spec: McpServerSpec): number | string {
 	return ms
 }
 
+/**
+ * The era probe deadline a spec asks for, or why it cannot have it.
+ *
+ * `undefined` when the spec names none — unlike {@link connectDeadlineFor},
+ * which defaults to a CLI-owned constant, an unset `eraProbeTimeoutMs` is
+ * passed through unset so `MCPClient` applies ITS OWN default and clamp
+ * (`DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS`, never longer than whatever
+ * `connectTimeoutMs` this server ends up with). Refused rather than
+ * defaulted when given but invalid, for the same reason
+ * `connectDeadlineFor` refuses one: an operator who mistyped this key
+ * wanted the probe to give up sooner, and silently running with the SDK's
+ * default would produce the very wait they were configuring away.
+ */
+export function eraProbeTimeoutFor(spec: McpServerSpec): number | undefined | string {
+	const ms = spec.eraProbeTimeoutMs
+	if (ms === undefined) return undefined
+	if (typeof ms !== 'number' || !Number.isFinite(ms) || ms <= 0) {
+		return `eraProbeTimeoutMs must be a positive number of milliseconds, got ${JSON.stringify(ms)}`
+	}
+	return ms
+}
+
 export async function connectMcpServers(
 	config: McpServersConfig | undefined,
 	options: { readonly cwd: string },
@@ -233,7 +271,16 @@ export async function connectMcpServers(
 			startupFailed.push({ name, reason: deadline })
 			continue
 		}
-		const client = new MCPClient({ serverName: name, transport })
+		const eraProbeTimeoutMs = eraProbeTimeoutFor(spec)
+		if (typeof eraProbeTimeoutMs === 'string') {
+			startupFailed.push({ name, reason: eraProbeTimeoutMs })
+			continue
+		}
+		const client = new MCPClient({
+			serverName: name,
+			transport,
+			...(eraProbeTimeoutMs !== undefined ? { eraProbeTimeoutMs } : {}),
+		})
 		try {
 			await withDeadline(client.connect(), deadline, `server "${name}"`)
 			const listed = await withDeadline(

@@ -418,6 +418,80 @@ describe('a server that does not work is named, never merely absent', () => {
 		}
 	}, 20_000)
 
+	it('overrides the era probe timeout so a known-old server gives up on it sooner', async () => {
+		// The previous test measures the SDK's own default probe timeout
+		// (>= 1s) against a server that stays silent on `server/discover`.
+		// This one proves a spec can shorten that wait for a server known to
+		// be that old, without touching `connectTimeoutMs` at all.
+		const server = writeServer('mute-probe-short.js', SILENT_ON_UNKNOWN_SERVER)
+		const started = Date.now()
+
+		const mcp = await connectMcpServers(
+			{
+				tickets: {
+					command: process.execPath,
+					args: [server],
+					eraProbeTimeoutMs: 100,
+				},
+			},
+			{ cwd: dir },
+		)
+		const elapsed = Date.now() - started
+
+		try {
+			expect(mcp.failed).toEqual([])
+			expect(mcp.connected[0]?.toolCount).toBe(2)
+			// Well under the SDK's ~2s default: the override is what shortened
+			// this, not the connect deadline (still the 10s default here).
+			expect(elapsed, 'the shorter probe timeout is what this measures').toBeLessThan(1_000)
+		} finally {
+			await mcp.close()
+		}
+	}, 20_000)
+
+	it('leaves the era probe at the SDK default when the spec names none', async () => {
+		// The passthrough is conditional (`eraProbeTimeoutMs` is only added to
+		// the `MCPClient` config when the spec sets one) precisely so an
+		// unconfigured server keeps behaving exactly as it did before this
+		// field existed — proven here against a normal, responsive server
+		// rather than by re-measuring the silent-probe timing above.
+		const server = writeServer('tickets-default-probe.js', WORKING_SERVER)
+
+		const mcp = await connectMcpServers(
+			{ tickets: { command: process.execPath, args: [server] } },
+			{ cwd: dir },
+		)
+
+		try {
+			expect(mcp.failed).toEqual([])
+			expect(mcp.connected[0]?.toolCount).toBe(2)
+		} finally {
+			await mcp.close()
+		}
+	})
+
+	it('refuses an era probe timeout that is not a positive number of milliseconds', async () => {
+		// Not defaulted: silently running with the SDK's default would produce
+		// the very wait the operator was configuring away, and blame the
+		// server for it.
+		const server = writeServer('tickets.js', WORKING_SERVER)
+		const mcp = await connectMcpServers(
+			{
+				tickets: {
+					command: process.execPath,
+					args: [server],
+					eraProbeTimeoutMs: 0,
+				},
+			},
+			{ cwd: dir },
+		)
+
+		expect(mcp.connected).toEqual([])
+		expect(mcp.failed[0]?.name).toBe('tickets')
+		expect(mcp.failed[0]?.reason).toContain('eraProbeTimeoutMs')
+		await mcp.close()
+	})
+
 	it('refuses a connect deadline that is not a positive number of milliseconds', async () => {
 		// Not defaulted: silently running with 10s would produce the failure the
 		// operator was configuring away, and blame the server for it.
