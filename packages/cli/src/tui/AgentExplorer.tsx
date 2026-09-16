@@ -781,7 +781,7 @@ export function agentTranscriptRows(
 		{ id: `${agent.viewId}:prompt`, text: agent.prompt, source: 'prompt' },
 		...agent.transcript.map((row) => ({
 			id: row.id,
-			text: row.kind === 'tool' && row.detail ? `${row.text}\n${row.detail}` : row.text,
+			text: transcriptRowText(row),
 			source: row,
 		})),
 	]
@@ -982,8 +982,19 @@ function lineGlyph(line: AgentTranscriptLine): string {
 
 function rowGlyph(row: SubagentActivity['transcript'][number]): string {
 	if (row.kind === 'assistant') return '∴'
-	if (row.kind === 'system') return '·'
+	if (row.kind === 'system') return row.direction === 'to-child' ? '←' : '·'
 	return row.status === 'working' ? '◌' : row.status === 'failed' ? '✗' : '✓'
+}
+
+/**
+ * A delivered `send_message` renders as `← from parent: …` — the arrow is
+ * the row's own glyph (`rowGlyph`), so only the label goes here. Every other
+ * row kind keeps its own text unchanged.
+ */
+function transcriptRowText(row: SubagentActivity['transcript'][number]): string {
+	if (row.kind === 'tool' && row.detail) return `${row.text}\n${row.detail}`
+	if (row.kind === 'system' && row.direction === 'to-child') return `from parent: ${row.text}`
+	return row.text
 }
 
 function lineColor(line: AgentTranscriptLine): string {

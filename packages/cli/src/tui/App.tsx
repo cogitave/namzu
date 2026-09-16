@@ -1591,6 +1591,37 @@ export function App({
 		}
 	}, [subagents, pushMessage, session])
 
+	/**
+	 * A delivered `send_message` correction already lands its own row inside
+	 * the child's transcript (`SubagentActivityMonitor.recordMessage`); this
+	 * mirrors it into the main conversation so the operator sees what was
+	 * sent without drilling in. Deliberately a separate ref from
+	 * `reportedAgentsRef` above: that gate is exactly-once per terminal
+	 * agent, this one is exactly-once per delivered message, and folding the
+	 * two together would let one gate's reset silently double-report the
+	 * other's rows.
+	 */
+	const reportedCorrectionsRef = useRef(new Set<string>())
+	useEffect(() => {
+		reportedCorrectionsRef.current.clear()
+	}, [session])
+	useEffect(() => {
+		const current = session?.subagents?.getSnapshot() ?? []
+		for (const agent of subagents) {
+			const live = current.find(
+				(item) => item.viewId === agent.viewId && item.workflowId === agent.workflowId,
+			)
+			if (!live) continue
+			for (const row of agent.transcript) {
+				if (row.kind !== 'system' || row.direction !== 'to-child') continue
+				if (!live.transcript.some((item) => item.id === row.id)) continue
+				if (reportedCorrectionsRef.current.has(row.id)) continue
+				reportedCorrectionsRef.current.add(row.id)
+				pushMessage('tool', `${agent.description} · correction sent`, false, '→', [row.text])
+			}
+		}
+	}, [subagents, pushMessage, session])
+
 	const applyPermissionMode = useCallback(
 		(mode: PermissionMode): void => {
 			if (!session?.hasProvider) {

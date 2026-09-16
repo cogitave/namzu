@@ -511,6 +511,31 @@ describe('the CLI sub-agent activity monitor', () => {
 		expect(monitor.getSnapshot()[0]).not.toHaveProperty('tokens')
 	})
 
+	it('a long correction is bounded like any other row', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
+		tracker.onEvent({
+			type: 'agent_pending',
+			runId,
+			taskId,
+			parentAgentId: 'namzu',
+			childAgentId: 'worker',
+			depth: 0,
+		})
+
+		monitor.recordMessage(taskId, 'x'.repeat(5_000), 'to-child')
+
+		const row = monitor.getSnapshot()[0]?.transcript.at(-1)
+		expect(row).toMatchObject({ kind: 'system', direction: 'to-child' })
+		expect(row?.text.length).toBeLessThanOrEqual(2_048)
+		expect(row?.text).toContain('[clipped]')
+
+		// An unknown task id is a silent no-op: nothing to attach the row to.
+		const before = monitor.getSnapshot()
+		monitor.recordMessage('no-such-task', 'lost message', 'to-child')
+		expect(monitor.getSnapshot()).toEqual(before)
+	})
+
 	it('the resolved child model reaches the activity record', () => {
 		const monitor = new SubagentActivityMonitor()
 		monitor.begin({

@@ -267,6 +267,10 @@ it('does independent work, delivers one correction at the next child boundary, a
 		expect(run.childRequests[0]?.messages.some((message) => message.content === CORRECTION)).toBe(
 			false,
 		)
+		const delivered = run.runtime.activity.getSnapshot().find((entry) => entry.taskId === taskId)
+		expect(delivered?.transcript).toContainEqual(
+			expect.objectContaining({ kind: 'system', direction: 'to-child', text: CORRECTION }),
+		)
 
 		const foreign = await run.runtime.sendMessageTool.execute(
 			{ task_id: taskId, message: 'FOREIGN_CORRECTION_MUST_NOT_ARRIVE' },
@@ -274,6 +278,8 @@ it('does independent work, delivers one correction at the next child boundary, a
 		)
 		expect(foreign.success).toBe(false)
 		expect(foreign.error).toContain('does not belong to this parent run')
+		const afterForeign = run.runtime.activity.getSnapshot().find((entry) => entry.taskId === taskId)
+		expect(afterForeign?.transcript).toEqual(delivered?.transcript)
 
 		run.release()
 		const result = await run.pending
@@ -305,6 +311,80 @@ it('does independent work, delivers one correction at the next child boundary, a
 		expect(finished.success).toBe(false)
 		expect(finished.error).toContain('finished')
 		expect(run.childCount()).toBe(1)
+	} finally {
+		await run.close()
+	}
+})
+
+it('a refused send leaves no transcript row', async () => {
+	const run = await backgroundRun()
+	try {
+		await vi.waitFor(() => expect(run.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		const taskId = run.taskId()
+		expect(taskId).toBeDefined()
+		const before = run.runtime.activity
+			.getSnapshot()
+			.find((entry) => entry.taskId === taskId)?.transcript
+
+		const unowned = await run.runtime.sendMessageTool.execute(
+			{ task_id: taskId, message: 'UNOWNED_REFUSAL_MUST_NOT_RENDER' },
+			{ ...run.context, runId: run.foreignRunId },
+		)
+		expect(unowned.success).toBe(false)
+		const afterUnowned = run.runtime.activity
+			.getSnapshot()
+			.find((entry) => entry.taskId === taskId)?.transcript
+		expect(afterUnowned).toEqual(before)
+		expect(
+			afterUnowned?.some(
+				(row) => row.kind === 'system' && row.text.includes('UNOWNED_REFUSAL_MUST_NOT_RENDER'),
+			),
+		).toBe(false)
+
+		run.release()
+		const result = await run.pending
+		expect(result.status).toBe('completed')
+
+		const terminal = await run.runtime.sendMessageTool.execute(
+			{ task_id: taskId, message: 'TERMINAL_REFUSAL_MUST_NOT_RENDER' },
+			run.context,
+		)
+		expect(terminal.success).toBe(false)
+		const afterTerminal = run.runtime.activity
+			.getSnapshot()
+			.find((entry) => entry.taskId === taskId)?.transcript
+		expect(
+			afterTerminal?.some(
+				(row) => row.kind === 'system' && row.text.includes('TERMINAL_REFUSAL_MUST_NOT_RENDER'),
+			),
+		).toBe(false)
+	} finally {
+		await run.close()
+	}
+})
+
+it('a correction is rendered once', async () => {
+	const run = await backgroundRun()
+	try {
+		await vi.waitFor(() => expect(run.parentRequests).toHaveLength(4), { timeout: 2_500 })
+		const taskId = run.taskId()
+		const deliveredRows = () =>
+			run.runtime.activity
+				.getSnapshot()
+				.find((entry) => entry.taskId === taskId)
+				?.transcript.filter((row) => row.kind === 'system' && row.direction === 'to-child')
+
+		const first = deliveredRows()
+		expect(first).toHaveLength(1)
+		expect(first?.[0]).toMatchObject({ text: CORRECTION })
+
+		// Re-reading the projection is not a write: a second snapshot must
+		// read back the same single row, never a duplicate from re-rendering.
+		const second = deliveredRows()
+		expect(second).toEqual(first)
+
+		run.release()
+		await run.pending
 	} finally {
 		await run.close()
 	}

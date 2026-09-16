@@ -1873,3 +1873,42 @@ describe('agent completion presentation', () => {
 		}
 	})
 })
+
+describe('correction delivery presentation', () => {
+	it('the parent conversation shows the correction it sent', async () => {
+		const child = agent({
+			viewId: 'child-correction',
+			taskId: 'task-correction',
+			description: 'Branch audit',
+		})
+		activity.set([child])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+
+		const corrected = {
+			...child,
+			transcript: [
+				{
+					id: `${child.viewId}:message:1`,
+					kind: 'system' as const,
+					text: 'also check the beta branch identifier',
+					direction: 'to-child' as const,
+				},
+			],
+		}
+		activity.set([corrected])
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('Branch audit · correction sent'),
+			'correction row missing from the parent conversation',
+		)
+		expect(painted(screen)).toContain('also check the beta branch identifier')
+
+		// A later re-render (or a resumed replay publishing the same snapshot
+		// again) must not duplicate the row.
+		activity.set([{ ...corrected }])
+		await screen.waitForRender()
+		expect(painted(screen).split('Branch audit · correction sent')).toHaveLength(2)
+	})
+})

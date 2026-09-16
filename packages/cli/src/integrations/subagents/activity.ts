@@ -20,6 +20,14 @@ export type SubagentActivityStatus =
 	| 'failed'
 	| 'cancelled'
 
+/**
+ * Only value produced today: a correction or context queued with
+ * `send_message`, delivered into a running child. Named for the receiving
+ * surface's point of view — the child received it — so the glyph each
+ * renderer picks stays unambiguous without re-reading the row's text.
+ */
+export type SubagentMessageDirection = 'to-child'
+
 export type SubagentTranscriptRow =
 	| {
 			readonly id: string
@@ -37,6 +45,12 @@ export type SubagentTranscriptRow =
 			readonly id: string
 			readonly kind: 'system'
 			readonly text: string
+			/**
+			 * Set only for a delivered `send_message`; absent for every other
+			 * system row (agent_failed, run_failed, the settle fallback), which
+			 * render as before.
+			 */
+			readonly direction?: SubagentMessageDirection
 	  }
 
 export interface SubagentActivity {
@@ -137,6 +151,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	private counter = 0
 	private fallbackBatchCounter = 0
 	private phaseCounter = 0
+	private messageCounter = 0
 	private readonly phases = new Map<
 		string,
 		{
@@ -291,6 +306,28 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				this.notifyNow()
 			},
 		}
+	}
+
+	/**
+	 * Pushes a bounded system row recording a message delivered into a
+	 * running child, through the same `pushRow` path every other transcript
+	 * row uses. Callers own delivery: this only records that it happened, so
+	 * it must run after the send it announces has actually succeeded — a
+	 * refused or unowned send must never call this. A `taskId` with no
+	 * matching record (already pruned, or never tracked) is a silent no-op:
+	 * there is no row left to explain what was sent.
+	 */
+	recordMessage(taskId: string, text: string, direction: SubagentMessageDirection): void {
+		if (this.closed) return
+		const record = [...this.records.values()].find((entry) => entry.taskId === taskId)
+		if (!record) return
+		pushRow(record, {
+			id: `${record.viewId}:message:${++this.messageCounter}`,
+			kind: 'system',
+			text: bounded(text, MAX_ROW_CODE_UNITS),
+			direction,
+		})
+		this.notifyNow()
 	}
 
 	getSnapshot(): readonly SubagentActivity[] {

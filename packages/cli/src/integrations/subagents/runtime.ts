@@ -1024,6 +1024,10 @@ export async function createSubagentRuntime(
 				}
 			context.abortSignal.throwIfAborted()
 			await gateway.continueTask(taskId, message)
+			// Only after delivery is accepted: a row claiming a correction was
+			// sent must never precede the send it describes, and a refused or
+			// unowned attempt (returned above) must never produce one at all.
+			activity.recordMessage(String(taskId), message, 'to-child')
 			return {
 				success: true,
 				output: `Message queued for task ${taskId}; it will be available at the child's next request boundary.`,

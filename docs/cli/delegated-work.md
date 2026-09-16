@@ -51,6 +51,14 @@ request boundary. Acceptance confirms queuing, not delivery or execution.
 Messages are bounded to 16,000 characters. Finished tasks cannot be restarted
 through this tool, and another parent's task cannot receive the message.
 
+Once delivery is confirmed — never for a refused or unowned attempt — the
+message becomes visible on both sides of the exchange. The child's transcript
+(Ctrl+T, Enter to drill in) gets a `← from parent: …` row alongside its tool
+calls and answers. The main conversation gets a matching row, `<description> ·
+correction sent`, with the message text beneath it, so the operator can see
+what was said without opening the child's screen. Each side shows the message
+exactly once, however many times the surface re-renders.
+
 Each observed agent completion adds one named status row to the main transcript,
 whether or not the model calls `wait_for_task`. A correlated wait shows
 `Waiting · <task name>` while active; its successful protocol response does not
