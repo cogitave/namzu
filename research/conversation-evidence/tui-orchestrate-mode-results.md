@@ -297,3 +297,161 @@ None.
 
 ```
 
+
+---
+
+## Re-verification after the footer-priority fix (2026-09-17)
+
+Re-run of this same harness (`tui-orchestrate-mode-cli.mjs`, `tui-orchestrate-mode-drive.py`, `tui-footer-order-render.mjs`), against `packages/cli/dist` rebuilt from `fix(cli): keep the orchestrate indicator on the footer at narrow widths` (`packages/cli/src/tui/StatusBar.tsx`). Same scenario, same steps, same synthetic provider — only the footer's own width-pressure priority for `orchestrate` changed. Re-captures the two checkpoints the original 40x30 run flagged in **Observations** above (`orchestrate_on`, `after_model_switch`), at both 100x30 and 40x30 for comparison.
+
+### Issues
+
+None.
+
+### Observations
+
+None — the 40x30 observations recorded above (orchestrate mode on with no trace of it in the footer) no longer reproduce. `orchestrate` is now its own segment in `fitStatusLine`, held to the mode badge's own drop priority: it survives the working directory, the effort label, the cycle-key reminder and the model being dropped for room, at every width this harness drives.
+
+### 100x30
+
+#### orchestrate mode on (footer)
+
+```
+
+█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █
+█ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v25.0.1
+
+ · Computer use is unavailable on this device: Win32Adapter: neither PowerShell Core nor Windows
+   PowerShell is available on PATH
+
+ · Orchestrate mode is on — effort pinned to high for gpt-5.6-terra, and delegation guidance is
+   strengthened for this session.
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                                         │
+ └────────────────────────────────────────────────────────────────────────────────────────────────┘
+ shift+tab to cycle · effort high · orchestrate · …-orchestrate-mode-fFkBKV/workspace gpt-5.6-terra
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```
+
+#### after model switch
+
+```
+
+█▄ █ ▄▀█ █▀▄▀█ ▀█ █ █
+█ ▀█ █▀█ █ ▀ █ █▄ █▄█  Cogitave v25.0.1
+
+· Computer use is unavailable on this device: Win32Adapter: neither PowerShell Core nor Windows
+  PowerShell is available on PATH
+
+· Orchestrate mode is on — effort pinned to high for gpt-5.6-terra, and delegation guidance is
+  strengthened for this session.
+
+ · Model requested: gpt-5.6-luna. Checking available catalogues…
+
+ · Computer use is unavailable on this device: Win32Adapter: neither PowerShell Core nor Windows
+   PowerShell is available on PATH
+
+ · Switched to codex · gpt-5.6-luna for this conversation.
+
+ ┌─ MESSAGE ──────────────────────────────────────────────────────────────────────────────────────┐
+ │ › Type a message… (/help for commands)                                                         │
+ └────────────────────────────────────────────────────────────────────────────────────────────────┘
+ shift+tab to cycle · effort high · orchestrate · …u-orchestrate-mode-fFkBKV/workspace gpt-5.6-luna
+
+
+
+
+
+
+
+
+
+```
+
+### 40x30
+
+#### orchestrate mode on (footer)
+
+```
+
+∴ namzu  Cogitave v25.0.1
+ · Computer use is unavailable on this
+   device: Win32Adapter: neither
+   PowerShell Core nor Windows
+   PowerShell is available on PATH
+
+ · Orchestrate mode is on — effort
+   pinned to high for gpt-5.6-terra,
+   and delegation guidance is
+   strengthened for this session.
+
+ ┌─ MESSAGE ──────────────────────────┐
+ │ › Type a message… (/help for       │
+ │   commands)                        │
+ └────────────────────────────────────┘
+ shift+tab to cycle · orchestrate
+
+
+
+
+
+
+
+
+
+
+
+
+
+```
+
+#### after model switch
+
+```
+
+∴ namzu  Cogitave v25.0.1
+· Computer use is unavailable on this
+  device: Win32Adapter: neither
+  PowerShell Core nor Windows PowerShell
+   is available on PATH
+
+· Orchestrate mode is on — effort pinned
+   to high for gpt-5.6-terra, and
+  delegation guidance is strengthened
+  for this session.
+
+· Model requested: gpt-5.6-luna.
+  Checking available catalogues…
+
+ · Computer use is unavailable on this
+   device: Win32Adapter: neither
+   PowerShell Core nor Windows
+   PowerShell is available on PATH
+
+ · Switched to codex · gpt-5.6-luna for
+    this conversation.
+
+ ┌─ MESSAGE ──────────────────────────┐
+ │ › Type a message… (/help for       │
+ │   commands)                        │
+ └────────────────────────────────────┘
+ shift+tab to cycle · orchestrate
+
+
+```
