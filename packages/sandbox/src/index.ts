@@ -544,10 +544,12 @@ export interface KubernetesBackendConfig {
 	 *
 	 * The handle renews its own `shutdownTime` every half-TTL for as long as
 	 * it is alive, so a run that outlives `claimTtlSeconds` keeps its pod.
-	 * A failed renewal is retried on the next tick, half a TTL before
-	 * anything expires; this callback is where the diagnostic goes, because
-	 * `@namzu/sandbox` owns no logger and reads none from module scope.
-	 * Setting it changes nothing about behaviour.
+	 * A failed renewal is retried on a short capped backoff — starting at one
+	 * second, not the next half-TTL tick — so a single API blip near a
+	 * scheduled renewal gets several more chances before anything expires;
+	 * this callback is where the diagnostic goes, because `@namzu/sandbox`
+	 * owns no logger and reads none from module scope. Setting it changes
+	 * nothing about behaviour.
 	 */
 	readonly onLeaseRenewalError?: (error: unknown) => void
 	/**

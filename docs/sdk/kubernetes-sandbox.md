@@ -710,11 +710,17 @@ directly created Sandbox. `shutdownPolicy: Delete` is untouched: it is a merge
 patch, and only the expiry moves.
 
 - `destroy()` stops the loop, so a released sandbox stops being renewed.
-- A failed renewal is **reported to `onLeaseRenewalError` and retried on the
-  next tick**, half a TTL before anything expires. A transient API error does
-  not retire a working sandbox. (`@namzu/sandbox` owns no logger and reads
-  none from module scope, which is why the diagnostic is handed to the host
-  rather than printed.)
+- A failed renewal is **reported to `onLeaseRenewalError` and retried on a
+  capped exponential backoff** — one second, doubling, capped at whichever is
+  smaller of thirty seconds or a twentieth of the TTL — not on the next
+  half-TTL tick. Waiting a full half-TTL to retry a failure would make one
+  blip at the wrong moment a coin flip against the object's own
+  `shutdownTime`, since both land roughly a TTL after the last success; the
+  short backoff instead gets many attempts inside the window that actually
+  matters. A success resets the backoff and returns the loop to the normal
+  half-TTL cadence. A transient API error does not retire a working sandbox.
+  (`@namzu/sandbox` owns no logger and reads none from module scope, which is
+  why the diagnostic is handed to the host rather than printed.)
 - **Each PATCH runs under its own deadline** — a quarter of the interval,
   capped at 30 seconds — and an expiry is reported and retried like any other
   failure. A renewal that HANGS, rather than fails, is the one outcome the

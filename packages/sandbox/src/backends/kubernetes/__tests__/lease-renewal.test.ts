@@ -43,6 +43,7 @@ let agent: ScriptedAgent | undefined
 let lease: KubernetesLeaseRenewal | undefined
 
 afterEach(async () => {
+	vi.useRealTimers()
 	lease?.stop()
 	lease = undefined
 	await server?.close()
@@ -101,12 +102,14 @@ describe('the renewal loop', () => {
 		expect(calls).toBe(observed)
 	})
 
-	it('reports a failed renewal and retries on the next tick', async () => {
+	it('retries a failed renewal on a growing backoff, then resumes the half-TTL cadence after success', async () => {
+		vi.useFakeTimers()
 		const errors: unknown[] = []
 		let attempts = 0
 		lease = new KubernetesLeaseRenewal({
-			ttlSeconds: 600,
-			intervalMs: 5,
+			ttlSeconds: 3_600,
+			// No jitter: the delays below are then exact, not a ±10% range.
+			random: () => 0.5,
 			renew: async () => {
 				attempts += 1
 				if (attempts <= 2) throw new Error('apiserver unavailable')
@@ -116,16 +119,184 @@ describe('the renewal loop', () => {
 		})
 		lease.start()
 
-		// The third attempt succeeds, which only happens if the loop survived
-		// the first two — a transient API error must not retire a sandbox
-		// with half a TTL of headroom still in hand.
-		await vi.waitFor(() => expect(attempts).toBeGreaterThanOrEqual(3))
-		expect(errors).toHaveLength(2)
+		// The first attempt is the ordinary half-TTL tick, not a retry.
+		await vi.advanceTimersByTimeAsync(30 * 60 * 1_000 - 1)
+		expect(attempts).toBe(0)
+		await vi.advanceTimersByTimeAsync(1)
+		expect(attempts).toBe(1)
+		expect(errors).toHaveLength(1)
 		expect((errors[0] as Error).message).toBe('apiserver unavailable')
+
+		// First failure: retried on the one-second backoff floor, nowhere
+		// near waiting out another half-TTL.
+		await vi.advanceTimersByTimeAsync(999)
+		expect(attempts).toBe(1)
+		await vi.advanceTimersByTimeAsync(1)
+		expect(attempts).toBe(2)
+		expect(errors).toHaveLength(2)
+
+		// Second consecutive failure: the backoff doubles to two seconds.
+		await vi.advanceTimersByTimeAsync(1_999)
+		expect(attempts).toBe(2)
+		await vi.advanceTimersByTimeAsync(1)
+		expect(attempts).toBe(3)
+		expect(lease.active).toBe(true)
+
+		// The third attempt succeeds — the backoff resets and the NEXT tick
+		// is a half-TTL away again, not another short retry.
+		await vi.advanceTimersByTimeAsync(30 * 60 * 1_000 - 1)
+		expect(attempts).toBe(3)
+		await vi.advanceTimersByTimeAsync(1)
+		expect(attempts).toBe(4)
+	})
+
+	it('caps the backoff instead of doubling forever', async () => {
+		vi.useFakeTimers()
+		const gaps: number[] = []
+		let last: number | undefined
+		lease = new KubernetesLeaseRenewal({
+			ttlSeconds: 3_600,
+			random: () => 0.5,
+			renew: async () => {
+				const now = Date.now()
+				if (last !== undefined) gaps.push(now - last)
+				last = now
+				throw new Error('still unavailable')
+			},
+			onGone: () => {},
+			onRenewalError: () => {},
+		})
+		lease.start()
+
+		await vi.advanceTimersByTimeAsync(30 * 60 * 1_000) // the first, on-time tick
+		// 1s, 2s, 4s, 8s, 16s would keep doubling past the 30s ceiling — the
+		// three ticks after that must all land at exactly the cap.
+		const schedule = [1_000, 2_000, 4_000, 8_000, 16_000, 30_000, 30_000, 30_000]
+		for (const delay of schedule) {
+			await vi.advanceTimersByTimeAsync(delay)
+		}
+
+		expect(gaps).toEqual(schedule)
+	})
+
+	it('stops immediately on gone while retrying on a backoff', async () => {
+		vi.useFakeTimers()
+		let attempts = 0
+		let gone = 0
+		lease = new KubernetesLeaseRenewal({
+			ttlSeconds: 3_600,
+			random: () => 0.5,
+			renew: async () => {
+				attempts += 1
+				if (attempts === 1) throw new Error('apiserver unavailable')
+				throw new KubernetesAlreadyGoneError('PATCH', '/apis/…/sandboxclaims/x', 404)
+			},
+			onGone: () => {
+				gone += 1
+			},
+		})
+		lease.start()
+
+		await vi.advanceTimersByTimeAsync(30 * 60 * 1_000) // first tick: fails
+		expect(attempts).toBe(1)
+		await vi.advanceTimersByTimeAsync(1_000) // backoff floor: second attempt, gone
+		expect(attempts).toBe(2)
+		expect(gone).toBe(1)
+		expect(lease.active).toBe(false)
+
+		// Nothing is scheduled behind it — no further attempt, ever.
+		await vi.advanceTimersByTimeAsync(60 * 60 * 1_000)
+		expect(attempts).toBe(2)
+	})
+
+	it('acceptance: a two-minute outage around the scheduled renewal never lets the claim expire', async () => {
+		vi.useFakeTimers()
+		const start = Date.now()
+		const outageStart = start + 30 * 60 * 1_000
+		const outageEnd = outageStart + 2 * 60 * 1_000
+		const attemptsAt: number[] = []
+		let succeededAt: number | undefined
+		lease = new KubernetesLeaseRenewal({
+			ttlSeconds: 3_600,
+			random: () => 0.5,
+			renew: async () => {
+				const now = Date.now()
+				attemptsAt.push(now)
+				if (now >= outageStart && now < outageEnd) {
+					throw new Error('apiserver unavailable')
+				}
+				succeededAt = now
+			},
+			onGone: () => {},
+			onRenewalError: () => {},
+		})
+		lease.start()
+
+		// Run out the whole TTL: if the claim's own expiry were ever reached
+		// unrenewed, nothing here would notice it — the assertions below are
+		// what actually prove a renewal landed before it.
+		await vi.advanceTimersByTimeAsync(3_600_000)
+
+		const duringOutage = attemptsAt.filter((at) => at >= outageStart && at < outageEnd)
+		// More than one retry landed inside the two-minute window — the old
+		// half-TTL-per-retry behaviour would have landed exactly one attempt
+		// (the on-time tick) and then waited another full TTL.
+		expect(duringOutage.length).toBeGreaterThan(1)
+		// A renewal succeeded well before the object's real expiry (a full
+		// TTL after the run started, since this is the first renewal).
+		expect(succeededAt).toBeDefined()
+		expect(succeededAt as number).toBeLessThan(start + 3_600_000)
 		expect(lease.active).toBe(true)
 	})
 
-	it('abandons a renewal that hangs, reports it, and renews again on the next tick', async () => {
+	it('acceptance: continuous failure across the whole TTL retries at the backoff floor and is marked gone only on 404/410', async () => {
+		vi.useFakeTimers()
+		const errors: unknown[] = []
+		const attemptsAt: number[] = []
+		let gone = 0
+		let goneNow = false
+		lease = new KubernetesLeaseRenewal({
+			ttlSeconds: 3_600,
+			random: () => 0.5,
+			renew: async () => {
+				attemptsAt.push(Date.now())
+				if (goneNow) throw new KubernetesAlreadyGoneError('PATCH', '/apis/…/sandboxclaims/x', 410)
+				throw new Error('apiserver unavailable')
+			},
+			onGone: () => {
+				gone += 1
+			},
+			onRenewalError: (error) => errors.push(error),
+		})
+		lease.start()
+
+		await vi.advanceTimersByTimeAsync(3_600_000)
+
+		// Every attempt reported, and the loop never went gone on its own —
+		// only a 404/410 does that, and this API never returned one.
+		expect(attemptsAt.length).toBeGreaterThan(1)
+		expect(errors).toHaveLength(attemptsAt.length)
+		expect(gone).toBe(0)
+		expect(lease.active).toBe(true)
+		// The floor: no retry (i.e. every gap after the first, on-time tick)
+		// ever lands sooner than the one-second backoff floor.
+		for (let i = 2; i < attemptsAt.length; i++) {
+			expect((attemptsAt[i] as number) - (attemptsAt[i - 1] as number)).toBeGreaterThanOrEqual(
+				1_000,
+			)
+		}
+
+		// Positive control: once the API starts saying the object is gone,
+		// the very next attempt marks the handle gone and stops the loop —
+		// proving the assertions above are not vacuously true.
+		goneNow = true
+		await vi.advanceTimersByTimeAsync(30_000)
+		expect(gone).toBe(1)
+		expect(lease.active).toBe(false)
+	})
+
+	it('abandons a renewal that hangs, reports it, and retries on a backoff', async () => {
+		vi.useFakeTimers()
 		const errors: unknown[] = []
 		let attempts = 0
 		let abandoned = false
@@ -133,6 +304,7 @@ describe('the renewal loop', () => {
 			ttlSeconds: 600,
 			intervalMs: 5,
 			patchTimeoutMs: 20,
+			random: () => 0.5,
 			renew: async (_shutdownTime, signal) => {
 				attempts += 1
 				if (attempts > 1) return
@@ -152,12 +324,20 @@ describe('the renewal loop', () => {
 		})
 		lease.start()
 
-		await vi.waitFor(() => expect(attempts).toBeGreaterThanOrEqual(2), { timeout: 2_000 })
+		await vi.advanceTimersByTimeAsync(5) // base interval: first tick fires
+		expect(attempts).toBe(1)
+		await vi.advanceTimersByTimeAsync(20) // patch timeout: the hang is abandoned
 		expect(errors).toHaveLength(1)
 		expect(errors[0]).toBeInstanceOf(OperationDeadlineExpired)
 		// And the abandoned call was told, so its socket is released rather
 		// than left to the peer or the OS.
 		expect(abandoned).toBe(true)
+
+		// Retried on the one-second backoff floor, not another 5ms tick.
+		await vi.advanceTimersByTimeAsync(999)
+		expect(attempts).toBe(1)
+		await vi.advanceTimersByTimeAsync(1)
+		expect(attempts).toBe(2)
 		expect(lease.active).toBe(true)
 	})
 

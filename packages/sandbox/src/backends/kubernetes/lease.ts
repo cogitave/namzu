@@ -16,36 +16,48 @@
  *
  * One `setTimeout` chained per tick, never `setInterval`: a renewal PATCH
  * that takes longer than the interval must not queue a second one behind
- * it. The interval is HALF the TTL, so a single failed tick still leaves a
- * whole half-TTL of headroom for the next one to succeed, and it is
- * jittered ±10% so a hundred handles acquired in the same second do not
- * PATCH the API server in the same millisecond forever after.
+ * it. On SUCCESS the interval is HALF the TTL, jittered ±10% so a hundred
+ * handles acquired in the same second do not PATCH the API server in the
+ * same millisecond forever after.
  *
  * The timer is `unref`'d: a host process that has finished its work should
  * exit, not linger because a sandbox handle is still counting. A handle
  * nobody destroyed then expires on the cluster's clock exactly as an
  * abandoned one does, which is the behaviour the TTL exists for.
  *
+ * ## A failed tick does not wait for the next half-TTL
+ *
+ * Waiting a full half-TTL before retrying a FAILED renewal means one blip at
+ * exactly the wrong moment is a coin flip against the object's own
+ * `shutdownTime`: the retry and the expiry are both roughly a TTL after the
+ * last success, so a single failure can lose that race. A failed tick
+ * instead retries on capped exponential backoff — starting at one second,
+ * doubling, capped at whichever is smaller of thirty seconds or a
+ * twentieth of the TTL — so an outage around a scheduled renewal gets many
+ * attempts inside the window that actually matters, not one. Every success
+ * resets the backoff and returns the loop to the normal half-TTL cadence.
+ *
  * ## Every tick is bounded
  *
- * A renewal that FAILS is survivable — it is reported and retried with half
- * a TTL of headroom. A renewal that HANGS is not: the next tick is scheduled
+ * A renewal that FAILS is survivable — it is reported and retried on a
+ * short backoff. A renewal that HANGS is not: the next tick is scheduled
  * only after the current one settles, so a PATCH that never answers parks
  * the loop forever, reports nothing, and lets the lease expire in silence —
  * precisely the defect this file exists to close, moved onto the failure
  * path. An API server that accepts a connection and then never responds is
  * an ordinary cluster event, so each PATCH runs under its own deadline: it
  * aborts the request through the signal the client already takes, and an
- * expiry is then just another reported failure that retries on the next
- * tick.
+ * expiry is then just another reported failure that retries on backoff.
  *
  * ## What each outcome means
  *
- *  - Success → the object's expiry moves a full TTL into the future.
+ *  - Success → the object's expiry moves a full TTL into the future, the
+ *    backoff resets, and the next tick is a half-TTL away again.
  *  - Any error, a tick that ran out of time included → reported to
- *    `onRenewalError` and RETRIED on the next tick. A transient API blip
- *    must not tear down a working sandbox, and there is still half a TTL of
- *    headroom.
+ *    `onRenewalError` and RETRIED on a backoff far shorter than the
+ *    half-TTL interval. A transient API blip must not tear down a working
+ *    sandbox, and the loop keeps trying rather than spend the object's
+ *    remaining headroom waiting.
  *  - Already gone (404/410) → the object this handle owns no longer exists.
  *    Nothing will bring it back, so the loop stops and the handle is marked
  *    gone; every later call fails with a named error instead of dialing an
@@ -86,7 +98,7 @@ export interface LeaseRenewalOptions {
 	 * Defaults to a quarter of the interval, capped at
 	 * {@link MAX_RENEWAL_TIMEOUT_MS} — a fraction rather than the whole
 	 * interval so that a stalled API server still leaves the loop several
-	 * attempts inside the half-TTL of headroom.
+	 * backoff-paced attempts before the next regular half-TTL tick.
 	 */
 	readonly patchTimeoutMs?: number
 	/** Deterministic jitter for tests. Defaults to `Math.random`. */
@@ -99,6 +111,23 @@ export interface LeaseRenewalOptions {
  * derived quarter-interval would otherwise be 7.5 minutes of silence.
  */
 const MAX_RENEWAL_TIMEOUT_MS = 30_000
+
+/**
+ * The floor of the retry backoff after a failed renewal: one second. Far
+ * short of the half-TTL interval, on purpose — a failure needs another
+ * chance long before the object's `shutdownTime` is at risk, not after
+ * waiting as long as a successful tick would have.
+ */
+const RETRY_BACKOFF_FLOOR_MS = 1_000
+
+/**
+ * The ceiling of the retry backoff, whichever is smaller: thirty seconds, or
+ * a twentieth of the TTL. The TTL fraction keeps a short-TTL sandbox (tests,
+ * mainly) from retrying so slowly that the backoff alone could still lose
+ * the race against expiry; thirty seconds keeps an hour-plus TTL from
+ * retrying needlessly often once the ceiling is reached.
+ */
+const MAX_RETRY_BACKOFF_MS = 30_000
 
 /** ±10%: enough to spread a synchronised fleet, far too little to matter
  * against a half-TTL of headroom. */
@@ -120,13 +149,23 @@ export class KubernetesLeaseRenewal {
 	private started = false
 	private readonly baseIntervalMs: number
 	private readonly patchTimeoutMs: number
+	private readonly retryBackoffCapMs: number
 	private readonly random: () => number
+	/**
+	 * Non-gone failures since the last success (or since the loop started).
+	 * Reset to 0 by every success; drives how far the next retry backs off.
+	 */
+	private consecutiveFailures = 0
 
 	constructor(private readonly options: LeaseRenewalOptions) {
 		this.baseIntervalMs = options.intervalMs ?? Math.max(1, (options.ttlSeconds * 1_000) / 2)
 		this.patchTimeoutMs =
 			options.patchTimeoutMs ??
 			Math.max(1, Math.min(MAX_RENEWAL_TIMEOUT_MS, Math.round(this.baseIntervalMs / 4)))
+		this.retryBackoffCapMs = Math.max(
+			1,
+			Math.min(MAX_RETRY_BACKOFF_MS, (options.ttlSeconds * 1_000) / 20),
+		)
 		this.random = options.random ?? Math.random
 	}
 
@@ -144,7 +183,7 @@ export class KubernetesLeaseRenewal {
 	start(): void {
 		if (this.stopped || this.timer !== undefined) return
 		this.started = true
-		this.schedule()
+		this.scheduleNext(this.baseIntervalMs)
 	}
 
 	stop(): void {
@@ -155,17 +194,29 @@ export class KubernetesLeaseRenewal {
 		}
 	}
 
-	private schedule(): void {
+	private scheduleNext(baseMs: number): void {
 		if (this.stopped) return
 		const timer = setTimeout(
 			() => {
 				void this.tick()
 			},
-			jitteredInterval(this.baseIntervalMs, this.random),
+			jitteredInterval(baseMs, this.random),
 		)
 		// A pending renewal must never be the reason a host process stays up.
 		timer.unref?.()
 		this.timer = timer
+	}
+
+	/**
+	 * The delay before the NEXT retry after a non-gone failure: capped
+	 * exponential backoff from {@link RETRY_BACKOFF_FLOOR_MS}, doubling on
+	 * every consecutive failure, ceilinged at {@link retryBackoffCapMs}.
+	 * Called only once `consecutiveFailures` has already been incremented for
+	 * the failure that just happened, so the first retry uses the floor.
+	 */
+	private retryDelayMs(): number {
+		const doubled = RETRY_BACKOFF_FLOOR_MS * 2 ** (this.consecutiveFailures - 1)
+		return Math.min(this.retryBackoffCapMs, doubled)
 	}
 
 	/** Exposed for tests: one renewal attempt plus its scheduling decision. */
@@ -189,10 +240,15 @@ export class KubernetesLeaseRenewal {
 				return
 			}
 			// Everything else is transient until proven otherwise: report it
-			// and try again on the next tick, which is still half a TTL
-			// before anything expires.
+			// and retry on a backoff far shorter than the half-TTL interval —
+			// a coin-flip race against the object's own expiry is exactly what
+			// this file exists to avoid.
+			this.consecutiveFailures += 1
 			this.options.onRenewalError?.(error)
+			this.scheduleNext(this.retryDelayMs())
+			return
 		}
-		this.schedule()
+		this.consecutiveFailures = 0
+		this.scheduleNext(this.baseIntervalMs)
 	}
 }
