@@ -48,8 +48,20 @@ frame above the input, and the separate status line — model, effort, working
 directory left, goal or hint right — that used to sit one blank row below the
 frame. Transient notices (steering/queue counts, an `/effort` or model-switch
 confirmation) stay inside the message frame, above the input, where they were
-before; the delegated-work rail still renders between the frame and this
-footer while agents are live.
+before.
+
+Below the footer — not between it and the frame — comes whatever panel owns
+the rest of the screen while agents are live: the automatic delegated-work
+rail, the agent cockpit, a child transcript, or the tool-output viewer, each
+in the same relative order they already had among themselves. The footer's
+own row is fixed relative to the frame above it, never to whichever of those
+panels follows, so it always reads immediately under the input regardless of
+how much the rail or a full-screen surface below it is showing. The rail's
+own title is the workflow label every one of its agents shares; when they
+carry none, or carry more than one, the title is a neutral count instead
+(`2 agents · 1 running`) rather than a generic name that described none of
+them in particular. The agent cockpit's per-workflow header follows the same
+rule.
 
 ## Compact tool activity
 

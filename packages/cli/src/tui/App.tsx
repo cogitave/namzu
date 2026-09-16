@@ -7282,6 +7282,18 @@ export function App({
 		permissionMode,
 		session?.approvalLatched() ?? false,
 	)
+	// True exactly when the phase ternary below renders its final branch — the
+	// normal composer view, as opposed to provider setup or a lifecycle
+	// picker/prompt. The agent rail is a feature of that view: computing this
+	// once here lets its render site sit after the footer, below, while still
+	// never appearing during trust/resume/edit/picker/setup phases.
+	const showComposerSurface =
+		!providerSetup &&
+		phase !== 'trust' &&
+		phase !== 'unhealthy' &&
+		phase !== 'resume' &&
+		phase !== 'edit' &&
+		phase !== 'picker'
 	return (
 		<Box flexDirection="column" display={externalEditorRequest ? 'none' : 'flex'}>
 			<Box flexDirection="column" paddingX={1}>
@@ -7516,31 +7528,55 @@ export function App({
 								history={history}
 							/>
 						</ComposerFrame>
-						{permission === null && agentSurface === null && outputViewer === null && liveSubagents.length > 0 ? (
-							<AgentTaskPanel
-								agents={liveSubagents}
-								terminalRows={terminal.rows}
-								terminalColumns={terminal.columns}
-							/>
-						) : permission === null && agentSurface?.kind === 'cockpit' ? (
-							<AgentCockpit
-								agents={subagents}
-								selectedPhaseId={agentSurface.selectedPhaseId}
-								selectedId={agentSurface.selectedId}
-								focus={agentSurface.focus}
-								terminalRows={terminal.rows}
-								terminalColumns={terminal.columns}
-							/>
-						) : permission === null && agentSurface?.kind === 'transcript' && selectedSubagent ? (
-							<AgentTranscript
-								agent={selectedSubagent}
-								tailOffset={agentSurface.tailOffset}
-								terminalRows={terminal.rows}
-								terminalColumns={terminal.columns}
-							/>
-						) : null}
 					</>
 				)}
+				{/* Directly below the message frame's bottom border (or, when that
+				    frame is hidden by a full-screen surface below, directly below
+				    where it would be) — see docs/cli/terminal-design.md#the-composer-footer.
+				    Every panel that can follow (the agent rail, the cockpit, a child
+				    transcript, the tool-output viewer) renders after this line, not
+				    before it. */}
+				<StatusBar
+					cwd={ctx.cwd}
+					provider={session?.providerSummary ?? null}
+					model={session?.modelSummary ?? null}
+					effort={reasoningEffort}
+					goal={statusGoal}
+					state={state}
+					hint={statusHint}
+					permissionMode={displayedPermissionMode}
+					canCycleMode
+				/>
+				{showComposerSurface &&
+				permission === null &&
+				agentSurface === null &&
+				outputViewer === null &&
+				liveSubagents.length > 0 ? (
+					<AgentTaskPanel
+						agents={liveSubagents}
+						terminalRows={terminal.rows}
+						terminalColumns={terminal.columns}
+					/>
+				) : showComposerSurface && permission === null && agentSurface?.kind === 'cockpit' ? (
+					<AgentCockpit
+						agents={subagents}
+						selectedPhaseId={agentSurface.selectedPhaseId}
+						selectedId={agentSurface.selectedId}
+						focus={agentSurface.focus}
+						terminalRows={terminal.rows}
+						terminalColumns={terminal.columns}
+					/>
+				) : showComposerSurface &&
+				  permission === null &&
+				  agentSurface?.kind === 'transcript' &&
+				  selectedSubagent ? (
+					<AgentTranscript
+						agent={selectedSubagent}
+						tailOffset={agentSurface.tailOffset}
+						terminalRows={terminal.rows}
+						terminalColumns={terminal.columns}
+					/>
+				) : null}
 				{outputViewer && permission === null ? (
 					<ToolOutputViewer
 						key={outputViewer.id}
@@ -7558,17 +7594,6 @@ export function App({
 						onClose={() => setOutputViewer(null)}
 					/>
 				) : null}
-				<StatusBar
-					cwd={ctx.cwd}
-					provider={session?.providerSummary ?? null}
-					model={session?.modelSummary ?? null}
-					effort={reasoningEffort}
-					goal={statusGoal}
-					state={state}
-					hint={statusHint}
-					permissionMode={displayedPermissionMode}
-					canCycleMode
-				/>
 			</Box>
 		</Box>
 	)

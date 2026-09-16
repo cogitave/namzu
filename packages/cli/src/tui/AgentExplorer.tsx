@@ -2,9 +2,10 @@ import { Box, Text } from 'ink'
 import { useEffect, useState } from 'react'
 import stringWidth from 'string-width'
 
-import type {
-	SubagentActivity,
-	SubagentActivityStatus,
+import {
+	DEFAULT_AGENT_WORKFLOW,
+	type SubagentActivity,
+	type SubagentActivityStatus,
 } from '../integrations/subagents/activity.js'
 import { formatElapsed } from './LiveActivity.js'
 import { selectionWindow } from './selection-window.js'
@@ -34,11 +35,14 @@ const MAX_MODEL_LABEL_WIDTH = 24
  */
 const PHASE_DETAIL_LINE_BUDGET = 3
 /**
- * Rows outside the cockpit's own box: the one-line brand header and the
- * one-line composer footer below it (see StatusBar.tsx). A box shorter than
- * `terminalRows` minus this leaves an unclaimed row that does not belong to
- * anything — and an unclaimed row does not stay blank, it shows whatever
- * transcript history was next in line to scroll off.
+ * Rows outside the cockpit's own box: the one-line brand header, printed once
+ * above it, and the one-line composer footer, which now renders directly
+ * above the cockpit rather than below it (see StatusBar.tsx). The total is
+ * unchanged by that reordering — both rows still sit outside this box exactly
+ * once — so a box shorter than `terminalRows` minus this still leaves an
+ * unclaimed row that does not belong to anything, and an unclaimed row does
+ * not stay blank: it shows whatever transcript history was next in line to
+ * scroll off.
  */
 const COCKPIT_CHROME_ROWS = 2
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
@@ -64,7 +68,15 @@ export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentT
 	const hidden = agents.length - visible.length
 	const active = agents.filter((agent) => !isTerminalStatus(agent.status)).length
 	const workflows = [...new Set(agents.map((agent) => agent.workflow))]
-	const title = workflows.length === 1 ? (workflows[0] ?? 'Delegated work') : 'Delegated work'
+	const workflowLabel = workflows.length === 1 ? workflows[0] : undefined
+	// A shared, explicitly supplied workflow label earns the title slot; an
+	// absent one (every agent still carries the unlabelled default) or a mix
+	// of several distinct labels falls back to a neutral count instead of the
+	// generic default name, which named nothing about THESE agents.
+	const title =
+		workflowLabel !== undefined && workflowLabel !== DEFAULT_AGENT_WORKFLOW
+			? workflowLabel
+			: `${agents.length} agent${agents.length === 1 ? '' : 's'} · ${active} running`
 	const narrow = terminalColumns < 64
 	const showModel = !narrow && terminalColumns >= 76
 	const showCounters = !narrow && terminalColumns >= 96
@@ -277,6 +289,14 @@ export function AgentCockpit({
 				: terminalColumns >= 38
 					? '←→ pane · ↑↓ · enter · esc return'
 					: 'enter · esc return'
+	const totalWorkflowAgents = workflow?.agents.length ?? 0
+	// Same rule as the automatic rail's title: an explicit label names this
+	// workflow, an absent one (the unlabelled default) gets a neutral count
+	// instead of the generic default name.
+	const workflowTitle =
+		selectedPhase?.workflow !== undefined && selectedPhase.workflow !== DEFAULT_AGENT_WORKFLOW
+			? oneLine(selectedPhase.workflow)
+			: `${totalWorkflowAgents} agent${totalWorkflowAgents === 1 ? '' : 's'} · ${active} running`
 
 	return (
 		<Box
@@ -289,12 +309,12 @@ export function AgentCockpit({
 			<Box height={1} flexShrink={0}>
 				<Box flexGrow={1} minWidth={0}>
 					<Text color={theme.text.primary} bold wrap="truncate-end">
-						{oneLine(selectedPhase?.workflow ?? 'Delegated work')}
+						{workflowTitle}
 					</Text>
 				</Box>
 				<Box flexShrink={0} marginLeft={1}>
 					<Text color={theme.text.muted} wrap="truncate-end">
-						{active} active · {workflow?.agents.length ?? 0} total
+						{active} active · {totalWorkflowAgents} total
 					</Text>
 				</Box>
 			</Box>

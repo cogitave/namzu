@@ -1915,3 +1915,168 @@ describe('correction delivery presentation', () => {
 		expect(painted(screen).split('Branch audit · correction sent')).toHaveLength(2)
 	})
 })
+
+describe('rail and cockpit titles', () => {
+	it('titles the rail by the workflow label every agent shares', async () => {
+		const screen = await renderToScreen(
+			<AgentTaskPanel
+				agents={[
+					agent({ viewId: 'a', workflow: 'Nightly regression sweep' }),
+					agent({ viewId: 'b', workflow: 'Nightly regression sweep' }),
+				]}
+				terminalRows={20}
+				terminalColumns={100}
+			/>,
+			{ cols: 100, rows: 20 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Nightly regression sweep')
+		expect(frame).not.toContain('Delegated work')
+	})
+
+	it('titles the rail with a neutral count when no agent carries an explicit workflow label', async () => {
+		// Neither agent below sets `workflow`, so the fixture defaults it to the
+		// unlabelled placeholder — the exact case the title must not name.
+		const screen = await renderToScreen(
+			<AgentTaskPanel
+				agents={[agent({ viewId: 'a' }), agent({ viewId: 'b' })]}
+				terminalRows={20}
+				terminalColumns={100}
+			/>,
+			{ cols: 100, rows: 20 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('2 agents · 2 running')
+		expect(frame).not.toContain('Delegated work')
+	})
+
+	it('titles the rail with a neutral count when agents carry different workflow labels', async () => {
+		const screen = await renderToScreen(
+			<AgentTaskPanel
+				agents={[
+					agent({ viewId: 'a', workflow: 'Alpha rollout' }),
+					agent({ viewId: 'b', workflow: 'Beta rollout' }),
+				]}
+				terminalRows={20}
+				terminalColumns={100}
+			/>,
+			{ cols: 100, rows: 20 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('2 agents · 2 running')
+		expect(frame).not.toContain('Alpha rollout')
+		expect(frame).not.toContain('Beta rollout')
+		expect(frame).not.toContain('Delegated work')
+	})
+
+	it('titles the cockpit header by the workflow label when the selected workflow carries one', async () => {
+		const busy = agent({ viewId: 'solo', workflow: 'Release readiness' })
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[busy]}
+				selectedPhaseId={busy.phaseId}
+				selectedId={busy.viewId}
+				focus="agents"
+				terminalRows={24}
+				terminalColumns={110}
+			/>,
+			{ cols: 110, rows: 24 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Release readiness')
+		expect(frame).not.toContain('Delegated work')
+	})
+
+	it('titles the cockpit header with a neutral count when the workflow carries no explicit label', async () => {
+		const busy = agent({ viewId: 'solo' })
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[busy]}
+				selectedPhaseId={busy.phaseId}
+				selectedId={busy.viewId}
+				focus="agents"
+				terminalRows={24}
+				terminalColumns={110}
+			/>,
+			{ cols: 110, rows: 24 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('1 agent · 1 running')
+		expect(frame).not.toContain('Delegated work')
+	})
+})
+
+describe('render order below the message frame', () => {
+	/** The message frame's bottom border row on the full App's own screen. */
+	function frameBottomBorder(screen: Screen): number {
+		const viewport = screen.viewport()
+		// The App wraps everything in one column of `paddingX={1}`, so every
+		// border row this padding touches carries a one-space left margin —
+		// the same anchor `expectChildFrame` and friends already rely on
+		// elsewhere in this file.
+		const border = viewport.findIndex((line) => line.startsWith(' └'))
+		expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
+		return border
+	}
+
+	it('puts the footer directly under the frame with nothing following when no agents are live', async () => {
+		activity.set([])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		const viewport = screen.viewport()
+		const border = frameBottomBorder(screen)
+		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		expect(viewport[border + 2] ?? '').toBe('')
+	})
+
+	it('puts the agent rail directly under the footer once agents are live, titled by neutral count when only one of two carries a label', async () => {
+		activity.set([
+			agent({ viewId: 'alpha', description: 'Alpha audit' }),
+			agent({ viewId: 'beta', description: 'Beta build', workflow: 'Nightly regression sweep' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Alpha audit'),
+			'rail missing',
+		)
+		const viewport = screen.viewport()
+		const border = frameBottomBorder(screen)
+		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		// Directly under the footer, not the transcript/composer: the rail's
+		// own top border, one row below where the footer landed.
+		const railTop = viewport[border + 2] ?? ''
+		expect(railTop.trimStart().charAt(0)).toBe('┌')
+		const frame = screen.viewport().join('\n')
+		// One agent carries a label and the other does not, so the rail is not
+		// entitled to either agent's label — it gets the neutral count.
+		expect(frame).toContain('2 agents · 2 running')
+		expect(frame).not.toContain('Nightly regression sweep')
+		expect(frame).not.toContain('Delegated work')
+	})
+
+	it('keeps the footer directly under the frame and the rail directly under the footer at 40 columns', async () => {
+		activity.set([agent({ viewId: 'alpha', description: 'Alpha audit' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 20 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Alpha audit'),
+			'rail missing',
+		)
+		const viewport = screen.viewport()
+		const border = frameBottomBorder(screen)
+		expect((viewport[border + 1] ?? '').length).toBeGreaterThan(0)
+		const railTop = viewport[border + 2] ?? ''
+		expect(railTop.trimStart().charAt(0)).toBe('┌')
+	})
+})
