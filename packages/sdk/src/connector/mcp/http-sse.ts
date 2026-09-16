@@ -1,4 +1,5 @@
 import type {
+	MCPFetchLike,
 	MCPHttpSseTransportConfig,
 	MCPJsonRpcMessage,
 	MCPTransport,
@@ -38,6 +39,8 @@ export class HttpSseTransport implements MCPTransport {
 	private postUrl: string
 	private log: Logger
 	private readonly timeoutMs: number
+	/** Defaults to the ambient global `fetch`; never read again once captured. */
+	private readonly fetchImpl: MCPFetchLike
 
 	constructor(
 		private readonly config: MCPHttpSseTransportConfig,
@@ -50,6 +53,7 @@ export class HttpSseTransport implements MCPTransport {
 			config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 			'HttpSseTransport timeoutMs',
 		)
+		this.fetchImpl = config.fetch ?? fetch
 		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'connector/mcp/http-sse' })
 	}
 
@@ -105,12 +109,9 @@ export class HttpSseTransport implements MCPTransport {
 
 		try {
 			const response = await operation.run(() =>
-				fetch(this.postUrl, {
+				this.fetchImpl(this.postUrl, {
 					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						...this.config.headers,
-					},
+					headers: this.buildHeaders(options?.headers),
 					body: JSON.stringify(message),
 					redirect: 'manual',
 					signal: operation.signal,
@@ -151,6 +152,22 @@ export class HttpSseTransport implements MCPTransport {
 
 	isConnected(): boolean {
 		return this.connected
+	}
+
+	/**
+	 * `extra` comes from `MCPTransportSendOptions.headers` — the client's
+	 * per-send authority — and is merged over this transport's own static
+	 * config headers so a caller's value wins on a collision. See
+	 * {@link StreamableHttpTransport}'s method of the same name, which this
+	 * mirrors; the HTTP-SSE POST had no equivalent merge until now, so a
+	 * per-request header or bearer token silently never reached the wire.
+	 */
+	private buildHeaders(extra?: Readonly<Record<string, string>>): Record<string, string> {
+		return {
+			'Content-Type': 'application/json',
+			...this.config.headers,
+			...extra,
+		}
 	}
 
 	private beginSend(signal: AbortSignal | undefined): {
@@ -200,7 +217,7 @@ export class HttpSseTransport implements MCPTransport {
 	}
 
 	private async listenSSE(generation: number, signal: AbortSignal): Promise<void> {
-		const response = await fetch(this.sseUrl, {
+		const response = await this.fetchImpl(this.sseUrl, {
 			headers: {
 				Accept: 'text/event-stream',
 				...this.config.headers,

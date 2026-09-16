@@ -40,11 +40,40 @@ export interface MCPStdioTransportConfig extends MCPTransportConfigBase {
 	cwd?: string
 }
 
+/**
+ * Anything that answers like `fetch`, restricted to the request shape the
+ * MCP HTTP transports actually send: a URL string, an optional
+ * method/headers/body, `redirect` (both transports pin this to `'manual'`
+ * so a caller cannot silently re-enable auto-following a redirect), and an
+ * abort signal.
+ *
+ * Structurally identical in spirit to `bridge/a2a/client.ts`'s `FetchLike`
+ * — the same injectable, socket-free function shape, so a test needs no
+ * socket — but the return type stays the real `Response` rather than that
+ * bridge's narrower `{ok, status, json(), text()}` duck type: both MCP
+ * transports already read `.headers` (content type, session id) and one of
+ * them reads `.body` as a stream (the SSE GET), neither of which the A2A
+ * bridge's version exposes. Re-declared here, rather than imported from the
+ * A2A bridge, so that bridge is not forced to grow fields it does not use.
+ */
+export type MCPFetchLike = (
+	input: string,
+	init?: {
+		method?: string
+		headers?: Record<string, string>
+		body?: string
+		redirect?: 'manual' | 'follow' | 'error'
+		signal?: AbortSignal
+	},
+) => Promise<Response>
+
 export interface MCPHttpSseTransportConfig extends MCPTransportConfigBase {
 	type: 'http-sse'
 	url: string
 	headers?: Record<string, string>
 	timeoutMs?: number
+	/** Injected in place of the ambient global `fetch`. Defaults to it. */
+	fetch?: MCPFetchLike
 }
 
 export interface MCPStreamableHttpTransportConfig extends MCPTransportConfigBase {
@@ -52,6 +81,8 @@ export interface MCPStreamableHttpTransportConfig extends MCPTransportConfigBase
 	url: string
 	headers?: Record<string, string>
 	timeoutMs?: number
+	/** Injected in place of the ambient global `fetch`. Defaults to it. */
+	fetch?: MCPFetchLike
 }
 
 export type MCPTransportUnion =
@@ -118,6 +149,24 @@ export interface MCPRequestOptions {
 	 * waiting, not that an already-started remote side effect was rolled back.
 	 */
 	readonly signal?: AbortSignal
+	/**
+	 * Extra headers for this one request, merged over the transport's static
+	 * config headers (a collision resolves to this value) and under this same
+	 * call's `bearerToken`, if both are given.
+	 *
+	 * A transport with no header concept (stdio) receives the field and does
+	 * nothing with it.
+	 */
+	readonly headers?: Readonly<Record<string, string>>
+	/**
+	 * Sent as `Authorization: Bearer <bearerToken>` on this one request.
+	 *
+	 * Overrides a configured `Authorization` header — static or supplied via
+	 * `headers` above — for this request only; it never touches a
+	 * differently-named header such as a static `X-API-Key`. Omit it and a
+	 * configured `Authorization` header is left exactly as configured.
+	 */
+	readonly bearerToken?: string
 }
 
 /** Authority for one transport write and any response body it consumes. */

@@ -27,7 +27,7 @@ afterEach(async () => {
 })
 
 describe('remote MCP requests remain at their configured endpoint', () => {
-	it('does not repeat a Streamable HTTP POST or its credentials at a redirect target', async () => {
+	it('does not repeat a Streamable HTTP POST or its credentials — static OR per-request — at a redirect target', async () => {
 		const sink = await startOrigin((_request, response) => {
 			response.writeHead(204).end()
 		})
@@ -47,12 +47,17 @@ describe('remote MCP requests remain at their configured endpoint', () => {
 			params: { name: 'write_record', arguments: { value: 'model-authored' } },
 		}
 
-		await expect(transport.send(message)).rejects.toThrow(
-			/configure the final MCP endpoint directly/i,
-		)
+		// A per-request credential (W3) is subject to the same redirect
+		// boundary as the static config header above — proven here rather
+		// than in a parallel test, so the two credential paths are proven
+		// equivalent.
+		await expect(
+			transport.send(message, { headers: { Authorization: 'Bearer per-request-secret' } }),
+		).rejects.toThrow(/configure the final MCP endpoint directly/i)
 
 		expect(source.requests).toHaveLength(1)
 		expect(source.requests[0]?.headers['x-api-key']).toBe('mcp-secret')
+		expect(source.requests[0]?.headers.authorization).toBe('Bearer per-request-secret')
 		expect(source.requests[0]?.body).toContain('model-authored')
 		expect(sink.requests).toEqual([])
 		await transport.close()

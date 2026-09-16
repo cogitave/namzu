@@ -1,4 +1,5 @@
 import type {
+	MCPFetchLike,
 	MCPJsonRpcMessage,
 	MCPStreamableHttpTransportConfig,
 	MCPTransport,
@@ -21,6 +22,8 @@ export class StreamableHttpTransport implements MCPTransport {
 	private activeSends = new Set<AbortController>()
 	private log: Logger
 	private readonly timeoutMs: number
+	/** Defaults to the ambient global `fetch`; never read again once captured. */
+	private readonly fetchImpl: MCPFetchLike
 
 	constructor(
 		private readonly config: MCPStreamableHttpTransportConfig,
@@ -30,6 +33,7 @@ export class StreamableHttpTransport implements MCPTransport {
 			config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
 			'StreamableHttpTransport timeoutMs',
 		)
+		this.fetchImpl = config.fetch ?? fetch
 		this.log = resolveLogger(log).child({ [SCOPE_ATTRIBUTE]: 'connector/mcp/streamable-http' })
 	}
 
@@ -80,7 +84,7 @@ export class StreamableHttpTransport implements MCPTransport {
 
 		try {
 			const response = await operation.run(() =>
-				fetch(this.config.url, {
+				this.fetchImpl(this.config.url, {
 					method: 'POST',
 					headers: this.buildHeaders(options?.headers),
 					body: JSON.stringify(message),

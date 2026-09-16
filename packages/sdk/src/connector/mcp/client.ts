@@ -568,7 +568,7 @@ export class MCPClient {
 			issued = true
 			const sending = this.transport.send(message, {
 				signal: transportController.signal,
-				...this.protocolVersionHeaderOptions(),
+				...this.requestAuthorityHeaders(options),
 			})
 			void sending.catch((err) => {
 				settleSendFailure(err)
@@ -591,6 +591,31 @@ export class MCPClient {
 		return this.protocolVersionHeader
 			? { headers: { 'MCP-Protocol-Version': this.protocolVersionHeader } }
 			: {}
+	}
+
+	/**
+	 * `request()`'s full per-send header authority: the negotiated era's
+	 * `MCP-Protocol-Version` (if any), this call's own `MCPRequestOptions.headers`
+	 * merged over it — a collision resolves to the caller's value — and this
+	 * call's `bearerToken`, if given, applied last as `Authorization` so it
+	 * overrides a same-named header from either of the other two sources.
+	 *
+	 * `notify()` and `sendCancellation()` are internal, not caller-facing, so
+	 * they keep calling `protocolVersionHeaderOptions()` directly — only a
+	 * public request the caller shaped can carry a per-call header or token.
+	 *
+	 * Returns `{}`, never `{ headers: undefined }`, when nothing applies, so
+	 * the zero-option path stays the exact object shape `request()` sent
+	 * before this workstream.
+	 */
+	private requestAuthorityHeaders(options?: MCPRequestOptions): {
+		headers?: Record<string, string>
+	} {
+		const era = this.protocolVersionHeaderOptions().headers
+		if (!era && !options?.headers && !options?.bearerToken) return {}
+		const headers: Record<string, string> = { ...era, ...options?.headers }
+		if (options?.bearerToken) headers.Authorization = `Bearer ${options.bearerToken}`
+		return { headers }
 	}
 
 	/** Ask the peer to stop without letting cleanup become another hanging request. */

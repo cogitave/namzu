@@ -114,6 +114,95 @@ server negotiates down to `2024-11-05` even though the client now offers
 `2025-11-25`. That is expected, not a bug: broadening the server's own
 negotiation is out of scope for this workstream (issue #471 is client-only).
 
+## Per-request authority: injectable fetch, bearer token, headers
+
+Both HTTP transports — `StreamableHttpTransport` and `HttpSseTransport` —
+took the ambient global `fetch` as a given, and the only credential
+mechanism was a static header map fixed for the transport's whole life. That
+was already awkward for testing (every test either stubbed `globalThis.fetch`
+or hit a real socket) and is a hard blocker for the modern era, whose entire
+job is per-request `_meta` and header construction. This workstream adds the
+seam without changing what a zero-config connection sends.
+
+### The injectable `fetch`
+
+`MCPStreamableHttpTransportConfig` and `MCPHttpSseTransportConfig` both gain
+an optional `fetch?: MCPFetchLike`:
+
+```ts
+import type { MCPFetchLike } from '@namzu/sdk'
+
+declare const fetch: MCPFetchLike
+// (input: string, init?: { method?; headers?; body?; redirect?; signal? }) => Promise<Response>
+```
+
+Each transport captures `config.fetch ?? fetch` once, at construction, and
+every HTTP call it makes — for `HttpSseTransport` that is both the SSE `GET`
+stream and the message `POST`, not only the one a test happens to exercise —
+goes through that captured value. When `config.fetch` is supplied, the
+ambient global is never even read, let alone called: `??` short-circuits on
+the left operand.
+
+`MCPFetchLike` is structurally the same *idea* as `FetchLike` in
+`bridge/a2a/client.ts` — an injectable, socket-free function shape so a test
+needs no real network — but is a separate, re-declared type rather than an
+import of that one. Both MCP transports already read `.headers` (content
+type, session id) and `HttpSseTransport`'s GET reads `.body` as a stream,
+neither of which the A2A bridge's narrower `{ok, status, json(), text()}`
+return type exposes; the return type here is the real `Response`, so nothing
+downstream of the fetch call changed shape. The A2A bridge is left alone
+rather than forced to grow fields only MCP needs.
+
+### Per-request headers and bearer token
+
+`MCPRequestOptions` — the options bag `MCPClient.listTools()`, `callTool()`,
+`readResource()`, `getPrompt()` and the rest already accepted for `signal` —
+gains two more optional fields:
+
+```ts sketch
+await client.callTool(
+	'create_issue',
+	{ title: 'Bug' },
+	{
+		headers: { 'X-Tenant': 'acme' },
+		bearerToken: 'eyJ...',
+	},
+)
+```
+
+`headers` merges over the transport's static config headers for this one
+request; a key collision resolves to the per-request value. `bearerToken`,
+if given, is applied last as `Authorization: Bearer <token>` — after the
+merge — so it overrides a configured `Authorization` header (static, or
+supplied through this same call's `headers`) without touching a
+differently-named header such as a static `X-API-Key`. Neither field is
+threaded through `notify()` or the internal `notifications/cancelled` send:
+those are not requests the caller shaped, so there is nothing per-call to
+carry.
+
+Supplying neither field — the entire existing call surface — produces a
+request whose headers are exactly what they were before this workstream.
+
+### The redirect boundary still applies
+
+`refuseMcpHttpRedirect` runs unchanged: a 3xx response still fails the
+request rather than being followed, regardless of whether the credential
+that reached the (non-redirecting) origin was a static config header or a
+per-request `bearerToken`/`headers` value. `http-redirect-boundary.test.ts`
+proves this for both credential shapes at the same assertion, rather than in
+two parallel tests, specifically so the two paths are proven equivalent
+instead of independently plausible.
+
+### A pre-existing gap this workstream also closed
+
+`MCPTransportSendOptions.headers` — added for the `MCP-Protocol-Version`
+header — was already threaded into `StreamableHttpTransport`'s header
+merge, but `HttpSseTransport`'s message `POST` built its headers inline and
+never read it, so a per-send header silently never reached the wire on that
+transport. `HttpSseTransport` now has a `buildHeaders()` merge matching
+`StreamableHttpTransport`'s, so both HTTP transports treat per-request
+headers and a bearer token identically.
+
 ## Not yet built
 
 - **The 2026-07-28 ("modern") era.** `McpEra`'s `modern` arm exists so a
@@ -121,7 +210,9 @@ negotiation is out of scope for this workstream (issue #471 is client-only).
   negotiation — the stateless per-request `_meta`, the `server/discover`
   probe, and the two-probe (HTTP body-inspection vs. stdio timeout) state
   machine that decides whether a given origin speaks it at all. Nothing in
-  this workstream constructs a `modern` era value.
+  this workstream constructs a `modern` era value. The per-request `headers`
+  authority above is the seam that work will build `_meta` and its mirrored
+  headers on top of.
 - **The `-32022` retry-with-narrower-version path**, `x-mcp-header`
   validation, `resultType`/MRTR handling, the additional content block
   types, and legacy session/stream fidelity (404 re-initialize, `DELETE` on
