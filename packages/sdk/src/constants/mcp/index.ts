@@ -33,3 +33,15 @@ export const DEFAULT_MCP_REQUEST_TIMEOUT_MS = 30_000
 
 /** JSON-RPC 2.0 reserved code for an unimplemented method. */
 export const JSON_RPC_METHOD_NOT_FOUND = -32601
+
+/**
+ * JSON-RPC codes a server may use to say "that resource does not exist".
+ *
+ * The current spec's resource-read error path uses the application-defined
+ * `-32002`, but a server on an older version may still answer with the
+ * generic `-32602` ("Invalid params") for the same condition — and the spec
+ * explicitly says a client SHOULD keep accepting it. Both are listed so a
+ * caller distinguishing "not found" from "actually broken" does not have to
+ * special-case the older code itself.
+ */
+export const RESOURCE_NOT_FOUND_CODES: readonly number[] = [-32602, -32002]

@@ -25,6 +25,7 @@ import type { LogAttributes } from '../../utils/log/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { validateConnectorTimeoutMs } from '../http-operation.js'
+import { protocolErrorFromReply } from './errors.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { StreamableHttpTransport } from './streamable-http.js'
@@ -593,7 +594,7 @@ export class MCPClient {
 			const pending = this.pendingRequests.get(message.id)
 			if (pending) {
 				if (message.error) {
-					pending.reject(new Error(`MCP error ${message.error.code}: ${message.error.message}`))
+					pending.reject(protocolErrorFromReply(message.error))
 				} else {
 					pending.resolve(message.result)
 				}

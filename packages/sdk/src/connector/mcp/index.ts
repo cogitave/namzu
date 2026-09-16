@@ -5,6 +5,13 @@ export { StreamableHttpTransport } from './streamable-http.js'
 export { MCPClient } from './client.js'
 
 export {
+	isHeaderMismatchError,
+	isMissingRequiredClientCapabilityError,
+	isUnsupportedProtocolVersionError,
+	MCPProtocolError,
+} from './errors.js'
+
+export {
 	mcpToolToToolDefinition,
 	toolDefinitionToMCPTool,
 	mcpJsonSchemaToZod,
