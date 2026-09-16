@@ -61,10 +61,12 @@
  * ```
  */
 
-import { type Server, createServer } from 'node:net'
-import type { AddressInfo } from 'node:net'
-
-import type { Sandbox, SandboxTcpConnectOptions } from '@namzu/sdk'
+import type {
+	OpenTerminalOptions,
+	Sandbox,
+	SandboxTcpConnectOptions,
+	TerminalSession,
+} from '@namzu/sdk'
 import type {
 	ConformanceAssertion,
 	ConformanceDescribe,
@@ -107,6 +109,31 @@ export interface SandboxConformanceOptions {
 	readonly makeSandbox: MakeSandbox
 	/** Names the backend in test output. Defaults to `sandbox`. */
 	readonly label?: string
+	/**
+	 * Whether this backend's guest can run the `openTcpConnection` positive
+	 * case's listener at all — by default {@link nodeGuestListener}, `node
+	 * -e`. Defaults to `true`: every backend this suite ships against runs
+	 * `agent/agent.cjs` in the guest, and that agent IS node, so node on the
+	 * guest's own `PATH` is a precondition of the agent existing rather than
+	 * an extra capability this suite demands.
+	 *
+	 * Set `false` for a guest that cannot run a listener this way at all
+	 * (no `openTerminal`, or an image with neither node nor a substitute) —
+	 * the case then SKIPS, its own title stating why, rather than failing a
+	 * backend for a capability its contract never promised. A backend that
+	 * can run *some* listener, just not node, keeps this `true` (or omits
+	 * it) and supplies {@link SandboxConformanceOptions.guestListenerCommand}
+	 * instead.
+	 */
+	readonly guestCanRunNode?: boolean
+	/**
+	 * Overrides the program the `openTcpConnection` positive case starts
+	 * inside the guest. Defaults to {@link nodeGuestListener}. A guest
+	 * without node but with, say, busybox `nc` can supply its own command as
+	 * long as it reports the bound port the way
+	 * {@link GuestListenerCommand.parsePort} expects.
+	 */
+	readonly guestListenerCommand?: () => GuestListenerCommand
 }
 
 /** Assert `call()` rejects. The contract cares that admission was refused, never the message. */
@@ -141,21 +168,135 @@ function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** One local TCP service the suite owns, for the `openTcpConnection` section. */
-async function startEchoServer(): Promise<{ port: number; close(): Promise<void> }> {
-	const server: Server = createServer((socket) => {
-		socket.once('data', (chunk) =>
-			socket.end(Buffer.concat([Buffer.from('conformance-reply:'), chunk])),
-		)
+/**
+ * A program the `openTcpConnection` positive case can start INSIDE a guest
+ * through {@link Sandbox.openTerminal}, and dial back into over
+ * `openTcpConnection` itself.
+ *
+ * Starting the listener in the guest — rather than in the orchestrator/test
+ * process, which is what this case used to do — is the whole point: a
+ * listener on the HOST'S loopback only ever proves anything for a backend
+ * whose "guest" happens to share that loopback (a Firecracker fixture over a
+ * local socket, a fake-agent-in-this-process kubernetes test). It never
+ * proves anything for a real remote guest, which cannot dial the
+ * orchestrator's loopback at all — that gap is exactly what let the case
+ * pass in every colocated fixture and fail the one time it ran against a
+ * live cluster.
+ */
+export interface GuestListenerCommand {
+	/** The program `openTerminal` runs as the session's top-level process. */
+	readonly command: string
+	readonly args: readonly string[]
+	/**
+	 * Reads the port the listener bound out of everything it has printed to
+	 * its terminal so far. Returns `undefined` until the listener has
+	 * reported one — the suite polls this as output arrives rather than
+	 * parsing a single chunk, because a pty may deliver the report split
+	 * across reads.
+	 */
+	parsePort(output: string): number | undefined
+}
+
+/** What {@link nodeGuestListener} has its script print once it is bound. */
+const NODE_LISTENER_MARKER = 'namzu-conformance-listening:'
+
+/**
+ * The default {@link GuestListenerCommand}: `node -e` binding an ephemeral
+ * port on the GUEST's own loopback, echoing `conformance-reply:<payload>`
+ * back for the first chunk of the one connection it accepts, then reporting
+ * the bound port on its own stdout — the only way the host, which cannot
+ * inspect a real remote guest's open ports any other way, learns which port
+ * to dial.
+ *
+ * Every backend this suite ships against runs `agent/agent.cjs` in the
+ * guest, which is itself node — so node on the guest's `PATH` is not an
+ * extra requirement this suite invents, it is a precondition of the agent
+ * existing at all. A backend whose guest genuinely cannot run node (or
+ * cannot run `openTerminal`) declares that through
+ * {@link SandboxConformanceOptions.guestCanRunNode} or supplies its own
+ * command via {@link SandboxConformanceOptions.guestListenerCommand}.
+ */
+export function nodeGuestListener(): GuestListenerCommand {
+	const script = [
+		"const net = require('node:net');",
+		'const server = net.createServer((socket) => {',
+		"  socket.once('data', (chunk) => {",
+		"    socket.end(Buffer.concat([Buffer.from('conformance-reply:'), chunk]));",
+		'  });',
+		'});',
+		"server.listen(0, '127.0.0.1', () => {",
+		`  process.stdout.write(${JSON.stringify(NODE_LISTENER_MARKER)} + server.address().port + '\\n');`,
+		'});',
+	].join('\n')
+	return {
+		command: 'node',
+		args: ['-e', script],
+		parsePort(output) {
+			const marker = output.indexOf(NODE_LISTENER_MARKER)
+			if (marker === -1) return undefined
+			const match = /\d+/.exec(output.slice(marker + NODE_LISTENER_MARKER.length))
+			return match ? Number(match[0]) : undefined
+		},
+	}
+}
+
+/**
+ * Start `listener` through `openTerminal`, and resolve once it has reported
+ * the port it bound.
+ *
+ * The returned `stop()` kills the terminal's owned process tree — the exact
+ * ownership guarantee the `openTerminal` section above already proves
+ * `destroy()` gets for free, used here to tear the listener down without
+ * waiting for the whole sandbox to go away.
+ *
+ * Takes `openTerminal` as a plain function rather than a `Sandbox`, so a
+ * unit test can exercise the port-parsing and exit-races above without a
+ * `Sandbox` fixture — see `__tests__/guest-listener.test.ts`.
+ */
+export async function startGuestListener(
+	openTerminal: (options: OpenTerminalOptions) => Promise<TerminalSession>,
+	listener: GuestListenerCommand,
+): Promise<{ readonly port: number; stop(): Promise<void> }> {
+	const terminal = await openTerminal({
+		command: listener.command,
+		args: listener.args,
+		size: { cols: 80, rows: 24 },
 	})
-	await new Promise<void>((resolve, reject) => {
-		server.once('error', reject)
-		server.listen(0, '127.0.0.1', resolve)
+
+	let output = ''
+	const port = await new Promise<number>((resolve, reject) => {
+		const unsubscribe = terminal.onData((chunk) => {
+			output += chunk
+			const found = listener.parsePort(output)
+			if (found !== undefined) {
+				unsubscribe()
+				resolve(found)
+			}
+		})
+		void terminal.exited.then((result) => {
+			// A settled promise ignores a later resolve/reject, so this is a
+			// no-op on the path where the port was already found and `stop()`
+			// is what causes this exit — it only fires the rejection when the
+			// listener died before ever reporting a port.
+			if (listener.parsePort(output) === undefined) {
+				unsubscribe()
+				reject(
+					new Error(
+						`guest listener exited before reporting a port (exit code ${result.exitCode}): ${
+							output || '<no output>'
+						}`,
+					),
+				)
+			}
+		})
 	})
-	const { port } = server.address() as AddressInfo
+
 	return {
 		port,
-		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+		async stop() {
+			terminal.kill()
+			await terminal.exited.catch(() => {})
+		},
 	}
 }
 
@@ -168,6 +309,8 @@ async function startEchoServer(): Promise<{ port: number; close(): Promise<void>
 export function defineSandboxConformance(options: SandboxConformanceOptions): void {
 	const { describe, it, expect, makeSandbox } = options
 	const label = options.label ?? 'sandbox'
+	const guestCanRunNode = options.guestCanRunNode ?? true
+	const guestListenerCommand = options.guestListenerCommand ?? nodeGuestListener
 
 	/**
 	 * Run `body` against a sandbox built for this case alone.
@@ -381,16 +524,60 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 			)
 		})
 
-		/** Same optionality and the same documented skip as `openTerminal`, above. */
+		/**
+		 * Same optionality and the same documented skip as `openTerminal`,
+		 * above: a factory whose sandbox has no `openTcpConnection` passes
+		 * vacuously. The positive case below adds a second, independent skip
+		 * axis on top of that — see `guestCanRunNode` and
+		 * `guestListenerCommand` on {@link SandboxConformanceOptions} — because
+		 * proving the forward really crosses into a REMOTE guest needs a
+		 * listener running there, and not every guest can start one the same
+		 * way.
+		 */
 		describe('openTcpConnection', () => {
+			// The reason for a title, rather than a console message, printing
+			// the skip: `ConformanceIt` promises only `(name, body) => unknown`
+			// (`contract-suite.mjs`'s own flat recorder has no skip concept
+			// either), so the one channel a skip can travel through every
+			// runner this suite is ever handed is the case's own name — decided
+			// once, here, from options given synchronously to
+			// `defineSandboxConformance`, not from anything discovered at run
+			// time.
+			const positiveCaseTitle = guestCanRunNode
+				? 'forwards a bidirectional stream to a service started inside the guest'
+				: 'forwards a bidirectional stream to a service started inside the guest (skipped: guestCanRunNode is false)'
+
 			it(
-				'forwards a bidirectional stream to a service on the guest loopback',
+				positiveCaseTitle,
 				withSandbox(async (sandbox) => {
 					if (!sandbox.openTcpConnection) return
+					if (!guestCanRunNode) return
+					const openTerminal = sandbox.openTerminal
+					if (!openTerminal) {
+						// A backend offering `openTcpConnection` without
+						// `openTerminal` has no portable way for this suite to
+						// start a guest-side listener — declare the skip
+						// explicitly (`guestCanRunNode: false`) rather than
+						// leaving the default to discover it here as a failure.
+						throw new Error(
+							'openTcpConnection conformance: starting a guest-side listener needs openTerminal, ' +
+								'which this sandbox does not implement. Pass guestCanRunNode: false to ' +
+								'defineSandboxConformance to skip this case with a stated reason, or supply ' +
+								'guestListenerCommand for a guest that can run a listener some other way.',
+						)
+					}
 
-					const echo = await startEchoServer()
+					// Called through `.call(sandbox, …)` rather than passed as
+					// a bare reference: `openTerminal` may be an ordinary
+					// method relying on `this` (a class-based fixture, for
+					// instance), and detaching it from `sandbox` would drop
+					// that binding.
+					const listener = await startGuestListener(
+						(terminalOptions) => openTerminal.call(sandbox, terminalOptions),
+						guestListenerCommand(),
+					)
 					try {
-						const connection = await sandbox.openTcpConnection({ port: echo.port })
+						const connection = await sandbox.openTcpConnection({ port: listener.port })
 						let received = ''
 						const unsubscribe = connection.onData((chunk) => {
 							received += Buffer.from(chunk).toString('utf8')
@@ -400,7 +587,7 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 						expect(received).toBe('conformance-reply:conformance-hello')
 						unsubscribe()
 					} finally {
-						await echo.close()
+						await listener.stop()
 					}
 				}),
 			)

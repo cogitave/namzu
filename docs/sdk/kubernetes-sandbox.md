@@ -231,6 +231,20 @@ non-loopback host, destroy idempotence, and every call failing once destroyed.
 so a factory whose sandbox omits either capability skips that section rather
 than failing it.
 
+The `openTcpConnection` positive case starts its listener INSIDE the guest,
+through `openTerminal` (`node -e`, reporting the port it bound on its own
+stdout, by default) — never on the orchestrator/test process's own loopback,
+which only ever proves anything for a backend whose "guest" happens to share
+that loopback with the process running the suite. `guestCanRunNode` and
+`guestListenerCommand`, both optional on `SandboxConformanceOptions`, let a
+backend whose guest cannot run a listener that way skip the case with a
+stated reason (its own title) instead of failing it, or supply its own
+listener command. Confirmed against a live cluster, not only the two
+loopback fixtures below: see `research/k8s-sandbox/kind-e2e-results.md`'s
+2026-09-16 addendum, where the case failed with `connect ECONNREFUSED`
+before this and passes now that the acquired pod is where the target
+actually lives.
+
 It ships in `@namzu/sandbox`, not `@namzu/sdk/testing` — this package has no
 `testing` subpath of its own yet, and this batch does not add one. Within the
 monorepo a backend's own test file imports it by relative path, the same way

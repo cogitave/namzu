@@ -1,0 +1,86 @@
+{
+  "collectedAt": "2026-09-16T08:31:10.208Z",
+  "purpose": "re-run of the openTcpConnection positive case after moving its listener into the guest",
+  "cluster": {
+    "kind": "namzu",
+    "kubernetesVersion": "v1.37.0",
+    "controllerImage": "registry.k8s.io/agent-sandbox/agent-sandbox-controller:v1.0.2"
+  },
+  "namespace": "namzu-e2e-tcp469",
+  "imageTag": "namzu-e2e-tcp-runner:kind",
+  "runner": {
+    "startedAt": "2026-09-16T08:30:50.925Z",
+    "purpose": "re-run of the openTcpConnection positive case after moving its listener into the guest",
+    "namespace": "namzu-e2e-tcp469",
+    "template": "namzu-task",
+    "pool": "namzu-task-pool",
+    "phases": {
+      "poolWarm": {
+        "ok": true,
+        "durationMs": 10,
+        "ready": 2,
+        "wanted": 2
+      },
+      "conformance": {
+        "ok": true,
+        "durationMs": 4584,
+        "total": 12,
+        "passed": 11,
+        "failed": 1,
+        "cases": [
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > exec > reports the exit code and streams stdout/stderr as the command runs",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > exec > reports busy while a command is in flight and ready once it settles",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > exec > honours an AbortSignal: the process is really terminated, never a partial success",
+            "passed": false,
+            "detail": "expected true to be false"
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > file IO > round-trips a UTF-8 string through writeFile/readFile",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > file IO > round-trips arbitrary binary content byte for byte",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > listFiles > lists written files as absolute paths with their sizes",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > listFiles > reports a root that does not exist as empty rather than failing",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > openTcpConnection > forwards a bidirectional stream to a service started inside the guest",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > openTcpConnection > refuses a non-loopback host",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > destroy > is idempotent, however many times or however concurrently it is called",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e, tcp-case recheck) — sandbox contract v1 > destroy > refuses every call once destroyed, rather than admitting one",
+            "passed": true
+          }
+        ]
+      }
+    },
+    "finishedAt": "2026-09-16T08:30:55.520Z",
+    "ok": true
+  }
+}

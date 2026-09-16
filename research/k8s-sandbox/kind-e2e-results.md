@@ -295,3 +295,92 @@ was left behind by either Job — confirmed via
 `kubectl -n namzu-e2e get sandboxclaims,sandboxes,pods,pvc` immediately
 before cleanup, which showed only the two current warm-pool replicas and
 the two completed Job pods.
+
+## 2026-09-16 addendum — `openTcpConnection` re-run after moving its listener into the guest (issue #469, TCP sub-task)
+
+This run's own "Why `openTcpConnection`'s positive case fails here, and
+always will when run this way" section, above, named the fix directly: the
+suite's positive case started its echo server in the orchestrator/test
+process, which only ever shares a loopback with a colocated fixture and
+never with a real remote guest. `packages/sandbox/src/testing/
+sandbox-conformance.ts` now starts that listener INSIDE the sandbox
+through `openTerminal` (`node -e` by default, reporting the port it bound
+on its own stdout so the host — which cannot inspect a real remote guest's
+open ports any other way — can dial it back through
+`openTcpConnection`), and tears it down again through the same terminal's
+`kill()`. A `guestCanRunNode` / `guestListenerCommand` capability hook on
+`defineSandboxConformance` lets a backend without a node-capable guest skip
+the case with a stated reason instead of failing it. Both colocated
+fixtures (Firecracker loopback, kubernetes fake+real agent) and this live
+cluster now exercise the identical code path.
+
+**Not re-derived: the other four phases.** Only `poolWarm` and
+`conformance` were re-run, against a namespace and image tag dedicated to
+this recheck (`namzu-e2e-tcp469`, `namzu-e2e-tcp-runner:kind` — the shared
+`namzu-e2e` namespace and `namzu-e2e-runner:kind` tag from the original run
+were left untouched, on the chance another session was using them
+concurrently). `acquireLatency`, `operations`, `leaseProof` and
+`poolLessCreate` were not touched by this fix and are still governed by the
+numbers recorded above; re-running them here would only re-derive figures
+already on record, the same reasoning "This script vs. this run" gives for
+not re-running `kind-e2e-cli.mjs` itself end to end.
+
+**Driver.** `research/k8s-sandbox/tcp-case-recheck.mjs` (+
+`tcp-case-runner.mjs`, a `poolWarm`+`conformance`-only trim of `runner.mjs`
+run via a `command` override on an image whose `CMD` is still `node
+runner.mjs`). Reuses `kind-e2e-cli.mjs`'s own mechanics — the same
+podman-machine transfer trick, the same kind-overlay, the same warm pool —
+parameterized onto a dedicated namespace/image tag rather than editing that
+file. Its own npm tarballs were packed from `packages/sdk` and
+`packages/sandbox` **in this worktree**, i.e. carrying the fix above.
+
+**A second, unrelated bug found and fixed in the driver itself.**
+`wslCurlFetch`'s original shape (`kind-e2e-cli.mjs`, inherited verbatim
+into the first draft of `tcp-case-recheck.mjs`) starts a Node HTTP server
+in the same process and then calls the WSL-side `curl` through
+`spawnSync` — which blocks that process's entire event loop, including the
+very HTTP server the `curl` needs an answer from, until `spawnSync`'s own
+timeout kills it. Every transfer attempt timed out at exactly the
+configured `timeoutMs` until `wsl()` was rewritten around `spawn` (async,
+still awaited before the next step, so every OTHER call site stayed exactly
+as sequential as before). `kind-e2e-cli.mjs`'s own header already flags why
+this could hide until now: its `wsl(...)` calls were "individually-verified
+... executed by hand" in an interactive session, never previously run as
+one unified script where the HTTP server and the blocking call share a
+process. `kind-e2e-cli.mjs` itself is unchanged; this is recorded here as a
+latent defect in that reproduction script for whoever next runs it as
+described.
+
+**Result: 11/12, the TCP case now passing.**
+
+```
+[PASS] exec > reports the exit code and streams stdout/stderr as the command runs
+[PASS] exec > reports busy while a command is in flight and ready once it settles
+[FAIL] exec > honours an AbortSignal: the process is really terminated, never a partial success
+[PASS] file IO > round-trips a UTF-8 string through writeFile/readFile
+[PASS] file IO > round-trips arbitrary binary content byte for byte
+[PASS] listFiles > lists written files as absolute paths with their sizes
+[PASS] listFiles > reports a root that does not exist as empty rather than failing
+[PASS] openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned
+[PASS] openTcpConnection > forwards a bidirectional stream to a service started inside the guest
+[PASS] openTcpConnection > refuses a non-loopback host
+[PASS] destroy > is idempotent, however many times or however concurrently it is called
+[PASS] destroy > refuses every call once destroyed, rather than admitting one
+```
+
+The one remaining failure is the `AbortSignal` case this run's own section
+above already recorded and explained (plain `runc`, no Kata boundary, the
+controller's 8s cancel-confirm window); it is out of scope for the TCP
+sub-task and tracked separately. Full JSON:
+`research/k8s-sandbox/tcp-case-recheck-results.json`.
+
+**Live evidence.** Namespace `namzu-e2e-tcp469` on kind cluster `namzu`
+(controller `registry.k8s.io/agent-sandbox/agent-sandbox-controller:v1.0.2`,
+`kubectl` server version `v1.37.0`): Job `namzu-tcp-case-recheck`, pod
+`namzu-tcp-case-recheck-g8nrw`, `Completed`, `succeeded: 1`,
+`completionTime: 2026-09-16T08:30:57Z`; warm pool `namzu-task-pool`
+`readyReplicas: 2/2` (pods `namzu-task-pool-f5qrj`, `namzu-task-pool-jzbkz`)
+throughout. Namespace deleted afterward (`kubectl delete namespace
+namzu-e2e-tcp469 --wait=true`); cluster, controller and every previously
+loaded image (including the ORIGINAL `namzu-e2e-runner:kind` tag this
+addendum's own recheck image does not touch) left running.

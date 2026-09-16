@@ -296,22 +296,23 @@ export interface Sandbox {
 	 * Open a real pseudo-terminal whose complete process tree is confined to
 	 * and owned by this sandbox.
 	 *
-	 * Optional, and a backend that cannot provide one must **throw** rather
-	 * than hand back a pipe — the same rule {@link Sandbox.setNetworkPolicy}
-	 * states one line up, and for a sharper reason. A pipe would appear to
-	 * work: bytes would flow, and every program that calls `isatty` would
-	 * take its non-interactive branch. The prompt never appears, the REPL
-	 * exits immediately, the progress bar prints ten thousand lines, and
-	 * nothing says why.
+	 * Optional, and a backend that cannot provide one must **omit this
+	 * method** rather than hand back a pipe — the same skip-if-unavailable
+	 * rule {@link Sandbox.openTcpConnection} states below, and for a sharper
+	 * reason. A pipe would appear to work: bytes would flow, and every
+	 * program that calls `isatty` would take its non-interactive branch. The
+	 * prompt never appears, the REPL exits immediately, the progress bar
+	 * prints ten thousand lines, and nothing says why.
 	 *
-	 * A backend that implements this method MUST make {@link destroy} kill and
-	 * await every terminal it returned. Merely starting a host pseudo-terminal
-	 * with `rootDir` as its working directory does not satisfy either the
-	 * confinement or the ownership contract.
+	 * A backend that DOES implement this method MUST make {@link destroy}
+	 * kill and await every terminal it returned. Merely starting a host
+	 * pseudo-terminal with `rootDir` as its working directory does not
+	 * satisfy either the confinement or the ownership contract.
 	 *
-	 * The Firecracker backend satisfies both guarantees by owning the PTY in the
-	 * guest and awaiting its exit before the microVM is released. Backends that
-	 * cannot provide that boundary omit the capability.
+	 * The Firecracker backend satisfies both guarantees by owning the PTY in
+	 * the guest and awaiting its exit before the microVM is released.
+	 * Backends that cannot provide that boundary omit the capability, as
+	 * stated above.
 	 */
 	openTerminal?(options: OpenTerminalOptions): Promise<TerminalSession>
 	/**
