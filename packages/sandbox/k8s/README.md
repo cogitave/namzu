@@ -79,6 +79,14 @@ workload's egress destinations in `networkpolicy.yaml`'s `egress` list (the
 shipped placeholder is an RFC 5737 documentation range that resolves to
 nothing real).
 
+If the backend's own `config.egress.engine` is `'cilium'` (a hostname
+allowlist, translated to a `CiliumNetworkPolicy` — see
+`docs/sdk/kubernetes-sandbox.md`'s egress section), the host reads that
+object back before every `create()`. `manifests/rbac.yaml` already grants
+`get` on `ciliumnetworkpolicies` (`cilium.io`) for exactly this — a cluster
+running the default `'core'` engine, or no Cilium CRDs at all, simply never
+matches that rule, so there is nothing to remove.
+
 If a workspace's disk needs a `storageClassName` other than one that
 provisions `volumeMode: Block`, fix that in
 `manifests/sandboxtemplate-workspace.yaml` too — the default StorageClass on

@@ -11,9 +11,9 @@
 #     sandboxclaims create/get/patch/delete, sandboxes create/get/patch/
 #     delete, sandboxtemplates get, pods get/list, and — only when a
 #     deployment configures `config.egress` — networkpolicies get (or, under
-#     `engine: 'cilium'`, ciliumnetworkpolicies get instead; NOT granted
-#     below since the default engine needs the core group only — add it by
-#     hand if this cluster's egress engine is Cilium).
+#     `engine: 'cilium'`, ciliumnetworkpolicies get instead — both are
+#     granted below; a cluster with no Cilium CRDs installed simply never
+#     matches the second rule).
 #   - ../scripts/acquire-p50.mjs's own diagnostic: it reads the
 #     SandboxWarmPool's `status.readyReplicas` before timing so a cold,
 #     still-warming pool cannot masquerade as a fast acquire. That read goes
@@ -50,10 +50,17 @@ rules:
   - apiGroups: ['']
     resources: [pods]
     verbs: [get, list]
-  # Only exercised when a deployment sets `config.egress` — see the header
-  # comment for the Cilium alternative this does NOT cover.
+  # Only exercised when a deployment sets `config.egress` — the default
+  # engine ('core') reads the resource below; `engine: 'cilium'` reads the
+  # one after it instead. See the header comment.
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]
+    verbs: [get]
+  # `config.egress.engine: 'cilium'` only — see the header comment. A
+  # cluster with no Cilium CRDs installed simply never matches this rule;
+  # granting it costs nothing there.
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
     verbs: [get]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

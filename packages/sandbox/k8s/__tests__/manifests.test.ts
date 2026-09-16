@@ -255,6 +255,15 @@ describe('rbac.yaml', () => {
 		expect(byResource.get('sandboxwarmpools')).toEqual(new Set(['get']))
 		expect(byResource.get('pods')).toEqual(new Set(['get', 'list']))
 		expect(byResource.get('networkpolicies')).toEqual(new Set(['get']))
+		expect(byResource.get('ciliumnetworkpolicies')).toEqual(new Set(['get']))
+	})
+
+	it('grants get on ciliumnetworkpolicies in the cilium.io apiGroup, for engine: "cilium" (#474)', () => {
+		const rules = role.rules as Record<string, unknown>[]
+		const rule = rules.find((r) => (r.resources as string[]).includes('ciliumnetworkpolicies'))
+		expect(rule, 'no rule grants ciliumnetworkpolicies').toBeDefined()
+		expect(rule?.apiGroups).toEqual(['cilium.io'])
+		expect(rule?.verbs).toEqual(['get'])
 	})
 
 	it('binds the Role to the ServiceAccount this backend actually runs as', () => {
