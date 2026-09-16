@@ -65,6 +65,17 @@ export interface ExecRequest {
 	readonly stdin?: string
 	readonly timeoutMs?: number
 	readonly maxOutputBytes?: number
+	/**
+	 * Ask the guest to keep this command's output in its retained log, so a
+	 * host that loses the data connection can reattach by execution id and
+	 * read on from the offset it reached.
+	 *
+	 * Requires `executionId` — a log nobody can name is a log nobody can
+	 * attach to — and requires the guest to advertise `execution-attach` in
+	 * its `healthz` features. Omitted on every ordinary exec, which is why
+	 * the default wire request is byte-for-byte what it has always been.
+	 */
+	readonly retainOutput?: boolean
 }
 
 /**
@@ -72,12 +83,28 @@ export interface ExecRequest {
  * exact union the HTTP worker writes via `writeEvent`:
  *   { type: 'stdout_delta', data }
  *   { type: 'stderr_delta', data }
+ *
+ * A delta of an execution the guest was asked to RETAIN also carries
+ * `offset` and `nextOffset`: the bytes the chunk occupies in that
+ * execution's retained log. They are additive, ignored by every consumer
+ * that does not reattach, and they are the only correct source for a
+ * reattach cursor — see {@link parseExecEvent}.
  *   { type: 'result', exitCode, timedOut, durationMs, stdoutTruncated?, stderrTruncated? }
  *   { type: 'error', error }
  */
 export type ExecEvent =
-	| { readonly type: 'stdout_delta'; readonly data: string }
-	| { readonly type: 'stderr_delta'; readonly data: string }
+	| {
+			readonly type: 'stdout_delta'
+			readonly data: string
+			readonly offset?: number
+			readonly nextOffset?: number
+	  }
+	| {
+			readonly type: 'stderr_delta'
+			readonly data: string
+			readonly offset?: number
+			readonly nextOffset?: number
+	  }
 	| {
 			readonly type: 'result'
 			readonly exitCode: number
@@ -149,6 +176,18 @@ export interface WriteFileResponse {
  * to the single-frame write and its named too-large error.
  */
 export const WRITE_FILE_PARTS_FEATURE = 'write-file-parts'
+
+/**
+ * The `healthz` feature string an agent advertises when it accepts a
+ * caller-chosen `executionId`, an `execute` carrying `retainOutput`, and
+ * the `attach-execution` op that replays a retained execution's output by
+ * byte offset.
+ *
+ * A host asking for a detachable command against a guest that does not
+ * advertise it is refused BEFORE the command is admitted, rather than
+ * starting one whose output nothing keeps.
+ */
+export const EXECUTION_ATTACH_FEATURE = 'execution-attach'
 
 /** `/read-file` request body. */
 export interface ReadFileRequest {
@@ -320,6 +359,20 @@ export function parseExecLine(line: string): ExecEvent | undefined {
 			`agent emitted malformed NDJSON: ${error instanceof Error ? error.message : String(error)}`,
 		)
 	}
+	return parseExecEvent(parsed)
+}
+
+/**
+ * The same structural validation over an event that has ALREADY been
+ * parsed out of its frame.
+ *
+ * Split out of {@link parseExecLine} for the caller that reads the exec
+ * stream frame by frame rather than as NDJSON text — the Kubernetes
+ * detached execution, which needs the raw object to read the retained-log
+ * offsets off it. One validation, two entry points: an ordinary exec and a
+ * detached one must never disagree about what a valid frame is.
+ */
+export function parseExecEvent(parsed: unknown): ExecEvent {
 	if (!parsed || typeof parsed !== 'object') {
 		throw new RemoteProtocolError('agent emitted an event without an object body')
 	}

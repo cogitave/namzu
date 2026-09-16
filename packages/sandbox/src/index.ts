@@ -148,6 +148,22 @@ export {
 	KubernetesAgentAddressUnresolvableError,
 	KubernetesAgentUnauthorizedError,
 } from './backends/kubernetes/transport.js'
+// A workspace command that can outlive the connection watching it: the
+// options that ask for one, and the three refusals a caller has to be able
+// to catch BY CLASS — a guest image too old to keep output, an execution
+// that can no longer be attached to (past retention, or in a replaced
+// pod), and an observation this host gave up on WITHOUT cancelling, which
+// names the id and the byte offset another process resumes from.
+export type {
+	KubernetesAttachExecutionOptions,
+	KubernetesAttachRefusal,
+	KubernetesDetachedExecOptions,
+} from './backends/kubernetes/transport.js'
+export {
+	KubernetesExecutionAttachUnsupportedError,
+	KubernetesExecutionDetachedError,
+	KubernetesExecutionNotAttachableError,
+} from './backends/kubernetes/transport.js'
 // The persistent workspace: a `Sandbox` that keeps a block disk across a
 // suspend, the union naming how a handle came by its object, plus the four
 // errors its lifecycle can refuse with — a template that cannot carry a disk,

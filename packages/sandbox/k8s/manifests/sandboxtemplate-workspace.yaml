@@ -61,6 +61,31 @@ spec:
               # an unconditional mkfs here would be the single most
               # destructive possible bug in this whole backend.
               value: /dev/namzu-workspace
+            # How long a command the host asked to detach from may run, and
+            # how much of its output the guest keeps for a host that comes
+            # back for it. All three are shown at their DEFAULTS: deleting
+            # them changes nothing, and they are here so an operator can see
+            # what the knobs are without reading the agent.
+            #
+            # NAMZU_SANDBOX_MAX_TIMEOUT_MS is the ceiling on the caller's own
+            # `timeout`, refused rather than silently shortened. Raise it for
+            # a workspace that runs a suite longer than thirty minutes.
+            - name: NAMZU_SANDBOX_MAX_TIMEOUT_MS
+              value: '1800000'
+            # Retained output costs heap in the same 512Mi the workload
+            # shares, so it is bounded twice over: per execution, and by how
+            # many executions may retain at once. 1 MiB x 32 = 32 MiB worst
+            # case. Only a command started with detach retains anything.
+            - name: NAMZU_AGENT_EXECUTION_LOG_BYTES
+              value: '1048576'
+            - name: NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS
+              value: '32'
+            # How long a detached command's record and output outlive it —
+            # the window in which a redeployed host can still come back and
+            # read the result. Idempotent re-starts of the same execution id
+            # end here too.
+            - name: NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS
+              value: '600000'
             - name: NAMZU_AGENT_BIND_TOKEN
               # Same rule as the task template: the pod's own uid, never a
               # value this manifest invents or shares across instances. A

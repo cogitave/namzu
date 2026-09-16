@@ -32,6 +32,13 @@ export const AGENT_ENV_KEYS = [
 	'NAMZU_AGENT_CANCEL_GRACE_MS',
 	'NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS',
 	'NAMZU_AGENT_RESEED_HOOK',
+	// Retained execution output, and how long a retained record outlives
+	// its command.
+	'NAMZU_AGENT_EXECUTION_LOG_BYTES',
+	'NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS',
+	'NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS',
+	// The ceiling on a caller-requested command timeout.
+	'NAMZU_SANDBOX_MAX_TIMEOUT_MS',
 	// The workspace the file ops are confined to.
 	'NAMZU_SANDBOX_WORKSPACE',
 	'NAMZU_SANDBOX_READ_ROOTS',

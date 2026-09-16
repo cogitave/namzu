@@ -102,6 +102,42 @@ while still enough for a fast, well-behaved `SIGTERM` handler's own cleanup;
 a deployment that genuinely needs a longer cooperative-shutdown window sets
 either variable explicitly.
 
+**Retained output, and a command that outlives its connection.** On the
+kubernetes workspace tier a command can be started with a caller-chosen
+`executionId` and `retainOutput`, and then followed — or picked up by a
+different host process — through the additive `attach-execution` op. There is
+ONE retained-output primitive in the guest and every consumer reads it: an
+ordered, size-bounded log of stdout and stderr in a single monotonically
+increasing byte-offset space, so a reader resumes with one number and sees the
+interleaving the command produced. Its bound is bytes, not chunks — a chunk
+larger than the whole budget has its head sliced off rather than being kept
+whole — and eviction advances the log's start offset, so a read from before it
+is answered with a `droppedBytes` count. A gap is reported; output is never
+silently skipped, and offsets are absolute so a stale cursor is always
+answerable. Every delta frame of a retained command carries the byte range it
+occupies — on the `execute` stream as well as on an attach — because a host
+must never derive an offset from what it received: output crosses the wire as
+decoded text, and a chunk that ends inside a multi-byte character does not
+decode to its own byte length. `attach-execution` replays from the requested
+offset, follows the live command, and ends with one terminal frame; it never
+signals the process, and closing an attach connection is a no-op. Ending a
+command stays `cancel-execution`'s job alone. Reserving an id the guest still
+holds reports what it holds rather than minting a second reservation, so a
+retried start runs the command once — a guarantee that ends where the record
+does, at the retention window (`NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS`,
+10 min) and at pod replacement. The cost is bounded twice over, per execution
+(`NAMZU_AGENT_EXECUTION_LOG_BYTES`, 1 MiB) and by how many executions may
+retain at once (`NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS`, 32), and only a
+command that asked for retention is kept at all. The guest advertises
+`execution-attach` in `healthz` and a host that asks for a detachable command
+against an image without it is refused before the command is admitted.
+
+**The command timeout ceiling is configurable.** The guest agent reads its
+maximum `timeoutMs` from `NAMZU_SANDBOX_MAX_TIMEOUT_MS` — the same variable
+the container worker has always read for the same limit — defaulting to the
+unchanged 30 minutes, and names the variable when it refuses. A request above
+the ceiling is refused, not silently shortened.
+
 Every worker and microVM guest publishes its wire-protocol version in the
 readiness response. The host admits only the exact version implemented by its
 release; missing, older, and newer versions fail before a sandbox handle or
@@ -261,11 +297,11 @@ that is present but is not an object is refused outright
 (`write_part_invalid_shape`) rather than served as the plain whole-file write
 it resembles.
 
-The guest opts in. `healthz` answers with `features: ["write-file-parts"]`
-alongside `ok` and `protocolVersion`, and a host sends a part only to a guest
-that advertised it — an agent that predates the field would ignore `part` and
-write that slice as a whole file. A deployment that would rather send one big
-frame than several small ones can still raise
+The guest opts in. `healthz` answers with `features` alongside `ok` and
+`protocolVersion` — `write-file-parts` among them — and a host sends a part
+only to a guest that advertised it: an agent that predates the field would
+ignore `part` and write that slice as a whole file. A deployment that would
+rather send one big frame than several small ones can still raise
 `NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES`, trading pre-auth buffer budget for
 frame size. Nothing on the Firecracker path is affected either way: no token
 mode is active there, so no pre-auth cap applies and a `write-file` frame of

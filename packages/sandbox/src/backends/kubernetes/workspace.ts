@@ -163,7 +163,6 @@ import type {
 	Sandbox,
 	SandboxDestroyOptions,
 	SandboxEnvironment,
-	SandboxExecOptions,
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxId,
@@ -221,7 +220,11 @@ import {
 	type KubernetesSandboxHandle,
 	buildKubernetesSandbox,
 } from './sandbox.js'
-import { KubernetesAgentTransport } from './transport.js'
+import {
+	KubernetesAgentTransport,
+	type KubernetesAttachExecutionOptions,
+	type KubernetesDetachedExecOptions,
+} from './transport.js'
 
 /**
  * Thrown when a workspace's `SandboxTemplate` does not describe a block disk
@@ -447,6 +450,48 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * SDK's union.
 	 */
 	readonly suspended: boolean
+	/**
+	 * The SDK's `exec`, plus the three Kubernetes-only fields that let a
+	 * command outlive the connection watching it — see
+	 * {@link KubernetesDetachedExecOptions}.
+	 *
+	 * Without `executionId` and without `detach` this is the SDK's exec
+	 * exactly: the same reserve-before-admission controller, the same wire
+	 * request, the same result. The options type only WIDENS what is
+	 * accepted, so every `SandboxExecOptions` a caller already passes is
+	 * still a valid argument and nothing about `Sandbox` changed.
+	 */
+	exec(
+		command: string,
+		argv?: string[],
+		options?: KubernetesDetachedExecOptions,
+	): Promise<SandboxExecResult>
+	/**
+	 * Read a command this workspace is running, or has recently run, by the
+	 * id it was started with — including one started by a host process that
+	 * no longer exists.
+	 *
+	 * It never signals the command: aborting `signal` stops reading and
+	 * leaves it running, and closing the connection changes nothing in the
+	 * guest. Every attach inside the retention window returns the same
+	 * result. Past it, or in a pod that has since been replaced, it rejects
+	 * with `KubernetesExecutionNotAttachableError`.
+	 */
+	attachExecution(
+		executionId: string,
+		options?: KubernetesAttachExecutionOptions,
+	): Promise<SandboxExecResult>
+	/**
+	 * End a command by id, from any process holding the id. Resolves only
+	 * on a CONFIRMED termination and rejects with
+	 * `RemoteCancellationUnknownError` otherwise — and rejecting here
+	 * retires nothing: the workspace, its pod and its disk are left exactly
+	 * as they are. A caller that wants the pod gone asks for that.
+	 */
+	cancelExecution(
+		executionId: string,
+		options?: KubernetesWorkspaceTransitionOptions,
+	): Promise<void>
 	openTerminal(options: OpenTerminalOptions): Promise<TerminalSession>
 	openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection>
 	/**
@@ -1391,6 +1436,34 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 */
 	let retiredPodUid: string | undefined
 	const terminals = new Set<TerminalSession>()
+	/**
+	 * The transport behind each session's inner handle.
+	 *
+	 * The detach/attach ops are the workspace's own surface, not the SDK
+	 * `Sandbox`'s, so they are reached on the transport rather than through
+	 * the inner handle — which also keeps them off the inner handle's
+	 * automatic-retirement path, where an unconfirmed cancel takes the pod
+	 * away. A detached command losing its connection must cost the
+	 * workspace nothing, so it must not travel that road at all.
+	 *
+	 * Keyed by handle rather than kept in a `let`, so there is no window in
+	 * which `session` and the transport disagree: `admitted()` hands out the
+	 * live handle, and the transport looked up from it is that handle's own
+	 * or nothing.
+	 */
+	const sessionTransports = new WeakMap<KubernetesSandboxHandle, KubernetesAgentTransport>()
+
+	/** The live session's transport, refused by name if there is none. */
+	const admittedTransport = (
+		operation: string,
+		handle: KubernetesSandboxHandle,
+	): KubernetesAgentTransport => {
+		const transport = sessionTransports.get(handle)
+		if (transport === undefined) {
+			throw new KubernetesWorkspaceSuspendedError(operation, workspaceId, name)
+		}
+		return transport
+	}
 
 	/**
 	 * Lifecycle transitions run one at a time. Two of them racing would
@@ -1694,15 +1767,16 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// it belongs to before that handle exists. Nothing can call it in
 		// between: `release` is reachable only THROUGH the handle.
 		const own: { handle?: KubernetesSandboxHandle } = {}
+		const transport = new KubernetesAgentTransport(
+			address,
+			options.agentAddress === 'pod-ip'
+				? { refreshHandle: followReplacedPod(binding, generation) }
+				: {},
+		)
 		const inner = buildKubernetesSandbox({
 			name,
 			rootDir: options.rootDir,
-			transport: new KubernetesAgentTransport(
-				address,
-				options.agentAddress === 'pod-ip'
-					? { refreshHandle: followReplacedPod(binding, generation) }
-					: {},
-			),
+			transport,
 			// Deliberately NOT `deleteSandbox` — see {@link retireSession}. On
 			// the task path `release` is a DELETE because the object is
 			// disposable; here the same callback would erase the caller's disk
@@ -1713,6 +1787,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// No `renew`, and so no lease loop: a workspace carries no expiry.
 		})
 		own.handle = inner
+		sessionTransports.set(inner, transport)
 		// The same probe every task acquire runs, on every resume as well as on
 		// create — a resumed pod is a new pod, from a possibly re-pulled image,
 		// and "it was deprivileged last week" is not a check.
@@ -2164,9 +2239,50 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		async exec(
 			command: string,
 			argv?: string[],
-			execOptions?: SandboxExecOptions,
+			execOptions?: KubernetesDetachedExecOptions,
 		): Promise<SandboxExecResult> {
-			return await admitted('exec', async (handle) => await handle.exec(command, argv, execOptions))
+			// The default path, untouched: the SDK's exec through the inner
+			// handle, the shared execution controller, and the retirement
+			// behaviour that comes with it.
+			if (execOptions?.detach !== true && execOptions?.executionId === undefined) {
+				return await admitted(
+					'exec',
+					async (handle) => await handle.exec(command, argv, execOptions),
+				)
+			}
+			return await admitted(
+				'exec',
+				async (handle) =>
+					await admittedTransport('exec', handle).execDetached(command, argv, execOptions),
+			)
+		},
+
+		async attachExecution(
+			executionId: string,
+			attachOptions?: KubernetesAttachExecutionOptions,
+		): Promise<SandboxExecResult> {
+			return await admitted(
+				'attachExecution',
+				async (handle) =>
+					await admittedTransport('attachExecution', handle).attachExecution(
+						executionId,
+						attachOptions,
+					),
+			)
+		},
+
+		async cancelExecution(
+			executionId: string,
+			transitionOptions?: KubernetesWorkspaceTransitionOptions,
+		): Promise<void> {
+			await admitted(
+				'cancelExecution',
+				async (handle) =>
+					await admittedTransport('cancelExecution', handle).cancelExecution(
+						executionId,
+						transitionOptions?.signal,
+					),
+			)
 		},
 
 		async writeFile(path: string, content: string | Buffer): Promise<void> {

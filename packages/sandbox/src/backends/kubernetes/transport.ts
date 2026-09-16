@@ -24,6 +24,7 @@
  * measured, not guessed at.
  */
 
+import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 
 import type {
@@ -35,7 +36,12 @@ import type {
 	TerminalSession,
 } from '@namzu/sdk'
 
-import type { ExecRequest } from '../firecracker/protocol.js'
+import {
+	EXECUTION_ATTACH_FEATURE,
+	type ExecRequest,
+	ExecResultAccumulator,
+	parseExecEvent,
+} from '../firecracker/protocol.js'
 import {
 	AgentDialFailedError,
 	type AgentRequest,
@@ -44,10 +50,14 @@ import {
 	type VsockTransportOptions,
 } from '../firecracker/transport.js'
 import {
+	type RemoteCancellationAcknowledgement,
 	RemoteCancellationUnknownError,
+	RemoteCommandError,
 	type RemoteExecutionAdapter,
 	RemoteExecutionController,
+	RemoteProtocolError,
 	RemoteResultIncompleteError,
+	type RemoteTerminalMetadata,
 } from '../remote-execution-controller.js'
 
 /** The one {@link SandboxAgentHandle} arm this backend ever constructs. */
@@ -330,6 +340,373 @@ export interface KubernetesTransportOptions
 	 * failed at connect — see {@link KubernetesAgentTransport}.
 	 */
 	readonly refreshHandle?: (signal?: AbortSignal) => Promise<KubernetesAgentHandle>
+}
+
+// --- detachable executions (#479) -----------------------------------------
+
+/** How long a detached `exec()` keeps trying to get its stream back. */
+const DEFAULT_REATTACH_WINDOW_MS = 30_000
+/** Pause between reattach attempts, so a refusing port is not hot-looped. */
+const REATTACH_RETRY_DELAY_MS = 250
+/** The guest's own default, mirrored so an observation bound exists. */
+const DEFAULT_EXECUTION_TIMEOUT_MS = 5 * 60 * 1_000
+/** Slack over the command's own timeout, as `executeRaw` allows itself. */
+const EXECUTION_OBSERVATION_GRACE_MS = 10_000
+/** How long a confirmed cancel is retried before it is reported unknown. */
+const CANCEL_CONFIRM_WINDOW_MS = 8_000
+const CANCEL_ATTEMPT_TIMEOUT_MS = 2_000
+const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+/**
+ * Thrown before a command is admitted, when the caller asked for a
+ * detachable execution and the guest does not advertise
+ * {@link EXECUTION_ATTACH_FEATURE}.
+ *
+ * Refused rather than downgraded: a caller that asked for detach is about
+ * to rely on being able to come back for the output, and running the
+ * command anyway would keep nothing and tell nobody.
+ */
+export class KubernetesExecutionAttachUnsupportedError extends Error {
+	override readonly name = 'KubernetesExecutionAttachUnsupportedError'
+
+	constructor(
+		readonly feature: string,
+		message: string,
+	) {
+		super(message)
+	}
+}
+
+/** Why an `attach-execution` could not be served. */
+export type KubernetesAttachRefusal =
+	| 'unknown_execution'
+	| 'output_not_retained'
+	| 'invalid_offset'
+	| 'invalid_execution_id'
+	| 'agent_retiring'
+	| 'unknown'
+
+/**
+ * Thrown when the guest ANSWERED an attach and refused it — the execution
+ * is past its retention, ran in a pod that has since been replaced, never
+ * asked for its output to be kept, or the offset names bytes it does not
+ * have.
+ *
+ * Distinct from a transport failure on purpose: a refusal will not become a
+ * success by being retried, so the reattach loop stops on it instead of
+ * spending its whole window re-asking a question already answered.
+ */
+export class KubernetesExecutionNotAttachableError extends Error {
+	override readonly name = 'KubernetesExecutionNotAttachableError'
+
+	/**
+	 * The state the guest reported for this execution, when it reported
+	 * one. `'reserved'` is the one that changes what a caller should do:
+	 * the command was never started, so nothing is running.
+	 */
+	readonly executionState: string | undefined
+
+	constructor(
+		readonly executionId: string,
+		readonly reason: KubernetesAttachRefusal,
+		message: string,
+		options?: { cause?: unknown; state?: string },
+	) {
+		super(message, options)
+		this.executionState = options?.state
+	}
+}
+
+/**
+ * Thrown when a detached `exec()` gave up OBSERVING a command that is, as
+ * far as this host knows, still the guest's to run.
+ *
+ * The two fields are what makes it recoverable rather than merely a
+ * failure: `executionId` names the command to a second host process, and
+ * `outputOffset` is the byte the next `attachExecution` should resume from
+ * so nothing is read twice and no gap is invented.
+ *
+ * Nothing on this path cancels to reconcile. That is the whole point of
+ * the feature: a reset connection used to cost the workspace its pod, and
+ * a command the host has stopped watching is not a command that has to
+ * die.
+ */
+export class KubernetesExecutionDetachedError extends Error {
+	override readonly name = 'KubernetesExecutionDetachedError'
+
+	constructor(
+		readonly executionId: string,
+		readonly outputOffset: number,
+		message: string,
+		options?: { cause?: unknown },
+	) {
+		super(message, options)
+	}
+}
+
+/** What the guest reports about a finished execution on an attach. */
+interface AttachTerminal {
+	readonly outcome: 'completed' | 'cancelled' | 'failed'
+	readonly result?: RemoteTerminalMetadata
+	readonly error?: string
+}
+
+/**
+ * Everything one detached observation has read so far, across however many
+ * connections it took.
+ *
+ * `offset` is the guest's own byte offset into the execution's retained
+ * log, and it is the reason this is a mutable cursor rather than a return
+ * value: a reattach resumes from it, and every chunk a previous connection
+ * delivered has to be behind it.
+ */
+interface OutputCursor {
+	offset: number
+	stdout: string
+	stderr: string
+	/** Bytes the guest had already evicted when a reattach asked for them. */
+	droppedBytes: number
+}
+
+/** One `stdout_delta`/`stderr_delta` payload, from either op's stream. */
+function deltaStream(type: unknown): 'stdout' | 'stderr' | undefined {
+	if (type === 'stdout_delta') return 'stdout'
+	if (type === 'stderr_delta') return 'stderr'
+	return undefined
+}
+
+function isAttachRefusal(value: string): value is KubernetesAttachRefusal {
+	return (
+		value === 'unknown_execution' ||
+		value === 'output_not_retained' ||
+		value === 'invalid_offset' ||
+		value === 'invalid_execution_id' ||
+		value === 'agent_retiring'
+	)
+}
+
+function terminalMetadataOrThrow(value: unknown, executionId: string): RemoteTerminalMetadata {
+	if (!value || typeof value !== 'object') {
+		throw new RemoteProtocolError(
+			`kubernetes: the guest ended the attach stream for ${executionId} without terminal metadata`,
+		)
+	}
+	return value as RemoteTerminalMetadata
+}
+
+function pause(ms: number): Promise<void> {
+	return new Promise((resolve) => {
+		const timer = setTimeout(resolve, ms)
+		timer.unref?.()
+	})
+}
+
+/**
+ * The id shape the guest enforces, mirrored here so a caller-chosen id is
+ * refused locally with a message that says what the shape is, rather than
+ * as an `invalid_execution_id` frame after a round trip.
+ */
+const EXECUTION_ID_PATTERN =
+	/^exec_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+
+function assertExecutionId(executionId: string): void {
+	if (EXECUTION_ID_PATTERN.test(executionId)) return
+	throw new RemoteProtocolError(
+		`kubernetes: ${JSON.stringify(executionId)} is not a valid execution id. The guest accepts exec_<uuid> and nothing else, so that an id minted by one host process is recognisable to another.`,
+	)
+}
+
+/**
+ * Fold one delta frame into the cursor, taking the offset FROM THE GUEST,
+ * and pass the output on to the caller.
+ *
+ * The host never derives an offset from the string it received, on either
+ * stream, and that is the whole of this function's reason to exist.
+ * `Buffer.toString('utf8')` over a chunk that ends mid-character does not
+ * preserve byte length — an incomplete sequence decodes to U+FFFD, which
+ * is WIDER than the bytes it replaced — so a cursor advanced by
+ * `Buffer.byteLength(data)` runs ahead of the guest's retained log the
+ * first time a multi-byte character straddles a read boundary. A drifted
+ * cursor is not a cosmetic error: the reattach either resumes past bytes
+ * that are then never delivered and never reported (a silent hole in a
+ * result whose truncation flags both read `false`) or names an offset the
+ * guest never had and is refused `invalid_offset`, which costs the caller
+ * the feature entirely. The guest stamps `nextOffset` on every delta of a
+ * retained execution, on the execute stream and the attach stream alike.
+ */
+function applyDelta(
+	cursor: OutputCursor,
+	executionId: string,
+	stream: 'stdout' | 'stderr',
+	event: Record<string, unknown>,
+	onOutput?: SandboxExecOptions['onOutput'],
+): void {
+	const data = typeof event.data === 'string' ? event.data : ''
+	const nextOffset = Number(event.nextOffset)
+	if (!Number.isFinite(nextOffset)) {
+		throw new RemoteProtocolError(
+			`kubernetes: the guest sent a ${stream} delta for execution ${executionId} without the byte offset a reattach resumes from. Every guest advertising '${EXECUTION_ATTACH_FEATURE}' stamps them on a retained execution's output; rebuild the workspace image from this Namzu release.`,
+		)
+	}
+	cursor.offset = nextOffset
+	if (stream === 'stdout') cursor.stdout += data
+	else cursor.stderr += data
+	onOutput?.({ stream, data })
+}
+
+/**
+ * The guest's refusal to start a command on an id that is no longer
+ * `reserved` — another host process got its `execute` in first.
+ *
+ * It reads as terminal (the guest answered, and answering again will not
+ * change it) and it is the one case where that is the wrong conclusion:
+ * the command this call asked for EXISTS, so the caller gets it by
+ * attaching rather than an error about a race it does not care about.
+ */
+function lostTheStartRace(error: unknown): boolean {
+	return error instanceof RemoteCommandError && error.message.startsWith('execution_not_reserved')
+}
+
+/**
+ * Errors a reattach must NOT spend its window re-asking about: the guest
+ * answered, and the answer will be the same next time.
+ */
+function isTerminalAttachError(error: unknown): boolean {
+	return (
+		error instanceof KubernetesExecutionNotAttachableError ||
+		error instanceof KubernetesAgentUnauthorizedError ||
+		error instanceof KubernetesAgentAddressUnresolvableError ||
+		error instanceof RemoteCommandError ||
+		error instanceof RemoteProtocolError
+	)
+}
+
+/** The guest's `cancel-execution` reply, refusals told apart from blips. */
+function parseCancellationReply(
+	executionId: string,
+	response: unknown,
+): RemoteCancellationAcknowledgement {
+	const reply = (response ?? {}) as Record<string, unknown>
+	if (reply.ok === true) {
+		const state = String(reply.state ?? '')
+		if (state === 'cancelled' || state === 'completed' || state === 'failed') {
+			return reply as unknown as RemoteCancellationAcknowledgement
+		}
+		throw new RemoteProtocolError(
+			`kubernetes: the guest acknowledged cancelling ${executionId} with an unknown state ${JSON.stringify(reply.state)}`,
+		)
+	}
+	const error = typeof reply.error === 'string' ? reply.error : 'unknown'
+	if (error === 'unknown_execution' || error === 'invalid_execution_id') {
+		throw new KubernetesExecutionNotAttachableError(
+			executionId,
+			error,
+			`kubernetes: the guest holds no execution ${executionId} to cancel (${error}). A record is kept only for its retention window and is lost when the pod is replaced.`,
+		)
+	}
+	throw new Error(`kubernetes: the guest refused to cancel ${executionId}: ${error}`)
+}
+
+/**
+ * The SDK-shaped result of an attached observation.
+ *
+ * A reported gap sets BOTH truncation flags. The retained log is one
+ * interleaved space, so bytes lost out of it cannot be attributed to
+ * stdout or to stderr, and the contract already has exactly one way to say
+ * "this output is not all of it". Saying it on one stream only would be a
+ * guess; saying it on neither would hand back a short stream that looks
+ * complete, which is the thing this design refuses to do.
+ */
+function resultFromAttachTerminal(
+	executionId: string,
+	terminal: AttachTerminal,
+	cursor: OutputCursor,
+): SandboxExecResult {
+	if (terminal.outcome === 'failed' && terminal.result === undefined) {
+		throw new RemoteCommandError(
+			terminal.error ?? `the guest reported execution ${executionId} as failed`,
+		)
+	}
+	const metadata = terminalMetadataOrThrow(terminal.result, executionId)
+	const lost = cursor.droppedBytes > 0
+	return {
+		exitCode: metadata.exitCode,
+		stdout: cursor.stdout,
+		stderr: cursor.stderr,
+		...(metadata.signal !== undefined ? { signal: metadata.signal } : {}),
+		timedOut: metadata.timedOut === true,
+		durationMs: metadata.durationMs,
+		stdoutTruncated: metadata.stdoutTruncated === true || lost,
+		stderrTruncated: metadata.stderrTruncated === true || lost,
+	}
+}
+
+/**
+ * What a caller passes to read an execution it did not necessarily start.
+ *
+ * `signal` here is an OBSERVATION signal, not the SDK's command signal:
+ * aborting it stops reading and leaves the command running. That is the
+ * opposite of `SandboxExecOptions.signal`, and it is why this type does not
+ * extend it.
+ */
+export interface KubernetesAttachExecutionOptions {
+	/** Byte offset to resume from. Default 0 — the whole retained log. */
+	readonly fromOffset?: number
+	readonly onOutput?: SandboxExecOptions['onOutput']
+	/** Stops OBSERVING. Never cancels; see {@link KubernetesAgentTransport.cancelExecution}. */
+	readonly signal?: AbortSignal
+	/**
+	 * Called when the guest reports that bytes the caller asked for had
+	 * already been evicted from the retained log. The result's truncation
+	 * flags say the same thing; this says how much.
+	 */
+	readonly onGap?: (gap: {
+		readonly executionId: string
+		readonly fromOffset: number
+		readonly droppedBytes: number
+	}) => void
+}
+
+/**
+ * An `exec()` whose observation can be lost and taken up again — on this
+ * handle or in another host process — instead of costing the command its
+ * life.
+ *
+ * Deliberately NOT on the SDK's `SandboxExecOptions`: every other backend
+ * would then have to answer for a field it cannot honour, and the SDK's
+ * exec contract stays exactly what it was. This is a Kubernetes workspace
+ * surface, layered over the shared options type rather than widening it.
+ */
+export interface KubernetesDetachedExecOptions
+	extends SandboxExecOptions,
+		Pick<KubernetesAttachExecutionOptions, 'onGap'> {
+	/**
+	 * The id this command is known by, to this process and to any other.
+	 * Minted here when absent. Reserving an id the guest still holds does
+	 * NOT start a second command: the call attaches to the one that exists,
+	 * which is what makes a retried start idempotent for as long as the
+	 * record lives.
+	 */
+	readonly executionId?: string
+	/**
+	 * Ask the guest to retain this command's output so the observation can
+	 * be resumed. Setting `executionId` implies it; the flag is what a
+	 * caller that does not care about the id passes.
+	 */
+	readonly detach?: boolean
+	/**
+	 * Stop observing and leave the command running — for a host that is
+	 * shutting down. Rejects with {@link KubernetesExecutionDetachedError},
+	 * which names the id and the offset to resume from.
+	 *
+	 * The opposite of `signal`, which keeps the SDK contract and terminates.
+	 */
+	readonly detachSignal?: AbortSignal
+	/**
+	 * How long a lost connection is retried before the call gives up and
+	 * reports itself detached. Default 30s.
+	 */
+	readonly reattachWindowMs?: number
 }
 
 /**
@@ -713,5 +1090,449 @@ export class KubernetesAgentTransport {
 				drainMs: executeSettledAt > 0 ? Date.now() - executeSettledAt : 0,
 			})
 		}
+	}
+
+	/**
+	 * Whether this guest implements the detach/attach ops at all, asked once
+	 * per transport and only when a caller wants them.
+	 */
+	private async assertExecutionAttachSupported(signal?: AbortSignal): Promise<void> {
+		const features = await this.wire.guestFeatures(signal)
+		if (features.includes(EXECUTION_ATTACH_FEATURE)) return
+		throw new KubernetesExecutionAttachUnsupportedError(
+			EXECUTION_ATTACH_FEATURE,
+			`kubernetes: this workspace's guest agent does not advertise the '${EXECUTION_ATTACH_FEATURE}' healthz feature, so a command started here would keep no output and could not be reattached to. The request is refused before the command is admitted rather than run as an ordinary exec. Rebuild the workspace image from this Namzu release.`,
+		)
+	}
+
+	/** `reserve-execution` for a caller-named id, with its reported state. */
+	private async reserveDetached(
+		executionId: string,
+		signal?: AbortSignal,
+	): Promise<{ readonly state: string }> {
+		const response = (await this.withRebind(
+			async () =>
+				await requestChecked(this.wire, { op: 'reserve-execution', body: { executionId } }, signal),
+			signal,
+		)) as Record<string, unknown>
+		if (response.ok !== true || response.executionId !== executionId) {
+			throw new RemoteProtocolError(
+				`kubernetes: the guest refused the reservation for ${executionId}: ${String(response.error ?? 'no reason given')}`,
+			)
+		}
+		return { state: typeof response.state === 'string' ? response.state : 'reserved' }
+	}
+
+	/**
+	 * The `cancel-execution` control path, retried for its whole confirm
+	 * window and reported UNKNOWN rather than as a failure if none of the
+	 * attempts got an answer — the same rule the shared execution
+	 * controller applies, because a command whose termination nobody
+	 * confirmed is not a command anybody may call dead.
+	 *
+	 * Nothing on the detach path calls this to reconcile a lost connection.
+	 * It runs when the CALLER asked for it: `SandboxExecOptions.signal`
+	 * aborting, or {@link cancelExecution}.
+	 */
+	private async confirmCancel(
+		executionId: string,
+		signal?: AbortSignal,
+	): Promise<RemoteCancellationAcknowledgement> {
+		const deadlineAt = Date.now() + CANCEL_CONFIRM_WINDOW_MS
+		let lastError: unknown = new Error('no cancellation attempt completed')
+		while (Date.now() < deadlineAt) {
+			const attempt = new AbortController()
+			const onAbort = () => attempt.abort(signal?.reason)
+			signal?.addEventListener('abort', onAbort, { once: true })
+			const timer = setTimeout(
+				() =>
+					attempt.abort(new Error(`cancellation attempt exceeded ${CANCEL_ATTEMPT_TIMEOUT_MS}ms`)),
+				Math.min(CANCEL_ATTEMPT_TIMEOUT_MS, Math.max(1, deadlineAt - Date.now())),
+			)
+			timer.unref?.()
+			try {
+				return parseCancellationReply(executionId, await this.cancel(executionId, attempt.signal))
+			} catch (error) {
+				if (error instanceof KubernetesExecutionNotAttachableError) throw error
+				if (error instanceof KubernetesAgentUnauthorizedError) throw error
+				lastError = error
+				const remaining = deadlineAt - Date.now()
+				if (remaining > 0) await pause(Math.min(50, remaining))
+			} finally {
+				clearTimeout(timer)
+				signal?.removeEventListener('abort', onAbort)
+			}
+		}
+		throw new RemoteCancellationUnknownError(
+			`Remote sandbox cancellation could not be confirmed for ${executionId}: ${lastError instanceof Error ? lastError.message : String(lastError)}. The remote outcome is unknown; do not automatically retry the command.`,
+			{ cause: lastError },
+		)
+	}
+
+	/**
+	 * End a command by id, from any host process holding the id and the
+	 * bind token. Resolves only on a CONFIRMED termination.
+	 *
+	 * The outcome is not reported here — a cancelled execution's result and
+	 * whatever output it managed is read back through
+	 * {@link attachExecution}, which is the op that exists for reading.
+	 */
+	async cancelExecution(executionId: string, signal?: AbortSignal): Promise<void> {
+		assertExecutionId(executionId)
+		await this.confirmCancel(executionId, signal)
+	}
+
+	/**
+	 * Observe a command that is already the guest's, from `fromOffset` on,
+	 * and resolve with its result.
+	 *
+	 * It never signals the command. Aborting `signal` stops OBSERVING and
+	 * rejects with {@link KubernetesExecutionDetachedError}; it does not
+	 * cancel, and the command goes on running. Ending a command is
+	 * {@link cancelExecution} and nothing else.
+	 */
+	async attachExecution(
+		executionId: string,
+		options: KubernetesAttachExecutionOptions = {},
+	): Promise<SandboxExecResult> {
+		assertExecutionId(executionId)
+		await this.assertExecutionAttachSupported(options.signal)
+		const cursor: OutputCursor = {
+			offset: options.fromOffset ?? 0,
+			stdout: '',
+			stderr: '',
+			droppedBytes: 0,
+		}
+		const observation = new AbortController()
+		const onDetach = () => observation.abort(options.signal?.reason)
+		options.signal?.addEventListener('abort', onDetach, { once: true })
+		if (options.signal?.aborted) onDetach()
+		try {
+			return await this.attachOnce(executionId, cursor, options, observation.signal)
+		} catch (error) {
+			if (options.signal?.aborted) throw this.detached(executionId, cursor, error)
+			throw error
+		} finally {
+			options.signal?.removeEventListener('abort', onDetach)
+			observation.abort(new Error('kubernetes: attach observation finished'))
+		}
+	}
+
+	/**
+	 * Run one command whose observation can outlive this connection, and —
+	 * when the connection is what failed — get it back rather than killing
+	 * the command to reconcile.
+	 *
+	 * The order is exactly: refuse if the guest cannot keep output, reserve
+	 * the id, and only then admit the command. Reserving the id the CALLER
+	 * named is what makes a retried start idempotent: a second call with the
+	 * same id inside retention finds the execution already running or
+	 * finished, sends no `execute`, and attaches to the one that exists.
+	 *
+	 * `SandboxExecOptions.signal` keeps its contract — aborting it runs the
+	 * confirmed cancel — and `detachSignal` is its opposite: it ends the
+	 * observation and leaves the command alone, for a host that is shutting
+	 * down and wants its work to survive the rollout.
+	 */
+	async execDetached(
+		command: string,
+		argv?: string[],
+		opts: KubernetesDetachedExecOptions = {},
+	): Promise<SandboxExecResult> {
+		const executionId = opts.executionId ?? `exec_${randomUUID()}`
+		assertExecutionId(executionId)
+		const startedAt = Date.now()
+		if (opts.signal?.aborted) {
+			return {
+				exitCode: 1,
+				stdout: '',
+				stderr: '',
+				timedOut: false,
+				durationMs: Math.max(0, Date.now() - startedAt),
+				stdoutTruncated: false,
+				stderrTruncated: false,
+			}
+		}
+		await this.assertExecutionAttachSupported(opts.signal)
+
+		const cursor: OutputCursor = { offset: 0, stdout: '', stderr: '', droppedBytes: 0 }
+		const observationTimeoutMs = Math.min(
+			MAX_TIMER_DELAY_MS,
+			(typeof opts.timeout === 'number' && Number.isFinite(opts.timeout) && opts.timeout > 0
+				? opts.timeout
+				: DEFAULT_EXECUTION_TIMEOUT_MS) + EXECUTION_OBSERVATION_GRACE_MS,
+		)
+		const deadlineAt = Date.now() + observationTimeoutMs
+
+		// The caller's abort runs the CONFIRMED cancel, in the background,
+		// while the observation keeps reading: the guest answers the cancel
+		// on its own connection and ends this one with the terminal frame, so
+		// aborting produces a result rather than a severed stream.
+		let cancelFailure: unknown
+		let cancelling = false
+		const cancelNow = (): void => {
+			if (cancelling) return
+			cancelling = true
+			void this.confirmCancel(executionId).catch((error: unknown) => {
+				cancelFailure = error
+			})
+		}
+		const onAbort = () => cancelNow()
+		opts.signal?.addEventListener('abort', onAbort, { once: true })
+
+		// Aborting this stops the READING and nothing else. It is never the
+		// caller's `signal`: destroying a socket does not end a guest command,
+		// and a host that treats it as though it did is exactly how a network
+		// blip used to cost a workspace its pod.
+		const observation = new AbortController()
+		const onDetach = () => observation.abort(new Error('kubernetes: observation detached'))
+		opts.detachSignal?.addEventListener('abort', onDetach, { once: true })
+		if (opts.detachSignal?.aborted) onDetach()
+
+		try {
+			let lastError: unknown
+			const reservation = await this.reserveDetached(executionId, opts.signal)
+			if (reservation.state === 'reserved') {
+				try {
+					return await this.executeRetained(
+						executionId,
+						{
+							executionId,
+							command,
+							args: argv ?? [],
+							...(opts.cwd !== undefined ? { cwd: opts.cwd } : {}),
+							...(opts.env !== undefined ? { env: opts.env } : {}),
+							...(opts.timeout !== undefined ? { timeoutMs: opts.timeout } : {}),
+							retainOutput: true,
+						},
+						cursor,
+						opts,
+						observation.signal,
+						observationTimeoutMs,
+					)
+				} catch (error) {
+					lastError = error
+					// A second host process that reserved the same id and won
+					// the race owns the command now. Its refusal says so, and
+					// the answer is to ATTACH to the command that exists —
+					// reporting a failure here would be a lie about an id
+					// whose command is running.
+					if (!lostTheStartRace(error) && isTerminalAttachError(error)) throw error
+				}
+			}
+
+			// The window bounds GETTING BACK, and only that. It is armed as an
+			// abort rather than checked between attempts because a single
+			// attempt is not short: the dial carries its own connect-retry
+			// budget, so a peer that is refusing connections would otherwise
+			// be waited on for that whole budget inside one attempt and the
+			// caller's bound would never be consulted. Once an attach has
+			// actually attached the window is disarmed — a command that is
+			// being read successfully is not something to give up on — and it
+			// is re-armed if that connection dies in its turn.
+			const reattachWindowMs = opts.reattachWindowMs ?? DEFAULT_REATTACH_WINDOW_MS
+			let windowEndsAt = Date.now() + reattachWindowMs
+			for (;;) {
+				if (opts.detachSignal?.aborted) break
+				const remainingMs = windowEndsAt - Date.now()
+				if (remainingMs <= 0) break
+				const window = new AbortController()
+				const windowTimer = setTimeout(
+					() =>
+						window.abort(
+							new Error(
+								`kubernetes: could not reattach to execution ${executionId} within ${reattachWindowMs}ms`,
+							),
+						),
+					remainingMs,
+				)
+				windowTimer.unref?.()
+				let reattached = false
+				try {
+					return await this.attachOnce(
+						executionId,
+						cursor,
+						opts,
+						AbortSignal.any([observation.signal, window.signal]),
+						deadlineAt,
+						() => {
+							reattached = true
+							clearTimeout(windowTimer)
+						},
+					)
+				} catch (error) {
+					lastError = error
+					if (isTerminalAttachError(error)) break
+					if (opts.detachSignal?.aborted) break
+					if (reattached) windowEndsAt = Date.now() + reattachWindowMs
+					else if (window.signal.aborted) break
+					await pause(REATTACH_RETRY_DELAY_MS)
+				} finally {
+					clearTimeout(windowTimer)
+				}
+			}
+			throw this.detached(executionId, cursor, cancelFailure ?? lastError)
+		} finally {
+			opts.signal?.removeEventListener('abort', onAbort)
+			opts.detachSignal?.removeEventListener('abort', onDetach)
+			observation.abort(new Error('kubernetes: detached execution observation finished'))
+		}
+	}
+
+	/**
+	 * The `execute` leg of a detached run, read frame by frame.
+	 *
+	 * It deliberately does NOT go through `executeStreamed`: that path
+	 * hands its caller `{stream, data}` and nothing else, and the byte
+	 * offsets this cursor lives on are on the frames themselves. Reading
+	 * them here is what lets a reattach resume exactly where this
+	 * connection stopped, on output whose decoded length is not its byte
+	 * length — see {@link applyDelta}. The frame union and its validation
+	 * are the shared ones, so an ordinary exec and a detached one never
+	 * disagree about what the guest said.
+	 */
+	private async executeRetained(
+		executionId: string,
+		body: ExecRequest,
+		cursor: OutputCursor,
+		opts: KubernetesDetachedExecOptions,
+		signal: AbortSignal,
+		observationTimeoutMs: number,
+	): Promise<SandboxExecResult> {
+		// No `onOutput` on the accumulator: this reads the frames, so the
+		// caller is called exactly once per chunk, from `applyDelta`.
+		const accumulator = new ExecResultAccumulator(Date.now())
+		await this.wire.streamFramedRequest(
+			{ op: 'execute', body },
+			(frame) => {
+				if (isUnauthorized(frame)) throw new KubernetesAgentUnauthorizedError()
+				const event = parseExecEvent(frame)
+				const stream = deltaStream(event.type)
+				if (stream !== undefined) applyDelta(cursor, executionId, stream, frame, opts.onOutput)
+				accumulator.push(event)
+			},
+			{ observationTimeoutMs },
+			signal,
+		)
+		if (!accumulator.done) {
+			throw new RemoteProtocolError(
+				`kubernetes: the execute stream for ${executionId} ended without a result`,
+			)
+		}
+		return accumulator.finish()
+	}
+
+	/** One `attach-execution` stream, read to its terminal frame. */
+	private async attachOnce(
+		executionId: string,
+		cursor: OutputCursor,
+		opts: KubernetesAttachExecutionOptions,
+		signal: AbortSignal,
+		deadlineAt?: number,
+		onAttached?: () => void,
+	): Promise<SandboxExecResult> {
+		let terminal: AttachTerminal | undefined
+		let refusal: KubernetesExecutionNotAttachableError | undefined
+		const observationTimeoutMs =
+			deadlineAt === undefined
+				? MAX_TIMER_DELAY_MS
+				: Math.max(1, Math.min(MAX_TIMER_DELAY_MS, deadlineAt - Date.now()))
+		await this.wire.streamFramedRequest(
+			{ op: 'attach-execution', body: { executionId, fromOffset: cursor.offset } },
+			(event) => {
+				if (isUnauthorized(event)) throw new KubernetesAgentUnauthorizedError()
+				const type = event.type
+				if (type === 'attached') {
+					onAttached?.()
+					const from = Number(event.fromOffset)
+					if (Number.isFinite(from)) cursor.offset = from
+					const dropped = Number(event.droppedBytes ?? 0)
+					if (Number.isFinite(dropped) && dropped > 0) {
+						cursor.droppedBytes += dropped
+						opts.onGap?.({ executionId, fromOffset: cursor.offset, droppedBytes: dropped })
+					}
+					return
+				}
+				const stream = deltaStream(type)
+				if (stream !== undefined) {
+					applyDelta(cursor, executionId, stream, event, opts.onOutput)
+					return
+				}
+				if (type === 'attach_result') {
+					const next = Number(event.nextOffset)
+					if (Number.isFinite(next)) cursor.offset = next
+					const outcome = String(event.outcome)
+					terminal = {
+						outcome:
+							outcome === 'cancelled' || outcome === 'failed'
+								? (outcome as 'cancelled' | 'failed')
+								: 'completed',
+						...(event.result !== undefined
+							? { result: terminalMetadataOrThrow(event.result, executionId) }
+							: {}),
+						...(typeof event.error === 'string' ? { error: event.error } : {}),
+					}
+					return
+				}
+				if (type === 'error') {
+					const code = typeof event.error === 'string' ? event.error : 'unknown'
+					const state = typeof event.state === 'string' ? event.state : undefined
+					// A refusal for an execution the guest still holds as
+					// `reserved` is the one case that is not about retention:
+					// the command was never started, so there is nothing
+					// running and nothing to come back for. Saying anything
+					// else here would send a caller looking for a process
+					// that does not exist.
+					const because =
+						state === 'reserved'
+							? 'The guest holds it as reserved and never started it, so no command is running and there is nothing to reattach to.'
+							: 'A record is kept for the retention window configured by NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS and is lost when the pod is replaced; only a command started with detach keeps its output at all.'
+					refusal = new KubernetesExecutionNotAttachableError(
+						executionId,
+						isAttachRefusal(code) ? code : 'unknown',
+						`kubernetes: the guest refused to attach to execution ${executionId} (${code}). ${because}`,
+						{ state },
+					)
+					return
+				}
+				throw new RemoteProtocolError(
+					`kubernetes: the guest sent an unexpected frame on the attach stream for ${executionId}: ${JSON.stringify(event).slice(0, 200)}`,
+				)
+			},
+			{ observationTimeoutMs },
+			signal,
+		)
+		if (refusal !== undefined) throw refusal
+		if (terminal === undefined) {
+			throw new RemoteProtocolError(
+				`kubernetes: the attach stream for ${executionId} ended without a terminal frame`,
+			)
+		}
+		return resultFromAttachTerminal(executionId, terminal, cursor)
+	}
+
+	/** The one error a lost observation ends with. */
+	private detached(
+		executionId: string,
+		cursor: OutputCursor,
+		cause: unknown,
+	): KubernetesExecutionDetachedError {
+		// The guest can tell us the command never started — the reservation
+		// is still `reserved`, so the `execute` never reached it. Then
+		// there is nothing running, nothing to reattach to and nothing to
+		// cancel, and promising otherwise sends the caller after a process
+		// that does not exist. Every other cause leaves the command's fate
+		// genuinely unknown to this host, which is what the rest says.
+		const neverStarted =
+			cause instanceof KubernetesExecutionNotAttachableError && cause.executionState === 'reserved'
+		const advice = neverStarted
+			? 'the guest still holds it as RESERVED, so the command never started: nothing is running, and starting it again with the same id is safe.'
+			: `it may still be running in the workspace pod. Reattach with attachExecution('${executionId}', { fromOffset: ${cursor.offset} }), from this process or another one, or end it with cancelExecution('${executionId}').`
+		return new KubernetesExecutionDetachedError(
+			executionId,
+			cursor.offset,
+			`kubernetes: stopped observing execution ${executionId} after ${cursor.offset} bytes of output, and did NOT cancel it — ${advice} Cause: ${cause instanceof Error ? cause.message : String(cause)}`,
+			{ cause },
+		)
 	}
 }

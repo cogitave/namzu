@@ -132,7 +132,12 @@ const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
 //  - `write-file-parts` — `write-file` accepts a `part` object, so a body
 //    larger than one frame can be written as a sequence of appends to a
 //    temp file finished by an atomic rename. See `handleWriteFilePart`.
-const AGENT_FEATURES = ['write-file-parts']
+//  - `execution-attach` — `reserve-execution` accepts a caller-chosen
+//    `executionId`, `execute` accepts `retainOutput`, and the
+//    `attach-execution` op replays and then follows a retained execution's
+//    output by byte offset without ever signalling it. See `OutputLog`
+//    and `handleAttachExecution`.
+const AGENT_FEATURES = ['write-file-parts', 'execution-attach']
 
 // --- config (mirrors worker/server.js env contract) -----------------------
 
@@ -156,7 +161,16 @@ const DEFAULT_TIMEOUT_MS = 5 * 60 * 1000
 // guest, i.e. the one guard meant to bound that resource had no bound
 // itself. A request over this is refused, not silently shortened — see
 // `resolveTimeoutMs`.
-const MAX_TIMEOUT_MS = 30 * 60 * 1000
+//
+// The ceiling belongs to the OPERATOR, not to this file. Every other
+// ownership limit beside it is an environment variable, `worker/server.js`
+// already reads this same limit from this same variable, and a deployment
+// running a two-hour suite in a workspace could otherwise only raise it by
+// rebuilding the guest image. The default is unchanged, so an unconfigured
+// guest refuses exactly what it always refused, and `resolveTimeoutMs`
+// names the variable in its refusal the way `frame_too_large` names its
+// own bound.
+const MAX_TIMEOUT_MS = positiveIntegerConfig('NAMZU_SANDBOX_MAX_TIMEOUT_MS', 30 * 60 * 1000)
 const LENGTH_PREFIX_HEX = 8
 
 function positiveIntegerConfig(name, fallback, allowZero = false) {
@@ -173,6 +187,40 @@ const EXECUTION_TERMINAL_TTL_MS = positiveIntegerConfig(
 	60_000,
 )
 const MAX_TRACKED_EXECUTIONS = positiveIntegerConfig('NAMZU_AGENT_MAX_TRACKED_EXECUTIONS', 1_024)
+// How much of ONE retained execution's interleaved output the agent keeps,
+// and how many executions may hold a retained log at the same time. The
+// product is the whole of what this feature can cost the guest's heap:
+// 1 MiB x 32 = 32 MiB, inside the 512Mi the shipped workspace template
+// gives the container to share with the workload. Both halves are needed.
+// Bytes alone would let `NAMZU_AGENT_MAX_TRACKED_EXECUTIONS` (1024 by
+// default) multiply the bound by three orders of magnitude; a count alone
+// would let one `yes` command eat the container.
+//
+// A log is created ONLY for an execution whose `execute` asked for
+// `retainOutput`, so a guest nobody has asked to retain anything costs
+// exactly what it always did.
+const EXECUTION_LOG_BYTES = positiveIntegerConfig('NAMZU_AGENT_EXECUTION_LOG_BYTES', 1024 * 1024)
+const MAX_RETAINED_OUTPUT_LOGS = positiveIntegerConfig('NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS', 32)
+// How long a retained execution's record and log outlive the command,
+// instead of `NAMZU_AGENT_EXECUTION_TERMINAL_TTL_MS`. Separate because the
+// two answer different questions: the 60s one bounds how long a cancel may
+// be retried idempotently, and shortening the window a REATTACHING host has
+// to that would make the feature useless, while lengthening the cancel
+// window for every execution would change a default nobody asked to change.
+// Ten minutes is the floor the design calls for — long enough for a host to
+// be redeployed and come back for its output.
+const EXECUTION_RETAINED_TTL_MS = positiveIntegerConfig(
+	'NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS',
+	10 * 60 * 1000,
+)
+// How much unwritten output an ATTACHED reader's socket may hold before
+// the agent drops that reader. A reader is an observer, and an observer
+// that has stopped draining must not be able to grow the guest's heap
+// outside the accounting above: everything it misses is in the log, and
+// its next attach replays from the offset it last saw. One log's worth is
+// the bound, because a reader further behind than that has nothing left
+// to catch up TO.
+const ATTACH_WRITE_BUFFER_BYTES = EXECUTION_LOG_BYTES
 // `terminateAndConfirm` only escalates SIGTERM to SIGKILL when the owned
 // process group is STILL alive at the end of this window — a group that
 // goes quiet before then is read as "the signal worked," with no check
@@ -531,7 +579,9 @@ async function realpathWithinWorkspace(target, base) {
 function resolveTimeoutMs(rawTimeoutMs) {
 	const timeoutMs = rawTimeoutMs === undefined ? DEFAULT_TIMEOUT_MS : Number(rawTimeoutMs)
 	if (!Number.isFinite(timeoutMs) || timeoutMs <= 0 || timeoutMs > MAX_TIMEOUT_MS) {
-		throw new Error(`timeoutMs must be a finite number in (0, ${MAX_TIMEOUT_MS}]`)
+		throw new Error(
+			`timeoutMs must be a finite number in (0, ${MAX_TIMEOUT_MS}] (NAMZU_SANDBOX_MAX_TIMEOUT_MS)`,
+		)
 	}
 	return timeoutMs
 }
@@ -552,6 +602,129 @@ function childEnvironment(requested) {
 		inherited[key] = process.env[key]
 	}
 	return { ...inherited, ...(requested || {}) }
+}
+
+// --- retained output ------------------------------------------------------
+
+/**
+ * ONE ordered, size-bounded log of a command's output, addressed by a
+ * monotonically increasing byte offset.
+ *
+ * This is the guest's only retained-output primitive. `attach-execution`
+ * reads it here; a later persistent-session op reads the same class rather
+ * than a second one, because two registries would mean two overflow
+ * accountings, two sweeps and two ways to read an offset — and a reader
+ * that had to know which one it was talking to.
+ *
+ * The shape, and why each part of it is there:
+ *
+ *  - **One offset space for both streams.** stdout and stderr are appended
+ *    to the same log and share one cursor, so a reader resumes with a
+ *    single number and the interleaving it sees on reattach is the
+ *    interleaving the command produced. A per-stream offset would need two
+ *    cursors and could not express "these arrived in this order".
+ *  - **Offsets are absolute and never rewound.** `endOffset` counts every
+ *    byte ever appended, including bytes that have since been evicted, so
+ *    an offset a reader was handed stays meaningful after eviction: it
+ *    either still points into the log or names exactly how much it missed.
+ *  - **Eviction is reported, never silent.** Dropping the oldest bytes
+ *    advances `startOffset`, and a read from before it answers with a
+ *    `droppedBytes` count. A reader is told what it lost; it is never
+ *    handed a shorter stream that looks complete.
+ *  - **The bound is bytes, not chunks.** A single chunk larger than the
+ *    whole budget has its head sliced off rather than being kept whole, so
+ *    `maxBytes` is a real ceiling on what one command can cost.
+ *
+ * Chunks are held as `Buffer`s: offsets are byte offsets, and a slice taken
+ * to honour the ceiling has to be a byte slice. A slice can land inside a
+ * multi-byte character exactly as a socket read already can, which is why
+ * the gap is reported — nothing here pretends the surviving bytes are a
+ * whole string.
+ */
+class OutputLog {
+	constructor(maxBytes) {
+		this.maxBytes = maxBytes
+		/** @type {{ stream: string, data: Buffer, offset: number }[]} */
+		this.chunks = []
+		/** Bytes currently held. */
+		this.bytes = 0
+		/** Offset of the oldest byte still held. */
+		this.startOffset = 0
+		/** Offset one past the newest byte ever appended. */
+		this.endOffset = 0
+		/** Total bytes evicted over this log's life. */
+		this.droppedBytes = 0
+	}
+
+	/** Append one chunk and return the offset it starts at. */
+	append(stream, data) {
+		const offset = this.endOffset
+		if (data.length > 0) {
+			this.chunks.push({ stream, data, offset })
+			this.bytes += data.length
+			this.endOffset += data.length
+			this.trim(this.maxBytes)
+		}
+		return offset
+	}
+
+	/**
+	 * Give up everything held, keeping the offsets. Used to make room for a
+	 * new retained execution without losing the fact that output existed:
+	 * a later read reports the whole of it as a gap.
+	 */
+	discard() {
+		this.trim(0)
+	}
+
+	/** Evict from the front until at most `budget` bytes remain. */
+	trim(budget) {
+		while (this.bytes > budget && this.chunks.length > 0) {
+			const first = this.chunks[0]
+			const excess = this.bytes - budget
+			if (first.data.length <= excess) {
+				this.chunks.shift()
+				this.bytes -= first.data.length
+				this.startOffset += first.data.length
+				this.droppedBytes += first.data.length
+				continue
+			}
+			first.data = first.data.subarray(excess)
+			first.offset += excess
+			this.bytes -= excess
+			this.startOffset += excess
+			this.droppedBytes += excess
+		}
+	}
+
+	/**
+	 * Everything retained from `fromOffset` on, plus the size of the gap
+	 * between what was asked for and what survives.
+	 *
+	 * An offset ahead of `endOffset` is refused rather than clamped: it
+	 * names bytes that do not exist yet, and answering it with "nothing,
+	 * and no gap" would let a reader with a stale cursor believe it was
+	 * caught up.
+	 */
+	read(fromOffset) {
+		if (!Number.isSafeInteger(fromOffset) || fromOffset < 0 || fromOffset > this.endOffset) {
+			return undefined
+		}
+		const droppedBytes = Math.max(0, this.startOffset - fromOffset)
+		const start = Math.max(fromOffset, this.startOffset)
+		const chunks = []
+		for (const chunk of this.chunks) {
+			const end = chunk.offset + chunk.data.length
+			if (end <= start) continue
+			if (chunk.offset >= start) {
+				chunks.push(chunk)
+				continue
+			}
+			const skip = start - chunk.offset
+			chunks.push({ stream: chunk.stream, data: chunk.data.subarray(skip), offset: start })
+		}
+		return { chunks, droppedBytes, fromOffset: start, nextOffset: this.endOffset }
+	}
 }
 
 // --- execution ownership --------------------------------------------------
@@ -601,12 +774,127 @@ function rememberTerminal(execution, outcome, result, error) {
 	execution.outcome = outcome
 	execution.result = result
 	execution.error = error
-	execution.expiresAt = Date.now() + EXECUTION_TERMINAL_TTL_MS
+	// An execution whose output is retained keeps its record for the longer
+	// window, because the point of retention is that the host that started
+	// it may be gone and may come back. Everything else keeps the 60s
+	// idempotent-cancel window it always had.
+	execution.expiresAt =
+		Date.now() + (execution.log ? EXECUTION_RETAINED_TTL_MS : EXECUTION_TERMINAL_TTL_MS)
 	execution.child = undefined
 	execution.processGroupId = undefined
 	execution.done = undefined
 	execution.resolveDone = undefined
 	execution.terminationPromise = undefined
+	// Every terminal transition goes through here, so every attached reader
+	// is answered from here and there is no path that settles an execution
+	// while an observer is still waiting on it.
+	broadcastTerminal(execution)
+}
+
+// --- retained-output accounting and attached readers ----------------------
+
+/** Executions still holding bytes-worth of retained output. */
+function retainedLogCount() {
+	let count = 0
+	for (const execution of executions.values()) {
+		if (execution.log && !execution.log.discarded) count += 1
+	}
+	return count
+}
+
+/**
+ * Make a retained-output slot available, by giving up the logs of the
+ * OLDEST-expiring finished executions. Answers whether there is room now.
+ *
+ * A finished execution gives up its output and keeps its record: its result
+ * is what a late reader most needs, it costs almost nothing to keep, and a
+ * reader that attaches afterwards is told the whole log is a gap rather
+ * than being told the execution never existed. A slot held by a RUNNING
+ * execution is not taken — its output has nowhere else to go — so a guest
+ * already retaining `MAX_RETAINED_OUTPUT_LOGS` live commands refuses the
+ * next one before it starts a process.
+ */
+function makeRoomForRetainedOutput() {
+	if (retainedLogCount() < MAX_RETAINED_OUTPUT_LOGS) return true
+	const finished = [...executions.values()]
+		.filter(
+			(execution) => execution.log && !execution.log.discarded && execution.state === 'terminal',
+		)
+		.sort((left, right) => left.expiresAt - right.expiresAt)
+	for (const execution of finished) {
+		execution.log.discard()
+		execution.log.discarded = true
+		if (retainedLogCount() < MAX_RETAINED_OUTPUT_LOGS) return true
+	}
+	return false
+}
+
+/** The one terminal frame an `attach-execution` stream ends with. */
+function attachResultFrame(execution) {
+	return {
+		type: 'attach_result',
+		executionId: execution.executionId,
+		outcome: execution.outcome,
+		started: execution.started === true,
+		...(execution.result ? { result: execution.result } : {}),
+		...(execution.error ? { error: execution.error } : {}),
+		nextOffset: execution.log ? execution.log.endOffset : 0,
+	}
+}
+
+/**
+ * Append one output chunk to the retained log and hand it to every reader
+ * attached right now.
+ *
+ * The append happens first and returns the span the chunk occupies, so a
+ * live reader is told the same offsets a replaying one would compute. An
+ * attach takes its replay and joins this set in one synchronous step (see
+ * `handleAttachExecution`), which is what makes the two exact complements:
+ * no chunk can be both replayed and broadcast, and none can fall between.
+ */
+function recordOutput(execution, stream, data) {
+	if (!execution.log) return undefined
+	const offset = execution.log.append(stream, data)
+	// Both ends of the chunk, measured in the log's own byte space. The
+	// caller stamps them on the frame it sends, because a host cannot
+	// recover them from the string: `toString('utf8')` on a chunk that
+	// ends mid-character yields U+FFFD, which is WIDER than the bytes it
+	// replaced, so a host counting the decoded string drifts ahead of this
+	// log and its reattach either skips bytes nobody reports or names an
+	// offset that was never real.
+	const span = { offset, nextOffset: offset + data.length }
+	if (!execution.attachments || execution.attachments.size === 0) return span
+	const event = { type: `${stream}_delta`, data: data.toString('utf8'), ...span }
+	for (const attachment of execution.attachments) {
+		// A reader whose socket has gone away is not this command's problem:
+		// an attach is an observer, and losing one changes nothing about the
+		// process. Its `onClose` removes it from the set either way.
+		try {
+			writeFrame(attachment.socket, event)
+			// Nor is a reader that has stopped draining. Dropping it bounds
+			// what one observer can buffer in the guest; it reattaches from
+			// its own offset and the log replays what it missed.
+			if (attachment.socket.writableLength > ATTACH_WRITE_BUFFER_BYTES) {
+				execution.attachments.delete(attachment)
+				attachment.socket.destroy()
+			}
+		} catch {}
+	}
+	return span
+}
+
+/** Answer and close every attached reader. Never signals anything. */
+function broadcastTerminal(execution) {
+	if (!execution.attachments || execution.attachments.size === 0) return
+	const event = attachResultFrame(execution)
+	for (const attachment of execution.attachments) {
+		try {
+			writeFrame(attachment.socket, event)
+			writeTerminator(attachment.socket)
+			attachment.socket.end()
+		} catch {}
+	}
+	execution.attachments.clear()
 }
 
 function terminalPayload(execution) {
@@ -731,20 +1019,65 @@ function retireAgent(error) {
 	)
 }
 
-function handleReserveExecution(socket) {
+/**
+ * Reserve an execution id, or report the one the caller named.
+ *
+ * With no `executionId` in the body this is exactly the call it has always
+ * been, down to the fields in the reply: the agent mints the id and the
+ * reply carries no `state`, so a host that has never heard of any of this
+ * reads the bytes it always read.
+ *
+ * With one, the id is the CALLER's, and reserving an id the agent still
+ * holds reports what it holds rather than minting a second reservation.
+ * That is what makes a retried start idempotent: the second caller sees
+ * `state: 'running'` (or `'terminal'`) instead of `'reserved'`, sends no
+ * `execute`, and attaches. `handleExecute` refuses a non-reserved id from
+ * the other side, so even a caller that ignores the state cannot start the
+ * command twice.
+ *
+ * Idempotency ends where the record does: at `pruneExecutions` (the
+ * retention window) and at pod replacement, which takes the whole registry
+ * with it. Both are stated in the docs.
+ */
+function handleReserveExecution(socket, body) {
 	pruneExecutions()
-	makeRoomForReservation()
 	if (agentRetiring) {
 		writeFrame(socket, { ok: false, error: 'agent_retiring' })
 		socket.end()
 		return
 	}
+	const requested = body?.executionId
+	if (requested !== undefined && !validateExecutionId(requested)) {
+		writeFrame(socket, { ok: false, error: 'invalid_execution_id' })
+		socket.end()
+		return
+	}
+	// Asked BEFORE making room, so a re-reservation cannot evict the very
+	// record it is asking about.
+	const existing = requested === undefined ? undefined : executions.get(requested)
+	if (existing !== undefined) {
+		writeFrame(socket, {
+			ok: true,
+			protocolVersion: FIRECRACKER_AGENT_PROTOCOL_VERSION,
+			executionId: requested,
+			// Meaningless once a command has started — the lease is what
+			// bounds an UNUSED reservation — and reported anyway so the field
+			// is always a finite number, as every host that parses this reply
+			// requires. `state` is what a caller reads here.
+			leaseExpiresAt: existing.expiresAt ?? Date.now(),
+			state: existing.state,
+			...(existing.log ? { retainedOutput: true, outputOffset: existing.log.endOffset } : {}),
+		})
+		socket.end()
+		return
+	}
+	makeRoomForReservation()
 	if (executions.size >= MAX_TRACKED_EXECUTIONS) {
 		writeFrame(socket, { ok: false, error: 'execution_capacity' })
 		socket.end()
 		return
 	}
-	const executionId = `exec_${randomUUID()}`
+	const executionId = requested ?? `exec_${randomUUID()}`
 	const leaseExpiresAt = Date.now() + EXECUTION_LEASE_TTL_MS
 	executions.set(executionId, {
 		executionId,
@@ -756,8 +1089,98 @@ function handleReserveExecution(socket) {
 		protocolVersion: FIRECRACKER_AGENT_PROTOCOL_VERSION,
 		executionId,
 		leaseExpiresAt,
+		// Only for a caller that named an id: the default reserve's reply
+		// stays byte-for-byte what it was.
+		...(requested === undefined ? {} : { state: 'reserved' }),
 	})
 	socket.end()
+}
+
+/**
+ * Replay and then follow one execution's retained output, and end with its
+ * result.
+ *
+ * It is an OBSERVER and nothing else. It never signals the process, never
+ * changes the execution's state, and closing the connection removes the
+ * reader and does nothing else — deliberately unlike `cancel-execution`,
+ * which is the op for ending a command and stays the only one.
+ *
+ * Synchronous on purpose: the replay is taken and the reader joins the live
+ * set in one step with no `await` between them, so no chunk is both
+ * replayed and broadcast and none falls between the two.
+ */
+function handleAttachExecution(socket, body) {
+	const refuse = (error, extra) => {
+		writeFrame(socket, { type: 'error', error, ...extra })
+		writeTerminator(socket)
+		socket.end()
+	}
+	if (!validateExecutionId(body?.executionId)) {
+		refuse('invalid_execution_id')
+		return
+	}
+	pruneExecutions()
+	const execution = executions.get(body.executionId)
+	if (execution === undefined) {
+		// Past retention, or in a pod this execution never ran in. Both are
+		// the same answer from here, and the docs say so.
+		refuse('unknown_execution')
+		return
+	}
+	if (!execution.log) {
+		// The state goes with the refusal because it is the difference
+		// between two facts a caller must not confuse: an execution still
+		// `reserved` has no log because the command NEVER STARTED, while
+		// any other state means this command simply kept no output. The
+		// host says which one in its error.
+		refuse('output_not_retained', { state: execution.state })
+		return
+	}
+	const fromOffset = body.fromOffset === undefined ? 0 : Number(body.fromOffset)
+	const replay = execution.log.read(fromOffset)
+	if (replay === undefined) {
+		refuse('invalid_offset')
+		return
+	}
+	writeFrame(socket, {
+		type: 'attached',
+		executionId: execution.executionId,
+		state: execution.state,
+		fromOffset: replay.fromOffset,
+		// The bytes between what the reader asked for and what survives. A
+		// gap is REPORTED; output is never quietly skipped.
+		droppedBytes: replay.droppedBytes,
+	})
+	for (const chunk of replay.chunks) {
+		writeFrame(socket, {
+			type: `${chunk.stream}_delta`,
+			data: chunk.data.toString('utf8'),
+			offset: chunk.offset,
+			// The end of the chunk, so a reader that loses this connection
+			// after the frame resumes exactly here. It cannot be computed
+			// from `data`: see `recordOutput`.
+			nextOffset: chunk.offset + chunk.data.length,
+		})
+	}
+	if (execution.state === 'terminal') {
+		writeFrame(socket, attachResultFrame(execution))
+		writeTerminator(socket)
+		socket.end()
+		return
+	}
+	const attachment = { socket }
+	execution.attachments.add(attachment)
+	return {
+		// An attach carries no further request frames. Anything after the
+		// first one is a peer this op has no conversation with.
+		onFrame: () => {
+			execution.attachments.delete(attachment)
+			socket.destroy()
+		},
+		onClose: () => {
+			execution.attachments.delete(attachment)
+		},
+	}
 }
 
 async function handleCancelExecution(socket, body) {
@@ -805,6 +1228,15 @@ async function handleExecute(socket, body) {
 		socket.end()
 		return
 	}
+	// Retention is addressed by execution id and by nothing else: a log
+	// nobody can name is a log nobody can attach to, so asking for one
+	// without an id is a caller mistake, not a silently-ignored field.
+	if (body.retainOutput === true && body.executionId === undefined) {
+		writeFrame(socket, { type: 'error', error: 'retain_requires_execution_id' })
+		writeTerminator(socket)
+		socket.end()
+		return
+	}
 	let trackedExecution
 	let cwd
 	try {
@@ -847,6 +1279,23 @@ async function handleExecute(socket, body) {
 			writeTerminator(socket)
 			socket.end()
 			return
+		}
+		if (body.retainOutput === true) {
+			// Refused BEFORE the reservation is spent and before a process
+			// exists, so a guest at its retained-output ceiling turns the
+			// command away rather than running one whose output it cannot
+			// keep. The reservation is left intact for the caller to retry.
+			if (!makeRoomForRetainedOutput()) {
+				writeFrame(socket, {
+					type: 'error',
+					error: `retained_output_capacity: limit ${MAX_RETAINED_OUTPUT_LOGS} (NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS)`,
+				})
+				writeTerminator(socket)
+				socket.end()
+				return
+			}
+			trackedExecution.log = new OutputLog(EXECUTION_LOG_BYTES)
+			trackedExecution.attachments = new Set()
 		}
 		trackedExecution.state = 'starting'
 		trackedExecution.startedAt = start
@@ -923,21 +1372,37 @@ async function handleExecute(socket, body) {
 		return clipped
 	}
 
+	// The retained log is written BEFORE the frame that goes to the
+	// connection which started the command, and deliberately: this
+	// connection can already be a socket that is going away, while the log
+	// is what a reattaching host will read. A write that fails must not be
+	// able to cost the log a chunk. `recordOutput` is a no-op unless this
+	// execution asked for retention, so the ordinary path is unchanged.
 	child.stdout.on('data', (chunk) => {
 		const clipped = clip(stdout, chunk)
-		if (clipped)
-			writeFrame(socket, {
-				type: 'stdout_delta',
-				data: clipped.toString('utf8'),
-			})
+		if (!clipped) return
+		// `span` is present only for a retained execution, so an ordinary
+		// execute stream carries exactly the fields it always carried. When
+		// it IS present the host reads its cursor off it rather than
+		// counting the decoded string — see `recordOutput`.
+		const span = recordOutput(execution, 'stdout', clipped)
+		writeFrame(socket, {
+			type: 'stdout_delta',
+			data: clipped.toString('utf8'),
+			...(span ?? {}),
+		})
 	})
 	child.stderr.on('data', (chunk) => {
 		const clipped = clip(stderr, chunk)
-		if (clipped)
-			writeFrame(socket, {
-				type: 'stderr_delta',
-				data: clipped.toString('utf8'),
-			})
+		if (!clipped) return
+		// Stamped for the same reason stdout is: one interleaved offset
+		// space, one cursor, and neither stream may advance it by guesswork.
+		const span = recordOutput(execution, 'stderr', clipped)
+		writeFrame(socket, {
+			type: 'stderr_delta',
+			data: clipped.toString('utf8'),
+			...(span ?? {}),
+		})
 	})
 
 	const timeout = setTimeout(() => {
@@ -1943,13 +2408,24 @@ function dispatch(socket, req) {
 			.finally(() => socket.end())
 		return
 	}
+	if (agentRetiring && op === 'attach-execution') {
+		// Every other op is refused with the request-shaped reply below. An
+		// attach's caller is reading a STREAM, so a fenced agent answers it
+		// in the stream's own refusal shape — `{type:'error'}` and the
+		// terminator — rather than with a frame that peer has no grammar
+		// for and can only report as a protocol violation.
+		writeFrame(socket, { type: 'error', error: 'agent_retiring' })
+		writeTerminator(socket)
+		socket.end()
+		return
+	}
 	if (agentRetiring) {
 		writeFrame(socket, { ok: false, error: 'agent_retiring' })
 		socket.end()
 		return
 	}
 	if (op === 'reserve-execution') {
-		handleReserveExecution(socket)
+		handleReserveExecution(socket, req.body)
 		return
 	}
 	if (op === 'execute') {
@@ -1961,6 +2437,9 @@ function dispatch(socket, req) {
 			} catch {}
 		})
 		return
+	}
+	if (op === 'attach-execution') {
+		return handleAttachExecution(socket, req.body)
 	}
 	if (op === 'terminal') {
 		return handleTerminal(socket, req.body)
@@ -2124,6 +2603,8 @@ async function main() {
 module.exports = {
 	AGENT_FEATURES,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
+	MAX_TIMEOUT_MS,
+	OutputLog,
 	frame,
 	FrameReader,
 	handleConnection,

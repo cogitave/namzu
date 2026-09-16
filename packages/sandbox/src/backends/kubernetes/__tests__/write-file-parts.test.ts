@@ -164,7 +164,10 @@ describe.skipIf(IS_WINDOWS)('writeFile in parts, against the real guest agent', 
 		const { port } = await startAgent()
 		const reply = await sendFramedRequest(port, { op: 'healthz' })
 		expect(reply.reply.protocolVersion).toBe(2)
-		expect(reply.reply.features).toEqual([WRITE_FILE_PARTS_FEATURE])
+		// Membership, not equality: `features` is an additive list and the
+		// agent grows it, so pinning the whole array would make every later
+		// capability a failure here rather than in the suite that owns it.
+		expect(reply.reply.features).toContain(WRITE_FILE_PARTS_FEATURE)
 	})
 
 	it(`round-trips a ${LARGE_BODY_BYTES / 1024 / 1024} MiB body byte for byte through readFile`, async () => {

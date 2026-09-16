@@ -1213,6 +1213,160 @@ pod, reading its token and probing it, which is what `resume()` is. A
 workspace somebody deleted rejects with the client's already-gone error and
 changes nothing on the handle.
 
+### A command can outlive the connection watching it
+
+An ordinary `exec()` is tied to the one connection that started it. If that
+socket resets the host cancels the command to reconcile, and if the cancel
+cannot be confirmed within eight seconds the handle used to retire the pod —
+so a network blip could cost a workspace every open terminal and everything
+in flight. If the host **process** exits instead, nothing cancels: the command
+runs on, its output was written only to a closed socket and kept nowhere, and
+the only op that returned its record terminated it to hand it over.
+
+A workspace command can now be started so that losing the connection is not
+losing the command:
+
+```ts
+import {
+  KubernetesExecutionDetachedError,
+  createKubernetesWorkspace,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+const workspace = await createKubernetesWorkspace(cluster, {
+  workspaceId: 'acme-checkout-7',
+  workingDirectory: '/workspace',
+})
+
+const executionId = 'exec_1f2e3d4c-5b6a-4c8d-9e0f-112233445566'
+const shuttingDown = new AbortController()
+try {
+  const result = await workspace.exec('pnpm', ['test'], {
+    executionId,
+    detach: true,
+    detachSignal: shuttingDown.signal,
+  })
+  console.log(result.exitCode)
+} catch (error) {
+  if (!(error instanceof KubernetesExecutionDetachedError)) throw error
+  // The command is still running. Another process picks it up by id.
+  console.log(error.executionId, error.outputOffset)
+}
+```
+
+**What the guest keeps.** A command started this way writes its output into a
+retained log as well as onto the wire: one ordered, size-bounded log of stdout
+and stderr in a single byte-offset space, so a reader resumes with one number
+and sees the interleaving the command actually produced. A command started
+without `executionId` or `detach` retains nothing and sends exactly the wire
+request it always sent.
+
+**The offsets are the guest's, never the host's arithmetic.** Every output
+frame of a retained command carries the byte range it occupies in that log, on
+the exec stream and on an attach alike, and the host resumes from what it was
+told rather than from anything it counted. It has to: output crosses the wire
+as decoded text, and a chunk that ends inside a multi-byte character does not
+decode to its own byte length, so a cursor counted from the text drifts ahead
+of the log the first time a command prints something that is not ASCII across
+a read boundary. A drifted cursor either skips bytes nobody reports or names
+an offset the guest never had.
+
+**Reattaching.** When the exec connection fails, the handle attaches to the
+same execution from the last offset it received and goes on reading. Only
+getting back is bounded — by `reattachWindowMs`, 30 s by default — and the
+bound is disarmed the moment an attach succeeds, so a long command being read
+successfully is never given up on. If the window runs out, `exec()` rejects
+with `KubernetesExecutionDetachedError`, carrying the `executionId` and the
+`outputOffset` a later reader resumes from. **Nothing on this path sends a
+cancel to reconcile.** That is the behaviour being replaced: a lost connection
+now costs the workspace nothing at all — no patch, no suspend, no pod.
+
+**Reading a command you did not start.** `attachExecution(executionId, {
+fromOffset, onOutput, onGap, signal })` resolves to the same `SandboxExecResult`
+the starting call would have returned. It never signals the command: aborting
+its `signal` stops reading and rejects with the detached error, and closing the
+connection changes nothing in the guest. Every attach inside the retention
+window returns the same result.
+
+**Ending one.** `cancelExecution(executionId)` runs the confirmed-cancel path
+from any process holding the id, and resolves only when the guest has confirmed
+the process group is gone. A cancellation it could not confirm rejects with
+`RemoteCancellationUnknownError` — and, unlike the path this replaces, retires
+nothing: the workspace, its pod and its disk are left exactly as they are.
+`SandboxExecOptions.signal` keeps its contract and runs this same path;
+`detachSignal` is its opposite and ends only the watching.
+
+One divergence from the shared exec contract is deliberate and lives here: on
+a detached command, a cancel that could not be confirmed is reported as
+`KubernetesExecutionDetachedError` — the id and the offset to come back with —
+rather than `RemoteCancellationUnknownError`. The unknown-cancellation error is
+what retires a workspace, and not retiring one is the whole reason this path
+exists. The command's fate is still unknown; the caller finds out by attaching.
+
+A detached command also does not make the handle `busy`: `workspace.status`
+reads `'ready'` while one is in flight, because the detach path runs outside
+the execution accounting whose failure rule retires a workspace. An ordinary
+`exec()` still reports `'busy'`, and `suspended` is unaffected by either.
+
+**A gap is reported, never skipped.** If a reader asks for output the guest has
+already evicted, the attach answers with the number of bytes lost: `onGap`
+receives the count, and the returned result carries `stdoutTruncated` and
+`stderrTruncated` — both of them, because the retained log is one interleaved
+space and the loss cannot be attributed to either stream. Output is never
+quietly shortened into something that looks complete.
+
+**Starting the same id twice runs the command once.** Reserving an id the guest
+still holds reports what it holds instead of minting a second reservation, so
+the second call attaches to the command that exists rather than starting
+another. That guarantee ends in exactly two places, and the guest cannot
+pretend otherwise: when the record is pruned at the end of its retention
+window, and when the pod is replaced — a resume, an eviction, a node drain —
+which takes the whole registry with it. After either, the same id is a fresh
+reservation and the command runs again.
+
+**What it costs the guest, and the knobs.** Retained output is heap in the same
+512Mi the workload shares, so it is bounded twice: per execution, and by how
+many executions may retain at once. All four variables live in the workspace
+template's `env` block at their defaults.
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `NAMZU_AGENT_EXECUTION_LOG_BYTES` | `1048576` (1 MiB) | Retained output per execution; the oldest bytes are evicted first and the loss is reported as a gap. |
+| `NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS` | `32` | How many executions may retain at once. Finished executions give up their output first (keeping their result); a guest already retaining this many LIVE commands refuses the next detached one before it starts a process. |
+| `NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS` | `600000` (10 min) | How long a detached command's record and log outlive it. Every other execution keeps the 60 s `NAMZU_AGENT_EXECUTION_TERMINAL_TTL_MS` window it always had. |
+| `NAMZU_SANDBOX_MAX_TIMEOUT_MS` | `1800000` (30 min) | The ceiling on the caller's own `timeout`. |
+
+**The timeout ceiling is the operator's.** `timeoutMs` traces back to a
+model-authored tool argument, so the guest caps it — and it refuses a request
+above the cap rather than silently shortening it, because a caller that asked
+for four hours and quietly got thirty minutes would believe its command was
+protected for four. The cap was a constant while every ownership limit beside
+it was an environment variable; it now reads `NAMZU_SANDBOX_MAX_TIMEOUT_MS`,
+the same variable the container worker has always read for the same limit, and
+the refusal names it. The default is unchanged, so an unconfigured deployment
+refuses exactly what it always refused.
+
+**The guest has to advertise it.** `healthz` answers with
+`features: ["write-file-parts", "execution-attach"]`, and a host that asks for
+a detachable command against an image without the second string is refused
+with `KubernetesExecutionAttachUnsupportedError` **before** the command is
+admitted — rather than running one whose output nothing keeps. The guest wire
+protocol version is unchanged: the caller-chosen `executionId`, the
+`retainOutput` flag and the `attach-execution` op are all additive, so no host
+and no image has to roll together with this release.
+
+**Where it does not live.** None of this is on the SDK's `Sandbox`.
+`SandboxExecOptions` is untouched, so every other backend's exec contract —
+and the Firecracker tier's — is exactly what it was; the options type here
+only widens what a Kubernetes workspace's own `exec()` accepts.
+
 ### Egress covers a workspace too
 
 `config.egress` is not a provider-only knob. `createKubernetesWorkspace` runs

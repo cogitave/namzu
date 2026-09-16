@@ -197,10 +197,20 @@ export type WireSandboxAgentHandle =
  */
 export type AgentRequest = (
 	| { readonly op: 'execute'; readonly body: ExecRequest }
-	| { readonly op: 'reserve-execution' }
+	// `body` is optional and additive: the reservation the shared execution
+	// controller sends carries none and is byte-for-byte what it always
+	// was, while a caller that owns its own execution ids names one here.
+	| {
+			readonly op: 'reserve-execution'
+			readonly body?: { readonly executionId: string }
+	  }
 	| {
 			readonly op: 'cancel-execution'
 			readonly body: { readonly executionId: string }
+	  }
+	| {
+			readonly op: 'attach-execution'
+			readonly body: { readonly executionId: string; readonly fromOffset?: number }
 	  }
 	| { readonly op: 'read-file'; readonly body: ReadFileRequest }
 	| { readonly op: 'write-file'; readonly body: WriteFileRequest }
@@ -548,13 +558,13 @@ export class VsockAgentTransport {
 	private readonly maxWriteFileBytes: number
 	private readonly writeFilePartBytes?: number
 	/**
-	 * What the guest answered when asked whether it can take a body in
-	 * parts, cached for this handle's lifetime. A pod does not swap its
-	 * agent binary while it is running, so the probe is asked once per
-	 * transport and only when a body is actually too large for one frame —
-	 * every write that fits pays nothing for it.
+	 * What the guest advertised in `healthz`, cached for this handle's
+	 * lifetime. A pod does not swap its agent binary while it is running,
+	 * so the probe is asked once per transport and only when something
+	 * actually depends on a capability — an ordinary write, exec, read or
+	 * terminal pays nothing for it.
 	 */
-	private writeFilePartsSupported?: boolean
+	private guestFeatureList?: readonly string[]
 	private readonly permanentDialFailure?: (error: unknown) => boolean
 	private readonly executionController: RemoteExecutionController<
 		Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>
@@ -1341,12 +1351,137 @@ export class VsockAgentTransport {
 	 * with a too-large error would name the wrong cause.
 	 */
 	private async guestSupportsWriteFileParts(signal?: AbortSignal): Promise<boolean> {
-		if (this.writeFilePartsSupported !== undefined) return this.writeFilePartsSupported
+		return (await this.guestFeatures(signal)).includes(WRITE_FILE_PARTS_FEATURE)
+	}
+
+	/**
+	 * The capability strings this guest advertises in `healthz`, cached for
+	 * this transport's lifetime.
+	 *
+	 * One list, asked once, for every optional op: the write-file part
+	 * protocol and the execution-attach ops both read it, and a second
+	 * cache would mean a second probe against a guest that answers both
+	 * questions in one reply. A transport FAILURE propagates rather than
+	 * reading as "not supported", because answering a broken connection
+	 * with a capability refusal would name the wrong cause.
+	 */
+	async guestFeatures(signal?: AbortSignal): Promise<readonly string[]> {
+		if (this.guestFeatureList !== undefined) return this.guestFeatureList
 		const reply = await this.request<{ features?: unknown }>({ op: 'healthz' }, signal)
-		const features = Array.isArray(reply.features) ? reply.features : []
-		const supported = features.includes(WRITE_FILE_PARTS_FEATURE)
-		this.writeFilePartsSupported = supported
-		return supported
+		const features = Array.isArray(reply.features)
+			? reply.features.filter((value): value is string => typeof value === 'string')
+			: []
+		this.guestFeatureList = features
+		return features
+	}
+
+	/**
+	 * Send one framed request and read a STREAM of framed JSON events until
+	 * the agent's zero-length terminator, handing each event to `onEvent`.
+	 *
+	 * The generic half of what {@link executeRaw} does, without any of its
+	 * opinions about what the events mean: `executeRaw` owns the exec
+	 * NDJSON union and the {@link ExecResultAccumulator}, and this owns
+	 * dial, framing, the terminator, the observation bound and the
+	 * post-terminator close. Additive — nothing already shipped calls it —
+	 * so the Firecracker tier's behaviour is untouched and a later streamed
+	 * op reuses it rather than writing a fourth copy of this loop.
+	 *
+	 * There is deliberately NO read-idle timeout. A stream that exists to
+	 * follow a long, quiet command must not be torn down for being quiet;
+	 * the whole observation is bounded by `observationTimeoutMs` instead,
+	 * exactly as an `execute` stream is.
+	 */
+	async streamFramedRequest(
+		req: AgentRequest,
+		onEvent: (event: Record<string, unknown>) => void,
+		options: { readonly observationTimeoutMs: number },
+		signal?: AbortSignal,
+	): Promise<void> {
+		const envelope = this.withCredential(req)
+		const payload = JSON.stringify(envelope)
+		this.assertPreauthBudget(payload)
+		const socket = await this.dial(signal)
+		const observationTimeoutMs = Math.min(MAX_TIMER_DELAY_MS, options.observationTimeoutMs)
+		return await new Promise<void>((resolve, reject) => {
+			const reader = new FrameReader()
+			let settled = false
+			let terminated = false
+			let closeTimer: ReturnType<typeof setTimeout> | undefined
+			const finish = (err: Error | null) => {
+				if (settled) return
+				settled = true
+				clearTimeout(observationTimer)
+				if (closeTimer) clearTimeout(closeTimer)
+				signal?.removeEventListener('abort', abort)
+				socket.destroy()
+				if (err) reject(err)
+				else resolve()
+			}
+			const abort = () => finish(signalError(signal))
+			const observationTimer = setTimeout(
+				() =>
+					finish(
+						new Error(`vsock transport: stream observation exceeded ${observationTimeoutMs}ms`),
+					),
+				observationTimeoutMs,
+			)
+			observationTimer.unref()
+			socket.on('data', (chunk: Buffer) => {
+				let frames: string[]
+				try {
+					frames = reader.push(chunk)
+				} catch (err) {
+					finish(err instanceof Error ? err : new Error(String(err)))
+					return
+				}
+				for (const frameText of frames) {
+					if (terminated) {
+						finish(new Error('vsock transport: stream emitted data after its terminator'))
+						return
+					}
+					if (frameText.length === 0) {
+						terminated = true
+						continue
+					}
+					let event: Record<string, unknown>
+					try {
+						event = JSON.parse(frameText) as Record<string, unknown>
+					} catch (err) {
+						finish(err instanceof Error ? err : new Error(String(err)))
+						return
+					}
+					try {
+						onEvent(event)
+					} catch (err) {
+						finish(err instanceof Error ? err : new Error(String(err)))
+						return
+					}
+				}
+				if (terminated) {
+					if (reader.bufferedBytes > 0) {
+						finish(new Error('vsock transport: stream has trailing partial data'))
+						return
+					}
+					closeTimer = setTimeout(
+						() => finish(new Error('vsock transport: stream peer did not close after terminator')),
+						POST_RESPONSE_CLOSE_TIMEOUT_MS,
+					)
+					closeTimer.unref()
+				}
+			})
+			socket.once('error', (err) => finish(err))
+			socket.once('close', () => {
+				if (terminated) finish(null)
+				else finish(new Error('vsock transport: socket closed before stream terminator'))
+			})
+			if (signal?.aborted) {
+				abort()
+				return
+			}
+			signal?.addEventListener('abort', abort, { once: true })
+			socket.write(frame(payload))
+		})
 	}
 
 	/** The refusal for a body no frame can carry and no guest can take in parts. */
