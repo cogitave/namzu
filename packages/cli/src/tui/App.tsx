@@ -413,7 +413,8 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly notice?: string
 			/** The published model whose paused queue this follow-up may configure. */
 			readonly selectedSession?: AgentSession
-			readonly values: readonly (ReasoningEffort | undefined)[]
+			/** The last entry is the orchestrate-mode row, below a rule; never a `ReasoningEffort`. */
+			readonly values: readonly (ReasoningEffort | undefined | 'orchestrate')[]
 			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
@@ -889,6 +890,15 @@ export function App({
 	const setReasoningEffort = useCallback((next: ReasoningEffort | undefined) => {
 		reasoningEffortRef.current = next
 		setReasoningEffortState(next)
+	}, [])
+	// A session setting layered above effort, not a level a provider publishes
+	// — see docs/cli/slash-commands.md's /effort section. In-memory and
+	// per-session like reasoningEffort above; no preferences file involved.
+	const [orchestrateMode, setOrchestrateModeState] = useState(false)
+	const orchestrateModeRef = useRef(false)
+	const setOrchestrateMode = useCallback((next: boolean) => {
+		orchestrateModeRef.current = next
+		setOrchestrateModeState(next)
 	}, [])
 	const [activeSkills, setActiveSkills] = useState<ReadonlyArray<{ name: string; body: string }>>(
 		[],
@@ -1928,6 +1938,68 @@ export function App({
 		[hasUnsettledTurn, pushMessage, session, setReasoningEffort, state],
 	)
 
+	/**
+	 * Turn the session's orchestrate mode on or off.
+	 *
+	 * On: pins effort to the model's highest published level (last entry of
+	 * `reasoningEffortLevels`, which every provider publishes low-to-high) and
+	 * strengthens delegation guidance for future turns via `SendOptions.orchestrate`
+	 * — see `applyReasoningEffort` above for the mirrored guard shape. When the
+	 * model publishes no exact menu, effort is left alone and the notice says
+	 * so explicitly rather than silently doing nothing.
+	 */
+	const applyOrchestrateMode = useCallback(
+		(enabled: boolean, selectedSession?: AgentSession): void => {
+			if (!session?.hasProvider) {
+				pushMessage(
+					'system',
+					'No active session — pick a provider before turning orchestrate mode on.',
+				)
+				return
+			}
+			if (selectedSession !== undefined && selectedSession !== session) {
+				pushMessage(
+					'system',
+					'Orchestrate mode was not changed: the selected model is no longer active.',
+				)
+				return
+			}
+			if (
+				state !== 'idle' ||
+				abortRef.current !== null ||
+				hasUnsettledTurn() ||
+				(queuedRef.current.length > 0 && selectedSession !== session) ||
+				permissionResolveRef.current !== null ||
+				compactingRef.current
+			) {
+				pushMessage(
+					'system',
+					'Orchestrate mode was not changed: wait for the active turn, prompt, compaction, and queued work to settle.',
+				)
+				return
+			}
+			setOrchestrateMode(enabled)
+			if (!enabled) {
+				pushMessage('system', 'Orchestrate mode is off.')
+				return
+			}
+			const highest = highestReasoningEffort(session.reasoningEffortLevels)
+			if (highest !== undefined) {
+				setReasoningEffort(highest)
+				pushMessage(
+					'system',
+					`Orchestrate mode is on — effort pinned to ${highest} for ${session.modelSummary ?? 'this model'}, and delegation guidance is strengthened for this session.`,
+				)
+				return
+			}
+			pushMessage(
+				'system',
+				`Orchestrate mode is on — ${session.modelSummary ?? 'this model'} does not publish an exact effort menu, so effort was left as is. Delegation guidance is still strengthened for this session.`,
+			)
+		},
+		[hasUnsettledTurn, pushMessage, session, setOrchestrateMode, setReasoningEffort, state],
+	)
+
 	const stepReasoningEffort = useCallback(
 		(direction: 'lower' | 'raise'): void => {
 			const levels = session?.reasoningEffortLevels
@@ -2621,12 +2693,17 @@ export function App({
 				removeStoredCredential(value as SubscriptionProviderId)
 				return
 			}
+			if (picker.kind === 'reasoning-effort' && value === ORCHESTRATE_MODE_VALUE) {
+				applyOrchestrateMode(!orchestrateModeRef.current, picker.selectedSession)
+				return
+			}
 			applyReasoningEffort(value as ReasoningEffort | undefined, picker.selectedSession)
 		},
 		[
 			activateSkill,
 			advanceQueueContinuation,
 			appLifetime.signal,
+			applyOrchestrateMode,
 			applyPermissionMode,
 			applyReasoningEffort,
 			archiveCurrentConversation,
@@ -2928,8 +3005,14 @@ export function App({
 			// A picker-owned provider/model change is one state transition. Clear the
 			// old model's effort selection before publishing the replacement session
 			// or releasing any paused queue. Failed and superseded candidates returned
-			// above, so they leave the current session selection untouched.
-			if (signal !== undefined) setReasoningEffort(undefined)
+			// above, so they leave the current session selection untouched. Orchestrate
+			// mode survives the switch: re-pin to the new model's highest published
+			// level instead of clearing, exactly as it pinned when first turned on.
+			if (signal !== undefined) {
+				setReasoningEffort(
+					orchestrateModeRef.current ? highestReasoningEffort(s.reasoningEffortLevels) : undefined,
+				)
+			}
 			// Re-hydration (a provider switch via /model) builds a second session;
 			// without this the first one's tool-server child processes stay alive
 			// for the rest of the TUI's life.
@@ -2937,7 +3020,9 @@ export function App({
 			void previousSessionRef.current?.close()
 			previousSessionRef.current = s
 			setSession(s)
-			if (options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
+			// Orchestrate mode already re-pinned effort above; reopening this picker
+			// would ask the operator to redo a choice the mode just made for them.
+			if (!orchestrateModeRef.current && options.chooseReasoningEffort && s.reasoningEffortLevels?.length) {
 				// Own input before publishing ready or releasing a paused queue. The
 				// menu closes only after choosing an effort or keeping the new default.
 				setSelectedChoice(0)
@@ -4967,6 +5052,7 @@ export function App({
 			activeTurnInboxRef.current = inbox
 			const turnPermissionMode = permissionModeRef.current
 			const turnReasoningEffort = reasoningEffortRef.current
+			const turnOrchestrateMode = orchestrateModeRef.current
 			const turnRunLimits = resolveRunGuards(ctxRef.current.limits, runLimitsOverrideRef.current)
 			// Always carry the guarded callback. `auto` and `strict` decide before
 			// calling it in makeResumeHandler; retaining it is what lets a session
@@ -5035,6 +5121,7 @@ export function App({
 						permissionMode: turnPermissionMode,
 						limits: turnRunLimits,
 						...(turnReasoningEffort !== undefined ? { effort: turnReasoningEffort } : {}),
+						...(turnOrchestrateMode ? { orchestrate: true } : {}),
 						...(goalRound ? { goalRound } : {}),
 						// The mode above decides whether this callback is consulted.
 						onPermission: askPermission,
@@ -5978,7 +6065,9 @@ export function App({
 								values.findIndex((value) => value === current),
 							),
 						)
-						setChoicePicker(reasoningEffortPicker(session, current) ?? null)
+						setChoicePicker(
+							reasoningEffortPicker(session, current, false, orchestrateModeRef.current) ?? null,
+						)
 						return
 					}
 					case 'login':
@@ -6450,6 +6539,11 @@ export function App({
 								? 'Raw output mode on — transcript source is shown without Markdown styling or collapsed bodies; terminal controls remain visible escapes.'
 								: 'Raw output mode off — rich transcript rendering restored.',
 						)
+						return
+					}
+					case 'orchestrate-mode': {
+						const enabled = slash.enabled === 'toggle' ? !orchestrateModeRef.current : slash.enabled
+						applyOrchestrateMode(enabled)
 						return
 					}
 					case 'export-picker': {
@@ -7812,6 +7906,7 @@ export function App({
 					provider={session?.providerSummary ?? null}
 					model={session?.modelSummary ?? null}
 					effort={reasoningEffort}
+					orchestrate={orchestrateMode}
 					goal={statusGoal}
 					state={state}
 					hint={statusHint}
@@ -8079,14 +8174,35 @@ function permissionPicker(
 	}
 }
 
+/**
+ * The picker's sentinel for the orchestrate-mode row, below the rule.
+ *
+ * A plain string outside the `ReasoningEffort` union by construction — never
+ * added to any model's published menu — so it can share the same picker
+ * without ever being mistaken for a level `/effort <token>` could select.
+ */
+const ORCHESTRATE_MODE_VALUE = 'orchestrate' as const
+
+/** Last entry of a low-to-high menu every provider publishes in that order; `undefined` when none is known. */
+function highestReasoningEffort(
+	levels: readonly ReasoningEffort[] | undefined,
+): ReasoningEffort | undefined {
+	return levels && levels.length > 0 ? levels[levels.length - 1] : undefined
+}
+
 function reasoningEffortPicker(
 	session: AgentSession,
 	current: ReasoningEffort | undefined,
 	afterModelSelection = false,
+	orchestrateOn = false,
 ): Extract<ChoicePickerState, { kind: 'reasoning-effort' }> | undefined {
 	const levels = session.reasoningEffortLevels
 	if (!session.hasProvider || levels === undefined) return undefined
-	const values: readonly (ReasoningEffort | undefined)[] = [undefined, ...levels]
+	const effortValues: readonly (ReasoningEffort | undefined)[] = [undefined, ...levels]
+	const values: readonly (ReasoningEffort | undefined | typeof ORCHESTRATE_MODE_VALUE)[] = [
+		...effortValues,
+		ORCHESTRATE_MODE_VALUE,
+	]
 	return {
 		kind: 'reasoning-effort',
 		title: `Select Reasoning Level for ${session.modelSummary ?? 'current model'}`,
@@ -8097,12 +8213,24 @@ function reasoningEffortPicker(
 				}
 			: {}),
 		values,
-		options: values.map((effort) => ({
-			label: effort ?? 'default',
-			description: reasoningEffortDescription(effort),
-			current: effort === current,
-			default: effort === undefined,
-		})),
+		options: [
+			...effortValues.map((effort) => ({
+				label: effort ?? 'default',
+				description: reasoningEffortDescription(effort),
+				current: effort === current,
+				default: effort === undefined,
+			})),
+			{
+				// Below a rule, visually apart from the levels above: a session
+				// setting, not a sixth level the provider published.
+				label: 'orchestrate',
+				description: orchestrateOn
+					? 'On · highest level and delegate by default'
+					: 'Off · highest level and delegate by default',
+				current: orchestrateOn,
+				ruleBefore: true,
+			},
+		],
 	}
 }
 

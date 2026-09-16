@@ -141,6 +141,7 @@ import type {
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
+	NAMZU_ORCHESTRATE_DOCTRINE,
 	NAMZU_PLAN_MODE_DOCTRINE,
 	NAMZU_WORKING_DOCTRINE,
 } from '../context/doctrine.js'
@@ -505,6 +506,14 @@ export interface SendOptions {
 	readonly waitForInbound?: (signal: AbortSignal) => Promise<void>
 	/** Model-specific reasoning effort for this turn's main query. */
 	readonly effort?: ReasoningEffort
+	/**
+	 * Strengthen delegation guidance toward delegating by default for this
+	 * turn, for a session whose orchestrate mode (`/orchestrate`) is on.
+	 * Default `false`; appends `NAMZU_ORCHESTRATE_DOCTRINE` after the
+	 * delegation doctrine and never on its own. Display/prompt-only — creates
+	 * no roster and starts no delegation by itself.
+	 */
+	readonly orchestrate?: boolean
 	/**
 	 * How this turn resolves review requests no declarative rule decided.
 	 * Overrides the session default for this turn only.
@@ -3079,6 +3088,7 @@ export async function createAgentSession(
 								NAMZU_IDENTITY,
 								residentContext ? undefined : NAMZU_WORKING_DOCTRINE,
 								residentContext ? undefined : NAMZU_DELEGATION_DOCTRINE,
+								!residentContext && opts?.orchestrate ? NAMZU_ORCHESTRATE_DOCTRINE : undefined,
 								options.conversationSessions ? CONVERSATION_EVIDENCE_GUIDANCE : undefined,
 								options.toolLoading === 'deferred' ? DEFERRED_TOOL_GUIDANCE : undefined,
 								// Present only while the turn runs under `plan`. A mode change

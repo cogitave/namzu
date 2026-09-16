@@ -85,6 +85,29 @@ const planWithEffort = (
 		canCycleMode
 	/>
 )
+const planWithOrchestrate = (
+	<StatusBar
+		cwd={CWD}
+		provider="a-provider"
+		model="gpt-5.6-terra"
+		effort="high"
+		orchestrate
+		state="idle"
+		permissionMode="plan"
+		canCycleMode
+	/>
+)
+const orchestrateWithNoEffortMenu = (
+	<StatusBar
+		cwd={CWD}
+		provider="a-provider"
+		model="gpt-5.6-terra"
+		orchestrate
+		state="idle"
+		permissionMode="plan"
+		canCycleMode
+	/>
+)
 
 describe('the composer footer at 80 columns', () => {
 	it('shows the quiet cycle reminder, the cwd and the model when no special mode is active', async () => {
@@ -120,6 +143,36 @@ describe('the composer footer at 80 columns', () => {
 			const row = footerRow(screen)
 			expect(row).toContain('⏸ Plan (read-only) (shift+tab to cycle) · effort high')
 			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('reads the level and the mode side by side, not as a sixth level', async () => {
+		// A wider column than its neighbours above: "· effort high · orchestrate"
+		// is exactly the longer string this test exists to check, and it needs
+		// the room those shorter fixtures did not.
+		const screen = await renderToScreen(belowMessageFrame(planWithOrchestrate), {
+			cols: 100,
+			rows: ROWS,
+		})
+		try {
+			const row = footerRow(screen)
+			expect(row).toContain('· effort high · orchestrate')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('names orchestrate alone, never as a fabricated effort value, when no menu is pinned', async () => {
+		const screen = await renderToScreen(belowMessageFrame(orchestrateWithNoEffortMenu), {
+			cols: 80,
+			rows: ROWS,
+		})
+		try {
+			const row = footerRow(screen)
+			expect(row).toContain('· orchestrate')
+			expect(row).not.toContain('effort orchestrate')
 		} finally {
 			await screen.unmount()
 		}

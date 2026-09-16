@@ -872,6 +872,23 @@ describe('/effort', () => {
 		if (invalid?.kind === 'message') expect(invalid.content).toContain('none|low|medium|high|xhigh')
 	})
 
+	it('never resolves the orchestrate mode name as an effort token', () => {
+		// The mode is a session setting layered above effort, not a level the
+		// provider published — /effort must refuse it exactly like any other
+		// unpublished token, the same guarantee it gives `ultracode` today.
+		const ctx = context({
+			providerSummary: 'openai (openai)',
+			modelSummary: 'gpt-5.2',
+			reasoningEffort: {
+				current: () => undefined,
+				levels: ['none', 'low', 'medium', 'high', 'xhigh'],
+			},
+		})
+		const result = runSlash('/effort orchestrate', ctx)
+		expect(result?.kind).toBe('message')
+		if (result?.kind === 'message') expect(result.content).toContain('none|low|medium|high|xhigh')
+	})
+
 	it('can restore the provider default even when no exact menu is known', () => {
 		const ctx = context({
 			providerSummary: 'gateway (openai-compatible)',
@@ -900,6 +917,32 @@ describe('/effort', () => {
 		)
 
 		expect(result).toEqual({ kind: 'reasoning-effort-picker' })
+	})
+})
+
+describe('/orchestrate', () => {
+	it('toggles with no argument', () => {
+		expect(runSlash('/orchestrate', context())).toEqual({
+			kind: 'orchestrate-mode',
+			enabled: 'toggle',
+		})
+	})
+
+	it('sets an explicit state', () => {
+		expect(runSlash('/orchestrate on', context())).toEqual({
+			kind: 'orchestrate-mode',
+			enabled: true,
+		})
+		expect(runSlash('/orchestrate off', context())).toEqual({
+			kind: 'orchestrate-mode',
+			enabled: false,
+		})
+	})
+
+	it('rejects anything else as a usage error', () => {
+		const result = runSlash('/orchestrate maybe', context())
+		expect(result?.kind).toBe('message')
+		if (result?.kind === 'message') expect(result.content).toContain('Usage: /orchestrate [on|off]')
 	})
 })
 

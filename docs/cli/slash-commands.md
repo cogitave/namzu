@@ -50,6 +50,7 @@ explain why they cannot run and are checked again when selected.
 | `/status` | Show model, permissions, workspace and latest cost. `/status details` expands rules and isolation; `/status config` shows setting sources; `/status tools` lists callable tools. |
 | `/permissions` | Choose Ask before changes, Auto-approve edits or Plan (read-only). More options contains Auto-approve tools, Preapproved tools only and View rules. |
 | `/effort` | Choose reasoning effort for future turns: /effort [level\|default]. |
+| `/orchestrate` | Toggle orchestrate mode for this session: /orchestrate [on\|off]. A session setting shown beside effort, not a level of it. |
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
 | `/tasks` | Read tasks from this conversation’s current or latest run. Starting another run or changing conversations clears the previous selection. |
@@ -131,6 +132,32 @@ published menu, marking unsupported values unavailable. Preview is not applicati
 `ultracode` is not an alias for an effort level; available levels come from the
 provider. See [OpenAI reasoning menus](../sdk/openai-reasoning.md) for Astra's
 different API and subscription menus.
+
+### Orchestrate mode
+
+`/orchestrate` (`/orchestrate on`, `/orchestrate off`, or no argument to toggle)
+turns a session setting on or off, layered above effort rather than inside it —
+it is never a `ReasoningEffort` value, so `/effort orchestrate` reports
+`unavailable for this model`, the same refusal `ultracode` gets, because
+neither name is an effort level a provider publishes. When the `/effort`
+picker can open (an exact menu, even an explicitly empty one, is known), the
+mode also appears there as its own row below a rule, visually apart from the
+levels above it. Turning the mode on pins reasoning effort to the model's
+highest published level — the last entry of the menu, since every provider
+publishes low-to-high — and strengthens the delegation guidance for future
+turns in this session, from "delegate genuinely independent work" toward
+delegating by default; this widens prompt guidance only, and mounts no
+roster and starts no delegation by itself. When the current model or a usable
+fallback publishes no exact effort menu, the mode still turns on and still
+strengthens delegation guidance, but pins nothing, and says so. The status
+line reads the level and the mode together, for example `effort high ·
+orchestrate`, and `orchestrate` alone when no level is pinned — never a
+fabricated sixth effort value. Like effort, the mode is in-memory and
+per-session; it is not saved to preferences. A model switch resets an
+explicit effort override to the new model's default as it always has, but
+while the mode is on it re-pins to the *new* model's highest published level
+instead, and the interactive effort chooser that otherwise follows a
+standalone `/model` pick does not reopen on top of that automatic re-pin.
 
 You can also ask for a change within a larger conversation request, for example
 “gpt-5.6-luna’ya geç”. In response to an explicit request, the interactive

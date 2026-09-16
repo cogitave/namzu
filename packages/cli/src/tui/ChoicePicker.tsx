@@ -13,6 +13,8 @@ export interface ChoicePickerOption {
 	readonly disabledReason?: string
 	readonly selectedDescription?: string
 	readonly searchText?: string
+	/** Draw a horizontal rule above this row — a different KIND of setting, not a later item in the same list. */
+	readonly ruleBefore?: boolean
 }
 
 export interface ChoicePickerProps {
@@ -51,12 +53,14 @@ export function ChoicePicker({
 	const hasDetail = options.some((option) =>
 		Boolean(option.selectedDescription || option.disabledReason),
 	)
+	const hasRule = options.some((option) => option.ruleBefore)
 	const pageSize = choicePickerWindowSize({
 		rows: terminal.rows,
 		columns,
 		searchable: query !== undefined,
 		notice: Boolean(notice),
 		selectedDescription: hasDetail,
+		rule: hasRule,
 		windowSize,
 	})
 	const { start, items: visible } = selectionWindow(options, selected, pageSize)
@@ -117,6 +121,9 @@ export function ChoicePicker({
 				const description = option.disabledReason ?? option.description
 				return (
 					<Box key={`${option.label}-${index}`} flexDirection="column">
+						{option.ruleBefore ? (
+							<Text color={theme.border.default}>{'─'.repeat(contentWidth)}</Text>
+						) : null}
 						<Box>
 							<Box width={4} flexShrink={0}>
 								<Text color={theme.accent.assistant}>

@@ -172,12 +172,20 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	await shows(screen, 'Reasoning: high (this session).')
 	await chooseNextModel(screen)
 	await shows(screen, `Select Reasoning Level for ${NEXT}`)
-	expect(choices(screen), screen.viewport().join('\n')).toEqual(['default', 'medium', 'xhigh'])
+	// The orchestrate-mode row always trails the model's own levels, below a
+	// rule — a session setting offered here, never a level the model published.
+	expect(choices(screen), screen.viewport().join('\n')).toEqual([
+		'default',
+		'medium',
+		'xhigh',
+		'orchestrate',
+	])
 	expect(screen.viewport().join('\n')).toMatch(/›\s*1\.\s+default\s+\[current\] \[default\]/u)
 	expect(closeOld).toHaveBeenCalledTimes(1)
 	expect(sent).toHaveLength(0)
-	await press(screen, '\x1b[F')
-	await press(screen, '\r')
+	// Select the exact published level by number rather than End, which now
+	// lands on the trailing orchestrate row instead of the highest level.
+	await press(screen, '3')
 	await shows(screen, 'Reasoning: xhigh (this session).')
 	await submit(screen, 'Continue this task')
 	await until(screen, () => sent.length === 1, 'Prompt did not reach replacement')
@@ -186,7 +194,7 @@ it('offers exactly the hydrated model levels and sends the chosen effort on the 
 	await shows(screen, 'Type a message')
 	await submit(screen, '/effort')
 	await shows(screen, `Select Reasoning Level for ${NEXT}`)
-	expect(choices(screen)).toEqual(['default', 'medium', 'xhigh'])
+	expect(choices(screen)).toEqual(['default', 'medium', 'xhigh', 'orchestrate'])
 	await press(screen, '1')
 	await shows(screen, 'Reasoning: provider default.')
 	await submit(screen, 'Use the provider default now')

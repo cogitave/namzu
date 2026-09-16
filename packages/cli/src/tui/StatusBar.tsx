@@ -21,6 +21,8 @@ export interface StatusBarProps {
 	readonly model: string | null
 	/** An explicit reasoning-effort override; omitted/undefined means the model's own default, which this footer does not name. */
 	readonly effort?: string | null
+	/** The session's orchestrate mode (`/orchestrate`) — a setting shown beside effort, never as a level of it. */
+	readonly orchestrate?: boolean
 	/** Ambient durable goal status; interaction hints take precedence. */
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
@@ -50,6 +52,7 @@ export function StatusBar({
 	provider,
 	model,
 	effort,
+	orchestrate,
 	goal,
 	state,
 	hint,
@@ -68,6 +71,7 @@ export function StatusBar({
 		model,
 		provider,
 		effort: effort ?? null,
+		orchestrate: orchestrate ?? false,
 		hint,
 		goal,
 		modeLabel: activeMode ? `${activeMode.icon} ${activeMode.label}` : QUIET_MODE_HINT,
@@ -176,6 +180,8 @@ export function fitStatusLine(input: {
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
+	/** Session orchestrate mode. Shown beside `effort`, and alone (never as a fabricated effort value) when there is no effort to show it beside. */
+	readonly orchestrate?: boolean
 	readonly hint?: string | undefined
 	readonly goal?: string | null | undefined
 	readonly modeLabel: string
@@ -199,7 +205,14 @@ export function fitStatusLine(input: {
 
 	let mode: string | null = input.modeLabel
 	let cycleSuffix: string | null = input.cycleSuffix ?? null
-	let effort: string | null = input.effort ? `effort ${input.effort}` : null
+	// Orchestrate rides beside a real effort value ("effort high · orchestrate")
+	// but never borrows the "effort" word on its own ("effort orchestrate"),
+	// which would misread as a level a provider published.
+	let effort: string | null = input.effort
+		? `effort ${input.effort}${input.orchestrate ? ' · orchestrate' : ''}`
+		: input.orchestrate
+			? 'orchestrate'
+			: null
 	let cwd: string | null = input.cwd.length > 0 ? input.cwd : null
 
 	const left = (): string => {

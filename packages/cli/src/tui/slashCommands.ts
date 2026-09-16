@@ -95,6 +95,14 @@ export type SlashAction =
 	| { kind: 'reasoning-effort'; effort: ReasoningEffort | null }
 	/** Open the current model's finite reasoning-effort chooser. */
 	| { kind: 'reasoning-effort-picker' }
+	/**
+	 * Toggle or explicitly select the session's orchestrate mode.
+	 *
+	 * A session setting, not a `ReasoningEffort` value — see the module doc on
+	 * `/effort` below. Named separately from `raw`'s identical toggle shape so
+	 * App's exhaustive switch cannot handle the two as one case by accident.
+	 */
+	| { kind: 'orchestrate-mode'; enabled: boolean | 'toggle' }
 	/** Open the finite good/bad chooser for one exact assistant message. */
 	| { kind: 'feedback-picker'; messageId: string }
 	| { kind: 'remember'; text: string; scope: 'project' | 'user' }
@@ -1243,6 +1251,27 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 				kind: 'message',
 				role: 'system',
 				content: `Usage: /effort [${levels}|default]`,
+			}
+		},
+	},
+	{
+		name: 'orchestrate',
+		help: {
+			usage: ['/orchestrate [on|off]'],
+			details: [
+				'A session setting, not a reasoning-effort level — see /effort. On, effort pins to the highest level this model or usable fallback publishes and delegation guidance strengthens toward delegating by default for this session; off, both revert. With no argument, toggles the current state. When no exact effort menu is published, effort is left as is and the session is told so.',
+			],
+		},
+		description: 'Toggle orchestrate mode for this session: /orchestrate [on|off].',
+		action: (_ctx, args) => {
+			const choice = args.join(' ').trim().toLowerCase()
+			if (choice.length === 0) return { kind: 'orchestrate-mode', enabled: 'toggle' }
+			if (choice === 'on') return { kind: 'orchestrate-mode', enabled: true }
+			if (choice === 'off') return { kind: 'orchestrate-mode', enabled: false }
+			return {
+				kind: 'message',
+				role: 'system',
+				content: 'Usage: /orchestrate [on|off]',
 			}
 		},
 	},

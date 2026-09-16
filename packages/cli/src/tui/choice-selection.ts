@@ -48,6 +48,8 @@ export interface ChoicePickerGeometry {
 	readonly searchable?: boolean
 	readonly notice?: boolean
 	readonly selectedDescription?: boolean
+	/** At least one option draws a rule above it — one more line than options alone would need. */
+	readonly rule?: boolean
 	readonly windowSize?: number
 }
 
@@ -58,10 +60,12 @@ export function choicePickerWindowSize({
 	searchable = false,
 	notice = false,
 	selectedDescription = false,
+	rule = false,
 	windowSize = SELECTION_WINDOW_SIZE,
 }: ChoicePickerGeometry): number {
 	const availableRows = Math.max(6, rows - 4)
-	const furnitureRows = 4 + Number(searchable) + Number(notice) + Number(selectedDescription)
+	const furnitureRows =
+		4 + Number(searchable) + Number(notice) + Number(selectedDescription) + Number(rule)
 	const rowHeight = columns < 70 ? 2 : 1
 	return Math.max(1, Math.min(windowSize, Math.floor((availableRows - furnitureRows) / rowHeight)))
 }

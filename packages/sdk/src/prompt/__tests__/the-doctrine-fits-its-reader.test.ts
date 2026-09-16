@@ -12,6 +12,7 @@ import { PromptBuilder } from '../../runtime/query/prompt.js'
 import {
 	CODING_AGENT_DELEGATION_DOCTRINE,
 	CODING_AGENT_DOCTRINE_CONTRIBUTION_ID,
+	CODING_AGENT_ORCHESTRATE_DOCTRINE,
 	CODING_AGENT_WORKING_DOCTRINE,
 	PLAN_MODE_DOCTRINE,
 	codingAgentDoctrineContribution,
@@ -59,5 +60,28 @@ describe('the coding-agent doctrine', () => {
 		expect(codingAgentDoctrineContribution().placement).toBe('static')
 		expect(PLAN_MODE_DOCTRINE).toContain('plan mode')
 		expect(CODING_AGENT_WORKING_DOCTRINE).not.toContain('plan mode')
+	})
+
+	it('strengthens delegation guidance only when an orchestration mode is on', () => {
+		const today = `${CODING_AGENT_WORKING_DOCTRINE}\n\n${CODING_AGENT_DELEGATION_DOCTRINE}`
+		const off = codingAgentDoctrineContribution().render({})
+		const offExplicit = codingAgentDoctrineContribution({ orchestrate: false }).render({})
+		const on = codingAgentDoctrineContribution({ orchestrate: true }).render({})
+		// Mode-off output must stay byte-identical to what this contribution
+		// rendered before `orchestrate` existed — a changed default here would
+		// be a `major`, not a `minor`, under this repo's own SemVer rule.
+		expect(off).toBe(today)
+		expect(offExplicit).toBe(today)
+		expect(on).toContain(CODING_AGENT_DELEGATION_DOCTRINE)
+		expect(on).toContain(CODING_AGENT_ORCHESTRATE_DOCTRINE)
+		expect(on).not.toBe(off)
+	})
+
+	it('never appends the orchestrate text to a sub-agent prompt with delegation off', () => {
+		const child = codingAgentDoctrineContribution({ delegation: false, orchestrate: true }).render(
+			{},
+		)
+		expect(child).toBe(CODING_AGENT_WORKING_DOCTRINE)
+		expect(child).not.toContain(CODING_AGENT_ORCHESTRATE_DOCTRINE)
 	})
 })
