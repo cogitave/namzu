@@ -11,6 +11,7 @@ import type { ToolResultBlock, ToolResultContent } from '../../types/message/ind
 import type { ToolContext, ToolDefinition, ToolResult } from '../../types/tool/index.js'
 import { admitMcpAudioBatch } from './audio-admission.js'
 import type { MCPClient } from './client.js'
+import { MCPInputRequiredError, isMissingRequiredClientCapabilityError } from './errors.js'
 import { MCPHttpRedirectError } from './http-redirect.js'
 import { admitMcpImageBatch } from './image-admission.js'
 
@@ -517,10 +518,66 @@ export function mcpToolToToolDefinition(
 						},
 					}
 				}
+				// MRTR: a conforming server never sends this, since namzu declares
+				// `clientCapabilities: {}` — but a non-conforming one, or a second
+				// `input_required` after the one automatic retry `MCPClient`
+				// already made, is named here rather than reaching the caller as
+				// an unexplained rejection. No side effect is known to have
+				// happened on this path (the spec's model is that a call ending
+				// in `input_required` has not truly run yet), so a retry — of
+				// this tool, or a different approach entirely — is safe.
+				if (error instanceof MCPInputRequiredError) {
+					const requested = error.inputRequests.map((request) => request.method)
+					return frameServerResult(
+						{
+							success: false,
+							output: '',
+							error: `MCP tool "${tool.name}" on server "${serverName}" asked for input this client has no way to supply${requested.length > 0 ? ` (${requested.join(', ')})` : ''}.`,
+							data: {
+								code: 'mcp_tool_input_required',
+								server: serverName,
+								tool: tool.name,
+								requested,
+								retrySafety: 'safe',
+							},
+						},
+						serverName,
+						tool.name,
+					)
+				}
+				// Same principle, for the other outcome a no-capability host is
+				// genuinely likely to see: the server refused before running the
+				// tool because this client never declared a capability it needs.
+				if (isMissingRequiredClientCapabilityError(error)) {
+					const requiredCapabilities = requiredCapabilitiesFrom(error.data)
+					return frameServerResult(
+						{
+							success: false,
+							output: '',
+							error: `MCP tool "${tool.name}" on server "${serverName}" requires client capabilities this client did not declare${requiredCapabilities.length > 0 ? ` (${requiredCapabilities.join(', ')})` : ''}.`,
+							data: {
+								code: 'mcp_tool_missing_client_capability',
+								server: serverName,
+								tool: tool.name,
+								requiredCapabilities,
+								retrySafety: 'safe',
+							},
+						},
+						serverName,
+						tool.name,
+					)
+				}
 				throw error
 			}
 		},
 	}
+}
+
+/** Read `-32021`'s `data.requiredCapabilities` defensively — it is a server's own claim, not a validated shape. */
+function requiredCapabilitiesFrom(data: unknown): string[] {
+	if (typeof data !== 'object' || data === null) return []
+	const required = (data as { requiredCapabilities?: unknown }).requiredCapabilities
+	return Array.isArray(required) ? required.filter((c): c is string => typeof c === 'string') : []
 }
 
 export function toolDefinitionToMCPTool(tool: ToolDefinition): MCPToolDefinition {

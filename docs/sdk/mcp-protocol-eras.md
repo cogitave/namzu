@@ -560,6 +560,107 @@ transport. `HttpSseTransport` now has a `buildHeaders()` merge matching
 `StreamableHttpTransport`'s, so both HTTP transports treat per-request
 headers and a bearer token identically.
 
+## MRTR: `resultType` and a typed `input_required` outcome
+
+Any JSON-RPC result can carry a `resultType`: absent or `"complete"` is an
+ordinary answer, and `"input_required"` is a server saying it cannot finish
+without something the client has to gather first — an elicitation, a
+sampled message, a list of roots. `envelope.ts`'s `decodeResult` reads this
+past the wire shape:
+
+```ts sketch
+type MCPDecodedResult =
+	| { kind: 'complete'; result: unknown }
+	| { kind: 'input_required'; inputRequests?: MCPInputRequest[]; requestState?: string }
+
+declare function decodeResult(raw: unknown): MCPDecodedResult
+```
+
+Absent `resultType` decodes as `complete` — every legacy result, and every
+modern result before this, carries none, and the spec's own words are that
+a client "MUST treat an absent resultType as complete". The other MUST is
+just as literal: "a resultType of any value unrecognized by the client MUST
+be considered invalid" — `decodeResult` throws `MCPInvalidResultTypeError`
+rather than passing an unknown shape through as if it meant something.
+
+### Why namzu almost never sees `input_required` with anything in it
+
+`MCPClient` declares `clientCapabilities: {}` in every era (see
+[Not yet built](#not-yet-built) — no sampling, elicitation, roots or
+logging). MRTR's own rule 7 says a server **MUST NOT** send an
+`inputRequests` entry for a capability the client did not declare, so a
+**conforming** server can only ever answer this client with a
+`requestState`-only `InputRequiredResult`: nothing for namzu to gather,
+just a token to echo back. `MCPClient.callTool` retries that case
+automatically, exactly once, under a fresh JSON-RPC id, with `requestState`
+carried back byte-for-byte as a top-level `requestState` parameter
+alongside the original `name`/`arguments` — the same shape `listAllPages`
+already uses for a pagination `cursor`. The spec's own words license this:
+the client MAY retry immediately when there is nothing to gather. Nothing
+about `requestState` is ever inspected, parsed or logged in full; it is
+opaque to this client by design.
+
+Everything else is the defensive path for a **non-conforming** server:
+
+- An `InputRequiredResult` that does carry `inputRequests` this client
+  cannot satisfy.
+- A second `input_required` answer after the one automatic retry.
+
+Both throw `MCPInputRequiredError` out of `MCPClient.callTool` rather than
+looping or returning something that looks like success. The genuinely
+likely failure for a no-capability host is not this at all, though — it is
+the separate `-32021 MissingRequiredClientCapability` error a server sends
+when it refuses a call outright because this client never declared what
+the call needs.
+
+### The typed, catchable outcome
+
+`mcpToolToToolDefinition`'s `execute` catches both cases and returns a
+`ToolResult` rather than letting either reach the model host as an
+unexplained rejection — the same pattern the redirect boundary already uses
+for `mcp_tool_outcome_unknown`:
+
+```ts sketch
+// MCPInputRequiredError
+{
+	success: false,
+	output: '',
+	error: 'MCP tool "…" on server "…" asked for input this client has no way to supply (elicitation/create).',
+	data: {
+		code: 'mcp_tool_input_required',
+		server: string,
+		tool: string,
+		requested: string[], // the inputRequests' method names
+		retrySafety: 'safe',
+	},
+}
+
+// -32021 MissingRequiredClientCapability
+{
+	success: false,
+	output: '',
+	error: 'MCP tool "…" on server "…" requires client capabilities this client did not declare (sampling).',
+	data: {
+		code: 'mcp_tool_missing_client_capability',
+		server: string,
+		tool: string,
+		requiredCapabilities: string[], // from the error's data.requiredCapabilities
+		retrySafety: 'safe',
+	},
+}
+```
+
+`retrySafety` is `'safe'` on both: the spec's model is that a call ending in
+`input_required` has not truly run yet, and a `-32021` refusal happens
+before the server does anything the call asked for. Both outcomes still
+pass through `frameServerResult`, so the `error` text carries the same
+untrusted-content envelope every other connector tool result does before it
+reaches a model.
+
+This is additive: no existing `MCPToolResult` or `ToolResult` shape
+changes, and a legacy result with no `resultType` — every result a
+pre-MRTR server ever sent — decodes exactly as it always has.
+
 ## What an operator sees change
 
 First contact with a given origin (or stdio command) costs one extra round
@@ -588,6 +689,13 @@ There is no per-call or per-server opt out of probing. A caller that needs
 the previous behaviour — the legacy handshake and nothing else — pins the
 previous major of `@namzu/sdk`.
 
+A tool call that a server answers with `input_required` or `-32021` no
+longer surfaces as a bare rejection: it comes back as a `ToolResult` with
+`success: false` and a `data.code` of `mcp_tool_input_required` or
+`mcp_tool_missing_client_capability` (see
+[MRTR](#mrtr-resulttype-and-a-typed-input_required-outcome)) — a host
+reading `ToolResult.data` today sees a new code it previously never could.
+
 ## Not yet built
 
 - **`subscriptions/listen`.** The modern era replaces the `GET` stream and
@@ -595,9 +703,6 @@ previous major of `@namzu/sdk`.
   any era, so omitting it regresses nothing — but it does mean a modern
   connection receives no server-initiated notifications at all. Tracked
   separately.
-- **`resultType` / MRTR handling** — `complete` versus `input_required`, and
-  what a client with no declared capabilities does with an
-  `InputRequiredResult`.
 - **Legacy session and stream fidelity** — 404 re-initialize, `DELETE` on
   close, `Last-Event-ID` resumption. All legacy-only by construction; the
   modern era already does none of them, as listed above.

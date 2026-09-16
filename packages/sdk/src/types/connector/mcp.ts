@@ -328,6 +328,23 @@ export interface MCPToolResult {
 	_meta?: Record<string, unknown>
 }
 
+/**
+ * One thing the client would have to do that it never declared it could —
+ * elicit input, sample a message, list roots, or something a later spec
+ * revision defines. Only `method` is read by this client; every other field
+ * is carried opaquely so a shape it does not understand still names itself.
+ *
+ * namzu declares `clientCapabilities: {}` in every era, so MRTR rule 7 — a
+ * server MUST NOT send an `inputRequests` entry for a capability the client
+ * did not declare — means a CONFORMING server never produces one of these.
+ * The type exists for the defensive path: a non-conforming server's demand
+ * is named and refused rather than silently misread as an ordinary result.
+ */
+export interface MCPInputRequest {
+	readonly method: string
+	readonly [key: string]: unknown
+}
+
 export interface MCPResource {
 	uri: string
 	name: string

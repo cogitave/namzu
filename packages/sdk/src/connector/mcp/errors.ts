@@ -1,4 +1,4 @@
-import type { MCPJsonRpcError } from '../../types/connector/index.js'
+import type { MCPInputRequest, MCPJsonRpcError } from '../../types/connector/index.js'
 
 /**
  * The 2026-07-28 error codes a modern MCP server answers with. Kept private
@@ -111,4 +111,50 @@ export function isMissingRequiredClientCapabilityError(error: unknown): error is
 /** A modern server rejected a request's `Mcp-Param-*` headers as stale against its current schema. */
 export function isHeaderMismatchError(error: unknown): error is MCPProtocolError {
 	return error instanceof MCPProtocolError && error.code === HEADER_MISMATCH_CODE
+}
+
+/**
+ * A result named a `resultType` this client does not recognize.
+ *
+ * The spec's own words: "A resultType of any value unrecognized by the
+ * client MUST be considered invalid." Accepting it silently would mean
+ * reading fields from a shape a future revision defines as if they meant
+ * what they mean today, or finding none and returning an empty result with
+ * no diagnostic. Refusing it is the only reading that MUST leaves open.
+ */
+export class MCPInvalidResultTypeError extends Error {
+	readonly resultType: unknown
+
+	constructor(resultType: unknown) {
+		super(`MCP result carried an unrecognized resultType: ${JSON.stringify(resultType)}`)
+		this.name = 'MCPInvalidResultTypeError'
+		this.resultType = resultType
+	}
+}
+
+/**
+ * A tool call asked this client for input it has no way to supply.
+ *
+ * namzu declares `clientCapabilities: {}`, so MRTR rule 7 means a
+ * CONFORMING server never sends an `inputRequests` this client did not
+ * declare support for. This is the defensive path: a non-conforming
+ * server's demand, or a second `input_required` after the one automatic
+ * retry the spec allows for the `requestState`-only case. Carries the raw
+ * `inputRequests` so a caller — `mcpToolToToolDefinition`'s `execute`, or a
+ * host calling `MCPClient.callTool` directly — can name what was asked for
+ * without this class knowing what a `ToolResult` is.
+ */
+export class MCPInputRequiredError extends Error {
+	readonly inputRequests: readonly MCPInputRequest[]
+
+	constructor(inputRequests: readonly MCPInputRequest[]) {
+		const methods = inputRequests.map((request) => request.method)
+		super(
+			methods.length > 0
+				? `MCP tool call requires input this client cannot supply: ${methods.join(', ')}`
+				: 'MCP tool call requires input this client cannot supply',
+		)
+		this.name = 'MCPInputRequiredError'
+		this.inputRequests = inputRequests
+	}
 }

@@ -7,7 +7,12 @@ import {
 	MCP_NAME_HEADER_METHODS,
 	MCP_PROTOCOL_VERSION_HEADER,
 } from '../../constants/mcp/index.js'
-import type { MCPClientCapabilities, McpEra } from '../../types/connector/index.js'
+import type {
+	MCPClientCapabilities,
+	MCPInputRequest,
+	McpEra,
+} from '../../types/connector/index.js'
+import { MCPInvalidResultTypeError } from './errors.js'
 import { type McpParamHeaderBinding, mcpParamHeaderValues } from './x-mcp-header.js'
 
 /**
@@ -173,4 +178,62 @@ export function buildEnvelope(input: McpEnvelopeInput): McpEnvelope {
 	}
 
 	return { params: { ...params, _meta: meta }, headers }
+}
+
+/** A JSON-RPC result read past the MRTR `resultType` envelope. */
+export type MCPDecodedResult =
+	| { readonly kind: 'complete'; readonly result: unknown }
+	| {
+			readonly kind: 'input_required'
+			readonly inputRequests?: readonly MCPInputRequest[]
+			readonly requestState?: string
+	  }
+
+/** The only `resultType` values this client recognizes. */
+const KNOWN_RESULT_TYPES = new Set(['complete', 'input_required'])
+
+/**
+ * Read a JSON-RPC result past its `resultType` envelope.
+ *
+ * Absent `resultType` is `complete` — every legacy result, and every modern
+ * result before MRTR, carries none, and the spec's own words are that
+ * clients "MUST treat an absent resultType as complete". An explicit
+ * `"complete"` reads the same way. Anything else recognized becomes the
+ * `input_required` shape; anything unrecognized is refused, per the spec's
+ * other MUST: "A resultType of any value unrecognized by the client MUST be
+ * considered invalid." There is deliberately no third, permissive outcome —
+ * an invalid `resultType` is not a value a caller should be able to read
+ * past by accident, so this throws rather than returning an error variant.
+ *
+ * Pure: given the same `raw`, always the same outcome, no I/O.
+ *
+ * `inputRequests` entries are kept only when they at least name a `method`
+ * — the one field this client reads — so a malformed entry from a
+ * non-conforming server cannot be mistaken for the shape it should have
+ * had. `requestState` is read only as a `string` and is otherwise carried
+ * completely opaquely: this function does not parse it, and neither does
+ * anything that calls it.
+ */
+export function decodeResult(raw: unknown): MCPDecodedResult {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+		return { kind: 'complete', result: raw }
+	}
+	const record = raw as Record<string, unknown>
+	const resultType = record.resultType
+	if (resultType === undefined) return { kind: 'complete', result: raw }
+	if (typeof resultType !== 'string' || !KNOWN_RESULT_TYPES.has(resultType)) {
+		throw new MCPInvalidResultTypeError(resultType)
+	}
+	if (resultType === 'complete') return { kind: 'complete', result: raw }
+
+	const inputRequests = Array.isArray(record.inputRequests)
+		? (record.inputRequests as unknown[]).filter(
+				(item): item is MCPInputRequest =>
+					typeof item === 'object' &&
+					item !== null &&
+					typeof (item as { method?: unknown }).method === 'string',
+			)
+		: undefined
+	const requestState = typeof record.requestState === 'string' ? record.requestState : undefined
+	return { kind: 'input_required', inputRequests, requestState }
 }

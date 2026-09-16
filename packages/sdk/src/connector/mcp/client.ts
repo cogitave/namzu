@@ -30,7 +30,7 @@ import type { LogAttributes } from '../../utils/log/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { validateConnectorTimeoutMs } from '../http-operation.js'
-import { buildEnvelope } from './envelope.js'
+import { buildEnvelope, decodeResult } from './envelope.js'
 import {
 	type McpEraProbeAnswer,
 	type McpEraResolution,
@@ -40,7 +40,12 @@ import {
 	resolveMcpEra,
 	serverInfoFromDiscover,
 } from './era.js'
-import { MCPHttpStatusError, isHeaderMismatchError, protocolErrorFromReply } from './errors.js'
+import {
+	MCPHttpStatusError,
+	MCPInputRequiredError,
+	isHeaderMismatchError,
+	protocolErrorFromReply,
+} from './errors.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { StreamableHttpTransport } from './streamable-http.js'
@@ -501,9 +506,8 @@ export class MCPClient {
 		options?: MCPRequestOptions,
 	): Promise<MCPToolResult> {
 		this.requireConnected()
-		const params = { name, arguments: args ?? {} }
 		try {
-			return (await this.request('tools/call', params, options)) as MCPToolResult
+			return (await this.callToolDecoded(name, args ?? {}, options)) as MCPToolResult
 		} catch (err) {
 			if (!this.mirrorsParamHeaders() || !isHeaderMismatch(err)) throw err
 			this.log.warn("MCP server rejected a call's mirrored headers; re-listing tools once", {
@@ -511,7 +515,7 @@ export class MCPClient {
 				'namzu.mcp.tool': name,
 			})
 			await this.listTools(options)
-			return (await this.request('tools/call', params, options)) as MCPToolResult
+			return (await this.callToolDecoded(name, args ?? {}, options)) as MCPToolResult
 		}
 	}
 
@@ -563,6 +567,63 @@ export class MCPClient {
 		}
 		this.toolParamHeaders = bindings
 		return admitted
+	}
+
+	/**
+	 * `tools/call`, resolved past the MRTR `resultType` envelope.
+	 *
+	 * Absent or `"complete"` is the ordinary path — unchanged from before
+	 * this existed. `"input_required"` with nothing but a `requestState` is
+	 * retried exactly once, echoing that state byte-for-byte under a NEW
+	 * JSON-RPC id (a fresh `request()` call, which allocates one): the
+	 * spec's own words are that the client MAY retry immediately when there
+	 * is nothing for it to gather. Any other shape — `inputRequests` this
+	 * client cannot satisfy, or a second `input_required` after the one
+	 * retry — throws `MCPInputRequiredError` rather than looping or
+	 * returning something that looks like success; `mcpToolToToolDefinition`
+	 * catches it and turns it into a named, catchable `ToolResult` instead
+	 * of letting it reach a caller as an unexplained rejection.
+	 *
+	 * `requestState` travels back as a top-level `requestState` param,
+	 * alongside `name`/`arguments`, the same way `listAllPages` threads a
+	 * `cursor` — the one continuation-style field this codebase already has
+	 * a convention for.
+	 */
+	private async callToolDecoded(
+		name: string,
+		args: Record<string, unknown>,
+		options: MCPRequestOptions | undefined,
+	): Promise<unknown> {
+		const raw = await this.request('tools/call', { name, arguments: args }, options)
+		const decoded = decodeResult(raw)
+		if (decoded.kind === 'complete') return decoded.result
+
+		const unsatisfiable = decoded.inputRequests !== undefined && decoded.inputRequests.length > 0
+		if (!unsatisfiable && decoded.requestState !== undefined) {
+			this.log.info('MCP tool call asked for no new input; retrying once with echoed state', {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.tool': name,
+			})
+			const retryRaw = await this.request(
+				'tools/call',
+				{ name, arguments: args, requestState: decoded.requestState },
+				options,
+			)
+			const retried = decodeResult(retryRaw)
+			if (retried.kind === 'complete') return retried.result
+			this.log.warn('MCP tool call required input again after the one automatic retry', {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.tool': name,
+			})
+			throw new MCPInputRequiredError(retried.inputRequests ?? [])
+		}
+
+		this.log.warn('MCP tool call requires input this client cannot supply', {
+			'namzu.connector.server': this.config.serverName,
+			'namzu.connector.tool': name,
+			'namzu.connector.requested': (decoded.inputRequests ?? []).map((r) => r.method).join(', '),
+		})
+		throw new MCPInputRequiredError(decoded.inputRequests ?? [])
 	}
 
 	async listResources(options?: MCPRequestOptions): Promise<MCPResource[]> {

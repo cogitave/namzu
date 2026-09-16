@@ -9,6 +9,8 @@ export {
 	isMissingRequiredClientCapabilityError,
 	isUnsupportedProtocolVersionError,
 	MCPHttpStatusError,
+	MCPInputRequiredError,
+	MCPInvalidResultTypeError,
 	MCPProtocolError,
 } from './errors.js'
 
@@ -29,8 +31,8 @@ export type {
 	McpEraResolution,
 	McpEraResolutionInput,
 } from './era.js'
-export { buildEnvelope, encodeMcpHeaderValue } from './envelope.js'
-export type { McpEnvelope, McpEnvelopeInput } from './envelope.js'
+export { buildEnvelope, decodeResult, encodeMcpHeaderValue } from './envelope.js'
+export type { McpEnvelope, McpEnvelopeInput, MCPDecodedResult } from './envelope.js'
 
 // The repo's first refusal path: a tool definition namzu declines to expose.
 // Exported so a host can ask the same question of a schema it holds — and
