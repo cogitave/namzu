@@ -164,8 +164,8 @@ in that window is bounded rather than trusted, and in the token modes only:
 
 | Variable | Default | What it bounds |
 |---|---|---|
-| `NAMZU_AGENT_MAX_FRAME_BYTES` | 256 MiB | The largest length any frame header may announce, on every listen mode. The 8-hex prefix otherwise permits 4 GiB, which the reader used to honour. Sized for the largest frame the host legitimately writes: a `write-file` carries the whole base64 body in one envelope. |
-| `NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES` | 8 MiB | The same ceiling for a connection that has not yet presented the token, clamped to the one above. Token modes only. It is also the `write-file` ceiling on a token path — see below. |
+| `NAMZU_AGENT_MAX_FRAME_BYTES` | 256 MiB | The largest length any frame header may announce, on every listen mode. The 8-hex prefix otherwise permits 4 GiB, which the reader used to honour. Sized for the largest frame the host legitimately writes: a `write-file` carries the whole base64 body in one envelope when it fits. |
+| `NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES` | 8 MiB | The same ceiling for a connection that has not yet presented the token, clamped to the one above. Token modes only. It is the ceiling on one `write-file` FRAME on a token path, no longer on a file — see below. |
 | `NAMZU_AGENT_MAX_PREAUTH_CONNECTIONS` | 64 | How many connections may be unauthenticated at once. Token modes only. Every bound above is per connection, so without this one they could be paid again on the next connection. A full pool evicts its **oldest** unauthenticated member and serves the arrival — see below for why that direction. |
 | `NAMZU_AGENT_MAX_PREAUTH_BUFFER_BYTES` | 32 MiB | What all unauthenticated connections may buffer **between them**, never less than one pre-auth frame. Token modes only. The count above bounds sockets; this bounds the heap behind them, and the heap is what runs out first. |
 | `NAMZU_AGENT_PREAUTH_IDLE_TIMEOUT_MS` | 10000 | How long a connection may stay unauthenticated while **quiet**. Every byte received resets it, so it retires the connection that says nothing, not the one that says too little. Token modes only, cleared the moment a connection authenticates. |
@@ -214,19 +214,67 @@ this design rests on: the NetworkPolicy ingress rule in front of the agent port
 is the boundary that decides who may reach it at all, and the token and these
 bounds are defence in depth behind it, for a peer already inside that rule.
 
-One consequence is worth naming, because it is the price of putting the
-credential in the envelope rather than in a handshake: a `write-file` body
-travels in the same first frame as the token, so in a token mode the pre-auth
-cap **is** the ceiling on that body — about 6 MiB of file content at the
-default, since the body travels base64-encoded. A deployment that writes larger
-files raises `NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES` to suit, trading pre-auth
-buffer budget for body size. Nothing on the Firecracker path is affected: no
-token mode is active there, so no pre-auth cap applies and a `write-file` frame
-of any size up to `NAMZU_AGENT_MAX_FRAME_BYTES` is accepted exactly as before.
+One consequence used to be worth naming as a limit, because it is the price of
+putting the credential in the envelope rather than in a handshake: a
+`write-file` body travels in the same first frame as the token, so in a token
+mode the pre-auth cap bounds that body — about 6 MiB of file content at the
+default, since the body travels base64-encoded. It is still the bound on one
+frame. It is no longer the bound on a **file**.
 
-None of this is a wire change. `token` is an optional envelope field, so the
-guest protocol version is deliberately unchanged and no host and no golden
-image has to roll together with this release.
+`write-file` takes an optional `part` object, and a body too large for one
+frame arrives as a sequence of them:
+
+```jsonc
+// Every part is an ordinary write-file. `path` names a TEMPORARY sibling of
+// the target for the whole sequence, never the target itself.
+{ "op": "write-file", "token": "…", "body": {
+    "path": "seed/.namzu-write-<uuid>-repo.tar.part",
+    "content": "<base64 of this slice>", "encoding": "base64",
+    "part": { "offset": 0, "final": false } } }
+
+// …and the last one renames onto the target.
+{ "op": "write-file", "token": "…", "body": {
+    "path": "seed/.namzu-write-<uuid>-repo.tar.part",
+    "content": "<base64 of the tail>", "encoding": "base64",
+    "part": { "offset": 12582912, "final": true, "renameTo": "seed/repo.tar" } } }
+```
+
+`offset` must equal the temp file's CURRENT size (`0` creates or truncates
+it), so a part that went missing, arrived twice or arrived out of order is
+refused — `write_part_offset_mismatch` — rather than written in the wrong
+place; a per-temp-path lock refuses an overlapping writer outright
+(`write_part_in_flight`). A part whose bytes did not all reach the disk is
+refused too (`write_part_short_write`): one `pwrite` answers a write that
+crosses the volume's free space or an `RLIMIT_FSIZE` with a short count and
+no error, so the agent checks the count it got and the temp file's size
+against what the part claimed before it renames anything. The temp path and
+`renameTo` go through the same workspace jail every other write does, and the
+target changes exactly once, in the final `rename`: a reader never sees a
+half-written file, and a sequence that dies partway leaves the target exactly
+as it was. A host that abandons a sequence removes what it left behind with
+`part: { "discard": true }`, which is idempotent — a path that is not there,
+in a directory that was never created, answers `discarded` and creates
+nothing on the way — and refuses (`write_part_not_a_temp_file`) any path
+whose name, or whose RESOLVED name, is not one of these part files:
+`write-file` removes an abandoned part, never an arbitrary file. A `part`
+that is present but is not an object is refused outright
+(`write_part_invalid_shape`) rather than served as the plain whole-file write
+it resembles.
+
+The guest opts in. `healthz` answers with `features: ["write-file-parts"]`
+alongside `ok` and `protocolVersion`, and a host sends a part only to a guest
+that advertised it — an agent that predates the field would ignore `part` and
+write that slice as a whole file. A deployment that would rather send one big
+frame than several small ones can still raise
+`NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES`, trading pre-auth buffer budget for
+frame size. Nothing on the Firecracker path is affected either way: no token
+mode is active there, so no pre-auth cap applies and a `write-file` frame of
+any size up to `NAMZU_AGENT_MAX_FRAME_BYTES` is accepted exactly as before.
+
+None of this is a wire change. `token` and `part` are optional envelope and
+body fields, and `features` is an additive `healthz` field, so the guest
+protocol version is deliberately unchanged and no host and no golden image
+has to roll together with this release.
 
 What the token is not: a boundary against the sandbox's own workload. Once the
 image entrypoint deprivileges, the agent and the workload share a uid, so a

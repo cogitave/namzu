@@ -53,6 +53,7 @@
  * transport resume-survivable by construction.
  */
 
+import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 import tls from 'node:tls'
 
@@ -84,6 +85,7 @@ import {
 	type TerminalInputEvent,
 	type TerminalOpenRequest,
 	type TerminalOutputEvent,
+	WRITE_FILE_PARTS_FEATURE,
 	type WriteFileRequest,
 	type WriteFileResponse,
 	parseExecLine,
@@ -236,6 +238,36 @@ export interface VsockTransportOptions {
 	 * vsock/mtls/unix arms are free to ignore it.
 	 */
 	readonly onDial?: (durationMs: number) => void
+	/**
+	 * The largest `writeFile` body this transport will accept, in raw
+	 * bytes. Default {@link DEFAULT_MAX_WRITE_FILE_BYTES} (1 GiB).
+	 *
+	 * A body above one frame is written in parts (see
+	 * {@link VsockAgentTransport.writeFile}), so nothing about the wire
+	 * stops a caller handing over a body larger than the guest's disk or
+	 * this process's heap. This is the bound that says no first, by a
+	 * number the caller chose, with {@link AgentWriteFileTooLargeError}
+	 * naming it — rather than by an out-of-memory or an ENOSPC halfway
+	 * through a sequence of parts.
+	 *
+	 * Checked before the route is chosen, so it caps EVERY body — a value
+	 * set below what one frame carries caps the small single-frame writes
+	 * too, which is the range a host capping what a caller may push into a
+	 * workspace would most plausibly set it to.
+	 */
+	readonly maxWriteFileBytes?: number
+	/**
+	 * Raw bytes per part when a `writeFile` body is written in parts.
+	 * Defaults to the largest part one frame can carry, and is clamped
+	 * DOWN to that: a value above what a frame admits is not a way to
+	 * send a bigger frame.
+	 *
+	 * Setting it also lowers the size at which a body is split at all,
+	 * so a suite can exercise a multi-part write without allocating one.
+	 * Leave it unset in production: the default is the fewest round trips
+	 * the pre-auth ceiling allows.
+	 */
+	readonly writeFilePartBytes?: number
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
@@ -272,6 +304,37 @@ const MAX_TIMER_DELAY_MS = 2_147_483_647
 export const TCP_PREAUTH_FRAME_LIMIT_BYTES = 8 * 1024 * 1024
 
 /**
+ * The guest agent's default ceiling on ANY frame, pre-auth or not —
+ * mirrors `agent.cjs`'s `MAX_FRAME_BYTES` (`NAMZU_AGENT_MAX_FRAME_BYTES`,
+ * default 256 MiB). It is the budget the `unix`/`vsock`/`mtls` arms are
+ * bounded by, since none of them runs a credential gate and so none of
+ * them ever pays the smaller pre-auth price.
+ */
+export const GUEST_FRAME_LIMIT_BYTES = 256 * 1024 * 1024
+
+/** Default {@link VsockTransportOptions.maxWriteFileBytes} — 1 GiB. */
+export const DEFAULT_MAX_WRITE_FILE_BYTES = 1024 * 1024 * 1024
+
+/**
+ * Slack subtracted from a frame budget when sizing a part, over and above
+ * the envelope this transport measures exactly. The guest's own accounting
+ * is of the framed payload, and a deployment is free to configure a
+ * slightly different ceiling than the default this side assumes; a
+ * kilobyte of headroom costs one part in a thousand and removes a whole
+ * class of off-by-a-few refusals.
+ */
+const WRITE_FILE_PART_HEADROOM_BYTES = 1024
+
+/**
+ * How long the best-effort removal of an abandoned part file may take.
+ * Bounded separately from the connect retry budget because it runs AFTER
+ * the caller's write has already failed — often because the peer is gone —
+ * and a caller waiting on a rejection should not wait out a retry budget
+ * for a cleanup whose failure it is never told about.
+ */
+const WRITE_FILE_DISCARD_TIMEOUT_MS = 5_000
+
+/**
  * Thrown when a `tcp`-handle request's framed envelope (op + body +
  * token) would exceed {@link TCP_PREAUTH_FRAME_LIMIT_BYTES}. Named so a
  * caller can distinguish "this body needs chunking" from every other
@@ -281,6 +344,21 @@ export class AgentPreauthFrameTooLargeError extends Error {
 	constructor(message: string) {
 		super(message)
 		this.name = 'AgentPreauthFrameTooLargeError'
+	}
+}
+
+/**
+ * Thrown when a `writeFile` body exceeds
+ * {@link VsockTransportOptions.maxWriteFileBytes}. Distinct from
+ * {@link AgentPreauthFrameTooLargeError}: that one says the WIRE cannot
+ * carry this in one frame (and, since the part protocol, only ever fires
+ * when the guest cannot carry it in several either), this one says the
+ * HOST was configured not to send a body this large at all.
+ */
+export class AgentWriteFileTooLargeError extends Error {
+	constructor(message: string) {
+		super(message)
+		this.name = 'AgentWriteFileTooLargeError'
 	}
 }
 
@@ -300,18 +378,39 @@ function frame(payload: string): Buffer {
 }
 
 /**
+ * A growable accumulator that frees the buffer it grew past a threshold.
+ * Sized once so both numbers are stated where they are read.
+ */
+const FRAME_BUFFER_INITIAL_BYTES = 64 * 1024
+const FRAME_BUFFER_RETAIN_BYTES = 1024 * 1024
+
+/**
  * Incremental frame reader. Feed it socket chunks; it yields complete
  * payloads. A zero-length frame is the exec stream terminator and is
  * surfaced as an empty string so the caller can stop.
+ *
+ * It accumulates into ONE buffer it grows geometrically, with a read
+ * cursor, rather than re-`concat`ing every arriving chunk onto a fresh
+ * allocation. The distinction only matters for a large frame, where it is
+ * the difference between linear and quadratic: a `read-file` reply for a
+ * 64 MiB file arrives as ~1400 socket chunks, and copying everything
+ * received so far onto each one of them spent half a minute of memcpy on
+ * a reply the socket delivered in under a second. Identical framing,
+ * identical errors, identical `bufferedBytes` — only the copying changes.
  */
 class FrameReader {
 	private buf: Buffer = Buffer.alloc(0)
+	/** First byte not yet handed out as part of a frame. */
+	private start = 0
+	/** One past the last byte received. */
+	private end = 0
 
 	push(chunk: Buffer): string[] {
-		this.buf = this.buf.length === 0 ? Buffer.from(chunk) : Buffer.concat([this.buf, chunk])
+		this.append(chunk)
 		const out: string[] = []
 		for (;;) {
-			const nl = this.buf.indexOf(0x0a) // '\n'
+			const view = this.buf.subarray(this.start, this.end)
+			const nl = view.indexOf(0x0a) // '\n'
 			if (nl < 0 || nl < LENGTH_PREFIX_HEX) {
 				// Need at least the hex header + newline.
 				if (nl >= 0 && nl < LENGTH_PREFIX_HEX) {
@@ -319,7 +418,7 @@ class FrameReader {
 				}
 				break
 			}
-			const header = this.buf.subarray(0, nl).toString('ascii')
+			const header = view.subarray(0, nl).toString('ascii')
 			if (!/^[0-9a-fA-F]{8}$/.test(header)) {
 				throw new Error(`vsock transport: invalid frame length header ${JSON.stringify(header)}`)
 			}
@@ -328,16 +427,50 @@ class FrameReader {
 				throw new Error(`vsock transport: invalid frame length header ${JSON.stringify(header)}`)
 			}
 			const start = nl + 1
-			if (this.buf.length < start + len) break // incomplete payload
-			const payload = this.buf.subarray(start, start + len).toString('utf8')
-			this.buf = this.buf.subarray(start + len)
-			out.push(payload)
+			if (view.length < start + len) break // incomplete payload
+			out.push(view.subarray(start, start + len).toString('utf8'))
+			this.consume(start + len)
 		}
 		return out
 	}
 
 	get bufferedBytes(): number {
-		return this.buf.length
+		return this.end - this.start
+	}
+
+	/** Copy `chunk` in, growing (and first compacting) only when needed. */
+	private append(chunk: Buffer): void {
+		if (chunk.length === 0) return
+		if (this.buf.length - this.end < chunk.length) {
+			const needed = this.bufferedBytes + chunk.length
+			if (this.buf.length >= needed) {
+				// Compacting the unread bytes to the front is enough.
+				this.buf.copy(this.buf, 0, this.start, this.end)
+			} else {
+				let capacity = this.buf.length > 0 ? this.buf.length : FRAME_BUFFER_INITIAL_BYTES
+				// Geometric, so the total copying across a whole reply stays
+				// proportional to its length rather than to its length squared.
+				while (capacity < needed) capacity *= 2
+				const grown = Buffer.allocUnsafe(capacity)
+				this.buf.copy(grown, 0, this.start, this.end)
+				this.buf = grown
+			}
+			this.end = this.bufferedBytes
+			this.start = 0
+		}
+		chunk.copy(this.buf, this.end)
+		this.end += chunk.length
+	}
+
+	/** Mark `bytes` from the read cursor as consumed. */
+	private consume(bytes: number): void {
+		this.start += bytes
+		if (this.start !== this.end) return
+		this.start = 0
+		this.end = 0
+		// A reply that grew the buffer to hundreds of megabytes should not
+		// keep holding them for the life of a long-lived connection.
+		if (this.buf.length > FRAME_BUFFER_RETAIN_BYTES) this.buf = Buffer.alloc(0)
 	}
 }
 
@@ -354,6 +487,16 @@ export class VsockAgentTransport {
 	private readonly connectRetryIntervalMs: number
 	private readonly readIdleTimeoutMs: number
 	private readonly onDial?: (durationMs: number) => void
+	private readonly maxWriteFileBytes: number
+	private readonly writeFilePartBytes?: number
+	/**
+	 * What the guest answered when asked whether it can take a body in
+	 * parts, cached for this handle's lifetime. A pod does not swap its
+	 * agent binary while it is running, so the probe is asked once per
+	 * transport and only when a body is actually too large for one frame —
+	 * every write that fits pays nothing for it.
+	 */
+	private writeFilePartsSupported?: boolean
 	private readonly executionController: RemoteExecutionController<
 		Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>
 	>
@@ -366,6 +509,10 @@ export class VsockAgentTransport {
 			options.connectRetryIntervalMs ?? DEFAULT_CONNECT_RETRY_INTERVAL_MS
 		this.readIdleTimeoutMs = options.readIdleTimeoutMs ?? DEFAULT_READ_IDLE_TIMEOUT_MS
 		this.onDial = options.onDial
+		this.maxWriteFileBytes = options.maxWriteFileBytes ?? DEFAULT_MAX_WRITE_FILE_BYTES
+		if (options.writeFilePartBytes !== undefined) {
+			this.writeFilePartBytes = Math.max(1, Math.floor(options.writeFilePartBytes))
+		}
 		const adapter: RemoteExecutionAdapter<Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>> = {
 			label: 'framed microVM agent',
 			reserve: async (signal) => await this.reserveExecution(signal),
@@ -651,7 +798,7 @@ export class VsockAgentTransport {
 		const size = Buffer.byteLength(payload, 'utf8')
 		if (size <= TCP_PREAUTH_FRAME_LIMIT_BYTES) return
 		throw new AgentPreauthFrameTooLargeError(
-			`kubernetes tcp transport: request envelope is ${size} bytes, which exceeds the ${TCP_PREAUTH_FRAME_LIMIT_BYTES}-byte limit the guest agent enforces on an unauthenticated connection's first frame (NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES, default 8 MiB). Every tcp request dials a fresh connection, so this request WOULD be that connection's first frame. Chunking a large body across multiple frames is not implemented; reduce the payload or raise the deployment's NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES.`,
+			`kubernetes tcp transport: request envelope is ${size} bytes, which exceeds the ${TCP_PREAUTH_FRAME_LIMIT_BYTES}-byte limit the guest agent enforces on an unauthenticated connection's first frame (NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES, default 8 MiB). Every tcp request dials a fresh connection, so this request WOULD be that connection's first frame. A large \`write-file\` body is split across frames automatically (see \`writeFile\`); every other op has to fit, so reduce the payload or raise the deployment's NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES.`,
 		)
 	}
 
@@ -991,13 +1138,239 @@ export class VsockAgentTransport {
 		)
 	}
 
-	async writeFile(path: string, content: Buffer): Promise<void> {
-		const res = await this.request<WriteFileResponse>({
-			op: 'write-file',
-			body: { path, content: content.toString('base64'), encoding: 'base64' },
-		})
+	/**
+	 * Write a whole file into the guest workspace.
+	 *
+	 * A body that fits one frame goes as it always has: a single
+	 * `write-file` envelope carrying the base64 content, one round trip,
+	 * byte-for-byte the request this transport has always sent.
+	 *
+	 * A body that does NOT fit is the case this exists for. On the `tcp`
+	 * arm every request dials a fresh connection, so every request is that
+	 * connection's first, not-yet-authenticated frame (the credential
+	 * rides in the envelope) and is bounded by
+	 * {@link TCP_PREAUTH_FRAME_LIMIT_BYTES} — about 5.9 MiB of file
+	 * content — on EVERY call, not once. Raising the guest's
+	 * `NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES` trades away the pre-auth
+	 * budget that ceiling exists to bound, so the fix is on this side:
+	 * split the body into parts that each fit, append them to a temporary
+	 * SIBLING of the target inside the same workspace jail, and finish
+	 * with an atomic `rename` onto the target.
+	 *
+	 * What that buys, and why the shape is what it is:
+	 *
+	 *  - **A reader never sees a half-written file.** The target changes
+	 *    exactly once, in the final part's `rename`. A sequence that dies
+	 *    at part 3 of 9 leaves the target exactly as it was — including
+	 *    not existing.
+	 *  - **A lost or duplicated part is detected, not written.** Each part
+	 *    names the offset it starts at and the guest refuses it unless
+	 *    that equals the temp file's current size.
+	 *  - **An abandoned sequence cleans up after itself.** An abort or a
+	 *    transport failure removes the temp file (best effort — a peer
+	 *    that has gone away cannot be asked to) and rejects.
+	 *  - **Parts go out sequentially on fresh connections**, which is what
+	 *    the offset check assumes and what keeps the guest's pre-auth
+	 *    connection pool holding one of this caller's sockets at a time.
+	 *
+	 * The guest must ADVERTISE the capability (`${WRITE_FILE_PARTS_FEATURE}`
+	 * in its `healthz` reply) before a single part is sent. An agent that
+	 * predates the part protocol would read a part's `content` as a whole
+	 * file; it never receives one, and an oversized body against such a
+	 * guest still fails with the named
+	 * {@link AgentPreauthFrameTooLargeError} it always did.
+	 *
+	 * {@link VsockTransportOptions.maxWriteFileBytes} is checked FIRST, on
+	 * every body and before anything about the wire is considered: it is a
+	 * bound on what a caller may push into a workspace, not a bound on
+	 * multi-part writes, so a host that lowers it below the frame budget
+	 * gets the cap it asked for rather than none.
+	 */
+	async writeFile(path: string, content: Buffer, signal?: AbortSignal): Promise<void> {
+		if (content.length > this.maxWriteFileBytes) {
+			throw new AgentWriteFileTooLargeError(
+				`write-file: a body of ${content.length} bytes exceeds this transport's maxWriteFileBytes of ${this.maxWriteFileBytes}. Raise VsockTransportOptions.maxWriteFileBytes to admit it.`,
+			)
+		}
+		const budget = this.singleFrameBudgetBytes()
+		const wholeEnvelopeBytes = this.writeFileEnvelopeBytes(
+			{ path, content: '', encoding: 'base64' },
+			content.length,
+		)
+		// The configured part size, when there is one, also decides when a
+		// body is split at all — so that with NO configuration the split
+		// point is exactly the wire's own ceiling and every body that used
+		// to travel in one frame still does.
+		const splitsAnyway =
+			this.writeFilePartBytes !== undefined && content.length > this.writeFilePartBytes
+		if (wholeEnvelopeBytes <= budget && !splitsAnyway) {
+			await this.writeFileWhole(path, content, signal)
+			return
+		}
+		if (!(await this.guestSupportsWriteFileParts(signal))) {
+			throw this.oversizedWriteFileError(content.length, wholeEnvelopeBytes, budget)
+		}
+		await this.writeFileInParts(path, content, budget, signal)
+	}
+
+	/** Today's single-frame write, unchanged — see {@link writeFile}. */
+	private async writeFileWhole(path: string, content: Buffer, signal?: AbortSignal): Promise<void> {
+		const res = await this.request<WriteFileResponse>(
+			{
+				op: 'write-file',
+				body: { path, content: content.toString('base64'), encoding: 'base64' },
+			},
+			signal,
+		)
 		if (!res.ok) {
 			throw new Error(res.error ?? 'write-file failed')
+		}
+	}
+
+	/**
+	 * The frame budget one request has on this handle: the pre-auth
+	 * ceiling on the credentialed `tcp` arm, the guest's global frame
+	 * ceiling on the host-local arms, which authenticate nothing and so
+	 * never pay the smaller price.
+	 */
+	private singleFrameBudgetBytes(): number {
+		return this.handle.kind === 'tcp' ? TCP_PREAUTH_FRAME_LIMIT_BYTES : GUEST_FRAME_LIMIT_BYTES
+	}
+
+	/**
+	 * Exact framed size of a `write-file` envelope whose `content` field
+	 * holds `contentBytes` raw bytes base64-encoded — WITHOUT encoding
+	 * them, so sizing a 1 GiB body costs nothing and never builds a string
+	 * longer than V8 permits.
+	 *
+	 * Exact rather than approximate because the base64 alphabet contains
+	 * no character `JSON.stringify` escapes, so the encoded content
+	 * contributes precisely its own length to the envelope and the rest of
+	 * the envelope (paths, the token, the part fields) is measured as it
+	 * will actually be serialized.
+	 */
+	private writeFileEnvelopeBytes(body: WriteFileRequest, contentBytes: number): number {
+		const envelope = this.withCredential({ op: 'write-file', body } satisfies AgentRequest)
+		return Buffer.byteLength(JSON.stringify(envelope), 'utf8') + base64Length(contentBytes)
+	}
+
+	/**
+	 * Ask the guest whether it implements the part protocol. Cached for
+	 * the transport's lifetime; a transport failure propagates rather than
+	 * reading as "not supported", because answering a broken connection
+	 * with a too-large error would name the wrong cause.
+	 */
+	private async guestSupportsWriteFileParts(signal?: AbortSignal): Promise<boolean> {
+		if (this.writeFilePartsSupported !== undefined) return this.writeFilePartsSupported
+		const reply = await this.request<{ features?: unknown }>({ op: 'healthz' }, signal)
+		const features = Array.isArray(reply.features) ? reply.features : []
+		const supported = features.includes(WRITE_FILE_PARTS_FEATURE)
+		this.writeFilePartsSupported = supported
+		return supported
+	}
+
+	/** The refusal for a body no frame can carry and no guest can take in parts. */
+	private oversizedWriteFileError(
+		contentBytes: number,
+		envelopeBytes: number,
+		budget: number,
+	): Error {
+		const missing = `This guest does not advertise the '${WRITE_FILE_PARTS_FEATURE}' healthz feature, so the body cannot be split across frames either; rebuild the guest image from this Namzu release, or reduce the payload.`
+		if (this.handle.kind === 'tcp') {
+			return new AgentPreauthFrameTooLargeError(
+				`kubernetes tcp transport: a write-file of ${contentBytes} bytes needs a ${envelopeBytes}-byte request envelope, which exceeds the ${TCP_PREAUTH_FRAME_LIMIT_BYTES}-byte limit the guest agent enforces on an unauthenticated connection's first frame (NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES, default 8 MiB). Every tcp request dials a fresh connection, so this request WOULD be that connection's first frame. ${missing} Raising the deployment's NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES also admits it, at the cost of the pre-auth budget that ceiling bounds.`,
+			)
+		}
+		return new Error(
+			`vsock transport: a write-file of ${contentBytes} bytes needs a ${envelopeBytes}-byte request envelope, which exceeds the ${budget}-byte frame ceiling the guest agent enforces (NAMZU_AGENT_MAX_FRAME_BYTES, default 256 MiB). ${missing}`,
+		)
+	}
+
+	/**
+	 * Write `content` to `target` as a sequence of parts. See
+	 * {@link writeFile} for why this shape.
+	 */
+	private async writeFileInParts(
+		target: string,
+		content: Buffer,
+		budget: number,
+		signal?: AbortSignal,
+	): Promise<void> {
+		const tempPath = writeFilePartTempPath(target)
+		// Sized against the LARGEST part envelope the sequence will send:
+		// the final one, which carries `renameTo` and the largest offset.
+		// Every earlier part is smaller, so none of them can overrun.
+		const envelopeOverhead = this.writeFileEnvelopeBytes(
+			{
+				path: tempPath,
+				content: '',
+				encoding: 'base64',
+				part: { offset: content.length, final: true, renameTo: target },
+			},
+			0,
+		)
+		const room = budget - envelopeOverhead - WRITE_FILE_PART_HEADROOM_BYTES
+		const framePartBytes = Math.floor(room / 4) * 3
+		if (framePartBytes <= 0) {
+			throw new AgentWriteFileTooLargeError(
+				`write-file: the request envelope for a part of '${target}' is ${envelopeOverhead} bytes, leaving no room for content inside the ${budget}-byte frame budget. The path is too long for this transport to write in parts.`,
+			)
+		}
+		const partBytes = Math.min(framePartBytes, this.writeFilePartBytes ?? framePartBytes)
+
+		let offset = 0
+		try {
+			for (;;) {
+				signal?.throwIfAborted()
+				const end = Math.min(offset + partBytes, content.length)
+				const final = end >= content.length
+				const res = await this.request<WriteFileResponse>(
+					{
+						op: 'write-file',
+						body: {
+							path: tempPath,
+							content: content.subarray(offset, end).toString('base64'),
+							encoding: 'base64',
+							part: { offset, final, ...(final ? { renameTo: target } : {}) },
+						},
+					},
+					signal,
+				)
+				if (!res.ok) {
+					throw new Error(res.error ?? 'write-file part failed')
+				}
+				offset = end
+				if (!final) continue
+				if (typeof res.sizeBytes === 'number' && res.sizeBytes !== content.length) {
+					throw new Error(
+						`vsock transport: write-file assembled ${res.sizeBytes} bytes for '${target}', expected ${content.length}`,
+					)
+				}
+				return
+			}
+		} catch (error) {
+			await this.discardWriteFileTemp(tempPath)
+			throw error
+		}
+	}
+
+	/**
+	 * Remove an abandoned part file. Best effort BY CONTRACT: the reason
+	 * the sequence failed is frequently that the guest is unreachable, and
+	 * a cleanup that threw would replace the caller's real error — the one
+	 * that says why the write failed — with a second one about tidying up.
+	 */
+	private async discardWriteFileTemp(tempPath: string): Promise<void> {
+		try {
+			await this.request<WriteFileResponse>(
+				{
+					op: 'write-file',
+					body: { path: tempPath, content: '', encoding: 'base64', part: { discard: true } },
+				},
+				AbortSignal.timeout(WRITE_FILE_DISCARD_TIMEOUT_MS),
+			)
+		} catch {
+			// Deliberately swallowed; see the doc comment.
 		}
 	}
 
@@ -1367,6 +1740,31 @@ function delay(ms: number, signal?: AbortSignal): Promise<void> {
 		const timer = setTimeout(() => finish(), ms)
 		signal?.addEventListener('abort', abort, { once: true })
 	})
+}
+
+/** Length of `n` raw bytes base64-encoded, padding included. Exact. */
+function base64Length(n: number): number {
+	return 4 * Math.ceil(n / 3)
+}
+
+/**
+ * The temp file a part sequence for `target` writes into: a SIBLING of the
+ * target, so the finishing `rename` is a within-directory rename on one
+ * filesystem (atomic) rather than a cross-device copy, and so the path
+ * passes the guest's workspace jail exactly as the target does.
+ *
+ * Split on `/` rather than through `node:path` because the path is the
+ * GUEST's, which is always POSIX — a host running the orchestrator on
+ * Windows must not rewrite it with backslashes. The target's own basename
+ * rides along, truncated, so an operator who finds one of these knows what
+ * it was becoming; the uuid is what makes two concurrent writers to the
+ * same target use two different temp files.
+ */
+function writeFilePartTempPath(target: string): string {
+	const slash = target.lastIndexOf('/')
+	const dir = slash < 0 ? '' : target.slice(0, slash + 1)
+	const base = (slash < 0 ? target : target.slice(slash + 1)).slice(0, 96)
+	return `${dir}.namzu-write-${randomUUID()}-${base}.part`
 }
 
 function signalError(signal: AbortSignal | undefined): Error {

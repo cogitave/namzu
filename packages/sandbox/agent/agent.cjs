@@ -120,6 +120,20 @@ const path = require('node:path')
 
 const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
 
+// Capabilities this agent has that the protocol VERSION does not announce.
+//
+// The version is a compatibility fence — a host that speaks 2 requires a
+// guest that speaks exactly 2 — so bumping it to publish an additive,
+// optional op field would strand every already-running guest for a feature
+// none of them has to use. `healthz` carries the list instead, and a host
+// that wants the capability asks for it before it relies on it; a host
+// that does not never notices the field.
+//
+//  - `write-file-parts` — `write-file` accepts a `part` object, so a body
+//    larger than one frame can be written as a sequence of appends to a
+//    temp file finished by an atomic rename. See `handleWriteFilePart`.
+const AGENT_FEATURES = ['write-file-parts']
+
 // --- config (mirrors worker/server.js env contract) -----------------------
 
 const WORKSPACE_ROOT = process.env.NAMZU_SANDBOX_WORKSPACE || '/workspace'
@@ -190,11 +204,12 @@ const EXECUTION_ID_PATTERN =
 // it, so one peer could name a length and stream toward it while the agent
 // concatenated every byte into one heap buffer. The ceiling has to clear
 // the largest frame the host legitimately writes, and that is a
-// `write-file`: transport.ts sends the WHOLE body base64-encoded in a
-// single envelope (`writeFile`, backends/firecracker/transport.ts), with no
-// chunking anywhere on the path. 256 MiB of base64 is a ~192 MiB file —
-// orders of magnitude above anything the Firecracker suites send and far
-// below what the prefix would otherwise permit.
+// `write-file`: transport.ts sends the whole body base64-encoded in a
+// single envelope (`writeFile`, backends/firecracker/transport.ts) whenever
+// it fits, and splits it into parts that each fit when it does not. 256 MiB
+// of base64 is a ~192 MiB file — orders of magnitude above anything the
+// Firecracker suites send and far below what the prefix would otherwise
+// permit.
 const MAX_FRAME_BYTES = positiveIntegerConfig('NAMZU_AGENT_MAX_FRAME_BYTES', 256 * 1024 * 1024)
 // The same ceiling for a connection that has not yet presented the token,
 // and only in the modes where a token is required at all. The gate cannot
@@ -204,10 +219,13 @@ const MAX_FRAME_BYTES = positiveIntegerConfig('NAMZU_AGENT_MAX_FRAME_BYTES', 256
 //
 // Sized by what it would otherwise break rather than by what a request
 // envelope costs: a `write-file` body travels in the same first frame as
-// the token, so this cap IS the write-file ceiling on a token path —
-// 8 MiB of frame is a ~6 MiB file. A deployment that writes larger files
-// raises the variable; a host that learns to chunk a body across frames
-// would let it come back down. See the README.
+// the token, so this cap is the ceiling on ONE write-file frame on a token
+// path — 8 MiB of frame is a ~6 MiB file. It is no longer the ceiling on a
+// file: a host that sees `write-file-parts` in the healthz reply splits a
+// larger body into parts that each fit here and finishes with an atomic
+// rename (see `handleWriteFilePart`), so this variable bounds what an
+// unauthenticated connection may spend without bounding what a caller may
+// write. See the README.
 //
 // Clamped to the global ceiling, because a pre-auth budget above the
 // post-auth one is not a budget — it reads as a bug the first time
@@ -1020,8 +1038,243 @@ async function handleReadFile(socket, body) {
 	}
 }
 
+/**
+ * Temp files a part sequence is currently appending to, keyed by the
+ * RESOLVED guest path.
+ *
+ * The offset check alone already refuses a lost, duplicated or reordered
+ * part, but two writers appending to the same temp file concurrently could
+ * both read the size the other is about to change and both believe their
+ * offset matched. A part is short and the host sends its own parts
+ * sequentially, so refusing the overlap outright costs a correct caller
+ * nothing and removes the race rather than narrowing it.
+ */
+const writePartsInFlight = new Set()
+
+/**
+ * The host's own temp-file naming (`writeFilePartTempPath`,
+ * backends/firecracker/transport.ts).
+ *
+ * `part.discard` is the only verb on `write-file` that REMOVES a file, and
+ * the only thing it exists to remove is a part file this agent created for
+ * a sequence that was abandoned. Matching the name — against the RESOLVED
+ * path, so a symlink named like a part file does not launder the check —
+ * keeps `write-file` from quietly becoming a general delete.
+ *
+ * `[\s\S]` rather than `.`, which does not match a newline: a target whose
+ * basename contains one still gets a temp file, and a pattern that could
+ * not name it would strand that file inside the workspace forever.
+ */
+const WRITE_PART_TEMP_NAME = /^\.namzu-write-[\s\S]+\.part$/
+
+function decodeWriteBody(body) {
+	return body.encoding === 'base64'
+		? Buffer.from(String(body.content), 'base64')
+		: Buffer.from(String(body.content), 'utf8')
+}
+
+/**
+ * Remove one abandoned part file, and nothing else.
+ *
+ * The host sends this after a sequence it could not finish, and swallows
+ * whatever comes back — the reason the sequence failed is usually the
+ * reason the cleanup will fail too. So everything that means "there is no
+ * such part file" answers success, including a directory that does not
+ * exist because the first part never landed; a host retrying a cleanup is
+ * never told it failed at something that was already done.
+ *
+ * The name is checked twice on purpose: lexically first, so a path that
+ * was never a part file is refused as one whether or not it exists, and
+ * again on the RESOLVED path, so a symlink named like a part file cannot
+ * launder the check into removing something else.
+ */
+async function discardWritePartFile(socket, target, root) {
+	if (!WRITE_PART_TEMP_NAME.test(path.basename(target))) {
+		writeFrame(socket, { ok: false, error: 'write_part_not_a_temp_file' })
+		return
+	}
+	let real
+	try {
+		real = await realpathWithinWorkspace(target, root)
+	} catch (err) {
+		if (err && err.code === 'ENOENT') {
+			writeFrame(socket, { ok: true, discarded: true })
+			return
+		}
+		writeFrame(socket, { ok: false, error: err.message })
+		return
+	}
+	if (!WRITE_PART_TEMP_NAME.test(path.basename(real))) {
+		writeFrame(socket, { ok: false, error: 'write_part_not_a_temp_file' })
+		return
+	}
+	try {
+		await fs.rm(real, { force: true })
+		writeFrame(socket, { ok: true, discarded: true })
+	} catch (err) {
+		writeFrame(socket, { ok: false, error: err.message })
+	}
+}
+
+/**
+ * One slice of a body too large for a single frame.
+ *
+ * `body.path` names the TEMP file, never the target — so it goes through
+ * the SAME `resolveWritablePath` + `realpathWithinWorkspace` jail checks
+ * every other write does, and an agent that did not understand `part` at
+ * all would overwrite a temp file rather than the caller's target. The
+ * target is named separately by `part.renameTo`, checked the same way, and
+ * only ever touched by the final `rename` — so a reader never observes a
+ * half-written file and an abandoned sequence leaves the target exactly as
+ * it was.
+ *
+ * `part.offset` must equal the temp file's CURRENT size (offset 0 creates
+ * or truncates it). That is what makes a part sequence verifiable rather
+ * than hopeful: a part that went missing, arrived twice, or arrived out of
+ * order is refused, not appended in the wrong place.
+ */
+async function handleWriteFilePart(socket, body, part) {
+	let target
+	let root
+	try {
+		const resolved = resolveWritablePath(body.path)
+		target = resolved.target
+		root = resolved.root
+	} catch (err) {
+		writeFrame(socket, { ok: false, error: err.message })
+		return
+	}
+
+	// Abandoning a sequence is a write-file too: the host has no other op
+	// that can reach into the jail to remove what it left behind. Only a
+	// part file, though — see `WRITE_PART_TEMP_NAME` — and it answers
+	// before the `mkdir` below ever runs: a verb whose whole job is to
+	// leave nothing behind must not create directories on its way to
+	// deciding there was nothing there.
+	if (part.discard === true) {
+		await discardWritePartFile(socket, target, root)
+		return
+	}
+
+	let real
+	try {
+		await fs.mkdir(path.dirname(target), { recursive: true })
+		real = await realpathWithinWorkspace(target, root)
+	} catch (err) {
+		writeFrame(socket, { ok: false, error: err.message })
+		return
+	}
+
+	if (body.content === undefined) {
+		writeFrame(socket, { ok: false, error: 'missing_path_or_content' })
+		return
+	}
+	const offset = part.offset === undefined ? 0 : part.offset
+	if (!Number.isSafeInteger(offset) || offset < 0) {
+		writeFrame(socket, {
+			ok: false,
+			error: `write_part_invalid_offset: ${JSON.stringify(part.offset)}`,
+		})
+		return
+	}
+	const final = part.final === true
+	if (final && !part.renameTo) {
+		writeFrame(socket, { ok: false, error: 'write_part_missing_rename_target' })
+		return
+	}
+	// Resolved through the jail BEFORE a byte is written, so a final part
+	// naming a target outside the workspace is a true no-op rather than a
+	// refusal that already appended to the temp file.
+	let realTarget
+	if (final) {
+		try {
+			const { target: renameTarget, root: renameRoot } = resolveWritablePath(part.renameTo)
+			await fs.mkdir(path.dirname(renameTarget), { recursive: true })
+			realTarget = await realpathWithinWorkspace(renameTarget, renameRoot)
+		} catch (err) {
+			writeFrame(socket, { ok: false, error: err.message })
+			return
+		}
+	}
+	if (writePartsInFlight.has(real)) {
+		writeFrame(socket, { ok: false, error: 'write_part_in_flight' })
+		return
+	}
+
+	writePartsInFlight.add(real)
+	let handle
+	try {
+		const buf = decodeWriteBody(body)
+		if (offset === 0) {
+			handle = await fs.open(real, 'w')
+		} else {
+			let size = -1
+			try {
+				size = (await fs.stat(real)).size
+			} catch {
+				size = -1
+			}
+			if (size !== offset) {
+				throw new Error(
+					`write_part_offset_mismatch: temp file is ${size < 0 ? 'absent' : `${size} bytes`}, part starts at offset ${offset}`,
+				)
+			}
+			handle = await fs.open(real, 'r+')
+		}
+		// One `pwrite`, not a loop: Linux returns a SHORT count and NO
+		// error when a write crosses the filesystem's free space or the
+		// process's RLIMIT_FSIZE. Reporting the length that was REQUESTED
+		// and renaming anyway would put a truncated file onto the target —
+		// destroying exactly what the atomic rename exists to protect —
+		// while telling the host the write failed. So the bytes are counted
+		// twice, by the syscall and by the file itself, and both must agree
+		// with what this part claimed BEFORE anything is renamed. A short
+		// write on an earlier part is caught by the next part's offset
+		// check; the final part has no next part, and is the whole reason
+		// this check is here.
+		const written = await handle.write(buf, 0, buf.length, offset)
+		const sizeBytes = (await handle.stat()).size
+		await handle.close()
+		handle = undefined
+		if (written.bytesWritten !== buf.length || sizeBytes !== offset + buf.length) {
+			throw new Error(
+				`write_part_short_write: wrote ${written.bytesWritten} of ${buf.length} bytes at offset ${offset}, temp file is ${sizeBytes} bytes`,
+			)
+		}
+		if (final) {
+			// Same directory by construction (the host names a sibling), so
+			// this is a rename within one filesystem: atomic, and the only
+			// moment the target changes at all.
+			await fs.rename(real, realTarget)
+		}
+		writeFrame(socket, { ok: true, bytesWritten: written.bytesWritten, sizeBytes })
+	} catch (err) {
+		writeFrame(socket, { ok: false, error: err.message })
+	} finally {
+		if (handle) await handle.close().catch(() => {})
+		writePartsInFlight.delete(real)
+	}
+}
+
 async function handleWriteFile(socket, body) {
-	if (!body || !body.path || body.content === undefined) {
+	if (!body || !body.path) {
+		writeFrame(socket, { ok: false, error: 'missing_path_or_content' })
+		return
+	}
+	if (body.part !== undefined && body.part !== null) {
+		// An array is `typeof 'object'` too, and would otherwise read as a
+		// part with every field undefined — a whole-file write to `body.path`
+		// under an op shape claiming to be something else. A `part` that is
+		// present but is not an object is a malformed request, so it is
+		// refused rather than quietly served as the other thing.
+		if (typeof body.part !== 'object' || Array.isArray(body.part)) {
+			writeFrame(socket, { ok: false, error: 'write_part_invalid_shape' })
+			return
+		}
+		await handleWriteFilePart(socket, body, body.part)
+		return
+	}
+	if (body.content === undefined) {
 		writeFrame(socket, { ok: false, error: 'missing_path_or_content' })
 		return
 	}
@@ -1029,10 +1282,7 @@ async function handleWriteFile(socket, body) {
 		const { target, root } = resolveWritablePath(body.path)
 		await fs.mkdir(path.dirname(target), { recursive: true })
 		const real = await realpathWithinWorkspace(target, root)
-		const buf =
-			body.encoding === 'base64'
-				? Buffer.from(String(body.content), 'base64')
-				: Buffer.from(String(body.content), 'utf8')
+		const buf = decodeWriteBody(body)
 		await fs.writeFile(real, buf)
 		writeFrame(socket, { ok: true, bytesWritten: buf.length })
 	} catch (err) {
@@ -1674,6 +1924,10 @@ function dispatch(socket, req) {
 		writeFrame(socket, {
 			ok: !agentRetiring,
 			protocolVersion: FIRECRACKER_AGENT_PROTOCOL_VERSION,
+			// Additive and version-neutral: a host that has never heard of
+			// `features` reads exactly the reply it always read. See
+			// {@link AGENT_FEATURES}.
+			features: AGENT_FEATURES,
 			...(agentRetiring ? { retiring: true } : {}),
 		})
 		socket.end()
@@ -1868,6 +2122,7 @@ async function main() {
 // Export the pure pieces so the vitest loopback peer can drive the
 // agent in-process without spawning a separate node binary.
 module.exports = {
+	AGENT_FEATURES,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
 	frame,
 	FrameReader,

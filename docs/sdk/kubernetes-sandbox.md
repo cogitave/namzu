@@ -176,7 +176,7 @@ request envelope.
 | `status` | `ready` / `busy` / `destroyed` | `busy` while a command is in flight. Both ways a sandbox ends read as `destroyed` — see below. |
 | `rootDir`, `environment` | The caller's working directory; `linux-namespace` | The enum is the host-facing worker shape, not the isolation technology. |
 | `exec` | Implemented | Through the shared reserve-before-admission controller, so an `AbortSignal` terminates the guest process and the peer confirms it — never abandons the wait. |
-| `writeFile`, `readFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. See the size limit below. |
+| `writeFile`, `readFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. A body larger than one frame is [written in parts](#writing-a-file-larger-than-one-frame). |
 | `listFiles` | Implemented | `find -printf '%p\t%s\n'`, parsed line by line; a root that does not exist is an empty list. |
 | `openTerminal` | Implemented | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. |
 | `openTcpConnection` | Implemented | Guest loopback only. |
@@ -223,17 +223,102 @@ apart by the error a later call throws:
 Both name the operation that was refused, so a log line with no stack still
 says which call it was.
 
-### The write-file size limit
+### Writing a file larger than one frame
 
 Because every request dials a fresh connection, each request is also that
 connection's first frame — the one the guest has not authenticated yet, since
 the credential rides inside the envelope. It is therefore bounded by the
 guest's pre-auth frame ceiling (`NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES`,
-8 MiB by default) on **every** call, not once on first use. A `writeFile`
-whose base64 body would exceed it throws `AgentPreauthFrameTooLargeError`
-(exported from `@namzu/sandbox`) **before** dialing, naming the limit.
-Roughly: bodies above ~5.9 MiB raw do not fit. Chunking a large body across
-frames is not implemented; raise the deployment's ceiling or split the write.
+8 MiB by default) on **every** call, not once on first use. A `write-file`
+carries its whole body base64-encoded inside that one envelope, so about
+5.9 MiB of raw content is all a single frame holds.
+
+That used to be the ceiling on a **file**, and `writeFile` refused anything
+above it. It is now only the ceiling on a **frame**. A body that does not fit
+one is split into parts that each do:
+
+1. The host picks a temporary **sibling** of the target —
+   `.namzu-write-<uuid>-<name>.part` beside it — so the path passes the same
+   workspace jail the target does and the finishing rename stays within one
+   directory on one filesystem.
+2. Each part is one ordinary `write-file` request whose `path` is the TEMP
+   file and whose `part` object names the byte `offset` it starts at. The
+   guest refuses the part unless that offset equals the temp file's current
+   size, so a part that went missing, arrived twice or arrived out of order
+   is refused rather than written in the wrong place.
+3. The last part carries `final: true` and `renameTo: <target>`, and the
+   guest finishes with an atomic `rename`.
+
+What that buys is worth stating as guarantees, because they are what a
+caller seeding a repository archive into a workspace needs:
+
+- **A reader never sees a half-written file.** The target changes exactly
+  once, in the final rename.
+- **A failed write is a write that did not happen.** A sequence that dies at
+  part 3 of 9 leaves the target exactly as it was, including not existing.
+  That holds for a part the guest accepted and could not finish writing,
+  too: a `pwrite` that crosses the volume's free space or the process's
+  `RLIMIT_FSIZE` returns a SHORT count and no error at all, and renaming a
+  truncated temp file onto the target would destroy the contents the rename
+  exists to protect. So the guest compares both the count the syscall
+  returned and the temp file's own size against what the part claimed, and
+  refuses the part (`write_part_short_write`) rather than renaming — the
+  case that matters is the last part, because an earlier one is caught by
+  the next part's offset check.
+- **An abandoned sequence cleans up after itself.** An `AbortSignal` or a
+  transport failure mid-way removes the temp file and rejects. Best effort
+  by design: the reason a sequence failed is often that the guest is
+  unreachable, and a cleanup that threw would replace the caller's real
+  error with one about tidying up. A part file left behind is named
+  `.namzu-write-…` for exactly that reason. One window in a cancellation
+  cannot be closed from here: a signal that fires after the final part's
+  rename has landed but before its reply is read rejects the call although
+  the target **was** written. Nothing can narrow that — by the time the
+  rename returns the write has happened — so a caller that cancels and then
+  needs to know which it got reads the target back.
+- **Parts go out sequentially, on fresh connections.** That is what the
+  offset check assumes, and it keeps the guest's pre-auth connection pool
+  holding one of this caller's sockets at a time.
+
+**The guest opts in.** `agent.cjs` advertises `features:
+['write-file-parts']` in its `healthz` reply, and the host sends a part only
+to a guest that did. An agent that predates the part protocol would ignore
+the `part` field and read that part's content as a whole file, so it is
+never sent one: an oversized body against such a guest still throws
+`AgentPreauthFrameTooLargeError` (exported from `@namzu/sandbox`) before
+dialing, and the message now names the missing feature as the reason. The
+guest wire protocol version is deliberately **unchanged** — `part` is an
+optional field on an op that already existed, so no host and no image has to
+roll together with this release.
+
+Two optional knobs on `VsockTransportOptions` (which
+`KubernetesTransportOptions` extends) govern the host side:
+
+| Option | Default | What it does |
+|---|---|---|
+| `maxWriteFileBytes` | 1 GiB | The largest body this transport accepts at all, checked before the route is chosen so it bounds a single-frame write too. Above it, `AgentWriteFileTooLargeError` names the bound. Nothing about the wire stops a caller handing over a body larger than the guest's disk; this is the bound that says no first, by a number the caller chose, rather than an out-of-memory or an `ENOSPC` halfway through a sequence. |
+| `writeFilePartBytes` | the largest a frame admits | Raw bytes per part, clamped down to what one frame can carry. Setting it also lowers the size at which a body is split at all, which is how the suites exercise a multi-part write without allocating one. Leave it unset in production. |
+
+A body that already fits one frame is unaffected by any of this: the same
+single request, byte for byte, with no capability probe. `maxWriteFileBytes`
+is the one thing that applies to it as well, because it bounds what a caller
+may write rather than how the bytes travel — a host that sets it below one
+frame's worth gets the cap it asked for.
+
+One thing a slow link makes harder. The guest retires a connection that has
+not authenticated within `NAMZU_AGENT_PREAUTH_DEADLINE_MS` (10 s from accept,
+reset by nothing), and each part is its own connection carrying the
+credential in the same frame — so every part has to arrive inside that
+window, where a single-frame write had to arrive inside it once. On a pod
+network that is never close. On a slow or congested link, a deployment that
+sees parts time out lowers `writeFilePartBytes` until each part clears it; no
+threshold is quoted here because none has been measured on such a link.
+
+Nothing on the Firecracker path changed either. Its `unix`/`vsock`/`mtls`
+arms authenticate nothing, so they never paid the pre-auth price and are
+bounded by the guest's global frame ceiling (`NAMZU_AGENT_MAX_FRAME_BYTES`,
+256 MiB) instead — a ~189 MiB file. The part protocol is the same code on
+the same transport, so a body past even that is now split there too.
 
 ## Running the conformance suite
 
@@ -243,9 +328,10 @@ nothing checked that claim against more than one backend. `defineSandboxConforma
 implementation can be run against — `exec`'s exit codes and streamed output,
 the `AbortSignal` contract (the process is genuinely terminated, never a
 resolved result that looks like an unaborted success), a `writeFile`/`readFile`
-round trip including binary content, `listFiles`, `openTerminal` ownership on
-`destroy()`, `openTcpConnection` to guest loopback and its refusal of a
-non-loopback host, destroy idempotence, and every call failing once destroyed.
+round trip including binary content **and a body larger than one wire frame**,
+`listFiles`, `openTerminal` ownership on `destroy()`, `openTcpConnection` to
+guest loopback and its refusal of a non-loopback host, destroy idempotence,
+and every call failing once destroyed.
 `openTerminal` and `openTcpConnection` are optional on the SDK's own contract,
 so a factory whose sandbox omits either capability skips that section rather
 than failing it.
@@ -290,9 +376,22 @@ defineSandboxConformance({
 })
 ```
 
+`SANDBOX_CONTRACT_VERSION` is `2`, raised from `1` by the large-body case:
+the suite's label carries it, so a failure names the revision it is asserting.
+
 Both shipped backends run it today, against the same kind of fixture this
 page's other tests use: a real `agent/agent.cjs` on a loopback socket, no
-cluster and no microVM. Passing against two independently-implemented
+cluster and no microVM. Worth naming about the large-body case, because
+where it runs and where it bites differ: the kubernetes fixture dials the
+`tcp` arm, so 7 MiB of content is past the pre-auth ceiling there and the
+case genuinely exercises [the part protocol](#writing-a-file-larger-than-one-frame).
+The Firecracker fixture dials a `unix` socket, which authenticates nothing
+and admits a frame up to 256 MiB, so the same case passes there on the
+single-frame path. It is the same `writeFile` on the same transport either
+way — the Firecracker backend's own `tcp` arm, were a deployment to use one,
+takes the part path from the same code the kubernetes backend does, and
+`backends/kubernetes/__tests__/write-file-parts.test.ts` is what holds that
+code to the contract directly. Passing against two independently-implemented
 backends is the point — a suite only ever run against the backend it was
 written next to is bespoke tests wearing a contract's name, not a contract.
 The suite carries its own negative test

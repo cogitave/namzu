@@ -161,7 +161,10 @@ describe('KubernetesAgentTransport over a real TCP-listening agent', () => {
 		expect(read.length).toBe(body.length)
 	})
 
-	it('refuses a write-file body over the pre-auth ceiling before dialing', async () => {
+	// The ceiling still bounds every OTHER op — only `write-file` learned to
+	// span frames. An oversized `execute` envelope is refused client-side,
+	// before a connection the guest would close anyway is opened at all.
+	it('refuses an oversized non-write request over the pre-auth ceiling before dialing', async () => {
 		const { port } = await startAgent()
 		let connections = 0
 		listener?.on('connection', () => {
@@ -174,12 +177,14 @@ describe('KubernetesAgentTransport over a real TCP-listening agent', () => {
 			token: POD_UID,
 		})
 
-		// ~7 MiB raw -> ~9.3 MiB base64 -> clearly over the 8 MiB ceiling.
-		const body = Buffer.alloc(7 * 1024 * 1024, 0x62)
-
+		// 9 MiB of environment, clearly over the 8 MiB ceiling once enveloped.
 		let caught: unknown
 		try {
-			await transport.writeFile('too-big.bin', body)
+			await transport.openTerminal({
+				command: '/bin/sh',
+				env: { HUGE: 'x'.repeat(9 * 1024 * 1024) },
+				size: { cols: 80, rows: 24 },
+			})
 		} catch (error) {
 			caught = error
 		}
@@ -189,6 +194,27 @@ describe('KubernetesAgentTransport over a real TCP-listening agent', () => {
 		// the attempt at all.
 		expect(connections).toBe(0)
 	})
+
+	// `write-file` is the exception, and the whole point of this batch: a
+	// body past the ceiling is split into parts and reassembled under an
+	// atomic rename. `write-file-parts.test.ts` owns the mechanism.
+	it('writes a body over the pre-auth ceiling instead of refusing it', async () => {
+		const { port } = await startAgent()
+		const transport = new KubernetesAgentTransport({
+			kind: 'tcp',
+			host: '127.0.0.1',
+			port,
+			token: POD_UID,
+		})
+
+		// ~7 MiB raw -> ~9.3 MiB base64 -> clearly over the 8 MiB ceiling.
+		const body = Buffer.alloc(7 * 1024 * 1024, 0x62)
+
+		await transport.writeFile('was-too-big.bin', body)
+		const read = await transport.readFile('was-too-big.bin')
+		expect(read.length).toBe(body.length)
+		expect(read.equals(body)).toBe(true)
+	}, 30_000)
 
 	it('refuses a wrong token with a named unauthorized error', async () => {
 		const { port } = await startAgent(POD_UID)

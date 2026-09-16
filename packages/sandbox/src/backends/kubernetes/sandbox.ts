@@ -317,10 +317,15 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 		 * Every `tcp` request dials a fresh connection, so its envelope is
 		 * also that connection's first, not-yet-authenticated frame and is
 		 * bounded by the guest's pre-auth frame ceiling (8 MiB by default).
-		 * The transport checks that BEFORE dialing and throws
-		 * `AgentPreauthFrameTooLargeError` naming the limit; it is passed
-		 * through unwrapped so a caller can catch that class and chunk,
-		 * rather than having to pattern-match a message.
+		 * A body above it is no longer a refusal: the transport splits it
+		 * into parts that each fit, writes them to a temporary sibling of
+		 * the target and finishes with an atomic rename, so this method
+		 * takes a body of any size the transport's `maxWriteFileBytes`
+		 * admits (1 GiB by default). The named refusals that remain are
+		 * passed through unwrapped so a caller can catch them BY CLASS:
+		 * `AgentWriteFileTooLargeError` for a body above that bound, and
+		 * `AgentPreauthFrameTooLargeError` for an oversized body against a
+		 * guest too old to advertise the part protocol.
 		 */
 		async writeFile(path: string, content: string | Buffer): Promise<void> {
 			assertAdmissible('writeFile')

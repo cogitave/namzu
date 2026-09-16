@@ -32,6 +32,7 @@ const require_ = createRequire(import.meta.url)
 const AGENT_PATH = '../../../../agent/agent.cjs'
 
 interface AgentModule {
+	AGENT_FEATURES: string[]
 	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
 	startListening(): Promise<Server>
@@ -102,6 +103,7 @@ describe('agent listen modes', () => {
 		expect(exchange.reply).toEqual({
 			ok: true,
 			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+			features: agent.AGENT_FEATURES,
 		})
 		// Pinned, not read back: adding a listen mode is not a wire change,
 		// so no host and no golden image has to roll with it.

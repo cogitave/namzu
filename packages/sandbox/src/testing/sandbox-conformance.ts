@@ -61,12 +61,14 @@
  * ```
  */
 
+import { createHash } from 'node:crypto'
 import type {
 	OpenTerminalOptions,
 	Sandbox,
 	SandboxTcpConnectOptions,
 	TerminalSession,
 } from '@namzu/sdk'
+
 import type {
 	ConformanceAssertion,
 	ConformanceDescribe,
@@ -80,7 +82,7 @@ import type {
  * same convention `PROVIDER_DRIVER_CONTRACT_VERSION` uses — raised only
  * when a case is ADDED or TIGHTENED, never on a rewording.
  */
-export const SANDBOX_CONTRACT_VERSION = 1
+export const SANDBOX_CONTRACT_VERSION = 2
 
 /** A sandbox to test, plus whatever teardown building it required. */
 export interface SandboxConformanceHandle {
@@ -166,6 +168,36 @@ async function expectResolves(
 
 function sleep(ms: number): Promise<void> {
 	return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * `size` bytes of deterministic pseudo-random content (xorshift32 from a
+ * fixed seed).
+ *
+ * Pseudo-random rather than a repeated byte because the large-body case
+ * below is about whether every byte survived in the right ORDER: a body of
+ * one repeated value passes a length check and a content check even if the
+ * transport shipped its pieces out of order, duplicated one, or dropped
+ * one and padded. Deterministic rather than `randomBytes` so a failure is
+ * reproducible from the size alone.
+ */
+function deterministicBytes(size: number): Buffer {
+	const out = Buffer.allocUnsafe(size)
+	let x = 0x9e3779b9
+	for (let i = 0; i < size; i += 1) {
+		x ^= x << 13
+		x >>>= 0
+		x ^= x >> 17
+		x ^= x << 5
+		x >>>= 0
+		out[i] = x & 0xff
+	}
+	return out
+}
+
+/** `sha256` of a buffer, hex — a byte-exact comparison that prints short. */
+function digest(buffer: Buffer): string {
+	return createHash('sha256').update(buffer).digest('hex')
 }
 
 /**
@@ -456,6 +488,38 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 					// runner a caller might wire in, and a corrupted byte belongs
 					// in the string this failure prints.
 					expect(read.toString('base64')).toBe(payload.toString('base64'))
+				}),
+			)
+
+			/**
+			 * A body too large to cross the wire in ONE message.
+			 *
+			 * 7 MiB is chosen against a real number rather than a round one:
+			 * a `write-file` body travels base64-encoded inside the request
+			 * envelope, so 7 MiB of content is ~9.3 MiB of frame — past the
+			 * 8 MiB ceiling the guest agent enforces on an unauthenticated
+			 * connection's first frame, which on a transport that dials
+			 * fresh per call is EVERY frame. That ceiling used to make this
+			 * case a documented refusal on the kubernetes backend while the
+			 * host-local backends served it without noticing, which is
+			 * exactly the shape of divergence a contract suite exists to
+			 * catch: `Sandbox.writeFile` promises to write a file, and a
+			 * caller seeding a repository archive into a workspace cannot
+			 * be told that the promise holds below a number nothing in the
+			 * interface names.
+			 *
+			 * Compared by digest, not by content: a mismatch here belongs in
+			 * the failure message as a short string, and 7 MiB of base64
+			 * does not.
+			 */
+			it(
+				'round-trips a body larger than one wire frame',
+				withSandbox(async (sandbox) => {
+					const payload = deterministicBytes(7 * 1024 * 1024)
+					await sandbox.writeFile('conformance-large/archive.bin', payload)
+					const read = await sandbox.readFile('conformance-large/archive.bin')
+					expect(read.length).toBe(payload.length)
+					expect(digest(read)).toBe(digest(payload))
 				}),
 			)
 		})

@@ -93,19 +93,62 @@ export type ExecEvent =
 // File-IO — base64 request + response shapes (verbatim from server.js)
 // ---------------------------------------------------------------------------
 
+/**
+ * One slice of a `write-file` body, for a body too large to cross the wire
+ * in a single frame.
+ *
+ * ADDITIVE, and deliberately so: the guest protocol version is unchanged,
+ * an agent that predates this field ignores it, and a host only ever sends
+ * it to an agent that advertised {@link WRITE_FILE_PARTS_FEATURE} in its
+ * `healthz` reply. The sequence writes a temporary sibling of the target
+ * (`WriteFileRequest.path` names the TEMP file while `part` is present, so
+ * an agent that dropped the field would overwrite the temp file rather
+ * than the target) and finishes with an atomic rename onto `renameTo`.
+ */
+export interface WriteFilePart {
+	/**
+	 * Byte offset in the temp file this slice starts at. `0` creates or
+	 * truncates it; any other value must equal the temp file's CURRENT
+	 * size, so a lost, duplicated or reordered part is refused rather
+	 * than silently producing a corrupt file.
+	 */
+	readonly offset?: number
+	/** Last slice: rename the temp file onto {@link renameTo} once written. */
+	readonly final?: boolean
+	/** The real target, required when {@link final} is true. */
+	readonly renameTo?: string
+	/**
+	 * Remove the temp file named by `path` and write nothing — the
+	 * best-effort cleanup a host runs when a part sequence is abandoned.
+	 * `content` is ignored.
+	 */
+	readonly discard?: boolean
+}
+
 /** `/write-file` request body. `content` is base64. */
 export interface WriteFileRequest {
 	readonly path: string
 	readonly content: string
 	readonly encoding: 'base64'
+	/** Present only for a chunked write; see {@link WriteFilePart}. */
+	readonly part?: WriteFilePart
 }
 
 /** `/write-file` success response. */
 export interface WriteFileResponse {
 	readonly ok: boolean
 	readonly bytesWritten?: number
+	/** Total size of the temp file after this part, for a chunked write. */
+	readonly sizeBytes?: number
 	readonly error?: string
 }
+
+/**
+ * The `healthz` feature string an agent advertises when it implements
+ * {@link WriteFilePart}. A host that does not see it in `features` keeps
+ * to the single-frame write and its named too-large error.
+ */
+export const WRITE_FILE_PARTS_FEATURE = 'write-file-parts'
 
 /** `/read-file` request body. */
 export interface ReadFileRequest {

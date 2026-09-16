@@ -24,11 +24,11 @@ import { join } from 'node:path'
 import type { Sandbox } from '@namzu/sdk'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { AgentPreauthFrameTooLargeError } from '../../firecracker/transport.js'
+import { AgentWriteFileTooLargeError } from '../../firecracker/transport.js'
 import { KubernetesAlreadyGoneError, createKubernetesClient } from '../k8s-client.js'
 import { claimPath } from '../objects.js'
 import { buildKubernetesSandbox } from '../sandbox.js'
-import { KubernetesAgentTransport } from '../transport.js'
+import { KubernetesAgentTransport, type KubernetesTransportOptions } from '../transport.js'
 import { AGENT_ENV_KEYS } from './fixtures/agent-env.js'
 import { type FakeApiServer, startFakeApiServer } from './fixtures/fake-api-server.js'
 
@@ -79,7 +79,7 @@ async function startControlPlane(): Promise<FakeApiServer> {
 	})
 }
 
-async function build(): Promise<Sandbox> {
+async function build(transportOptions: KubernetesTransportOptions = {}): Promise<Sandbox> {
 	const port = await startAgent()
 	server = await startControlPlane()
 	const client = createKubernetesClient({
@@ -91,12 +91,15 @@ async function build(): Promise<Sandbox> {
 	return buildKubernetesSandbox({
 		name: SANDBOX_NAME,
 		rootDir: workDir,
-		transport: new KubernetesAgentTransport({
-			kind: 'tcp',
-			host: '127.0.0.1',
-			port,
-			token: POD_UID,
-		}),
+		transport: new KubernetesAgentTransport(
+			{
+				kind: 'tcp',
+				host: '127.0.0.1',
+				port,
+				token: POD_UID,
+			},
+			transportOptions,
+		),
 		release: async (signal) => {
 			try {
 				await client.request('DELETE', ownedPath, undefined, signal)
@@ -170,19 +173,38 @@ describe('identity and file IO', () => {
 		await sandbox.destroy()
 	})
 
-	it('refuses an oversized write with the named pre-auth frame error, before dialing', async () => {
+	// Every tcp request dials a fresh connection, so its envelope IS that
+	// connection's first, not-yet-authenticated frame — the guest's pre-auth
+	// ceiling is a per-call budget, not a one-time cost. ~7 MiB raw is
+	// ~9.3 MiB base64, clearly over the 8 MiB default, and used to be a
+	// refusal here. It is a normal write now: the transport splits it into
+	// parts and finishes with an atomic rename. `Sandbox.writeFile` promises
+	// to write a file, and this is the size at which it used to stop.
+	// `__tests__/write-file-parts.test.ts` owns the mechanism; what this
+	// asserts is the surface's own promise, through `buildKubernetesSandbox`.
+	it('writes a body past the pre-auth frame ceiling through the sandbox surface', async () => {
 		const sandbox = await build()
-		// Every tcp request dials a fresh connection, so its envelope IS that
-		// connection's first, not-yet-authenticated frame — the guest's
-		// pre-auth ceiling is therefore a per-call budget, not a one-time
-		// cost. ~7 MiB raw is ~9.3 MiB base64, clearly over the 8 MiB default.
+		const payload = Buffer.alloc(7 * 1024 * 1024, 0x62)
+
+		await sandbox.writeFile('big.bin', payload)
+
+		const read = await sandbox.readFile('big.bin')
+		expect(read.length).toBe(payload.length)
+		expect(read.equals(payload)).toBe(true)
+		await sandbox.destroy()
+	}, 30_000)
+
+	// What the named refusal now means: the body is past what the HOST was
+	// configured to send at all, not past what the wire can carry.
+	it('refuses a body above the transport’s configured maximum, before dialing', async () => {
+		const sandbox = await build({ maxWriteFileBytes: 1024 })
 		const failure = await sandbox
 			.writeFile('too-big.bin', Buffer.alloc(7 * 1024 * 1024, 0x62))
 			.catch((error: unknown) => error)
-		// Surfaced unwrapped, so a caller can catch the class and chunk rather
-		// than pattern-match a message.
-		expect(failure).toBeInstanceOf(AgentPreauthFrameTooLargeError)
-		expect((failure as Error).message).toMatch(/NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES/)
+		// Surfaced unwrapped, so a caller can catch the class rather than
+		// pattern-match a message.
+		expect(failure).toBeInstanceOf(AgentWriteFileTooLargeError)
+		expect((failure as Error).message).toMatch(/maxWriteFileBytes/)
 		await sandbox.destroy()
 	})
 })

@@ -42,6 +42,7 @@ const POD_UID = '6f0b5d2e-2f3a-4b8c-9d1e-77aa0c4f1b32'
 const OTHER_UID = 'c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
 
 interface AgentModule {
+	AGENT_FEATURES: string[]
 	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
 }
@@ -319,8 +320,12 @@ describe('preset per-instance token', () => {
 		expect(health.reply).toEqual({
 			ok: true,
 			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+			features: agent.AGENT_FEATURES,
 		})
-		expect(Object.keys(health.reply)).toEqual(['ok', 'protocolVersion'])
+		// `features` is the only thing beside the version a probe learns:
+		// capabilities the version does not announce, so a host can ask
+		// before it relies on one. Still nothing about the credential.
+		expect(Object.keys(health.reply)).toEqual(['ok', 'protocolVersion', 'features'])
 		expect(health.frames.join('')).not.toContain(POD_UID)
 	})
 
@@ -447,6 +452,7 @@ describe('trust-on-first-use fallback', () => {
 		expect(after.reply).toEqual({
 			ok: true,
 			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+			features: agent.AGENT_FEATURES,
 		})
 	})
 })
@@ -480,7 +486,11 @@ describe('neither variable set (the Firecracker vsock and unix path)', () => {
 	it('serves healthz at the unchanged protocol version', async () => {
 		const health = await sendFramedRequest(port, { op: 'healthz' })
 
-		expect(health.reply).toEqual({ ok: true, protocolVersion: 2 })
+		expect(health.reply).toEqual({
+			ok: true,
+			protocolVersion: 2,
+			features: agent.AGENT_FEATURES,
+		})
 	})
 })
 
@@ -729,6 +739,7 @@ describe('bounds on an unauthenticated connection', () => {
 		expect(health.reply).toEqual({
 			ok: true,
 			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
+			features: agent.AGENT_FEATURES,
 		})
 		expect(await eviction).toEqual({
 			ok: false,

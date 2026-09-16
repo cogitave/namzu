@@ -189,8 +189,19 @@ export class KubernetesAgentTransport {
 		)
 	}
 
-	async writeFile(path: string, content: Buffer): Promise<void> {
-		return await this.wire.writeFile(path, content)
+	/**
+	 * Delegated, `signal` included: a body larger than one pre-auth frame
+	 * is written as a sequence of parts by {@link VsockAgentTransport}
+	 * itself, and a cancelled sequence has to be able to stop mid-way and
+	 * take its temp file with it.
+	 *
+	 * One transport instance, deliberately — {@link wire} is shared by
+	 * every simple pass-through op — so the one `healthz` probe that asks
+	 * the guest whether it can take parts is asked once for this sandbox,
+	 * not once per large write.
+	 */
+	async writeFile(path: string, content: Buffer, signal?: AbortSignal): Promise<void> {
+		return await this.wire.writeFile(path, content, signal)
 	}
 
 	async readFile(path: string): Promise<Buffer> {

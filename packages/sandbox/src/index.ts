@@ -90,12 +90,23 @@ export type {
 } from './backends/firecracker/index.js'
 export {
 	AgentPreauthFrameTooLargeError,
+	AgentWriteFileTooLargeError,
+	DEFAULT_MAX_WRITE_FILE_BYTES,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
+	GUEST_FRAME_LIMIT_BYTES,
 	type SandboxAgentHandle,
 	TCP_PREAUTH_FRAME_LIMIT_BYTES,
 	type VsockTransportOptions,
 	VsockAgentTransport,
 } from './backends/firecracker/transport.js'
+// The `write-file` part protocol: the healthz feature string a guest
+// advertises when it can take a body larger than one frame, and the shape
+// of one part. Exported so a host writing its own guest, or asserting what
+// this one advertises, names them rather than repeating the literal.
+export {
+	WRITE_FILE_PARTS_FEATURE,
+	type WriteFilePart,
+} from './backends/firecracker/protocol.js'
 
 // Kubernetes (agent-sandbox on any cluster) public surface. The access union
 // is named by `KubernetesBackendConfig.access`, so a host that builds its own
