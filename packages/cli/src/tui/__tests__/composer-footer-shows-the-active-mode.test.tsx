@@ -11,6 +11,19 @@
  * — since the agent rail moved from between the frame and this footer to
  * below it — that adjacency to the frame, not distance from the bottom of
  * the viewport, is what the footer actually guarantees.
+ *
+ * Width-pressure drop order (`StatusBar.tsx`'s `fitStatusLine`), left to
+ * right in survival priority — earliest dropped first: the working
+ * directory (shrinks, then drops), the effort label, the cycle-key
+ * reminder, the model on the right, `orchestrate`, and only as a last
+ * resort the mode badge itself (truncates, then drops). `orchestrate` is
+ * deliberately NOT bundled with effort — it is a persistent,
+ * behavior-changing session setting with no other on-screen indicator, so
+ * it holds the badge's own priority tier and outlives effort, the cwd and
+ * the model being dropped out from under it. It never forces the badge to
+ * shrink to make room for it, and is never itself truncated to a
+ * fragment of the word: below the width where it fits whole beside an
+ * already-fitted badge, it disappears entirely and the badge wins.
  */
 
 import { Box } from 'ink'
@@ -22,6 +35,7 @@ import { StatusBar } from '../StatusBar.js'
 import { type Screen, renderToScreen } from './support/screen.js'
 
 const CWD = '/home/dev/work/namzu'
+const LONG_CWD = '/home/dev/workspaces/really/quite/deeply/nested/project/namzu'
 const ROWS = 24
 
 /**
@@ -107,6 +121,38 @@ const orchestrateWithNoEffortMenu = (
 		permissionMode="plan"
 		canCycleMode
 	/>
+)
+const orchestrateNoModeNoEffort = (
+	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" orchestrate state="idle" />
+)
+const orchestrateNoModeWithEffort = (
+	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" effort="high" orchestrate state="idle" />
+)
+const orchestrateWithLongCwd = (
+	<StatusBar
+		cwd={LONG_CWD}
+		provider="a-provider"
+		model="gpt-5.6-terra"
+		effort="high"
+		orchestrate
+		state="idle"
+		permissionMode="plan"
+		canCycleMode
+	/>
+)
+const noOrchestrateWithLongCwd = (
+	<StatusBar
+		cwd={LONG_CWD}
+		provider="a-provider"
+		model="gpt-5.6-terra"
+		effort="high"
+		state="idle"
+		permissionMode="plan"
+		canCycleMode
+	/>
+)
+const planNoOrchestrateNoEffort = (
+	<StatusBar cwd={CWD} provider="a-provider" model="gpt-5.6-terra" state="idle" permissionMode="plan" canCycleMode />
 )
 
 describe('the composer footer at 80 columns', () => {
@@ -209,6 +255,117 @@ describe('the composer footer at 40 columns', () => {
 		try {
 			const row = footerRow(screen)
 			expect(row).toContain('⏸ Plan (read-only)')
+		} finally {
+			await screen.unmount()
+		}
+	})
+})
+
+describe('orchestrate holds the mode badge own priority under width pressure', () => {
+	it('at 100 columns: the whole line is unaffected, in the documented order', async () => {
+		const screen = await renderToScreen(belowMessageFrame(orchestrateNoModeWithEffort), {
+			cols: 100,
+			rows: ROWS,
+		})
+		try {
+			const row = footerRow(screen)
+			expect(row).toContain(`shift+tab to cycle · effort high · orchestrate · ${CWD}`)
+			expect(row.trimEnd()).toMatch(/gpt-5\.6-terra$/)
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('at 60 columns: sheds effort before orchestrate, and keeps the model', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planWithOrchestrate), { cols: 60, rows: ROWS })
+		try {
+			const row = footerRow(screen)
+			expect(row).toContain('⏸ Plan (read-only) · orchestrate')
+			expect(row).not.toContain('effort')
+			expect(row).toContain('gpt-5.6-terra')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('at 40 columns beside the mode badge: cwd, effort and the model are gone, orchestrate is not', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planWithOrchestrate), { cols: 40, rows: ROWS })
+		try {
+			const row = footerRow(screen)
+			expect(row.trimEnd()).toBe('⏸ Plan (read-only) · orchestrate')
+			expect(row).not.toContain('effort')
+			expect(row).not.toContain(CWD)
+			expect(row).not.toContain('gpt-5.6-terra')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('at 40 columns beside the quiet reminder (no active mode): same survival, with effort set', async () => {
+		const screen = await renderToScreen(belowMessageFrame(orchestrateNoModeWithEffort), { cols: 40, rows: ROWS })
+		try {
+			const row = footerRow(screen)
+			expect(row.trimEnd()).toBe('shift+tab to cycle · orchestrate')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('at 40 columns beside the quiet reminder, with no effort menu pinned either', async () => {
+		const screen = await renderToScreen(belowMessageFrame(orchestrateNoModeNoEffort), { cols: 40, rows: ROWS })
+		try {
+			const row = footerRow(screen)
+			expect(row.trimEnd()).toBe('shift+tab to cycle · orchestrate')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('at 40 columns, orchestrate off: the earlier drop order is unaffected', async () => {
+		const screen = await renderToScreen(belowMessageFrame(planNoOrchestrateNoEffort), { cols: 40, rows: ROWS })
+		try {
+			const row = footerRow(screen)
+			expect(row).not.toContain('orchestrate')
+			expect(row).toContain('⏸ Plan (read-only)')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('survives a long working directory: cwd is dropped, orchestrate is not', async () => {
+		const screen = await renderToScreen(belowMessageFrame(orchestrateWithLongCwd), { cols: 40, rows: ROWS })
+		try {
+			const row = footerRow(screen)
+			expect(row.trimEnd()).toBe('⏸ Plan (read-only) · orchestrate')
+			expect(row).not.toContain('nested')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('a long cwd drops the same way whether or not orchestrate is on', async () => {
+		const screen = await renderToScreen(belowMessageFrame(noOrchestrateWithLongCwd), { cols: 40, rows: ROWS })
+		try {
+			const row = footerRow(screen)
+			expect(row).not.toContain('nested')
+			expect(row).not.toContain('orchestrate')
+		} finally {
+			await screen.unmount()
+		}
+	})
+
+	it('below the width where "orchestrate" fits whole beside an already-fitted badge, the badge wins', async () => {
+		// 24 columns: `fitStatusLine` sees 22 after StatusBar's own 2-cell
+		// padding — room for "⏸ Plan (read-only)" (18) whole, but not for
+		// " · orchestrate" (14 more) beside it. Orchestrate is dropped
+		// entirely rather than truncated to a fragment of the word, and the
+		// badge is not shortened to make room for it either.
+		const screen = await renderToScreen(belowMessageFrame(orchestrateWithNoEffortMenu), { cols: 24, rows: ROWS })
+		try {
+			const row = footerRow(screen)
+			expect(row.trimEnd()).toBe('⏸ Plan (read-only)')
+			expect(row).not.toContain('orchestrate')
+			expect(row).not.toContain('orchestra')
 		} finally {
 			await screen.unmount()
 		}

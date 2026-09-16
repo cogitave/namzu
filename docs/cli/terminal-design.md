@@ -31,7 +31,8 @@ them. On the left: the active permission mode, colored by mode (`accept-edits`
 and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
 with its `⏵⏵`/`⏸` glyph and, when Shift+Tab actually cycles it here, the
 `(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
-has set one, beside it as `· effort <level>`; then the working directory. When
+has set one, beside it as `· effort <level>`; [orchestrate mode](slash-commands.md#orchestrate-mode),
+when it is on, beside that as `· orchestrate`; then the working directory. When
 the mode is the unremarkable default (`prompt`), the left side shows a quiet
 `shift+tab to cycle` in place of a badge, rather than a line that is present in
 every state and therefore read in none. On the right: an interaction hint or a
@@ -40,9 +41,16 @@ precedence the path used to defer to, now extended to the model. The footer is
 always exactly one row: on narrow screens the working directory shrinks and
 drops first (as it already did on the old status line — a path is recoverable,
 the mode is not), then the effort label, then the cycle-key reminder, then the
-model on the right is dropped entirely, and only as a last resort does the
-mode badge itself truncate. This single line replaces two things that used to
-be drawn
+model on the right is dropped entirely, then `orchestrate`, and only as a last
+resort does the mode badge itself truncate. Orchestrate is not bundled with
+effort in that order and does not fall away with it: it is a persistent,
+behavior-changing session setting with no other on-screen indicator, so it
+holds the mode badge's own survival priority instead — it outlives effort, the
+working directory and the model being dropped for room, and it is dropped
+whole rather than truncated to a fragment of the word. It still never costs
+the badge a character: below the width where `orchestrate` fits whole beside
+an already-fitted badge, orchestrate disappears and the badge wins. This
+single line replaces two things that used to be drawn
 separately: the permission-mode row that used to appear inside the message
 frame above the input, and the separate status line — model, effort, working
 directory left, goal or hint right — that used to sit one blank row below the

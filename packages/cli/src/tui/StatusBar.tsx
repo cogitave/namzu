@@ -89,6 +89,12 @@ export function StatusBar({
 					<Text color={theme.text.secondary}>{layout.effort}</Text>
 				</>
 			) : null}
+			{layout.orchestrate ? (
+				<>
+					<Text color={theme.text.muted}> · </Text>
+					<Text color={theme.text.secondary}>{layout.orchestrate}</Text>
+				</>
+			) : null}
 			{layout.cwd ? (
 				<>
 					<Text color={theme.text.muted}> · </Text>
@@ -153,6 +159,8 @@ export interface StatusLineLayout {
 	readonly mode: string | null
 	readonly cycleSuffix: string | null
 	readonly effort: string | null
+	/** The orchestrate-mode marker, held apart from `effort` — see `fitStatusLine`'s doc for why. */
+	readonly orchestrate: string | null
 	readonly cwd: string | null
 	readonly gap: string
 	readonly right:
@@ -171,8 +179,18 @@ export interface StatusLineLayout {
  * directory shrinks and drops first — a path is recoverable from `/status`
  * and a deep worktree checkout should not be what costs the operator their
  * only advertisement of Shift+Tab — then the effort label, then the cycle
- * key reminder, then the model on the right is dropped entirely, and only
- * then does the badge itself truncate.
+ * key reminder, then the model on the right is dropped entirely, then the
+ * orchestrate marker, and only then does the badge itself truncate.
+ *
+ * Orchestrate sits second-to-last, not bundled with effort, on purpose: it is
+ * a persistent, behavior-changing session setting (pins effort to the
+ * model's highest level and strengthens delegation guidance for every later
+ * turn) with no other on-screen indicator, so it earns the mode badge's own
+ * survival priority rather than the effort label's — dropping effort for
+ * room must never take orchestrate down with it. It still never forces the
+ * badge itself to shrink to make room: if `orchestrate` does not fit beside
+ * an already-fitted badge, the badge wins and it is orchestrate that goes,
+ * whole, never truncated to a fragment of the word.
  */
 export function fitStatusLine(input: {
 	readonly columns: number
@@ -180,7 +198,11 @@ export function fitStatusLine(input: {
 	readonly provider: string | null
 	readonly model: string | null
 	readonly effort?: string | null
-	/** Session orchestrate mode. Shown beside `effort`, and alone (never as a fabricated effort value) when there is no effort to show it beside. */
+	/**
+	 * Session orchestrate mode. Rendered as its own segment beside `effort`
+	 * (never fabricating an effort value when there is nothing pinned), and
+	 * held to the mode badge's own drop priority — see `fitStatusLine`'s doc.
+	 */
 	readonly orchestrate?: boolean
 	readonly hint?: string | undefined
 	readonly goal?: string | null | undefined
@@ -205,20 +227,19 @@ export function fitStatusLine(input: {
 
 	let mode: string | null = input.modeLabel
 	let cycleSuffix: string | null = input.cycleSuffix ?? null
-	// Orchestrate rides beside a real effort value ("effort high · orchestrate")
-	// but never borrows the "effort" word on its own ("effort orchestrate"),
-	// which would misread as a level a provider published.
-	let effort: string | null = input.effort
-		? `effort ${input.effort}${input.orchestrate ? ' · orchestrate' : ''}`
-		: input.orchestrate
-			? 'orchestrate'
-			: null
+	let effort: string | null = input.effort ? `effort ${input.effort}` : null
+	// Its own segment, not a suffix riding on `effort`: an operator reading
+	// "effort orchestrate" would take it for a fabricated level, and bundling
+	// it with effort would drop the two together the instant effort does —
+	// exactly the width-pressure case orchestrate has to survive.
+	let orchestrate: string | null = input.orchestrate ? 'orchestrate' : null
 	let cwd: string | null = input.cwd.length > 0 ? input.cwd : null
 
 	const left = (): string => {
 		const withMode = `${mode ?? ''}${cycleSuffix ?? ''}`
-		const withEffort = [withMode, effort].filter((value): value is string => Boolean(value)).join(' · ')
-		return [withEffort, cwd].filter((value): value is string => Boolean(value)).join(' · ')
+		return [withMode, effort, orchestrate, cwd]
+			.filter((value): value is string => Boolean(value))
+			.join(' · ')
 	}
 
 	if (left().length > leftBudget && cwd) {
@@ -236,6 +257,10 @@ export function fitStatusLine(input: {
 		gapWidth = 0
 		leftBudget = columns
 	}
+	// Orchestrate outranks nothing dropped above it (cwd, effort, the cycle
+	// reminder, the model) but does outrank the badge itself: it goes whole,
+	// never truncated, before the badge loses a single character.
+	if (left().length > leftBudget) orchestrate = null
 	if (left().length > leftBudget && mode) {
 		mode = shortenRightToFit(mode, leftBudget)
 	}
@@ -250,6 +275,7 @@ export function fitStatusLine(input: {
 		mode,
 		cycleSuffix: mode ? cycleSuffix : null,
 		effort: mode ? effort : null,
+		orchestrate: mode ? orchestrate : null,
 		cwd,
 		gap,
 		right:
