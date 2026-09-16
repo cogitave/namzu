@@ -34,15 +34,17 @@ import { buildEnvelope } from './envelope.js'
 import {
 	type McpEraProbeAnswer,
 	type McpEraResolution,
+	classifyModernHttpFailure,
 	defaultMcpEraCache,
 	mcpEraCacheKey,
 	resolveMcpEra,
 	serverInfoFromDiscover,
 } from './era.js'
-import { protocolErrorFromReply } from './errors.js'
+import { MCPHttpStatusError, isHeaderMismatchError, protocolErrorFromReply } from './errors.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { StreamableHttpTransport } from './streamable-http.js'
+import { type McpParamHeaderBinding, validateMcpHeaderAnnotations } from './x-mcp-header.js'
 
 import {
 	DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS,
@@ -62,6 +64,24 @@ const MAX_LIST_PAGES = 100
 const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
+
+/**
+ * Did the peer answer `-32020` (`HeaderMismatch`)?
+ *
+ * Two shapes, because a conforming server sends this one BOTH ways. The spec
+ * has it arrive as `400 Bad Request` carrying the JSON-RPC error in the
+ * response body, which this transport surfaces as an `MCPHttpStatusError`
+ * and never as a reply; a server that answers `200` with a JSON-RPC error
+ * frame produces the ordinary `MCPProtocolError` instead. Recognising only
+ * the second would leave the recovery dead on exactly the path the spec
+ * describes.
+ */
+function isHeaderMismatch(error: unknown): boolean {
+	if (isHeaderMismatchError(error)) return true
+	if (!(error instanceof MCPHttpStatusError)) return false
+	const verdict = classifyModernHttpFailure(error.status, error.bodyText)
+	return verdict.kind === 'modern' && isHeaderMismatchError(verdict.error)
+}
 
 export class MCPClient {
 	readonly id: MCPClientId
@@ -92,6 +112,16 @@ export class MCPClient {
 	private readonly eraCache: MCPEraCache
 	private readonly eraCacheKey: string
 	private readonly eraProbeTimeoutMs: number
+	/**
+	 * What each listed tool asked to mirror into `Mcp-Param-*` headers,
+	 * by tool name.
+	 *
+	 * Rebuilt by every `listTools()` and empty until the first one: a header
+	 * is only ever written from a schema this client has seen the server
+	 * publish, so a stale binding cannot outlive the listing that produced
+	 * it.
+	 */
+	private toolParamHeaders: Map<string, readonly McpParamHeaderBinding[]> = new Map()
 
 	constructor(config: MCPClientConfig) {
 		this.config = config
@@ -128,6 +158,10 @@ export class MCPClient {
 		}
 
 		this.status = 'connecting'
+		// Tool schemas belong to a listing, and a listing belongs to a
+		// connection. Carrying bindings across a reconnect would mirror the
+		// previous server's schema onto the new one's calls.
+		this.toolParamHeaders = new Map()
 		// A reconnect must renegotiate from scratch: the era does not belong
 		// to this new handshake until this new handshake has happened. The
 		// era CACHE survives — it is a memory of the peer, not of this
@@ -428,26 +462,107 @@ export class MCPClient {
 		}
 	}
 
+	/**
+	 * Every tool this server publishes that this client is willing to expose.
+	 *
+	 * The second clause is new and it is the first place namzu refuses
+	 * something a server offered. A tool whose `inputSchema` carries an
+	 * invalid `x-mcp-header` annotation is excluded from the result, with the
+	 * tool name and the reason logged — the spec's requirement, and the
+	 * reason it is a requirement is that the annotation names a header this
+	 * client would otherwise write from a value it cannot vouch for.
+	 *
+	 * It lives HERE rather than in `MCPToolDiscovery` or the tool adapter
+	 * because the shipping CLI calls `listTools()` directly and never
+	 * touches discovery: validating one layer up would exempt the one caller
+	 * that matters most.
+	 */
 	async listTools(options?: MCPRequestOptions): Promise<MCPToolDefinition[]> {
 		this.requireConnected()
-		return await this.listAllPages('tools/list', 'tools', options)
+		const listed = await this.listAllPages<MCPToolDefinition>('tools/list', 'tools', options)
+		return this.admitToolHeaderAnnotations(listed)
 	}
 
+	/**
+	 * Call one tool, and recover once from a server that says our mirrored
+	 * headers disagree with its current schema.
+	 *
+	 * `-32020` (`HeaderMismatch`) means the `Mcp-Param-*` headers this client
+	 * wrote are missing or wrong for the schema the server holds NOW — which
+	 * a server can legitimately cause by changing a tool between the listing
+	 * and the call. The spec's recovery is to re-read `tools/list` and retry
+	 * the request once. Exactly once: the retry goes through `request()`
+	 * rather than back through this method, so a second `-32020` surfaces to
+	 * the caller instead of starting a third round trip.
+	 */
 	async callTool(
 		name: string,
 		args?: Record<string, unknown>,
 		options?: MCPRequestOptions,
 	): Promise<MCPToolResult> {
 		this.requireConnected()
-		const result = (await this.request(
-			'tools/call',
-			{
-				name,
-				arguments: args ?? {},
-			},
-			options,
-		)) as MCPToolResult
-		return result
+		const params = { name, arguments: args ?? {} }
+		try {
+			return (await this.request('tools/call', params, options)) as MCPToolResult
+		} catch (err) {
+			if (!this.mirrorsParamHeaders() || !isHeaderMismatch(err)) throw err
+			this.log.warn("MCP server rejected a call's mirrored headers; re-listing tools once", {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.mcp.tool': name,
+			})
+			await this.listTools(options)
+			return (await this.request('tools/call', params, options)) as MCPToolResult
+		}
+	}
+
+	/**
+	 * Does this connection mirror tool parameters into `Mcp-Param-*` headers?
+	 *
+	 * Conditioned on the TRANSPORT, not on the era, because that is how the
+	 * spec conditions it: the feature belongs to Streamable HTTP, and a
+	 * client on another transport may ignore `x-mcp-header` entirely. stdio
+	 * has no headers to mirror into, and `http-sse` is the 2024-11-05
+	 * transport, which predates the annotation by two years.
+	 *
+	 * The headers themselves are written only on a modern request — that is
+	 * `buildEnvelope`'s doing, not this predicate's — but the VALIDATION runs
+	 * in both eras on this transport, so a tool's admission does not silently
+	 * change shape the day the server behind it stops answering `initialize`.
+	 */
+	private mirrorsParamHeaders(): boolean {
+		const type = this.config.transport.type
+		return type === 'streamable_http' || type === 'streamable-http'
+	}
+
+	/**
+	 * Drop the tools whose header annotations this client will not honour,
+	 * and remember what the rest asked to mirror.
+	 *
+	 * One malformed definition must not deny the others, which is why this
+	 * filters rather than throws: a server with fifty tools and one bad
+	 * annotation stays a server with forty-nine usable tools.
+	 */
+	private admitToolHeaderAnnotations(tools: MCPToolDefinition[]): MCPToolDefinition[] {
+		if (!this.mirrorsParamHeaders()) return tools
+
+		const bindings = new Map<string, readonly McpParamHeaderBinding[]>()
+		const admitted: MCPToolDefinition[] = []
+		for (const tool of tools) {
+			const verdict = validateMcpHeaderAnnotations(tool?.inputSchema)
+			const name = typeof tool?.name === 'string' ? tool.name : '(unnamed)'
+			if (!verdict.ok) {
+				this.log.warn('Excluded an MCP tool with an invalid x-mcp-header annotation', {
+					'namzu.connector.server': this.config.serverName,
+					'namzu.mcp.tool': name,
+					'namzu.mcp.reason': verdict.reason,
+				})
+				continue
+			}
+			if (verdict.bindings.length > 0) bindings.set(name, verdict.bindings)
+			admitted.push(tool)
+		}
+		this.toolParamHeaders = bindings
+		return admitted
 	}
 
 	async listResources(options?: MCPRequestOptions): Promise<MCPResource[]> {
@@ -644,6 +759,7 @@ export class MCPClient {
 			params,
 			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
 			capabilities: this.config.capabilities ?? {},
+			...this.paramHeaderBindings(method, params),
 		})
 		const message: MCPJsonRpcMessage = {
 			jsonrpc: '2.0',
@@ -768,6 +884,25 @@ export class MCPClient {
 		headers?: Record<string, string>
 	} {
 		return Object.keys(headers).length > 0 ? { headers } : {}
+	}
+
+	/**
+	 * `{ paramHeaders }` for a `tools/call` whose tool asked for mirrored
+	 * headers, `{}` for everything else — spread into the envelope input so
+	 * every other request is built from exactly the object it was built from
+	 * before this existed.
+	 *
+	 * Read from the last listing rather than passed down from `callTool`, so
+	 * the bindings are the ones that came with the schema the caller was
+	 * shown, whichever call site reached `request()`.
+	 */
+	private paramHeaderBindings(
+		method: string,
+		params: Record<string, unknown>,
+	): { paramHeaders?: readonly McpParamHeaderBinding[] } {
+		if (method !== 'tools/call' || typeof params.name !== 'string') return {}
+		const bindings = this.toolParamHeaders.get(params.name)
+		return bindings === undefined ? {} : { paramHeaders: bindings }
 	}
 
 	/**

@@ -78,12 +78,15 @@ export {
 	toolDefinitionToMCPTool,
 	toolResultToMCPToolResult,
 	toolsHash,
+	validateMcpHeaderAnnotations,
 	zodToMCPJsonSchema,
 } from './mcp/index.js'
 export type {
 	McpEnvelope,
 	McpEnvelopeInput,
 	McpEraProbe,
+	McpHeaderAnnotationVerdict,
+	McpParamHeaderBinding,
 	McpEraProbeAnswer,
 	McpEraResolution,
 	McpEraResolutionInput,

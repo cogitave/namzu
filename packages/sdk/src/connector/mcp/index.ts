@@ -32,6 +32,12 @@ export type {
 export { buildEnvelope, encodeMcpHeaderValue } from './envelope.js'
 export type { McpEnvelope, McpEnvelopeInput } from './envelope.js'
 
+// The repo's first refusal path: a tool definition namzu declines to expose.
+// Exported so a host can ask the same question of a schema it holds — and
+// because `McpEnvelopeInput.paramHeaders` names the binding type.
+export { validateMcpHeaderAnnotations } from './x-mcp-header.js'
+export type { McpHeaderAnnotationVerdict, McpParamHeaderBinding } from './x-mcp-header.js'
+
 export {
 	mcpToolToToolDefinition,
 	toolDefinitionToMCPTool,

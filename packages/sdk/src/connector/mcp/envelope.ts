@@ -8,6 +8,7 @@ import {
 	MCP_PROTOCOL_VERSION_HEADER,
 } from '../../constants/mcp/index.js'
 import type { MCPClientCapabilities, McpEra } from '../../types/connector/index.js'
+import { type McpParamHeaderBinding, mcpParamHeaderValues } from './x-mcp-header.js'
 
 /**
  * The revision that introduced the `MCP-Protocol-Version` header.
@@ -86,6 +87,15 @@ export interface McpEnvelopeInput {
 	readonly clientInfo?: { readonly name: string; readonly version: string }
 	/** Announced in `_meta` on a modern request. `{}` is the honest default. */
 	readonly capabilities?: MCPClientCapabilities
+	/**
+	 * The `x-mcp-header` bindings of the tool this request calls, validated
+	 * out of its `inputSchema`.
+	 *
+	 * Only `tools/call` has any, and only on a transport that mirrors them:
+	 * the values are read from `params.arguments`, and the spec conditions
+	 * the whole feature on Streamable HTTP. Empty or absent everywhere else.
+	 */
+	readonly paramHeaders?: readonly McpParamHeaderBinding[]
 }
 
 /** One request's body and the headers that mirror it. */
@@ -147,6 +157,18 @@ export function buildEnvelope(input: McpEnvelopeInput): McpEnvelope {
 		const target = params?.[nameSource]
 		if (typeof target === 'string' && target.length > 0) {
 			headers[MCP_NAME_HEADER] = encodeMcpHeaderValue(target)
+		}
+	}
+
+	// Mirrored from the SAME `params` object this envelope returns, for the
+	// same reason the protocol version above is written from one variable: a
+	// server rejects a header that disagrees with the body it mirrors, so
+	// the two must not be readable from two places that could drift apart.
+	if (input.paramHeaders !== undefined && input.paramHeaders.length > 0) {
+		for (const [name, value] of Object.entries(
+			mcpParamHeaderValues(input.paramHeaders, params?.arguments),
+		)) {
+			headers[name] = encodeMcpHeaderValue(value)
 		}
 	}
 

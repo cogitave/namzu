@@ -224,6 +224,155 @@ which the legacy eras do:
   changes about cancellation; the ordering guarantees in `request()` are
   untouched.
 
+## Mirroring tool parameters into headers: `x-mcp-header`
+
+A server may annotate a tool parameter with `x-mcp-header` to ask that the
+parameter's value be copied into an HTTP request header named
+`Mcp-Param-{name}`. The point is the same as `Mcp-Method` and `Mcp-Name`: a
+load balancer, a proxy or a policy engine can route and authorise a tool call
+without parsing JSON-RPC. Servers **MAY** use it; clients on Streamable HTTP
+**MUST** support it.
+
+```json
+{
+	"name": "execute_sql",
+	"inputSchema": {
+		"type": "object",
+		"properties": {
+			"region": { "type": "string", "x-mcp-header": "Region" },
+			"query": { "type": "string" }
+		}
+	}
+}
+```
+
+A call to that tool with `{ "region": "us-west1", … }` carries
+`Mcp-Param-Region: us-west1` alongside the body that already holds the same
+value. `buildEnvelope` reads it out of the very `params` object it returns,
+for the reason the protocol version is written from one variable: a server
+rejects a header that disagrees with the body it mirrors, so the two must not
+be readable from two places that could drift apart.
+
+### namzu refuses a tool whose annotation is invalid
+
+This is the first place namzu declines to expose something a server offered,
+and it is worth stating plainly: **a server can publish a tool that namzu will
+not show the model.** The refusal is per tool, never per listing — one
+malformed definition among fifty leaves forty-nine usable — and every refusal
+is logged at `warn` with the tool name and the reason
+(`namzu.mcp.tool`, `namzu.mcp.reason`). An operator whose roster is missing a
+tool should look there first.
+
+The six constraints, each of which refuses the whole tool definition:
+
+| the `x-mcp-header` value | refused when |
+|---|---|
+| non-empty | it is `""`, or not a string at all |
+| HTTP field-name token syntax | it is not RFC 9110 `1*tchar` — a space, a colon, a quote |
+| no control characters | it carries CR or LF (the injection case: a field name that ends mid-value) |
+| case-insensitively unique across the whole `inputSchema` | `Region` and `region` both appear |
+| a primitive parameter type — `string`, `boolean` or `integer` | it annotates a `number`, an array, an object, or a parameter with no declared `type` |
+| statically reachable from the schema root through `properties` keys alone | the chain passes through `items`, `oneOf`/`anyOf`/`allOf`/`not`, `if`/`then`/`else` or `$ref` — or the annotation sits on the schema root |
+
+The last one is the subtle one, and it decides how the validator is written.
+The tempting implementation resolves `$ref`s and flattens `allOf` first and
+then walks the result — at which point a `$ref`-reached property looks exactly
+like an ordinary `properties` child and the tool is admitted. namzu walks the
+**raw** schema and never follows a reference, so a reachable path is one that
+really was a chain of `properties` keys. It also scans the whole schema for
+annotations rather than only the reachable part, because an annotation under
+`items` is not something to ignore — it is what makes the definition invalid.
+
+Two things that are *not* annotations and must not be read as ones: an
+instance value under `default`, `example`/`examples`, `const` or `enum` (a
+tool may legitimately default an object-typed parameter to
+`{"x-mcp-header": …}`), and a parameter legitimately **named**
+`x-mcp-header`. The walk knows which JSON Schema keywords hold a map of
+schemas, so neither is mistaken for one.
+
+A host holding a schema of its own can ask the same question:
+
+```ts
+import { validateMcpHeaderAnnotations } from '@namzu/sdk'
+
+const verdict = validateMcpHeaderAnnotations({
+	type: 'object',
+	properties: { region: { type: 'string', 'x-mcp-header': 'Region' } },
+})
+if (verdict.ok) {
+	// verdict.bindings: [{ header: 'Mcp-Param-Region', path: ['region'], type: 'string' }]
+}
+```
+
+Validation runs inside `MCPClient.listTools()` rather than in
+`MCPToolDiscovery` or the tool adapter, because the CLI's own
+`connectMcpServers()` calls `listTools()` directly and never touches
+discovery. Putting it one layer up would exempt the caller that matters most.
+
+### Which connections mirror, and which merely validate
+
+| | validates and excludes | writes `Mcp-Param-*` |
+|---|---|---|
+| Streamable HTTP, modern era | yes | yes |
+| Streamable HTTP, legacy era | yes | no |
+| stdio, any era | no | no |
+| HTTP+SSE | no | no |
+
+Validation follows the **transport**, because that is how the spec conditions
+it — "clients using the Streamable HTTP transport MUST reject…", and "clients
+using other transports (e.g., stdio) MAY ignore `x-mcp-header` annotations
+entirely". Following the transport rather than the era also means a roster
+does not change shape the day the origin behind it stops answering
+`initialize`. The headers themselves follow the **era**: they are a 2026-07-28
+wire feature, and a legacy request carries none of the modern mirroring.
+
+### What goes in the field, and when nothing does
+
+A value is converted to its string form — a `string` as-is, a `boolean` as
+lowercase `true`/`false`, an `integer` as a decimal string — and then through
+the same base64 sentinel rule as `Mcp-Name`
+(see [A modern connection](#a-modern-connection-what-it-sends-and-what-it-does-not)).
+
+| argument value | header |
+|---|---|
+| `"us-west1"` | `Mcp-Param-Region: us-west1` |
+| `"Hello, 世界"` | `Mcp-Param-Greeting: =?base64?SGVsbG8sIOS4lueVjA==?=` |
+| `" padded "` | `Mcp-Param-Text: =?base64?IHBhZGRlZCA=?=` |
+| `"line1\nline2"` | `Mcp-Param-Text: =?base64?bGluZTEKbGluZTI=?=` |
+| `"=?base64?literal?="` | `Mcp-Param-Val: =?base64?PT9iYXNlNjQ/bGl0ZXJhbD89?=` |
+
+The header is **omitted**, never sent empty, when the argument is absent or
+`null` — the spec's own rule, and the server correspondingly does not expect
+it. namzu omits it in two further cases, both of which are a server
+contradicting its own schema: an argument whose runtime type is not the
+declared one, and an integer outside ±(2^53−1), the range the spec bounds
+these to and the range in which the number this client parsed is still the
+number the server sent. Sending either would put a value on the wire that
+disagrees with the body beside it, which is the one thing a conforming server
+refuses outright.
+
+Bindings come from a listing this client actually read. A `callTool()` made
+before any `listTools()` carries no mirrored header rather than a guessed one,
+and a reconnect starts with none.
+
+### `-32020`: re-list once, retry once
+
+A conforming server answers a request whose `Mcp-Param-*` headers are missing
+or disagree with the body with `400 Bad Request` and JSON-RPC `-32020`
+(`HeaderMismatch`). That is a legitimate thing for a server to do to a
+well-behaved client: the tool's `inputSchema` may have changed between the
+listing and the call. The spec's recovery, and namzu's, is to call
+`tools/list` again, rebuild the headers from the schema the server publishes
+now, and retry the original request — **once**. The retry does not go back
+through `callTool()`, so a second `-32020` surfaces to the caller rather than
+starting a third round trip. The failure that surfaces is the HTTP one, and it
+carries the response body (`MCPHttpStatusError.bodyText`), which is where the
+error code is.
+
+Both shapes are recognised: the `400`-with-a-body the spec describes, and a
+`200` carrying a JSON-RPC `-32020` frame. Recognising only the second would
+leave the recovery dead on exactly the path the spec specifies.
+
 ## One `initialize` round trip, not a waterfall
 
 Once the probe has resolved legacy, `connect()` offers the newest legacy
@@ -428,6 +577,13 @@ A host that was setting `MCP-Protocol-Version`, `Mcp-Method` or `Mcp-Name`
 through `MCPRequestOptions.headers` sees that value dropped and a warning
 logged, naming the header. Every other per-request header is unaffected.
 
+A tool the roster used to carry can now be absent: a server whose tool
+definition breaks one of the
+[`x-mcp-header` constraints](#namzu-refuses-a-tool-whose-annotation-is-invalid)
+has that tool excluded from `listTools()`, with the tool name and the reason
+logged at `warn`. Only tools carrying that annotation can be affected, and
+only on the Streamable HTTP transport.
+
 There is no per-call or per-server opt out of probing. A caller that needs
 the previous behaviour — the legacy handshake and nothing else — pins the
 previous major of `@namzu/sdk`.
@@ -439,10 +595,6 @@ previous major of `@namzu/sdk`.
   any era, so omitting it regresses nothing — but it does mean a modern
   connection receives no server-initiated notifications at all. Tracked
   separately.
-- **`x-mcp-header` validation and `Mcp-Param-*` construction.** The base64
-  sentinel encoder that work needs (`encodeMcpHeaderValue`) ships here; the
-  tool-definition validation, the header extraction and the `-32020`
-  re-list-and-retry do not.
 - **`resultType` / MRTR handling** — `complete` versus `input_required`, and
   what a client with no declared capabilities does with an
   `InputRequiredResult`.

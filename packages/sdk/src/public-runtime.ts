@@ -762,6 +762,7 @@ export {
 	toolDefinitionToMCPTool,
 	toolResultToMCPToolResult,
 	toolsHash,
+	validateMcpHeaderAnnotations,
 	WebhookConnector,
 	zodToMCPJsonSchema,
 } from './connector/index.js'
@@ -772,6 +773,8 @@ export type {
 	McpEraProbeAnswer,
 	McpEraResolution,
 	McpEraResolutionInput,
+	McpHeaderAnnotationVerdict,
+	McpParamHeaderBinding,
 	MCPToolDiscoveryOptions,
 	MCPToolDrift,
 	MCPToolPolicy,
