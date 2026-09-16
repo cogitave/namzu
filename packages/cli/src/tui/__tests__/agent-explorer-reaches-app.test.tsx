@@ -308,7 +308,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await submit(screen, 'tool row correlation')
 		await waitUntil(
 			screen,
@@ -346,7 +346,7 @@ describe('Ctrl+T', () => {
 		])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await submit(screen, 'reused tool id')
 		await waitUntil(
 			screen,
@@ -393,7 +393,7 @@ describe('Ctrl+T', () => {
 				rows: 28,
 			})
 			mounted = screen
-			await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 			const executions = Array.from({ length: 4 }, (_, index) =>
 				runtime.agentTool.execute(
@@ -582,7 +582,7 @@ describe('Ctrl+T', () => {
 			activity.delegate(runtime.activity)
 			const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
 			mounted = screen
-			await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 			await submit(screen, 'production executor fan-out')
 			await waitUntil(
@@ -626,7 +626,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await waitUntil(
 			screen,
 			() => screen.viewport().join('\n').includes('interim evidence'),
@@ -678,7 +678,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		screen.press('\x1b[B')
 		await waitUntil(
 			screen,
@@ -695,7 +695,7 @@ describe('Ctrl+T', () => {
 		)
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 90, rows: 14 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
@@ -715,7 +715,7 @@ describe('Ctrl+T', () => {
 		])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 40, rows: 14 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		const frame = screen.viewport().join('\n')
 		expect(frame).toContain('Type a message')
 		expect(frame).toContain('model')
@@ -728,7 +728,7 @@ describe('Ctrl+T', () => {
 		activity.set([agent({ viewId: 'short-inspector', description: 'Short inspector child' })])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 60, rows: 14 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		screen.press('draft remains visible')
 		screen.press('\x14')
 		await waitUntil(
@@ -742,7 +742,10 @@ describe('Ctrl+T', () => {
 		expect(frame).not.toContain('draft remains visible')
 		screen.press('\x14')
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('draft remains visible'), 'draft was not restored')
-		expect(frame).toContain('model')
+		// Back at idle with no interaction hint active, the footer's right side
+		// falls through to the model again — it was displaced by the cockpit's
+		// own hint a moment ago, exactly as an interaction hint displaces it.
+		expect(screen.viewport().join('\n')).toContain('model')
 		expect(screen.viewport()).toHaveLength(14)
 	})
 
@@ -756,7 +759,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		await submit(screen, 'start parent')
 		await waitUntil(
@@ -792,7 +795,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		screen.press('\x14')
 		await waitUntil(
@@ -827,7 +830,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		screen.press('\x14')
 		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'picker missing')
@@ -857,7 +860,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		screen.press('\x14')
 		await screen.waitForRender()
@@ -917,7 +920,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		screen.press('\x14')
 		await screen.waitForRender()
@@ -955,7 +958,7 @@ describe('Ctrl+T', () => {
 		activity.set([...first, ...second])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		screen.press('preserved draft')
 		await screen.waitForRender()
 		screen.press('\x14')
@@ -999,7 +1002,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		screen.press('\x14')
 		await screen.waitForRender()
 		await waitUntil(screen, () => screen.viewport().join('\n').includes('Alpha'), 'cockpit missing')
@@ -1030,7 +1033,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		screen.press('\x14')
 		await screen.waitForRender()
 		await waitUntil(
@@ -1078,7 +1081,7 @@ describe('Ctrl+T', () => {
 		activity.set([child])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 80, rows: 24 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 		await submit(screen, 'start parent')
 		screen.press('PARENT_DRAFT_RESTORED')
 		screen.press('\x14')
@@ -1196,7 +1199,7 @@ describe('Ctrl+T', () => {
 			rows: 28,
 		})
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		await submit(screen, 'start parent')
 		screen.press('\x14')
@@ -1835,7 +1838,7 @@ describe('agent completion presentation', () => {
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 36 })
 		mounted = screen
 		try {
-			await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+			await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 			await submit(screen, 'review')
 			await waitUntil(
 				screen,
@@ -1884,7 +1887,7 @@ describe('correction delivery presentation', () => {
 		activity.set([child])
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 30 })
 		mounted = screen
-		await waitUntil(screen, () => painted(screen).includes('model default'), 'not ready')
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
 
 		const corrected = {
 			...child,

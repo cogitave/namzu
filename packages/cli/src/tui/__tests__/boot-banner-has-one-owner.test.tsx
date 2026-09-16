@@ -118,7 +118,7 @@ it('keeps one banner through readiness and the full subscription login frame', a
 	expect(painted(screen)).not.toContain('Cogitave v0.0.0-test')
 
 	boot.release()
-	await waitUntil(screen, () => painted(screen).includes('gpt-test default'))
+	await waitUntil(screen, () => painted(screen).includes('gpt-test'))
 
 	const output = painted(screen)
 	expect(output.match(/Cogitave v0\.0\.0-test/g)).toHaveLength(1)

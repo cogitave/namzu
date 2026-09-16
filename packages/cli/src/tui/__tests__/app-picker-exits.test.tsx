@@ -418,7 +418,7 @@ describe('first-run signed-in subscriptions', () => {
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
 
-		await frameShows(harness.lastFrame, 'a-model default')
+		await frameShows(harness.lastFrame, 'a-model')
 		expect(constructed).toEqual([
 			{
 				version: 3,
@@ -1132,7 +1132,8 @@ describe('publishing a picker selection', () => {
 		await frameShows(lastFrame, 'Choose a provider')
 		stdin.write('\x1B')
 		await frameShows(lastFrame, 'Type a message')
-		expect(lastFrame()).toContain('a-model max')
+		expect(lastFrame()).toContain('effort max')
+		expect(lastFrame()).toContain('a-model')
 		expect(closeA).not.toHaveBeenCalled()
 		await submit(harness, 'still use max')
 		await vi.waitFor(() => expect(aEfforts).toEqual(['max']))
@@ -1222,7 +1223,7 @@ describe('cancelling the picker opened by /model', () => {
 		createSession = create
 		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 24 })
 		mountedScreens.push(screen)
-		await screenShows(screen, 'a-model default')
+		await screenShows(screen, 'a-model')
 		expect(create).toHaveBeenCalledTimes(1)
 		expect(screen.scrollback().join('\n')).not.toContain('Connected to catalog-provider')
 

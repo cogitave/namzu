@@ -136,7 +136,7 @@ async function say(screen: Screen, text: string, turns: number): Promise<void> {
 it('does not re-announce a job exit that landed while a run was open', async () => {
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 120, rows: 40, scrollback: 200 })
 	mounted = screen
-	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model default'))
+	await waitUntil(screen, () => screen.scrollback().join('\n').includes('a-model'))
 
 	await say(screen, 'first', 1)
 	await say(screen, 'second', 2)

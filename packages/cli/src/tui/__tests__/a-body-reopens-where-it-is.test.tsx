@@ -140,7 +140,7 @@ async function aCollapsedBody(): Promise<Screen> {
 	// The composer's placeholder draws from the first frame while the composer
 	// is still disabled, so it is not readiness. The model footer only exists
 	// once the session is up.
-	await screenShows(screen, 'a-model default')
+	await screenShows(screen, 'a-model')
 	screen.press('go')
 	await screen.waitForRender()
 	screen.press('\r')

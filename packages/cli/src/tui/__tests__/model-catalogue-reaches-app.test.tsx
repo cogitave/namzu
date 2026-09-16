@@ -102,7 +102,7 @@ it.each([40, 80])('renders a compact catalogue and expands the exact receipt at 
  const screen = await renderToScreen(<App ctx={ctx} />, { cols, rows: 40, scrollback: 200 })
  mounted = screen
  const painted = () => screen.scrollback().join('\n')
- await waitUntil(screen, () => painted().includes('a-model default'))
+ await waitUntil(screen, () => painted().includes('a-model'))
  screen.press('find muse')
  await screen.waitForRender()
  screen.press('\r')

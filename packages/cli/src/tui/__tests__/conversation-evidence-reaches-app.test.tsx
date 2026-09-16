@@ -53,7 +53,7 @@ async function until(predicate: () => boolean) {
 
 async function start(cols: number) {
 	screen = await renderToScreen(<App ctx={{ cwd: '/work', version: 'test' }} />, { cols, rows: 40, scrollback: 400 })
-	await until(() => screen!.scrollback().join('\n').includes('mock-model default'))
+	await until(() => screen!.scrollback().join('\n').includes('mock-model'))
 	screen.press('recover earlier receipt')
 	await screen.waitForRender()
 	screen.press('\r')

@@ -87,11 +87,11 @@ it('renders the repair warning before the assistant reply', async () => {
 	)
 	mounted.push(harness)
 	const readyBy = Date.now() + 4_000
-	while (!(harness.lastFrame() ?? '').includes('test-model default') && Date.now() < readyBy) {
+	while (!(harness.lastFrame() ?? '').includes('test-model') && Date.now() < readyBy) {
 		await tick()
 	}
 	expect(harness.lastFrame(), 'App never reached its connected composer').toContain(
-		'test-model default',
+		'test-model',
 	)
 	harness.stdin.write('continue')
 	await tick()

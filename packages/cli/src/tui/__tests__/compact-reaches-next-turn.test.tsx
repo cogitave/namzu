@@ -317,7 +317,7 @@ it('puts the compacted summary in the next model request and the durable convers
 	holdAppend = true
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, 'a-model default')
+	await frameShows(harness, 'a-model')
 
 	await submit(harness, 'first question')
 	await frameShows(harness, 'answer-1')
@@ -362,7 +362,7 @@ it('restores a persisted compaction summary as model history', async () => {
 	]
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, 'a-model default')
+	await frameShows(harness, 'a-model')
 
 	await submit(harness, '/resume')
 	await frameShows(harness, 'Resume a conversation')
@@ -394,7 +394,7 @@ it('publishes the summary only after durable compaction settles without footer t
 	}
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
 	mountedScreens.push(screen)
-	await waitForScreen(screen, () => fullScreen(screen).includes('a-model default'))
+	await waitForScreen(screen, () => fullScreen(screen).includes('a-model'))
 
 	await submitToScreen(screen, 'question before durable compaction')
 	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
@@ -418,7 +418,7 @@ it('keeps footer telemetry quiet while a durable replacement is pending or rejec
 	holdReplacement = true
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
 	mountedScreens.push(screen)
-	await waitForScreen(screen, () => fullScreen(screen).includes('a-model default'))
+	await waitForScreen(screen, () => fullScreen(screen).includes('a-model'))
 
 	await submitToScreen(screen, 'question before rejected compaction')
 	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
@@ -439,7 +439,7 @@ it('keeps footer telemetry quiet when compaction has nothing to replace', async 
 	compactReturnsNull = true
 	const screen = await renderToScreen(<App ctx={ctx} />, { cols: 180, rows: 40 })
 	mountedScreens.push(screen)
-	await waitForScreen(screen, () => fullScreen(screen).includes('a-model default'))
+	await waitForScreen(screen, () => fullScreen(screen).includes('a-model'))
 
 	await submitToScreen(screen, 'short conversation')
 	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
@@ -460,7 +460,7 @@ it('shows automatic compaction before the next provider settles without footer t
 		rows: 40,
 	})
 	mountedScreens.push(screen)
-	await waitForScreen(screen, () => fullScreen(screen).includes('a-model default'))
+	await waitForScreen(screen, () => fullScreen(screen).includes('a-model'))
 
 	await submitToScreen(screen, 'fill the context')
 	await waitForScreen(screen, () => fullScreen(screen).includes('answer-1'))
@@ -480,7 +480,7 @@ it('keeps the original conversation on screen and in the next turn when retentio
 	archiveShouldFail = true
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, 'a-model default')
+	await frameShows(harness, 'a-model')
 	await submit(harness, 'ORIGINAL_USER_FACT')
 	await frameShows(harness, 'answer-1')
 	await submit(harness, '/compact')
@@ -496,7 +496,7 @@ it('keeps the live history unchanged when its durable replacement fails', async 
 	replaceShouldFail = true
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, 'a-model default')
+	await frameShows(harness, 'a-model')
 
 	await submit(harness, 'question before failed compaction')
 	await frameShows(harness, 'answer-1')
@@ -516,7 +516,7 @@ it('persists and reuses the model-visible form of a file mention', async () => {
 	mentionExpansion = { sendText: expanded, attached: ['note.txt'] }
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, 'a-model default')
+	await frameShows(harness, 'a-model')
 
 	await submit(harness, 'inspect @note.txt')
 	await frameShows(harness, 'answer-1')
@@ -537,7 +537,7 @@ it('refuses to compact a turn that is still producing its next message', async (
 	holdTurn()
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
-	await frameShows(harness, 'a-model default')
+	await frameShows(harness, 'a-model')
 
 	await submit(harness, 'a running question')
 	await waitUntil(() => sent.length === 1)

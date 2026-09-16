@@ -100,10 +100,10 @@ it('refuses before provider work or persistence instead of reviving the conversa
 	)
 	mounted.push(harness)
 	const readyBy = Date.now() + 4_000
-	while (!(harness.lastFrame() ?? '').includes('test-model default') && Date.now() < readyBy) {
+	while (!(harness.lastFrame() ?? '').includes('test-model') && Date.now() < readyBy) {
 		await tick()
 	}
-	expect(harness.lastFrame()).toContain('test-model default')
+	expect(harness.lastFrame()).toContain('test-model')
 
 	harness.stdin.write('do not run')
 	await tick()

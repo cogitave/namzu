@@ -33,6 +33,14 @@ const MAX_MODEL_LABEL_WIDTH = 24
  * when a detail exists, whether wrapping produced one row or the full budget.
  */
 const PHASE_DETAIL_LINE_BUDGET = 3
+/**
+ * Rows outside the cockpit's own box: the one-line brand header and the
+ * one-line composer footer below it (see StatusBar.tsx). A box shorter than
+ * `terminalRows` minus this leaves an unclaimed row that does not belong to
+ * anything — and an unclaimed row does not stay blank, it shows whatever
+ * transcript history was next in line to scroll off.
+ */
+const COCKPIT_CHROME_ROWS = 2
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 export interface AgentTaskPanelProps {
@@ -214,7 +222,7 @@ export function AgentCockpit({
 		return (
 			<Box
 				flexDirection="column"
-				height={Math.max(8, terminalRows - 3)}
+				height={Math.max(8, terminalRows - COCKPIT_CHROME_ROWS)}
 				borderStyle="single"
 				borderColor={theme.border.default}
 				paddingX={1}
@@ -273,7 +281,7 @@ export function AgentCockpit({
 	return (
 		<Box
 			flexDirection="column"
-			height={Math.max(8, terminalRows - 3)}
+			height={Math.max(8, terminalRows - COCKPIT_CHROME_ROWS)}
 			borderStyle="single"
 			borderColor={theme.border.default}
 			paddingX={1}

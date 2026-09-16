@@ -228,7 +228,7 @@ it('keeps live work, a multiline draft and controls reachable across terminal si
 	try {
 		await waitUntil(
 			screen,
-			() => screen.scrollback().join('\n').includes('fixture-model default'),
+			() => screen.scrollback().join('\n').includes('fixture-model'),
 			'App did not become ready',
 		)
 		capture.capture('idle-100x30')

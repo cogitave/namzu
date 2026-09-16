@@ -13,18 +13,43 @@ Namzu uses neutral text with phosphor-green accents on the terminal's own
 background. A two-row block-letter wordmark carries the opening identity, with a muted
 version beside it. Terminals narrower than 48 columns or shorter than 20 rows
 use the compact `∴ namzu` signature. The header is printed once
-into native scrollback. The footer alone shows the current model, reasoning
-effort and working directory, with interaction keys taking priority on narrow
-screens. Provider and tool details remain available through `/status` and
-`/status tools`. A normal startup does not add a redundant connection message
-to the conversation; explicit provider/model changes still receive confirmation.
-Switching models does not repeat the project-instructions notice when the loaded
-file list is unchanged. A newly loaded non-empty list is announced; instruction
-loading itself still runs for the replacement session.
+into native scrollback. Provider and tool details remain available through
+`/status` and `/status tools`. A normal startup does not add a redundant
+connection message to the conversation; explicit provider/model changes still
+receive confirmation. Switching models does not repeat the project-instructions
+notice when the loaded file list is unchanged. A newly loaded non-empty list is
+announced; instruction loading itself still runs for the replacement session.
 The composer owns the empty-conversation typing hint. Colors use
 explicit ANSI 256-color indices so the green accent and neutral text do not
 shift hue through RGB-to-palette approximation. Terminals with color disabled
 retain the same text, symbols and boundaries.
+
+## The composer footer
+
+One dim line sits directly below the message frame, with no blank row between
+them. On the left: the active permission mode, colored by mode (`accept-edits`
+and `auto` in the user accent, `strict` in the warn color, `plan` read-only)
+with its `⏵⏵`/`⏸` glyph and, when Shift+Tab actually cycles it here, the
+`(shift+tab to cycle)` reminder; a reasoning-effort override, when the operator
+has set one, beside it as `· effort <level>`; then the working directory. When
+the mode is the unremarkable default (`prompt`), the left side shows a quiet
+`shift+tab to cycle` in place of a badge, rather than a line that is present in
+every state and therefore read in none. On the right: an interaction hint or a
+durable goal when either is active, else the model identity — the same
+precedence the path used to defer to, now extended to the model. The footer is
+always exactly one row: on narrow screens the working directory shrinks and
+drops first (as it already did on the old status line — a path is recoverable,
+the mode is not), then the effort label, then the cycle-key reminder, then the
+model on the right is dropped entirely, and only as a last resort does the
+mode badge itself truncate. This single line replaces two things that used to
+be drawn
+separately: the permission-mode row that used to appear inside the message
+frame above the input, and the separate status line — model, effort, working
+directory left, goal or hint right — that used to sit one blank row below the
+frame. Transient notices (steering/queue counts, an `/effort` or model-switch
+confirmation) stay inside the message frame, above the input, where they were
+before; the delegated-work rail still renders between the frame and this
+footer while agents are live.
 
 ## Compact tool activity
 
@@ -61,8 +86,11 @@ limits add an explicit incomplete-search notice. See
 A square message frame marks the writing area. Green corners and the `MESSAGE`
 label identify the active input; its long edges stay quiet. The two frame rows
 take the place of vertical padding, so the frame adds no height to the previous
-input layout. The frame stays static while working. Opening a permission prompt
-or text/command picker hides it while keeping the composer mounted, so drafts
+input layout. The frame is a constant three rows regardless of the active
+permission mode — see [The composer footer](#the-composer-footer) for where
+the mode itself is drawn. The frame stays static while working. Opening a
+permission prompt or text/command picker hides it while keeping the composer
+mounted, so drafts
 and attachments survive the transition.
 
 The Working label itself has a repeating green fill and pale leading edge,

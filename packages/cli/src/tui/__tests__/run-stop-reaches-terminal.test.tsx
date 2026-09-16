@@ -82,7 +82,7 @@ it('shows missing usage rather than exhausted allowance for an unlimited run', a
 		{ cols: 100, rows: 30 },
 	)
 	try {
-		await until(screen, () => screen.viewport().join('\n').includes('stop-fixture default'))
+		await until(screen, () => screen.viewport().join('\n').includes('stop-fixture'))
 		await submit(screen, 'Inspect the current source.')
 		await until(screen, () => screen.viewport().join('\n').includes('could not be confirmed'))
 		expect(screen.viewport().join('\n')).not.toContain('allowance could not cover')
@@ -118,7 +118,7 @@ it.each([
 		{ cols: 100, rows: 30 },
 	)
 	try {
-		await until(screen, () => screen.viewport().join('\n').includes('stop-fixture default'))
+		await until(screen, () => screen.viewport().join('\n').includes('stop-fixture'))
 		await submit(screen, 'Inspect this repository.')
 		await until(screen, () => screen.viewport().join('\n').includes(notice))
 		const stopped = screen.viewport().join('\n')
@@ -149,7 +149,7 @@ it.each([undefined, 'end_turn', 'cancelled'] as const)(
 			{ cols: 100, rows: 30 },
 		)
 		try {
-			await until(screen, () => screen.viewport().join('\n').includes('stop-fixture default'))
+			await until(screen, () => screen.viewport().join('\n').includes('stop-fixture'))
 			await submit(screen, 'Inspect this repository.')
 			await until(screen, () => screen.viewport().join('\n').includes(partial))
 			await submit(screen, followup)

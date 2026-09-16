@@ -53,7 +53,7 @@ function bottomPinned(cwd: string) {
 }
 
 describe("the status bar on a real screen", () => {
-	it("puts model and effort on the left and the durable goal on the right", async () => {
+	it("puts the mode, effort and cwd on the left and the durable goal on the right", async () => {
 		const screen = await renderToScreen(
 			<Box flexDirection="column" height={ROWS}>
 				<Box flexGrow={1} />
@@ -64,15 +64,21 @@ describe("the status bar on a real screen", () => {
 					effort="xhigh"
 					goal="Goal stalled (/goal resume)"
 					state="idle"
+					permissionMode="plan"
+					canCycleMode
 				/>
 			</Box>,
 			{ cols: COLS, rows: ROWS },
 		);
 		try {
 			const row = screen.row(-1);
-			expect(row).toContain("gpt-5.6-sol xhigh · /home/dev/work/namzu");
+			expect(row).toContain("⏸ Plan (read-only) (shift+tab to cycle) · effort xhigh · ");
+			expect(row).toContain("work/namzu");
 			expect(row.trimEnd()).toMatch(/Goal stalled \(\/goal resume\)$/);
 			expect(row).not.toContain("Codex subscription");
+			// The goal wins the right-hand slot over the model, exactly as it won
+			// it over the path before the model moved to this side.
+			expect(row).not.toContain("gpt-5.6-sol");
 		} finally {
 			await screen.unmount();
 		}

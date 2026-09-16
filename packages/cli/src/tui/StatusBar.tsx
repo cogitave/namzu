@@ -1,56 +1,106 @@
 /**
- * One-line status footer.
+ * One-line composer footer, directly below the input box.
  *
- * Layout follows the operator's reading order: `model effort · cwd` on the
- * left, current goal or interaction status on the right. The right side owns
- * its columns first so a deep path cannot erase the key that exits a prompt.
+ * Left to right: the active permission mode (colored by mode, with its
+ * cycle key) or, when no special mode is active, a quiet reminder that the
+ * key exists; the reasoning effort beside it when the operator has set one;
+ * the working directory. Right-aligned: an interaction hint or a durable
+ * goal when either is active, else the model identity. The right side owns
+ * its columns first so a deep path or a long mode label cannot erase the key
+ * that exits a prompt.
  */
 
 import { Text, useWindowSize } from 'ink'
 
+import { type PermissionMode, permissionModeLabel } from '../permissions/mode.js'
 import { theme } from './theme.js'
 
 export interface StatusBarProps {
 	readonly cwd: string
 	readonly provider: string | null
 	readonly model: string | null
+	/** An explicit reasoning-effort override; omitted/undefined means the model's own default, which this footer does not name. */
 	readonly effort?: string | null
 	/** Ambient durable goal status; interaction hints take precedence. */
 	readonly goal?: string | null
 	readonly state: 'idle' | 'thinking' | 'tool' | 'awaiting-permission'
 	readonly hint?: string
+	/** The mode governing undecided tool calls. Omitted or 'prompt' shows the quiet cycle reminder instead of a badge. */
+	readonly permissionMode?: PermissionMode
+	/** Whether Shift+Tab actually reaches `permissionMode` here, so the footer never advertises a dead key. */
+	readonly canCycleMode?: boolean
 }
 
-export function StatusBar({ cwd, provider, model, effort, goal, state, hint }: StatusBarProps) {
+/** Icon, color and label for an active (non-default) permission mode. */
+function modeGlyph(
+	mode: PermissionMode,
+): { readonly icon: string; readonly color: string; readonly label: string } {
+	return {
+		icon: mode === 'accept-edits' || mode === 'auto' ? '⏵⏵' : '⏸',
+		color: mode === 'strict' ? theme.status.warn : theme.accent.user,
+		label: permissionModeLabel(mode),
+	}
+}
+
+const QUIET_MODE_HINT = 'shift+tab to cycle'
+const CYCLE_SUFFIX = ' (shift+tab to cycle)'
+
+export function StatusBar({
+	cwd,
+	provider,
+	model,
+	effort,
+	goal,
+	state,
+	hint,
+	permissionMode,
+	canCycleMode,
+}: StatusBarProps) {
 	const terminal = useWindowSize()
+	const activeMode =
+		permissionMode !== undefined && permissionMode !== 'prompt' ? modeGlyph(permissionMode) : null
 	const layout = fitStatusLine({
 		// App gives the footer one cell of horizontal padding on each side. Ink's
 		// stdout width is the whole terminal, so reserve those cells here rather
 		// than letting its final two characters be clipped after fitting succeeds.
 		columns: Math.max(0, terminal.columns - 2),
 		cwd: shortenCwd(cwd),
-		provider,
 		model,
-		effort: model ? (effort ?? 'default') : null,
+		provider,
+		effort: effort ?? null,
 		hint,
 		goal,
+		modeLabel: activeMode ? `${activeMode.icon} ${activeMode.label}` : QUIET_MODE_HINT,
+		cycleSuffix: activeMode && canCycleMode ? CYCLE_SUFFIX : null,
 	})
 	return (
 		<Text wrap="truncate-end">
-			{layout.primary ? (
-				<Text color={theme.text.primary} bold>
-					{layout.primary}
-				</Text>
+			{layout.mode ? (
+				<Text color={activeMode ? activeMode.color : theme.text.muted}>{layout.mode}</Text>
 			) : null}
-			{layout.effort ? <Text color={theme.text.secondary}> {layout.effort}</Text> : null}
+			{layout.cycleSuffix ? <Text color={theme.text.muted}>{layout.cycleSuffix}</Text> : null}
+			{layout.effort ? (
+				<>
+					<Text color={theme.text.muted}> · </Text>
+					<Text color={theme.text.secondary}>{layout.effort}</Text>
+				</>
+			) : null}
 			{layout.cwd ? (
 				<>
-					{layout.primary ? <Text color={theme.text.muted}> · </Text> : null}
+					<Text color={theme.text.muted}> · </Text>
 					<Text color={theme.text.secondary}>{layout.cwd}</Text>
 				</>
 			) : null}
 			<Text>{layout.gap}</Text>
-			<Text color={goal && !hint ? theme.accent.system : colorForState(state)}>{layout.right}</Text>
+			{layout.right.kind === 'text' ? (
+				<Text color={layout.right.isGoal ? theme.accent.system : colorForState(state)}>
+					{layout.right.text}
+				</Text>
+			) : layout.right.model ? (
+				<Text color={theme.text.primary} bold>
+					{layout.right.model}
+				</Text>
+			) : null}
 		</Text>
 	)
 }
@@ -96,20 +146,29 @@ export function shortenPathToFit(path: string, max: number): string {
 }
 
 export interface StatusLineLayout {
-	readonly primary: string | null
+	readonly mode: string | null
+	readonly cycleSuffix: string | null
 	readonly effort: string | null
 	readonly cwd: string | null
 	readonly gap: string
-	readonly right: string
+	readonly right:
+		| { readonly kind: 'text'; readonly text: string; readonly isGoal: boolean }
+		| { readonly kind: 'model'; readonly model: string | null }
 }
 
 /**
- * Fit the left identity around an authoritative right-side indicator.
+ * Fit the mode identity around an authoritative right-side indicator.
  *
  * A hint can be the only on-screen explanation of how to leave a prompt, and
  * a goal label is the durable work state the screenshot is meant to expose.
- * Both therefore reserve their width before a path does. The path shortens
- * from the left; effort then yields; the model is the last left-side fact.
+ * Both therefore reserve their width before the model identity does, exactly
+ * as they did before the model moved to this side. On the left, the mode
+ * badge is the whole point of this line and yields last: the working
+ * directory shrinks and drops first — a path is recoverable from `/status`
+ * and a deep worktree checkout should not be what costs the operator their
+ * only advertisement of Shift+Tab — then the effort label, then the cycle
+ * key reminder, then the model on the right is dropped entirely, and only
+ * then does the badge itself truncate.
  */
 export function fitStatusLine(input: {
 	readonly columns: number
@@ -119,43 +178,72 @@ export function fitStatusLine(input: {
 	readonly effort?: string | null
 	readonly hint?: string | undefined
 	readonly goal?: string | null | undefined
+	readonly modeLabel: string
+	readonly cycleSuffix?: string | null
 }): StatusLineLayout {
 	const columns = Math.max(0, input.columns)
-	let right = input.hint ?? input.goal ?? ''
+	const isGoal = Boolean(input.goal) && !input.hint
+	// `hint` can arrive as '' (no hint right now, as opposed to none ever
+	// wired up) — `??` does not treat that as absent, and an empty string
+	// would otherwise win the slot a model needs to fall through to.
+	let rightText: string | null = input.hint || input.goal || null
 	// Prefer the familiar Return symbol before cutting an action word in half.
-	if (input.hint && right.length > columns) right = right.replace(/\benter\b/g, '↵')
-	if (right.length > columns) right = shortenRightToFit(right, columns)
+	if (input.hint && rightText && rightText.length > columns) rightText = rightText.replace(/\benter\b/g, '↵')
+	if (rightText !== null && rightText.length > columns) rightText = shortenRightToFit(rightText, columns)
 
-	const primarySource = input.model ?? input.provider
-	let primary = primarySource
-	let effort = primary && input.model ? (input.effort ?? null) : null
+	let modelLabel: string | null = input.model ?? input.provider
+	const right = (): string => (rightText !== null ? rightText : (modelLabel ?? ''))
+
+	let gapWidth = right().length > 0 ? 1 : 0
+	let leftBudget = Math.max(0, columns - right().length - gapWidth)
+
+	let mode: string | null = input.modeLabel
+	let cycleSuffix: string | null = input.cycleSuffix ?? null
+	let effort: string | null = input.effort ? `effort ${input.effort}` : null
 	let cwd: string | null = input.cwd.length > 0 ? input.cwd : null
-	const gapWidth = right.length > 0 ? 1 : 0
-	const leftBudget = Math.max(0, columns - right.length - gapWidth)
 
 	const left = (): string => {
-		const identity = [primary, effort].filter((value): value is string => Boolean(value)).join(' ')
-		return [identity, cwd].filter((value): value is string => Boolean(value)).join(' · ')
+		const withMode = `${mode ?? ''}${cycleSuffix ?? ''}`
+		const withEffort = [withMode, effort].filter((value): value is string => Boolean(value)).join(' · ')
+		return [withEffort, cwd].filter((value): value is string => Boolean(value)).join(' · ')
 	}
 
 	if (left().length > leftBudget && cwd) {
-		const identityWidth = [primary, effort]
-			.filter((value): value is string => Boolean(value))
-			.join(' ').length
-		const room = leftBudget - identityWidth - (identityWidth > 0 ? 3 : 0)
+		const identityWidth = left().length - (cwd.length + 3)
+		const room = leftBudget - identityWidth - 3
 		cwd = room >= 8 ? shortenPathToFit(cwd, room) : null
 	}
-	if (left().length > leftBudget) effort = null
 	if (left().length > leftBudget) cwd = null
-	if (left().length > leftBudget && primary) {
-		primary = shortenRightToFit(primary, leftBudget)
+	if (left().length > leftBudget) effort = null
+	if (left().length > leftBudget) cycleSuffix = null
+	if (left().length > leftBudget && rightText === null && modelLabel !== null) {
+		// The model is the least essential fact once the mode line needs the
+		// room: it is recoverable from `/status`, and the mode is not.
+		modelLabel = null
+		gapWidth = 0
+		leftBudget = columns
 	}
-	if (left().length > leftBudget) primary = null
+	if (left().length > leftBudget && mode) {
+		mode = shortenRightToFit(mode, leftBudget)
+	}
+	if (left().length > leftBudget) mode = null
 
 	const leftWidth = left().length
-	const visibleGap = leftWidth > 0 && right.length > 0 ? 1 : 0
-	const gap = ' '.repeat(Math.max(visibleGap, columns - leftWidth - right.length))
-	return { primary, effort, cwd, gap, right }
+	const rightWidth = right().length
+	const visibleGap = leftWidth > 0 && rightWidth > 0 ? 1 : 0
+	const gap = ' '.repeat(Math.max(visibleGap, columns - leftWidth - rightWidth))
+
+	return {
+		mode,
+		cycleSuffix: mode ? cycleSuffix : null,
+		effort: mode ? effort : null,
+		cwd,
+		gap,
+		right:
+			rightText !== null
+				? { kind: 'text', text: rightText, isGoal }
+				: { kind: 'model', model: modelLabel },
+	}
 }
 
 /** Preserve both the status identity and its trailing key/action on tiny screens. */

@@ -7473,7 +7473,6 @@ export function App({
 							) : null}
 							<Composer
 								reasoningEffortLevels={session?.reasoningEffortLevels}
-								permissionMode={displayedPermissionMode}
 								onCycleMode={cyclePermissionMode}
 								disabled={
 									outputViewer !== null ||
@@ -7559,17 +7558,17 @@ export function App({
 						onClose={() => setOutputViewer(null)}
 					/>
 				) : null}
-				<Box paddingTop={1}>
-					<StatusBar
-						cwd={ctx.cwd}
-						provider={session?.providerSummary ?? null}
-						model={session?.modelSummary ?? null}
-						effort={reasoningEffort ?? 'default'}
-						goal={statusGoal}
-						state={state}
-						hint={statusHint}
-					/>
-				</Box>
+				<StatusBar
+					cwd={ctx.cwd}
+					provider={session?.providerSummary ?? null}
+					model={session?.modelSummary ?? null}
+					effort={reasoningEffort}
+					goal={statusGoal}
+					state={state}
+					hint={statusHint}
+					permissionMode={displayedPermissionMode}
+					canCycleMode
+				/>
 			</Box>
 		</Box>
 	)
