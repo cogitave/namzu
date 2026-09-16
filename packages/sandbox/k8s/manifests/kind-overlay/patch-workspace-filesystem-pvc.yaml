@@ -1,0 +1,63 @@
+# See patch-task-no-runtimeclass.yaml's header for why `containers` and
+# `volumeClaimTemplates` are given in full here rather than as sparse
+# diffs — both are array-valued keys under a JSON merge patch.
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: namzu-workspace
+  namespace: namzu-sandboxes
+spec:
+  podTemplate:
+    spec:
+      runtimeClassName: null
+      containers:
+        - name: agent
+          image: REPLACE_WITH_YOUR_REGISTRY/namzu-sandbox-agent:TAG
+          ports:
+            - name: agent
+              containerPort: 1024
+              protocol: TCP
+          securityContext:
+            privileged: true
+          env:
+            - name: NAMZU_AGENT_TCP_PORT
+              value: '1024'
+            - name: NAMZU_WORKSPACE_ROOT
+              value: /workspace
+            - name: NAMZU_AGENT_BIND_TOKEN
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+            # No NAMZU_WORKSPACE_DEVICE: the PVC below is Filesystem-mode,
+            # which kubelet mounts as a ready filesystem directly.
+            # entrypoint.sh's blkid/mkfs.ext4/mount branch only runs when
+            # this variable names an actual block device, so leaving it
+            # unset skips that branch cleanly — nothing to disable.
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          # A normal filesystem mount, not `volumeDevices` — the base
+          # manifest's raw-block wiring does not apply to this overlay's
+          # PVC at all.
+          volumeMounts:
+            - name: workspace-disk
+              mountPath: /workspace
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace-disk
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        # The base manifest's whole reason to exist (a raw block device
+        # entrypoint.sh formats and mounts itself) does not hold on kind:
+        # `standard` (rancher.io/local-path) cannot provision `Block` at
+        # all — the PVC stays `Pending` forever. `Filesystem` is what
+        # local-path actually provisions.
+        volumeMode: Filesystem
+        storageClassName: standard
+        resources:
+          requests:
+            storage: 5Gi

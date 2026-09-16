@@ -1,0 +1,29 @@
+# SandboxWarmPool feeding namzu-task (sandboxtemplate-task.yaml). This is
+# what keeps `create()`'s p50 sub-second: a `SandboxClaim` adopts an
+# already-Ready replica from here instead of waiting out a cold Sandbox
+# boot. `packages/sandbox/k8s/scripts/acquire-p50.mjs` measures the
+# adopt-from-warm path against whatever `replicas` this is set to.
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxWarmPool
+metadata:
+  name: namzu-task-pool
+  namespace: namzu-sandboxes
+spec:
+  sandboxTemplateRef:
+    name: namzu-task
+  # Tune to expected concurrent task load; each replica is a live,
+  # billed, Kata-isolated pod sitting idle until claimed. The kind overlay
+  # (../kind-overlay/) pins this down to 2 for a lightweight local smoke
+  # run — see its own kustomization.yaml.
+  replicas: 3
+  updateStrategy:
+    # `OnReplenish` (the CRD default, named here anyway so the choice is
+    # visible rather than inherited silently): an edited template does NOT
+    # touch an already-running pooled replica — it only takes effect as
+    # each one is claimed and the pool replenishes behind it. `Recreate`
+    # deletes and recreates every unclaimed replica IMMEDIATELY on a
+    # template edit, which for THIS template costs nothing extra (no
+    # disk), but is the wrong default to copy onto a disk-bearing pool: see
+    # sandboxtemplate-workspace.yaml's own header for why a persistent
+    # workspace is never pooled at all, precisely to avoid that cascade.
+    type: OnReplenish

@@ -1,0 +1,84 @@
+# Standalone, operator-applied core NetworkPolicy — the PRIMARY boundary on
+# every sandbox this backend creates (docs/sdk/kubernetes-sandbox.md#the-
+# agent-credential: "the primary boundary is the NetworkPolicy ingress rule
+# restricting the agent port to the host's own pods; the bind token is
+# defence-in-depth"). This backend never creates or edits this object
+# itself — same operator-applies-the-boundary precedent as the docker
+# backend's network — it only verifies one exists and matches, and only
+# when `config.egress` is set (see below).
+#
+# BEFORE APPLYING: replace `namzu.ai/component: host` with the actual label
+# your namzu host Deployment's pods carry — see sandboxtemplate-task.yaml's
+# own header comment, which needs the identical fix for its inline
+# `networkPolicy` block.
+#
+# NOT the same object as packages/sandbox/src/backends/kubernetes/
+# egress-policy.ts's own verified target. That module's
+# `verifyEgressPolicyApplied` only runs when the backend's `config.egress`
+# is configured, GETs an EGRESS-ONLY object named `<sandboxTemplateName>
+# -egress` (e.g. `namzu-task-egress`), and checks a podSelector matching
+# ONE template's label value plus `policyTypes: ['Egress']` exactly — see
+# docs/sdk/kubernetes-sandbox.md#egress for that shape. This file is the
+# baseline that applies REGARDLESS of whether `config.egress` is ever set,
+# selects every sandbox this backend produces from EITHER SandboxTemplate
+# by label existence rather than one template's specific value, and covers
+# ingress too. If you DO set `config.egress`, apply that second, narrower
+# object as well — NetworkPolicies selecting the same pods union their
+# allow-lists, they do not replace each other, so the two compose rather
+# than conflict.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: namzu-sandbox-baseline
+  namespace: namzu-sandboxes
+spec:
+  # Every pod this backend creates carries this label, whichever
+  # SandboxTemplate built it — packages/sandbox/src/backends/kubernetes/
+  # objects.ts's `sandboxTemplateLabel()` — so `Exists` rather than a
+  # specific `matchLabels` value covers namzu-task AND namzu-workspace (and
+  # any template added later) with one object instead of one per template.
+  podSelector:
+    matchExpressions:
+      - key: sandbox.namzu.ai/template
+        operator: Exists
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Default-deny ingress except this one rule: only the namzu host's own
+    # pods, only on the guest agent's port. Nothing else reaches a sandbox
+    # pod inbound at all — not another tenant's sandbox, not another
+    # namespace, nothing.
+    - from:
+        - podSelector:
+            matchLabels:
+              namzu.ai/component: host
+      ports:
+        - protocol: TCP
+          port: 1024
+  egress:
+    # DNS. Every sandbox needs to resolve names for anything it is allowed
+    # to reach at all.
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    # TODO: this deployment's allowed egress destinations. The placeholder
+    # below is an RFC 5737 documentation range (guaranteed non-routable) so
+    # an operator who forgets to edit this gets a sandbox that can resolve
+    # names and reach nothing real, rather than one that silently reaches
+    # everything.
+    - to:
+        - ipBlock:
+            cidr: 203.0.113.0/24
+      ports:
+        - protocol: TCP
+          port: 443

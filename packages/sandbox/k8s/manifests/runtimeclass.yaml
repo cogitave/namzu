@@ -1,0 +1,27 @@
+# RuntimeClass for the Kata boundary the `microvm` / `kubernetes` backend's
+# docs page (docs/sdk/kubernetes-sandbox.md) promises: a hardware-virtualized
+# guest per Sandbox, not a namespace.
+#
+# CONFIRM `metadata.name` AGAINST THE CLUSTER BEFORE APPLYING. It is NOT
+# trusted here: the registered name has drifted between published sources
+# (kata-deploy's own docs, cloud-provider Kata add-ons, and the
+# `containerRuntimeClass` a given kata-containers release ships all disagree
+# with each other over time), and a `SandboxTemplate` naming one that does
+# not exist fails at pod admission, not at apply time. Run:
+#
+#   kubectl get runtimeclass
+#
+# and use whatever name that lists — the value below (`kata-qemu`) is one
+# real name kata-deploy has shipped, not this repo's authority on the
+# question. `manifests/sandboxtemplate-task.yaml` and
+# `sandboxtemplate-workspace.yaml` both reference this same name; change it
+# in one place is change it in three.
+apiVersion: node.k8s.io/v1
+kind: RuntimeClass
+metadata:
+  name: kata-qemu
+# The container runtime's own handler name for this class — kata-deploy
+# registers containerd/CRI-O shims under names that also vary by release;
+# confirm this alongside metadata.name with the same `kubectl get
+# runtimeclass -o yaml` read.
+handler: kata-qemu

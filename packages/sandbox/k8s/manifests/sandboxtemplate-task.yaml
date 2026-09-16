@@ -1,0 +1,151 @@
+# SandboxTemplate for task sandboxes: no disk, claimed out of the
+# `SandboxWarmPool` this template feeds (see sandboxwarmpool.yaml) or built
+# directly by a pool-less `create()`.
+#
+# BEFORE APPLYING:
+#   - Replace `image` with the built image (see ../README.md "Build and
+#     push the image").
+#   - Confirm `runtimeClassName` against the cluster: `kubectl get
+#     runtimeclass` — see runtimeclass.yaml's own header comment.
+#   - Replace every `namzu.ai/component: host` selector (here and in
+#     networkpolicy.yaml) with the actual label your namzu host Deployment's
+#     pods carry. As shipped it selects nothing, which is a closed door,
+#     not an open one — safe by default, but the host cannot reach an agent
+#     port until this is fixed.
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: namzu-task
+  namespace: namzu-sandboxes
+spec:
+  # A pod, not a bare command: this backend copies THIS podTemplate
+  # verbatim into a pool-less Sandbox's spec (packages/sandbox/src/backends
+  # /kubernetes/index.ts's `readSandboxTemplate` / `buildSandboxBody`), and
+  # a `SandboxWarmPool` referencing this template builds its own replicas
+  # from it directly — so everything below applies identically to a warm
+  # (pooled) sandbox and a cold (direct) one.
+  podTemplate:
+    metadata:
+      labels:
+        # The label packages/sandbox/src/backends/kubernetes/objects.ts's
+        # `sandboxTemplateLabel()` writes onto a pool-less Sandbox's pod, so
+        # a translated egress NetworkPolicy's podSelector matches BOTH a
+        # cold sandbox this backend POSTs directly AND a warm one this
+        # pool's replicas already carry from this same podTemplate. The
+        # value MUST equal this SandboxTemplate's own `metadata.name` —
+        # nothing computes or checks that equality for you.
+        sandbox.namzu.ai/template: namzu-task
+    spec:
+      # CONFIRM against the cluster before applying — see this repo's
+      # runtimeclass.yaml. A wrong name here fails pod admission, not
+      # `kubectl apply`.
+      runtimeClassName: kata-qemu
+      # Short: the guest agent (packages/sandbox/agent/agent.cjs) now exits
+      # promptly on SIGTERM (closes its listener and calls `process.exit(0)`
+      # itself — see the module's SIGTERM handler) instead of riding out the
+      # default grace period, which used to be the only thing standing
+      # between a delete and a clean pod removal. Kept non-zero rather than
+      # 0 so an exec genuinely still in flight gets a moment rather than an
+      # immediate SIGKILL.
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: agent
+          # Replace with the image this repo's Dockerfile builds — see
+          # ../README.md.
+          image: REPLACE_WITH_YOUR_REGISTRY/namzu-sandbox-agent:TAG
+          ports:
+            - name: agent
+              containerPort: 1024
+              protocol: TCP
+          securityContext:
+            # Required for entrypoint.sh's mkfs/mount step, which runs
+            # before it drops every capability via `setpriv` and execs into
+            # the agent — see k8s/entrypoint.sh and k8s/Dockerfile's own
+            # header comments for the full sequence.
+            #
+            # This task template mounts no device (no
+            # NAMZU_WORKSPACE_DEVICE below), so entrypoint.sh's mount
+            # branch never runs and `privileged` buys this pod nothing at
+            # runtime — it is here so ONE image and ONE entrypoint serve
+            # both this template and sandboxtemplate-workspace.yaml, which
+            # does need it. The acquire-time privilege probe
+            # (../../src/backends/kubernetes/privilege-probe.ts) is what
+            # actually proves the AGENT process — after setpriv — carries
+            # none of this: CapBnd/CapEff/CapInh/CapPrm all zero,
+            # NoNewPrivs 1, checked on every single acquire rather than
+            # trusted from this manifest.
+            privileged: true
+          env:
+            - name: NAMZU_AGENT_TCP_PORT
+              value: '1024'
+            - name: NAMZU_WORKSPACE_ROOT
+              value: /workspace
+            - name: NAMZU_AGENT_BIND_TOKEN
+              # The pod's OWN uid, read off the downward API — NEVER a
+              # value this manifest invents, and NEVER shared across pooled
+              # replicas. A shared secret baked in here would turn one
+              # workload's compromise into every pooled instance's
+              # compromise; a per-instance token limits a theft to the one
+              # sandbox it was stolen from — see
+              # docs/sdk/kubernetes-sandbox.md#the-agent-credential for what
+              # this credential does and does not protect against. NEVER
+              # trust-on-first-use a value some other channel invents: the
+              # host reads this exact field back from the bound pod's own
+              # `metadata.uid` before it ever dials, so the two sides agree
+              # on the same source of truth by construction.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+      # No env beyond the four keys above is ever injected by a
+      # SandboxClaim — that would force a cold start (see
+      # envVarsInjectionPolicy's default `Disallowed`, unchanged here on
+      # purpose) and defeats the sub-second warm-acquire this template's
+      # pool exists for. Anything a task needs beyond this set belongs in
+      # the image, not in claim-time env.
+  # Reachable at `<name>.<namespace>.svc.cluster.local` — what
+  # `status.sandbox.serviceFQDN` reports back and what the host's transport
+  # dials, so a resumed/rebound pod's new address costs nothing extra.
+  service: true
+  # Enforced independently by agent-sandbox's own controller (translated
+  # into ITS OWN managed NetworkPolicy object) as a SECOND, earlier layer —
+  # it applies at pod admission, before this backend's own `create()` ever
+  # runs its verify-not-trust GET against the STANDALONE
+  # `networkpolicy.yaml` this repo also ships (see that file's header for
+  # why the two are not the same object and are not required to have the
+  # same name). Keep both in sync by hand; nothing cross-checks them.
+  networkPolicyManagement: Managed
+  networkPolicy:
+    ingress:
+      - from:
+          # REPLACE with your namzu host Deployment's own pod label.
+          - podSelector:
+              matchLabels:
+                namzu.ai/component: host
+        ports:
+          - protocol: TCP
+            port: 1024
+    egress:
+      # DNS only. `networkPolicyManagement: Managed`'s own baseline
+      # (RFC1918 + the cloud metadata address) still applies underneath
+      # this; this list is what a pod carrying this template's label is
+      # allowed to reach BEYOND that baseline. A deployment that reaches
+      # more than DNS from inside a sandbox adds those destinations here
+      # AND to networkpolicy.yaml's egress list.
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+            podSelector:
+              matchLabels:
+                k8s-app: kube-dns
+        ports:
+          - protocol: UDP
+            port: 53
+          - protocol: TCP
+            port: 53

@@ -1,0 +1,44 @@
+# Merge patch against a CRD (agent-sandbox ships no OpenAPI schema for
+# strategic-merge, so kustomize falls back to RFC 7396 JSON merge patch
+# here): an object key recurses and merges; an array key is REPLACED
+# wholesale by whatever value this file gives it. `containers` is
+# therefore given in full below, not as a sparse diff — anything left out
+# of it would be dropped, not merely left alone.
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: namzu-task
+  namespace: namzu-sandboxes
+spec:
+  podTemplate:
+    spec:
+      # `null` deletes the key under a JSON merge patch — kind has no Kata
+      # RuntimeClass to name (see this overlay's own kustomization.yaml).
+      runtimeClassName: null
+      containers:
+        - name: agent
+          image: REPLACE_WITH_YOUR_REGISTRY/namzu-sandbox-agent:TAG
+          ports:
+            - name: agent
+              containerPort: 1024
+              protocol: TCP
+          securityContext:
+            # Buys nothing extra without a VM boundary underneath it, kept
+            # only so entrypoint.sh runs the identical sequence it runs in
+            # production rather than a kind-only special case.
+            privileged: true
+          env:
+            - name: NAMZU_AGENT_TCP_PORT
+              value: '1024'
+            - name: NAMZU_WORKSPACE_ROOT
+              value: /workspace
+            - name: NAMZU_AGENT_BIND_TOKEN
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi

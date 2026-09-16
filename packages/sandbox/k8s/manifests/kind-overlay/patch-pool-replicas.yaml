@@ -1,0 +1,10 @@
+# A small, fixed pool for a local smoke run — see the base manifest
+# (../sandboxwarmpool.yaml) for the production-sizing default this
+# overrides.
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxWarmPool
+metadata:
+  name: namzu-task-pool
+  namespace: namzu-sandboxes
+spec:
+  replicas: 2

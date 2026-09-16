@@ -1832,6 +1832,19 @@ async function main() {
 			console.error('[namzu-fc-agent] re-listen on resume failed:', err?.message)
 		})
 	})
+	// Kubernetes tier only, but harmless everywhere: this process is PID 1
+	// inside a pod's own PID namespace (`k8s/entrypoint.sh` `exec`s straight
+	// into it, no init in between), and a signal whose default action is
+	// "terminate" is left un-applied by the kernel for PID 1 unless the
+	// process installs its own handler — with none registered, SIGTERM did
+	// nothing and the pod rode out the full `terminationGracePeriodSeconds`
+	// before SIGKILL. No drain: an in-flight exec or open terminal gets no
+	// grace window, the same "gone" a caller already has to handle from a
+	// pod the cluster removed out from under it.
+	process.on('SIGTERM', () => {
+		if (server) server.close()
+		process.exit(0)
+	})
 }
 
 // Export the pure pieces so the vitest loopback peer can drive the

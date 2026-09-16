@@ -19,8 +19,9 @@ hardware-virtualized guest rather than a namespace.
 
 Acquire, readiness, address resolution, the execution surface, teardown,
 egress translation/verification and [persistent workspaces](#persistent-workspaces)
-are implemented. The cluster manifests are not — see
-[what is not here yet](#what-is-not-here-yet).
+are all implemented, and so are the cluster artifacts — the image, its
+entrypoint, the manifests and the acceptance scripts — under
+[`packages/sandbox/k8s/`](#deployment).
 
 ## Configure a provider
 
@@ -183,6 +184,11 @@ request envelope.
 | `setNetworkPolicy` | **Omitted** | Egress here is a `NetworkPolicy` attached to the pool's `SandboxTemplate`; there is no per-running-pod knob. The SDK's contract says a backend that cannot enforce one must omit it rather than accept it and quietly not apply it. |
 | `spawnDetached` | **Omitted** | The guest agent has no op that starts a process and hands it back running. A host that needs background jobs is told no. |
 | `walkFiles` | **Omitted** | Not in this batch. A host requiring bounded search refuses an absent method, which is the honest answer today. |
+
+A confirmed `exec` cancellation resolves with the terminal signal/exit code
+the shared `RemoteExecutionController` observed, exactly as the Firecracker
+tier's own `exec` does — the same contract, the same controller, a different
+transport underneath it.
 
 ### Two ways a sandbox ends
 
@@ -490,7 +496,8 @@ The controller wires the disk by the entry's own name, StatefulSet style: it
 creates the PVC as `<entry name>-<sandbox name>` and matches it against the
 container's `volumeDevices`, so the copied podTemplate needs no `volumes:`
 entry. The image's entrypoint formats the raw device once and mounts it — see
-[what is not here yet](#what-is-not-here-yet) for where that entrypoint lives.
+[deployment](#deployment) for where that entrypoint lives
+(`packages/sandbox/k8s/entrypoint.sh`).
 
 ### A workspace carries no lease
 
@@ -830,15 +837,34 @@ the verb and the resource and never the token.
 `create`/`get`/`patch`/`delete` on `sandboxes`, `get` on `sandboxtemplates`
 and `get`/`list` on `pods`, which the task path already required.
 
-## What is not here yet
+## Deployment
 
-The config type, both acquire paths, readiness, address resolution, the
-execution surface, the privilege probe, the lease, teardown, egress
-translation/verification and the workspace lifecycle are all implemented.
-Still to come:
+The cluster artifacts the rest of this page assumes are under
+`packages/sandbox/k8s/` (never published — the package's `files` array
+packs only `dist` and `src`; `npm pack --dry-run` from `packages/sandbox`
+confirms it): the guest image (`k8s/Dockerfile`, `k8s/entrypoint.sh` — root
+formats and mounts a workspace's raw block device, then `exec`s into
+`setpriv` and drops every capability before the guest agent ever runs), the
+`RuntimeClass` / `SandboxTemplate` / `SandboxWarmPool` / `NetworkPolicy` /
+RBAC manifests (`k8s/manifests/`, plus a `kind-overlay/` for local
+development — explicitly **not** a security boundary, see that overlay's
+own header comment), and five scripts under `k8s/scripts/` that each
+measure one acceptance criterion below against a live cluster and print a
+`[PASS]`/`[FAIL]` line plus the measured number. `k8s/README.md` has the
+full apply order and the RuntimeClass confirmation step — its registered
+name has drifted between published sources and must be read off
+`kubectl get runtimeclass`, never trusted from a file in this repo.
 
-- **Cluster manifests.** The image, its entrypoint (which formats and mounts a
-  workspace's raw block device before dropping privileges), the
-  `RuntimeClass`, `SandboxTemplate`, `SandboxWarmPool`, `NetworkPolicy` and
-  RBAC everything above assumes. Until they land, a deployment writes its own
-  — the requirements this page states are the contract they have to meet.
+### Acceptance numbers
+
+To be gathered on a Kata cluster. Every row below is currently unfilled;
+the script named is what fills it in, and `k8s/README.md` says how to run
+each one.
+
+| Criterion | Script | Target | Measured | Date | Cluster |
+|---|---|---|---|---|---|
+| 1. The Sandbox contract passes against a live sandbox | `k8s/scripts/contract-suite.mjs` | every case passes | — | — | — |
+| 2. Warm-pool acquire latency | `k8s/scripts/acquire-p50.mjs` | p50 < 1s | — | — | — |
+| 3. A workspace's disk survives suspend/resume | `k8s/scripts/suspend-resume.mjs` | pass | — | — | — |
+| 4. Small-file IO on the block PVC vs. host ext4 | `k8s/scripts/io-compare.mjs` | ≤ 1.5x | — | — | — |
+| 5. The guest is genuinely deprivileged | `k8s/scripts/capability-check.mjs` | pass | — | — | — |

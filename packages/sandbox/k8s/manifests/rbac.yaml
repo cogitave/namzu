@@ -1,0 +1,71 @@
+# ServiceAccount + Role + RoleBinding for the namzu host process that
+# constructs `createSandboxProvider({ backend: { tier: 'microvm', service:
+# 'kubernetes', access: { inCluster: true }, ... } })` and runs the
+# acceptance scripts under ../scripts/. Namespace-scoped on purpose — no
+# ClusterRole, no wildcard verb, exactly the verbs actually issued.
+#
+# No consumer role is published upstream by agent-sandbox itself; this is
+# this repo's own minimal grant, read off two places:
+#   - The backend's own call sites (packages/sandbox/src/backends/
+#     kubernetes/{index,workspace,egress-policy}.ts via k8s-client.ts):
+#     sandboxclaims create/get/patch/delete, sandboxes create/get/patch/
+#     delete, sandboxtemplates get, pods get/list, and — only when a
+#     deployment configures `config.egress` — networkpolicies get (or, under
+#     `engine: 'cilium'`, ciliumnetworkpolicies get instead; NOT granted
+#     below since the default engine needs the core group only — add it by
+#     hand if this cluster's egress engine is Cilium).
+#   - ../scripts/acquire-p50.mjs's own diagnostic: it reads the
+#     SandboxWarmPool's `status.readyReplicas` before timing so a cold,
+#     still-warming pool cannot masquerade as a fast acquire. That read goes
+#     directly to the API server (the CRD's status subresource is not part
+#     of `@namzu/sandbox`'s own public surface), which is the ONLY reason
+#     `sandboxwarmpools: get` is granted here — the shipped backend code
+#     itself never reads a SandboxWarmPool object.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: namzu-sandbox-host
+  namespace: namzu-sandboxes
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: namzu-sandbox-host
+  namespace: namzu-sandboxes
+rules:
+  - apiGroups: [extensions.agents.x-k8s.io]
+    resources: [sandboxclaims]
+    verbs: [create, get, patch, delete]
+  - apiGroups: [agents.x-k8s.io]
+    resources: [sandboxes]
+    verbs: [create, get, patch, delete]
+  - apiGroups: [extensions.agents.x-k8s.io]
+    resources: [sandboxtemplates]
+    verbs: [get]
+  # See the header comment: granted for ../scripts/acquire-p50.mjs's
+  # readiness check, not for the shipped backend.
+  - apiGroups: [extensions.agents.x-k8s.io]
+    resources: [sandboxwarmpools]
+    verbs: [get]
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list]
+  # Only exercised when a deployment sets `config.egress` — see the header
+  # comment for the Cilium alternative this does NOT cover.
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: namzu-sandbox-host
+  namespace: namzu-sandboxes
+subjects:
+  - kind: ServiceAccount
+    name: namzu-sandbox-host
+    namespace: namzu-sandboxes
+roleRef:
+  kind: Role
+  name: namzu-sandbox-host
+  apiGroup: rbac.authorization.k8s.io

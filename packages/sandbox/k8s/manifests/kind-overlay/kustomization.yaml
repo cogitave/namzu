@@ -1,0 +1,42 @@
+# Local kind development overlay — NOT for any real deployment.
+#
+# kind's stock control plane ships no Kata RuntimeClass (`kubectl get
+# runtimeclass` returns nothing on a fresh `kind create cluster`) and its
+# default StorageClass (`standard`, rancher.io/local-path) cannot provision
+# `volumeMode: Block` — the PVC just stays `Pending` forever. This overlay
+# exists so the manifests can still be exercised end to end on a local kind
+# cluster: it drops `runtimeClassName` everywhere (pods run as plain
+# namespaced containers, no VM boundary — see the loud warning below),
+# converts the workspace disk to an ordinary `Filesystem`-mode PVC kind's
+# provisioner CAN satisfy, and pins the warm pool to a small replica count.
+#
+# THIS IS NOT A SECURITY BOUNDARY. Without a RuntimeClass, "isolation" here
+# is whatever plain container namespaces give you — which is exactly why
+# `runtimeclass.yaml` is not even in this overlay's resource list; there is
+# nothing for it to register. Use this overlay only to develop and smoke-
+# test the plumbing (claim → bind → exec, suspend/resume, egress shape)
+# against a real API server, never as a stand-in for the acceptance run
+# against a genuine Kata cluster the five ../scripts/ measure.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - ../sandboxtemplate-task.yaml
+  - ../sandboxtemplate-workspace.yaml
+  - ../sandboxwarmpool.yaml
+  - ../networkpolicy.yaml
+  - ../rbac.yaml
+
+patches:
+  - path: patch-task-no-runtimeclass.yaml
+  - path: patch-workspace-filesystem-pvc.yaml
+  - path: patch-pool-replicas.yaml
+
+# Rewrite the shared placeholder image reference to whatever this kind
+# cluster actually loaded — e.g. after `kind load docker-image
+# namzu-sandbox-agent:kind-dev --name namzu`. `newTag`/`newName` are the
+# placeholders THIS overlay owns; edit them, not the patches above.
+images:
+  - name: REPLACE_WITH_YOUR_REGISTRY/namzu-sandbox-agent
+    newName: namzu-sandbox-agent
+    newTag: kind-dev

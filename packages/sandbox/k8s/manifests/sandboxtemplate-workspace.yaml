@@ -1,0 +1,124 @@
+# SandboxTemplate for PERSISTENT workspaces: a block-mode disk baked into
+# `volumeClaimTemplates` from creation. `createKubernetesWorkspace()`
+# (packages/sandbox/src/backends/kubernetes/workspace.ts) POSTs a `Sandbox`
+# directly from this template — NEVER through a `SandboxClaim`, and this
+# template is therefore NEVER referenced by a `SandboxWarmPool` either.
+# Both restrictions are the same fact twice: `volumeClaimTemplates` is
+# CEL-immutable on a `Sandbox`, and a claim carrying one is forced to
+# cold-start upstream, so "diskless pool, attach a disk to it later" is not
+# expressible in this API at all — see
+# docs/sdk/kubernetes-sandbox.md#the-disk-is-fixed-at-creation-and-must-be-block.
+#
+# BEFORE APPLYING, in addition to sandboxtemplate-task.yaml's own list:
+#   - `storageClassName` MUST provision `volumeMode: Block`. The default
+#     StorageClass on a stock kind cluster (`standard`, rancher.io/local-path)
+#     CANNOT — the PVC stays Pending forever. Confirm with `kubectl get
+#     storageclass` and a real cluster's CSI driver docs.
+#   - `resources.requests.storage` is a placeholder; size for the largest
+#     workspace this deployment expects to run, since it is set once at
+#     creation and resizing an existing workspace's disk is out of scope
+#     (see the docs page).
+apiVersion: extensions.agents.x-k8s.io/v1beta1
+kind: SandboxTemplate
+metadata:
+  name: namzu-workspace
+  namespace: namzu-sandboxes
+spec:
+  podTemplate:
+    metadata:
+      labels:
+        # Same label, same rule as sandboxtemplate-task.yaml: MUST equal
+        # this SandboxTemplate's own `metadata.name`.
+        sandbox.namzu.ai/template: namzu-workspace
+    spec:
+      runtimeClassName: kata-qemu
+      terminationGracePeriodSeconds: 5
+      containers:
+        - name: agent
+          image: REPLACE_WITH_YOUR_REGISTRY/namzu-sandbox-agent:TAG
+          ports:
+            - name: agent
+              containerPort: 1024
+              protocol: TCP
+          securityContext:
+            # Load-bearing here, unlike on the task template: this pod DOES
+            # mount a device (NAMZU_WORKSPACE_DEVICE below), so
+            # entrypoint.sh's blkid/mkfs.ext4/mount sequence actually runs
+            # and needs CAP_SYS_ADMIN before it drops every capability and
+            # execs into the agent. See k8s/entrypoint.sh.
+            privileged: true
+          env:
+            - name: NAMZU_AGENT_TCP_PORT
+              value: '1024'
+            - name: NAMZU_WORKSPACE_ROOT
+              value: /workspace
+            - name: NAMZU_WORKSPACE_DEVICE
+              # Must equal the volumeDevices entry's devicePath below.
+              # entrypoint.sh formats it with mkfs.ext4 ONLY the first time
+              # (blkid reports no filesystem yet) and mounts it at
+              # NAMZU_WORKSPACE_ROOT on every boot after that, including
+              # every resume — see entrypoint.sh's header comment for why
+              # an unconditional mkfs here would be the single most
+              # destructive possible bug in this whole backend.
+              value: /dev/namzu-workspace
+            - name: NAMZU_AGENT_BIND_TOKEN
+              # Same rule as the task template: the pod's own uid, never a
+              # value this manifest invents or shares across instances. A
+              # workspace is never pooled, so there is no "shared replica"
+              # to worry about here either way, but the rule does not bend
+              # for that — see sandboxtemplate-task.yaml's own comment.
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.uid
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 512Mi
+          # Kubernetes wires a raw block PVC to the container by
+          # `volumeDevices`, not `volumeMounts` — no filesystem exists on it
+          # yet for the kubelet to mount; `entrypoint.sh` is what puts one
+          # there. `name` matches `volumeClaimTemplates[].metadata.name`
+          # below directly (StatefulSet-style implicit binding) — no
+          # `volumes:` entry is needed or accepted here.
+          volumeDevices:
+            - name: workspace-disk
+              devicePath: /dev/namzu-workspace
+  service: true
+  volumeClaimTemplates:
+    - metadata:
+        name: workspace-disk
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        volumeMode: Block
+        # REPLACE with a StorageClass that provisions Block volumes on
+        # this cluster.
+        storageClassName: REPLACE_WITH_A_BLOCK_CAPABLE_STORAGECLASS
+        resources:
+          requests:
+            storage: 10Gi
+  networkPolicyManagement: Managed
+  networkPolicy:
+    ingress:
+      - from:
+          - podSelector:
+              matchLabels:
+                namzu.ai/component: host
+        ports:
+          - protocol: TCP
+            port: 1024
+    egress:
+      - to:
+          - namespaceSelector:
+              matchLabels:
+                kubernetes.io/metadata.name: kube-system
+            podSelector:
+              matchLabels:
+                k8s-app: kube-dns
+        ports:
+          - protocol: UDP
+            port: 53
+          - protocol: TCP
+            port: 53
