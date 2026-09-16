@@ -49,6 +49,7 @@ import type {
 	SandboxExecOptions,
 	SandboxExecResult,
 	SandboxFileEntry,
+	SandboxReadFileOptions,
 	SandboxStatus,
 	SandboxWalkFilesOptions,
 } from '@namzu/sdk'
@@ -635,12 +636,26 @@ async function spawnAciSandbox(
 				}
 			},
 
-			async readFile(path: string): Promise<Buffer> {
+			/**
+			 * Refused rather than answered whole when a range is asked for —
+			 * the worker has no range op, and {@link Sandbox.readFile} says a
+			 * backend that takes `offset`/`length` and hands back everything
+			 * has given a wrong answer, not a degraded one. `options.signal`
+			 * is honoured — one HTTP request is the whole read, so the signal
+			 * goes to `fetch`.
+			 */
+			async readFile(path: string, options?: SandboxReadFileOptions): Promise<Buffer> {
 				assertActive()
+				if (options?.offset !== undefined || options?.length !== undefined) {
+					throw new Error(
+						'readFile: the standby-pool worker serves whole files only, so offset/length cannot be honoured. Read the file whole, or use a backend that streams.',
+					)
+				}
 				const res = await fetch(`${baseUrl}/read-file`, {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify({ path, encoding: 'base64' }),
+					signal: options?.signal,
 				})
 				if (!res.ok) {
 					throw new Error(`read-file failed: HTTP ${res.status} ${await res.text()}`)

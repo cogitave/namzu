@@ -166,6 +166,7 @@ import type {
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxId,
+	SandboxReadFileOptions,
 	SandboxStatus,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
@@ -573,6 +574,14 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * and `grep` builtins refuse a sandbox that omits it.
 	 */
 	walkFiles(rootPath: string, options: SandboxWalkFilesOptions): AsyncIterable<SandboxFileEntry>
+	/**
+	 * Narrowed to PRESENT, like the three above: the pod behind a workspace
+	 * runs this repository's agent, so the streamed read is never absent
+	 * here and a host draining a large output file before `suspend()` or
+	 * `destroy()` — the use a long-lived workspace exists for — does not
+	 * have to check for it.
+	 */
+	readFileStream(path: string, options?: SandboxReadFileOptions): AsyncIterable<Buffer>
 	/**
 	 * Re-read `spec.operatingMode` and believe it: a workspace ANOTHER
 	 * process suspended reports `suspended: true` afterwards, and `resume()`
@@ -2482,6 +2491,52 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	}
 
 	/**
+	 * {@link admitted}, for a call that hands back an ITERABLE rather than a
+	 * promise.
+	 *
+	 * Admission is taken HERE, synchronously, and only the iteration lives in
+	 * the generator below: an async generator's body does not run until
+	 * something pulls from it, and a suspended workspace has to refuse
+	 * `readFileStream(...)` where the caller wrote it — the same place, and
+	 * with the same error, as every other data-plane call. The task sandbox's
+	 * own `readFileStream` checks admissibility at the call for the same
+	 * reason.
+	 *
+	 * The one diagnostic re-read is otherwise identical, and it covers the
+	 * whole stream rather than its first pull. A workspace suspended halfway
+	 * through a long read takes its pod's connection with it, and what
+	 * surfaces is a socket that closed early: as unrecognisable on its own as
+	 * the failures `admitted` exists to name.
+	 *
+	 * `yield*` rather than a hand-rolled loop so that a consumer's `break`
+	 * still reaches the transport's generator, whose `finally` is what
+	 * destroys the socket and makes the guest release the file descriptor.
+	 */
+	const admittedStream = (
+		operation: string,
+		open: (handle: KubernetesSandboxHandle) => AsyncIterable<Buffer>,
+	): AsyncIterable<Buffer> => {
+		const source = open(admit(operation))
+		return (async function* stream(): AsyncGenerator<Buffer, void, undefined> {
+			try {
+				yield* source
+			} catch (err) {
+				if (state !== 'running') throw err
+				let suspended = false
+				try {
+					suspended = await noticeSuspendedElsewhere()
+				} catch {
+					throw err
+				}
+				if (!suspended) throw err
+				throw new KubernetesWorkspaceSuspendedError(operation, workspaceId, name, 'transport', {
+					cause: err,
+				})
+			}
+		})()
+	}
+
+	/**
 	 * How the FIRST bind is allowed to behave, read off how this handle came
 	 * by its object.
 	 *
@@ -2600,8 +2655,33 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			await admitted('writeFile', async (handle) => await handle.writeFile(path, content))
 		},
 
-		async readFile(path: string): Promise<Buffer> {
-			return await admitted('readFile', async (handle) => await handle.readFile(path))
+		/**
+		 * `readOptions` is FORWARDED, and that is the whole of the
+		 * requirement: a backend that takes `offset`/`length` and answers
+		 * with the whole file has given a wrong answer, not a degraded one
+		 * (`Sandbox.readFile` in `@namzu/sdk` says so, and the transport
+		 * refuses rather than downgrades against a guest too old to honour
+		 * them). A workspace that dropped them would do exactly that, on the
+		 * surface most likely to be pointed at a file worth ranging.
+		 */
+		async readFile(path: string, readOptions?: SandboxReadFileOptions): Promise<Buffer> {
+			return await admitted('readFile', async (handle) => await handle.readFile(path, readOptions))
+		},
+
+		/**
+		 * Draining a large output file before `suspend()` or `destroy()`
+		 * without holding it — the use a long-lived workspace exists for, and
+		 * the reason this is narrowed to present on
+		 * {@link KubernetesWorkspace} rather than left optional.
+		 *
+		 * Admission runs where the caller wrote the call, not at the first
+		 * pull, exactly as the task sandbox does it; the suspended-elsewhere
+		 * diagnostic runs on a failure at any point in the stream, because a
+		 * workspace suspended halfway through takes its pod's connection with
+		 * it and leaves only a socket that closed early.
+		 */
+		readFileStream(path: string, readOptions?: SandboxReadFileOptions): AsyncIterable<Buffer> {
+			return admittedStream('readFileStream', (handle) => handle.readFileStream(path, readOptions))
 		},
 
 		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {

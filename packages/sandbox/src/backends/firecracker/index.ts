@@ -55,6 +55,7 @@ import type {
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxId,
+	SandboxReadFileOptions,
 	SandboxStatus,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
@@ -559,9 +560,20 @@ async function spawnFirecrackerSandbox(
 			await transport.writeFile(path, buf)
 		},
 
-		async readFile(path: string): Promise<Buffer> {
+		async readFile(path: string, readOptions?: SandboxReadFileOptions): Promise<Buffer> {
 			assertActive()
-			return await transport.readFile(path)
+			return await transport.readFile(path, readOptions)
+		},
+
+		/**
+		 * Chunks, in order, with nothing whole at either end. The guest must
+		 * advertise the capability; a golden image built before it refuses
+		 * with `AgentReadFileStreamUnsupportedError` rather than reading the
+		 * file whole and pretending to have streamed it.
+		 */
+		readFileStream(path: string, readOptions?: SandboxReadFileOptions): AsyncIterable<Buffer> {
+			assertActive()
+			return transport.readFileStream(path, readOptions)
 		},
 
 		async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {

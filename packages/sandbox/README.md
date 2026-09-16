@@ -337,8 +337,54 @@ frame size. Nothing on the Firecracker path is affected either way: no token
 mode is active there, so no pre-auth cap applies and a `write-file` frame of
 any size up to `NAMZU_AGENT_MAX_FRAME_BYTES` is accepted exactly as before.
 
-None of this is a wire change. `token` and `part` are optional envelope and
-body fields, and `features` is an additive `healthz` field, so the guest
+`read-file` has the mirror-image arrangement, for a problem that was never a
+refusal — it just cost more the bigger the file got, until it stopped working.
+The whole-file reply held the file buffer, its base64 string, the JSON string
+and two frame buffers at once, about 7.7x the file: measured against this
+agent over loopback TCP, a 64 MiB read grew it by 405 MiB, and a file of about
+384 MiB or more could not be answered at all because its base64 string is
+longer than V8 permits a string to be. So `read-file` now takes optional
+`offset` and `length` and `pread`s one bounded slice, answering with the WHOLE
+file's `sizeBytes` beside it and with the bytes that exist when the range runs
+past the end; and a new `read-file-stream` op opens the fd once and sends
+`meta`, then base64 `data` frames, then `end`, then the zero-length
+terminator, reusing one read buffer and waiting for the socket to drain
+between chunks. A 1 GiB read grows the agent by about 12 MiB on the same
+measurement.
+
+```jsonc
+// One slice, one reply frame. Capped by NAMZU_AGENT_READ_FILE_RANGE_BYTES
+// (1 MiB): a larger range is REFUSED, not shortened.
+{ "op": "read-file", "token": "…", "body": {
+    "path": "out/report.bin", "encoding": "base64",
+    "offset": 1048576, "length": 262144 } }
+
+// The whole file, as an ordered multi-frame reply.
+{ "op": "read-file-stream", "token": "…", "body": { "path": "out/report.bin" } }
+```
+
+The guest opts into both together: `healthz` answers `features:
+["write-file-parts", "read-file-stream"]`. One string for the two read shapes,
+because they ship in the same file and no guest can have one without the
+other. A host that does not see it keeps to the single whole-file reply and
+sends neither — an agent that predates them would ignore `offset`/`length` and
+answer with the whole file, which the caller would read as its slice, so the
+host throws `AgentReadFileStreamUnsupportedError` instead. Both new shapes go
+through the same workspace jail the old op used.
+
+Two rules a host writing to this wire has to know. A range must ask for
+`base64`: a `utf8` slice taken at an arbitrary offset can begin or end inside
+a multi-byte character, so the guest refuses one with
+`read_file_range_requires_base64`, while a whole-file read still serves `utf8`
+because its boundaries are the file's own. And `read-file-stream` serves
+regular files only, refusing a directory, a fifo or a device node with
+`read_file_stream_not_a_regular_file` — a regular file that `stat` reports as
+zero bytes and that still has content, the procfs shape, is read to EOF by
+both new shapes rather than answered as empty.
+
+None of this is a wire change. `token`, `part`, `offset` and `length` are
+optional envelope and body fields, `read-file-stream` is a new op nobody is
+obliged to call, and `features` is an additive `healthz` field, so the guest
 protocol version is deliberately unchanged and no host and no golden image
 has to roll together with this release.
 

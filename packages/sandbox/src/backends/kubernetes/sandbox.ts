@@ -50,6 +50,7 @@ import type {
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxId,
+	SandboxReadFileOptions,
 	SandboxStatus,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
@@ -191,13 +192,13 @@ function detectEnvironment(): SandboxEnvironment {
 }
 
 /**
- * What this backend hands back: the SDK contract, with the two optional
- * members it DOES implement narrowed to present, so a caller that composes
- * one — `workspace.ts` wraps this handle — does not have to re-check for a
- * method this file always defines.
+ * What this backend hands back: the SDK contract, with the optional members
+ * it DOES implement narrowed to present, so a caller that composes one —
+ * `workspace.ts` wraps this handle — does not have to re-check for a method
+ * this file always defines.
  */
 export type KubernetesSandboxHandle = Sandbox &
-	Required<Pick<Sandbox, 'openTerminal' | 'openTcpConnection' | 'walkFiles'>>
+	Required<Pick<Sandbox, 'openTerminal' | 'openTcpConnection' | 'walkFiles' | 'readFileStream'>>
 
 /**
  * Build the handle. It does NOT run the acquire-time privilege probe — that
@@ -384,9 +385,30 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 			await transport.writeFile(path, buf)
 		},
 
-		async readFile(path: string): Promise<Buffer> {
+		/**
+		 * A whole-file read is served by the guest's streamed op when the
+		 * guest advertises it, so neither side holds the file's base64 form
+		 * or its JSON envelope in one piece and a file of any size this
+		 * workspace's disk holds can be read. `offset`/`length` ask for one
+		 * slice instead; a guest too old to honour them is refused with
+		 * `AgentReadFileStreamUnsupportedError` rather than answering with
+		 * the whole file.
+		 */
+		async readFile(path: string, readOptions?: SandboxReadFileOptions): Promise<Buffer> {
 			assertAdmissible('readFile')
-			return await transport.readFile(path)
+			return await transport.readFile(path, readOptions)
+		},
+
+		/**
+		 * Chunks, in order, with nothing whole at either end — what a host
+		 * draining a large output file before `destroy()` needs. The
+		 * admissibility check runs at the call, not per chunk: a workspace
+		 * suspended mid-stream takes its pod's connection with it, which is
+		 * what ends the iteration.
+		 */
+		readFileStream(path: string, readOptions?: SandboxReadFileOptions): AsyncIterable<Buffer> {
+			assertAdmissible('readFileStream')
+			return transport.readFileStream(path, readOptions)
 		},
 
 		async openTerminal(terminalOptions: OpenTerminalOptions): Promise<TerminalSession> {

@@ -875,11 +875,20 @@ describe('KubernetesAgentTransport DNS re-resolution', () => {
 		})
 
 		originalLookup = dns.lookup
+		// Alternating rather than "first call here, everything after there":
+		// this transport is built directly, with no readiness fence to fill
+		// its capability cache, so the first `readFile` of its life opens a
+		// `healthz` connection of its own before the read (these servers
+		// answer it without a `features` field, which is the old-guest
+		// answer and keeps the read on the unchanged single-frame path).
+		// What the case is about is that EVERY dial re-resolves, and an
+		// alternating stub proves that of three dials where a one-shot stub
+		// proved it of two.
 		let call = 0
 		dns.lookup = ((_hostname: string, options: any, callback?: any) => {
 			call += 1
 			const cb = typeof options === 'function' ? options : callback
-			const address = call === 1 ? '127.0.0.1' : '127.0.0.2'
+			const address = call % 2 === 1 ? '127.0.0.1' : '127.0.0.2'
 			if (options && typeof options === 'object' && options.all) {
 				cb(null, [{ address, family: 4 }])
 			} else {
@@ -894,9 +903,12 @@ describe('KubernetesAgentTransport DNS re-resolution', () => {
 			token: POD_UID,
 		})
 
+		// Dial 1 is the capability probe (server A), dial 2 the first read,
+		// dial 3 the second.
 		const first = await transport.readFile('unused')
 		const second = await transport.readFile('unused')
-		expect(first.toString('utf8')).toBe('server-a')
-		expect(second.toString('utf8')).toBe('server-b')
+		expect(first.toString('utf8')).toBe('server-b')
+		expect(second.toString('utf8')).toBe('server-a')
+		expect(call).toBe(3)
 	})
 })

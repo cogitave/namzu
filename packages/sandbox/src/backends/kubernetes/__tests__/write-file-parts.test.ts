@@ -167,6 +167,7 @@ describe.skipIf(IS_WINDOWS)('writeFile in parts, against the real guest agent', 
 		// Membership, not equality: `features` is an additive list and the
 		// agent grows it, so pinning the whole array would make every later
 		// capability a failure here rather than in the suite that owns it.
+		// The read side now advertises in it too; see `read-file-stream.test.ts`.
 		expect(reply.reply.features).toContain(WRITE_FILE_PARTS_FEATURE)
 	})
 

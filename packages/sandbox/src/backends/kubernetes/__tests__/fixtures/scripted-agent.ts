@@ -78,6 +78,24 @@ export interface ScriptedAgentOptions {
 	 * something about the connection.
 	 */
 	readonly readFileError?: string
+	/**
+	 * What `healthz` advertises in `features`. Omitted by default, which is
+	 * the guest an image built before a feature existed: the host then takes
+	 * the old path for everything and refuses what only the new one serves.
+	 */
+	readonly features?: readonly string[]
+	/**
+	 * The file every `read-file` and `read-file-stream` answers with.
+	 *
+	 * When set, both ops behave the way `agent/agent.cjs` does for a single
+	 * file: `read-file` honours `offset`/`length` and reports the WHOLE
+	 * file's `sizeBytes` beside the slice, and `read-file-stream` sends
+	 * `meta` -> `data`* -> `end` -> terminator. That is what lets a
+	 * control-plane test — which cannot run the real agent, because the
+	 * privilege probe would fail — still prove that a range a caller asked
+	 * for reached the wire and that the bytes it got back are the slice.
+	 */
+	readonly readFileContent?: Buffer
 	/** Hold an `execute` open this long before replying, so a case can
 	 * cancel one that is genuinely in flight. */
 	readonly executeDelayMs?: number
@@ -256,6 +274,7 @@ export async function startScriptedAgent(
 						ok: !retiring,
 						protocolVersion: 2,
 						...(retiring ? { retiring: true } : {}),
+						...(options.features ? { features: [...options.features] } : {}),
 					})
 					socket.end()
 					continue
@@ -344,12 +363,67 @@ export async function startScriptedAgent(
 					continue
 				}
 				if (op === 'read-file') {
-					send(
-						socket,
-						options.readFileError !== undefined
-							? { ok: false, error: options.readFileError }
-							: { ok: true, content: Buffer.from('').toString('base64') },
+					if (options.readFileError !== undefined) {
+						send(socket, { ok: false, error: options.readFileError })
+						socket.end()
+						continue
+					}
+					const file = options.readFileContent
+					if (file === undefined) {
+						send(socket, { ok: true, content: Buffer.from('').toString('base64') })
+						socket.end()
+						continue
+					}
+					const range = (request.body ?? {}) as { offset?: number; length?: number }
+					const from = range.offset ?? 0
+					const whole = range.offset === undefined && range.length === undefined
+					const slice = whole
+						? file
+						: file.subarray(from, range.length === undefined ? undefined : from + range.length)
+					send(socket, {
+						ok: true,
+						content: slice.toString('base64'),
+						// The WHOLE file, in both shapes — it is how a ranged
+						// caller knows where the file ends.
+						sizeBytes: file.length,
+						encoding: 'base64',
+						...(whole ? {} : { offset: from, bytesRead: slice.length }),
+					})
+					socket.end()
+					continue
+				}
+				if (op === 'read-file-stream') {
+					const file = options.readFileContent
+					if (file === undefined) {
+						send(socket, { type: 'error', error: 'read_file_stream_not_scripted' })
+						terminate(socket)
+						socket.end()
+						continue
+					}
+					const range = (request.body ?? {}) as { offset?: number; length?: number }
+					const from = range.offset ?? 0
+					const slice = file.subarray(
+						from,
+						range.length === undefined ? undefined : from + range.length,
 					)
+					send(socket, {
+						type: 'meta',
+						sizeBytes: file.length,
+						offset: from,
+						length: slice.length,
+					})
+					// Deliberately more than one frame for anything that is not
+					// tiny: a stream that arrives whole proves nothing about a
+					// consumer that breaks partway.
+					const chunkBytes = 8 * 1024
+					for (let at = 0; at < slice.length; at += chunkBytes) {
+						send(socket, {
+							type: 'data',
+							data: slice.subarray(at, at + chunkBytes).toString('base64'),
+						})
+					}
+					send(socket, { type: 'end', bytesSent: slice.length })
+					terminate(socket)
 					socket.end()
 					continue
 				}

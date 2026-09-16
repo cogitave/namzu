@@ -261,6 +261,35 @@ export interface SandboxTcpConnectOptions {
 	readonly host?: '127.0.0.1' | '::1'
 }
 
+/**
+ * What to read, and how to stop reading it. Every field is optional, so
+ * `readFile(path)` and `readFile(path, {})` mean the same thing: the whole
+ * file.
+ */
+export interface SandboxReadFileOptions {
+	/** First byte to read. Defaults to 0. */
+	readonly offset?: number
+	/**
+	 * How many bytes to read. Defaults to the rest of the file. A range
+	 * that runs past the end returns the bytes that exist, not an error —
+	 * a caller resuming from a remembered offset must be able to ask
+	 * without knowing the answer first.
+	 *
+	 * **A backend may cap how large a single range it will serve**, and
+	 * one past that cap is REFUSED rather than shortened — a caller that
+	 * asked for 4 MiB, got 1 MiB and was told nothing would read the short
+	 * answer as the end of its range. The agent-backed backends cap it at
+	 * `NAMZU_AGENT_READ_FILE_RANGE_BYTES` (1 MiB by default), because one
+	 * range is one wire frame there; a provider reading from local disk has
+	 * no such ceiling. A caller that wants more than a frame's worth in one
+	 * call iterates {@link Sandbox.readFileStream} instead, which is not
+	 * capped.
+	 */
+	readonly length?: number
+	/** Aborts the read. */
+	readonly signal?: AbortSignal
+}
+
 export interface Sandbox {
 	readonly id: SandboxId
 	readonly status: SandboxStatus
@@ -323,7 +352,46 @@ export interface Sandbox {
 	 */
 	openTcpConnection?(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection>
 	writeFile(path: string, content: string | Buffer): Promise<void>
-	readFile(path: string): Promise<Buffer>
+	/**
+	 * Read a file out of the sandbox.
+	 *
+	 * `options` is optional in both directions, which is what keeps this
+	 * source-compatible: a caller may go on writing `readFile(path)`, and a
+	 * backend may go on declaring the one-parameter form and still satisfy
+	 * this signature. A backend that accepts the parameter and IGNORES
+	 * `offset`/`length` does not — returning the whole file where a slice
+	 * was asked for is a wrong answer, not a degraded one, so such a
+	 * backend must reject instead.
+	 *
+	 * @param options.offset First byte to read. Defaults to 0.
+	 * @param options.length How many bytes to read. Defaults to the rest of
+	 *   the file. A range that runs past the end returns the bytes that
+	 *   exist rather than failing.
+	 * @param options.signal Aborts the read.
+	 */
+	readFile(path: string, options?: SandboxReadFileOptions): Promise<Buffer>
+	/**
+	 * Read a file as a stream of chunks, so neither the sandbox nor this
+	 * process ever holds the whole of it.
+	 *
+	 * Optional, in the same way {@link Sandbox.openTerminal} is: a backend
+	 * that cannot read a file incrementally must OMIT this rather than
+	 * implement it by reading the file whole and chopping the result up,
+	 * which would give a caller the bounded-memory behaviour it asked for in
+	 * name only. A caller that needs the bound therefore refuses an absent
+	 * method rather than falling back to {@link Sandbox.readFile}.
+	 *
+	 * Chunk boundaries are not part of the contract — only the order and
+	 * the concatenation are. Aborting `options.signal`, or leaving the loop
+	 * early, must stop the transfer and release whatever the sandbox opened
+	 * for it.
+	 *
+	 * Hosts that drain agent-produced output files before {@link destroy}
+	 * (see {@link listFiles}) are the reason this exists: those files are
+	 * routinely tens to hundreds of megabytes, and a whole-file read of one
+	 * of them costs several times its size in the sandbox.
+	 */
+	readFileStream?(path: string, options?: SandboxReadFileOptions): AsyncIterable<Buffer>
 	/**
 	 * Recursively enumerate regular files under `rootPath`. Directories,
 	 * symlinks, sockets, and other non-regular entries are skipped.

@@ -184,11 +184,17 @@ That is every operation on the [sandbox surface](#the-sandbox-surface) that
 dials the guest — `exec` and `listFiles`, `readFile`, `writeFile` (a body
 [written in parts](#writing-a-file-larger-than-one-frame) included, where the
 retry starts a fresh sequence under a new temporary name and so cannot collide
-with the abandoned one), `openTerminal` and `openTcpConnection` — and one
-deliberate exception: a command whose cancellation the guest could not confirm
+with the abandoned one), `openTerminal` and `openTcpConnection` — and two
+deliberate exceptions. A command whose cancellation the guest could not confirm
 is never retried. Its outcome is unknown by definition, and re-running it
 against a disk that followed the pod is exactly what "do not automatically
-retry" exists to prevent.
+retry" exists to prevent. And a
+[`readFileStream`](#reading-a-file-larger-than-one-frame) is rebound only
+around its FIRST chunk: the retry is safe because nothing reached the guest,
+and once a chunk has been handed to the caller that is no longer true — a
+re-dial mid-stream would restart the file from its beginning and the consumer,
+which cannot give the bytes back, would silently concatenate a duplicate
+prefix.
 
 **A pod is live before it is addressed, and that wait belongs to the readiness
 budget.** A pod is created `Pending` and has no `status.podIP` until the CNI
@@ -400,7 +406,9 @@ request envelope.
 | `status` | `ready` / `busy` / `destroyed` | `busy` while a command is in flight. Both ways a sandbox ends read as `destroyed` — see below. |
 | `rootDir`, `environment` | The caller's working directory; `linux-namespace` | The enum is the host-facing worker shape, not the isolation technology. |
 | `exec` | Implemented | Through the shared reserve-before-admission controller, so an `AbortSignal` terminates the guest process and the peer confirms it — never abandons the wait. |
-| `writeFile`, `readFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. A body larger than one frame is [written in parts](#writing-a-file-larger-than-one-frame). |
+| `writeFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. A body larger than one frame is [written in parts](#writing-a-file-larger-than-one-frame). |
+| `readFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. Takes an optional `{ offset, length, signal }`; a whole-file read is served by the streamed op, so it is not bounded by one frame. See [reading a file larger than one frame](#reading-a-file-larger-than-one-frame). |
+| `readFileStream` | Implemented | The same read as chunks, so neither the pod nor this process holds the file. See [reading a file larger than one frame](#reading-a-file-larger-than-one-frame). |
 | `listFiles` | Implemented | `find -printf '%p\t%s\n'`, parsed line by line; a root that does not exist is an empty list. |
 | `walkFiles` | Implemented | Bounded, lazy discovery through the SDK's own `walkFilesViaExec` over `exec` — see [bounded search](#bounded-search-and-the-glob-and-grep-builtins). |
 | `openTerminal` | Implemented | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. |
@@ -544,6 +552,132 @@ bounded by the guest's global frame ceiling (`NAMZU_AGENT_MAX_FRAME_BYTES`,
 256 MiB) instead — a ~189 MiB file. The part protocol is the same code on
 the same transport, so a body past even that is now split there too.
 
+### Reading a file larger than one frame
+
+The read side had the mirror-image problem, and a worse one, because nothing
+about it was a refusal: it simply cost more the bigger the file got, until it
+stopped working.
+
+The old `read-file` loaded the whole file, base64-encoded it into one JSON
+object and wrote that object as one frame. While the frame was being built,
+the file buffer, the base64 string, the JSON string and two frame buffers all
+existed at once — about **7.7x the file** in the pod, in the same container
+the workload runs in. Measured here against the shipped agent over loopback
+TCP (`VmHWM` of the agent's own process; under the shipped image `tini` is
+PID 1, so `/proc/1` measures the init and not the agent), a 64 MiB read grew
+the agent by **405 MiB**, against the workspace template's `512Mi` limit. And
+a file of about **384 MiB or more could not be read at all**: its base64
+string is longer than V8 lets a JavaScript string be
+(`Cannot create a string longer than 0x1fffffe8 characters`).
+
+Reads now have two shapes beside the old one, and the guest opts into both
+together:
+
+- **A slice.** `readFile(path, { offset, length })` sends `offset`/`length` on
+  the same `read-file` op, and the guest `pread`s at that position instead of
+  loading the file. The reply carries the **whole file's** `sizeBytes`
+  alongside the slice, which is how a caller stepping through a file knows
+  where it ends, and a range that runs past the end returns the bytes that
+  exist rather than failing. One slice is one reply frame, so it is capped:
+  above `NAMZU_AGENT_READ_FILE_RANGE_BYTES` (1 MiB by default) the guest
+  **refuses** rather than shortening — a caller that asked for 4 MiB, got
+  1 MiB and was told nothing would read the short answer as the end of its
+  range. An `offset` with no `length` is an unbounded tail, so the host sends
+  it to the stream instead.
+- **A stream.** `readFileStream(path, options?)` returns an
+  `AsyncIterable<Buffer>`. A new authenticated `read-file-stream` op opens the
+  fd once and sends, in order, one `meta` frame carrying `sizeBytes`, then
+  base64 `data` frames, then `end`, then the zero-length terminator — the same
+  terminated-stream shape `execute` uses. The guest reuses one read buffer and
+  waits for the socket to drain before reading the next chunk, so its peak
+  stops tracking the file's size: measured over loopback, a 1 GiB read grew
+  the agent by **12 MiB** at the 256 KiB default chunk. The host pauses the
+  socket once 4 MiB of decoded chunks are waiting for a slow consumer, so a
+  consumer that stops pulling stops the transfer rather than filling this
+  process's heap with the file.
+
+**A whole-file `readFile(path)` is built on the stream**, against a guest that
+advertises the capability, so existing callers lose the ceiling without a code
+change: the 384 MiB wall is gone and a 256 MiB read completes inside twice its
+own size on the host. It still returns one `Buffer` — that is what the method
+is — and the bytes are copied into a single allocation sized from the `meta`
+frame rather than collected and concatenated, because concatenating needs
+every chunk to still exist at the moment the whole is built and so costs twice
+the file. A caller that must not hold even one copy iterates `readFileStream`.
+
+**The guest opts in, and a host that does not hear it changes nothing.**
+`agent.cjs` advertises `read-file-stream` in its `healthz` reply, beside
+`write-file-parts`. One string covers both new shapes, because they ship in
+the same file and no guest can have one without the other. Against a guest
+that does not advertise it, `readFile(path)` takes the unchanged single-frame
+path with its unchanged ceiling, and a ranged read or a `readFileStream`
+**throws** `AgentReadFileStreamUnsupportedError` (exported from
+`@namzu/sandbox`) before dialing. The refusal is the point: such an agent
+ignores `offset`/`length` and answers with the whole file, and handing that
+back as the caller's slice would be a wrong answer wearing the shape of a
+right one. The guest wire protocol version is deliberately **unchanged** —
+`offset`/`length` are optional fields on an op that already existed and
+`read-file-stream` is a new op nobody is obliged to call.
+
+Both new shapes resolve their path through the same `resolveReadablePath` +
+`realpathWithinWorkspace` jail the old op used, in the same order: `..` and a
+symlink that leaves the workspace are refused on all three.
+
+**A `KubernetesWorkspace` has both too**, and that is where they matter most:
+draining a large output file before a `suspend()` or a `destroy()` is the use
+a long-lived workspace exists for. `readFile`'s options are forwarded to the
+guest rather than dropped — a workspace that swallowed them would answer a
+256-byte request with the whole file, which the SDK's contract calls a wrong
+answer rather than a degraded one — and `readFileStream` is narrowed to
+**present** on the interface, because the pod behind a workspace runs this
+repository's agent. Both are admitted like every other data-plane call: a
+suspended workspace throws `KubernetesWorkspaceSuspendedError` where the
+caller wrote the call, and a workspace suspended part-way through a stream
+ends the iteration with that error rather than with a bare closed socket.
+
+Four guest details worth stating, because a whole-file read is now served by
+the stream and because a slice is a shape this op never had:
+
+- **A regular file whose `stat` reports no size** — the procfs/sysfs shape,
+  which an operator reaches only by naming such a root in
+  `NAMZU_SANDBOX_READ_ROOTS` — is read to EOF rather than answered as empty, on
+  **both** new shapes. Its length is discoverable only by reading, so a whole
+  read reads it the way the old op did and a **ranged** read reads it once to
+  get a true size for the range and the reply's `sizeBytes` — otherwise every
+  number a range is made of would come from the zero `stat` gave, and the
+  caller would be told the file is empty. A file whose size `stat` knows is
+  never materialised by either.
+- **A range must ask for `base64`.** A `utf8` slice taken at an arbitrary
+  offset can begin or end inside a multi-byte character, so the guest refuses
+  one with `read_file_range_requires_base64`; the host only ever asks for
+  base64. The whole-file shape still serves `utf8`, because its boundaries are
+  the file's own.
+- **The stream serves regular files only.** It refuses anything else with
+  `read_file_stream_not_a_regular_file` — a directory, and also a fifo or a
+  device node, which `fs.readFile` used to attempt. Inside a workspace only
+  `NAMZU_SANDBOX_READ_ROOTS` can put one within reach, but a host that reads
+  such a path whole against a feature-advertising guest now gets that refusal
+  rather than a read that may never return.
+- **A file that shrinks under the open fd fails the read.** The guest's `end`
+  frame says what it sent and the `meta` frame said what it promised; the host
+  compares them and rejects the call, where the single-frame path would have
+  handed back whatever the file had become. Failing is the point — a truncated
+  file returned as a whole one is the silent corruption a streamed read must
+  not introduce.
+
+Two guest-side knobs, both environment variables on the pod:
+
+| Variable | Default | What it does |
+|---|---|---|
+| `NAMZU_AGENT_READ_FILE_RANGE_BYTES` | 1 MiB | The largest slice one ranged `read-file` may answer with. A larger range is refused, naming this variable; a whole file goes through the stream instead. Never applies to a whole-file read. |
+| `NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES` | 256 KiB | Raw bytes per `data` frame. The measurement above chose the default: 1 MiB chunks held a 1 GiB read about 10 MiB above the 64 MiB it is budgeted, and the smaller chunk costs roughly 40% more wall time for a gigabyte. A deployment that would rather have the throughput raises it and pays in resident bytes. |
+
+Two limits this does **not** remove. `request()` still reads exactly one reply
+frame, which is why the single-frame path keeps its ceiling and why the stream
+is a separate op rather than a bigger frame. And `exec` is still not a way to
+move a large file out: its stdout deltas are UTF-8-decoded in the guest, so
+raw binary is corrupted unless the caller base64-encodes it there first.
+
 ### Bounded search, and the `glob` and `grep` builtins
 
 `walkFiles` is the method the SDK's `glob` and `grep` builtins refuse a
@@ -605,6 +739,25 @@ failing once destroyed.
 `openTerminal`, `openTcpConnection` and `walkFiles` are optional on the SDK's
 own contract, so a factory whose sandbox omits any of them skips that section
 rather than failing it.
+
+Two further cases — a 9 MiB read (above the frame ceiling on **both** sides of
+the wire, unlike the 7 MiB write case, which a reply frame is not measured
+against at all) and an explicit byte range — are gated on
+`supportsRangedAndStreamedReads`, and they deliberately did **not** raise
+`SANDBOX_CONTRACT_VERSION` any further. Raising it for them would assert that
+every backend the suite runs against implements ranged and streamed reads, and
+one cannot be asserted: the Firecracker tier's guest lives in a golden rootfs
+image that is **not** built from this repository — nothing here builds one,
+`packages/sandbox/package.json#files` does not ship `agent/`, and the package
+README documents the image as something the operator builds and canaries on
+their own schedule. A deployment therefore runs whatever agent its last image
+build baked in. That is the difference from the three sections that did raise
+the number: none of those needs a guest feature that did not already exist.
+The three suites in this repository all run `agent/agent.cjs` out of the
+working tree — the two vitest ones directly, the live-cluster one through the
+image `k8s/Dockerfile` copies it into — so all three set the flag `true`.
+Every other backend gets the two cases as skips titled with the reason,
+counted in its runner's own totals.
 
 The `openTcpConnection` positive case starts its listener INSIDE the guest,
 through `openTerminal` (`node -e`, reporting the port it bound on its own
@@ -1172,9 +1325,9 @@ The [privilege probe](#the-privilege-probe) runs again on every resume. A
 resumed pod is a new pod, possibly from a re-pulled image, and "it was
 deprivileged last week" is not a check.
 
-Between the two, every call — `exec`, `readFile`, `writeFile`, `listFiles`,
-`openTerminal`, `openTcpConnection` — throws `KubernetesWorkspaceSuspendedError`
-and **issues no dial**. The Service outlives the pod, so the address still
+Between the two, every call — `exec`, `readFile`, `readFileStream`,
+`writeFile`, `listFiles`, `openTerminal`, `openTcpConnection` — throws
+`KubernetesWorkspaceSuspendedError` and **issues no dial**. The Service outlives the pod, so the address still
 resolves; a dial would hang on a connect timeout that names nothing.
 
 `status` reports `destroyed` while suspended, because `SandboxStatus` has four

@@ -97,6 +97,7 @@ export type {
 export {
 	AgentDialFailedError,
 	AgentPreauthFrameTooLargeError,
+	AgentReadFileStreamUnsupportedError,
 	AgentWriteFileTooLargeError,
 	DEFAULT_MAX_WRITE_FILE_BYTES,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
@@ -124,6 +125,16 @@ export {
 	STREAM_HEARTBEAT_MAX_ECHO_FACTOR,
 	STREAM_HEARTBEAT_MISS_LIMIT,
 	type StreamHeartbeat,
+} from './backends/firecracker/protocol.js'
+// The read side of the same arrangement: one healthz feature string for
+// both the ranged `read-file` and the `read-file-stream` op, and the
+// request/event shapes they speak. Exported for the same reason — a host
+// writing its own guest, or asserting what this one advertises, names them
+// rather than repeating the literal.
+export {
+	READ_FILE_STREAM_FEATURE,
+	type ReadFileStreamEvent,
+	type ReadFileStreamRequest,
 } from './backends/firecracker/protocol.js'
 
 // Kubernetes (agent-sandbox on any cluster) public surface. The access union

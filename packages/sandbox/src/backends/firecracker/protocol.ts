@@ -189,11 +189,74 @@ export const WRITE_FILE_PARTS_FEATURE = 'write-file-parts'
  */
 export const EXECUTION_ATTACH_FEATURE = 'execution-attach'
 
-/** `/read-file` request body. */
+/**
+ * `/read-file` request body.
+ *
+ * `offset`/`length` are ADDITIVE and gated exactly as {@link WriteFilePart}
+ * is: a host sends them only to an agent that advertised
+ * {@link READ_FILE_STREAM_FEATURE} in its `healthz` reply, because an agent
+ * that predates them ignores both and answers with the WHOLE file — which
+ * the caller would read as its slice. Omitting both is the whole-file read
+ * this op has always served, byte for byte.
+ */
 export interface ReadFileRequest {
 	readonly path: string
 	readonly encoding: 'base64'
+	/** First byte of the slice. Defaults to 0 when only `length` is given. */
+	readonly offset?: number
+	/**
+	 * How many bytes to answer with. Defaults to the rest of the file, and
+	 * is REFUSED rather than shortened above the guest's per-frame range
+	 * ceiling (`NAMZU_AGENT_READ_FILE_RANGE_BYTES`, 1 MiB by default) — a
+	 * whole file goes through {@link ReadFileStreamRequest} instead.
+	 */
+	readonly length?: number
 }
+
+/**
+ * `read-file-stream` request body — one file as an ordered sequence of
+ * frames rather than one reply.
+ *
+ * `offset`/`length` are accepted and deliberately NOT capped: this op is
+ * where {@link ReadFileRequest}'s range ceiling sends a caller who wants
+ * more than one frame's worth.
+ */
+export interface ReadFileStreamRequest {
+	readonly path: string
+	readonly offset?: number
+	readonly length?: number
+}
+
+/**
+ * Guest → host frames for one `read-file-stream`, in order: exactly one
+ * `meta`, zero or more `data`, then one `end` — or a single `error`
+ * instead of any of them — followed by the zero-length terminator.
+ *
+ * `data` is base64 for the same reason every other payload on this wire
+ * is: the frame body is UTF-8 JSON, which cannot carry arbitrary bytes.
+ */
+export type ReadFileStreamEvent =
+	| {
+			readonly type: 'meta'
+			/** The WHOLE file's size, never the slice's — how a caller knows where it ends. */
+			readonly sizeBytes: number
+			readonly offset: number
+			/** What this stream intends to send, after clamping to EOF. */
+			readonly length: number
+	  }
+	| { readonly type: 'data'; readonly data: string }
+	| { readonly type: 'end'; readonly bytesSent: number }
+	| { readonly type: 'error'; readonly error: string }
+
+/**
+ * The `healthz` feature string an agent advertises when `read-file`
+ * honours {@link ReadFileRequest.offset}/`length` AND the
+ * `read-file-stream` op exists. ONE string for both halves because they
+ * ship together in `agent/agent.cjs` and no guest can have one without the
+ * other; a host that does not see it sends neither shape and keeps to the
+ * single whole-file reply.
+ */
+export const READ_FILE_STREAM_FEATURE = 'read-file-stream'
 
 // ---------------------------------------------------------------------------
 // Terminal — a real guest-owned PTY over the same framed stream
@@ -330,9 +393,18 @@ export const STREAM_HEARTBEAT_FEATURE = 'stream-heartbeat'
 export interface ReadFileResponse {
 	readonly ok: boolean
 	readonly content?: string
+	/** The WHOLE file's size, in both the whole-file and the ranged shape. */
 	readonly sizeBytes?: number
 	readonly encoding?: string
 	readonly error?: string
+	/** Present only on a ranged reply: the first byte `content` starts at. */
+	readonly offset?: number
+	/**
+	 * Present only on a ranged reply: how many bytes `content` decodes to.
+	 * Below the requested `length` when the range ran past EOF, which is an
+	 * answer rather than an error.
+	 */
+	readonly bytesRead?: number
 }
 
 // ---------------------------------------------------------------------------

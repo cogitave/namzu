@@ -39,6 +39,7 @@ import {
 	type SandboxExecOptions,
 	type SandboxExecResult,
 	type SandboxFileEntry,
+	type SandboxReadFileOptions,
 	type SandboxStatus,
 	type SandboxWalkFilesOptions,
 	generateSandboxId,
@@ -758,12 +759,32 @@ async function spawnDockerSandbox(
 			}
 		},
 
-		async readFile(path: string): Promise<Buffer> {
+		/**
+		 * The worker's `/read-file` has no range, so a caller asking for one
+		 * is REFUSED rather than handed the whole file.
+		 *
+		 * {@link Sandbox.readFile} draws that line: a backend that takes
+		 * `offset`/`length` and answers with everything has given a wrong
+		 * answer, not a degraded one, and the caller stops looking. Declaring
+		 * the one-parameter form would not close it — through the `Sandbox`
+		 * type a caller can still pass options — so the refusal is explicit.
+		 *
+		 * `options.signal` IS honoured: the contract says it aborts the read,
+		 * and one HTTP request is the whole read here, so it is handed to
+		 * `fetch`.
+		 */
+		async readFile(path: string, options?: SandboxReadFileOptions): Promise<Buffer> {
 			assertActive()
+			if (options?.offset !== undefined || options?.length !== undefined) {
+				throw new Error(
+					'readFile: the docker worker serves whole files only, so offset/length cannot be honoured. Read the file whole, or use a backend that streams.',
+				)
+			}
 			const res = await fetch(`${baseUrl}/read-file`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ path, encoding: 'base64' }),
+				signal: options?.signal,
 			})
 			if (!res.ok) {
 				throw new Error(`read-file failed: HTTP ${res.status} ${await res.text()}`)

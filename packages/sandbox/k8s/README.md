@@ -210,6 +210,14 @@ Record the five printed numbers, with the date and the cluster's shape
 `docs/sdk/kubernetes-sandbox.md`'s deployment section — that table is
 currently empty and says so; these five runs are what fill it in.
 
+`contract-suite.mjs` passes `supportsRangedAndStreamedReads: true`, which
+turns on two cases that read a file back — one above the wire's frame ceiling,
+one an explicit byte range. That is true because the image you built in step 2
+copies this repository's `agent/agent.cjs` in, so the guest has the
+capability. Point the suite at an image built from an older release and set
+the flag `false`: the two cases then skip, titled with the reason and still
+counted, instead of failing an image that never claimed to serve them.
+
 ## Tests
 
 `__tests__/entrypoint.test.ts` and `__tests__/manifests.test.ts` run in the

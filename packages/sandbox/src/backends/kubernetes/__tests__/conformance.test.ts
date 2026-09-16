@@ -132,5 +132,9 @@ describe.skipIf(IS_WINDOWS)('kubernetes backend', () => {
 		expect,
 		label: 'kubernetes backend',
 		makeSandbox,
+		// This fixture runs `agent/agent.cjs` straight out of this
+		// repository, so the guest under test IS the one that implements
+		// ranged and streamed reads.
+		supportsRangedAndStreamedReads: true,
 	})
 })

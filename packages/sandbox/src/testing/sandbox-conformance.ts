@@ -83,6 +83,22 @@ import type {
  * label so a failure is legible on sight as "the sandbox contract", the
  * same convention `PROVIDER_DRIVER_CONTRACT_VERSION` uses — raised only
  * when a case is ADDED or TIGHTENED, never on a rewording.
+ *
+ * 3 is the `walkFiles`, concurrent-`exec` and `exec`-timeout sections, none
+ * of which needs a guest feature that did not already exist.
+ *
+ * **The ranged and streamed read cases deliberately did NOT raise it
+ * further.** Raising it for them would assert that every backend this suite
+ * runs against implements them, and one does not: the Firecracker tier's
+ * guest lives in a golden rootfs image that is NOT built from this
+ * repository — nothing here builds one, `packages/sandbox/package.json#files`
+ * does not even ship `agent/`, and `README.md` documents the image as
+ * something the operator builds and canaries on their own schedule. A
+ * deployment therefore runs whatever agent its last image build baked in,
+ * and a contract version that claimed otherwise would be a claim about
+ * images this repository cannot see. Those two cases are gated on
+ * {@link SandboxConformanceOptions.supportsRangedAndStreamedReads}
+ * instead, and skip by name when a backend does not declare them.
  */
 export const SANDBOX_CONTRACT_VERSION = 3
 
@@ -138,6 +154,24 @@ export interface SandboxConformanceOptions {
 	 * {@link GuestListenerCommand.parsePort} expects.
 	 */
 	readonly guestListenerCommand?: () => GuestListenerCommand
+	/**
+	 * Whether this backend's guest honours `readFile`'s `offset`/`length`
+	 * and implements {@link Sandbox.readFileStream}.
+	 *
+	 * **Defaults to `false`, and the default is the honest one.** These
+	 * cases are not in {@link SANDBOX_CONTRACT_VERSION} — see the comment
+	 * on that constant for why — so the suite cannot assume a backend has
+	 * them. A backend whose guest is built from this repository sets it
+	 * `true`; every other backend gets the cases as named skips, counted in
+	 * the runner's own totals and titled with the reason, rather than as
+	 * failures for a contract it never agreed to.
+	 *
+	 * A backend that sets this `true` while its guest ignores
+	 * `offset`/`length` FAILS, and that is the point: returning the whole
+	 * file where a slice was asked for is a wrong answer, not a missing
+	 * capability.
+	 */
+	readonly supportsRangedAndStreamedReads?: boolean
 }
 
 /** Assert `call()` rejects. The contract cares that admission was refused, never the message. */
@@ -345,6 +379,7 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 	const label = options.label ?? 'sandbox'
 	const guestCanRunNode = options.guestCanRunNode ?? true
 	const guestListenerCommand = options.guestListenerCommand ?? nodeGuestListener
+	const supportsRangedAndStreamedReads = options.supportsRangedAndStreamedReads ?? false
 
 	/**
 	 * Run `body` against a sandbox built for this case alone.
@@ -365,6 +400,24 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 			await handle.dispose?.()
 		}
 	}
+
+	/**
+	 * A case that needs {@link SandboxConformanceOptions.supportsRangedAndStreamedReads}.
+	 *
+	 * The skip is deliberately visible: the reason is in the case's TITLE and
+	 * the case still runs and is counted in the runner's totals, which is what
+	 * {@link SANDBOX_CONTRACT_VERSION}'s note asks for. What it does not do is
+	 * build a sandbox to skip inside — `withSandbox` is applied only on the
+	 * branch that uses one, so a backend without the capability pays nothing
+	 * per skipped case.
+	 */
+	const rangedReadCase = (
+		title: string,
+		body: (sandbox: Sandbox) => Promise<void>,
+	): [string, () => Promise<void>] =>
+		supportsRangedAndStreamedReads
+			? [title, withSandbox(body)]
+			: [`${title} (skipped: supportsRangedAndStreamedReads is false)`, async () => {}]
 
 	describe(`${label} — sandbox contract v${SANDBOX_CONTRACT_VERSION}`, () => {
 		describe('exec', () => {
@@ -523,6 +576,91 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 					expect(read.length).toBe(payload.length)
 					expect(digest(read)).toBe(digest(payload))
 				}),
+			)
+
+			/**
+			 * A read ABOVE the ceiling the case above sits below.
+			 *
+			 * 7 MiB is chosen for what the WRITE costs — 9.3 MiB of base64
+			 * envelope, past the guest's 8 MiB pre-auth frame limit — and a
+			 * reply frame is not measured against that limit at all, so that
+			 * case proves nothing about the read side. 9 MiB is above the
+			 * number on both sides of the wire, which is the only way to tell
+			 * a backend that reads a file in bounded pieces from one that
+			 * hands back a single reply and hopes.
+			 *
+			 * Skipped by NAME, and counted in the runner's totals as a case,
+			 * for a backend that has not declared the capability — see
+			 * {@link SandboxConformanceOptions.supportsRangedAndStreamedReads}
+			 * and the note on {@link SANDBOX_CONTRACT_VERSION}.
+			 */
+			it(
+				...rangedReadCase(
+					'reads a file larger than one wire frame back in bounded pieces',
+					async (sandbox) => {
+						const payload = deterministicBytes(9 * 1024 * 1024)
+						await sandbox.writeFile('conformance-large/wide.bin', payload)
+
+						const whole = await sandbox.readFile('conformance-large/wide.bin')
+						expect(whole.length).toBe(payload.length)
+						expect(digest(whole)).toBe(digest(payload))
+
+						// A backend declaring the capability must expose the stream
+						// too: the whole point is that a caller can read a file it
+						// could not hold, and `readFile` hands back one buffer.
+						const readFileStream = sandbox.readFileStream
+						if (!readFileStream) {
+							throw new Error(
+								'supportsRangedAndStreamedReads is true but this sandbox has no readFileStream. ' +
+									'A backend that honours offset/length but cannot stream must pass ' +
+									'supportsRangedAndStreamedReads: false and state why.',
+							)
+						}
+						const chunks: Buffer[] = []
+						for await (const chunk of readFileStream.call(sandbox, 'conformance-large/wide.bin')) {
+							chunks.push(Buffer.from(chunk))
+						}
+						// More than one chunk is what "bounded pieces" means; a
+						// backend yielding the whole file once satisfies the
+						// signature and none of the promise.
+						expect(chunks.length > 1).toBe(true)
+						expect(digest(Buffer.concat(chunks))).toBe(digest(payload))
+					},
+				),
+			)
+
+			/**
+			 * A slice, and the three things a slice has to get right: the
+			 * bytes, a range that runs off the end, and the fact that asking
+			 * for one must not hand back the whole file.
+			 */
+			it(
+				...rangedReadCase(
+					'reads an explicit byte range, and clips it to the end of the file',
+					async (sandbox) => {
+						const payload = deterministicBytes(64 * 1024)
+						await sandbox.writeFile('conformance-range/slice.bin', payload)
+
+						const middle = await sandbox.readFile('conformance-range/slice.bin', {
+							offset: 1_000,
+							length: 256,
+						})
+						expect(middle.length).toBe(256)
+						expect(middle.toString('base64')).toBe(
+							payload.subarray(1_000, 1_256).toString('base64'),
+						)
+
+						// Past the end returns what exists rather than failing: a
+						// caller resuming from a remembered offset cannot be made to
+						// know the answer before it asks.
+						const straddling = await sandbox.readFile('conformance-range/slice.bin', {
+							offset: payload.length - 10,
+							length: 500,
+						})
+						expect(straddling.length).toBe(10)
+						expect(straddling.toString('base64')).toBe(payload.subarray(-10).toString('base64'))
+					},
+				),
 			)
 		})
 

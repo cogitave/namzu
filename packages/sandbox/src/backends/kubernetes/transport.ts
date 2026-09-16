@@ -31,6 +31,7 @@ import type {
 	OpenTerminalOptions,
 	SandboxExecOptions,
 	SandboxExecResult,
+	SandboxReadFileOptions,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
 	TerminalSession,
@@ -1076,8 +1077,55 @@ export class KubernetesAgentTransport {
 		)
 	}
 
-	async readFile(path: string): Promise<Buffer> {
-		return await this.withRebind(async () => await this.wire.readFile(path))
+	async readFile(path: string, options?: SandboxReadFileOptions): Promise<Buffer> {
+		return await this.withRebind(
+			async () => await this.wire.readFile(path, options),
+			options?.signal,
+		)
+	}
+
+	/**
+	 * Delegated, and rebound exactly once — but only around the FIRST
+	 * chunk.
+	 *
+	 * That is the whole of what {@link withRebind} can honestly cover here.
+	 * Its retry is safe because nothing reached the guest, and once a chunk
+	 * has been yielded that is no longer true: re-dialing a replaced pod
+	 * mid-stream would restart the file from its beginning, and the
+	 * consumer — which has already taken the bytes and cannot give them
+	 * back — would silently concatenate a duplicate prefix. So the first
+	 * pull carries the dial, the rebind and the retry; everything after it
+	 * fails as itself.
+	 */
+	async *readFileStream(
+		path: string,
+		options?: SandboxReadFileOptions,
+	): AsyncGenerator<Buffer, void, undefined> {
+		const started = await this.withRebind(async () => {
+			const iterator = this.wire.readFileStream(path, options)[Symbol.asyncIterator]()
+			try {
+				return { iterator, first: await iterator.next() }
+			} catch (error) {
+				// The abandoned generator's own `finally` has already run by
+				// the time its `next()` rejects, so the socket is down; the
+				// `return()` is belt and braces for an implementation that
+				// rejected without finishing.
+				await iterator.return?.(undefined).catch(() => undefined)
+				throw error
+			}
+		}, options?.signal)
+		const { iterator, first } = started
+		try {
+			if (first.done === true) return
+			yield first.value
+			for (;;) {
+				const next = await iterator.next()
+				if (next.done === true) return
+				yield next.value
+			}
+		} finally {
+			await iterator.return?.(undefined).catch(() => undefined)
+		}
 	}
 
 	async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {

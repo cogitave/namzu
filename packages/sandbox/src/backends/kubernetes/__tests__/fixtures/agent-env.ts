@@ -39,6 +39,10 @@ export const AGENT_ENV_KEYS = [
 	'NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS',
 	// The ceiling on a caller-requested command timeout.
 	'NAMZU_SANDBOX_MAX_TIMEOUT_MS',
+	// What one ranged read may ask for, and what one streamed `data` frame
+	// carries.
+	'NAMZU_AGENT_READ_FILE_RANGE_BYTES',
+	'NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES',
 	// The workspace the file ops are confined to.
 	'NAMZU_SANDBOX_WORKSPACE',
 	'NAMZU_SANDBOX_READ_ROOTS',

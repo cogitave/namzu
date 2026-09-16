@@ -26,6 +26,8 @@ import {
 	workspaceSandboxName,
 } from '../workspace.js'
 
+import { READ_FILE_STREAM_FEATURE } from '../../firecracker/protocol.js'
+import { AgentReadFileStreamUnsupportedError } from '../../firecracker/transport.js'
 import {
 	KubernetesEgressPolicyNotAppliedError,
 	KubernetesUnenforceableEgressPolicyError,
@@ -730,6 +732,11 @@ describe('the optional methods a workspace does not offer', () => {
 		expect(typeof workspace.openTerminal).toBe('function')
 		expect(typeof workspace.openTcpConnection).toBe('function')
 		expect(typeof workspace.walkFiles).toBe('function')
+		// `readFileStream` is optional on the SDK's `Sandbox` and narrowed to
+		// present on `KubernetesWorkspace`: a pod behind a workspace runs
+		// this repository's agent, and a host draining a large output file
+		// before a suspend is the use the surface exists for.
+		expect(typeof workspace.readFileStream).toBe('function')
 		await workspace.destroy()
 	})
 })
@@ -751,6 +758,15 @@ describe('calls against a suspended workspace', () => {
 		await expect(workspace.readFile('/workspace/x')).rejects.toBeInstanceOf(
 			KubernetesWorkspaceSuspendedError,
 		)
+		await expect(
+			workspace.readFile('/workspace/x', { offset: 4, length: 8 }),
+		).rejects.toBeInstanceOf(KubernetesWorkspaceSuspendedError)
+		// Refused where the CALLER wrote it, not at the first pull: an async
+		// generator would defer the refusal until something iterated, and a
+		// host that only opens the stream would be told nothing.
+		expect(() => workspace.readFileStream('/workspace/x')).toThrow(
+			KubernetesWorkspaceSuspendedError,
+		)
 		await expect(workspace.writeFile('/workspace/x', 'y')).rejects.toBeInstanceOf(
 			KubernetesWorkspaceSuspendedError,
 		)
@@ -763,6 +779,110 @@ describe('calls against a suspended workspace', () => {
 		expect(agent.connections.length).toBe(dialsBefore)
 		expect(workspace.status).toBe('destroyed')
 		expect(workspace.suspended).toBe(true)
+	})
+})
+
+/**
+ * A workspace is the surface the streamed read exists for — it is the
+ * long-lived sandbox whose output files are drained before a suspend — and it
+ * is also the one surface that wraps the handle in its own object literal.
+ * Every member there is written out by hand, so a parameter can be dropped
+ * without the task sandbox's own assertions noticing, and dropping THIS
+ * parameter is not a degraded answer: a caller that asked for 256 bytes and
+ * got a gigabyte has been given a wrong one.
+ *
+ * The peer is the scripted agent rather than `agent/agent.cjs`, for the
+ * reason every control-plane case here uses it: `createKubernetesWorkspace`
+ * runs the acquire-time privilege probe, and the real agent would correctly
+ * report a test host's node process as privileged and fail the create. What
+ * is under test is the forwarding, and the wire is asserted directly.
+ */
+describe('reading a file out of a workspace', () => {
+	const FILE = Buffer.from(Array.from({ length: 40 * 1024 }, (_, i) => (i * 7 + 11) % 251))
+
+	/** Restart the loopback agent with a guest that advertises the feature. */
+	async function withReadCapableAgent(): Promise<void> {
+		await agent?.close()
+		agent = await startScriptedAgent({
+			token: POD_UID,
+			features: [READ_FILE_STREAM_FEATURE],
+			readFileContent: FILE,
+		})
+	}
+
+	it('forwards offset and length to the guest instead of answering with the whole file', async () => {
+		await withReadCapableAgent()
+		server = await startWorkspaceCluster(workspaceTemplate())
+		const workspace = await createKubernetesWorkspace(config(), {
+			workspaceId: WORKSPACE_ID,
+			workingDirectory: '/workspace',
+		})
+
+		const slice = await workspace.readFile('/workspace/out.bin', { offset: 1_000, length: 256 })
+
+		expect(slice.length).toBe(256)
+		expect(slice.toString('base64')).toBe(FILE.subarray(1_000, 1_256).toString('base64'))
+		// And the range reached the WIRE, which is the half a returned buffer
+		// cannot prove on its own: a wrapper that dropped the options and a
+		// guest that ignored them look the same from here otherwise.
+		if (!agent) throw new Error('fixtures not started')
+		const ranged = agent.requests.filter((r) => r.op === 'read-file')
+		expect(ranged).toHaveLength(1)
+		expect(ranged[0]?.body).toMatchObject({ offset: 1_000, length: 256 })
+		await workspace.destroy()
+	})
+
+	it('streams a file through the workspace in more than one piece', async () => {
+		await withReadCapableAgent()
+		server = await startWorkspaceCluster(workspaceTemplate())
+		const workspace = await createKubernetesWorkspace(config(), {
+			workspaceId: WORKSPACE_ID,
+			workingDirectory: '/workspace',
+		})
+
+		const chunks: Buffer[] = []
+		for await (const chunk of workspace.readFileStream('/workspace/out.bin')) {
+			chunks.push(Buffer.from(chunk))
+		}
+
+		expect(chunks.length).toBeGreaterThan(1)
+		expect(Buffer.concat(chunks).toString('base64')).toBe(FILE.toString('base64'))
+		// A whole-file read over the same guest answers the same bytes: the
+		// stream is what serves it, so a difference between the two would be
+		// a silent corruption reaching every existing caller.
+		const whole = await workspace.readFile('/workspace/out.bin')
+		expect(whole.toString('base64')).toBe(FILE.toString('base64'))
+		await workspace.destroy()
+	})
+
+	it('refuses a ranged read against a guest too old to honour it, rather than returning the file', async () => {
+		// The beforeEach agent advertises nothing, which is an image built
+		// before the feature existed. Such an agent IGNORES offset/length and
+		// replies with the whole file, so a fallback would hand the caller a
+		// gigabyte where it asked for a slice. The transport refuses; this
+		// asserts the workspace does not route around that by dropping the
+		// options before they get there.
+		server = await startWorkspaceCluster(workspaceTemplate())
+		const workspace = await createKubernetesWorkspace(config(), {
+			workspaceId: WORKSPACE_ID,
+			workingDirectory: '/workspace',
+		})
+		if (!agent) throw new Error('fixtures not started')
+		const before = agent.requests.filter((r) => r.op === 'read-file').length
+
+		await expect(
+			workspace.readFile('/workspace/out.bin', { offset: 10, length: 20 }),
+		).rejects.toBeInstanceOf(AgentReadFileStreamUnsupportedError)
+		await expect(async () => {
+			for await (const _chunk of workspace.readFileStream('/workspace/out.bin')) {
+				throw new Error('a stream should not have been served')
+			}
+		}).rejects.toBeInstanceOf(AgentReadFileStreamUnsupportedError)
+
+		// Refused without asking the guest to read anything.
+		expect(agent.requests.filter((r) => r.op === 'read-file').length).toBe(before)
+		expect(agent.requests.filter((r) => r.op === 'read-file-stream')).toHaveLength(0)
+		await workspace.destroy()
 	})
 })
 

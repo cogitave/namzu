@@ -142,7 +142,27 @@ const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
 //    `{ type: 'heartbeat' }` frame every interval so neither side has to
 //    guess whether a silent stream is a quiet shell or a peer that went
 //    away. See `armStreamHeartbeat`.
-const AGENT_FEATURES = ['write-file-parts', 'execution-attach', 'stream-heartbeat']
+//  - `read-file-stream` — the READ side of the write-file-parts problem.
+//    One string for both halves of it, because they ship together in this
+//    file and no host can ever have one without the other: `read-file`
+//    accepts `offset`/`length` and answers ONE bounded slice
+//    (`handleReadFile`), and the `read-file-stream` op sends a whole file
+//    as an ordered `meta`, `data`..., `end` sequence
+//    (`handleReadFileStream`). Both matter because the old whole-file
+//    reply held the file buffer, its base64 string, the JSON string and
+//    two frame buffers at once — about 7.7x the file — and refused
+//    outright above ~384 MiB, where the base64 string passes V8's
+//    0x1fffffe8-character ceiling. A host that does not see this string
+//    keeps to the single whole-file reply and must send neither new
+//    shape: an agent that predates them would IGNORE `offset`/`length`
+//    and answer with the WHOLE file, which the caller would read as its
+//    slice.
+const AGENT_FEATURES = [
+	'write-file-parts',
+	'execution-attach',
+	'stream-heartbeat',
+	'read-file-stream',
+]
 
 // --- config (mirrors worker/server.js env contract) -----------------------
 
@@ -337,6 +357,42 @@ const PREAUTH_DEADLINE_MS = positiveIntegerConfig('NAMZU_AGENT_PREAUTH_DEADLINE_
 // socket, so this is a backstop against a peer that has stopped reading,
 // not a budget anything normally uses.
 const REFUSAL_FLUSH_GRACE_MS = positiveIntegerConfig('NAMZU_AGENT_REFUSAL_FLUSH_GRACE_MS', 1_000)
+// The largest slice ONE ranged `read-file` may answer with. A ranged read
+// is a single reply frame, so this is the read-side twin of
+// `NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES`: it keeps the encoded reply,
+// its JSON string and the frame buffer to a few megabytes between them
+// however large the file behind it is.
+//
+// It bounds a RANGE, never a whole-file read. `{ path }` with no `offset`
+// and no `length` is the op this agent has always served and is not
+// measured against this at all — a 64 MiB whole-file read that worked
+// before this variable existed still works. A range over the limit is
+// REFUSED rather than shortened, for `resolveTimeoutMs`'s reason: a
+// caller that asked for 4 MiB, got 1 MiB and was told nothing would read
+// the short answer as the end of its range. The refusal names
+// `read-file-stream`, which has no such ceiling.
+const READ_FILE_MAX_RANGE_BYTES = positiveIntegerConfig(
+	'NAMZU_AGENT_READ_FILE_RANGE_BYTES',
+	1024 * 1024,
+)
+// How much of the file one `data` frame of a `read-file-stream` carries.
+// The read buffer is reused and the next read waits for the socket to
+// drain, so the stream holds one chunk at a time and the guest's peak
+// stops tracking the file's size: measured on node 24 over loopback TCP,
+// reading `VmHWM` from the agent's OWN process, a 1 GiB read grew the
+// agent by about 12 MiB at this default and by 74.5 MiB at 1 MiB, against
+// 405 MiB for a 64 MiB read on the whole-file path.
+//
+// 256 KiB rather than the 1 MiB the issue suggested, chosen from that
+// measurement: the acceptance budget is 64 MiB for a 1 GiB read, 1 MiB
+// chunks sat above it, and the cost of the smaller chunk is about 40%
+// more wall time for a gigabyte (2.7s against 1.9s). A deployment that
+// would rather have the throughput raises this and pays for it in
+// resident bytes.
+const READ_FILE_STREAM_CHUNK_BYTES = positiveIntegerConfig(
+	'NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES',
+	256 * 1024,
+)
 
 // --- framing (matches transport.ts byte-for-byte) --------------------------
 
@@ -365,6 +421,47 @@ const EMPTY_CHUNK = Buffer.alloc(0)
 // byte that a peer streaming bytes with no newline in them is never going
 // to produce a header.
 const FRAME_HEADER_BYTES = LENGTH_PREFIX_HEX + 1
+
+// The two halves of a `read-file-stream` `data` frame's JSON, either side
+// of the base64 payload. See {@link writeReadFileDataFrame}.
+const READ_FILE_DATA_PREFIX = '{"type":"data","data":"'
+const READ_FILE_DATA_SUFFIX = '"}'
+
+/**
+ * Write one `data` frame of a `read-file-stream` without ever building the
+ * frame's JSON as a string.
+ *
+ * `writeFrame` would cost four allocations the size of the payload per
+ * chunk — the base64 string, the JSON string, the UTF-8 buffer of that
+ * string, and the `Buffer.concat` that prepends the header — and over a
+ * long stream that garbage is what the agent's resident peak actually
+ * measures: at a 1 MiB chunk it held a 1 GiB read about 10 MiB above the
+ * 64 MiB the read is budgeted. Here the base64 string and one output
+ * buffer are the whole cost.
+ *
+ * Producing JSON by concatenation is safe for exactly one reason, and it
+ * does not generalise: the base64 alphabet is `A-Za-z0-9+/=`, and JSON
+ * escapes none of those characters, so the encoded payload contributes
+ * precisely itself and precisely its own length. `latin1` rather than
+ * `utf8` for the same reason — every character is one ASCII byte, so the
+ * copy needs no encoder. Any other field would have to go through
+ * `writeFrame`.
+ *
+ * The buffer is fresh per chunk and never reused: `socket.write` takes a
+ * REFERENCE and may still hold it after returning true, so a reused buffer
+ * would rewrite bytes that had not reached the wire.
+ */
+function writeReadFileDataFrame(socket, bytes) {
+	const encoded = bytes.toString('base64')
+	const bodyBytes = READ_FILE_DATA_PREFIX.length + encoded.length + READ_FILE_DATA_SUFFIX.length
+	const out = Buffer.allocUnsafe(FRAME_HEADER_BYTES + bodyBytes)
+	out.write(`${bodyBytes.toString(16).padStart(LENGTH_PREFIX_HEX, '0')}\n`, 0, 'ascii')
+	let at = FRAME_HEADER_BYTES
+	at += out.write(READ_FILE_DATA_PREFIX, at, 'latin1')
+	at += out.write(encoded, at, 'latin1')
+	out.write(READ_FILE_DATA_SUFFIX, at, 'latin1')
+	return socket.write(out)
+}
 
 /**
  * Split a byte stream into `<8-hex length>\n<payload>` frames.
@@ -1487,24 +1584,310 @@ async function handleExecute(socket, body) {
 	})
 }
 
+/**
+ * Where a ranged `read-file` starts and how much of the file it answers
+ * with, or `undefined` for the whole-file read this op has always served.
+ *
+ * Pure, and separated from the fd work, so the ceiling can be pinned
+ * without a disk: every refusal below is a decision about the REQUEST,
+ * and the only thing the file contributes is its size.
+ *
+ * A range that starts past EOF is not an error. It answers zero bytes
+ * with the file's real `sizeBytes` beside them, which is exactly what a
+ * caller resuming from a remembered offset has to be able to see.
+ */
+function resolveReadRange(body, sizeBytes) {
+	if (body.offset === undefined && body.length === undefined) return undefined
+	const offset = body.offset === undefined ? 0 : Number(body.offset)
+	if (!Number.isSafeInteger(offset) || offset < 0) {
+		throw new Error('read_file_invalid_offset: offset must be a non-negative safe integer')
+	}
+	const remaining = Math.max(0, sizeBytes - offset)
+	const length = body.length === undefined ? remaining : Number(body.length)
+	if (!Number.isSafeInteger(length) || length < 0) {
+		throw new Error('read_file_invalid_length: length must be a non-negative safe integer')
+	}
+	if (length > READ_FILE_MAX_RANGE_BYTES) {
+		throw new Error(
+			`read_file_range_too_large: ${length} bytes requested, limit ${READ_FILE_MAX_RANGE_BYTES} (NAMZU_AGENT_READ_FILE_RANGE_BYTES). Use the read-file-stream op to read a whole file.`,
+		)
+	}
+	return { offset, length: Math.min(length, remaining) }
+}
+
+/**
+ * Read a file, whole or by range.
+ *
+ * `{ path }` alone is byte-for-byte the op this agent has always served:
+ * one `fs.readFile`, one encoded reply, one frame. `offset`/`length` opens
+ * an fd instead and `pread`s at that position, so a caller draining a
+ * large file pays for its slice rather than for the file. `sizeBytes`
+ * always describes the WHOLE file in both shapes — it is how a ranged
+ * caller knows where the file ends, and the sizeless-file branch below
+ * exists to keep that promise on the one file shape `stat` cannot size —
+ * and a ranged reply adds `offset` and `bytesRead` so a short answer is
+ * legible as one.
+ *
+ * A range must be asked for in `base64`. A `utf8` slice taken at an
+ * arbitrary offset can begin or end inside a multi-byte character, and
+ * what comes back then is not those bytes; the whole-file shape keeps
+ * `utf8` because its boundaries are the file's own.
+ *
+ * Both shapes go through `resolveReadablePath` + `realpathWithinWorkspace`,
+ * the same jail, in the same order: there is no second path resolution in
+ * this file and a range is not a way around the first one.
+ */
 async function handleReadFile(socket, body) {
 	if (!body || !body.path) {
 		writeFrame(socket, { ok: false, error: 'missing_path' })
 		return
 	}
+	const encoding = body.encoding === 'base64' ? 'base64' : 'utf8'
+	const ranged = body.offset !== undefined || body.length !== undefined
+	if (ranged && encoding !== 'base64') {
+		writeFrame(socket, {
+			ok: false,
+			error:
+				'read_file_range_requires_base64: a ranged read must ask for base64, because a utf8 slice at an arbitrary offset can split a multi-byte character',
+		})
+		return
+	}
+	let handle
 	try {
 		const { target, root } = resolveReadablePath(body.path)
 		const real = await realpathWithinWorkspace(target, root)
-		const buf = await fs.readFile(real)
-		const encoding = body.encoding === 'base64' ? 'base64' : 'utf8'
+		if (!ranged) {
+			const buf = await fs.readFile(real)
+			writeFrame(socket, {
+				ok: true,
+				content: buf.toString(encoding),
+				sizeBytes: buf.length,
+				encoding,
+			})
+			return
+		}
+		handle = await fs.open(real, 'r')
+		const stat = await handle.stat()
+		// The same sizeless-regular-file shape `read-file-stream` answers,
+		// answered the same way. Every number a range is made of comes from
+		// the file's size, and `stat` reports none for a procfs/sysfs file
+		// that has content — so a range resolved against that zero would
+		// answer an empty slice beside `sizeBytes: 0`, telling the caller the
+		// file is empty when it is not. Reading once gives the range a true
+		// size to be resolved against, at exactly the cost the whole-file
+		// shape pays on the same file, and only when `stat` gave nothing to
+		// range against: a file whose size `stat` knows is never read here.
+		const preread = stat.size === 0 && stat.isFile() ? await handle.readFile() : undefined
+		const sizeBytes = preread === undefined ? stat.size : preread.length
+		const range = resolveReadRange(body, sizeBytes)
+		let slice
+		if (preread === undefined) {
+			const buf = Buffer.allocUnsafe(range.length)
+			const { bytesRead } = await handle.read(buf, 0, range.length, range.offset)
+			slice = buf.subarray(0, bytesRead)
+		} else {
+			slice = preread.subarray(range.offset, range.offset + range.length)
+		}
 		writeFrame(socket, {
 			ok: true,
-			content: buf.toString(encoding),
-			sizeBytes: buf.length,
+			content: slice.toString(encoding),
+			sizeBytes,
 			encoding,
+			offset: range.offset,
+			bytesRead: slice.length,
 		})
 	} catch (err) {
 		writeFrame(socket, { ok: false, error: err.message })
+	} finally {
+		if (handle) {
+			await handle.close().catch(() => {})
+		}
+	}
+}
+
+/**
+ * Resolve the socket's next `drain`, or its end, whichever comes first.
+ *
+ * The same backpressure signal `handleTcpConnect` pauses its upstream on,
+ * awaited instead of subscribed to because the reader below is a pull
+ * loop rather than a push source — one mechanism, two shapes, not two
+ * schemes. `close` and `error` resolve it too, so a peer that goes away
+ * mid-stream never leaves the loop parked on a `drain` that cannot come.
+ * Every listener is removed on the way out: a stream of a thousand chunks
+ * that leaked three listeners per chunk would trip the max-listeners
+ * warning and hold three closures per chunk alive.
+ */
+function waitForDrain(socket) {
+	return new Promise((resolve) => {
+		const done = () => {
+			socket.removeListener('drain', done)
+			socket.removeListener('close', done)
+			socket.removeListener('error', done)
+			resolve()
+		}
+		socket.once('drain', done)
+		socket.once('close', done)
+		socket.once('error', done)
+	})
+}
+
+/**
+ * Send a file as an ordered sequence of frames: `meta`, then `data`
+ * chunks, then `end`, then the zero-length terminator — the same
+ * terminated-stream shape `execute` uses, on a connection the dispatcher
+ * keeps open the way it does for `terminal` and `tcp-connect`.
+ *
+ * This is the op that removes the ceiling. The whole-file reply had to
+ * hold the file, its base64 form, the JSON envelope and two frame buffers
+ * at once, so a 64 MiB read peaked around 542 MiB — above the shipped
+ * workspace template's 512Mi limit, in the container the workload shares
+ * — and a file of ~384 MiB or more could not be answered at all, because
+ * its base64 string is longer than V8 permits a string to be. Here one
+ * reused `READ_FILE_STREAM_CHUNK_BYTES` buffer crosses the wire at a time
+ * and the next read waits for the socket to drain, so the guest's peak is
+ * the same few megabytes whether the file is 1 MiB or 1 GiB.
+ *
+ * `offset`/`length` are accepted here too and are NOT capped: this op is
+ * where `read-file`'s range ceiling sends a caller who wants more than
+ * one frame's worth, so capping it would leave that caller nowhere to go.
+ *
+ * The fd is closed on every exit — completion, error, and a peer that
+ * hangs up mid-stream (`onClose`) — because the alternative is an agent
+ * that leaks a descriptor per abandoned read. The body below OWNS the
+ * descriptor from `fs.open` to its own `finally`, which is the one thing
+ * that makes that true for the narrow window where the peer hangs up
+ * BEFORE the open resolves: `onClose` runs then with nothing to close,
+ * and every exit after it is an early `return` that no longer reaches
+ * `finish`. `releaseHandle` is idempotent, so `onClose`'s early release —
+ * which is what makes an abort prompt rather than waiting for the loop to
+ * notice — and the `finally` together close the fd exactly once.
+ */
+function handleReadFileStream(socket, body) {
+	let settled = false
+	let handle
+
+	function releaseHandle() {
+		const open = handle
+		handle = undefined
+		if (open) {
+			void open.close().catch(() => {})
+		}
+	}
+
+	function finish(event) {
+		if (settled) return
+		settled = true
+		if (event) writeFrame(socket, event)
+		writeTerminator(socket)
+		socket.end()
+	}
+
+	void (async () => {
+		try {
+			if (!body || !body.path) {
+				finish({ type: 'error', error: 'missing_path' })
+				return
+			}
+			const { target, root } = resolveReadablePath(body.path)
+			const real = await realpathWithinWorkspace(target, root)
+			handle = await fs.open(real, 'r')
+			// The peer can have gone in the time the open took. Returning
+			// here rather than at the next guard skips a `stat` — and, on a
+			// file whose size `stat` does not know, a whole pre-read — for a
+			// connection that can no longer receive any of it. The `finally`
+			// is what closes the descriptor this line just assigned.
+			if (settled) return
+			const stat = await handle.stat()
+			if (!stat.isFile()) {
+				finish({ type: 'error', error: 'read_file_stream_not_a_regular_file' })
+				return
+			}
+			const offset = body.offset === undefined ? 0 : Number(body.offset)
+			if (!Number.isSafeInteger(offset) || offset < 0) {
+				finish({
+					type: 'error',
+					error: 'read_file_invalid_offset: offset must be a non-negative safe integer',
+				})
+				return
+			}
+			const length = body.length === undefined ? undefined : Number(body.length)
+			if (length !== undefined && (!Number.isSafeInteger(length) || length < 0)) {
+				finish({
+					type: 'error',
+					error: 'read_file_invalid_length: length must be a non-negative safe integer',
+				})
+				return
+			}
+			// A regular file whose `stat` reports no size can still have content:
+			// the procfs/sysfs shape, reachable whenever an operator adds such a
+			// root to `NAMZU_SANDBOX_READ_ROOTS`. `fs.readFile` reads those to
+			// EOF, and a whole-file `readFile` the host now serves THROUGH this
+			// op has to answer the same bytes it always did rather than an empty
+			// buffer. Their length is discoverable only by reading, so this
+			// branch reads — sequentially, which is the access pattern those
+			// files support, and only when `stat` gave nothing to stream
+			// against, so a file whose size is known is never materialised here.
+			// It costs exactly what the old whole-file op cost on the same file,
+			// which is the thing it is standing in for.
+			const preread = stat.size === 0 ? await handle.readFile() : undefined
+			const sizeBytes = preread === undefined ? stat.size : preread.length
+			const rest = Math.max(0, sizeBytes - offset)
+			const wanted = length === undefined ? rest : Math.min(length, rest)
+			if (settled) return
+			writeFrame(socket, { type: 'meta', sizeBytes, offset, length: wanted })
+
+			// One buffer for the whole stream, reused: `toString('base64')`
+			// copies out of it synchronously, so nothing observes it after the
+			// next read has overwritten it.
+			const chunk = Buffer.allocUnsafe(Math.max(1, Math.min(READ_FILE_STREAM_CHUNK_BYTES, wanted)))
+			// One chunk into that buffer, from the fd or from the pre-read one,
+			// answering how many bytes landed. Zero means EOF in both shapes.
+			const readChunk = async (want, position) => {
+				if (preread === undefined) {
+					const read = await handle.read(chunk, 0, want, position)
+					return read.bytesRead
+				}
+				return preread.copy(chunk, 0, position, Math.min(position + want, preread.length))
+			}
+			let position = offset
+			let sent = 0
+			while (sent < wanted) {
+				if (settled) return
+				const want = Math.min(chunk.length, wanted - sent)
+				const bytesRead = await readChunk(want, position)
+				// A file that shrank under an open fd answers short and then
+				// zero. `end` is still the truthful terminator: `bytesSent` says
+				// what crossed and `meta.sizeBytes` said what was expected, so
+				// the host compares them rather than being told a lie.
+				if (bytesRead === 0) break
+				position += bytesRead
+				sent += bytesRead
+				if (settled) return
+				const flushed = writeReadFileDataFrame(socket, chunk.subarray(0, bytesRead))
+				if (!flushed) await waitForDrain(socket)
+			}
+			finish({ type: 'end', bytesSent: sent })
+		} finally {
+			// The descriptor's one owner. Unconditional, so no reader has to
+			// prove which exits reach `finish`: every `return` above, every
+			// throw on the way to the `catch` below, and the normal end all
+			// pass through here.
+			releaseHandle()
+		}
+	})().catch((err) => {
+		finish({ type: 'error', error: err instanceof Error ? err.message : String(err) })
+	})
+
+	return {
+		onFrame() {
+			// Nothing travels host->guest on this op. A frame arriving here
+			// is a host talking a protocol this one does not have, and
+			// ignoring it is what every other reply-only op does.
+		},
+		onClose() {
+			settled = true
+			releaseHandle()
+		},
 	}
 }
 
@@ -2595,6 +2978,15 @@ function dispatch(socket, req) {
 		handleReadFile(socket, req.body).finally(() => socket.end())
 		return
 	}
+	// Additive, and a STREAM branch rather than a reply branch: the
+	// dispatcher keeps the connection open for whatever this returns,
+	// exactly as it does for `terminal` and `tcp-connect`, so the handler
+	// owns its own terminator and its own `socket.end()`. See
+	// {@link AGENT_FEATURES} for why this is advertised rather than
+	// versioned.
+	if (op === 'read-file-stream') {
+		return handleReadFileStream(socket, req.body)
+	}
 	if (op === 'write-file') {
 		handleWriteFile(socket, req.body).finally(() => socket.end())
 		return
@@ -2772,6 +3164,7 @@ module.exports = {
 	resolveReadablePath,
 	resolveWritablePath,
 	resolveTimeoutMs,
+	resolveReadRange,
 }
 
 if (require.main === module) {

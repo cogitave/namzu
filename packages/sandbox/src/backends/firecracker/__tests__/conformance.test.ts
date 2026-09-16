@@ -116,5 +116,13 @@ describe.skipIf(IS_WINDOWS)('firecracker backend', () => {
 		expect,
 		label: 'firecracker backend',
 		makeSandbox,
+		// True HERE and not in general: this fixture requires
+		// `agent/agent.cjs` from this repository, so it is by construction a
+		// guest that has the capability. A real Firecracker deployment runs
+		// whatever agent its golden rootfs image baked in, and nothing in
+		// this repository builds that image — which is exactly why these
+		// cases are an opt-in flag rather than a bump of
+		// `SANDBOX_CONTRACT_VERSION`.
+		supportsRangedAndStreamedReads: true,
 	})
 })

@@ -4,6 +4,7 @@ import {
 	readFile as fsReadFile,
 	writeFile as fsWriteFile,
 	mkdir,
+	open,
 	readdir,
 	rename,
 	rm,
@@ -38,6 +39,7 @@ import type {
 	SandboxFileEntry,
 	SandboxIsolationControl,
 	SandboxProvider,
+	SandboxReadFileOptions,
 	SandboxSpawnOptions,
 	SandboxStatus,
 	SandboxWalkFilesOptions,
@@ -742,13 +744,54 @@ class LocalSandbox implements Sandbox {
 		this.log.debug('File written', { 'namzu.sandbox.path': resolved })
 	}
 
-	async readFile(path: string): Promise<Buffer> {
+	/**
+	 * `options.offset`/`options.length` are HONOURED, not ignored.
+	 *
+	 * {@link Sandbox.readFile} is explicit that a backend which takes the
+	 * parameter and answers with the whole file has given a WRONG answer
+	 * rather than a degraded one, and must reject instead. On a local
+	 * filesystem there is nothing to reject: a slice is one positional read,
+	 * so this serves it.
+	 *
+	 * A range that runs past the end returns the bytes that exist, because a
+	 * caller resuming from a remembered offset cannot know the answer before
+	 * it asks.
+	 *
+	 * `options.signal` cannot be handed to a positional read — `FileHandle`
+	 * takes none — so it is checked on both sides of one bounded slice
+	 * instead. That honours the contract's "aborts the read" as far as a
+	 * local disk allows: an abort is never answered with data.
+	 */
+	async readFile(path: string, options?: SandboxReadFileOptions): Promise<Buffer> {
 		if (this._status === 'destroyed') {
 			throw new Error(`Sandbox ${this.id} is destroyed`)
 		}
 
 		const resolved = await resolveWithinAnyReal(this.roots, path)
-		return fsReadFile(resolved)
+		const { offset, length, signal } = options ?? {}
+		signal?.throwIfAborted()
+		if (offset === undefined && length === undefined) {
+			return await fsReadFile(resolved, signal ? { signal } : undefined)
+		}
+		if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) {
+			throw new Error('readFile: offset must be a non-negative safe integer')
+		}
+		if (length !== undefined && (!Number.isSafeInteger(length) || length < 0)) {
+			throw new Error('readFile: length must be a non-negative safe integer')
+		}
+		const handle = await open(resolved, 'r')
+		try {
+			const from = offset ?? 0
+			const remaining = Math.max(0, (await handle.stat()).size - from)
+			const want = Math.min(length ?? remaining, remaining)
+			if (want === 0) return Buffer.alloc(0)
+			const buf = Buffer.allocUnsafe(want)
+			const { bytesRead } = await handle.read(buf, 0, want, from)
+			signal?.throwIfAborted()
+			return buf.subarray(0, bytesRead)
+		} finally {
+			await handle.close().catch(() => undefined)
+		}
 	}
 
 	async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {

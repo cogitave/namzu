@@ -61,6 +61,7 @@ import type {
 	OpenTerminalOptions,
 	SandboxExecOptions,
 	SandboxExecResult,
+	SandboxReadFileOptions,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
 	TerminalSession,
@@ -78,8 +79,11 @@ import {
 	type ExecRequest,
 	ExecResultAccumulator,
 	MIN_STREAM_HEARTBEAT_MS,
+	READ_FILE_STREAM_FEATURE,
 	type ReadFileRequest,
 	type ReadFileResponse,
+	type ReadFileStreamEvent,
+	type ReadFileStreamRequest,
 	STREAM_HEARTBEAT_MAX_ECHO_FACTOR,
 	STREAM_HEARTBEAT_MISS_LIMIT,
 	type TcpConnectRequest,
@@ -216,6 +220,7 @@ export type AgentRequest = (
 			readonly body: { readonly executionId: string; readonly fromOffset?: number }
 	  }
 	| { readonly op: 'read-file'; readonly body: ReadFileRequest }
+	| { readonly op: 'read-file-stream'; readonly body: ReadFileStreamRequest }
 	| { readonly op: 'write-file'; readonly body: WriteFileRequest }
 	| { readonly op: 'terminal'; readonly body: TerminalOpenRequest }
 	| { readonly op: 'tcp-connect'; readonly body: TcpConnectRequest }
@@ -437,6 +442,46 @@ export class AgentWriteFileTooLargeError extends Error {
 		this.name = 'AgentWriteFileTooLargeError'
 	}
 }
+
+/**
+ * Thrown when a read this transport cannot serve on the old whole-file op
+ * is asked of a guest that does not advertise
+ * {@link READ_FILE_STREAM_FEATURE} — a ranged `readFile`, or any
+ * `readFileStream`.
+ *
+ * A refusal rather than a fallback, and that is the whole point of the
+ * class: an agent that predates the feature IGNORES `offset`/`length` and
+ * answers with the WHOLE file, so silently taking the old path would hand
+ * a caller the entire file where it asked for a slice — a wrong answer
+ * dressed as a degraded one. Named so a host can tell "rebuild the guest
+ * image" apart from "that file is not there".
+ */
+export class AgentReadFileStreamUnsupportedError extends Error {
+	constructor(message: string) {
+		super(message)
+		this.name = 'AgentReadFileStreamUnsupportedError'
+	}
+}
+
+/**
+ * How many bytes of a `read-file-stream` may sit decoded on this side
+ * while the consumer is slow, before the socket is paused.
+ *
+ * The bound exists because an `AsyncIterable` consumer pulls: without it a
+ * fast guest would fill the host's heap with exactly the whole file this
+ * op exists to avoid materialising. One chunk is the guest's own
+ * `NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES` (256 KiB by default), so this
+ * is a few chunks in flight and nothing like a file. A deployment that
+ * raises that variable raises the number of BYTES held here, not the
+ * number of chunks: this is a byte bound, so it keeps holding.
+ *
+ * Deliberately not derived from the guest's value. The guest is a
+ * different process on a different release train, this side has to bound
+ * its own heap before it has asked the guest anything, and a host that
+ * trusted a guest-supplied chunk size for its own bound would have no
+ * bound at all.
+ */
+const READ_FILE_STREAM_HIGH_WATER_BYTES = 4 * 1024 * 1024
 
 /**
  * Thrown by {@link VsockAgentTransport}'s dial when it gives up without a
@@ -1212,10 +1257,11 @@ export class VsockAgentTransport {
 	/** Readiness probe. A healthy guest must also speak the exact host protocol. */
 	async healthz(signal?: AbortSignal): Promise<boolean> {
 		try {
-			const res = await this.request<{ ok?: boolean; protocolVersion?: unknown }>(
-				{ op: 'healthz' },
-				signal,
-			)
+			const res = await this.request<{
+				ok?: boolean
+				protocolVersion?: unknown
+				features?: unknown
+			}>({ op: 'healthz' }, signal)
 			if (res.ok !== true) return false
 			if (res.protocolVersion !== FIRECRACKER_AGENT_PROTOCOL_VERSION) {
 				const actual =
@@ -1224,6 +1270,22 @@ export class VsockAgentTransport {
 					`Firecracker guest protocol version mismatch: expected ${FIRECRACKER_AGENT_PROTOCOL_VERSION}, received ${actual}. Rebuild the golden image from the same Namzu release.`,
 				)
 			}
+			// The reply that answers readiness also answers what the guest can
+			// do, so the capability caches are filled here rather than by a
+			// second probe later. What that saves depends on the tier: the
+			// Firecracker backend fences on `waitForReady` after create, so
+			// its first `readFile` costs one connection, while the Kubernetes
+			// backend fences on the pod's ready condition and never calls
+			// this — so its first read of a transport's life pays one extra
+			// dial to ask, and every read after it is back to one.
+			//
+			// AFTER both checks, not before: a reply this method is about to
+			// reject is not a reply to believe about anything else, and a
+			// guest that is not ready is one whose features are not yet known
+			// rather than one that has none.
+			this.guestFeatureList = Array.isArray(res.features)
+				? res.features.filter((value): value is string => typeof value === 'string')
+				: []
 			return true
 		} catch (error) {
 			if (signal?.aborted) throw signal.reason
@@ -1629,15 +1691,381 @@ export class VsockAgentTransport {
 		}
 	}
 
-	async readFile(path: string): Promise<Buffer> {
-		const res = await this.request<ReadFileResponse>({
-			op: 'read-file',
-			body: { path, encoding: 'base64' },
-		})
+	/**
+	 * Read a file out of the guest.
+	 *
+	 * Three shapes, decided by what the guest advertises and what the
+	 * caller asked for:
+	 *
+	 *  - **No options, guest advertises {@link READ_FILE_STREAM_FEATURE}** —
+	 *    served by {@link readFileStream} and concatenated here. Neither
+	 *    side ever holds the base64 form or the JSON envelope whole, so the
+	 *    ~384 MiB ceiling (V8 refuses a string longer than `0x1fffffe8`
+	 *    characters, which is what a base64-encoded file of that size
+	 *    needs) is gone and the guest's peak stops tracking the file's
+	 *    size. The result is still one `Buffer`, because that is what this
+	 *    method returns; a caller that must not hold even that iterates
+	 *    {@link readFileStream} directly.
+	 *  - **No options, guest does not advertise it** — today's single
+	 *    whole-file reply, byte for byte, with today's ceiling.
+	 *  - **`offset` and `length`** — one ranged `read-file`: a single round
+	 *    trip for a single slice, which is the point of asking for one.
+	 *    `offset` WITHOUT `length` is an unbounded tail, so it goes through
+	 *    the stream instead; the guest refuses an uncapped range on
+	 *    `read-file` for exactly that reason.
+	 *
+	 * A ranged read against a guest that does not advertise the feature is
+	 * REFUSED with {@link AgentReadFileStreamUnsupportedError} rather than
+	 * downgraded: such an agent ignores `offset`/`length` and answers with
+	 * the whole file, which the caller would read as its slice.
+	 */
+	async readFile(path: string, options?: SandboxReadFileOptions): Promise<Buffer> {
+		const signal = options?.signal
+		const { offset, length } = options ?? {}
+		if (offset !== undefined && (!Number.isSafeInteger(offset) || offset < 0)) {
+			throw new Error('readFile: offset must be a non-negative safe integer')
+		}
+		if (length !== undefined && (!Number.isSafeInteger(length) || length < 0)) {
+			throw new Error('readFile: length must be a non-negative safe integer')
+		}
+		const ranged = offset !== undefined || length !== undefined
+		if (!(await this.guestSupportsReadFileStream(signal))) {
+			if (ranged) {
+				throw new AgentReadFileStreamUnsupportedError(
+					`read-file: this guest does not advertise the '${READ_FILE_STREAM_FEATURE}' healthz feature, so it would ignore offset/length and answer with the whole file. Rebuild the guest image from this Namzu release, or read the file whole.`,
+				)
+			}
+			return await this.readFileWhole(path, signal)
+		}
+		if (length !== undefined) {
+			return await this.readFileRange(path, offset ?? 0, length, signal)
+		}
+		// Copied into ONE buffer sized from the guest's `meta` frame rather
+		// than collected and `Buffer.concat`ed: concat needs every chunk to
+		// still exist when the whole is built, so it costs twice the file at
+		// the moment it finishes — 2.3x measured on a 256 MiB read, against
+		// the 2x this method is held to. Here the peak is the file plus one
+		// chunk. The guest's own `end` frame is checked against what arrived
+		// (see {@link readFileFrames}), so a short stream rejects rather than
+		// handing back a buffer padded with whatever was in the allocation.
+		let out: Buffer | undefined
+		let at = 0
+		for await (const chunk of this.readFileFrames(path, options, (meta) => {
+			// The one guest-supplied number this side turns into an
+			// allocation, so it is the one worth bounding. The guest derives
+			// `length` and `sizeBytes` from the same `stat` and never
+			// announces more of a file than the file has, so a `length` past
+			// `sizeBytes` is a guest this host should not be sizing a buffer
+			// from. `allocUnsafe` would refuse the extreme values on its own;
+			// this makes the refusal name what was wrong with the frame.
+			if (
+				!Number.isSafeInteger(meta.sizeBytes) ||
+				meta.sizeBytes < 0 ||
+				!Number.isSafeInteger(meta.length) ||
+				meta.length < 0 ||
+				meta.length > meta.sizeBytes
+			) {
+				throw new Error(
+					`vsock transport: read-file-stream announced ${meta.length} bytes of a ${meta.sizeBytes}-byte file`,
+				)
+			}
+			out = Buffer.allocUnsafe(meta.length)
+		})) {
+			if (out === undefined) {
+				throw new Error('vsock transport: read-file-stream sent data before its meta frame')
+			}
+			if (at + chunk.byteLength > out.length) {
+				throw new Error(
+					`vsock transport: read-file-stream delivered more than the ${out.length} bytes it announced`,
+				)
+			}
+			chunk.copy(out, at)
+			at += chunk.byteLength
+		}
+		return out === undefined ? Buffer.alloc(0) : out.subarray(0, at)
+	}
+
+	/** Today's single whole-file reply, unchanged — see {@link readFile}. */
+	private async readFileWhole(path: string, signal?: AbortSignal): Promise<Buffer> {
+		const res = await this.request<ReadFileResponse>(
+			{ op: 'read-file', body: { path, encoding: 'base64' } },
+			signal,
+		)
 		if (!res.ok || typeof res.content !== 'string') {
 			throw new Error(res.error ?? 'read-file: no content')
 		}
 		return Buffer.from(res.content, 'base64')
+	}
+
+	/**
+	 * One bounded slice, in one round trip.
+	 *
+	 * The guest's own ceiling on a range (`NAMZU_AGENT_READ_FILE_RANGE_BYTES`,
+	 * 1 MiB by default) is not mirrored here and deliberately so: it is the
+	 * DEPLOYMENT's number, a host that guessed it would refuse ranges the
+	 * guest would have served, and the guest's refusal already names the
+	 * variable that raises it.
+	 */
+	private async readFileRange(
+		path: string,
+		offset: number,
+		length: number,
+		signal?: AbortSignal,
+	): Promise<Buffer> {
+		const res = await this.request<ReadFileResponse>(
+			{ op: 'read-file', body: { path, encoding: 'base64', offset, length } },
+			signal,
+		)
+		if (!res.ok || typeof res.content !== 'string') {
+			throw new Error(res.error ?? 'read-file: no content')
+		}
+		return Buffer.from(res.content, 'base64')
+	}
+
+	/**
+	 * Read a file as an ordered sequence of chunks, so neither side holds
+	 * the whole of it.
+	 *
+	 * The guest sends `meta`, then `data` frames, then `end`, then the
+	 * zero-length terminator — the same terminated-stream shape `execute`
+	 * uses. Two bounds keep this side's heap flat while the guest's stays
+	 * flat on its own: the socket is PAUSED once
+	 * {@link READ_FILE_STREAM_HIGH_WATER_BYTES} of decoded chunks are
+	 * waiting for a slow consumer, and the guest itself waits for each
+	 * `data` frame to drain before it reads the next one.
+	 *
+	 * Leaving the loop early — `break`, an exception, an aborted
+	 * `options.signal` — destroys the socket in the generator's `finally`,
+	 * which is what makes the guest close its fd: it sees the connection go
+	 * and releases the descriptor rather than leaking one per abandoned
+	 * read.
+	 *
+	 * Refuses a guest that does not advertise
+	 * {@link READ_FILE_STREAM_FEATURE} before dialing, with
+	 * {@link AgentReadFileStreamUnsupportedError}.
+	 */
+	readFileStream(
+		path: string,
+		options?: SandboxReadFileOptions,
+	): AsyncGenerator<Buffer, void, undefined> {
+		return this.readFileFrames(path, options)
+	}
+
+	/**
+	 * The stream itself. Private, and one argument wider than
+	 * {@link readFileStream}: `onMeta` fires once, with the guest's `meta`
+	 * frame, before the first chunk is yielded, which is how
+	 * {@link readFile} sizes its destination buffer without a second round
+	 * trip and without a public parameter nobody outside this class should
+	 * pass.
+	 */
+	private async *readFileFrames(
+		path: string,
+		options?: SandboxReadFileOptions,
+		onMeta?: (meta: { sizeBytes: number; offset: number; length: number }) => void,
+	): AsyncGenerator<Buffer, void, undefined> {
+		const signal = options?.signal
+		signal?.throwIfAborted()
+		if (!(await this.guestSupportsReadFileStream(signal))) {
+			throw new AgentReadFileStreamUnsupportedError(
+				`read-file-stream: this guest does not advertise the '${READ_FILE_STREAM_FEATURE}' healthz feature, so it has no streamed read at all. Rebuild the guest image from this Namzu release, or use readFile for a file small enough to cross the wire in one frame.`,
+			)
+		}
+		const body: ReadFileStreamRequest = {
+			path,
+			...(options?.offset !== undefined ? { offset: options.offset } : {}),
+			...(options?.length !== undefined ? { length: options.length } : {}),
+		}
+		const payload = JSON.stringify(
+			this.withCredential({ op: 'read-file-stream', body } satisfies AgentRequest),
+		)
+		this.assertPreauthBudget(payload)
+		const socket = await this.dial(signal)
+
+		const queue: Buffer[] = []
+		let queuedBytes = 0
+		let paused = false
+		let ended = false
+		let failure: Error | undefined
+		let meta: { sizeBytes: number; offset: number; length: number } | undefined
+		let received = 0
+		let declared: number | undefined
+		let wake: (() => void) | undefined
+		const notify = (): void => {
+			const resume = wake
+			wake = undefined
+			resume?.()
+		}
+		const fail = (error: Error): void => {
+			if (failure || ended) return
+			failure = error
+			notify()
+		}
+		const idle = new IdleTimer(this.readIdleTimeoutMs, () =>
+			fail(
+				new Error(
+					`vsock transport: read-file-stream idle timeout after ${this.readIdleTimeoutMs}ms`,
+				),
+			),
+		)
+		const reader = new FrameReader()
+		let terminated = false
+
+		const onAbort = (): void => fail(signalError(signal))
+		socket.on('data', (chunk: Buffer) => {
+			// Once this read has failed — an abort, an idle timeout, a frame
+			// the guest should not have sent — nothing more will be yielded,
+			// so decoding what is still in flight only grows a queue no
+			// consumer will ever pull from.
+			if (failure) return
+			idle.bump()
+			let frames: string[]
+			try {
+				frames = reader.push(chunk)
+			} catch (err) {
+				fail(err instanceof Error ? err : new Error(String(err)))
+				return
+			}
+			for (const frameBody of frames) {
+				if (terminated) {
+					fail(new Error('vsock transport: read-file-stream emitted data after its terminator'))
+					return
+				}
+				if (frameBody.length === 0) {
+					terminated = true
+					continue
+				}
+				let event: ReadFileStreamEvent
+				try {
+					event = JSON.parse(frameBody) as ReadFileStreamEvent
+				} catch (err) {
+					fail(err instanceof Error ? err : new Error(String(err)))
+					return
+				}
+				if (event.type === 'meta') {
+					if (meta !== undefined) {
+						fail(new Error('vsock transport: read-file-stream sent a second meta frame'))
+						return
+					}
+					meta = { sizeBytes: event.sizeBytes, offset: event.offset, length: event.length }
+					declared = event.length
+					try {
+						onMeta?.(meta)
+					} catch (err) {
+						fail(err instanceof Error ? err : new Error(String(err)))
+						return
+					}
+					continue
+				}
+				if (event.type === 'data') {
+					if (meta === undefined) {
+						fail(new Error('vsock transport: read-file-stream sent data before its meta frame'))
+						return
+					}
+					const bytes = Buffer.from(event.data, 'base64')
+					received += bytes.byteLength
+					queue.push(bytes)
+					queuedBytes += bytes.byteLength
+					if (!paused && queuedBytes >= READ_FILE_STREAM_HIGH_WATER_BYTES) {
+						paused = true
+						socket.pause()
+						// The idle timer guards a guest that went silent, and
+						// while WE are the reason it is silent it would be
+						// measuring the consumer instead. A host draining a
+						// gigabyte onto slow storage must not have its stream
+						// torn down for reading carefully.
+						idle.clear()
+					}
+					notify()
+					continue
+				}
+				if (event.type === 'end') {
+					// The guest counts what it sent; this side counts what it
+					// decoded. A mismatch is a lost or duplicated frame, and a
+					// truncated file handed back as a whole one is exactly the
+					// silent corruption a streamed read must not introduce.
+					if (event.bytesSent !== received) {
+						fail(
+							new Error(
+								`vsock transport: read-file-stream declared ${event.bytesSent} bytes and delivered ${received}`,
+							),
+						)
+						return
+					}
+					if (declared !== undefined && received !== declared) {
+						fail(
+							new Error(
+								`vsock transport: read-file-stream announced ${declared} bytes and delivered ${received}`,
+							),
+						)
+						return
+					}
+					ended = true
+					notify()
+					continue
+				}
+				fail(new Error(event.error))
+				return
+			}
+		})
+		socket.once('error', (err) => fail(err))
+		socket.once('close', () => {
+			if (ended || failure) {
+				notify()
+				return
+			}
+			fail(new Error('vsock transport: read-file-stream socket closed before its end frame'))
+		})
+		if (signal?.aborted) fail(signalError(signal))
+		else signal?.addEventListener('abort', onAbort, { once: true })
+
+		try {
+			socket.write(frame(payload))
+			idle.bump()
+			for (;;) {
+				// Asked BEFORE the queue, not after it: an aborted read that
+				// goes on handing its consumer up to a high-water mark of
+				// already-decoded bytes before surfacing the rejection is not
+				// the prompt refusal `signal` promises. `ended` is the other
+				// way round — a finished stream owes the consumer every byte
+				// that arrived, so the queue drains first.
+				if (failure) throw failure
+				const next = queue.shift()
+				if (next !== undefined) {
+					queuedBytes -= next.byteLength
+					if (paused && queuedBytes < READ_FILE_STREAM_HIGH_WATER_BYTES) {
+						paused = false
+						socket.resume()
+						// Asking for bytes again restarts the clock that
+						// measures whether they come.
+						idle.bump()
+					}
+					yield next
+					continue
+				}
+				if (ended) return
+				await new Promise<void>((resolve) => {
+					wake = resolve
+				})
+			}
+		} finally {
+			idle.clear()
+			signal?.removeEventListener('abort', onAbort)
+			// Destroyed, never `end()`ed: the guest releases the file
+			// descriptor when the connection goes, and a half-close would
+			// leave it holding one for a read nobody is listening to.
+			socket.destroy()
+		}
+	}
+
+	/**
+	 * Ask the guest whether it implements ranged and streamed reads.
+	 * Cached for the transport's lifetime, exactly as
+	 * {@link guestSupportsWriteFileParts} is, and for the same reason: a
+	 * pod does not swap its agent binary while it is running.
+	 */
+	private async guestSupportsReadFileStream(signal?: AbortSignal): Promise<boolean> {
+		return (await this.guestFeatures(signal)).includes(READ_FILE_STREAM_FEATURE)
 	}
 
 	/**

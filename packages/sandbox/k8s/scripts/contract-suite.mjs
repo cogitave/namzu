@@ -104,6 +104,12 @@ defineSandboxConformance({
 	expect,
 	label: 'kubernetes (live cluster)',
 	makeSandbox: async () => ({ sandbox: await provider.create() }),
+	// The image this runs against is built from this repository's
+	// `k8s/Dockerfile`, which copies `agent/agent.cjs` in, so the cluster's
+	// guest has ranged and streamed reads. Set this false when pointing the
+	// suite at an image built from an older release; the two cases then
+	// skip by name instead of failing.
+	supportsRangedAndStreamedReads: true,
 })
 
 let passed = 0
