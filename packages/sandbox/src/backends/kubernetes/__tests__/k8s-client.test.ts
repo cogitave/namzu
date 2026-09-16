@@ -191,13 +191,30 @@ describe('createKubernetesClient — explicit access, default fetch path', () =>
 	})
 
 	it('rejects promptly on mid-flight abort against a real server, with no pending request', async () => {
-		let sawClose = false
+		let sawSocketClose = false
 		const server: Server = createServer((_req, res) => {
 			// Deliberately never responds; the client must give up on its own.
-			_req.on('close', () => {
-				sawClose = true
-			})
 			void res
+		})
+		// Watch the raw connection, not `req.on('close'/'aborted')`. Those
+		// HTTP-level events depend on the server's parser already having a
+		// complete request line + headers before the socket tears down, and
+		// under a fast-enough abort (10ms here, and the client's own event
+		// loop can be slow to flush the request under CI load) the abort can
+		// win that race: the socket connects and closes with no 'request'
+		// event ever firing on the server, so `req.on('close')` would then
+		// never fire — not "late", genuinely never, no matter the timeout.
+		// Confirmed by instrumenting both under synthetic CPU contention:
+		// the raw socket close was 100% reliable (tens of ms even at 2x
+		// core oversubscription) while the HTTP-level close/aborted events
+		// fired only when the request happened to beat the abort onto the
+		// wire. The socket closing is exactly what "no pending request"
+		// means here — the connection this abort opened does not linger —
+		// and it's the one thing this transport actually guarantees.
+		server.on('connection', (socket) => {
+			socket.on('close', () => {
+				sawSocketClose = true
+			})
 		})
 		await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
 		const address = server.address() as AddressInfo
@@ -217,12 +234,21 @@ describe('createKubernetesClient — explicit access, default fetch path', () =>
 			setTimeout(() => controller.abort(), 10)
 			const started = Date.now()
 			await expect(pending).rejects.toBeTruthy()
+			// The contract this backend promises: the client gives up on its own,
+			// promptly, once aborted. That's proven above and stays a tight bound.
 			expect(Date.now() - started).toBeLessThan(2_000)
-			await vi.waitFor(() => expect(sawClose).toBe(true), { timeout: 2_000 })
+			// The socket teardown itself is fast in practice (tens of ms, even
+			// under heavy CPU contention — verified manually), but *when* this
+			// process's event loop gets around to running it depends on how
+			// contended the host is, same as any other socket callback, so this
+			// stays a generous bound rather than coupling to host load. The
+			// test-level timeout below is raised to match, so a slow-but-healthy
+			// run isn't cut off by vitest's default 5s budget first.
+			await vi.waitFor(() => expect(sawSocketClose).toBe(true), { timeout: 15_000 })
 		} finally {
 			await new Promise<void>((resolve) => server.close(() => resolve()))
 		}
-	})
+	}, 20_000)
 })
 
 describe('createKubernetesClient — custom CA goes through node:https', () => {
