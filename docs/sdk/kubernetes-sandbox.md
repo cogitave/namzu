@@ -96,6 +96,8 @@ reason the Firecracker backend does.
 | `claimTtlSeconds` | `3600` | Wall-clock lifetime written into every created object, and the amount each [lease renewal](#the-lease) pushes it forward. |
 | `onLeaseRenewalError` | unset | Where a failed lease renewal is reported. Changes no behaviour; see [the lease](#the-lease). |
 | `runtimeClassName` | unset | Pool-less path only — see [refusals](#what-it-refuses). |
+| `apiRequestTimeoutMs` | `30000` | How long one API request may take, end to end. Minimum `1000`; **no value disables it** — see [the two bounds this backend sets itself](#the-two-bounds-this-backend-sets-itself). |
+| `streamHeartbeatMs` | `15000` | Liveness heartbeat interval on `openTerminal` and `openTcpConnection` streams. `0` sends none, which is how every release before this one behaved. |
 
 ### Where the host runs decides the address
 
@@ -227,6 +229,96 @@ routable from the development host, which is the same condition the mode
 exists for; everything above is covered by tests against a fake API server and
 the real guest agent over loopback, and the in-cluster e2e runner keeps using
 `'service'`.
+
+## The two bounds this backend sets itself
+
+Everything else on this page is bounded by something the caller passed. These
+two are not, because in both cases the caller has nothing to pass.
+
+### `apiRequestTimeoutMs` — a request the API server never answers
+
+Every API request carries a 30-second bound of its own, on top of whatever
+`AbortSignal` the caller supplied. It covers resolving the token, connecting,
+and reading the reply, on both transports (`fetch` and `node:https`), and when
+it expires the request rejects with `KubernetesApiTimeoutError` — a named
+class carrying the verb, the resource path and the bound that expired, and
+never the bearer token. A caller's own abort behaves exactly as it always did.
+
+The bound lives in the client rather than at each call site, so it covers the
+workspace verbs, the task path, and anything added later, with no wiring. It
+exists because **a signal is not enough**: `signal` is optional on every one of
+these calls, and several of them are *single-flight* promises that run under
+whichever caller arrived first and never consult a later one's signal. A
+workspace `suspend()` is one. A plain `destroy()` joins it; a `resume()` queues
+behind it; and while it is in flight the handle's state is `suspending`, so
+every data-plane call is already refused. One signal-less call against an API
+server that accepted a request and never answered therefore pinned the whole
+handle — and a host calling `destroy()` on the way out hung until it was
+killed.
+
+A timeout cannot tell whether the request was applied, and nothing here
+pretends otherwise. The paths that send one already cope: `suspend()` restores
+the state it saw and sends its idempotent patch again, a create `POST` that
+timed out but did land is adopted through the 409 path, and a `DELETE` that had
+already applied counts as done.
+
+**There is no disabling value.** `apiRequestTimeoutMs: 0` is refused at
+construction, and so is anything below `1000`. A cluster whose API server is
+genuinely slower than 30 seconds raises the number; an unanswered request is
+not a configuration this backend supports.
+
+### `streamHeartbeatMs` — a stream whose peer went away
+
+Once `openTerminal` or `openTcpConnection` reports ready, the transport clears
+its read-idle timer, and that is correct: an interactive shell may sit silent
+for hours and a read timer would kill a healthy one. Nothing took its place, so
+a peer that vanished **without a FIN or an RST** — a lost node, a partition, a
+middlebox that drops idle state — left `exited` and `closed` unresolved on the
+host and the shell's process group alive in the guest until the pod stopped.
+
+Each stream now trades a `{ "type": "heartbeat" }` frame every 15 seconds.
+Three consecutive intervals with nothing at all from the other side end the
+stream: on the host `exited` resolves with `exitCode: -1` (what a closed socket
+already produces) and `closed` resolves; in the guest the same cleanup a closed
+socket runs — SIGKILL the terminal's process group, destroy the loopback
+connection. Both sides count **bytes**, so anything arriving proves the peer is
+there — a heartbeat, a data frame, or part of one that is still arriving.
+Silence while a side has paused reading for backpressure is not counted, in
+either direction: that side chose it and the bytes are waiting in the kernel.
+
+Each side polls at a quarter of the interval rather than at it, so a dead
+stream is noticed within those three intervals plus at most one more tick —
+45 seconds plus up to 3.75 more at the default. Size an operator-facing
+timeout against the longer number.
+
+**It is negotiated, per stream, and off unless both peers asked.** The open
+request carries the interval; an agent that implements heartbeats echoes the
+value it will use back in its `ready` event and only then starts sending, and
+the host only starts once that echo arrived. That echo is a number from the
+pod and the host times its own watchdog with it, so the host honours it only
+between 100 ms and four times what it asked for; the agent in this repository
+clamps to the same 100 ms floor before echoing, so an honest echo is never
+altered. An agent built before this change ignores the unknown field and
+echoes nothing, so the host behaves exactly as it does today — and, because an
+older *host* ends a stream with an error on any frame type it does not know,
+such a host is never sent one. The guest
+advertises `stream-heartbeat` in its `healthz` `features`; the guest wire
+protocol version is unchanged, so no host and no image has to roll with this.
+
+The Firecracker tier is untouched. `VsockTransportOptions.heartbeatMs` is
+undefined by default and only this backend opts in — a default on the shared
+transport would force-close an existing Firecracker consumer's quiet-but-alive
+terminal after 45 seconds, which is a changed default for a tier that asked for
+nothing.
+
+**What a heartbeat does and does not prove.** It proves the peer's process was
+running its event loop within the last interval and that the path between the
+two is still carrying bytes. It does not prove the shell is healthy, that the
+disk is writable, or that a command in flight will finish — and a heartbeat that
+stops is not proof that the guest is gone, only that this connection stopped
+carrying frames. TCP keepalive is enabled on both ends of the routed connection
+as well, but it proves strictly less: only that the peer's *kernel* answers, and
+it stops at the first middlebox that terminates TCP.
 
 ## Two acquire paths
 

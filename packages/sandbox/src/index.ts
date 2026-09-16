@@ -114,6 +114,17 @@ export {
 	WRITE_FILE_PARTS_FEATURE,
 	type WriteFilePart,
 } from './backends/firecracker/protocol.js'
+// The per-stream liveness heartbeat: the feature string a guest advertises
+// when it understands one, the frame both sides send, and how many missed
+// intervals end a stream. Same reason as above — a host asserting what this
+// guest advertises should name the string rather than repeat the literal.
+export {
+	MIN_STREAM_HEARTBEAT_MS,
+	STREAM_HEARTBEAT_FEATURE,
+	STREAM_HEARTBEAT_MAX_ECHO_FACTOR,
+	STREAM_HEARTBEAT_MISS_LIMIT,
+	type StreamHeartbeat,
+} from './backends/firecracker/protocol.js'
 
 // Kubernetes (agent-sandbox on any cluster) public surface. The access union
 // is named by `KubernetesBackendConfig.access`, so a host that builds its own
@@ -164,6 +175,22 @@ export {
 	KubernetesExecutionDetachedError,
 	KubernetesExecutionNotAttachableError,
 } from './backends/kubernetes/transport.js'
+// The API-request bound and the error it raises. Exported because
+// "distinguishable from a caller abort and from every other failure, by
+// type" is only true for a host that can name the class — and because a
+// host that sets `apiRequestTimeoutMs` wants the default and the floor it is
+// choosing against.
+// `KubernetesHttpMethod` rides along because `KubernetesApiTimeoutError.verb`
+// is one: a caller that can catch the class but cannot name the type of the
+// field it is reading is back to inlining the union or reaching for `any`.
+export {
+	DEFAULT_API_REQUEST_TIMEOUT_MS,
+	KubernetesApiTimeoutError,
+	type KubernetesHttpMethod,
+	MIN_API_REQUEST_TIMEOUT_MS,
+} from './backends/kubernetes/k8s-client.js'
+/** Default `KubernetesBackendConfig.streamHeartbeatMs` — see there. */
+export { DEFAULT_STREAM_HEARTBEAT_MS } from './backends/kubernetes/index.js'
 // The persistent workspace: a `Sandbox` that keeps a block disk across a
 // suspend, the union naming how a handle came by its object, plus the four
 // errors its lifecycle can refuse with — a template that cannot carry a disk,
@@ -592,6 +619,35 @@ export interface KubernetesBackendConfig {
 	 * `docs/sdk/kubernetes-sandbox.md`'s egress section.
 	 */
 	readonly egress?: KubernetesEgressConfig
+	/**
+	 * How long a single Kubernetes API request may take, end to end —
+	 * resolving the token, connecting, and reading the reply. Default
+	 * `30000`; minimum `1000`; there is no value that turns it off.
+	 *
+	 * The caller's `signal` is optional everywhere and several of this
+	 * backend's requests are SHARED flights that run under whichever caller
+	 * arrived first, so a signal-less `destroy()` against an API server that
+	 * accepted a request and never answered used to pin every later caller
+	 * joined to it. Expiry rejects with `KubernetesApiTimeoutError`, which
+	 * says nothing about whether the request was applied — the paths that
+	 * send one already cope with not knowing.
+	 */
+	readonly apiRequestTimeoutMs?: number
+	/**
+	 * Interval of the liveness heartbeat `openTerminal` and
+	 * `openTcpConnection` streams negotiate with the guest. Default `15000`;
+	 * `0` sends none, which is exactly how every release before this one
+	 * behaved.
+	 *
+	 * A quiet shell is healthy, so nothing replaced the read-idle timer the
+	 * transport clears once a stream is ready: a partition that delivered no
+	 * FIN and no RST left `exited`/`closed` unresolved on the host and the
+	 * shell's process group alive in the guest. Three missed intervals end
+	 * the stream on both sides. It is negotiated per stream — the guest
+	 * echoes the interval in its `ready` event and sends nothing new unless
+	 * it did — so an older guest image behaves exactly as it does today.
+	 */
+	readonly streamHeartbeatMs?: number
 }
 
 /**
@@ -951,6 +1007,12 @@ function kubernetesInternalConfig(
 			? { runtimeClassName: backend.runtimeClassName }
 			: {}),
 		...(backend.egress !== undefined ? { egress: backend.egress } : {}),
+		...(backend.apiRequestTimeoutMs !== undefined
+			? { apiRequestTimeoutMs: backend.apiRequestTimeoutMs }
+			: {}),
+		...(backend.streamHeartbeatMs !== undefined
+			? { streamHeartbeatMs: backend.streamHeartbeatMs }
+			: {}),
 	}
 }
 

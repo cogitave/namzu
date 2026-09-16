@@ -207,6 +207,8 @@ export interface TerminalOpenRequest {
 	readonly env?: Record<string, string>
 	readonly cols: number
 	readonly rows: number
+	/** See {@link StreamHeartbeat}. Absent → no heartbeat on this stream. */
+	readonly heartbeatMs?: number
 }
 
 /** Host → guest messages after the terminal stream reports ready. */
@@ -214,10 +216,11 @@ export type TerminalInputEvent =
 	| { readonly type: 'input'; readonly data: string }
 	| { readonly type: 'resize'; readonly cols: number; readonly rows: number }
 	| { readonly type: 'kill'; readonly signal?: string }
+	| StreamHeartbeat
 
 /** Guest → host events carried for the lifetime of the terminal stream. */
 export type TerminalOutputEvent =
-	| { readonly type: 'ready' }
+	| { readonly type: 'ready'; readonly heartbeatMs?: number }
 	| { readonly type: 'data'; readonly data: string }
 	| {
 			readonly type: 'exit'
@@ -225,6 +228,7 @@ export type TerminalOutputEvent =
 			readonly signal?: number
 	  }
 	| { readonly type: 'error'; readonly error: string }
+	| StreamHeartbeat
 
 // ---------------------------------------------------------------------------
 // Loopback TCP — publish a service without moving it out of the sandbox
@@ -233,18 +237,94 @@ export type TerminalOutputEvent =
 export interface TcpConnectRequest {
 	readonly host: '127.0.0.1' | '::1'
 	readonly port: number
+	/** See {@link StreamHeartbeat}. Absent → no heartbeat on this stream. */
+	readonly heartbeatMs?: number
 }
 
 export type TcpInputEvent =
 	| { readonly type: 'data'; readonly data: string }
 	| { readonly type: 'end' }
 	| { readonly type: 'destroy' }
+	| StreamHeartbeat
 
 export type TcpOutputEvent =
-	| { readonly type: 'ready' }
+	| { readonly type: 'ready'; readonly heartbeatMs?: number }
 	| { readonly type: 'data'; readonly data: string }
 	| { readonly type: 'end' }
 	| { readonly type: 'error'; readonly error: string }
+	| StreamHeartbeat
+
+// ---------------------------------------------------------------------------
+// Stream liveness — telling a quiet peer from a dead one
+// ---------------------------------------------------------------------------
+
+/**
+ * The one frame either side of an open `terminal` or `tcp-connect` stream
+ * may send to say it is still there.
+ *
+ * Once a stream reports `ready` the transport clears its read-idle timer,
+ * correctly: an interactive shell may sit silent for hours and a timer would
+ * kill a healthy one. So nothing was left that could tell that shell from a
+ * host that vanished without a FIN or an RST — a lost node, a partition, a
+ * middlebox that drops idle state. TCP keepalive proves only that the peer's
+ * KERNEL answers, and a `healthz` proves only that a FRESH connection is
+ * served; neither says anything about the stream in hand.
+ *
+ * **Negotiated per stream, in both directions.** The open request carries
+ * {@link TerminalOpenRequest.heartbeatMs} / {@link TcpConnectRequest.heartbeatMs};
+ * a guest that implements this echoes the interval it will use back in its
+ * `ready` event and only then starts sending, and the host only starts once
+ * that echo arrived. An agent that predates the field ignores it and echoes
+ * nothing, so the host behaves exactly as it did; an older HOST — which ends
+ * a stream with an error on any frame type it does not know — is never sent
+ * one, because it never asked.
+ *
+ * Anything arriving from the other side counts as proof of life, not just
+ * this frame and not even a whole frame: both sides count BYTES, so a single
+ * large frame that takes longer than the window to arrive cannot be read as
+ * the peer having gone away. {@link STREAM_HEARTBEAT_MISS_LIMIT} consecutive
+ * intervals with nothing at all end the stream: the host resolves `exited`
+ * with `exitCode: -1` (what a closed socket already produces) or resolves
+ * `closed`, and the guest runs the same close cleanup it runs for a socket
+ * that went away. Detection lands within those intervals plus at most one
+ * watchdog tick, since each side polls at a quarter of the interval rather
+ * than at it. Silence while a side has paused reading for backpressure is
+ * not silence — that side chose it, and the bytes are waiting in the kernel.
+ */
+export type StreamHeartbeat = { readonly type: 'heartbeat' }
+
+/** Missed intervals that end a stream. Three, so one lost frame is not fatal. */
+export const STREAM_HEARTBEAT_MISS_LIMIT = 3
+
+/**
+ * The shortest interval either side will run a heartbeat at.
+ *
+ * The interval arrives from the host, so the guest clamps it to this before
+ * using it and echoes the CLAMPED value — otherwise an authenticated host
+ * could ask for a fraction of a millisecond and leave the agent doing
+ * nothing but writing heartbeats.
+ */
+export const MIN_STREAM_HEARTBEAT_MS = 100
+
+/**
+ * How far above what it asked for a host will honour the guest's echo.
+ *
+ * The echo is a number from the pod, and the host does its own watchdog
+ * arithmetic with it: unclamped, a guest echoing a fraction of a millisecond
+ * makes the host tear the stream down on its first tick, and one echoing a
+ * day disables the host's detection entirely. A guest that clamps the way
+ * this one does always echoes a value inside the band, so the honest case is
+ * never altered.
+ */
+export const STREAM_HEARTBEAT_MAX_ECHO_FACTOR = 4
+
+/**
+ * The `healthz` feature string an agent advertises when it understands
+ * {@link StreamHeartbeat}. Informational for the host — the per-stream
+ * `ready` echo is what actually arms anything — and the honest answer for an
+ * operator reading a `healthz` reply to find out what an image can do.
+ */
+export const STREAM_HEARTBEAT_FEATURE = 'stream-heartbeat'
 
 /** `/read-file` response. `content` is base64 on success. */
 export interface ReadFileResponse {

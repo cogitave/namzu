@@ -77,8 +77,11 @@ import {
 	type AgentRequestCredential,
 	type ExecRequest,
 	ExecResultAccumulator,
+	MIN_STREAM_HEARTBEAT_MS,
 	type ReadFileRequest,
 	type ReadFileResponse,
+	STREAM_HEARTBEAT_MAX_ECHO_FACTOR,
+	STREAM_HEARTBEAT_MISS_LIMIT,
 	type TcpConnectRequest,
 	type TcpInputEvent,
 	type TcpOutputEvent,
@@ -240,6 +243,23 @@ export interface VsockTransportOptions {
 	 */
 	readonly readIdleTimeoutMs?: number
 	/**
+	 * Interval, in milliseconds, of the per-stream liveness heartbeat on
+	 * `openTerminal` and `openTcpConnection`. See `protocol.ts`'s
+	 * `StreamHeartbeat` for the negotiation and what a heartbeat does and
+	 * does not prove.
+	 *
+	 * **Undefined by default, and deliberately so.** This transport is
+	 * shared with the Firecracker tier, where a default would force-close an
+	 * existing consumer's quiet-but-alive terminal after three intervals —
+	 * a changed default for a tier that asked for nothing. The Kubernetes
+	 * backend opts in (`backends/kubernetes/index.ts`'s
+	 * `DEFAULT_STREAM_HEARTBEAT_MS`); every other caller that passes nothing
+	 * sends and expects exactly the frames it always did.
+	 *
+	 * A value of `0` or less is the same as leaving it out.
+	 */
+	readonly heartbeatMs?: number
+	/**
 	 * Fires once per successful dial with how long the connect took, in
 	 * milliseconds. Never fires with the handle's `token` or any request
 	 * content — a bare number. Used by callers that build their own
@@ -362,6 +382,14 @@ export const GUEST_FRAME_LIMIT_BYTES = 256 * 1024 * 1024
 
 /** Default {@link VsockTransportOptions.maxWriteFileBytes} — 1 GiB. */
 export const DEFAULT_MAX_WRITE_FILE_BYTES = 1024 * 1024 * 1024
+
+/**
+ * Idle time before the kernel sends its first TCP keepalive probe on a
+ * `tcp`-arm connection, host side. 15 s, matching the Kubernetes backend's
+ * default heartbeat interval, so the two bounds do not disagree about how
+ * long a silent connection is allowed to look healthy.
+ */
+export const TCP_KEEPALIVE_INITIAL_DELAY_MS = 15_000
 
 /**
  * Slack subtracted from a frame budget when sizing a part, over and above
@@ -553,6 +581,8 @@ export class VsockAgentTransport {
 	private readonly connectRetryBudgetMs: number
 	private readonly connectRetryIntervalMs: number
 	private readonly readIdleTimeoutMs: number
+	/** Undefined → this transport negotiates no heartbeat at all. */
+	private readonly heartbeatMs?: number
 	private readonly onDial?: (durationMs: number) => void
 	private readonly onDialAttempt?: () => void
 	private readonly maxWriteFileBytes: number
@@ -577,6 +607,9 @@ export class VsockAgentTransport {
 		this.connectRetryIntervalMs =
 			options.connectRetryIntervalMs ?? DEFAULT_CONNECT_RETRY_INTERVAL_MS
 		this.readIdleTimeoutMs = options.readIdleTimeoutMs ?? DEFAULT_READ_IDLE_TIMEOUT_MS
+		if (options.heartbeatMs !== undefined && options.heartbeatMs > 0) {
+			this.heartbeatMs = Math.floor(options.heartbeatMs)
+		}
 		this.onDial = options.onDial
 		this.onDialAttempt = options.onDialAttempt
 		this.maxWriteFileBytes = options.maxWriteFileBytes ?? DEFAULT_MAX_WRITE_FILE_BYTES
@@ -831,6 +864,13 @@ export class VsockAgentTransport {
 	): Promise<net.Socket> {
 		return new Promise<net.Socket>((resolve, reject) => {
 			const socket = net.connect({ host: handle.host, port: handle.port })
+			// SO_KEEPALIVE on the ROUTED arm only. It proves only that the
+			// peer's kernel answers — the application heartbeat is what proves
+			// its event loop does — but it is what gets a half-open connection
+			// through a middlebox reported at all, and it costs a probe every
+			// {@link TCP_KEEPALIVE_INITIAL_DELAY_MS}. The unix/vsock/mtls arms
+			// are deliberately untouched: those are the Firecracker tier's.
+			socket.setKeepAlive(true, TCP_KEEPALIVE_INITIAL_DELAY_MS)
 			let settled = false
 			const fail = (err: Error) => {
 				if (settled) return
@@ -1610,6 +1650,7 @@ export class VsockAgentTransport {
 	 * the session and its authenticated WebSocket attachment.
 	 */
 	async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {
+		const askedHeartbeatMs = this.heartbeatMs
 		const request: TerminalOpenRequest = {
 			...(options.command !== undefined ? { command: options.command } : {}),
 			...(options.args !== undefined ? { args: options.args } : {}),
@@ -1617,6 +1658,9 @@ export class VsockAgentTransport {
 			...(options.env !== undefined ? { env: { ...options.env } } : {}),
 			cols: options.size.cols,
 			rows: options.size.rows,
+			// Additive and optional: an agent that predates it ignores the
+			// field and echoes nothing back, and nothing below arms.
+			...(askedHeartbeatMs !== undefined ? { heartbeatMs: askedHeartbeatMs } : {}),
 		}
 		const openPayload = JSON.stringify(
 			this.withCredential({ op: 'terminal', body: request } satisfies AgentRequest),
@@ -1633,6 +1677,8 @@ export class VsockAgentTransport {
 			let ready = false
 			let settled = false
 			let killTimer: ReturnType<typeof setTimeout> | undefined
+			/** Armed only if the guest echoed the interval — see `protocol.ts`. */
+			let liveness: StreamLiveness | undefined
 			let resolveExit!: (event: { exitCode: number; signal?: number }) => void
 			const exited = new Promise<{ exitCode: number; signal?: number }>((done) => {
 				resolveExit = done
@@ -1652,6 +1698,7 @@ export class VsockAgentTransport {
 				if (settled) return
 				settled = true
 				idle.clear()
+				liveness?.stop()
 				if (killTimer) clearTimeout(killTimer)
 				socket.destroy()
 				listeners.clear()
@@ -1698,6 +1745,10 @@ export class VsockAgentTransport {
 
 			socket.on('data', (chunk: Buffer) => {
 				if (!ready) idle.bump()
+				// Bytes are proof of life, not only a heartbeat and not only a
+				// whole frame: one large frame can take longer to arrive than the
+				// window, and the peer was plainly there while it was arriving.
+				liveness?.bump()
 				let payloads: string[]
 				try {
 					payloads = reader.push(chunk)
@@ -1719,11 +1770,29 @@ export class VsockAgentTransport {
 							// Once ready, an interactive shell may legitimately sit silent
 							// for hours. Runtime/session TTL owns idle cleanup; a transport
 							// read timer would incorrectly kill a healthy quiet terminal.
+							// The heartbeat below is what tells that shell from a peer
+							// that vanished — armed only if the guest echoed an interval.
 							idle.clear()
+							const beat = negotiatedHeartbeatMs(askedHeartbeatMs, event.heartbeatMs)
+							if (beat !== undefined) {
+								liveness = new StreamLiveness(
+									beat,
+									() => send({ type: 'heartbeat' }),
+									() =>
+										finish(
+											new Error(
+												`vsock transport: terminal peer sent nothing for ${
+													beat * STREAM_HEARTBEAT_MISS_LIMIT
+												}ms and is treated as gone`,
+											),
+										),
+								)
+							}
 							resolve(session)
 						}
 						continue
 					}
+					if (event.type === 'heartbeat') continue
 					if (event.type === 'data') {
 						if (listeners.size === 0) {
 							buffered.push(event.data)
@@ -1765,7 +1834,13 @@ export class VsockAgentTransport {
 		if (host !== '127.0.0.1' && host !== '::1') {
 			throw new Error('firecracker TCP connections are restricted to guest loopback')
 		}
-		const request: TcpConnectRequest = { host, port: options.port }
+		const askedHeartbeatMs = this.heartbeatMs
+		const request: TcpConnectRequest = {
+			host,
+			port: options.port,
+			// Additive and optional, exactly as on `terminal` — see `openTerminal`.
+			...(askedHeartbeatMs !== undefined ? { heartbeatMs: askedHeartbeatMs } : {}),
+		}
 		const openPayload = JSON.stringify(
 			this.withCredential({ op: 'tcp-connect', body: request } satisfies AgentRequest),
 		)
@@ -1779,6 +1854,8 @@ export class VsockAgentTransport {
 			let bufferedBytes = 0
 			let ready = false
 			let settled = false
+			/** Armed only if the guest echoed the interval — see `protocol.ts`. */
+			let liveness: StreamLiveness | undefined
 			let resolveClosed!: () => void
 			const closed = new Promise<void>((done) => {
 				resolveClosed = done
@@ -1793,6 +1870,7 @@ export class VsockAgentTransport {
 				if (settled) return
 				settled = true
 				idle.clear()
+				liveness?.stop()
 				socket.destroy()
 				listeners.clear()
 				resolveClosed()
@@ -1817,9 +1895,13 @@ export class VsockAgentTransport {
 				},
 				pause() {
 					socket.pause()
+					// Paused by this caller, so nothing arriving is this caller's
+					// doing and not the peer's — see `StreamLiveness.suspend`.
+					liveness?.suspend()
 				},
 				resume() {
 					if (!settled) socket.resume()
+					liveness?.resume()
 				},
 				onData(listener) {
 					listeners.add(listener)
@@ -1842,6 +1924,8 @@ export class VsockAgentTransport {
 
 			socket.on('data', (chunk: Buffer) => {
 				if (!ready) idle.bump()
+				// Bytes, not frames — see the reader in `openTerminal` above.
+				liveness?.bump()
 				let payloads: string[]
 				try {
 					payloads = reader.push(chunk)
@@ -1861,10 +1945,21 @@ export class VsockAgentTransport {
 						if (!ready) {
 							ready = true
 							idle.clear()
+							const beat = negotiatedHeartbeatMs(askedHeartbeatMs, event.heartbeatMs)
+							if (beat !== undefined) {
+								liveness = new StreamLiveness(
+									beat,
+									() => {
+										send({ type: 'heartbeat' })
+									},
+									() => finish(null),
+								)
+							}
 							resolve(connection)
 						}
 						continue
 					}
+					if (event.type === 'heartbeat') continue
 					if (event.type === 'data') {
 						const bytes = Buffer.from(event.data, 'base64')
 						if (listeners.size === 0) {
@@ -1918,6 +2013,95 @@ class LineReader {
 		this.remainder = Buffer.alloc(0)
 		return r
 	}
+}
+
+/**
+ * The host half of the negotiated stream heartbeat (`protocol.ts`'s
+ * `StreamHeartbeat`): send one every interval, and give up on a peer that
+ * has sent nothing for {@link STREAM_HEARTBEAT_MISS_LIMIT} of them.
+ *
+ * Constructed only once the guest ECHOED an interval, so a transport that
+ * asked for no heartbeat, or one talking to an agent that predates the
+ * field, never builds one and writes no frame an older peer could not read.
+ *
+ * The watchdog polls at a quarter of the interval rather than at the
+ * interval, so a dead stream is noticed within the three intervals plus at
+ * most one poll tick rather than within four. Both timers are unref'd: a
+ * host process with nothing else to do should exit, not be held open by a
+ * terminal it forgot about.
+ */
+class StreamLiveness {
+	private sendTimer: ReturnType<typeof setInterval> | undefined
+	private watchTimer: ReturnType<typeof setInterval> | undefined
+	private lastSeen = Date.now()
+	private watching = true
+	private stopped = false
+
+	constructor(
+		private readonly intervalMs: number,
+		private readonly send: () => void,
+		private readonly onDead: () => void,
+	) {
+		this.sendTimer = setInterval(() => {
+			if (!this.stopped) this.send()
+		}, intervalMs)
+		this.sendTimer.unref?.()
+		this.watchTimer = setInterval(() => this.check(), Math.max(10, Math.floor(intervalMs / 4)))
+		this.watchTimer.unref?.()
+	}
+
+	/** Any BYTES from the peer count, not just a heartbeat and not a whole frame. */
+	bump(): void {
+		this.lastSeen = Date.now()
+	}
+
+	/**
+	 * This side has paused reading for backpressure, so silence is its own
+	 * doing and the peer's frames are waiting in the kernel. Not counted.
+	 */
+	suspend(): void {
+		this.watching = false
+	}
+
+	resume(): void {
+		if (this.stopped) return
+		this.watching = true
+		this.lastSeen = Date.now()
+	}
+
+	stop(): void {
+		this.stopped = true
+		if (this.sendTimer) clearInterval(this.sendTimer)
+		if (this.watchTimer) clearInterval(this.watchTimer)
+		this.sendTimer = undefined
+		this.watchTimer = undefined
+	}
+
+	private check(): void {
+		if (this.stopped || !this.watching) return
+		if (Date.now() - this.lastSeen < this.intervalMs * STREAM_HEARTBEAT_MISS_LIMIT) return
+		this.stop()
+		this.onDead()
+	}
+}
+
+/**
+ * The interval the guest echoed back, or undefined when this side asked for
+ * no heartbeat or the guest did not answer with one. An agent that predates
+ * the field echoes nothing, which is exactly what keeps an older image's
+ * streams behaving as they always did.
+ *
+ * The echo is clamped into `[MIN_STREAM_HEARTBEAT_MS, asked x
+ * STREAM_HEARTBEAT_MAX_ECHO_FACTOR]`, because it is a number from the pod and
+ * this side times its own watchdog with it. A guest that clamps to the same
+ * floor — which is what this repository's agent does — always echoes a value
+ * already inside the band, so nothing about the honest case changes.
+ */
+function negotiatedHeartbeatMs(asked: number | undefined, echoed: unknown): number | undefined {
+	if (asked === undefined) return undefined
+	if (typeof echoed !== 'number' || !Number.isFinite(echoed) || echoed <= 0) return undefined
+	const ceiling = Math.max(asked, MIN_STREAM_HEARTBEAT_MS) * STREAM_HEARTBEAT_MAX_ECHO_FACTOR
+	return Math.min(ceiling, Math.max(MIN_STREAM_HEARTBEAT_MS, Math.floor(echoed)))
 }
 
 /** Resets a timer on every byte; fires `onIdle` after `ms` of silence. */

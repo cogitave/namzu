@@ -187,6 +187,7 @@ import {
 	buildAgentAddressRefresh,
 	buildSandboxBody,
 	clientAccess,
+	clientOptions,
 	pollForBinding,
 	probeSandboxPrivileges,
 	readBoundPod,
@@ -194,6 +195,7 @@ import {
 	resolveAgentAddress,
 	resolveKubernetesReadiness,
 	resolveProbeTimeoutMs,
+	resolveStreamHeartbeatMs,
 	verifyEgressPolicyConfigured,
 } from './index.js'
 import {
@@ -805,7 +807,10 @@ export async function createKubernetesWorkspace(
 	const templateName = options.sandboxTemplateName ?? config.sandboxTemplateName
 	const agentPort = config.agentPort ?? DEFAULT_AGENT_PORT
 	const agentAddress = config.agentAddress ?? 'service'
-	const client = createKubernetesClient(clientAccess(config))
+	// Resolved before anything is POSTed, so a configuration this backend
+	// will never honour is refused rather than leaving an object behind.
+	const streamHeartbeatMs = resolveStreamHeartbeatMs(config.streamHeartbeatMs)
+	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 
 	// The same two egress steps `buildKubernetesBackend` runs for a task
 	// sandbox, repeated here because a workspace never goes through it. The
@@ -888,6 +893,7 @@ export async function createKubernetesWorkspace(
 		rootDir: options.workingDirectory,
 		agentPort,
 		agentAddress,
+		streamHeartbeatMs,
 		readiness,
 		origin: adopted === undefined ? 'created' : adopted.resumed ? 'resumed' : 'adopted-running',
 		...(adopted?.drainingPodUid !== undefined ? { drainingPodUid: adopted.drainingPodUid } : {}),
@@ -1268,7 +1274,7 @@ export async function listKubernetesWorkspaces(
 ): Promise<readonly KubernetesWorkspaceSummary[]> {
 	options?.signal?.throwIfAborted()
 	const namespace = config.namespace
-	const client = createKubernetesClient(clientAccess(config))
+	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 	const list = await client.request<SandboxListResource>(
 		'GET',
 		sandboxCollectionPath(namespace),
@@ -1325,7 +1331,7 @@ export async function deleteKubernetesWorkspace(
 	options?.signal?.throwIfAborted()
 	const namespace = config.namespace
 	const name = workspaceSandboxName(workspaceId)
-	const client = createKubernetesClient(clientAccess(config))
+	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 	try {
 		await client.request('DELETE', sandboxPath(namespace, name), undefined, options?.signal)
 	} catch (err) {
@@ -1369,7 +1375,7 @@ export async function suspendKubernetesWorkspace(
 	const namespace = config.namespace
 	const name = workspaceSandboxName(workspaceId)
 	const readiness = resolveKubernetesReadiness(config)
-	const client = createKubernetesClient(clientAccess(config))
+	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 	await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), options?.signal)
 	await awaitPodRetired(client, namespace, name, workspaceId, readiness, options?.signal)
 }
@@ -1383,6 +1389,11 @@ interface WorkspaceHandleOptions {
 	readonly agentPort: number
 	/** Which address each session dials — see {@link KubernetesAgentAddressMode}. */
 	readonly agentAddress: KubernetesAgentAddressMode
+	/**
+	 * Heartbeat interval every session's terminal and TCP streams negotiate,
+	 * already resolved. `0` sends none. See `resolveStreamHeartbeatMs`.
+	 */
+	readonly streamHeartbeatMs: number
 	readonly readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number }
 	/**
 	 * How the object was come by. Reported as the handle's `origin`, and it
@@ -1767,12 +1778,14 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// it belongs to before that handle exists. Nothing can call it in
 		// between: `release` is reachable only THROUGH the handle.
 		const own: { handle?: KubernetesSandboxHandle } = {}
-		const transport = new KubernetesAgentTransport(
-			address,
-			options.agentAddress === 'pod-ip'
+		const transport = new KubernetesAgentTransport(address, {
+			// The backend opts in to the stream heartbeat; the transport
+			// option it sets stays undefined for every other tier.
+			heartbeatMs: options.streamHeartbeatMs,
+			...(options.agentAddress === 'pod-ip'
 				? { refreshHandle: followReplacedPod(binding, generation) }
-				: {},
-		)
+				: {}),
+		})
 		const inner = buildKubernetesSandbox({
 			name,
 			rootDir: options.rootDir,

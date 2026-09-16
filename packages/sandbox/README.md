@@ -194,6 +194,25 @@ string is refused at startup in **every** mode: that is the shape a
 downward-API injection takes when it resolved to nothing, and honouring it
 would open precisely the hole the variable was set to close.
 
+Neither the framed wire nor its version changes when the agent grows a
+capability. `healthz` carries a `features` list instead, and a host uses an op
+or a field only when it sees the string there: `write-file-parts` for a body
+written to a temporary sibling in parts and finished with an atomic rename, and
+`stream-heartbeat` for the per-stream liveness frame. A heartbeat is negotiated
+per stream and in both directions — the `terminal` or `tcp-connect` open body
+carries the interval, the agent echoes the interval it will use in its `ready`
+event and only then starts sending, and the host only starts once that echo
+arrived. An agent that predates the field ignores it and echoes nothing, so its
+host behaves exactly as it did; a host that predates it never asks, so it is
+never sent a frame type it would treat as a protocol error. Once negotiated,
+three consecutive intervals with nothing at all arriving end the stream on both
+sides — the same cleanup a closed socket already runs. Both sides count bytes
+rather than whole frames, so a large frame still on its way is proof of life
+like any other; silence while a side has paused reading for backpressure does
+not count; and the echoed interval is honoured only between 100 ms and four
+times what was asked, since each side does its own watchdog arithmetic with
+a number the other sent.
+
 Because the credential rides inside the request envelope, the gate cannot run
 until a whole frame has been parsed — so what an unauthenticated peer may spend
 in that window is bounded rather than trusted, and in the token modes only:

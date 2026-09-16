@@ -5,9 +5,12 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
+	DEFAULT_API_REQUEST_TIMEOUT_MS,
 	KubernetesAlreadyGoneError,
+	KubernetesApiTimeoutError,
 	KubernetesConflictError,
 	KubernetesCredentialError,
+	MIN_API_REQUEST_TIMEOUT_MS,
 	createKubernetesClient,
 } from '../k8s-client.js'
 import { CA_CRT, SERVER_CRT, SERVER_KEY } from './fixtures/https-pki.js'
@@ -301,5 +304,165 @@ describe('createKubernetesClient — custom CA goes through node:https', () => {
 		await expect(
 			client.request('GET', '/apis/agents.x-k8s.io/v1/namespaces/ns/sandboxes'),
 		).rejects.toThrow()
+	})
+})
+
+/**
+ * The bound the client puts on every request of its own.
+ *
+ * The caller's signal is optional everywhere in this backend and several of
+ * its requests are single-flight promises that run under whichever caller
+ * arrived first, so "callers should pass a signal" was never enough: one
+ * signal-less `destroy()` against an API server that accepted a request and
+ * never answered pinned every later caller joined to it.
+ *
+ * Every case here uses a REAL listener that completes its handshake and then
+ * says nothing, rather than a stubbed `fetch` that resolves late: what is
+ * under test is that the client gives up on a socket it is holding open.
+ */
+describe('createKubernetesClient — the per-request bound', () => {
+	const TOKEN = 'super-secret-bearer-value'
+	const BOUND_MS = MIN_API_REQUEST_TIMEOUT_MS
+	let plain: Server | undefined
+	let secure: HttpsServer | undefined
+
+	afterEach(async () => {
+		if (plain) await new Promise<void>((resolve) => plain?.close(() => resolve()))
+		if (secure) await new Promise<void>((resolve) => secure?.close(() => resolve()))
+		plain = undefined
+		secure = undefined
+	})
+
+	/** A server that accepts, reads the request, and never answers it. */
+	async function startSilent(kind: 'plain' | 'secure'): Promise<string> {
+		const held: import('node:net').Socket[] = []
+		const onRequest = (req: import('node:http').IncomingMessage) => {
+			held.push(req.socket)
+		}
+		if (kind === 'plain') {
+			plain = createServer(onRequest)
+			await new Promise<void>((resolve) => plain?.listen(0, '127.0.0.1', resolve))
+			return `http://127.0.0.1:${(plain.address() as AddressInfo).port}`
+		}
+		secure = createHttpsServer({ cert: SERVER_CRT, key: SERVER_KEY }, onRequest)
+		await new Promise<void>((resolve) => secure?.listen(0, '127.0.0.1', resolve))
+		return `https://127.0.0.1:${(secure.address() as AddressInfo).port}`
+	}
+
+	it('pins the default and the floor', () => {
+		expect(DEFAULT_API_REQUEST_TIMEOUT_MS).toBe(30_000)
+		expect(MIN_API_REQUEST_TIMEOUT_MS).toBe(1_000)
+	})
+
+	it.each([
+		['fetch', 'plain'],
+		['node:https', 'secure'],
+	] as const)(
+		'rejects a signal-less request with a named timeout on the %s path',
+		async (_label, kind) => {
+			const server = await startSilent(kind)
+			const client = createKubernetesClient(
+				{
+					server,
+					namespace: 'ns',
+					getToken: async () => TOKEN,
+					...(kind === 'secure' ? { ca: CA_CRT } : {}),
+				},
+				{ requestTimeoutMs: BOUND_MS },
+			)
+			const resource = '/apis/agents.x-k8s.io/v1/namespaces/ns/sandboxes/s1'
+			const started = Date.now()
+			const failure = await client.request('PATCH', resource, { spec: {} }).then(
+				() => undefined,
+				(err: unknown) => err,
+			)
+			expect(failure).toBeInstanceOf(KubernetesApiTimeoutError)
+			expect(failure).toMatchObject({ verb: 'PATCH', resource, timeoutMs: BOUND_MS })
+			const elapsed = Date.now() - started
+			expect(elapsed).toBeGreaterThanOrEqual(BOUND_MS - 50)
+			expect(elapsed).toBeLessThan(BOUND_MS * 4)
+			// Not the generic `failed:` wrapper, and never the credential.
+			const message = failure instanceof Error ? failure.message : String(failure)
+			expect(message).not.toContain('failed:')
+			expect(message).not.toContain(TOKEN)
+			expect(message).toContain('apiRequestTimeoutMs')
+		},
+		20_000,
+	)
+
+	it('bounds a getToken() that never resolves', async () => {
+		const fetchSpy = vi.fn(async () => jsonResponse(200, {}))
+		globalThis.fetch = fetchSpy as unknown as typeof fetch
+		const client = createKubernetesClient(
+			{
+				server: 'http://127.0.0.1:1',
+				namespace: 'ns',
+				getToken: () => new Promise<string>(() => {}),
+			},
+			{ requestTimeoutMs: BOUND_MS },
+		)
+		const failure = await client.request('GET', '/apis/x/v1/namespaces/ns/sandboxes').then(
+			() => undefined,
+			(err: unknown) => err,
+		)
+		expect(failure).toBeInstanceOf(KubernetesApiTimeoutError)
+		// It never got as far as a request, which is the point: the token
+		// callback used not to be inside any bound at all.
+		expect(fetchSpy).not.toHaveBeenCalled()
+	}, 20_000)
+
+	it("leaves a caller's own abort exactly as it was", async () => {
+		const server = await startSilent('plain')
+		const client = createKubernetesClient(
+			{ server, namespace: 'ns', getToken: async () => TOKEN },
+			// Far above the abort, so a timeout cannot be what ends this.
+			{ requestTimeoutMs: 20_000 },
+		)
+		const controller = new AbortController()
+		setTimeout(() => controller.abort(), 20)
+		const failure = await client
+			.request('GET', '/apis/x/v1/namespaces/ns/sandboxes', undefined, controller.signal)
+			.then(
+				() => undefined,
+				(err: unknown) => err,
+			)
+		expect(failure).toBeInstanceOf(Error)
+		expect(failure).not.toBeInstanceOf(KubernetesApiTimeoutError)
+	}, 30_000)
+
+	it('lets a caller abort win over a bound that has not expired', async () => {
+		const server = await startSilent('plain')
+		const client = createKubernetesClient(
+			{ server, namespace: 'ns', getToken: async () => TOKEN },
+			{ requestTimeoutMs: BOUND_MS },
+		)
+		const controller = new AbortController()
+		controller.abort(new Error('caller gave up'))
+		await expect(
+			client.request('GET', '/apis/x/v1/namespaces/ns/sandboxes', undefined, controller.signal),
+		).rejects.toThrow('caller gave up')
+	}, 20_000)
+
+	it.each([0, -1, 999, 1.5, Number.NaN])(
+		'refuses %p at construction — there is no disabling value',
+		(value) => {
+			expect(() =>
+				createKubernetesClient(
+					{ server: 'http://127.0.0.1:1', namespace: 'ns', getToken: async () => TOKEN },
+					{ requestTimeoutMs: value },
+				),
+			).toThrow(/apiRequestTimeoutMs/)
+		},
+	)
+
+	it('answers a healthy server well inside the bound', async () => {
+		globalThis.fetch = vi.fn(async () => jsonResponse(200, { ok: true })) as unknown as typeof fetch
+		const client = createKubernetesClient(
+			{ server: 'http://127.0.0.1:1', namespace: 'ns', getToken: async () => TOKEN },
+			{ requestTimeoutMs: BOUND_MS },
+		)
+		await expect(client.request('GET', '/apis/x/v1/namespaces/ns/sandboxes')).resolves.toEqual({
+			ok: true,
+		})
 	})
 })

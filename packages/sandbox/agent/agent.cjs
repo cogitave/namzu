@@ -137,7 +137,12 @@ const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
 //    `attach-execution` op replays and then follows a retained execution's
 //    output by byte offset without ever signalling it. See `OutputLog`
 //    and `handleAttachExecution`.
-const AGENT_FEATURES = ['write-file-parts', 'execution-attach']
+//  - `stream-heartbeat` — `terminal` and `tcp-connect` accept a
+//    `heartbeatMs` in their open body, echo it in `ready`, and then trade a
+//    `{ type: 'heartbeat' }` frame every interval so neither side has to
+//    guess whether a silent stream is a quiet shell or a peer that went
+//    away. See `armStreamHeartbeat`.
+const AGENT_FEATURES = ['write-file-parts', 'execution-attach', 'stream-heartbeat']
 
 // --- config (mirrors worker/server.js env contract) -----------------------
 
@@ -1831,6 +1836,105 @@ function resizePty(slavePath, cols, rows) {
 	})
 }
 
+// --- stream liveness ------------------------------------------------------
+
+// Missed intervals that end a stream, and the floor a host's requested
+// interval is clamped to. Three misses so one lost frame is not fatal; the
+// floor because the interval arrives from the host and a pathological value
+// would have this process doing nothing but writing heartbeats. Both are
+// the host's numbers too — `protocol.ts` declares them for that side.
+const STREAM_HEARTBEAT_MISS_LIMIT = 3
+const MIN_STREAM_HEARTBEAT_MS = 100
+
+// Idle time before the kernel sends its first keepalive probe on an accepted
+// connection, in the routed listen mode. Matches the host dial's own delay.
+const TCP_KEEPALIVE_INITIAL_DELAY_MS = 15_000
+
+/**
+ * What this agent will actually use for a requested interval, or undefined
+ * if the host asked for none.
+ *
+ * The clamped value is what goes back in `ready`, so the host arms the same
+ * number this side did rather than the one it asked for.
+ */
+function normalizeHeartbeatMs(requested) {
+	if (typeof requested !== 'number' || !Number.isFinite(requested) || requested <= 0) {
+		return undefined
+	}
+	return Math.max(MIN_STREAM_HEARTBEAT_MS, Math.floor(requested))
+}
+
+/**
+ * Arm the negotiated heartbeat for one stream: send a `heartbeat` frame
+ * every `intervalMs`, and call `onDead` when the host has sent nothing —
+ * not a heartbeat, not a frame, not a byte — for
+ * {@link STREAM_HEARTBEAT_MISS_LIMIT} of them.
+ *
+ * Proof of life is counted in BYTES, off the socket itself, rather than in
+ * complete frames: a single large `data` frame can take longer to arrive
+ * than the window, and the host was plainly still there while it arrived.
+ * That is also why nothing here has to be threaded through the per-op frame
+ * handlers — the listener is attached to the one socket this stream owns,
+ * and removed again by `stop`.
+ *
+ * Only ever called with an interval the host asked for, which is the whole
+ * of the compatibility story: a host that predates this never sets the
+ * field, never gets a frame type it would treat as a protocol error, and
+ * sees exactly the stream it always saw.
+ *
+ * The watchdog polls at a quarter of the interval so a dead host is noticed
+ * within three intervals plus at most one tick. Both timers are unref'd, so
+ * an open stream never by itself keeps this process alive.
+ */
+function armStreamHeartbeat(socket, intervalMs, onDead) {
+	let stopped = false
+	let watching = true
+	let lastSeen = Date.now()
+	// Attached while the socket is flowing — every caller arms at `ready`,
+	// before any backpressure pause — so this never resumes a paused socket.
+	const seen = () => {
+		lastSeen = Date.now()
+	}
+	socket.on('data', seen)
+	const send = setInterval(() => {
+		if (stopped) return
+		if (socket.destroyed || socket.writableEnded) return
+		writeFrame(socket, { type: 'heartbeat' })
+	}, intervalMs)
+	const watch = setInterval(
+		() => {
+			if (stopped || !watching) return
+			if (Date.now() - lastSeen < intervalMs * STREAM_HEARTBEAT_MISS_LIMIT) return
+			stop()
+			onDead()
+		},
+		Math.max(10, Math.floor(intervalMs / 4)),
+	)
+	if (typeof send.unref === 'function') send.unref()
+	if (typeof watch.unref === 'function') watch.unref()
+	function stop() {
+		stopped = true
+		socket.off('data', seen)
+		clearInterval(send)
+		clearInterval(watch)
+	}
+	return {
+		/**
+		 * This side paused reading for backpressure, so silence is its own
+		 * doing: the host's frames are sitting in the kernel, unread.
+		 */
+		suspend() {
+			watching = false
+		},
+		resume() {
+			if (stopped) return
+			watching = true
+			lastSeen = Date.now()
+		},
+		stop,
+	}
+}
+
 /**
  * Start one interactive PTY inside the guest and bind it to this framed
  * connection. The runtime gateway owns the connection; disconnect/kill tears
@@ -1842,6 +1946,10 @@ function handleTerminal(socket, body) {
 	let ready = false
 	let settled = false
 	const pending = []
+	// Undefined unless the host asked for one in the open body — see
+	// `armStreamHeartbeat`.
+	const heartbeatMs = normalizeHeartbeatMs(body?.heartbeatMs)
+	let heartbeat
 
 	const kill = (signal = 'SIGTERM') => {
 		if (!child?.pid || settled) return
@@ -1855,6 +1963,7 @@ function handleTerminal(socket, body) {
 
 	const apply = (event) => {
 		if (!event || typeof event !== 'object') return
+		if (event.type === 'heartbeat') return
 		if (event.type === 'input') {
 			if (
 				typeof event.data === 'string' &&
@@ -1862,8 +1971,12 @@ function handleTerminal(socket, body) {
 				!child.stdin.write(event.data)
 			) {
 				socket.pause()
+				// Nothing is read while this is paused, so the watchdog must
+				// not read that as the host having gone away.
+				heartbeat?.suspend()
 				child.stdin.once('drain', () => {
 					if (!settled) socket.resume()
+					heartbeat?.resume()
 				})
 			}
 			return
@@ -1913,12 +2026,14 @@ function handleTerminal(socket, body) {
 		child.once('error', (error) => {
 			if (settled) return
 			settled = true
+			heartbeat?.stop()
 			writeFrame(socket, { type: 'error', error: error.message })
 			socket.end()
 		})
 		child.once('close', (exitCode, signal) => {
 			if (settled) return
 			settled = true
+			heartbeat?.stop()
 			writeFrame(socket, {
 				type: 'exit',
 				exitCode: typeof exitCode === 'number' ? exitCode : -1,
@@ -1930,12 +2045,21 @@ function handleTerminal(socket, body) {
 		slavePath = await findPtySlave(child.pid)
 		await resizePty(slavePath, cols, rows)
 		ready = true
-		writeFrame(socket, { type: 'ready' })
+		// The echo is what arms the host, and it carries the CLAMPED value so
+		// both sides count the same interval. A host that asked for nothing
+		// gets the same bare `ready` it always got.
+		writeFrame(socket, { type: 'ready', ...(heartbeatMs !== undefined ? { heartbeatMs } : {}) })
+		if (heartbeatMs !== undefined) {
+			// Destroying the socket runs `onClose` below, which is the same
+			// cleanup a host that simply went away already triggers.
+			heartbeat = armStreamHeartbeat(socket, heartbeatMs, () => socket.destroy())
+		}
 		for (const event of pending.splice(0)) apply(event)
 	}
 
 	void start().catch((error) => {
 		if (settled) return
+		heartbeat?.stop()
 		writeFrame(socket, {
 			type: 'error',
 			error: error instanceof Error ? error.message : String(error),
@@ -1957,6 +2081,7 @@ function handleTerminal(socket, body) {
 			else pending.push(event)
 		},
 		onClose() {
+			heartbeat?.stop()
 			kill('SIGKILL')
 		},
 	}
@@ -1979,16 +2104,29 @@ function handleTcpConnect(socket, body) {
 	}
 
 	let settled = false
+	// Undefined unless the host asked for one — see `armStreamHeartbeat`.
+	const heartbeatMs = normalizeHeartbeatMs(body?.heartbeatMs)
+	let heartbeat
 	const upstream = net.createConnection({ host, port })
 	const finish = (event) => {
 		if (settled) return
 		settled = true
+		heartbeat?.stop()
 		if (event) writeFrame(socket, event)
 		upstream.destroy()
 		socket.end()
 	}
 
-	upstream.once('connect', () => writeFrame(socket, { type: 'ready' }))
+	upstream.once('connect', () => {
+		// The echo carries the CLAMPED interval, and arms the host; a host
+		// that asked for nothing gets the same bare `ready` it always got.
+		writeFrame(socket, { type: 'ready', ...(heartbeatMs !== undefined ? { heartbeatMs } : {}) })
+		if (heartbeatMs !== undefined) {
+			// Destroying the socket runs `onClose` below — the same cleanup a
+			// host that simply went away already triggers.
+			heartbeat = armStreamHeartbeat(socket, heartbeatMs, () => socket.destroy())
+		}
+	})
 	upstream.on('data', (chunk) => {
 		if (!writeFrame(socket, { type: 'data', data: chunk.toString('base64') })) {
 			upstream.pause()
@@ -2012,12 +2150,17 @@ function handleTcpConnect(socket, body) {
 				const bytes = Buffer.from(event.data, 'base64')
 				if (bytes.byteLength <= 8 * 1024 * 1024 && !upstream.write(bytes)) {
 					socket.pause()
+					// Nothing is read while this is paused, so the watchdog must
+					// not read that as the host having gone away.
+					heartbeat?.suspend()
 					upstream.once('drain', () => {
 						if (!settled) socket.resume()
+						heartbeat?.resume()
 					})
 				}
 				return
 			}
+			if (event?.type === 'heartbeat') return
 			if (event?.type === 'end') {
 				upstream.end()
 				return
@@ -2026,6 +2169,7 @@ function handleTcpConnect(socket, body) {
 		},
 		onClose() {
 			settled = true
+			heartbeat?.stop()
 			upstream.destroy()
 		},
 	}
@@ -2533,7 +2677,22 @@ function startListening() {
 			reject(error)
 			return
 		}
-		server = net.createServer(handleConnection)
+		server = net.createServer()
+		if (listenMode === 'tcp') {
+			// SO_KEEPALIVE on the ROUTED listener only. The unix and vsock
+			// modes are host-local and have no middlebox to lose state in;
+			// setting it there would be a change to the Firecracker tier for
+			// no gain. Registered BEFORE the handler, so a connection that
+			// `handleConnection` refuses on its first frame has still had it
+			// applied. It proves only that the peer's kernel answers — the
+			// negotiated stream heartbeat is what proves its event loop does.
+			server.on('connection', (socket) => {
+				try {
+					socket.setKeepAlive(true, TCP_KEEPALIVE_INITIAL_DELAY_MS)
+				} catch {}
+			})
+		}
+		server.on('connection', handleConnection)
 		server.on('error', reject)
 		if (listenMode === 'unix') {
 			// Dev + test loopback peer: plain unix-domain socket.

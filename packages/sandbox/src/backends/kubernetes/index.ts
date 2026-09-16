@@ -107,6 +107,7 @@ import {
 	type KubernetesAccess,
 	KubernetesAlreadyGoneError,
 	type KubernetesClient,
+	type KubernetesClientOptions,
 	createKubernetesClient,
 } from './k8s-client.js'
 import {
@@ -202,6 +203,62 @@ export interface KubernetesBackendInternalConfig {
 	 * `egress-policy.ts`.
 	 */
 	readonly egress?: KubernetesEgressConfig
+	/**
+	 * Bound on every single Kubernetes API request this backend sends. See
+	 * {@link KubernetesClientOptions.requestTimeoutMs} in `k8s-client.ts`,
+	 * which owns the default (30 s), the floor (1 s) and the reason there is
+	 * no value that disables it.
+	 */
+	readonly apiRequestTimeoutMs?: number
+	/**
+	 * Interval of the negotiated liveness heartbeat on `openTerminal` and
+	 * `openTcpConnection` streams. Default
+	 * {@link DEFAULT_STREAM_HEARTBEAT_MS}; `0` turns it off and restores the
+	 * pre-heartbeat behaviour exactly. See {@link resolveStreamHeartbeatMs}.
+	 */
+	readonly streamHeartbeatMs?: number
+}
+
+/**
+ * Default {@link KubernetesBackendInternalConfig.streamHeartbeatMs} — 15 s,
+ * so a stream whose peer vanished without a FIN or an RST is given up on
+ * within 45 s rather than never.
+ *
+ * The Kubernetes backend opts IN here; `VsockTransportOptions.heartbeatMs`
+ * stays undefined by default, because that transport is shared with the
+ * Firecracker tier and a default there would force-close an existing
+ * consumer's quiet-but-alive terminal.
+ */
+export const DEFAULT_STREAM_HEARTBEAT_MS = 15_000
+
+/**
+ * Validate the configured stream-heartbeat interval, or supply the default.
+ *
+ * `0` IS accepted here, unlike `apiRequestTimeoutMs`: the heartbeat is a new
+ * capability that a deployment behind a middlebox with its own idea about
+ * unexpected frames may want off, and turning it off restores exactly the
+ * behaviour every release before this one had. An unanswered API request has
+ * no such prior behaviour worth restoring.
+ */
+export function resolveStreamHeartbeatMs(value: number | undefined): number {
+	if (value === undefined) return DEFAULT_STREAM_HEARTBEAT_MS
+	if (!Number.isSafeInteger(value) || value < 0) {
+		throw new Error(
+			`kubernetes: streamHeartbeatMs must be a non-negative integer, got ${JSON.stringify(
+				value,
+			)}. Use 0 to send no heartbeats at all, which is how every release before this one behaved; the default is ${DEFAULT_STREAM_HEARTBEAT_MS}ms.`,
+		)
+	}
+	return value
+}
+
+/**
+ * The client options every `createKubernetesClient` call in this backend is
+ * built with. One function so the five call sites — the provider, and each
+ * of the workspace verbs — cannot drift apart on which bounds they honour.
+ */
+export function clientOptions(config: KubernetesBackendInternalConfig): KubernetesClientOptions {
+	return { requestTimeoutMs: config.apiRequestTimeoutMs }
 }
 
 /**
@@ -418,7 +475,11 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 	if (config.egress) {
 		assertEgressPolicyIsEnforceable(config.egress.policy, config.egress.engine ?? 'core')
 	}
-	const client = createKubernetesClient(clientAccess(config))
+	// Resolved here as well as at each session, so a configuration this
+	// backend will never honour is refused while `buildKubernetesBackend` is
+	// still on the stack rather than on someone's first `create()`.
+	resolveStreamHeartbeatMs(config.streamHeartbeatMs)
+	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 	// Verify-not-trust runs once, lazily, on the first `create()` — never here,
 	// because `buildKubernetesBackend` is documented to contact nothing. A
 	// failed attempt is not cached: a transient API error should not wedge
@@ -1133,10 +1194,14 @@ async function admitProbedSandbox(
 	const sandbox = buildKubernetesSandbox({
 		name: acquisition.binding.name,
 		rootDir: options.workingDirectory,
-		transport: new KubernetesAgentTransport(
-			acquisition.agent,
-			acquisition.refreshAgent !== undefined ? { refreshHandle: acquisition.refreshAgent } : {},
-		),
+		transport: new KubernetesAgentTransport(acquisition.agent, {
+			// The backend opts in to the stream heartbeat; the transport
+			// option it sets stays undefined for every other tier.
+			heartbeatMs: resolveStreamHeartbeatMs(config.streamHeartbeatMs),
+			...(acquisition.refreshAgent !== undefined
+				? { refreshHandle: acquisition.refreshAgent }
+				: {}),
+		}),
 		release: acquisition.release,
 		renew: acquisition.renew,
 		ttlSeconds: acquisition.ttlSeconds,

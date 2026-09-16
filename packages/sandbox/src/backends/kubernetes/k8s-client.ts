@@ -40,6 +40,20 @@
  * `CredentialError` naming the attempted verb and resource — never the
  * token, which this module never logs or embeds in any thrown message.
  *
+ * ## Deadlines
+ * Every request carries its own bound
+ * ({@link KubernetesClientOptions.requestTimeoutMs}, default
+ * {@link DEFAULT_API_REQUEST_TIMEOUT_MS}) on top of whatever signal the
+ * caller passed, because the caller's signal is optional everywhere and
+ * several call sites are SHARED flights that run under whichever caller
+ * arrived first — one signal-less `destroy()` against an API server that
+ * accepted a request and never answered would otherwise pin every later
+ * caller joined to it. The bound covers `getToken()`, the connection and
+ * reading the body, on both transports, and expiry rejects with
+ * {@link KubernetesApiTimeoutError} rather than the generic `failed:` error
+ * so a caller can tell a timeout from a refusal. A caller's own abort still
+ * behaves exactly as it did.
+ *
  * ## Not in v1
  * No watch, no informers, no resourceVersion/bookmark tracking. Readiness is
  * polled by the caller with `../readiness.js`'s `OperationDeadline`, exactly
@@ -91,6 +105,35 @@ export interface ExplicitKubernetesAccess {
 
 export type KubernetesAccess = InClusterKubernetesAccess | ExplicitKubernetesAccess
 
+/**
+ * Bound every request this client sends is measured against, on top of the
+ * caller's own signal. Orthogonal to {@link KubernetesAccess}, which says
+ * WHO the client is, so it is a second argument rather than another arm of
+ * that union.
+ */
+export interface KubernetesClientOptions {
+	/**
+	 * Milliseconds a single request may take, end to end: resolving the
+	 * token, connecting, sending, and reading the reply. Default
+	 * {@link DEFAULT_API_REQUEST_TIMEOUT_MS}; minimum
+	 * {@link MIN_API_REQUEST_TIMEOUT_MS}. There is deliberately NO value
+	 * that turns the bound off — see {@link resolveRequestTimeoutMs}.
+	 */
+	readonly requestTimeoutMs?: number
+}
+
+/**
+ * Default {@link KubernetesClientOptions.requestTimeoutMs} — 30 s.
+ *
+ * The same cap `lease.ts` already puts on a renewal PATCH, and below the
+ * 60 s `readyTimeoutMs` default, so a request that times out still leaves
+ * the readiness budget something to report with.
+ */
+export const DEFAULT_API_REQUEST_TIMEOUT_MS = 30_000
+
+/** Floor for {@link KubernetesClientOptions.requestTimeoutMs} — 1 s. */
+export const MIN_API_REQUEST_TIMEOUT_MS = 1_000
+
 export interface KubernetesClient {
 	/**
 	 * `path` is the API-server path (e.g.
@@ -98,8 +141,10 @@ export interface KubernetesClient {
 	 * URL. Returns the parsed JSON body, or `undefined` for a 204 or an empty
 	 * body. Rejects with {@link KubernetesAlreadyGoneError},
 	 * {@link KubernetesConflictError} or {@link KubernetesCredentialError} for
-	 * the status codes each names; any other non-2xx status rejects with a
-	 * plain `Error`.
+	 * the status codes each names, and with {@link KubernetesApiTimeoutError}
+	 * when the request outlives
+	 * {@link KubernetesClientOptions.requestTimeoutMs}; any other non-2xx
+	 * status rejects with a plain `Error`.
 	 */
 	request<T>(
 		method: KubernetesHttpMethod,
@@ -151,6 +196,91 @@ export class KubernetesCredentialError extends Error {
 		super(`kubernetes API refused ${verb} ${resource}: ${status}`)
 		this.name = 'KubernetesCredentialError'
 	}
+}
+
+/**
+ * The request outlived {@link KubernetesClientOptions.requestTimeoutMs}.
+ *
+ * Deliberately NOT the generic `failed:` error: a caller that can tell a
+ * timeout from a refusal can retry an idempotent write, and one that cannot
+ * has to treat every failure alike. Carries the verb, the resource path and
+ * the bound that expired — and, like every other error in this module,
+ * never the bearer token.
+ *
+ * A timeout says nothing about whether the request was APPLIED, which is
+ * why nothing here tries to: a suspend restores the state it saw and sends
+ * its idempotent patch again, a create POST that landed is adopted through
+ * the 409 path, and a DELETE that already applied counts as done.
+ */
+export class KubernetesApiTimeoutError extends Error {
+	constructor(
+		readonly verb: KubernetesHttpMethod,
+		readonly resource: string,
+		readonly timeoutMs: number,
+	) {
+		super(
+			`kubernetes ${verb} ${resource} was still unanswered ${timeoutMs}ms after it was sent, and was given up on (apiRequestTimeoutMs). Whether the API server applied it is unknown. Raise apiRequestTimeoutMs if this cluster is genuinely this slow.`,
+		)
+		this.name = 'KubernetesApiTimeoutError'
+	}
+}
+
+/**
+ * Validate the configured bound, or supply the default.
+ *
+ * There is no disabling value, and `0` is refused rather than read as
+ * "unbounded": an unanswered request is not a supported configuration.
+ * Several call sites are single-flight promises that run under the FIRST
+ * caller's signal and never consult a later one's, so one hung request
+ * does not block one caller — it blocks every caller that joined it, on a
+ * handle whose state already refuses data-plane calls. A cluster with a
+ * genuinely slow API server raises the number.
+ */
+export function resolveRequestTimeoutMs(value: number | undefined): number {
+	if (value === undefined) return DEFAULT_API_REQUEST_TIMEOUT_MS
+	if (!Number.isSafeInteger(value) || value < MIN_API_REQUEST_TIMEOUT_MS) {
+		throw new Error(
+			`kubernetes: apiRequestTimeoutMs must be an integer of at least ${MIN_API_REQUEST_TIMEOUT_MS}ms, got ${JSON.stringify(
+				value,
+			)}. No value disables the bound: a request the API server accepted and never answered would hang its caller — and every later caller joined to the same single-flight suspend, delete or verification — until the process was killed. Raise the number instead; the default is ${DEFAULT_API_REQUEST_TIMEOUT_MS}ms.`,
+		)
+	}
+	return value
+}
+
+/**
+ * Await `promise`, but give up the moment `signal` aborts, rejecting with
+ * that signal's reason.
+ *
+ * `getToken()` is a caller-supplied callback and `res.text()` is a body the
+ * peer may simply stop sending, and neither takes a signal of its own, so
+ * without this the bound would cover only the part of a request this module
+ * happens to hold a socket for. The late settlement is swallowed rather
+ * than left dangling: an unobserved rejection is still a rejection.
+ */
+function settleOnAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+	if (signal.aborted) {
+		void promise.catch(() => {})
+		return Promise.reject(signal.reason)
+	}
+	return new Promise<T>((resolve, reject) => {
+		let done = false
+		const onAbort = () => {
+			done = true
+			reject(signal.reason)
+		}
+		signal.addEventListener('abort', onAbort, { once: true })
+		promise.then(
+			(value) => {
+				signal.removeEventListener('abort', onAbort)
+				if (!done) resolve(value)
+			},
+			(error: unknown) => {
+				signal.removeEventListener('abort', onAbort)
+				if (!done) reject(error)
+			},
+		)
+	})
 }
 
 function stripTrailingSlash(url: string): string {
@@ -283,8 +413,15 @@ function contentTypeFor(method: KubernetesHttpMethod): string {
 	return method === 'PATCH' ? 'application/merge-patch+json' : 'application/json'
 }
 
-export function createKubernetesClient(access: KubernetesAccess): KubernetesClient {
+export function createKubernetesClient(
+	access: KubernetesAccess,
+	options: KubernetesClientOptions = {},
+): KubernetesClient {
 	const resolved = access.inCluster === true ? resolveInCluster(access) : resolveExplicit(access)
+	// Validated at construction, not at the first request: a configuration
+	// this module will never honour should be refused where the operator can
+	// still see which backend it came from.
+	const requestTimeoutMs = resolveRequestTimeoutMs(options.requestTimeoutMs)
 
 	async function request<T>(
 		method: KubernetesHttpMethod,
@@ -293,56 +430,92 @@ export function createKubernetesClient(access: KubernetesAccess): KubernetesClie
 		signal?: AbortSignal,
 	): Promise<T | undefined> {
 		signal?.throwIfAborted()
-		const token = await resolved.getToken()
-		signal?.throwIfAborted()
-		const url = `${resolved.baseUrl}${path}`
-		const payload = body !== undefined ? JSON.stringify(body) : undefined
-		const headers: Record<string, string> = {
-			Authorization: `Bearer ${token}`,
-			Accept: 'application/json',
-		}
-		if (payload !== undefined) headers['content-type'] = contentTypeFor(method)
+		// The caller's signal is WRAPPED, never replaced: `deadline` aborts
+		// with the caller's own reason when the caller aborts, so every path
+		// below behaves exactly as it did, and with a
+		// KubernetesApiTimeoutError when the bound expires first. Combined by
+		// hand rather than with `AbortSignal.any`, which this package's
+		// declared Node floor (20.0) predates.
+		const deadlineController = new AbortController()
+		const deadline = deadlineController.signal
+		let timedOut = false
+		const timer = setTimeout(() => {
+			timedOut = true
+			deadlineController.abort(new KubernetesApiTimeoutError(method, path, requestTimeoutMs))
+		}, requestTimeoutMs)
+		timer.unref?.()
+		const forwardCallerAbort = () => deadlineController.abort(signal?.reason)
+		signal?.addEventListener('abort', forwardCallerAbort, { once: true })
+		/** True while the CALLER is the one who gave up, which wins. */
+		const callerGaveUp = () => signal?.aborted === true
+		const readBody = async (res: RawResponse): Promise<string> =>
+			await settleOnAbort(res.text(), deadline)
 
-		let res: RawResponse
 		try {
-			res =
-				resolved.ca !== undefined
-					? await httpsRequest(url, method, headers, payload, resolved.ca, signal)
-					: await fetchRequest(url, method, headers, payload, signal)
-		} catch (err) {
-			throw new Error(
-				`kubernetes ${method} ${path} failed: ${err instanceof Error ? err.message : String(err)}`,
-				{ cause: err },
-			)
-		}
+			// Covered by the bound at last: `getToken()` is caller code that
+			// takes no signal of its own, and an in-cluster token read that
+			// blocks on a wedged volume used to be unbounded on every request.
+			const token = await settleOnAbort(resolved.getToken(), deadline)
+			deadline.throwIfAborted()
+			const url = `${resolved.baseUrl}${path}`
+			const payload = body !== undefined ? JSON.stringify(body) : undefined
+			const headers: Record<string, string> = {
+				Authorization: `Bearer ${token}`,
+				Accept: 'application/json',
+			}
+			if (payload !== undefined) headers['content-type'] = contentTypeFor(method)
 
-		if (res.status === 401 || res.status === 403) {
-			await res.text()
-			signal?.throwIfAborted()
-			throw new KubernetesCredentialError(method, path, res.status)
+			let res: RawResponse
+			try {
+				res =
+					resolved.ca !== undefined
+						? await httpsRequest(url, method, headers, payload, resolved.ca, deadline)
+						: await fetchRequest(url, method, headers, payload, deadline)
+			} catch (err) {
+				if (err instanceof KubernetesApiTimeoutError) throw err
+				// A timeout is named rather than folded into `failed:`; a
+				// caller's own abort still produces the wrapped error it
+				// always produced.
+				if (timedOut && !callerGaveUp()) {
+					throw new KubernetesApiTimeoutError(method, path, requestTimeoutMs)
+				}
+				throw new Error(
+					`kubernetes ${method} ${path} failed: ${err instanceof Error ? err.message : String(err)}`,
+					{ cause: err },
+				)
+			}
+
+			if (res.status === 401 || res.status === 403) {
+				await readBody(res)
+				deadline.throwIfAborted()
+				throw new KubernetesCredentialError(method, path, res.status)
+			}
+			if (res.status === 404 || res.status === 410) {
+				await readBody(res)
+				deadline.throwIfAborted()
+				throw new KubernetesAlreadyGoneError(method, path, res.status)
+			}
+			if (res.status === 409) {
+				await readBody(res)
+				deadline.throwIfAborted()
+				throw new KubernetesConflictError(method, path)
+			}
+			if (res.status < 200 || res.status >= 300) {
+				const text = await readBody(res)
+				deadline.throwIfAborted()
+				throw new Error(`kubernetes ${method} ${path} -> ${res.status}: ${text}`)
+			}
+			if (res.status === 204) return undefined
+			if (res.contentType.includes('application/json')) {
+				const text = await readBody(res)
+				deadline.throwIfAborted()
+				return text.length > 0 ? (JSON.parse(text) as T) : undefined
+			}
+			return undefined
+		} finally {
+			clearTimeout(timer)
+			signal?.removeEventListener('abort', forwardCallerAbort)
 		}
-		if (res.status === 404 || res.status === 410) {
-			await res.text()
-			signal?.throwIfAborted()
-			throw new KubernetesAlreadyGoneError(method, path, res.status)
-		}
-		if (res.status === 409) {
-			await res.text()
-			signal?.throwIfAborted()
-			throw new KubernetesConflictError(method, path)
-		}
-		if (res.status < 200 || res.status >= 300) {
-			const text = await res.text()
-			signal?.throwIfAborted()
-			throw new Error(`kubernetes ${method} ${path} -> ${res.status}: ${text}`)
-		}
-		if (res.status === 204) return undefined
-		if (res.contentType.includes('application/json')) {
-			const text = await res.text()
-			signal?.throwIfAborted()
-			return text.length > 0 ? (JSON.parse(text) as T) : undefined
-		}
-		return undefined
 	}
 
 	return {
