@@ -1,15 +1,21 @@
 /**
  * `../entrypoint.sh`: POSIX-sh parse checks, plus its actual mount/format/
- * drop-privilege LOGIC exercised with PATH-shimmed `blkid`, `mkfs.ext4`,
- * `mount`, `chown` and `setpriv` — never the real tools, so this suite
- * needs no root and is safe in the default `pnpm test` tier the rest of
- * this package's suites already run in.
+ * drop-privilege LOGIC exercised with PATH-shimmed `blkid`, `dd`,
+ * `mkfs.ext4`, `mount`, `chown` and `setpriv` — never the real tools, so
+ * this suite needs no root and is safe in the default `pnpm test` tier the
+ * rest of this package's suites already run in.
  *
  * The one case this file exists for above all others: a device that
  * ALREADY carries a filesystem must be mounted WITHOUT calling `mkfs` —
  * see entrypoint.sh's own header comment for why an unconditional `mkfs`
  * there would be the single most destructive possible bug in this whole
- * backend (it would erase a resumed workspace's disk on every boot).
+ * backend (it would erase a resumed workspace's disk on every boot). Close
+ * behind it: a `blkid` that is missing, unexecutable, or failing for any
+ * reason other than "no filesystem found" (status 2) must abort the pod
+ * rather than be mistaken for "the device is empty" — see the exit-status
+ * cases inside "a workspace device is configured" below, which use
+ * `runEntrypoint`'s `fakes`/`basePath` options to prove a tool is truly
+ * unreachable, not merely made to fail.
  *
  * The `-b` (is-a-block-device) check in the script is real, unshimmed
  * shell — `[` is a POSIX regular built-in and is checked before `PATH` is
@@ -36,6 +42,16 @@ const HERE = dirname(fileURLToPath(import.meta.url))
 const ENTRYPOINT_PATH = join(HERE, '../entrypoint.sh')
 const ENTRYPOINT_SOURCE = readFileSync(ENTRYPOINT_PATH, 'utf8')
 
+// An absolute path, not a bare command name: `runEntrypoint` lets a case
+// override the PATH the SCRIPT searches (to prove a tool is truly absent),
+// and Node resolves a bare command through that same overridden PATH before
+// it can even start the process — so spawning `sh` by name would fail to
+// launch at all once a case sets a PATH with no `sh` on it. Resolving the
+// interpreter once, up front, via the real environment keeps those two
+// concerns (what launches the script vs. what the script itself can find)
+// independent.
+const SH_BIN = existsSync('/bin/sh') ? '/bin/sh' : '/usr/bin/sh'
+
 function hasCommand(name: string): boolean {
 	const result = spawnSync('sh', ['-c', `command -v ${name}`])
 	return result.status === 0
@@ -54,13 +70,29 @@ function findLoopDevice(): string | undefined {
 const LOOP_DEVICE = findLoopDevice()
 
 const FAKE_TOOLS: Record<string, string> = {
+	// `FAKE_BLKID_TYPE` set: prints that type and exits 0 (a filesystem was
+	// found). Otherwise exits `FAKE_BLKID_EXIT` (default 2, "nothing
+	// found" — blkid(8) — matching the real tool's answer for a genuinely
+	// blank device). `FAKE_BLKID_STDERR`, when set, is written to stderr
+	// first, standing in for whatever real blkid would have said there —
+	// e.g. the shell's own "not found" for an unexecutable blkid.
 	blkid: `#!/bin/sh
 echo "blkid $*" >> "$NAMZU_TEST_LOG"
+if [ -n "\${FAKE_BLKID_STDERR:-}" ]; then
+  echo "$FAKE_BLKID_STDERR" >&2
+fi
 if [ -n "\${FAKE_BLKID_TYPE:-}" ]; then
   echo "$FAKE_BLKID_TYPE"
   exit 0
 fi
-exit 2
+exit "\${FAKE_BLKID_EXIT:-2}"
+`,
+	// The device-readability probe entrypoint.sh runs before it trusts a
+	// blkid-exit-2 "nothing found" enough to format. Exits 0 (device reads
+	// fine) unless `FAKE_DD_EXIT` says otherwise.
+	dd: `#!/bin/sh
+echo "dd $*" >> "$NAMZU_TEST_LOG"
+exit "\${FAKE_DD_EXIT:-0}"
 `,
 	'mkfs.ext4': `#!/bin/sh
 echo "mkfs.ext4 $*" >> "$NAMZU_TEST_LOG"
@@ -90,14 +122,32 @@ exit 0
 interface RunResult {
 	readonly status: number | null
 	readonly log: string[]
+	/** The script's real stderr — distinct from `log`, which only ever holds
+	 * what a fake tool chose to record. A missing/failing-tool abort writes
+	 * its diagnostic here, never to the fake-tool log. */
+	readonly stderr: string
 }
 
-function runEntrypoint(env: Record<string, string | undefined>): RunResult {
+interface RunOptions {
+	/** Which fakes to install in the shim directory that goes in front of
+	 * `basePath`. Defaults to every entry in `FAKE_TOOLS`; pass a subset (or
+	 * omit a key) to prove a case where a tool is genuinely absent from
+	 * every directory the script's PATH names, not merely made to fail. */
+	fakes?: Record<string, string>
+	/** The PATH segment appended after the shim directory. Defaults to the
+	 * real `process.env.PATH`. Override it to prove "not found anywhere",
+	 * since the default would otherwise let the test runner's OWN real
+	 * `blkid` (etc.) answer once a fake is left out. */
+	basePath?: string
+}
+
+function runEntrypoint(env: Record<string, string | undefined>, options: RunOptions = {}): RunResult {
+	const { fakes = FAKE_TOOLS, basePath = process.env.PATH ?? '' } = options
 	const workDir = mktempWorkDir()
 	try {
 		const binDir = join(workDir, 'bin')
 		mkdirSync(binDir)
-		for (const [name, script] of Object.entries(FAKE_TOOLS)) {
+		for (const [name, script] of Object.entries(fakes)) {
 			const toolPath = join(binDir, name)
 			writeFileSync(toolPath, script)
 			chmodSync(toolPath, 0o755)
@@ -105,12 +155,14 @@ function runEntrypoint(env: Record<string, string | undefined>): RunResult {
 		const logPath = join(workDir, 'log.txt')
 		writeFileSync(logPath, '')
 
-		const result = spawnSync('sh', [ENTRYPOINT_PATH], {
+		const result = spawnSync(SH_BIN, [ENTRYPOINT_PATH], {
 			env: {
-				// Fakes resolve first; the rest of PATH stays real so `mkdir`,
-				// `[`, `printf` etc. — never shimmed, never meant to be — keep
-				// working exactly as they do outside a test.
-				PATH: `${binDir}:${process.env.PATH ?? ''}`,
+				// The shim directory resolves first; `basePath` (real PATH by
+				// default) supplies `mkdir`, `[`, `printf` etc. — never
+				// shimmed, never meant to be — so they keep working exactly
+				// as they do outside a test, unless a case deliberately
+				// narrows `basePath` to prove a tool is unreachable.
+				PATH: `${binDir}:${basePath}`,
 				NAMZU_TEST_LOG: logPath,
 				...env,
 			},
@@ -119,7 +171,7 @@ function runEntrypoint(env: Record<string, string | undefined>): RunResult {
 		const log = readFileSync(logPath, 'utf8')
 			.split('\n')
 			.filter((line) => line.length > 0)
-		return { status: result.status, log }
+		return { status: result.status, log, stderr: result.stderr ?? '' }
 	} finally {
 		rmSync(workDir, { recursive: true, force: true })
 	}
@@ -249,6 +301,60 @@ describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', (
 		expect(mountLine).toContain(LOOP_DEVICE as string)
 		expect(mountLine).toContain(root)
 		expect(result.log.some((line) => line.startsWith('setpriv '))).toBe(true)
+	})
+
+	for (const exitCode of [127, 126, 4, 8]) {
+		it(`a blkid that exits ${exitCode} with no output aborts before mkfs or mount, naming the status`, () => {
+			const root = mktempWorkDir()
+			const result = runEntrypoint({
+				NAMZU_WORKSPACE_DEVICE: LOOP_DEVICE,
+				NAMZU_WORKSPACE_ROOT: root,
+				FAKE_BLKID_EXIT: String(exitCode),
+			})
+			expect(result.status).not.toBe(0)
+			expect(result.log.some((line) => line.startsWith('mkfs.ext4 '))).toBe(false)
+			expect(result.log.some((line) => line.startsWith('mount '))).toBe(false)
+			expect(result.stderr).toContain(String(exitCode))
+		})
+	}
+
+	it('a blkid missing from PATH entirely aborts before mkfs or mount and names blkid in the log', () => {
+		const root = mktempWorkDir()
+		const { blkid: _blkidFake, ...fakesWithoutBlkid } = FAKE_TOOLS
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_DEVICE: LOOP_DEVICE,
+				NAMZU_WORKSPACE_ROOT: root,
+			},
+			{
+				fakes: fakesWithoutBlkid,
+				// Deliberately not the real PATH: the shim directory this run
+				// gets (every fake except blkid) is ALL that is searched, so
+				// this proves blkid is unreachable, not merely that the
+				// fake was made to fail — and it can't quietly pass by
+				// falling back to whatever real blkid the machine running
+				// this test happens to have.
+				basePath: '',
+			},
+		)
+		expect(result.status).not.toBe(0)
+		expect(result.log.some((line) => line.startsWith('mkfs.ext4 '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('mount '))).toBe(false)
+		expect(result.stderr).toContain('blkid')
+	})
+
+	it('blkid exits 2 but the device cannot be read: aborts before mkfs, without trusting "empty"', () => {
+		const root = mktempWorkDir()
+		const result = runEntrypoint({
+			NAMZU_WORKSPACE_DEVICE: LOOP_DEVICE,
+			NAMZU_WORKSPACE_ROOT: root,
+			// FAKE_BLKID_EXIT unset: the fake's default (2, "nothing found").
+			FAKE_DD_EXIT: '1',
+		})
+		expect(result.status).not.toBe(0)
+		expect(result.log.some((line) => line.startsWith('dd '))).toBe(true)
+		expect(result.log.some((line) => line.startsWith('mkfs.ext4 '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('mount '))).toBe(false)
 	})
 
 	it('does nothing device-related when NAMZU_WORKSPACE_DEVICE names a path that is not a block device', () => {

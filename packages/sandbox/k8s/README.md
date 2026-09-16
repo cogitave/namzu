@@ -189,8 +189,15 @@ currently empty and says so; these five runs are what fill it in.
 
 `__tests__/entrypoint.test.ts` and `__tests__/manifests.test.ts` run in the
 package's normal `pnpm --filter @namzu/sandbox test` — no cluster, no Kata,
-no root. `entrypoint.test.ts` shims `blkid`/`mkfs.ext4`/`mount`/`chown`/
+no root. `entrypoint.test.ts` shims `blkid`/`dd`/`mkfs.ext4`/`mount`/`chown`/
 `setpriv` in `PATH` (never the real tools) and exercises the mount-vs-mkfs
 branching against a real, already-existing block device NODE
 (`/dev/loop0`..`7`, present on the `ubuntu-latest` Linux CI runner this repo's own `.github/workflows/ci.yml` uses)
 whose type it only ever `stat()`s — nothing shimmed ever opens it for real.
+It also covers every way `blkid` can fail to answer cleanly: exiting
+127/126/4/8 with no output, being entirely absent from `PATH` (proven with a
+`PATH` the shim controls end to end, so the runner's own `blkid` cannot
+quietly answer instead), and exiting 2 ("no filesystem found") on a device
+that then fails the `dd` readability probe entrypoint.sh runs before trusting
+that "2" enough to format. Every one of those must abort before `mkfs.ext4`
+or `mount` ever runs.

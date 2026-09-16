@@ -1305,7 +1305,9 @@ confirms it): the guest image (`k8s/Dockerfile`, `k8s/entrypoint.sh` — root
 formats and mounts a workspace's raw block device, then `exec`s into
 `setpriv`, which drops every capability and execs `tini` — the container's
 real PID 1 and subreaper — which in turn runs the guest agent as its
-child), the
+child; the format decision itself trusts only `blkid`'s exit status — 2,
+"no filesystem found", confirmed by a raw read of the device — never
+treating a missing or failing `blkid` as "the disk is empty"), the
 `RuntimeClass` / `SandboxTemplate` / `SandboxWarmPool` / `NetworkPolicy` /
 RBAC manifests (`k8s/manifests/`, plus a `kind-overlay/` for local
 development — explicitly **not** a security boundary, see that overlay's

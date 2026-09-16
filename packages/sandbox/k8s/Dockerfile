@@ -43,9 +43,14 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LC_ALL=C.UTF-8 \
     NODE_ENV=production
 
-# util-linux: `setpriv` (the privilege drop `entrypoint.sh` execs into) and
-# `blkid` (both ship in this package on Debian, not e2fsprogs, despite the
-# tool's name suggesting otherwise).
+# util-linux: `setpriv` (the privilege drop `entrypoint.sh` execs into),
+# `blkid` (ships in this package on Debian, not e2fsprogs, despite the
+# tool's name suggesting otherwise) and `mount`. `entrypoint.sh` checks
+# `command -v` on all of these plus `dd` and `chown` (coreutils — part of
+# every Debian base image, this slim one included, so not installed here)
+# before it trusts blkid's answer about a workspace device; a derived image
+# that strips coreutils or drops util-linux from its own layers loses that
+# guard, not just a convenience.
 # e2fsprogs: `mkfs.ext4`, for a workspace's block device on its first mount.
 # tini: the container's real PID 1 once `entrypoint.sh` execs into it (see
 # that file's tail). Without a subreaper there, the guest agent itself is
