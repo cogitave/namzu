@@ -1,0 +1,32 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: namzu-e2e-w8-scripts
+  namespace: namzu-e2e
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 300
+  template:
+    metadata:
+      labels:
+        namzu.ai/component: host
+    spec:
+      serviceAccountName: namzu-sandbox-host
+      restartPolicy: Never
+      containers:
+        - name: w8-scripts
+          image: localhost/namzu-e2e-runner:kind
+          imagePullPolicy: IfNotPresent
+          command:
+            - /bin/sh
+            - -c
+            - |
+              set -e
+              echo "=== acquire-p50.mjs ==="
+              node k8s-scripts/acquire-p50.mjs \
+                --namespace namzu-e2e --template namzu-task --pool namzu-task-pool \
+                --count 20 --in-cluster
+              echo "=== capability-check.mjs ==="
+              node k8s-scripts/capability-check.mjs \
+                --namespace namzu-e2e --template namzu-task --pool namzu-task-pool \
+                --in-cluster

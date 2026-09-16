@@ -1,0 +1,266 @@
+{
+  "collectedAt": "2026-09-16T07:19:30Z",
+  "cluster": {
+    "kind": "namzu",
+    "kubernetesVersion": "v1.37.0",
+    "controllerImage": "registry.k8s.io/agent-sandbox/agent-sandbox-controller:v1.0.2",
+    "provider": "podman (KIND_EXPERIMENTAL_PROVIDER=podman)",
+    "node": "namzu-control-plane (single control-plane node, containerd://2.3.4)",
+    "runtimeClass": null,
+    "storageClass": "standard (rancher.io/local-path, Filesystem only)",
+    "networkPolicyEnforced": false
+  },
+  "runner": {
+    "startedAt": "2026-09-16T07:26:51.923Z",
+    "namespace": "namzu-e2e",
+    "template": "namzu-task",
+    "pool": "namzu-task-pool",
+    "acquireCount": 20,
+    "leaseTtlSeconds": 60,
+    "phases": {
+      "poolWarm": {
+        "ok": true,
+        "durationMs": 11,
+        "ready": 2,
+        "wanted": 2
+      },
+      "acquireLatency": {
+        "ok": true,
+        "durationMs": 4395,
+        "durationsMs": [
+          94.5482,
+          74.2547,
+          281.278801,
+          184.0919,
+          337.5366,
+          174.521401,
+          199.1067,
+          315.9068,
+          182.571601,
+          174.6232,
+          187.187,
+          180.6037,
+          317.808401,
+          82.132,
+          295.2972,
+          200.332501,
+          179.6498,
+          399.2962,
+          69.228,
+          290.557901
+        ],
+        "p50Ms": 184.0919,
+        "p99Ms": 399.2962,
+        "under1sP50": true
+      },
+      "conformance": {
+        "ok": true,
+        "durationMs": 2929,
+        "total": 12,
+        "passed": 10,
+        "failed": 2,
+        "cases": [
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > exec > reports the exit code and streams stdout/stderr as the command runs",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > exec > reports busy while a command is in flight and ready once it settles",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > exec > honours an AbortSignal: the process is really terminated, never a partial success",
+            "passed": false,
+            "detail": "expected true to be false"
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > file IO > round-trips a UTF-8 string through writeFile/readFile",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > file IO > round-trips arbitrary binary content byte for byte",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > listFiles > lists written files as absolute paths with their sizes",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > listFiles > reports a root that does not exist as empty rather than failing",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > openTcpConnection > forwards a bidirectional stream to a service on the guest loopback",
+            "passed": false,
+            "detail": "connect ECONNREFUSED 127.0.0.1:43641"
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > openTcpConnection > refuses a non-loopback host",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > destroy > is idempotent, however many times or however concurrently it is called",
+            "passed": true
+          },
+          {
+            "name": "kubernetes (kind e2e) \u2014 sandbox contract v1 > destroy > refuses every call once destroyed, rather than admitting one",
+            "passed": true
+          }
+        ]
+      },
+      "operations": {
+        "ok": true,
+        "durationMs": 477,
+        "sandboxId": "namzu-task-pool-25q9c",
+        "exec": {
+          "exitCode": 0,
+          "stdout": "namzu-e2e-exec-ok"
+        },
+        "fileRoundTrip": {
+          "wrote": "namzu-e2e-1789543619450",
+          "readBack": "namzu-e2e-1789543619450",
+          "matches": true
+        },
+        "terminal": {
+          "exitCode": 0,
+          "sawHello": true
+        },
+        "tcp": {
+          "started": true,
+          "received": "echo:namzu-e2e-tcp-hello",
+          "matches": true
+        },
+        "tcpNonLoopbackRefused": true
+      },
+      "leaseProof": {
+        "ok": true,
+        "durationMs": 175414,
+        "sandboxId": "namzu-task-pool-8s2jd",
+        "holdMs": 135000,
+        "checks": [
+          {
+            "t": "2026-09-16T07:27:10.086Z",
+            "elapsedMs": 10010,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:27:20.098Z",
+            "elapsedMs": 20022,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:27:30.108Z",
+            "elapsedMs": 30033,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:27:40.122Z",
+            "elapsedMs": 40046,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:27:50.134Z",
+            "elapsedMs": 50058,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:28:00.140Z",
+            "elapsedMs": 60064,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:28:10.155Z",
+            "elapsedMs": 70079,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:28:20.165Z",
+            "elapsedMs": 80089,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:28:30.175Z",
+            "elapsedMs": 90099,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:28:40.185Z",
+            "elapsedMs": 100109,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:28:50.197Z",
+            "elapsedMs": 110121,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:29:00.204Z",
+            "elapsedMs": 120128,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:29:10.215Z",
+            "elapsedMs": 130139,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          },
+          {
+            "t": "2026-09-16T07:29:15.087Z",
+            "elapsedMs": 135011,
+            "exists": true,
+            "status": "ready",
+            "execOk": true
+          }
+        ],
+        "survivedHold": true,
+        "childExitCode": 0,
+        "reapTimeoutMs": 120000,
+        "reapedAfterHolderExit": true
+      },
+      "poolLessCreate": {
+        "ok": true,
+        "durationMs": 694,
+        "acquireMs": 682.406398,
+        "sandboxId": "namzu-task-503f0df7-b2d3-43ff-b481-40f18ac6a18a",
+        "exitCode": 0,
+        "stdout": "namzu-e2e-poolless-ok"
+      }
+    },
+    "finishedAt": "2026-09-16T07:29:55.844Z",
+    "ok": true
+  },
+  "w8Scripts": {
+    "acquireP50Summary": "acquire-p50: p50=183.8ms p99=479.4ms over 20 acquires",
+    "capabilityCheckSummary": "capability-check: all checks passed",
+    "rawLog": "=== acquire-p50.mjs ===\nwarm pool ready: 2/2 replicas\n  acquire 1/20: 85.1ms\n  acquire 2/20: 71.9ms\n  acquire 3/20: 401.2ms\n  acquire 4/20: 77.8ms\n  acquire 5/20: 283.7ms\n  acquire 6/20: 179.0ms\n  acquire 7/20: 284.0ms\n  acquire 8/20: 71.1ms\n  acquire 9/20: 394.7ms\n  acquire 10/20: 183.8ms\n  acquire 11/20: 177.8ms\n  acquire 12/20: 244.7ms\n  acquire 13/20: 76.2ms\n  acquire 14/20: 479.4ms\n  acquire 15/20: 202.8ms\n  acquire 16/20: 288.6ms\n  acquire 17/20: 79.0ms\n  acquire 18/20: 463.5ms\n  acquire 19/20: 97.9ms\n  acquire 20/20: 283.5ms\nacquire-p50: p50=183.8ms p99=479.4ms over 20 acquires\n[PASS] acquire p50 < 1000ms \u2014 measured 183.8ms\n=== capability-check.mjs ===\n[PASS] create() succeeds (the internal acquire-time probe admits the guest)\n  CapInh=0 CapPrm=0 CapEff=0 CapBnd=0 NoNewPrivs=1\n[PASS] CapInh is all-zero\n[PASS] CapPrm is all-zero\n[PASS] CapEff is all-zero\n[PASS] CapBnd is all-zero (can never be regained)\n[PASS] NoNewPrivs is 1\n  mount attempt output: mount: /tmp: must be superuser to use mount.\n       dmesg(1) may have more information after failed mount system call.\nnamzu-exit:32\n[PASS] mount (CAP_SYS_ADMIN) is refused by the kernel, not merely unconfigured\ncapability-check: all checks passed\n"
+  }
+}
