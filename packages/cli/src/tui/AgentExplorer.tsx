@@ -35,6 +35,20 @@ const MAX_MODEL_LABEL_WIDTH = 24
  */
 const PHASE_DETAIL_LINE_BUDGET = 3
 /**
+ * Shown at the head of a transcript rebuilt from saved evidence.
+ *
+ * Both halves are load-bearing. The first says where the rows came from, so
+ * an empty stretch reads as "the log did not record that" rather than as a
+ * child sitting idle. The second is the guarantee the docs already make about
+ * resume — delegated tasks are not restarted and their processes are not
+ * reconnected — restated on the one screen that otherwise looks exactly like
+ * a live child's. Nothing on this screen may imply otherwise: there is no
+ * message box and no cancel affordance here for a live child either, and a
+ * replayed one must never acquire one.
+ */
+export const REPLAYED_TRANSCRIPT_NOTICE =
+	'Replayed from saved evidence. This child cannot be continued.'
+/**
  * Rows outside the cockpit's own box: the one-line brand header, printed once
  * above it, and the one-line composer footer, which now renders directly
  * above the cockpit rather than below it (see StatusBar.tsx). The total is
@@ -148,10 +162,16 @@ export function agentTaskPanelPageSize(terminalRows: number | undefined): number
 export function activeSubagentCohorts(
 	agents: readonly SubagentActivity[],
 ): readonly SubagentActivity[] {
+	// Replayed rows are excluded before anything else, in BOTH directions:
+	// they never appear in this panel, and a replayed row whose saved status
+	// never reached a terminal value never makes a cohort look live. Saved
+	// evidence describes work that ended in another process, and this panel
+	// exists to say what is running now.
+	const live = agents.filter((agent) => agent.replayed !== true)
 	const activeCohorts = new Set(
-		agents.filter((agent) => !isTerminalStatus(agent.status)).map(agentCohortKey),
+		live.filter((agent) => !isTerminalStatus(agent.status)).map(agentCohortKey),
 	)
-	return agents.filter((agent) => activeCohorts.has(agentCohortKey(agent)))
+	return live.filter((agent) => activeCohorts.has(agentCohortKey(agent)))
 }
 
 function agentCohortKey(agent: SubagentActivity): string {
@@ -664,7 +684,9 @@ export function AgentTranscript({
 	terminalColumns,
 }: AgentTranscriptProps) {
 	const page = agentTranscriptPage(agent, tailOffset, terminalRows, terminalColumns)
-	const now = useLiveNow(agent.completedAt === undefined)
+	// A replayed child whose saved record never got an ending still has no
+	// clock running: ticking one would be the same claim the banner denies.
+	const now = useLiveNow(!agent.replayed && agent.completedAt === undefined)
 	const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
 	const tailLabel = isTerminalStatus(agent.status) ? 'Latest' : 'Live'
 	const meta = agentMetaParts(agent, {
@@ -683,7 +705,7 @@ export function AgentTranscript({
 	return (
 		<Box
 			flexDirection="column"
-			height={page.pageSize + 8}
+			height={page.pageSize + 8 + transcriptBannerRows(agent)}
 			flexShrink={0}
 			borderStyle="single"
 			borderColor={theme.accent.assistant}
@@ -717,10 +739,19 @@ export function AgentTranscript({
 					</Box>
 				) : null}
 			</Box>
+			{agent.replayed ? (
+				<Box height={1} flexShrink={0}>
+					<Text color={theme.status.warn} wrap="truncate-end">
+						{REPLAYED_TRANSCRIPT_NOTICE}
+					</Text>
+				</Box>
+			) : null}
 			<Box flexDirection="column" marginTop={1} height={page.pageSize} flexShrink={0}>
 				{page.rows.length === 0 ? (
 					<Text color={theme.text.muted} wrap="truncate-end">
-						Waiting for child output…
+						{agent.replayed
+							? 'Saved evidence recorded no output for this child.'
+							: 'Waiting for child output…'}
 					</Text>
 				) : (
 					page.rows.map((line) => (
@@ -765,9 +796,22 @@ export function agentPickerPageSize(terminalRows: number, wide = true): number {
 		: Math.max(1, Math.min(MAX_PICKER_ROWS, available - agentPhasePageSize(terminalRows, false)))
 }
 
-export function agentTranscriptPageSize(terminalRows: number): number {
+/**
+ * Rows one transcript header claims beyond the fixed chrome.
+ *
+ * A replayed child spends one on its banner. It comes out of the page rather
+ * than growing the box, because the box is already sized to leave the parent
+ * its two footer rows and the terminal its cursor row — a box one row taller
+ * would take the cursor row, on the one screen where the extra row exists to
+ * stop a misreading rather than to show more of the run.
+ */
+function transcriptBannerRows(agent: SubagentActivity): number {
+	return agent.replayed ? 1 : 0
+}
+
+export function agentTranscriptPageSize(terminalRows: number, reservedRows = 0): number {
 	// Parent footer, cursor row, borders, heading, title, spacing and navigation.
-	return Math.max(1, terminalRows - 11)
+	return Math.max(1, terminalRows - 11 - reservedRows)
 }
 
 export function maxAgentTranscriptTailOffset(
@@ -777,7 +821,8 @@ export function maxAgentTranscriptTailOffset(
 ): number {
 	return Math.max(
 		0,
-		agentTranscriptRows(agent, terminalColumns).length - agentTranscriptPageSize(terminalRows),
+		agentTranscriptRows(agent, terminalColumns).length -
+			agentTranscriptPageSize(terminalRows, transcriptBannerRows(agent)),
 	)
 }
 
@@ -793,7 +838,7 @@ export function agentTranscriptPage(
 	readonly last: number
 	readonly total: number
 } {
-	const pageSize = agentTranscriptPageSize(terminalRows)
+	const pageSize = agentTranscriptPageSize(terminalRows, transcriptBannerRows(agent))
 	const rows = agentTranscriptRows(agent, terminalColumns)
 	const total = rows.length
 	const offset = Math.min(Math.max(0, tailOffset), Math.max(0, total - pageSize))
@@ -914,14 +959,20 @@ function agentCounterText(agent: SubagentActivity): string | undefined {
 
 /**
  * Ordered so a caller can drop the least essential piece first: counters
- * need the most room, the model name less, and the description (rendered
- * separately by every caller) never yields to either.
+ * need the most room, the model name less, the saved marker none at all, and
+ * the description (rendered separately by every caller) never yields to any
+ * of them.
  */
 function agentMetaParts(
 	agent: SubagentActivity,
 	options: { readonly showModel: boolean; readonly showCounters: boolean },
 ): readonly string[] {
 	const parts: string[] = []
+	// Unconditional, and first, because it is the only part here that changes
+	// what the row MEANS rather than describing the work: a saved row reports
+	// a child that finished in some other process. Five cells is a price worth
+	// paying at every width to keep a past run from reading as a present one.
+	if (agent.replayed) parts.push('saved')
 	if (options.showModel && agent.model) {
 		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))
 	}

@@ -86,6 +86,49 @@ keeps; nothing here does that for it. Note too that `agent_pending` carries the
 **parent's** `runId`, so even a host that does persist the event is filing it
 under the parent rather than the child.
 
+## What a child does leave behind
+
+The events are not persisted; the child's own run is. A delegated child gets a
+`RunStore` like any other run, and the built-in `RunDiskStore` writes it under
+its parent:
+
+```
+<baseDir>/<parent run id>/children/<child run id>/
+    transcript.jsonl   run.json   messages.json   audit.jsonl   report.md
+```
+
+`RunDiskStore.addToIndex` returns early for any run carrying a `parentRunId`, so
+none of this appears in the browsable `index.json` catalogue — a delegated child
+is not a conversation anyone resumes, and listing one there would offer to
+continue work whose parent turn is over. That guard is deliberate and stays.
+
+`RunDiskStore.listChildren(baseDir, parentRunId)` is the sibling read for
+callers that want the evidence anyway. It walks the `children/` directory,
+reads each `run.json`, and returns a `DelegatedChildRun` per child — the run id,
+the directory, and whatever the file recorded of `agentId`, `agentName`,
+`metadata.config.model`, `status`, `startedAt`, `endedAt`,
+`tokenUsage.totalTokens` and `depth`. Every one of those is optional: `run.json`
+is written on a run's terminal path, so a child killed before it got there
+leaves a transcript worth reading and a record that never recorded an ending,
+and an absent field means "the file did not say" rather than zero.
+
+Three properties a caller can rely on. It is **read-only** — binding a
+`RunDiskStore` to a run creates that run's directory, which is why this is a
+static walk and not a bound method, and nothing here writes, moves or prunes.
+It is **tolerant** — a child directory with no `run.json`, or one whose
+`run.json` is not readable JSON, is skipped rather than reported with invented
+fields or raised as an error. And it is **ordered by `startedAt`, oldest
+first**, which is the order the parent launched them; a child with no recorded
+start sorts first, because there is no later moment to claim for it.
+
+`listRuns` is unchanged. This is an additional read, not a fix to the catalogue.
+
+Because delegation events are not in the child's log, what a reader recovers
+from `transcript.jsonl` is the child's own run: `run_started`, tool calls and
+their results, token usage, the completed messages and `run_completed`. The
+`agent_pending` that named the child's `workflow` and `phase` is not there, and
+neither are the streaming deltas, which never enter a run's log at all.
+
 ## Supplying them
 
 A host names them on the options it already passes when delegating —

@@ -205,6 +205,11 @@ introduce this uncertainty.
 
 ## Saved delegation evidence after resume
 
+Two different things survive a finished delegation, for two different readers.
+Neither restarts anything.
+
+### The receipt the model reads
+
 The CLI saves session-scoped task receipts in its private project state under
 `delegation-history/<session UUID>/`. Each admitted task gets an `unresolved`
 receipt; observed termination replaces it with the actual outcome and a result
@@ -218,8 +223,7 @@ The normal tool call still lists live tasks owned by the current run. Historical
 access grants no cancellation, messaging or execution authority.
 
 `unresolved` means no terminal receipt was saved. It does not prove that the task
-is still running, failed, or had no effects. Resume does not automatically restart
-these tasks or reconnect their processes. Verify existing effects before deciding
+is still running, failed, or had no effects. Verify existing effects before deciding
 to repeat work. A crash between task admission and receipt publication can still
 leave no receipt; this archive is not an exactly-once execution journal.
 
@@ -228,6 +232,70 @@ the omitted count discloses the remainder. Exact-ID reads can retrieve a record
 outside that listing. Model context includes at most eight earlier records and
 omits the summary under tight context pressure. Corrupt records produce an error
 rather than an apparently empty history.
+
+### The evidence the operator can open
+
+A delegated child writes its own run directory while it works —
+`transcript.jsonl`, `run.json`, `messages.json`, `audit.jsonl` and `report.md`
+under `<session>/runs/<parent run UUID>/children/<child run UUID>/`. That is the
+full durable record, not the receipt's 16,000-character preview, and the agent
+cockpit now opens it.
+
+A child leaves the live monitor for two ordinary reasons: the monitor retains 80
+agents and evicts the oldest beyond that, and a restarted CLI has no live monitor
+at all. In both cases the cockpit lists the child from disk instead. The
+directories are read when a session starts, when `/resume` or `/new` changes
+which conversation the CLI is in, and when the cockpit is opened; opening it
+waits for that read rather than reporting an absence it has not finished
+checking. Saved rows
+are marked `saved` beside the model and counters, and opening one shows
+`Replayed from saved evidence. This child cannot be continued.` at the head of
+the transcript. They never appear in the automatic panel above the composer,
+which answers what is running now.
+
+A replayed row is built by the same projection a live row is, so the two render
+identically: status, elapsed time, model, cumulative tokens, tool-call count and
+the transcript rows. What a replay cannot show is what the durable log never
+carried. Streaming deltas are excluded from a run's event log by design, so a
+replayed transcript carries tool calls, their results and any failure text, and
+not the assistant prose that streamed between them — read `report.md` for the
+child's answer. Delegation lifecycle events are likewise handed to a host's
+listener without entering any run's log, so a replayed child's `workflow` and
+`phase` labels are not recovered: saved children are grouped by the parent run
+they belonged to and carry the unlabelled default workflow, exactly as a live
+child that was launched without labels does. See
+[delegation events](../sdk/delegation-events.md).
+
+Replay is read-only. Opening a past run creates, moves and prunes nothing, and a
+torn or truncated `transcript.jsonl` opens with the records that could be read
+plus a closing row saying so, rather than refusing or silently showing a short
+run. A transcript that cannot be read at all opens with that row alone, beside
+what `run.json` recorded: a child whose evidence is damaged is still a child
+that ran, and leaving it out of the list would say otherwise.
+
+Resume does not restart these tasks or reconnect their processes, and neither
+does opening one. A replayed child has no task the scheduler still knows:
+`send_message` cannot reach it, `cancel_agent` has nothing to cancel, and the
+screen offers neither.
+
+### Retention
+
+Child run directories accumulate. Nothing prunes them: not the subagent runtime,
+not the agent manager, and not the session retention subsystem. This predates the
+replay view — the directories were always written — but the view is what makes
+the growth visible, so it is worth stating plainly: a project that delegates
+heavily grows its private state without bound, and reclaiming the space today
+means deleting `children/` directories by hand. A prune command is follow-up
+work, not something this view does behind the operator's back.
+
+Discovery is bounded even when the directories are not: a scan reads at most
+2,000 session directories and replays at most the 80 most recent children,
+matching the live monitor's own retention. The children are ordered before that
+second cap applies, so the newest work is what survives it; the directory cap is
+applied to the order the filesystem lists in, so beyond 2,000 session
+directories which children are found stops being predictable. That is a bound
+against an unbounded scan, not a retention policy — the argument for a prune
+command rather than a substitute for one.
 
 Agent transcript pages wrap prose at word boundaries. Long unbroken URLs or
 code still wrap at grapheme boundaries, preserving all retained characters.

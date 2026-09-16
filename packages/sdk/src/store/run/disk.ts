@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { appendFile, mkdir, readFile, readdir, stat, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
+import type { RunExecutionStatus } from '../../types/common/index.js'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { Message } from '../../types/message/index.js'
 import type {
@@ -12,6 +13,7 @@ import type {
 } from '../../types/run/index.js'
 import type {
 	CompletedToolRecord,
+	DelegatedChildRun,
 	ReadRunEventsOptions,
 	RunMessageSnapshot,
 	RunStore,
@@ -432,6 +434,86 @@ export class RunDiskStore implements RunStore {
 		}
 	}
 
+	/**
+	 * Every delegated child run saved under one parent, oldest first.
+	 *
+	 * The sibling of {@link RunDiskStore.listRuns}, and deliberately not a fix
+	 * to it. `addToIndex` returns early for any run with a `parentRunId`, which
+	 * is what keeps delegated children out of `index.json` and therefore out of
+	 * a host's conversation listing — a child is not a conversation anyone
+	 * resumes, and putting one there would offer to continue work whose parent
+	 * turn is long over. That guard stays. This walks the `children/` directory
+	 * instead, so the evidence a child already wrote is reachable by something
+	 * that came looking for it, without any of it becoming resumable.
+	 *
+	 * READ-ONLY, and that matters more here than for most reads: binding a
+	 * {@link RunDiskStore} to a run CREATES its directory, so discovery had to
+	 * be a free walk or it would mint the very directories it claims to find.
+	 * Nothing here writes, moves or prunes.
+	 *
+	 * Tolerant of half-written evidence, the same way the transcript reader
+	 * next door is. A child directory with no `run.json` — a run killed before
+	 * its terminal write — is SKIPPED rather than reported with invented
+	 * fields, and so is one whose `run.json` is not readable JSON. What is
+	 * skipped is the listing row, not the directory: a caller that knows the
+	 * run id can still read the transcript beside it.
+	 *
+	 * Oldest first, by `startedAt`, so the order matches the order the parent
+	 * launched them. A child whose `run.json` never recorded a start sorts
+	 * first; there is no later moment to claim for it.
+	 *
+	 * `baseDir` is the runs directory the parent was written under — the same
+	 * {@link RunStoreConfig.baseDir} the child's store had, which is why one
+	 * parent's children can be spread across several of them when a host gives
+	 * each child its own session directory.
+	 */
+	static async listChildren(
+		baseDir: string,
+		parentRunId: string,
+	): Promise<readonly DelegatedChildRun[]> {
+		asRunId(parentRunId)
+		const childrenDir = join(baseDir, parentRunId, 'children')
+		let names: string[]
+		try {
+			names = await readdir(childrenDir)
+		} catch (err) {
+			if (isFileNotFound(err) || isNotADirectory(err)) return []
+			throw err
+		}
+
+		const children: DelegatedChildRun[] = []
+		for (const name of names) {
+			const dir = join(childrenDir, name)
+			let meta: unknown
+			try {
+				meta = JSON.parse(await readFile(join(dir, 'run.json'), 'utf-8'))
+			} catch (err) {
+				// ENOTDIR covers a stray file sitting beside the child directories.
+				if (isFileNotFound(err) || isNotADirectory(err) || err instanceof SyntaxError) continue
+				throw err
+			}
+			if (meta === null || typeof meta !== 'object') continue
+			const record = meta as Record<string, unknown>
+			const metadata = asRecord(record.metadata)
+			const config = asRecord(metadata?.config)
+			const usage = asRecord(record.tokenUsage)
+			children.push({
+				id: name,
+				parentRunId,
+				dir,
+				...(typeof metadata?.agentId === 'string' ? { agentId: metadata.agentId } : {}),
+				...(typeof metadata?.agentName === 'string' ? { agentName: metadata.agentName } : {}),
+				...(typeof config?.model === 'string' ? { model: config.model } : {}),
+				...(isRunExecutionStatus(record.status) ? { status: record.status } : {}),
+				...(typeof record.startedAt === 'number' ? { startedAt: record.startedAt } : {}),
+				...(typeof record.endedAt === 'number' ? { endedAt: record.endedAt } : {}),
+				...(typeof usage?.totalTokens === 'number' ? { totalTokens: usage.totalTokens } : {}),
+				...(typeof record.depth === 'number' ? { depth: record.depth } : {}),
+			})
+		}
+		return children.sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0))
+	}
+
 	async addToIndex(run: Run): Promise<void> {
 		if (run.parentRunId) return
 
@@ -796,6 +878,32 @@ function parseCheckpoint(content: string, file: string): IterationCheckpoint {
 	}
 
 	return record as IterationCheckpoint
+}
+
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+	return typeof value === 'object' && value !== null
+		? (value as Record<string, unknown>)
+		: undefined
+}
+
+const RUN_EXECUTION_STATUSES: readonly RunExecutionStatus[] = [
+	'idle',
+	'pending',
+	'running',
+	'completed',
+	'failed',
+	'cancelled',
+]
+
+function isRunExecutionStatus(value: unknown): value is RunExecutionStatus {
+	return typeof value === 'string' && RUN_EXECUTION_STATUSES.includes(value as RunExecutionStatus)
+}
+
+/** A path component that is a file where a directory was expected. */
+function isNotADirectory(err: unknown): boolean {
+	return (
+		typeof err === 'object' && err !== null && (err as NodeJS.ErrnoException).code === 'ENOTDIR'
+	)
 }
 
 function isFileNotFound(err: unknown): boolean {

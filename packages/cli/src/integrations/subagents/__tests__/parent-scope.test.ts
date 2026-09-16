@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
 	MockLLMProvider,
+	RunDiskStore,
 	type RunEvent,
 	type RunId,
 	type ToolContext,
@@ -105,6 +106,25 @@ describe('delegation belongs to the actual parent', () => {
 				expect(parents.has(meta.parentRunId)).toBe(true)
 				expect(meta.depth).toBe(1)
 				expect(file).toContain(`/runs/${meta.parentRunId}/children/${meta.id}/`)
+				// The child's own durable event log, beside its record. Pinned here
+				// rather than assumed, because opening a finished child reads this
+				// file: a change that stopped writing it would leave `run.json`
+				// intact and every replay empty, and nothing else would notice.
+				const childDir = join(projectStateRoot, file.slice(0, -'run.json'.length))
+				expect(existsSync(join(childDir, 'transcript.jsonl'))).toBe(true)
+				const events = readFileSync(join(childDir, 'transcript.jsonl'), 'utf8')
+					.split('\n')
+					.filter(Boolean)
+					.map((line) => JSON.parse(line).type)
+				expect(events).toContain('run_started')
+				expect(events).toContain('run_completed')
+				// And the directory walk finds it where the index deliberately
+				// will not — the discovery half of the same capability.
+				const childrenOf = await RunDiskStore.listChildren(
+					join(projectStateRoot, file.slice(0, file.indexOf('/runs/') + '/runs/'.length)),
+					meta.parentRunId,
+				)
+				expect(childrenOf.map((child) => child.id)).toContain(meta.id)
 			}
 			parents.delete(fixture.scope.runId)
 			await runtime.releaseRun(fixture.scope.runId)

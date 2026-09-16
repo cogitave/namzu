@@ -1112,8 +1112,35 @@ export function App({
 	useEffect(() => {
 		agentSurfaceCommittedRef.current = agentSurface
 	}, [agentSurface])
+	/**
+	 * Children of this conversation's earlier runs, rebuilt from saved
+	 * evidence, kept apart from the live monitor's own snapshot.
+	 *
+	 * A ref and not state because it is an input to `replaceSubagents`, which
+	 * runs from the monitor's subscription: holding it as state would make
+	 * every saved row arrive one render after the live rows it belongs beside.
+	 */
+	const savedSubagentsRef = useRef<readonly SubagentActivity[]>([])
+	/** Revokes an in-flight evidence read whose session or conversation is gone. */
+	const savedSubagentsTokenRef = useRef(0)
+	const withSavedSubagents = useCallback(
+		(live: readonly SubagentActivity[]): readonly SubagentActivity[] => {
+			const saved = savedSubagentsRef.current
+			if (saved.length === 0) return live
+			// A child the live monitor still holds wins over its own saved copy:
+			// both describe one run, and only one of the two is attached to
+			// anything. Saved rows land after the live ones, so a cohort that is
+			// still running keeps the top of the list.
+			const liveRunIds = new Set(
+				live.map((agent) => agent.runId).filter((id): id is string => id !== undefined),
+			)
+			return [...live, ...saved.filter((agent) => !agent.runId || !liveRunIds.has(agent.runId))]
+		},
+		[],
+	)
 	const replaceSubagents = useCallback(
-		(next: readonly SubagentActivity[]) => {
+		(incoming: readonly SubagentActivity[]) => {
+			const next = withSavedSubagents(incoming)
 			const previous = subagentsRef.current
 			subagentsRef.current = next
 			setSubagentsState(next)
@@ -1141,9 +1168,38 @@ export function App({
 				focus: surface.kind === 'cockpit' ? surface.focus : surface.returnFocus,
 			})
 		},
-		[setAgentSurface],
+		[setAgentSurface, withSavedSubagents],
 	)
-	const openAgentCockpit = useCallback((): boolean => {
+	/**
+	 * Re-reads what this conversation's finished children left on disk.
+	 *
+	 * Called when a session is installed, whenever the conversation the scope
+	 * names changes — a resume is the whole point of this: the children worth
+	 * opening belong to the runs of the conversation just switched TO — and
+	 * whenever the cockpit is opened, which is what recovers a child the live
+	 * monitor's eighty-agent bound has since evicted. All three are reads of
+	 * directories that are already there; nothing is created, and a failure
+	 * leaves the live rows untouched.
+	 */
+	const hydrateSavedChildren = useCallback(async (): Promise<void> => {
+		const read = session?.savedChildren
+		if (!read) return
+		const token = ++savedSubagentsTokenRef.current
+		let saved: readonly SubagentActivity[]
+		try {
+			saved = await read()
+		} catch {
+			// Saved evidence is an extra view over a directory that may not exist
+			// yet, or may not be readable. Not finding it is not a reason to
+			// disturb a session whose live children are fine.
+			return
+		}
+		if (token !== savedSubagentsTokenRef.current) return
+		savedSubagentsRef.current = saved
+		replaceSubagents(session?.subagents?.getSnapshot() ?? [])
+	}, [replaceSubagents, session])
+	/** Opens the cockpit on the rows already on screen; false when there are none. */
+	const openCockpitFromCurrentRows = useCallback((): boolean => {
 		const agents = subagentsRef.current
 		const workflows = agentWorkflows(agents)
 		const currentWorkflow = [...workflows].reverse().find((workflow) =>
@@ -1162,6 +1218,32 @@ export function App({
 		})
 		return true
 	}, [setAgentSurface])
+	/** The most recent cockpit request, so an older one cannot report on its behalf. */
+	const cockpitOpenTokenRef = useRef(0)
+	/**
+	 * Ctrl+T and `/agents`: open the cockpit, and when nothing is on screen
+	 * yet, WAIT for the saved evidence before answering.
+	 *
+	 * The waiting is the point. A conversation's children may exist only on
+	 * disk — evicted by the eighty-agent bound, or written by a process that
+	 * has since exited — and that read is asynchronous. Answering from the
+	 * rows already up would make the first press after a resume report an
+	 * absence that the read, still in flight, was about to disprove. Rows that
+	 * ARE up open immediately and refresh the saved ones behind the screen, so
+	 * the common case pays nothing for this.
+	 */
+	const openAgentCockpit = useCallback(async (): Promise<boolean> => {
+		if (openCockpitFromCurrentRows()) {
+			void hydrateSavedChildren()
+			return true
+		}
+		const token = ++cockpitOpenTokenRef.current
+		await hydrateSavedChildren()
+		// A later request owns the screen now. Reporting `false` here would put
+		// an empty-state line under a cockpit that request is about to open.
+		if (token !== cockpitOpenTokenRef.current) return true
+		return openCockpitFromCurrentRows()
+	}, [hydrateSavedChildren, openCockpitFromCurrentRows])
 	/** One git-backed review choice may be resolving while its visible picker remains authoritative. */
 	const reviewChoiceInFlightRef = useRef<object | null>(null)
 	const exitArmedRef = useRef<boolean>(false)
@@ -1218,6 +1300,8 @@ export function App({
 	useEffect(() => {
 		const source = session?.subagents
 		setAgentSurface(null)
+		savedSubagentsRef.current = []
+		void hydrateSavedChildren()
 		if (!source) {
 			replaceSubagents([])
 			return
@@ -1225,10 +1309,15 @@ export function App({
 		const refresh = () => replaceSubagents(source.getSnapshot())
 		refresh()
 		return source.subscribe(refresh)
-	}, [replaceSubagents, session, setAgentSurface])
+	}, [hydrateSavedChildren, replaceSubagents, session, setAgentSurface])
 	const resetSubagentActivity = useCallback(() => {
 		session?.subagents?.reset()
 		setAgentSurface(null)
+		// A new conversation starts with no children on screen, saved ones
+		// included: the evidence stays on disk, but it belongs to the runs of
+		// the conversation that was just left behind.
+		savedSubagentsTokenRef.current += 1
+		savedSubagentsRef.current = []
 		replaceSubagents([])
 	}, [replaceSubagents, session, setAgentSurface])
 	// Source of truth for in-flight tools (the event loop runs across renders, so
@@ -3454,6 +3543,10 @@ export function App({
 				: null
 			pendingGoalResumeRef.current = conv.id
 			scope.sessionId = conv.id // new turns now attribute to the resumed session
+			// The scope now names the resumed conversation, so its finished
+			// children are readable. Without this the first Ctrl+T after a resume
+			// would have nothing to find.
+			void hydrateSavedChildren()
 			conversationMaterializedRef.current = true
 			pushMessage('system', `Resumed: ${conv.title}`)
 			if (discardedQueued > 0) {
@@ -3481,6 +3574,7 @@ export function App({
 			nextId,
 			pushMessage,
 			cancelPendingModelSwitch,
+			hydrateSavedChildren,
 			resetSubagentActivity,
 			session,
 			resetTranscript,
@@ -3535,6 +3629,11 @@ export function App({
 				if (sourceScope && targetSessionId) {
 					sourceScope.sessionId = targetSessionId
 					conversationMaterializedRef.current = true
+					// A fresh conversation owns no runs yet, so this normally reads
+					// nothing. It runs anyway because the rule is "the scope changed,
+					// re-read", and an exception here is how the resume path lost
+					// its own re-read.
+					void hydrateSavedChildren()
 				}
 
 				if (clearScreen) {
@@ -3583,6 +3682,7 @@ export function App({
 			interruptTurn,
 			pushMessage,
 			cancelPendingModelSwitch,
+			hydrateSavedChildren,
 			resetSubagentActivity,
 			session,
 			resetTranscript,
@@ -3765,6 +3865,7 @@ export function App({
 			// is reloaded or reset. Only where the NEXT turn is written changes.
 			scope.sessionId = forked.id
 			resetSubagentActivity()
+			void hydrateSavedChildren()
 			session?.resetTaskStore?.()
 			goalActivation.clear()
 			wakeGoalDriver()
@@ -3783,6 +3884,7 @@ export function App({
 		hasUnsettledTurn,
 		materializeConversation,
 		pushMessage,
+		hydrateSavedChildren,
 		resetSubagentActivity,
 		session,
 		wakeGoalDriver,
@@ -3899,6 +4001,7 @@ export function App({
 				goalActivation.clear()
 				wakeGoalDriver()
 				scope.sessionId = forked.id
+				void hydrateSavedChildren()
 				modelHistoryRef.current = forked.messages
 				lastAssistantMessage.current = null
 				const persistedOutput = latestAssistantOutput(forked.messages)
@@ -3942,6 +4045,7 @@ export function App({
 			nextId,
 			pushMessage,
 			cancelPendingModelSwitch,
+			hydrateSavedChildren,
 			resetSubagentActivity,
 			session,
 			resetTranscript,
@@ -5335,12 +5439,18 @@ export function App({
 						return
 					}
 					case 'agent-cockpit': {
-						if (!openAgentCockpit()) {
+						// Reported after the read, not before it: the answer to "are
+						// there any" may be on disk, and a conversation whose evidence
+						// is sitting in its own directory must never be told it
+						// delegated nothing.
+						const agentIds = session?.agentIds ?? []
+						void openAgentCockpit().then((opened) => {
+							if (opened) return
 							pushMessage(
 								'system',
-								`No delegated agents in this conversation.${session?.agentIds.length ? `\nAvailable: ${session.agentIds.join(', ')}` : '\nNo agents are configured.'}`,
+								`No delegated agents in this conversation.${agentIds.length ? `\nAvailable: ${agentIds.join(', ')}` : '\nNo agents are configured.'}`,
 							)
-						}
+						})
 						return
 					}
 					case 'provider-setup':
@@ -6818,7 +6928,14 @@ export function App({
 					setAgentSurface(null)
 					return
 				}
-				if (openAgentCockpit()) return
+				if (openCockpitFromCurrentRows()) {
+					void hydrateSavedChildren()
+					return
+				}
+				// Nothing on screen yet. The conversation's children may exist only
+				// as saved evidence, so the request outlives that read rather than
+				// being answered by an empty snapshot.
+				void openAgentCockpit()
 			}
 			// Child observation owns navigation, but never outranks consent: the
 			// permission branch above preempts it if a child or parent call asks.
@@ -6979,7 +7096,9 @@ export function App({
 					return
 				}
 				if (key.home || key.end || key.pageUp || key.pageDown || key.upArrow || key.downArrow) {
-					const page = agentTranscriptPageSize(terminal.rows)
+					// Reserving the replayed banner's row here too keeps one PgDn a
+					// screenful of what is actually visible.
+					const page = agentTranscriptPageSize(terminal.rows, selected.replayed ? 1 : 0)
 					const max = maxAgentTranscriptTailOffset(selected, terminal.rows, terminal.columns)
 					const offset = Math.min(agentView.tailOffset, max)
 					const next = key.home

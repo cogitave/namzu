@@ -90,6 +90,18 @@ let parentGate = Promise.resolve()
 const sendOverride: {
 	current?: (messages: readonly Message[]) => AsyncIterable<AgentEvent>
 } = vi.hoisted(() => ({}))
+/**
+ * What this session's finished children left on disk, as the replay reads it.
+ *
+ * `reads` counts the reads so a test can assert that switching conversation
+ * looks again, and `gate` holds one open so a test can put a read in flight
+ * underneath the key press that asks for the cockpit.
+ */
+const savedChildren: {
+	current: readonly SubagentActivity[]
+	reads: number
+	gate?: Promise<void>
+} = vi.hoisted(() => ({ current: [], reads: 0 }))
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -143,6 +155,11 @@ vi.mock('../agent.js', async (importOriginal) => {
 			mcpFailed: [],
 			agentIds: ['general-purpose'],
 			subagents: activity.source as AgentSession['subagents'],
+			savedChildren: async () => {
+				savedChildren.reads += 1
+				await savedChildren.gate
+				return savedChildren.current
+			},
 			configNotices: [],
 			approvalLatched: () => false,
 			promptExemptTools: () => [],
@@ -245,6 +262,7 @@ function agent(
 		transcript: input.transcript ?? [],
 		...(input.completedAt !== undefined ? { completedAt: input.completedAt } : {}),
 		...(input.latestActivity ? { latestActivity: input.latestActivity } : {}),
+		...(input.replayed ? { replayed: true } : {}),
 	}
 }
 
@@ -279,6 +297,9 @@ async function submit(screen: Screen, text: string): Promise<void> {
 
 beforeEach(() => {
 	delete sendOverride.current
+	savedChildren.current = []
+	savedChildren.reads = 0
+	delete savedChildren.gate
 	activity.delegate(undefined)
 	activity.set([])
 	parentGate = new Promise<void>((resolve) => {
@@ -774,6 +795,109 @@ describe('Ctrl+T', () => {
 			'ctrl+t did not open the agent cockpit',
 		)
 		expect(painted(screen)).not.toContain('parent finished')
+	})
+
+	it('a child evicted from the live monitor still opens from saved evidence', async () => {
+		// Nothing in the live monitor: the eighty-agent bound dropped this child,
+		// or the process that ran it has exited. Its evidence is still on disk.
+		activity.set([])
+		savedChildren.current = [
+			agent({
+				viewId: 'saved-1',
+				description: 'Contract critic',
+				status: 'completed',
+				startedAt: 1,
+				completedAt: 2,
+				replayed: true,
+				transcript: [{ id: 'saved-row', kind: 'tool', text: 'Read(src/a.ts)', status: 'completed' }],
+			}),
+		]
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+
+		screen.press('\x14')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Contract critic'),
+			'saved evidence did not reach the cockpit',
+		)
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Read(src/a.ts)'),
+			'the saved child transcript did not open',
+		)
+
+		const rows = screen.viewport()
+		const frame = rows.join('\n')
+		// The refusal to overclaim, on screen: where it came from, and that it
+		// is not a session anything can be sent into.
+		expect(frame).toContain('Replayed from saved evidence.')
+		expect(frame).toContain('cannot be continued')
+		// The marker on the child's OWN line, where the model and the counters
+		// would be. Asserted against that line and not the whole frame, which
+		// the banner's own word `saved` would satisfy on its own.
+		const identity = rows.find((row) => row.includes('Contract critic'))
+		expect(identity).toBeDefined()
+		expect(identity).toContain('saved')
+		// And no affordance that would imply otherwise.
+		expect(frame).not.toMatch(/send message|cancel/i)
+	})
+
+	it('reads saved evidence again when the conversation changes, and opens it first try', async () => {
+		activity.set([])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		const readsOnInstall = savedChildren.reads
+
+		// The evidence belongs to the conversation being switched TO, so it only
+		// becomes readable once the scope names that conversation. The read is
+		// held open so the cockpit request has to outlive it.
+		let release: () => void = () => {}
+		savedChildren.gate = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		savedChildren.current = [
+			agent({
+				viewId: 'saved-2',
+				description: 'Contract critic',
+				status: 'completed',
+				startedAt: 1,
+				completedAt: 2,
+				replayed: true,
+				transcript: [{ id: 'saved-row-2', kind: 'tool', text: 'Read(src/b.ts)', status: 'completed' }],
+			}),
+		]
+
+		await submit(screen, '/new')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('Started a fresh conversation'),
+			'the conversation did not change',
+		)
+		// Changing which conversation the scope names is itself a reason to look
+		// again. A resume is the case that matters — its children are exactly the
+		// ones this process never saw — and it goes through this same path.
+		expect(savedChildren.reads).toBeGreaterThan(readsOnInstall)
+
+		await submit(screen, '/agents')
+		release()
+		// Either answer ends the wait, so a wrong one fails as an assertion
+		// naming what appeared rather than as a timeout naming nothing.
+		await waitUntil(
+			screen,
+			() =>
+				screen.viewport().join('\n').includes('Contract critic') ||
+				painted(screen).includes('No delegated agents'),
+			'the first /agents neither opened the saved child nor answered at all',
+		)
+		// While that read was still running it must not have claimed there was
+		// nothing to open. The line below is true of a conversation that
+		// delegated nothing, and a lie about this one.
+		expect(painted(screen)).not.toContain('No delegated agents in this conversation.')
+		expect(screen.viewport().join('\n')).toContain('Contract critic')
 	})
 
 	it("does not treat the command's opening Return as a painted-surface action", async () => {

@@ -9,6 +9,15 @@ export const MAX_AGENT_PHASE_ORDER = 10_000
 const MAX_IDENTITY_LABEL_CODE_UNITS = 4_096
 const NOTIFY_INTERVAL_MS = 100
 
+/**
+ * Appended to a replayed transcript whose saved records could not all be
+ * read, so a short transcript is never mistaken for a short run. Said in the
+ * transcript itself rather than only in a header, because the rows are what
+ * an operator reads as the whole of what happened.
+ */
+export const PARTIAL_EVIDENCE_NOTICE =
+	'Saved transcript is damaged or truncated; this replay shows only the records that could be read.'
+
 export const DEFAULT_AGENT_WORKFLOW = 'Delegated work'
 export const DEFAULT_AGENT_PHASE = 'Work'
 
@@ -93,6 +102,18 @@ export interface SubagentActivity {
 	readonly completedAt?: number
 	readonly latestActivity?: string
 	readonly transcript: readonly SubagentTranscriptRow[]
+	/**
+	 * This row was rebuilt from evidence a finished child left on disk, not
+	 * projected from a child running in this process.
+	 *
+	 * Absent means live. It is on the record rather than inferred from
+	 * `status` because the two answer different questions: a terminal status
+	 * says the work ended, while this says nothing is attached to it any
+	 * more — no task id the scheduler still knows, no stream, nothing a
+	 * message or a cancellation could reach. Every surface that offers to act
+	 * on a child reads this first, and the transcript says so on screen.
+	 */
+	readonly replayed?: boolean
 }
 
 /** Read-only side of the current CLI session's child-run monitor. */
@@ -119,6 +140,54 @@ export interface SubagentDisplayLabels {
 	readonly phase?: string
 	readonly phaseOrder?: number
 	readonly phaseDetail?: string
+}
+
+/** What a host knows about a child at launch, before any event has arrived. */
+export interface BeginSubagentInput {
+	readonly agentId: string
+	readonly model?: string
+	readonly description: string
+	readonly prompt: string
+	readonly batchId?: string
+	readonly toolUseId?: string
+	readonly workflowId?: string
+	readonly workflow?: string
+	readonly phase?: string
+	readonly phaseOrder?: number
+	readonly phaseDetail?: string
+}
+
+/**
+ * What a child's saved `run.json` supplies to
+ * {@link SubagentActivityMonitor.replay}, beside its transcript.
+ *
+ * Every field except `agentId` and `description` is optional, because
+ * `run.json` is written on a run's terminal path: a child killed before it
+ * got there leaves a transcript worth opening and a record that never
+ * recorded an ending. Absent is "the file did not say", and the projection
+ * keeps whatever the events established rather than substituting a zero.
+ */
+export interface ReplaySubagentInput {
+	readonly agentId: string
+	readonly model?: string
+	readonly description: string
+	/**
+	 * The child's instructions, when the caller has them.
+	 *
+	 * Defaults to empty rather than to invented text. A child's prompt is in
+	 * its message snapshot, not in its durable event log, and reading a whole
+	 * `messages.json` to recover one line is a cost this view does not pay.
+	 */
+	readonly prompt?: string
+	readonly runId?: string
+	readonly batchId?: string
+	readonly workflowId?: string
+	readonly status?: SubagentActivityStatus
+	readonly tokens?: number
+	readonly startedAt?: number
+	readonly completedAt?: number
+	/** Some records in the saved transcript could not be read. */
+	readonly partial?: boolean
 }
 
 export interface SubagentActivityTracker {
@@ -184,21 +253,46 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	private notifyTimer: ReturnType<typeof setTimeout> | undefined
 	private closed = false
 
-	begin(input: {
-		readonly agentId: string
-		readonly model?: string
-		readonly description: string
-		readonly prompt: string
-		readonly batchId?: string
-		readonly toolUseId?: string
-		readonly workflowId?: string
-		readonly workflow?: string
-		readonly phase?: string
-		readonly phaseOrder?: number
-		readonly phaseDetail?: string
-	}): SubagentActivityTracker {
+	/**
+	 * `replay: true` seeds this monitor from saved evidence instead of a live
+	 * child stream. Two things change and nothing else: notifications stop
+	 * coalescing on a timer (there is no stream to coalesce, and a replay
+	 * monitor is read once by whoever built it), and every row it publishes is
+	 * marked {@link SubagentActivity.replayed}. The projection, the grouping
+	 * and every bound are the ones the live path uses.
+	 */
+	constructor(private readonly options: { readonly replay?: boolean } = {}) {}
+
+	begin(input: BeginSubagentInput): SubagentActivityTracker {
+		return this.open(input).tracker
+	}
+
+	/**
+	 * `begin()`, plus the record it opened.
+	 *
+	 * Split out for {@link SubagentActivityMonitor.replay}, which has to reach
+	 * the record after the events are in to write the facts `run.json` holds
+	 * and the transcript does not. Nothing else needs it, and nothing outside
+	 * this class gets it: a caller holding a `MutableActivity` could edit
+	 * around every bound this file enforces.
+	 */
+	private open(
+		input: BeginSubagentInput,
+		suppliedViewId?: string,
+	): {
+		readonly record: MutableActivity
+		readonly tracker: SubagentActivityTracker
+	} {
 		const epoch = this.epoch
-		const viewId = `agent-${++this.counter}`
+		const order = ++this.counter
+		// A replay allocates its own monitor, so its counter starts at one
+		// beside a live monitor's. An `agent-1` from each would be two
+		// different children answering to one id, and every surface here looks
+		// a child up by this string. `replay()` supplies an id derived from the
+		// child's run instead: unique against the live path by construction,
+		// and identical across re-reads, so re-opening the cockpit does not
+		// move the operator's selection off the row they were reading.
+		const viewId = suppliedViewId ?? `agent-${order}`
 		const workflowId = normalizedLabel(input.workflowId, 'session', MAX_IDENTITY_LABEL_CODE_UNITS)
 		const requestedBatchId = input.batchId?.trim()
 		const batchId = requestedBatchId
@@ -208,7 +302,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		const grouping = this.group(workflowId, batchId, labels)
 		const record: MutableActivity = {
 			epoch,
-			order: this.counter,
+			order,
 			viewId,
 			agentId: bounded(input.agentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			...(input.model?.trim()
@@ -236,7 +330,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			if (this.closed || epoch !== this.epoch || record.closed) return undefined
 			return this.records.get(viewId) === record ? record : undefined
 		}
-		return {
+		const tracker: SubagentActivityTracker = {
 			onEvent: (event) => {
 				const owned = current()
 				if (!owned) return
@@ -288,6 +382,63 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				this.notifyNow()
 			},
 		}
+		return { record, tracker }
+	}
+
+	/**
+	 * Rebuilds one finished child from the evidence it left on disk, and
+	 * retains it here like any other row.
+	 *
+	 * The load-bearing line is the `tracker.onEvent` loop: saved events go
+	 * through the SAME entry point a live child's events do, so the cockpit
+	 * cannot drift from a replay. There is no second projection to keep in
+	 * step, and a field added to the live path appears here for free.
+	 *
+	 * What the events cannot supply, the caller passes from `run.json`, and it
+	 * is written AFTER the loop because the file is the authority on the two
+	 * facts a child's own transcript never records: a child's delegation
+	 * outcome and its final totals are reported on the PARENT's event stream,
+	 * which does not enter the child's log. Without this the replay would end
+	 * on whatever the last durable event said and show a finished child as
+	 * still working.
+	 *
+	 * Only meaningful on a monitor constructed with `replay: true`; on a live
+	 * one it would publish a saved row as though a child were attached to it.
+	 */
+	replay(input: ReplaySubagentInput, events: Iterable<RunEvent>): SubagentActivity {
+		const { record, tracker } = this.open(
+			{
+				agentId: input.agentId,
+				...(input.model ? { model: input.model } : {}),
+				description: input.description,
+				prompt: input.prompt ?? '',
+				...(input.batchId ? { batchId: input.batchId } : {}),
+				...(input.workflowId ? { workflowId: input.workflowId } : {}),
+			},
+			input.runId ? bounded(`saved-${input.runId}`, MAX_IDENTITY_LABEL_CODE_UNITS) : undefined,
+		)
+		for (const event of events) tracker.onEvent(event)
+		if (!record.runId && input.runId) {
+			record.runId = bounded(input.runId, MAX_IDENTITY_LABEL_CODE_UNITS)
+		}
+		if (input.tokens !== undefined) record.tokens = input.tokens
+		if (input.status) record.status = input.status
+		if (input.startedAt !== undefined) record.startedAt = input.startedAt
+		if (input.completedAt !== undefined) record.completedAt = input.completedAt
+		// The same label `settle()` writes for a live child, for the same
+		// reason: the last streamed activity line describes a moment that is
+		// over, and leaving it up reads as a child still doing that thing.
+		if (isTerminal(record.status)) record.latestActivity = terminalLabel(record.status)
+		if (input.partial) {
+			pushRow(record, {
+				id: `${record.viewId}:partial`,
+				kind: 'system',
+				text: PARTIAL_EVIDENCE_NOTICE,
+			})
+		}
+		record.closed = true
+		this.prune()
+		return this.project(record)
 	}
 
 	/**
@@ -318,34 +469,38 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				const live = Number(isTerminal(left.status)) - Number(isTerminal(right.status))
 				return live !== 0 ? live : left.order - right.order
 			})
-			.map((record) =>
-				Object.freeze({
-					viewId: record.viewId,
-					...(record.taskId ? { taskId: record.taskId } : {}),
-					...(record.runId ? { runId: record.runId } : {}),
-					agentId: record.agentId,
-					...(record.model ? { model: record.model } : {}),
-					...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
-					...(record.toolCalls !== undefined ? { toolCalls: record.toolCalls } : {}),
-					description: record.description,
-					prompt: record.prompt,
-					batchId: record.batchId,
-					...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
-					workflowId: record.workflowId,
-					workflowGroupId: record.workflowGroupId,
-					phaseId: record.phaseId,
-					workflow: record.workflow,
-					phase: record.phase,
-					...(record.phaseOrder !== undefined ? { phaseOrder: record.phaseOrder } : {}),
-					...(record.phaseDetail !== undefined ? { phaseDetail: record.phaseDetail } : {}),
-					phaseSequence: record.phaseSequence,
-					status: record.status,
-					startedAt: record.startedAt,
-					...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
-					...(record.latestActivity ? { latestActivity: record.latestActivity } : {}),
-					transcript: Object.freeze(record.rows.map((row) => Object.freeze({ ...row }))),
-				}),
-			)
+			.map((record) => this.project(record))
+	}
+
+	/** One record as the frozen, bounded shape every surface reads. */
+	private project(record: MutableActivity): SubagentActivity {
+		return Object.freeze({
+			viewId: record.viewId,
+			...(record.taskId ? { taskId: record.taskId } : {}),
+			...(record.runId ? { runId: record.runId } : {}),
+			agentId: record.agentId,
+			...(record.model ? { model: record.model } : {}),
+			...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
+			...(record.toolCalls !== undefined ? { toolCalls: record.toolCalls } : {}),
+			description: record.description,
+			prompt: record.prompt,
+			batchId: record.batchId,
+			...(record.toolUseId ? { toolUseId: record.toolUseId } : {}),
+			workflowId: record.workflowId,
+			workflowGroupId: record.workflowGroupId,
+			phaseId: record.phaseId,
+			workflow: record.workflow,
+			phase: record.phase,
+			...(record.phaseOrder !== undefined ? { phaseOrder: record.phaseOrder } : {}),
+			...(record.phaseDetail !== undefined ? { phaseDetail: record.phaseDetail } : {}),
+			phaseSequence: record.phaseSequence,
+			status: record.status,
+			...(this.options.replay ? { replayed: true } : {}),
+			startedAt: record.startedAt,
+			...(record.completedAt !== undefined ? { completedAt: record.completedAt } : {}),
+			...(record.latestActivity ? { latestActivity: record.latestActivity } : {}),
+			transcript: Object.freeze(record.rows.map((row) => Object.freeze({ ...row }))),
+		})
 	}
 
 	subscribe(listener: () => void): () => void {
@@ -432,7 +587,10 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			const detail =
 				normalizedLabel(labels.phaseDetail, '', MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS) || undefined
 			phaseDefinition = {
-				id: `phase-${sequence}`,
+				// Namespaced for the same reason `viewId` is: phases are grouped by
+				// this id ALONE, so a replay monitor's `phase-1` and a live one's
+				// would fold two unrelated phases into one row on screen.
+				id: `${this.options.replay ? 'saved-phase' : 'phase'}-${sequence}`,
 				...(order !== undefined ? { order } : {}),
 				...(detail !== undefined ? { detail } : {}),
 				sequence,
@@ -499,6 +657,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	}
 
 	private scheduleNotify(): void {
+		if (this.options.replay) return
 		if (this.closed || this.notifyTimer) return
 		this.notifyTimer = setTimeout(() => {
 			this.notifyTimer = undefined

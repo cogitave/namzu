@@ -28,6 +28,7 @@ import type { RunEvidenceScope, RunTextEvidenceSource } from '../../store/eviden
  * re-keyed per call, it happens once, deliberately, as its own change.
  */
 
+import type { RunExecutionStatus } from '../common/index.js'
 import type { Message } from '../message/index.js'
 import type { AuditEvent } from './audit.js'
 import type { Run } from './entity.js'
@@ -102,6 +103,47 @@ export interface CompletedToolRecord {
 export type ToolExecutionRecord =
 	| (CompletedToolRecord & { readonly status: 'completed' })
 	| { readonly toolUseId: string; readonly toolName: string; readonly status: 'started' }
+
+/**
+ * One delegated child run found on disk under its parent's `children/`
+ * directory, as {@link import('../../store/run/disk.js').RunDiskStore.listChildren}
+ * reports it.
+ *
+ * A DISCOVERY record, not the child's evidence: every field here comes from
+ * the child's `run.json`, and the transcript, message snapshot and report
+ * beside it stay on disk until something asks for them. {@link dir} is what
+ * that something reads from.
+ *
+ * Everything the file supplies is optional, because a `run.json` is written
+ * by the child's own terminal path and a process killed before it got there
+ * leaves a directory whose other evidence is still worth opening. An absent
+ * field is "this file did not say", never a zero or an empty string.
+ */
+export interface DelegatedChildRun {
+	/**
+	 * The child's run id, taken from the directory name.
+	 *
+	 * The location is the fact: `initRun` names the directory after the run
+	 * it binds, so a `run.json` whose `id` disagrees with its own directory
+	 * was moved or hand-edited, and the directory is the half that decides
+	 * where the evidence actually is.
+	 */
+	readonly id: string
+	/** The parent run whose `children/` directory holds this one. */
+	readonly parentRunId: string
+	/** Absolute path to the child's evidence directory. */
+	readonly dir: string
+	readonly agentId?: string
+	readonly agentName?: string
+	/** `metadata.config.model` — the model the child was configured with. */
+	readonly model?: string
+	readonly status?: RunExecutionStatus
+	readonly startedAt?: number
+	readonly endedAt?: number
+	/** `tokenUsage.totalTokens` — this child's own cumulative spend. */
+	readonly totalTokens?: number
+	readonly depth?: number
+}
 
 /** Absence proves no recorded start only when the whole selected log is complete. */
 export interface ToolExecutionSnapshot {

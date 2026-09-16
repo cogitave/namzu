@@ -81,8 +81,14 @@ export interface ComposerProps {
 	 * transcript on every keypress.
 	 */
 	readonly onDraftPresenceChange?: (hasDraft: boolean) => void
-	/** Empty-composer ↓ opens the currently active delegated-work panel. */
-	readonly onOpenAgentPanel?: () => boolean
+	/**
+	 * Empty-composer ↓ opens the currently active delegated-work panel.
+	 *
+	 * The result is deliberately not read here. Opening may have to wait on a
+	 * read of what finished children left on disk, so whether anything opened
+	 * is the host's answer to give, not a value this key press can hold.
+	 */
+	readonly onOpenAgentPanel?: () => void
 	/** Shift+Tab. Absent means the key does nothing, which the composer footer then does not advertise. */
 	readonly onCycleMode?: () => void
 }

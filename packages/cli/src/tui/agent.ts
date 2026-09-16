@@ -206,11 +206,15 @@ import { createConversationEvidenceRecall } from '../integrations/sessions/evide
 import type { ConversationContext } from '../integrations/sessions/store.js'
 import { createTaskContextStep } from '../integrations/sessions/task-context.js'
 import { ensurePrivateStateDirectory } from '../integrations/state/private-directory.js'
-import type { SubagentActivitySource } from '../integrations/subagents/activity.js'
+import type {
+	SubagentActivity,
+	SubagentActivitySource,
+} from '../integrations/subagents/activity.js'
 import { discoverAgentDefinitions } from '../integrations/subagents/definitions.js'
 import { createDelegationHistoryStep } from '../integrations/subagents/history.js'
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
 import { SubagentPathBuilder, resolveSubagentParent } from '../integrations/subagents/parent.js'
+import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
@@ -711,6 +715,22 @@ export interface AgentSession {
 	readonly resetTaskStore?: () => void
 	/** Children created in this process, available for the TUI's observational view. */
 	readonly subagents?: SubagentActivitySource
+	/**
+	 * Children of this conversation's earlier runs, rebuilt from the evidence
+	 * they left on disk.
+	 *
+	 * The counterpart of {@link subagents}, which only ever holds what THIS
+	 * process launched and only until its eighty-agent bound evicts it. Both
+	 * publish the same shape, so one set of screens renders both; what marks
+	 * these apart is `replayed`, and every surface that could offer to act on
+	 * a child reads it.
+	 *
+	 * Read-only and re-readable: nothing is created, moved or pruned by asking,
+	 * and asking twice is how a caller picks up a child the live monitor has
+	 * since evicted. Optional so an embedded session that keeps no evidence on
+	 * disk simply has none to offer.
+	 */
+	readonly savedChildren?: () => Promise<readonly SubagentActivity[]>
 	/**
 	 * Things about this session's configuration the operator must be told, every
 	 * launch — today, an accepted capability disagreement in the provider chain,
@@ -2862,6 +2882,12 @@ export async function createAgentSession(
 				if (job.owner === jobOwner) listener(job)
 			}) ?? (() => {}),
 		...(subagentRuntime ? { subagents: subagentRuntime.activity } : {}),
+		savedChildren: () =>
+			replaySavedChildrenFor({
+				sessionsRoot: join(projectStateRoot, 'sessions'),
+				sessionId: scope.sessionId,
+				log: cliLogger(),
+			}),
 		get instructionFiles() {
 			return projectInstructions.instructionFiles
 		},
