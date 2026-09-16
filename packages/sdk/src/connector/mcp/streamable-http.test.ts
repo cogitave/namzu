@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { MCPJsonRpcMessage } from '../../types/connector/index.js'
 import { MCPClient } from './client.js'
+import { createMcpEraCache } from './era.js'
 import { StreamableHttpTransport } from './streamable-http.js'
 
 afterEach(() => {
@@ -12,11 +13,12 @@ describe('Streamable HTTP MCP transport', () => {
 	it('connects through MCPClient, preserves session headers, and parses SSE responses', async () => {
 		const fetchMock = vi.fn<typeof fetch>()
 		fetchMock
+			.mockResolvedValueOnce(legacyEraProbeResponse())
 			.mockResolvedValueOnce(
 				jsonResponse(
 					{
 						jsonrpc: '2.0',
-						id: 1,
+						id: 2,
 						result: {
 							protocolVersion: '2024-11-05',
 							capabilities: { tools: { listChanged: true } },
@@ -32,7 +34,7 @@ describe('Streamable HTTP MCP transport', () => {
 					{ jsonrpc: '2.0', method: 'notifications/progress', params: { pct: 50 } },
 					{
 						jsonrpc: '2.0',
-						id: 2,
+						id: 3,
 						result: {
 							tools: [
 								{
@@ -54,6 +56,12 @@ describe('Streamable HTTP MCP transport', () => {
 				url: 'https://mcp.example.test/mcp',
 				headers: { Authorization: 'Bearer token' },
 			},
+			// Its own cache, not the process default: every case in this file
+			// reaches the same origin, and a case that skipped the probe
+			// because an earlier one resolved the era would shift every
+			// request index asserted below without failing an assertion about
+			// eras at all.
+			eraCache: createMcpEraCache(),
 		})
 		const notifications: string[] = []
 		client.onNotification((method) => notifications.push(method))
@@ -63,19 +71,25 @@ describe('Streamable HTTP MCP transport', () => {
 
 		expect(tools.map((tool) => tool.name)).toEqual(['search_repositories'])
 		expect(notifications).toEqual(['notifications/progress'])
-		expect(fetchMock).toHaveBeenCalledTimes(3)
+		expect(fetchMock).toHaveBeenCalledTimes(4)
 
-		const initialize = requestAt(fetchMock, 0)
+		// The era probe goes first and is answered like a legacy origin
+		// answers a method it has never heard of, so the handshake below is
+		// the SECOND request now rather than the first.
+		const probe = requestAt(fetchMock, 0)
+		expect(probe.body.method).toBe('server/discover')
+
+		const initialize = requestAt(fetchMock, 1)
 		expect(initialize.input).toBe('https://mcp.example.test/mcp')
 		expect(initialize.body.method).toBe('initialize')
 		expect(initialize.headers.Authorization).toBe('Bearer token')
 		expect(initialize.headers.Accept).toBe('application/json, text/event-stream')
 
-		const initialized = requestAt(fetchMock, 1)
+		const initialized = requestAt(fetchMock, 2)
 		expect(initialized.body.method).toBe('notifications/initialized')
 		expect(initialized.headers['Mcp-Session-Id']).toBe('sid_123')
 
-		const listTools = requestAt(fetchMock, 2)
+		const listTools = requestAt(fetchMock, 3)
 		expect(listTools.body.method).toBe('tools/list')
 		expect(listTools.headers['Mcp-Session-Id']).toBe('sid_123')
 	})
@@ -83,11 +97,12 @@ describe('Streamable HTTP MCP transport', () => {
 	it('supports the streamable-http alias without non-standard hint headers', async () => {
 		const fetchMock = vi.fn<typeof fetch>()
 		fetchMock
+			.mockResolvedValueOnce(legacyEraProbeResponse())
 			.mockResolvedValueOnce(
 				jsonResponse(
 					{
 						jsonrpc: '2.0',
-						id: 1,
+						id: 2,
 						result: {
 							protocolVersion: '2024-11-05',
 							capabilities: { tools: {} },
@@ -101,7 +116,7 @@ describe('Streamable HTTP MCP transport', () => {
 			.mockResolvedValueOnce(
 				jsonResponse({
 					jsonrpc: '2.0',
-					id: 2,
+					id: 3,
 					result: { content: [{ type: 'text', text: 'ok' }] },
 				}),
 			)
@@ -113,13 +128,14 @@ describe('Streamable HTTP MCP transport', () => {
 				type: 'streamable-http',
 				url: 'https://mcp.example.test/linear',
 			},
+			eraCache: createMcpEraCache(),
 		})
 
 		await client.connect()
 		const result = await client.callTool('create_issue', { title: 'Bug' })
 
 		expect(result.content).toEqual([{ type: 'text', text: 'ok' }])
-		const callTool = requestAt(fetchMock, 2)
+		const callTool = requestAt(fetchMock, 3)
 		expect(callTool.body.method).toBe('tools/call')
 		expect(callTool.headers).toEqual({
 			'Content-Type': 'application/json',
@@ -195,6 +211,7 @@ describe('Streamable HTTP MCP transport', () => {
 				url: 'https://mcp.example.test/rpc',
 				timeoutMs: 60_000,
 			},
+			eraCache: createMcpEraCache(),
 		})
 		const notifications: string[] = []
 		client.onNotification((method) => notifications.push(method))
@@ -275,6 +292,21 @@ describe('Streamable HTTP MCP transport', () => {
 		expect(requestAt(fetchMock, 2).headers['Mcp-Session-Id']).toBe('sid_main')
 	})
 })
+
+/**
+ * What a legacy origin answers the modern era probe with.
+ *
+ * `connect()` now sends `server/discover` before it offers the legacy
+ * handshake, so a scripted legacy origin has to answer it. A plain 404 with
+ * no JSON-RPC body is the honest legacy reply and is what makes the client
+ * fall back — a 404 whose body IS a JSON-RPC error would mean the opposite.
+ */
+function legacyEraProbeResponse(): Response {
+	return new Response('Not Found', {
+		status: 404,
+		headers: { 'content-type': 'text/plain' },
+	})
+}
 
 function jsonResponse(body: MCPJsonRpcMessage, headers?: Record<string, string>): Response {
 	return new Response(JSON.stringify(body), {

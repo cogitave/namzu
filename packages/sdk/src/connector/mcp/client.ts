@@ -3,6 +3,8 @@ import type {
 	MCPClientState,
 	MCPConnectionStatus,
 	MCPContentBlock,
+	MCPDiscoverResult,
+	MCPEraCache,
 	MCPEventListener,
 	MCPInitializeResult,
 	MCPJsonRpcMessage,
@@ -19,6 +21,7 @@ import type {
 	MCPTransportUnion,
 	McpEra,
 	McpLegacyVersion,
+	McpModernVersion,
 } from '../../types/connector/index.js'
 import type { MCPClientId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
@@ -27,14 +30,25 @@ import type { LogAttributes } from '../../utils/log/index.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { validateConnectorTimeoutMs } from '../http-operation.js'
+import { buildEnvelope } from './envelope.js'
+import {
+	type McpEraProbeAnswer,
+	type McpEraResolution,
+	defaultMcpEraCache,
+	mcpEraCacheKey,
+	resolveMcpEra,
+	serverInfoFromDiscover,
+} from './era.js'
 import { protocolErrorFromReply } from './errors.js'
 import { HttpSseTransport } from './http-sse.js'
 import { StdioTransport } from './stdio.js'
 import { StreamableHttpTransport } from './streamable-http.js'
 
 import {
+	DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS,
 	DEFAULT_MCP_REQUEST_TIMEOUT_MS,
 	JSON_RPC_METHOD_NOT_FOUND,
+	MCP_DISCOVER_METHOD,
 	MCP_LEGACY_VERSIONS,
 	MCP_SUPPORTED_PROTOCOL_VERSIONS,
 } from '../../constants/mcp/index.js'
@@ -49,21 +63,6 @@ const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
 
-/**
- * The revision that introduced the `MCP-Protocol-Version` header.
- *
- * Sending it to a server that negotiated an older legacy version is
- * off-spec — the header did not exist yet, so an older server has no
- * defined way to interpret it. Compared as a plain string: every version
- * in `MCP_SUPPORTED_PROTOCOL_VERSIONS` is a `YYYY-MM-DD` literal, so
- * lexicographic order equals chronological order.
- */
-const MCP_PROTOCOL_VERSION_HEADER_SINCE = '2025-06-18'
-
-function requiresProtocolVersionHeader(version: string): boolean {
-	return version >= MCP_PROTOCOL_VERSION_HEADER_SINCE
-}
-
 export class MCPClient {
 	readonly id: MCPClientId
 	private transport: MCPTransport
@@ -71,14 +70,6 @@ export class MCPClient {
 	private serverInfo?: { name: string; version?: string }
 	private serverCapabilities?: MCPServerCapabilities
 	private era?: McpEra
-	/**
-	 * Set only when the negotiated era requires `MCP-Protocol-Version` on
-	 * every request that follows `initialize` (2025-06-18 and later).
-	 * `undefined` before negotiation completes and for an older legacy era,
-	 * so the header is never attached to `initialize` itself and never sent
-	 * to a server that predates it.
-	 */
-	private protocolVersionHeader?: string
 	private connectedAt?: number
 	private error?: string
 	private pendingRequests = new Map<
@@ -98,6 +89,9 @@ export class MCPClient {
 	private log: Logger
 	private readonly config: MCPClientConfig
 	private readonly requestTimeoutMs: number
+	private readonly eraCache: MCPEraCache
+	private readonly eraCacheKey: string
+	private readonly eraProbeTimeoutMs: number
 
 	constructor(config: MCPClientConfig) {
 		this.config = config
@@ -105,6 +99,18 @@ export class MCPClient {
 			config.requestTimeoutMs ?? DEFAULT_MCP_REQUEST_TIMEOUT_MS,
 			'MCPClient requestTimeoutMs',
 		)
+		// Never longer than one round trip's deadline: a probe IS a request,
+		// and one that outlived the bound every other request is held to
+		// would be a connect that hangs past its own timeout.
+		this.eraProbeTimeoutMs = Math.min(
+			validateConnectorTimeoutMs(
+				config.eraProbeTimeoutMs ?? DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS,
+				'MCPClient eraProbeTimeoutMs',
+			),
+			this.requestTimeoutMs,
+		)
+		this.eraCache = config.eraCache ?? defaultMcpEraCache
+		this.eraCacheKey = mcpEraCacheKey(config.transport)
 		this.id = config.id ?? generateMCPClientId()
 		// Built BEFORE the transport, not after: `createTransport` threads
 		// `this.log` into whichever transport it constructs (LOG-10), so the
@@ -122,11 +128,12 @@ export class MCPClient {
 		}
 
 		this.status = 'connecting'
-		// A reconnect must renegotiate from scratch: neither the era nor the
-		// header it implies belongs to this new handshake until this new
-		// handshake has actually happened.
+		// A reconnect must renegotiate from scratch: the era does not belong
+		// to this new handshake until this new handshake has happened. The
+		// era CACHE survives — it is a memory of the peer, not of this
+		// connection — so a reconnect to a known-legacy origin skips the
+		// probe while still running a fresh `initialize`.
 		this.era = undefined
-		this.protocolVersionHeader = undefined
 
 		try {
 			this.transport.onMessage((msg) => this.handleMessage(msg))
@@ -147,6 +154,11 @@ export class MCPClient {
 			})
 
 			await this.transport.connect()
+
+			const resolution = await this.resolveEra()
+			if (resolution.era.kind === 'modern') {
+				return this.completeModernConnection(resolution)
+			}
 
 			// One initialize round trip, offering the newest legacy version
 			// this client speaks — never a per-version waterfall. The spec's
@@ -183,14 +195,20 @@ export class MCPClient {
 				})
 			}
 
-			// A legacy `initialize` round trip only ever settles on a legacy
-			// version — a real 2026-07-28 server does not implement this
-			// method at all, so it cannot produce this success shape. The
-			// cast is safe on that basis, not merely convenient.
+			// A real modern server does not implement `initialize` at all, so a
+			// success shape here naming a modern revision is a server
+			// contradicting itself. Refusing is the only honest answer: the
+			// alternative is recording a `legacy` era at a version that is not
+			// a legacy one, which would then write a modern version number
+			// onto requests carrying none of what that version requires.
+			if (!(MCP_LEGACY_VERSIONS as readonly string[]).includes(negotiated)) {
+				throw new Error(
+					`MCP server "${this.config.serverName}" answered the legacy initialize handshake with "${negotiated}", ` +
+						`which is not a legacy revision (offered "${offered}"; legacy revisions: ${MCP_LEGACY_VERSIONS.join(', ')}). ` +
+						'A server that speaks that revision does not implement initialize at all.',
+				)
+			}
 			this.era = { kind: 'legacy', version: negotiated as McpLegacyVersion }
-			this.protocolVersionHeader = requiresProtocolVersionHeader(negotiated)
-				? negotiated
-				: undefined
 
 			this.serverInfo = result.serverInfo
 			this.serverCapabilities = result.capabilities
@@ -211,11 +229,160 @@ export class MCPClient {
 
 			return result
 		} catch (err) {
+			// A remembered era that cannot complete a handshake is a memory
+			// worth forgetting: the next connect re-probes from scratch rather
+			// than inheriting the assumption that just failed.
+			this.eraCache.delete(this.eraCacheKey)
 			this.status = 'error'
 			this.error = toErrorMessage(err)
 			this.log.error('MCP connection failed', { 'exception.message': this.error })
 			this.emitLifecycle({ type: 'mcp_client_error', clientId: this.id, error: this.error })
 			throw err
+		}
+	}
+
+	/**
+	 * Which era this peer speaks, probed once and remembered per origin (or
+	 * per stdio command).
+	 *
+	 * Modern first. The wasted round trip against a legacy server is real
+	 * and is the reason the cache exists; the alternative is worse than
+	 * wasted latency, because a legacy server handed an era-ambiguous method
+	 * processes it under legacy semantics and fails confusingly, where a
+	 * probe fails cleanly and recovers.
+	 */
+	private async resolveEra(): Promise<McpEraResolution> {
+		const resolution = await resolveMcpEra({
+			cache: this.eraCache,
+			key: this.eraCacheKey,
+			serverName: this.config.serverName,
+			// HTTP+SSE is the 2024-11-05 transport. An origin reached through
+			// it is legacy by the operator's own choice of transport, so the
+			// probe would spend a round trip learning what the config said.
+			probeSupported: this.config.transport.type !== 'http-sse',
+			probe: (version) => this.probeDiscover(version),
+		})
+		this.log.debug('MCP era resolved', {
+			'namzu.connector.server': this.config.serverName,
+			'namzu.connector.era': resolution.era.kind,
+			'namzu.connector.negotiated': resolution.era.version,
+			'namzu.connector.probes': resolution.probes,
+			'namzu.connector.cached': resolution.fromCache,
+		})
+		return resolution
+	}
+
+	/**
+	 * Ask the peer to describe itself, and report silence as an answer.
+	 *
+	 * Deliberately NOT `request()`. A probe differs from a request in the
+	 * two ways that matter: a timeout is a legitimate outcome rather than a
+	 * failure — the stdio spec says in so many words that a legacy server
+	 * may not respond at all — and a probe that gives up must not send
+	 * `notifications/cancelled`, because the peer it would be sent to is, by
+	 * hypothesis, one that did not understand the request in the first
+	 * place. Everything `request()` owns about cancellation ordering is left
+	 * exactly as it is rather than taught a second mode.
+	 */
+	private probeDiscover(version: McpModernVersion): Promise<McpEraProbeAnswer> {
+		const id = this.nextRequestId++
+		const envelope = buildEnvelope({
+			era: { kind: 'modern', version },
+			method: MCP_DISCOVER_METHOD,
+			params: {},
+			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
+			capabilities: this.config.capabilities ?? {},
+		})
+		const controller = new AbortController()
+
+		return new Promise<McpEraProbeAnswer>((resolve) => {
+			let settled = false
+			const finish = (answer: McpEraProbeAnswer): void => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				if (this.pendingRequests.get(id) === entry) this.pendingRequests.delete(id)
+				resolve(answer)
+			}
+			const entry = {
+				resolve: (value: unknown) => finish({ kind: 'result', result: value }),
+				reject: (reason: unknown) => finish({ kind: 'error', error: reason }),
+				abort: (reason: unknown) => finish({ kind: 'error', error: reason }),
+			}
+			const timer = setTimeout(() => {
+				controller.abort(new Error('MCP era probe timed out'))
+				finish({ kind: 'timeout' })
+			}, this.eraProbeTimeoutMs)
+			timer.unref?.()
+			this.pendingRequests.set(id, entry)
+
+			try {
+				void this.transport
+					.send(
+						{ jsonrpc: '2.0', id, method: MCP_DISCOVER_METHOD, params: envelope.params },
+						{ signal: controller.signal, ...this.eraHeaderOptions(envelope.headers) },
+					)
+					.catch((err: unknown) => finish({ kind: 'error', error: err }))
+			} catch (err) {
+				finish({ kind: 'error', error: err })
+			}
+		})
+	}
+
+	/**
+	 * Finish a connection that resolved modern, with no handshake at all.
+	 *
+	 * The modern era has no `initialize` and no `notifications/initialized`,
+	 * so there is nothing here to await: the probe already carried the only
+	 * round trip a modern connection needs. `MCPInitializeResult` is
+	 * synthesised from the `DiscoverResult` so a host sees the same return
+	 * shape whichever era resolved — the era is this client's business, not
+	 * something every caller has to branch on.
+	 */
+	private completeModernConnection(resolution: McpEraResolution): MCPInitializeResult {
+		const era = resolution.era
+		if (era.kind !== 'modern') {
+			// Unreachable: only `connect()` calls this, and only on the modern
+			// arm. Narrowing rather than casting keeps that true by
+			// construction if a second call site is ever added.
+			throw new Error('completeModernConnection requires a modern era')
+		}
+		this.era = era
+		const result = this.modernInitializeResult(era.version, resolution.discover)
+		this.serverInfo = result.serverInfo
+		this.serverCapabilities = result.capabilities
+
+		this.status = 'connected'
+		this.connectedAt = Date.now()
+		this.emitLifecycle({
+			type: 'mcp_client_connected',
+			clientId: this.id,
+			serverName: this.config.serverName,
+		})
+		const connectedAttributes: LogAttributes = {
+			[NAMZU.SERVER_NAME]: result.serverInfo.name,
+		}
+		this.log.info('Connected to MCP server', connectedAttributes)
+		return result
+	}
+
+	/**
+	 * A `DiscoverResult` read as the `MCPInitializeResult` a host expects.
+	 *
+	 * `serverInfo` is a SHOULD on a discover result, not a MUST, and
+	 * `MCPInitializeResult.serverInfo` is required — so a server that does
+	 * not name itself is reported under the name the operator gave it.
+	 * Inventing a placeholder like "unknown" would put a word in the
+	 * server's mouth in the one field a person reads to identify it.
+	 */
+	private modernInitializeResult(
+		version: McpModernVersion,
+		discover: MCPDiscoverResult | undefined,
+	): MCPInitializeResult {
+		return {
+			protocolVersion: version,
+			capabilities: discover?.capabilities ?? {},
+			serverInfo: serverInfoFromDiscover(discover) ?? { name: this.config.serverName },
 		}
 	}
 
@@ -241,11 +408,9 @@ export class MCPClient {
 	/**
 	 * Which era and exact revision the last `connect()` negotiated.
 	 *
-	 * `undefined` before a connection has been negotiated. Every connection
-	 * this client makes today resolves `kind: 'legacy'` — broadening
-	 * negotiation to reach a modern origin is later work — but the type
-	 * already has a `modern` arm so this accessor does not need to change
-	 * shape when that lands.
+	 * `undefined` before a connection has been negotiated. Which arm it
+	 * lands on is the peer's answer, not a configuration: `connect()` probes
+	 * for a modern server and falls back to the legacy handshake.
 	 */
 	getEra(): McpEra | undefined {
 		return this.era
@@ -473,11 +638,18 @@ export class MCPClient {
 		// Refuse before allocating an id or asking the transport to do work.
 		options?.signal?.throwIfAborted()
 		const id = this.nextRequestId++
+		const envelope = buildEnvelope({
+			era: this.era,
+			method,
+			params,
+			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
+			capabilities: this.config.capabilities ?? {},
+		})
 		const message: MCPJsonRpcMessage = {
 			jsonrpc: '2.0',
 			id,
 			method,
-			params,
+			params: envelope.params,
 		}
 		const transportController = new AbortController()
 		let issued = false
@@ -523,7 +695,12 @@ export class MCPClient {
 				// longer owns this request and cannot replace the first cause.
 				transportController.abort(value)
 			}
-			if (issued && method !== 'initialize' && (terminal === 'caller' || terminal === 'timeout')) {
+			if (
+				issued &&
+				method !== 'initialize' &&
+				(terminal === 'caller' || terminal === 'timeout') &&
+				this.sendsCancellationNotification()
+			) {
 				this.sendCancellation(
 					id,
 					terminal === 'caller' ? 'Caller cancelled request' : 'Request deadline expired',
@@ -568,7 +745,7 @@ export class MCPClient {
 			issued = true
 			const sending = this.transport.send(message, {
 				signal: transportController.signal,
-				...this.requestAuthorityHeaders(options),
+				...this.requestAuthorityHeaders(envelope.headers, options),
 			})
 			void sending.catch((err) => {
 				settleSendFailure(err)
@@ -581,45 +758,105 @@ export class MCPClient {
 	}
 
 	/**
-	 * `{ headers: {...} }` when the negotiated era wants `MCP-Protocol-Version`
-	 * on this send, `{}` otherwise — spread into a `send()` options object so
-	 * a legacy era before 2025-06-18, and every send before negotiation has
-	 * completed (`initialize` itself included), gets no `headers` key at all
-	 * rather than one holding `undefined`.
+	 * `{ headers: {...} }` when the era produced any, `{}` otherwise —
+	 * spread into a `send()` options object so a send with no era headers
+	 * (a legacy era before 2025-06-18, and everything sent before an era is
+	 * resolved) gets no `headers` key at all rather than one holding an
+	 * empty object.
 	 */
-	private protocolVersionHeaderOptions(): { headers?: Record<string, string> } {
-		return this.protocolVersionHeader
-			? { headers: { 'MCP-Protocol-Version': this.protocolVersionHeader } }
-			: {}
+	private eraHeaderOptions(headers: Record<string, string>): {
+		headers?: Record<string, string>
+	} {
+		return Object.keys(headers).length > 0 ? { headers } : {}
 	}
 
 	/**
-	 * `request()`'s full per-send header authority: the negotiated era's
-	 * `MCP-Protocol-Version` (if any), this call's own `MCPRequestOptions.headers`
-	 * merged over it — a collision resolves to the caller's value — and this
-	 * call's `bearerToken`, if given, applied last as `Authorization` so it
-	 * overrides a same-named header from either of the other two sources.
+	 * `request()`'s full per-send header authority: the era's own headers
+	 * from `buildEnvelope`, this call's `MCPRequestOptions.headers` merged
+	 * over them — a collision resolves to the caller's value, except on the
+	 * headers the protocol itself owns — and this call's `bearerToken`, if
+	 * given, applied last as `Authorization` so it overrides a same-named
+	 * header from either of the other two sources.
 	 *
-	 * `notify()` and `sendCancellation()` are internal, not caller-facing, so
-	 * they keep calling `protocolVersionHeaderOptions()` directly — only a
-	 * public request the caller shaped can carry a per-call header or token.
+	 * **The exception.** `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name`
+	 * are not decoration: each mirrors a value the same request carries in
+	 * its body — the negotiated version in
+	 * `_meta['io.modelcontextprotocol/protocolVersion']`, the method, the
+	 * target's name — and a conforming modern server rejects a header that
+	 * disagrees with what it mirrors (`-32020`, HeaderMismatch). Letting a
+	 * caller's value win there would make the mismatched pair
+	 * {@link buildEnvelope} exists to render unconstructible constructible
+	 * again one layer up, and the failure would reach the host as an opaque
+	 * 400 with nothing pointing at the header that caused it. So a caller
+	 * header colliding with one the era produced is refused and warn-logged,
+	 * naming it. Matching ignores case, because HTTP field names are
+	 * case-insensitive and `{ 'mcp-protocol-version': … }` alongside the
+	 * era's `MCP-Protocol-Version` would otherwise reach the wire as one
+	 * field holding both values, comma-joined.
+	 *
+	 * Every other header a caller sends is untouched, in both eras.
+	 *
+	 * `notify()` and `sendCancellation()` are internal, not caller-facing,
+	 * so they carry era headers alone — only a public request the caller
+	 * shaped can carry a per-call header or token.
 	 *
 	 * Returns `{}`, never `{ headers: undefined }`, when nothing applies, so
 	 * the zero-option path stays the exact object shape `request()` sent
-	 * before this workstream.
+	 * before any of this existed.
 	 */
-	private requestAuthorityHeaders(options?: MCPRequestOptions): {
+	private requestAuthorityHeaders(
+		eraHeaders: Record<string, string>,
+		options?: MCPRequestOptions,
+	): {
 		headers?: Record<string, string>
 	} {
-		const era = this.protocolVersionHeaderOptions().headers
-		if (!era && !options?.headers && !options?.bearerToken) return {}
-		const headers: Record<string, string> = { ...era, ...options?.headers }
+		const hasEraHeaders = Object.keys(eraHeaders).length > 0
+		if (!hasEraHeaders && !options?.headers && !options?.bearerToken) return {}
+		const headers: Record<string, string> = { ...eraHeaders }
+		const protocolOwned = new Set(Object.keys(eraHeaders).map((name) => name.toLowerCase()))
+		for (const [name, value] of Object.entries(options?.headers ?? {})) {
+			if (protocolOwned.has(name.toLowerCase())) {
+				this.log.warn('Refused a per-request MCP header the protocol owns', {
+					'namzu.connector.server': this.config.serverName,
+					'namzu.mcp.header': name,
+					'namzu.mcp.era': this.era?.kind ?? 'unresolved',
+				})
+				continue
+			}
+			headers[name] = value
+		}
 		if (options?.bearerToken) headers.Authorization = `Bearer ${options.bearerToken}`
 		return { headers }
 	}
 
+	/**
+	 * Does a cancelled request on THIS connection owe the peer a
+	 * `notifications/cancelled`?
+	 *
+	 * Everywhere except modern Streamable HTTP, yes. There, no: closing the
+	 * SSE response stream IS the cancellation signal, so the notification is
+	 * a second, redundant POST — and one the spec does not ask for. stdio
+	 * has no stream to close, so it still sends it, in every era.
+	 *
+	 * This predicate is the ONLY thing the modern era changes about
+	 * cancellation. The ordering guarantees in `request()` — who owns
+	 * cleanup, which cause wins, when the transport is aborted — are
+	 * untouched.
+	 */
+	private sendsCancellationNotification(): boolean {
+		if (this.era?.kind !== 'modern') return true
+		return this.config.transport.type === 'stdio'
+	}
+
 	/** Ask the peer to stop without letting cleanup become another hanging request. */
 	private sendCancellation(id: string | number, reason: string): void {
+		const envelope = buildEnvelope({
+			era: this.era,
+			method: 'notifications/cancelled',
+			params: { requestId: id, reason },
+			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
+			capabilities: this.config.capabilities ?? {},
+		})
 		const controller = new AbortController()
 		this.cancellationControllers.add(controller)
 		const timer = setTimeout(() => {
@@ -635,9 +872,9 @@ export class MCPClient {
 				{
 					jsonrpc: '2.0',
 					method: 'notifications/cancelled',
-					params: { requestId: id, reason },
+					params: envelope.params,
 				},
-				{ signal: controller.signal, ...this.protocolVersionHeaderOptions() },
+				{ signal: controller.signal, ...this.eraHeaderOptions(envelope.headers) },
 			)
 		} catch (err) {
 			clearTimeout(timer)
@@ -684,12 +921,19 @@ export class MCPClient {
 	}
 
 	private async notify(method: string, params: Record<string, unknown>): Promise<void> {
+		const envelope = buildEnvelope({
+			era: this.era,
+			method,
+			params,
+			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
+			capabilities: this.config.capabilities ?? {},
+		})
 		const message: MCPJsonRpcMessage = {
 			jsonrpc: '2.0',
 			method,
-			params,
+			params: envelope.params,
 		}
-		await this.transport.send(message, this.protocolVersionHeaderOptions())
+		await this.transport.send(message, this.eraHeaderOptions(envelope.headers))
 	}
 
 	private handleMessage(message: MCPJsonRpcMessage): void {

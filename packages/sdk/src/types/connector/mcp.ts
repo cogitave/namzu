@@ -107,11 +107,13 @@ export interface MCPJsonRpcError {
 export type McpLegacyVersion = '2025-11-25' | '2025-06-18' | '2025-03-26' | '2024-11-05'
 
 /**
- * The protocol revision this client declares support for going forward.
+ * A protocol revision this client speaks WITHOUT the `initialize`
+ * handshake.
  *
- * Declared here so the `McpEra` union below has a modern arm to grow into;
- * nothing in this workstream actually negotiates it yet — `connect()` still
- * offers only the newest legacy version in a single `initialize` round trip.
+ * A modern connection is stateless: there is no handshake, no session id,
+ * and every request carries its own protocol version, client capabilities
+ * and client info in `_meta`. `connect()` probes for one before it offers
+ * the legacy handshake.
  */
 export type McpModernVersion = '2026-07-28'
 
@@ -122,14 +124,50 @@ export type McpModernVersion = '2026-07-28'
  * `kind` alone tells a caller which rules apply — whether `_meta` and the
  * stateless per-request shape are in play, or the `initialize` handshake
  * and (for 2025-06-18 and later) the `MCP-Protocol-Version` header — without
- * re-deriving it from the version string on every read. Every connection
- * this client makes today resolves to a `legacy` era; `modern` exists so a
- * later workstream has somewhere to put the result of a real modern-era
- * negotiation without widening this type again.
+ * re-deriving it from the version string on every read.
+ *
+ * `MCPClient.connect()` resolves this by probing for a modern peer first
+ * and falling back to the legacy `initialize` handshake, so which arm a
+ * given connection lands on is the server's answer, not a configuration.
  */
 export type McpEra =
 	| { readonly kind: 'modern'; readonly version: McpModernVersion }
 	| { readonly kind: 'legacy'; readonly version: McpLegacyVersion }
+
+/**
+ * What a modern server answers `server/discover` with.
+ *
+ * The modern era's replacement for the `initialize` result: it names the
+ * revisions the server speaks, what it can do, and — under the reserved
+ * `_meta` key — who it is. Every field is optional on the wire as far as
+ * this client is concerned, because the one thing it MUST be able to do
+ * with a malformed answer is decline to treat it as proof of a modern peer.
+ */
+export interface MCPDiscoverResult {
+	/** Newest first is conventional but not required; this client sorts. */
+	supportedVersions?: readonly string[]
+	capabilities?: MCPServerCapabilities
+	_meta?: Record<string, unknown>
+}
+
+/**
+ * Where a resolved {@link McpEra} is remembered between connections.
+ *
+ * The spec's own guidance: a client SHOULD cache the era for the lifetime
+ * of the server process (stdio) or the origin (HTTP) and re-probe if the
+ * cached assumption later fails. Without it every connection to a legacy
+ * server pays a wasted probe round trip.
+ *
+ * An interface rather than a module-level `Map` because a process-global
+ * cache leaks between tests and would make a conformance suite depend on
+ * the order its cases happen to run in. `MCPClientConfig.eraCache` injects
+ * one; omitting it uses a process-wide default.
+ */
+export interface MCPEraCache {
+	get(key: string): McpEra | undefined
+	set(key: string, era: McpEra): void
+	delete(key: string): void
+}
 
 export interface MCPJsonRpcMessage {
 	jsonrpc: '2.0'
@@ -153,6 +191,13 @@ export interface MCPRequestOptions {
 	 * Extra headers for this one request, merged over the transport's static
 	 * config headers (a collision resolves to this value) and under this same
 	 * call's `bearerToken`, if both are given.
+	 *
+	 * The protocol's own headers are the exception: `MCP-Protocol-Version`,
+	 * `Mcp-Method` and `Mcp-Name` mirror values inside the request this call
+	 * is sending, and a server rejects a header that disagrees with the body
+	 * it mirrors. A value given here under one of those names — matched
+	 * without regard to case — is refused and warn-logged rather than put on
+	 * the wire.
 	 *
 	 * A transport with no header concept (stdio) receives the field and does
 	 * nothing with it.
@@ -365,6 +410,25 @@ export interface MCPClientConfig {
 	 * forever — no error, no failure, just a run that stopped.
 	 */
 	requestTimeoutMs?: number
+	/**
+	 * How long `connect()`'s era probe waits for an answer before deciding
+	 * the peer speaks a legacy revision. Defaults to
+	 * `DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS`.
+	 *
+	 * Never longer than `requestTimeoutMs`: a probe is a request, and a
+	 * probe that outlived the deadline every other request is held to would
+	 * be a connect that hangs past its own timeout.
+	 */
+	eraProbeTimeoutMs?: number
+	/**
+	 * Where this client reads and records the resolved era.
+	 *
+	 * Defaults to a process-wide cache shared by every `MCPClient`, which is
+	 * the point — two clients reaching the same origin should not each pay a
+	 * probe. Inject a fresh one to isolate a test, or a longer-lived one to
+	 * scope the memory to a host rather than the process.
+	 */
+	eraCache?: MCPEraCache
 	/**
 	 * A pre-built logger. Threaded into the transport `MCPClient` constructs
 	 * internally (`createTransport`), so a caller that supplies this gets a

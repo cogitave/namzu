@@ -8,8 +8,29 @@ export {
 	isHeaderMismatchError,
 	isMissingRequiredClientCapabilityError,
 	isUnsupportedProtocolVersionError,
+	MCPHttpStatusError,
 	MCPProtocolError,
 } from './errors.js'
+
+// Era resolution lives beside the client, never inside a transport: stdio
+// and HTTP share the whole state machine and differ only in the probe, so
+// a transport that owned a copy would strand the other one.
+export {
+	classifyModernHttpFailure,
+	createMcpEraCache,
+	defaultMcpEraCache,
+	isRecognizedModernError,
+	mcpEraCacheKey,
+	resolveMcpEra,
+} from './era.js'
+export type {
+	McpEraProbe,
+	McpEraProbeAnswer,
+	McpEraResolution,
+	McpEraResolutionInput,
+} from './era.js'
+export { buildEnvelope, encodeMcpHeaderValue } from './envelope.js'
+export type { McpEnvelope, McpEnvelopeInput } from './envelope.js'
 
 export {
 	mcpToolToToolDefinition,

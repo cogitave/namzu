@@ -8,6 +8,7 @@ import type {
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { ConnectorHttpOperation, validateConnectorTimeoutMs } from '../http-operation.js'
+import { MCPHttpStatusError } from './errors.js'
 import { refuseMcpHttpRedirect } from './http-redirect.js'
 
 const DEFAULT_TIMEOUT_MS = 30_000
@@ -95,7 +96,12 @@ export class StreamableHttpTransport implements MCPTransport {
 
 			refuseMcpHttpRedirect(response, message.method)
 			if (!response.ok) {
-				throw new Error(`StreamableHttpTransport: HTTP ${response.status}: ${response.statusText}`)
+				throw new MCPHttpStatusError(
+					'StreamableHttpTransport',
+					response.status,
+					response.statusText,
+					await readErrorBody(response, operation),
+				)
 			}
 			this.assertCurrent(owned.generation, operation)
 			// MCP assigns the session during initialize. Letting an ordinary or
@@ -213,6 +219,27 @@ export class StreamableHttpTransport implements MCPTransport {
 				handler(message)
 			}
 		}
+	}
+}
+
+/**
+ * The body of a failed response, or an empty string.
+ *
+ * Carried on the error rather than discarded, because a status alone cannot
+ * tell a legacy origin from a modern one: a modern server answers an
+ * unknown method with `404` and a JSON-RPC error body precisely so that a
+ * client can tell the two apart. Reading it must never turn a clean HTTP
+ * failure into a different one, so a body that cannot be read is simply
+ * absent — the status error is the real answer either way.
+ */
+async function readErrorBody(
+	response: Response,
+	operation: ConnectorHttpOperation,
+): Promise<string> {
+	try {
+		return await operation.run(() => response.text())
+	} catch {
+		return ''
 	}
 }
 

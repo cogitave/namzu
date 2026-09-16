@@ -1,0 +1,15 @@
+---
+"@namzu/sdk": major
+---
+
+`MCPClient.connect()` no longer opens with `initialize`. It opens with a `server/discover` probe at MCP `2026-07-28` and offers the legacy handshake only when that probe says the peer does not speak it. The first request a server sees from this client is therefore a method that did not exist before 2026-07-28 — that is the breaking change, and there is no opt out.
+
+**What an operator observes.** One extra round trip on first contact with a given HTTP origin or stdio command, then nothing: the resolved era is cached per origin (or per resolved command and arguments) and a remembered legacy peer skips the probe entirely. Against a server that answers an unknown method with an error the probe costs a round trip's latency; against one that ignores unknown methods it costs `MCPClientConfig.eraProbeTimeoutMs`, new here and defaulting to `2000` (clamped to `requestTimeoutMs`). The CLI's 10s `connectTimeoutMs` default accommodates that, measured against a real child process rather than assumed.
+
+**What a modern connection does differently.** No `initialize`, no `notifications/initialized`, no `Mcp-Session-Id` sent or captured even if the origin offers one, no `GET`, no `DELETE`, no `Last-Event-ID` — and no `notifications/cancelled` POST on Streamable HTTP, where closing the SSE response stream is itself the cancellation signal. stdio still sends the cancellation notification, in every era. Every modern request instead carries `_meta` (`protocolVersion` and `clientCapabilities` required, `clientInfo` a SHOULD) mirrored into `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers. Those three header names now belong to the protocol rather than to the caller: an `MCPRequestOptions.headers` entry colliding with one of them, matched case-insensitively, is refused and warn-logged instead of winning the merge, in both eras. A caller that was setting `MCP-Protocol-Version` by hand no longer can — a server rejects a header that disagrees with the body it mirrors, so the value the client negotiated is the only one it will send. Every other per-request header behaves exactly as before. `connect()` still returns an `MCPInitializeResult` of the same shape, synthesised from the `DiscoverResult`, so no caller branches on the era.
+
+**A caller that needs the previous behaviour — the legacy handshake and nothing before it — pins the previous major.**
+
+Additive alongside it: `MCPClientConfig.eraCache` and `eraProbeTimeoutMs`; the `MCPEraCache` and `MCPDiscoverResult` types; `resolveMcpEra`, `createMcpEraCache`, `defaultMcpEraCache`, `mcpEraCacheKey`, `isRecognizedModernError`, `classifyModernHttpFailure`, `buildEnvelope` and `encodeMcpHeaderValue`; and `MCPHttpStatusError`, which carries the status and the response body a failed HTTP send used to discard — the body is what tells a modern origin's `404` apart from a legacy one's.
+
+See [MCP protocol eras](../docs/sdk/mcp-protocol-eras.md#resolving-the-era-two-probes-never-a-waterfall) for the state machine, the cache and its invalidation, and the `-32022` rule.

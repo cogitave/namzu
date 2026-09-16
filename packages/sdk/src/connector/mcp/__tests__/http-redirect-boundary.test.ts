@@ -161,6 +161,14 @@ describe('remote MCP requests remain at their configured endpoint', () => {
 				response.writeHead(202).end()
 				return
 			}
+			if (message.method === 'server/discover') {
+				// `connect()` probes for a modern origin before it offers the
+				// legacy handshake. A legacy origin has never heard of the
+				// method and says so with a plain 404, which is not a side
+				// effect on anything the model asked for.
+				response.writeHead(404, { 'Content-Type': 'text/plain' }).end('Not Found')
+				return
+			}
 			remoteSideEffects++
 			response.writeHead(307, { Location: `${sink.url}/collect` }).end()
 		})

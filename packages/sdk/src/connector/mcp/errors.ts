@@ -55,6 +55,33 @@ export class MCPMalformedErrorReplyError extends Error {
 }
 
 /**
+ * An HTTP response that was not a success, with the body it carried.
+ *
+ * The body is the reason this type exists. A status alone cannot tell a
+ * legacy origin apart from a modern one: a modern server answers an unknown
+ * method with `404` and a JSON-RPC `-32601` body specifically so a client
+ * can distinguish it from the `404` of a server that has never heard of the
+ * modern protocol. Discarding the body — which this transport used to do —
+ * makes that distinction unreachable and turns every `404` into a fallback.
+ *
+ * `.message` is unchanged from the plain `Error` this replaces, so existing
+ * logs and assertions that match on the text are undisturbed.
+ */
+export class MCPHttpStatusError extends Error {
+	readonly status: number
+	readonly statusText: string
+	readonly bodyText: string
+
+	constructor(where: string, status: number, statusText: string, bodyText: string) {
+		super(`${where}: HTTP ${status}: ${statusText}`)
+		this.name = 'MCPHttpStatusError'
+		this.status = status
+		this.statusText = statusText
+		this.bodyText = bodyText
+	}
+}
+
+/**
  * Build the rejection reason for a JSON-RPC error reply.
  *
  * The wire message is cast to `MCPJsonRpcMessage` at the transport boundary

@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: MCP protocol eras
-description: The era model behind MCP negotiation, the single-round-trip legacy handshake across four versions, and why there is no waterfall.
+description: The era model behind MCP negotiation — the modern-first two-probe state machine, the per-origin era cache, the single-round-trip legacy handshake, and why there is no waterfall.
 resource: packages/sdk/src/connector/mcp/client.ts
 tags: [sdk, mcp, connector, protocol]
 status: stable
@@ -12,15 +12,15 @@ status: stable
 MCP has published several protocol revisions, and a real deployment mixes
 them: a server built against 2024-11-05 sits next to one that has moved to
 2025-11-25. `MCPClient` resolves which revision a given connection actually
-speaks and records the answer as an `McpEra` — everything downstream (whether
-to send `MCP-Protocol-Version`, later: whether to attach `_meta`, whether
+speaks and records the answer as an `McpEra` — everything downstream
+(whether to attach `_meta`, whether to send `MCP-Protocol-Version`, whether
 sessions exist at all) reads that instead of re-deriving it from a version
 string.
 
-This page grows as later work reaches further eras. As of this workstream, a
-connection always resolves `kind: 'legacy'` — reaching the current spec
-revision, 2026-07-28, is separate work described under [Not yet
-built](#not-yet-built) below.
+`connect()` resolves the era by probing for the current spec revision
+(2026-07-28, the "modern" era) and falling back to the `initialize`
+handshake when the peer does not answer in the modern vocabulary. Which arm
+a connection lands on is the server's answer, not a configuration.
 
 ## The era model
 
@@ -28,7 +28,9 @@ built](#not-yet-built) below.
 import type { McpEra } from '@namzu/sdk'
 
 declare const era: McpEra
-if (era.kind === 'legacy') {
+if (era.kind === 'modern') {
+	// era.version: '2026-07-28'
+} else {
 	// era.version: '2025-11-25' | '2025-06-18' | '2025-03-26' | '2024-11-05'
 }
 ```
@@ -36,9 +38,196 @@ if (era.kind === 'legacy') {
 `MCPClient.getEra()` returns the `McpEra` the last `connect()` negotiated, or
 `undefined` before a connection exists.
 
+## Resolving the era: two probes, never a waterfall
+
+`connect()` sends one `server/discover` request before it offers anything
+else. `server/discover` is mandatory for a 2026-07-28 server and optional
+for a client, which is exactly what makes it a usable probe: a server that
+answers it speaks the modern protocol, and one that does not says so in a
+way this client can read.
+
+Modern first is a deliberate default and it costs a round trip against the
+legacy servers that are still the overwhelming majority. The alternative is
+worse than wasted latency: a legacy server handed an era-ambiguous method
+processes it under legacy semantics and fails confusingly, where a probe
+fails cleanly and recovers. The [era cache](#the-era-cache) makes the cost
+one round trip per origin rather than one per connection.
+
+### The two probes are not the same algorithm
+
+| | Streamable HTTP | stdio |
+|---|---|---|
+| modern answer | `2xx` carrying a `DiscoverResult` | a reply carrying a `DiscoverResult` |
+| modern objection | `400`/`404`/`405` whose **body** is `-32022`, `-32021`, `-32020`, or `-32601` on a `404` | a reply carrying one of those JSON-RPC errors |
+| fall back | `400`/`404`/`405` with an empty, HTML or otherwise non-JSON-RPC body | any other error reply — **or silence** |
+
+The HTTP probe reads a status and then a body. The status alone decides
+nothing: a modern server answers an unknown method with `404` plus a
+JSON-RPC `-32601` specifically so a client can tell it apart from the `404`
+of an origin that has never heard of the protocol. `-32601` therefore counts
+as a modern answer **only on a `404`** — on a `400` or `405` it is an
+ordinary unimplemented-method reply that a server of any era can send.
+
+The stdio probe has no status to read, and the spec is explicit that its
+fallback **MUST NOT** be keyed to one specific error code: a legacy server
+refuses an unknown method with whatever its implementation happens to use,
+commonly `-32601`, commonly `-32602`, sometimes nothing at all. The
+predicate in the code is therefore `isRecognizedModernError` — "did the peer
+answer in a vocabulary only a modern server has?" — and never a comparison
+against a number. Silence resolves legacy after
+`MCPClientConfig.eraProbeTimeoutMs` (default `2000`).
+
+That timeout is a heuristic with no good universal value, which is why it is
+configurable: too short and a slow-starting server is misclassified, too
+long and every legacy server pays the wait. It is also clamped to
+`requestTimeoutMs`, because a probe is a request and one that outlived the
+bound every other request is held to would be a connect that hangs past its
+own timeout.
+
+The `http-sse` transport is never probed. It is the 2024-11-05 transport, so
+an origin reached through it is legacy by the operator's own choice of
+transport and the probe would spend a round trip learning what the config
+already said.
+
+### A success that is not a `DiscoverResult` is not proof
+
+A `2xx` (or a stdio reply) whose body is not a well-formed `DiscoverResult` —
+no `supportedVersions` array, or an empty one — resolves **legacy**. This is
+stricter than "a `2xx` means modern", on purpose: a legacy server that
+answers unknown methods with `{}` rather than an error would otherwise be
+read as modern, and this client would spend the rest of the connection
+sending `_meta` to a peer that has never heard of it.
+
+### `-32022`: intersect, take the newest, retry at most once
+
+A `-32022` (`UnsupportedProtocolVersion`) carries `data.supported`. This
+client intersects that list with `MCP_SUPPORTED_PROTOCOL_VERSIONS`, takes
+the newest member of the intersection, and:
+
+- **newest is modern, and is not the version just attempted** — probe once
+  more at that version. Exactly one retry; there is no loop.
+- **newest is modern and IS the version just attempted** — the server is
+  contradicting itself, but it answered in the modern vocabulary, so the era
+  settles modern at that version rather than spending a round trip asking a
+  question already answered.
+- **newest is legacy** — the server named the era it wants. Stop probing and
+  offer the legacy handshake.
+- **the intersection is empty** — refuse, with an error naming the server's
+  list and this client's. A version outside this client's set is never
+  attempted: offering one it has not implemented produces a malformed
+  exchange later instead of a clean negotiation failure now.
+
+## The era cache
+
+A resolved era is remembered per HTTP **origin** (scheme, host and port —
+never per URL path, because the era is a property of the server behind the
+origin) or per stdio **process identity** (the working directory, the
+command and its arguments — `cwd` is in the key because a relative command
+resolves against it, so the same command line in two directories is two
+servers). `streamable_http` and `streamable-http` are two spellings of one
+transport and key together; `http-sse` keys apart on the same origin,
+because it is never probed and so records a legacy era it never tested.
+`MCPClientConfig.eraCache` injects an `MCPEraCache`; omitting it uses a
+process-wide default shared by every `MCPClient`, so two clients reaching
+the same origin do not each pay a probe.
+
+It is an injectable interface rather than a module-level `Map` for a reason
+that is about tests and not about hosts: a process-global cache leaks a
+resolved era from one case into the next, and a conformance suite whose
+cases pass only because of the order they ran in proves nothing.
+
+What the cache actually saves is the **wasted** probe:
+
+- **Cached legacy** — no probe at all. `connect()` goes straight to
+  `initialize`. This is the case that matters today, and it is why
+  modern-first is affordable.
+- **Cached modern** — `server/discover` is still sent, because on a modern
+  connection it *is* the connection: there is no handshake, and the discover
+  result carries the server's capabilities. The cache is not skipping a
+  round trip there, it is skipping the fallback.
+
+It is corrected, not trusted blindly:
+
+- A remembered **modern** origin that starts answering as legacy is replaced
+  with `legacy` in that same connect. The stale assumption costs exactly one
+  probe, once; the next connection goes straight to the handshake.
+- A remembered era whose handshake then **fails** is dropped entirely, so
+  the next `connect()` re-resolves from scratch rather than inheriting the
+  assumption that just failed. The two directions are not symmetric, and it
+  is worth saying plainly which way costs more: a remembered **modern**
+  origin that has gone legacy is corrected inside the connect that
+  discovered it, but a remembered **legacy** peer that has become
+  modern-only is not re-probed inside that connect — `initialize` is sent,
+  the server refuses it, and `connect()` fails in front of the operator.
+  The entry is dropped on the way out, so the next attempt re-probes and
+  succeeds. A server upgrading across an era boundary therefore costs one
+  visible connect failure per client process, once.
+- A reconnect renegotiates: the cache is a memory of the peer, not of a
+  connection, so `MCPReconnectSupervisor` still runs a fresh `initialize`
+  against a remembered legacy origin.
+
+## A modern connection: what it sends, and what it does not
+
+A modern connection is **stateless**. There is no handshake, so every
+request carries its own identity in `_meta`, mirrored into headers so an
+intermediary can route and authorise a call without parsing JSON-RPC:
+
+| on the wire | value |
+|---|---|
+| `_meta['io.modelcontextprotocol/protocolVersion']` | the negotiated revision — REQUIRED |
+| `_meta['io.modelcontextprotocol/clientCapabilities']` | `MCPClientConfig.capabilities`, or `{}` — REQUIRED |
+| `_meta['io.modelcontextprotocol/clientInfo']` | `MCPClientConfig.clientInfo` — a SHOULD, omitted when absent |
+| `MCP-Protocol-Version` | the same revision, from the same variable |
+| `Mcp-Method` | the JSON-RPC method |
+| `Mcp-Name` | `params.name` for `tools/call` and `prompts/get`, `params.uri` for `resources/read` |
+
+`buildEnvelope` (`connector/mcp/envelope.ts`) produces the body and the
+headers together, from one local variable, so the header and the `_meta` key
+cannot disagree. That is the point of it being one function: the alternative
+— building them in two places and asserting somewhere that they match —
+makes a mismatched pair constructible and then tries to catch it.
+
+Those three names are the protocol's, not the caller's. A per-request
+`headers` entry that collides with one of them — matched without regard to
+case, because HTTP field names are case-insensitive — is **refused and
+warn-logged** rather than put on the wire, in both eras. Allowing it would
+rebuild the mismatched pair one layer above `buildEnvelope`, and a
+conforming server answers a header that disagrees with the body it mirrors
+with a `400` and `-32020` that names nothing the host could act on.
+
+A header value that cannot be written into an HTTP field verbatim is wrapped
+in the base64 sentinel `=?base64?{base64}?=`. The markers are lowercase and
+case-sensitive. A value that is header-safe but already *reads* as a
+sentinel is wrapped too, so it survives as itself rather than being decoded
+into something the caller never wrote. "Reads as a sentinel" is the spec's
+own test and nothing narrower — starts with `=?base64?`, ends with `?=`,
+with no claim about what lies between — so `=?base64?a?b?=` is wrapped as
+well. A tighter test would pass that value through and leave the server
+trying to base64-decode `a?b`.
+
+`clientCapabilities` is `{}` and that is honest rather than a gap: sampling,
+elicitation, roots and logging are all deprecated as of 2026-07-28 with "new
+implementations should not add support for them", and the MRTR rules mean a
+conforming server will not ask for what this client has not declared.
+
+**A modern connection deliberately does none of the following**, all of
+which the legacy eras do:
+
+- no `initialize` and no `notifications/initialized` — the handshake is gone
+- no `Mcp-Session-Id` sent or captured, even if an origin offers one
+- no `GET` and no `DELETE` — there is no session to open or terminate
+- no `Last-Event-ID` — resumable SSE streams are not supported
+- **no `notifications/cancelled` POST on Streamable HTTP** — closing the SSE
+  response stream *is* the cancellation signal there, so the notification
+  would be a second, redundant POST. stdio has no stream to close, so it
+  still sends it, in every era. This is the only thing the modern era
+  changes about cancellation; the ordering guarantees in `request()` are
+  untouched.
+
 ## One `initialize` round trip, not a waterfall
 
-`connect()` offers the newest version it speaks — `2025-11-25` — in a single
+Once the probe has resolved legacy, `connect()` offers the newest legacy
+version it speaks — `2025-11-25` — in a single
 `initialize` request, and accepts whatever the server answers with, provided
 that answer is one of the versions this client supports. A server is free to
 negotiate down (or, in principle, to a version it prefers for other reasons):
@@ -65,12 +254,19 @@ version.
 
 ## The supported set
 
-| version | offered by `connect()` | accepted if a server answers with it | `MCP-Protocol-Version` header on later requests |
+| version | offered by `connect()` | accepted as an `initialize` answer | `MCP-Protocol-Version` header on later requests |
 |---|---|---|---|
-| 2025-11-25 | yes (the offer) | yes | yes |
+| 2026-07-28 | yes (the probe) | **no** — see below | yes, on every request |
+| 2025-11-25 | yes (the handshake offer) | yes | yes |
 | 2025-06-18 | no | yes | yes |
 | 2025-03-26 | no | yes | no — header did not exist yet |
 | 2024-11-05 | no | yes | no — header did not exist yet |
+
+A server that answers `initialize` with `2026-07-28` is refused too, and for
+a different reason: a real modern server does not implement `initialize` at
+all, so that success shape is a server contradicting itself. Accepting it
+would record a `legacy` era at a version that is not a legacy one, and then
+write that version number onto requests carrying none of what it requires.
 
 A server that negotiates to a version outside this set is refused, with an
 error naming the version offered, the version the server answered with, and
@@ -84,24 +280,31 @@ for exactly this broadened set, not against it.
 
 The header was introduced in the 2025-06-18 revision, so sending it to a
 server that negotiated an older version is off-spec — that server has no
-defined way to interpret it. `MCPClient` sends it on every request that
-follows `initialize` (2025-06-18 and 2025-11-25 only), and never on
-`initialize` itself, since the negotiated version is not known until that
-request's reply arrives.
+defined way to interpret it. On a legacy connection `MCPClient` sends it on
+every request that follows `initialize` (2025-06-18 and 2025-11-25 only),
+and never on `initialize` itself, since the negotiated version is not known
+until that request's reply arrives. On a modern connection it is sent on
+every request including the probe, and means the version carried in *that
+request's* `_meta` rather than one negotiated for a session.
 
-## Changed default
+## Changed defaults
 
-Before this workstream, `connect()` offered and accepted only `2024-11-05`.
-It now offers `2025-11-25` and accepts a negotiated answer anywhere in the
-table above. A host that was relying on the client only ever advertising
-`2024-11-05` — for instance a server that branches its behavior on the
-client's claimed version — now sees `2025-11-25` on the wire instead, and
-sees a different subset of the wire (the `MCP-Protocol-Version` header
-appearing on requests) depending what the server negotiates down to.
+Twice, in two releases.
 
-There is no per-call override: a caller that needs the previous behavior
-(offer and accept only `2024-11-05`) pins the previous major version of
-`@namzu/sdk`.
+**The advertised legacy version.** `connect()` once offered and accepted
+only `2024-11-05`. It now offers `2025-11-25` and accepts a negotiated
+answer anywhere in the table above. A server that branches its behavior on
+the client's claimed version sees `2025-11-25` on the wire instead, and sees
+a different subset of the wire (the `MCP-Protocol-Version` header appearing
+on requests) depending what it negotiates down to.
+
+**The negotiation order.** `connect()` no longer opens with `initialize`. It
+opens with a `server/discover` probe and offers the handshake only when that
+probe says the peer is legacy. The first request a server sees from this
+client is therefore a method that did not exist before 2026-07-28.
+
+Neither has a per-call override: a caller that needs the previous behavior
+pins the previous major version of `@namzu/sdk`.
 
 ## `namzu`'s own MCP server still answers 2024-11-05
 
@@ -109,10 +312,11 @@ There is no per-call override: a caller that needs the previous behavior
 implementation — the direction that reverses everything else on this page,
 where this process answers somebody else's client rather than calling
 somebody else's server. It still hardcodes `2024-11-05` in its `initialize`
-reply. This means a `namzu`-built client connecting to a `namzu`-built
-server negotiates down to `2024-11-05` even though the client now offers
-`2025-11-25`. That is expected, not a bug: broadening the server's own
-negotiation is out of scope for this workstream (issue #471 is client-only).
+reply and implements no `server/discover`. This means a `namzu`-built client
+connecting to a `namzu`-built server probes, is refused, and negotiates down
+to `2024-11-05` even though the client now offers `2026-07-28` first and
+`2025-11-25` second. That is expected, not a bug: modernising the server
+half is out of scope (issue #471 is client-only).
 
 ## Per-request authority: injectable fetch, bearer token, headers
 
@@ -171,7 +375,11 @@ await client.callTool(
 ```
 
 `headers` merges over the transport's static config headers for this one
-request; a key collision resolves to the per-request value. `bearerToken`,
+request; a key collision resolves to the per-request value, with one
+exception — `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` belong to
+the protocol, and a per-request value under any of those names is refused
+and warn-logged (see [A modern connection](#a-modern-connection-what-it-sends-and-what-it-does-not)).
+`bearerToken`,
 if given, is applied last as `Authorization: Bearer <token>` — after the
 merge — so it overrides a configured `Authorization` header (static, or
 supplied through this same call's `headers`) without touching a
@@ -203,18 +411,41 @@ transport. `HttpSseTransport` now has a `buildHeaders()` merge matching
 `StreamableHttpTransport`'s, so both HTTP transports treat per-request
 headers and a bearer token identically.
 
+## What an operator sees change
+
+First contact with a given origin (or stdio command) costs one extra round
+trip: the `server/discover` probe, before the `initialize` it falls back to.
+Every later connection to the same origin skips it. Against a server that
+answers an unknown method with an error — the common case — the probe costs
+a round trip's latency; against one that ignores unknown methods entirely it
+costs `eraProbeTimeoutMs` (2s by default), which the CLI's 10s
+`connectTimeoutMs` default accommodates with room to spare. That budget is
+measured, not assumed: `packages/cli/src/integrations/mcp/__tests__/connect.test.ts`
+connects to a real child process that ignores the probe and asserts the
+whole connect fits inside the default.
+
+A host that was setting `MCP-Protocol-Version`, `Mcp-Method` or `Mcp-Name`
+through `MCPRequestOptions.headers` sees that value dropped and a warning
+logged, naming the header. Every other per-request header is unaffected.
+
+There is no per-call or per-server opt out of probing. A caller that needs
+the previous behaviour — the legacy handshake and nothing else — pins the
+previous major of `@namzu/sdk`.
+
 ## Not yet built
 
-- **The 2026-07-28 ("modern") era.** `McpEra`'s `modern` arm exists so a
-  later workstream has somewhere to put the result of a real modern-era
-  negotiation — the stateless per-request `_meta`, the `server/discover`
-  probe, and the two-probe (HTTP body-inspection vs. stdio timeout) state
-  machine that decides whether a given origin speaks it at all. Nothing in
-  this workstream constructs a `modern` era value. The per-request `headers`
-  authority above is the seam that work will build `_meta` and its mirrored
-  headers on top of.
-- **The `-32022` retry-with-narrower-version path**, `x-mcp-header`
-  validation, `resultType`/MRTR handling, the additional content block
-  types, and legacy session/stream fidelity (404 re-initialize, `DELETE` on
-  close, `Last-Event-ID` resumption) are each their own later section of
-  this page.
+- **`subscriptions/listen`.** The modern era replaces the `GET` stream and
+  `resources/subscribe` with it. This client has no subscription support in
+  any era, so omitting it regresses nothing — but it does mean a modern
+  connection receives no server-initiated notifications at all. Tracked
+  separately.
+- **`x-mcp-header` validation and `Mcp-Param-*` construction.** The base64
+  sentinel encoder that work needs (`encodeMcpHeaderValue`) ships here; the
+  tool-definition validation, the header extraction and the `-32020`
+  re-list-and-retry do not.
+- **`resultType` / MRTR handling** — `complete` versus `input_required`, and
+  what a client with no declared capabilities does with an
+  `InputRequiredResult`.
+- **Legacy session and stream fidelity** — 404 re-initialize, `DELETE` on
+  close, `Last-Event-ID` resumption. All legacy-only by construction; the
+  modern era already does none of them, as listed above.

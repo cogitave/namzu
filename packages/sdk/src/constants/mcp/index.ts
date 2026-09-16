@@ -1,14 +1,15 @@
 import type { McpLegacyVersion, McpModernVersion } from '../../types/connector/mcp.js'
 
 /**
- * The current MCP spec revision, as this client DECLARES it — not yet as
- * something it negotiates.
+ * The MCP spec revisions this client speaks WITHOUT the `initialize`
+ * handshake, newest first.
  *
- * `connect()` does not offer this in an `initialize` request: the modern
- * era removes that handshake entirely, and namzu does not yet speak the
- * stateless per-request shape a modern origin requires. It is declared here
- * so `MCP_SUPPORTED_PROTOCOL_VERSIONS` below has a place to grow into once
- * a later workstream builds the negotiation that actually reaches it.
+ * The modern era removes that handshake entirely: a connection is resolved
+ * by probing with `server/discover`, and every request afterwards carries
+ * its own protocol version, client capabilities and client info in `_meta`
+ * instead of inheriting them from a session. `connect()` tries the newest
+ * entry here FIRST and falls back to the legacy handshake below only when
+ * the probe says the peer does not speak it.
  */
 export const MCP_MODERN_VERSIONS: readonly McpModernVersion[] = ['2026-07-28']
 
@@ -83,3 +84,81 @@ export const JSON_RPC_METHOD_NOT_FOUND = -32601
  * special-case the older code itself.
  */
 export const RESOURCE_NOT_FOUND_CODES: readonly number[] = [-32602, -32002]
+
+/**
+ * The method a modern server answers with its `DiscoverResult`.
+ *
+ * Mandatory for a 2026-07-28 server and optional for a client, which is
+ * exactly what makes it a usable era probe: a server that answers it speaks
+ * the modern protocol, and a legacy server answers it with an
+ * implementation-defined error — commonly `-32601` or `-32602` — or not at
+ * all.
+ */
+export const MCP_DISCOVER_METHOD = 'server/discover'
+
+/**
+ * How long an era probe waits for an answer before deciding the peer is
+ * legacy.
+ *
+ * A heuristic with no good universal value, which is why it is
+ * configurable per client (`MCPClientConfig.eraProbeTimeoutMs`). Too short
+ * and a slow-starting server is misclassified as legacy; too long and every
+ * legacy server pays the wait on every connect. Two seconds is long enough
+ * for a process that has already spawned to answer one request and short
+ * enough to sit comfortably inside an operator-facing connect deadline —
+ * and the era cache means a given origin or command pays it once, not once
+ * per connection.
+ */
+export const DEFAULT_MCP_ERA_PROBE_TIMEOUT_MS = 2_000
+
+/**
+ * The HTTP statuses a legacy origin answers a modern request with.
+ *
+ * A status alone is NOT the fallback signal: a modern server answers an
+ * unknown method with `404` and a JSON-RPC `-32601` body specifically so a
+ * client can tell it apart from the `404` of a server that has never heard
+ * of the modern protocol. The body decides; this list only says which
+ * responses are worth reading a body from.
+ */
+export const MCP_MODERN_HTTP_FALLBACK_STATUSES: readonly number[] = [400, 404, 405]
+
+/**
+ * The reserved `_meta` keys a modern request and reply carry.
+ *
+ * `protocolVersion` and `clientCapabilities` are REQUIRED on every modern
+ * request; `clientInfo` is a SHOULD. `serverInfo` travels the other way —
+ * it is how a `DiscoverResult` names the peer, and is what `connect()`
+ * reads to synthesise the `MCPInitializeResult` a host still expects.
+ */
+export const MCP_META_PROTOCOL_VERSION = 'io.modelcontextprotocol/protocolVersion'
+export const MCP_META_CLIENT_CAPABILITIES = 'io.modelcontextprotocol/clientCapabilities'
+export const MCP_META_CLIENT_INFO = 'io.modelcontextprotocol/clientInfo'
+export const MCP_META_SERVER_INFO = 'io.modelcontextprotocol/serverInfo'
+
+/**
+ * The request headers a modern Streamable HTTP request mirrors its body
+ * with, so an intermediary can route and authorise a call without parsing
+ * JSON-RPC.
+ *
+ * `MCP_PROTOCOL_VERSION_HEADER` is shared with the later legacy revisions,
+ * where it means the version negotiated by `initialize` rather than the one
+ * carried in this request's own `_meta`.
+ */
+export const MCP_PROTOCOL_VERSION_HEADER = 'MCP-Protocol-Version'
+export const MCP_METHOD_HEADER = 'Mcp-Method'
+export const MCP_NAME_HEADER = 'Mcp-Name'
+export const MCP_PARAM_HEADER_PREFIX = 'Mcp-Param-'
+
+/**
+ * The methods whose target is named in the `Mcp-Name` header, and the
+ * parameter each one's name is read from.
+ *
+ * Required for compliance on Streamable HTTP: an intermediary that can see
+ * WHICH tool is being called without reading the body is the whole point of
+ * mirroring it into a header.
+ */
+export const MCP_NAME_HEADER_METHODS: Readonly<Record<string, 'name' | 'uri'>> = {
+	'tools/call': 'name',
+	'prompts/get': 'name',
+	'resources/read': 'uri',
+}

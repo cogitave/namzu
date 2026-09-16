@@ -16,7 +16,7 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { removeTempDir } from '../../../__fixtures__/temp-dir.js'
 
-import { connectMcpServers, transportFor } from '../servers.js'
+import { CONNECT_TIMEOUT_MS, connectMcpServers, transportFor } from '../servers.js'
 
 let dir: string
 const origins: TestOrigin[] = []
@@ -135,6 +135,19 @@ const SILENT_SERVER = 'setInterval(() => {}, 1000)\n'
 /** The working server, 600ms late to its own stdin: a slow boot, not a wedge. */
 const SLOW_SERVER = `setTimeout(() => {${WORKING_SERVER}}, 600)\n`
 
+/**
+ * A working legacy server that answers nothing it does not recognise.
+ *
+ * The worst realistic case for the era probe: not an error reply it can act
+ * on immediately, but silence it has to wait out. Written by stripping the
+ * catch-all `else if (msg.id !== undefined)` reply from the working server,
+ * so the two differ in exactly that one behaviour.
+ */
+const SILENT_ON_UNKNOWN_SERVER = WORKING_SERVER.replace(
+	"} else if (msg.id !== undefined) {\n      send({ jsonrpc: '2.0', id: msg.id, result: {} })\n    }",
+	'}',
+)
+
 async function startOrigin(
 	handler: (
 		request: IncomingMessage,
@@ -215,9 +228,13 @@ describe('a declared server', () => {
 			expect(mcp.failed).toHaveLength(1)
 			expect(mcp.failed[0]?.name).toBe('private')
 			expect(mcp.failed[0]?.reason).toMatch(/configure the final MCP endpoint directly/i)
-			expect(source.requests).toHaveLength(1)
-			expect(source.requests[0]?.headers['x-api-key']).toBe('mcp-secret')
-			expect(source.requests[0]?.body).toContain('initialize')
+			// Two requests reach the source now — the era probe and then the
+			// handshake it falls back to — and the claim is about all of them:
+			// every one carries the credential to the configured endpoint, and
+			// NONE of them reaches the redirect target.
+			expect(source.requests.length).toBeGreaterThanOrEqual(1)
+			expect(source.requests.every((r) => r.headers['x-api-key'] === 'mcp-secret')).toBe(true)
+			expect(source.requests.some((r) => r.body.includes('initialize'))).toBe(true)
 			expect(sink.requests).toEqual([])
 		} finally {
 			await mcp.close()
@@ -370,6 +387,35 @@ describe('a server that does not work is named, never merely absent', () => {
 		expect(patient.failed).toEqual([])
 		expect(patient.connected[0]?.toolCount).toBe(2)
 		await patient.close()
+	}, 20_000)
+
+	it('fits the era probe inside the default connect deadline, even against a server that ignores it', async () => {
+		// The hazard this workstream introduces: `connect()` now probes for a
+		// modern server before it offers the legacy handshake, so a legacy
+		// server that simply does not answer an unknown method costs a probe
+		// timeout on top of everything else. Measured here at the CLI layer,
+		// against a REAL child process, because the number that matters is
+		// the operator-facing `connectTimeoutMs` default — not the SDK's own.
+		const server = writeServer('mute-probe.js', SILENT_ON_UNKNOWN_SERVER)
+		const started = Date.now()
+
+		const mcp = await connectMcpServers(
+			{ tickets: { command: process.execPath, args: [server] } },
+			{ cwd: dir },
+		)
+		const elapsed = Date.now() - started
+
+		try {
+			expect(mcp.failed).toEqual([])
+			expect(mcp.connected[0]?.toolCount).toBe(2)
+			// The probe really did have to time out — otherwise this test would
+			// pass against a server that answered instantly and would say
+			// nothing about the budget.
+			expect(elapsed, 'the probe timeout is what this measures').toBeGreaterThanOrEqual(1_000)
+			expect(elapsed, 'and it has to fit inside the default').toBeLessThan(CONNECT_TIMEOUT_MS)
+		} finally {
+			await mcp.close()
+		}
 	}, 20_000)
 
 	it('refuses a connect deadline that is not a positive number of milliseconds', async () => {

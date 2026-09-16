@@ -11,6 +11,7 @@ import type {
 	MCPTransportUnion,
 } from '../../../types/connector/index.js'
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 
 /**
  * A server answers `initialize` with the version IT will speak, which need
@@ -164,46 +165,59 @@ describe('MCP-Protocol-Version header (introduced in 2025-06-18)', () => {
 	})
 
 	it('sends no MCP-Protocol-Version header when 2025-03-26 is negotiated', async () => {
-		const fetchMock = mockThreeCallEra('2025-03-26')
+		const fetchMock = mockFourCallEra('2025-03-26')
 		vi.stubGlobal('fetch', fetchMock)
 
 		const client = new MCPClient({
 			serverName: 'fixture',
 			transport: { type: 'streamable_http', url: 'https://mcp.example.test/mcp' },
+			eraCache: createMcpEraCache(),
 		})
 		await client.connect()
 		await client.listTools()
 
-		expect(requestAt(fetchMock, 0).headers['MCP-Protocol-Version']).toBeUndefined()
-		expect(requestAt(fetchMock, 2).headers['MCP-Protocol-Version']).toBeUndefined()
+		expect(requestAt(fetchMock, 1).headers['MCP-Protocol-Version']).toBeUndefined()
+		expect(requestAt(fetchMock, 3).headers['MCP-Protocol-Version']).toBeUndefined()
 	})
 
 	it('sends the MCP-Protocol-Version header on tools/list when 2025-06-18 is negotiated, never on initialize itself', async () => {
-		const fetchMock = mockThreeCallEra('2025-06-18')
+		const fetchMock = mockFourCallEra('2025-06-18')
 		vi.stubGlobal('fetch', fetchMock)
 
 		const client = new MCPClient({
 			serverName: 'fixture',
 			transport: { type: 'streamable_http', url: 'https://mcp.example.test/mcp' },
+			eraCache: createMcpEraCache(),
 		})
 		await client.connect()
 		await client.listTools()
 
 		// Never on the initialize request itself: the negotiated version
 		// isn't known yet when that request goes out.
-		expect(requestAt(fetchMock, 0).headers['MCP-Protocol-Version']).toBeUndefined()
-		expect(requestAt(fetchMock, 2).headers['MCP-Protocol-Version']).toBe('2025-06-18')
+		expect(requestAt(fetchMock, 1).headers['MCP-Protocol-Version']).toBeUndefined()
+		expect(requestAt(fetchMock, 3).headers['MCP-Protocol-Version']).toBe('2025-06-18')
 	})
 })
 
-/** initialize -> notifications/initialized -> tools/list, all against one negotiated version. */
-function mockThreeCallEra(version: string): ReturnType<typeof vi.fn<typeof fetch>> {
+/**
+ * server/discover (refused) -> initialize -> notifications/initialized ->
+ * tools/list, all against one negotiated version.
+ *
+ * The probe leads because `connect()` offers the modern era before the
+ * legacy handshake. A legacy origin answers it with a plain 404 carrying no
+ * JSON-RPC body — which is exactly what makes this client fall back — so
+ * the handshake this fixture is about is the SECOND call, not the first.
+ */
+function mockFourCallEra(version: string): ReturnType<typeof vi.fn<typeof fetch>> {
 	return vi
 		.fn<typeof fetch>()
 		.mockResolvedValueOnce(
+			new Response('Not Found', { status: 404, headers: { 'content-type': 'text/plain' } }),
+		)
+		.mockResolvedValueOnce(
 			jsonResponse({
 				jsonrpc: '2.0',
-				id: 1,
+				id: 2,
 				result: {
 					protocolVersion: version,
 					capabilities: {},
@@ -212,7 +226,7 @@ function mockThreeCallEra(version: string): ReturnType<typeof vi.fn<typeof fetch
 			}),
 		)
 		.mockResolvedValueOnce(new Response(null, { status: 204 }))
-		.mockResolvedValueOnce(jsonResponse({ jsonrpc: '2.0', id: 2, result: { tools: [] } }))
+		.mockResolvedValueOnce(jsonResponse({ jsonrpc: '2.0', id: 3, result: { tools: [] } }))
 }
 
 function jsonResponse(body: MCPJsonRpcMessage): Response {
