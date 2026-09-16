@@ -118,6 +118,18 @@ import {
  *    (`tls.TLSSocket` is a `net.Socket`). The container-app NEVER sees
  *    a host-local `udsPath`; the cert material is injected by the
  *    Vandal host layer, never returned by the orchestrator.
+ *  - `tcp`   — the guest agent listening directly on a routed pod
+ *    network (the kubernetes backend). The dialer does a plain
+ *    `net.connect({ host, port })` — no relay, no routing preamble, no
+ *    ack: there is nothing between the host and the guest's own listen
+ *    socket to route through, so the framing loop starts on the very
+ *    first byte, exactly as the `unix` arm's does. `host` may be a
+ *    Service FQDN rather than a literal IP; every call dials fresh (see
+ *    `dial()` below), so DNS is re-resolved on every request and a
+ *    resumed pod's new address is picked up for free. `token` rides in
+ *    each request envelope (see `AgentRequestCredential` in
+ *    `protocol.ts`) because a routed listener authenticates what the
+ *    vsock/unix control channel never had to.
  */
 export type SandboxAgentHandle =
 	| { readonly kind: 'unix'; readonly path: string }
@@ -134,6 +146,7 @@ export type SandboxAgentHandle =
 				readonly servername?: string
 			}
 	  }
+	| { readonly kind: 'tcp'; readonly host: string; readonly port: number; readonly token?: string }
 
 /**
  * The mTLS cert material the consumer injects onto a wire `mtls` handle (the
@@ -149,12 +162,17 @@ export interface MtlsClientMaterial {
 }
 
 /**
- * The WIRE shape of an agent handle as the orchestrator returns it. Identical
- * to {@link SandboxAgentHandle} EXCEPT the `mtls` arm omits the `tls` cert
- * block: the orchestrator returns only host/port/sandboxId, and the consumer
- * (Vandal host layer) merges the cert material in (see `normalizeHandle`)
- * before constructing the transport. The `unix`/`vsock` arms are unchanged
- * (they carry no cert material).
+ * The WIRE shape of an agent handle as the FIRECRACKER orchestrator
+ * returns it. Identical to {@link SandboxAgentHandle} EXCEPT the `mtls`
+ * arm omits the `tls` cert block: the orchestrator returns only
+ * host/port/sandboxId, and the consumer (Vandal host layer) merges the
+ * cert material in (see `normalizeHandle`) before constructing the
+ * transport. The `unix`/`vsock` arms are unchanged (they carry no cert
+ * material). There is deliberately no `tcp` arm here: that kind belongs
+ * to the kubernetes backend, which builds its {@link SandboxAgentHandle}
+ * directly (host/port from the claimed Sandbox's status, token from the
+ * pod's own identity) and never goes through this orchestrator wire
+ * shape or `normalizeHandle`.
  */
 export type WireSandboxAgentHandle =
 	| { readonly kind: 'unix'; readonly path: string }
@@ -209,6 +227,15 @@ export interface VsockTransportOptions {
 	 * against the agent's fresh listen socket. Default 60000ms.
 	 */
 	readonly readIdleTimeoutMs?: number
+	/**
+	 * Fires once per successful dial with how long the connect took, in
+	 * milliseconds. Never fires with the handle's `token` or any request
+	 * content — a bare number. Used by callers that build their own
+	 * `RemoteExecutionAdapter` on top of this transport (the kubernetes
+	 * backend's `KubernetesAgentTransport`) to attribute wall time; the
+	 * vsock/mtls/unix arms are free to ignore it.
+	 */
+	readonly onDial?: (durationMs: number) => void
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
@@ -223,6 +250,39 @@ const DEFAULT_EXECUTION_TIMEOUT_MS = 5 * 60_000
 const EXECUTION_TRANSPORT_GRACE_MS = 10_000
 const POST_RESPONSE_CLOSE_TIMEOUT_MS = 1_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
+
+/**
+ * The guest agent's default pre-auth frame ceiling for a routed (`tcp`)
+ * connection — mirrors `agent.cjs`'s `MAX_PREAUTH_FRAME_BYTES`
+ * (`NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES`, default 8 MiB). The gate on
+ * that side cannot run until a whole frame is parsed (the credential
+ * rides inside the envelope), so it bounds what an UNAUTHENTICATED
+ * connection's first frame may announce. This transport dials fresh per
+ * call — there is no persistent, already-authenticated connection to
+ * reuse — so EVERY `tcp` request is that connection's first frame, and
+ * this ceiling is therefore the effective per-request budget, not just
+ * a one-time cost paid on first use.
+ *
+ * Checked here, client-side, BEFORE dialing: an oversized request fails
+ * fast with a clear error instead of opening a connection the guest is
+ * going to refuse anyway. Chunking a `write-file` body across multiple
+ * frames would lift this ceiling; it is a documented follow-up, not
+ * implemented by this transport.
+ */
+export const TCP_PREAUTH_FRAME_LIMIT_BYTES = 8 * 1024 * 1024
+
+/**
+ * Thrown when a `tcp`-handle request's framed envelope (op + body +
+ * token) would exceed {@link TCP_PREAUTH_FRAME_LIMIT_BYTES}. Named so a
+ * caller can distinguish "this body needs chunking" from every other
+ * transport failure.
+ */
+export class AgentPreauthFrameTooLargeError extends Error {
+	constructor(message: string) {
+		super(message)
+		this.name = 'AgentPreauthFrameTooLargeError'
+	}
+}
 
 /** Exact guest wire version accepted by this Firecracker transport. */
 export const FIRECRACKER_AGENT_PROTOCOL_VERSION = REMOTE_EXECUTION_PROTOCOL_VERSION
@@ -293,6 +353,7 @@ export class VsockAgentTransport {
 	private readonly connectRetryBudgetMs: number
 	private readonly connectRetryIntervalMs: number
 	private readonly readIdleTimeoutMs: number
+	private readonly onDial?: (durationMs: number) => void
 	private readonly executionController: RemoteExecutionController<
 		Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>
 	>
@@ -304,6 +365,7 @@ export class VsockAgentTransport {
 		this.connectRetryIntervalMs =
 			options.connectRetryIntervalMs ?? DEFAULT_CONNECT_RETRY_INTERVAL_MS
 		this.readIdleTimeoutMs = options.readIdleTimeoutMs ?? DEFAULT_READ_IDLE_TIMEOUT_MS
+		this.onDial = options.onDial
 		const adapter: RemoteExecutionAdapter<Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>> = {
 			label: 'framed microVM agent',
 			reserve: async (signal) => await this.reserveExecution(signal),
@@ -337,11 +399,14 @@ export class VsockAgentTransport {
 	 */
 	private async dial(signal?: AbortSignal): Promise<net.Socket> {
 		const deadline = Date.now() + this.connectRetryBudgetMs
+		const dialStartedAt = Date.now()
 		let lastErr: unknown
 		for (;;) {
 			signal?.throwIfAborted()
 			try {
-				return await this.connectOnce(signal)
+				const socket = await this.connectOnce(signal)
+				this.onDial?.(Date.now() - dialStartedAt)
+				return socket
 			} catch (err) {
 				if (signal?.aborted) throw signal.reason
 				lastErr = err
@@ -360,6 +425,7 @@ export class VsockAgentTransport {
 	private connectOnce(signal?: AbortSignal): Promise<net.Socket> {
 		const handle = this.handle
 		if (handle.kind === 'mtls') return this.connectOnceMtls(handle, signal)
+		if (handle.kind === 'tcp') return this.connectOnceTcp(handle, signal)
 		return new Promise<net.Socket>((resolve, reject) => {
 			const path = handle.kind === 'unix' ? handle.path : handle.udsPath
 			const socket = net.connect({ path })
@@ -516,11 +582,88 @@ export class VsockAgentTransport {
 	}
 
 	/**
+	 * Dial a `tcp` handle: a plain `net.connect({ host, port })`. NO
+	 * routing preamble and NO ack — there is no relay to route through
+	 * and no handshake line the guest expects, so the socket is handed
+	 * to the framing loop the instant it connects, exactly like the
+	 * `unix` arm above (whose body this deliberately does not touch).
+	 */
+	private connectOnceTcp(
+		handle: Extract<SandboxAgentHandle, { kind: 'tcp' }>,
+		signal?: AbortSignal,
+	): Promise<net.Socket> {
+		return new Promise<net.Socket>((resolve, reject) => {
+			const socket = net.connect({ host: handle.host, port: handle.port })
+			let settled = false
+			const fail = (err: Error) => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				signal?.removeEventListener('abort', abort)
+				socket.destroy()
+				reject(err)
+			}
+			const abort = () => fail(signalError(signal))
+			const timer = setTimeout(
+				() => fail(new Error(`connect/handshake timed out after ${this.connectTimeoutMs}ms`)),
+				this.connectTimeoutMs,
+			)
+			timer.unref()
+
+			socket.once('error', fail)
+			if (signal?.aborted) {
+				abort()
+				return
+			}
+			signal?.addEventListener('abort', abort, { once: true })
+
+			socket.once('connect', () => {
+				if (settled) return
+				settled = true
+				clearTimeout(timer)
+				signal?.removeEventListener('abort', abort)
+				socket.removeListener('error', fail)
+				resolve(socket)
+			})
+		})
+	}
+
+	/**
+	 * Fold the handle's credential into a request envelope. Only the
+	 * `tcp` arm carries a token — the vsock/unix/mtls control channels
+	 * are host↔guest only and the agent authenticates nothing there, so
+	 * a request built for those arms passes through unchanged.
+	 */
+	private withCredential(req: AgentRequest): AgentRequest {
+		if (this.handle.kind === 'tcp' && this.handle.token !== undefined) {
+			return { ...req, token: this.handle.token }
+		}
+		return req
+	}
+
+	/**
+	 * Refuse an oversized `tcp` envelope BEFORE dialing. See
+	 * {@link TCP_PREAUTH_FRAME_LIMIT_BYTES}. A no-op for every other
+	 * handle kind, which the guest never gates on frame size pre-auth.
+	 */
+	private assertPreauthBudget(payload: string): void {
+		if (this.handle.kind !== 'tcp') return
+		const size = Buffer.byteLength(payload, 'utf8')
+		if (size <= TCP_PREAUTH_FRAME_LIMIT_BYTES) return
+		throw new AgentPreauthFrameTooLargeError(
+			`kubernetes tcp transport: request envelope is ${size} bytes, which exceeds the ${TCP_PREAUTH_FRAME_LIMIT_BYTES}-byte limit the guest agent enforces on an unauthenticated connection's first frame (NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES, default 8 MiB). Every tcp request dials a fresh connection, so this request WOULD be that connection's first frame. Chunking a large body across multiple frames is not implemented; reduce the payload or raise the deployment's NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES.`,
+		)
+	}
+
+	/**
 	 * Send one framed request and read one framed JSON reply (file-IO +
 	 * healthz). Applies the read-idle timeout so a post-resume hung read
 	 * is torn down rather than wedging the caller.
 	 */
 	async request<T>(req: AgentRequest, signal?: AbortSignal): Promise<T> {
+		const envelope = this.withCredential(req)
+		const payload = JSON.stringify(envelope)
+		this.assertPreauthBudget(payload)
 		const socket = await this.dial(signal)
 		return await new Promise<T>((resolve, reject) => {
 			const reader = new FrameReader()
@@ -588,7 +731,7 @@ export class VsockAgentTransport {
 			}
 			signal?.addEventListener('abort', abort, { once: true })
 			idle.bump()
-			socket.write(frame(JSON.stringify(req)))
+			socket.write(frame(payload))
 		})
 	}
 
@@ -602,6 +745,9 @@ export class VsockAgentTransport {
 		opts?: SandboxExecOptions,
 		signal?: AbortSignal,
 	): Promise<SandboxExecResult> {
+		const envelope = this.withCredential({ op: 'execute', body } satisfies AgentRequest)
+		const payload = JSON.stringify(envelope)
+		this.assertPreauthBudget(payload)
 		const socket = await this.dial(signal)
 		const start = Date.now()
 		return await new Promise<SandboxExecResult>((resolve, reject) => {
@@ -694,7 +840,7 @@ export class VsockAgentTransport {
 				return
 			}
 			signal?.addEventListener('abort', abort, { once: true })
-			socket.write(frame(JSON.stringify({ op: 'execute', body } satisfies AgentRequest)))
+			socket.write(frame(payload))
 		})
 	}
 
@@ -737,6 +883,27 @@ export class VsockAgentTransport {
 		opts?: SandboxExecOptions,
 	): Promise<SandboxExecResult> {
 		return await this.executionController.exec(command, argv, opts)
+	}
+
+	/**
+	 * The raw `/execute` primitive with NO admission/reservation
+	 * semantics: dial, send one framed request, accumulate the streamed
+	 * NDJSON reply. Public (unlike the identical-in-spirit
+	 * {@link reserveExecution}/{@link cancelExecution}, reached through
+	 * the already-public {@link request}) so a caller running its OWN
+	 * {@link RemoteExecutionController} — the kubernetes backend's
+	 * adapter — can reuse this exact dial + framing rather than
+	 * reimplementing it, while still supplying that controller its own
+	 * `reserve`/`cancel`/`execute` triple as {@link RemoteExecutionAdapter}
+	 * requires. Callers that just want a reserve-before-admission `exec`
+	 * should use {@link execute} or {@link exec} instead.
+	 */
+	async executeStreamed(
+		body: ExecRequest,
+		opts?: SandboxExecOptions,
+		signal?: AbortSignal,
+	): Promise<SandboxExecResult> {
+		return await this.executeRaw(body, opts, signal)
 	}
 
 	private async reserveExecution(signal: AbortSignal): Promise<unknown> {
@@ -855,7 +1022,6 @@ export class VsockAgentTransport {
 	 * the session and its authenticated WebSocket attachment.
 	 */
 	async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {
-		const socket = await this.dial()
 		const request: TerminalOpenRequest = {
 			...(options.command !== undefined ? { command: options.command } : {}),
 			...(options.args !== undefined ? { args: options.args } : {}),
@@ -864,6 +1030,11 @@ export class VsockAgentTransport {
 			cols: options.size.cols,
 			rows: options.size.rows,
 		}
+		const openPayload = JSON.stringify(
+			this.withCredential({ op: 'terminal', body: request } satisfies AgentRequest),
+		)
+		this.assertPreauthBudget(openPayload)
+		const socket = await this.dial()
 
 		return await new Promise<TerminalSession>((resolve, reject) => {
 			const KILL_GRACE_MS = 5_000
@@ -993,14 +1164,7 @@ export class VsockAgentTransport {
 				finish(new Error('vsock transport: terminal socket closed before exit')),
 			)
 			idle.bump()
-			socket.write(
-				frame(
-					JSON.stringify({
-						op: 'terminal',
-						body: request,
-					} satisfies AgentRequest),
-				),
-			)
+			socket.write(frame(openPayload))
 		})
 	}
 
@@ -1013,8 +1177,12 @@ export class VsockAgentTransport {
 		if (host !== '127.0.0.1' && host !== '::1') {
 			throw new Error('firecracker TCP connections are restricted to guest loopback')
 		}
-		const socket = await this.dial()
 		const request: TcpConnectRequest = { host, port: options.port }
+		const openPayload = JSON.stringify(
+			this.withCredential({ op: 'tcp-connect', body: request } satisfies AgentRequest),
+		)
+		this.assertPreauthBudget(openPayload)
+		const socket = await this.dial()
 
 		return await new Promise<SandboxTcpConnection>((resolve, reject) => {
 			const reader = new FrameReader()
@@ -1134,14 +1302,7 @@ export class VsockAgentTransport {
 				finish(ready ? null : new Error('vsock TCP socket closed before readiness')),
 			)
 			idle.bump()
-			socket.write(
-				frame(
-					JSON.stringify({
-						op: 'tcp-connect',
-						body: request,
-					} satisfies AgentRequest),
-				),
-			)
+			socket.write(frame(openPayload))
 		})
 	}
 }
@@ -1221,6 +1382,9 @@ function describeHandle(handle: SandboxAgentHandle): string {
 			return `vsock:${handle.udsPath}#${handle.port}`
 		case 'mtls':
 			return `mtls:${handle.host}:${handle.port}/${handle.sandboxId}`
+		case 'tcp':
+			// Never the token: this string lands in thrown error messages.
+			return `tcp:${handle.host}:${handle.port}`
 	}
 }
 
