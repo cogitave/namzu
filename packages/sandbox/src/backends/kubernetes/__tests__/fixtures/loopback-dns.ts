@@ -16,19 +16,25 @@
 
 import dns from 'node:dns'
 
-export function stubLoopbackDns(): () => void {
+/**
+ * `address` is read on every lookup rather than captured once, so a case can
+ * change what a name resolves to mid-test — which is exactly what a resumed
+ * pod does to its Service FQDN, and the only way to prove the transport
+ * re-resolves rather than remembering an address.
+ */
+export function stubLoopbackDns(address: () => string = () => '127.0.0.1'): () => void {
 	const original = dns.lookup
 	const lookup = ((_hostname: string, options: unknown, callback?: unknown) => {
 		const done = (typeof options === 'function' ? options : callback) as (
 			err: NodeJS.ErrnoException | null,
-			address: unknown,
+			resolved: unknown,
 			family?: number,
 		) => void
 		if (options && typeof options === 'object' && (options as { all?: boolean }).all) {
-			done(null, [{ address: '127.0.0.1', family: 4 }])
+			done(null, [{ address: address(), family: 4 }])
 			return
 		}
-		done(null, '127.0.0.1', 4)
+		done(null, address(), 4)
 	}) as unknown as typeof dns.lookup
 	dns.lookup = lookup
 	return () => {

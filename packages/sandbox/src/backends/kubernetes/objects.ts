@@ -32,10 +32,27 @@ export const SANDBOX_API_VERSION = 'v1beta1'
 /** `status.conditions[].type` both kinds report readiness under. */
 export const READY_CONDITION = 'Ready'
 
+// The controller also reports a `Suspended` condition, and this backend
+// deliberately does NOT model or read it. Upstream's own `sandbox_types.go`
+// says why: "the controller does not currently remove this condition when the
+// Sandbox is resumed, so a stale Suspended condition may linger after
+// operatingMode returns to Running. Consumers should treat Ready as the
+// authoritative signal and not infer the live operating state from the mere
+// presence of this condition." A suspend that waited on it would return on the
+// True left behind by the previous suspend, while the guest was still running
+// and still writing. `workspace.ts` waits on the pod instead — see
+// `isPodStopped` below.
+
 export interface KubernetesObjectMeta {
 	readonly name?: string
 	readonly namespace?: string
 	readonly uid?: string
+	/**
+	 * Set the moment a DELETE is accepted, long before the object goes away.
+	 * A pod that carries one is on its way out and must never be bound to —
+	 * see {@link isPodLive}.
+	 */
+	readonly deletionTimestamp?: string
 	readonly labels?: Readonly<Record<string, string>>
 	readonly annotations?: Readonly<Record<string, string>>
 }
@@ -130,6 +147,27 @@ export interface SandboxPodTemplate {
 	readonly spec: Readonly<Record<string, unknown>>
 }
 
+/**
+ * One `spec.volumeClaimTemplates` entry.
+ *
+ * Partial in the same way every other shape here is: a workspace's disk is
+ * COPIED verbatim from the `SandboxTemplate` that declares it, and only the
+ * two fields this backend has to reason about are named — the entry's own
+ * `metadata.name`, which is how the controller wires the mount (StatefulSet
+ * style: the PVC is created as `<entry name>-<sandbox name>` and no explicit
+ * `volumes:` entry is needed in the podTemplate), and `spec.volumeMode`,
+ * which decides whether the guest gets a raw block device or a filesystem
+ * passthrough. The index signatures carry everything else across untouched.
+ */
+export interface SandboxVolumeClaimTemplate {
+	readonly metadata?: KubernetesObjectMeta
+	readonly spec?: {
+		readonly volumeMode?: string
+		readonly [field: string]: unknown
+	}
+	readonly [field: string]: unknown
+}
+
 export interface SandboxResourceSpec {
 	readonly operatingMode?: 'Running' | 'Suspended'
 	readonly podTemplate: SandboxPodTemplate
@@ -138,7 +176,12 @@ export interface SandboxResourceSpec {
 	readonly shutdownPolicy?: 'Delete' | 'Retain'
 	/** RFC 3339, top-level on v1beta1 Sandbox (NOT under `lifecycle`). */
 	readonly shutdownTime?: string
-	readonly volumeClaimTemplates?: readonly Readonly<Record<string, unknown>>[]
+	/**
+	 * CEL-immutable on the served CRD ("volumeClaimTemplates is immutable"),
+	 * which is why a workspace's disk has to be in the spec from creation and
+	 * cannot be attached to a sandbox that is already running.
+	 */
+	readonly volumeClaimTemplates?: readonly SandboxVolumeClaimTemplate[]
 }
 
 /**
@@ -169,17 +212,63 @@ export interface SandboxTemplateResource {
 	readonly spec?: {
 		readonly podTemplate?: SandboxPodTemplate
 		readonly service?: boolean
-		readonly volumeClaimTemplates?: readonly Readonly<Record<string, unknown>>[]
+		readonly volumeClaimTemplates?: readonly SandboxVolumeClaimTemplate[]
 	}
 }
 
-/** Only `metadata.uid` is read — it is the per-instance agent bind token. */
+/**
+ * `metadata.uid` is the per-instance agent bind token; the other two fields
+ * exist only to answer "is this the pod that uid belongs to, or the one being
+ * deleted?" — see {@link isPodLive}.
+ */
 export interface PodResource {
 	readonly metadata?: KubernetesObjectMeta
+	readonly status?: { readonly phase?: string }
 }
 
 export interface PodListResource {
 	readonly items?: readonly PodResource[]
+}
+
+/**
+ * A pod whose uid is still worth binding to: not being deleted, and not in a
+ * phase it cannot leave.
+ *
+ * The case this exists for is resume. A resumed sandbox's pod keeps the
+ * SAME NAME and gets a new uid and a new IP, so while the outgoing pod is
+ * terminating a `GET` by that name answers with the pod on its way out, and a
+ * list by the sandbox's selector returns every pod still carrying its labels,
+ * that one included. Binding to the terminating pod's uid produces a token the
+ * new agent refuses, and the failure arrives as a flat `unauthorized` with
+ * nothing pointing at the race that caused it.
+ */
+export function isPodLive(pod: PodResource | undefined): boolean {
+	if (!pod?.metadata) return false
+	// `!= null`, not `!== undefined`: an explicit JSON null would otherwise
+	// read as "terminating" and make a perfectly healthy pod unbindable. The
+	// API server omits the field rather than nulling it, so this never fires
+	// against a real cluster — it costs nothing not to depend on that.
+	if (pod.metadata.deletionTimestamp != null) return false
+	const phase = pod.status?.phase
+	return phase !== 'Succeeded' && phase !== 'Failed'
+}
+
+/**
+ * A pod whose containers have stopped: it is still an object, and nothing in
+ * it is executing any more.
+ *
+ * NOT the negation of {@link isPodLive}, and the gap between the two is the
+ * whole point. A terminating pod — `deletionTimestamp` set, phase still
+ * `Running` — is not live (never bind to it: its uid is about to stop being
+ * a valid token) and not stopped either (its process is still running, and on
+ * a workspace it is still writing to the caller's block device until it exits
+ * or `terminationGracePeriodSeconds` runs out). A suspend that treated the
+ * timestamp as "gone" would resolve mid-drain and promise a quiesced disk it
+ * had not waited for.
+ */
+export function isPodStopped(pod: PodResource | undefined): boolean {
+	const phase = pod?.status?.phase
+	return phase === 'Succeeded' || phase === 'Failed'
 }
 
 /**

@@ -54,6 +54,13 @@ export const PRIVILEGED_PROC_STATUS = [
 ].join('\n')
 
 export interface ScriptedAgentOptions {
+	/**
+	 * Address to listen on. `0.0.0.0` lets one server answer on several
+	 * loopback addresses at once, which is how the suspend/resume suite proves
+	 * a resumed workspace dialed somewhere new: the connection's own
+	 * `localAddress` is the address the CLIENT chose to reach it at.
+	 */
+	readonly host?: string
 	/** stdout every `execute` replies with. Default: deprivileged. */
 	readonly stdout?: string
 	/** Exit code every `execute` reports. Non-zero ⇒ "the probe could not run". */
@@ -68,10 +75,34 @@ export interface ScriptedAgentOptions {
 	readonly executeDelayMs?: number
 }
 
+/** One accepted connection: where the client aimed it. */
+export interface ScriptedAgentConnection {
+	/** The local address this connection arrived on — the client's target. */
+	readonly localAddress: string
+}
+
 export interface ScriptedAgent {
 	readonly port: number
 	/** Every request envelope the server parsed, in order. */
 	readonly requests: readonly Record<string, unknown>[]
+	/** Every TCP connection accepted, in order. A call that refuses before
+	 * dialing leaves this untouched, which is how "no dial" is asserted. */
+	readonly connections: readonly ScriptedAgentConnection[]
+	/** Bind to a different token, as a resumed pod's fresh agent does. */
+	setToken(token: string | undefined): void
+	/**
+	 * Start (or stop) losing executions: while this is on, every `execute`
+	 * drops its connection mid-command and every `cancel-execution` refuses to
+	 * confirm what became of it — an agent that has lost the plot, which from
+	 * the host is indistinguishable from a partitioned pod. The shared
+	 * execution controller retries the cancel for its whole confirm window and
+	 * then reports the outcome UNKNOWN, which is what retires a sandbox.
+	 *
+	 * Settable rather than constructor-only because the acquire-time privilege
+	 * probe is itself an `execute`: a guest that behaved this way from the
+	 * start would fail the create instead of the call under test.
+	 */
+	setLosingExecutions(losing: boolean): void
 	close(): Promise<void>
 }
 
@@ -90,10 +121,14 @@ export async function startScriptedAgent(
 	options: ScriptedAgentOptions = {},
 ): Promise<ScriptedAgent> {
 	const requests: Record<string, unknown>[] = []
+	const connections: ScriptedAgentConnection[] = []
 	const stdout = options.stdout ?? DEPRIVILEGED_PROC_STATUS
 	const exitCode = options.exitCode ?? 0
+	let token = options.token
+	let losingExecutions = false
 
 	const server: Server = createServer((socket) => {
+		connections.push({ localAddress: socket.localAddress ?? '' })
 		const reader = new __framing.FrameReader()
 		socket.on('error', () => {
 			// A caller that destroys its socket mid-reply is normal here; the
@@ -111,7 +146,7 @@ export async function startScriptedAgent(
 					socket.end()
 					continue
 				}
-				if (options.token !== undefined && request.token !== options.token) {
+				if (token !== undefined && request.token !== token) {
 					send(socket, UNAUTHORIZED)
 					socket.end()
 					continue
@@ -128,11 +163,26 @@ export async function startScriptedAgent(
 					continue
 				}
 				if (op === 'cancel-execution') {
+					if (losingExecutions) {
+						// Answered, and useless: the agent cannot say what became of
+						// the command. The controller retries this for its whole
+						// confirm window before reporting the outcome unknown.
+						send(socket, { ok: false, error: 'cancellation_unconfirmed' })
+						socket.end()
+						continue
+					}
 					send(socket, options.cancelReply ?? { ok: true, state: 'cancelled', started: false })
 					socket.end()
 					continue
 				}
 				if (op === 'execute') {
+					if (losingExecutions) {
+						// The command was admitted and the connection then died with
+						// it: the host has no result, no exit code, and no way to
+						// know whether anything is still running in that pod.
+						socket.destroy()
+						continue
+					}
 					const reply = () => {
 						if (socket.destroyed) return
 						if (stdout.length > 0) send(socket, { type: 'stdout_delta', data: stdout })
@@ -163,11 +213,18 @@ export async function startScriptedAgent(
 			}
 		})
 	})
-	await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+	await new Promise<void>((resolve) => server.listen(0, options.host ?? '127.0.0.1', resolve))
 	const { port } = server.address() as AddressInfo
 	return {
 		port,
 		requests,
+		connections,
+		setToken: (next) => {
+			token = next
+		},
+		setLosingExecutions: (next) => {
+			losingExecutions = next
+		},
 		close: () =>
 			new Promise<void>((resolve) => {
 				server.close(() => resolve())

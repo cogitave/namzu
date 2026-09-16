@@ -120,9 +120,11 @@ import {
 	type SandboxPodTemplate,
 	type SandboxResource,
 	type SandboxTemplateResource,
+	type SandboxVolumeClaimTemplate,
 	claimCollectionPath,
 	claimPath,
 	isConditionTrue,
+	isPodLive,
 	podListPath,
 	podPath,
 	sandboxCollectionPath,
@@ -285,8 +287,23 @@ const PRIVILEGE_PROBE_TIMEOUT_CAP_MS = 15_000
  * Deliberately not a separate config key: a knob whose only correct value is
  * "long enough for one `cat`" is a knob that only ever gets set wrong.
  */
-function resolveProbeTimeoutMs(readyTimeoutMs: number): number {
+export function resolveProbeTimeoutMs(readyTimeoutMs: number): number {
 	return Math.min(readyTimeoutMs, PRIVILEGE_PROBE_TIMEOUT_CAP_MS)
+}
+
+/**
+ * The readiness bounds every path in this backend polls against — acquire,
+ * and `workspace.ts`'s create/suspend/resume. One function so the two cannot
+ * drift apart on defaults.
+ */
+export function resolveKubernetesReadiness(config: {
+	readonly readyTimeoutMs?: number
+	readonly readyPollIntervalMs?: number
+}): { readonly timeoutMs: number; readonly pollIntervalMs: number } {
+	return resolveReadinessOptions('kubernetes', config.readyTimeoutMs, config.readyPollIntervalMs, {
+		timeoutMs: DEFAULT_READY_TIMEOUT_MS,
+		pollIntervalMs: DEFAULT_READY_POLL_MS,
+	})
 }
 
 /**
@@ -354,12 +371,7 @@ export function assertRuntimeClassIsApplicable(config: {
  * happens on the first `create()`.
  */
 export function buildKubernetesBackend(config: KubernetesBackendInternalConfig): SandboxBackend {
-	const readiness = resolveReadinessOptions(
-		'kubernetes',
-		config.readyTimeoutMs,
-		config.readyPollIntervalMs,
-		{ timeoutMs: DEFAULT_READY_TIMEOUT_MS, pollIntervalMs: DEFAULT_READY_POLL_MS },
-	)
+	const readiness = resolveKubernetesReadiness(config)
 	assertRuntimeClassIsApplicable(config)
 	// A hostname allowlist with no FQDN-capable engine declared is a
 	// configuration error, not a runtime one — it can be decided from
@@ -406,8 +418,16 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
  * Translate `egress.policy` and confirm an operator applied a matching
  * object — the whole verify-not-trust step, isolated so `create()` above
  * stays about ONE thing (memoize-once-per-backend) rather than two.
+ *
+ * Exported because `workspace.ts` runs the identical step: a workspace does
+ * not go through `buildKubernetesBackend`, and a config `egress` honoured on
+ * one entry point and ignored on the other would be a silent downgrade of the
+ * boundary this backend calls primary. `sandboxTemplateName` is the template
+ * the caller is actually building from — it decides both the default policy
+ * name and the pod label the policy's selector has to match, and a workspace
+ * may be built from a different template than the task path's.
  */
-async function verifyEgressPolicyConfigured(
+export async function verifyEgressPolicyConfigured(
 	client: KubernetesClient,
 	namespace: string,
 	sandboxTemplateName: string,
@@ -423,7 +443,8 @@ async function verifyEgressPolicyConfigured(
 	await verifyEgressPolicyApplied(client, translated, signal)
 }
 
-function clientAccess(config: KubernetesBackendInternalConfig): KubernetesAccess {
+/** Config → the client's own access shape. Shared with `workspace.ts`. */
+export function clientAccess(config: KubernetesBackendInternalConfig): KubernetesAccess {
 	const access = config.access
 	if (access.inCluster === true) return { inCluster: true }
 	return {
@@ -509,14 +530,18 @@ export async function acquireKubernetesSandbox(
 	const createBody =
 		config.warmPoolName !== undefined
 			? buildClaimBody(namespace, objectName, config.warmPoolName, shutdownTime)
-			: buildSandboxBody(
+			: buildSandboxBody({
 					namespace,
-					objectName,
-					await deadline.run((signal) => readPodTemplate(client, namespace, config, signal)),
+					name: objectName,
+					template: await deadline.run((signal) =>
+						readSandboxTemplate(client, namespace, config.sandboxTemplateName, signal),
+					),
+					sandboxTemplateName: config.sandboxTemplateName,
 					shutdownTime,
-					config.runtimeClassName,
-					config.sandboxTemplateName,
-				)
+					...(config.runtimeClassName !== undefined
+						? { runtimeClassName: config.runtimeClassName }
+						: {}),
+				})
 
 	try {
 		// Inside the cleanup block: a POST that fails client-side may still have
@@ -606,6 +631,27 @@ function buildClaimBody(
 }
 
 /**
+ * What a directly created Sandbox copies out of a `SandboxTemplate`, and the
+ * two things it decides for itself.
+ */
+export interface SandboxBodyOptions {
+	readonly namespace: string
+	readonly name: string
+	readonly template: SandboxTemplateCopy
+	/** The template the copy came from — the value of {@link sandboxTemplateLabel}. */
+	readonly sandboxTemplateName: string
+	readonly runtimeClassName?: string
+	/**
+	 * RFC 3339 expiry, paired with `shutdownPolicy: Delete`. ABSENT means the
+	 * object carries no expiry at all and nothing reaps it on the wall clock:
+	 * that is the persistent workspace (`workspace.ts`), which is explicitly
+	 * managed and must survive a host that stops renewing. Every task sandbox
+	 * sets it, because an unbounded task sandbox is a leak.
+	 */
+	readonly shutdownTime?: string
+}
+
+/**
  * The pool-less body. `Sandbox.spec` has no `templateRef` — only a
  * SandboxWarmPool consumes a SandboxTemplate — so the template's podTemplate
  * is copied in here by the client.
@@ -613,6 +659,15 @@ function buildClaimBody(
  * `service: true` is forced rather than inherited: a Sandbox without a Service
  * has no `status.serviceFQDN`, and then the only address left is a pod IP that
  * changes on every resume.
+ *
+ * `volumeClaimTemplates` is copied VERBATIM when the template declares any.
+ * Dropping it would be silent: the Sandbox would come up healthy with no disk,
+ * the container's `volumeDevices`/`volumeMounts` entry would fail to resolve
+ * (or, worse, resolve to an empty emptyDir on some paths), and the only
+ * symptom of a workspace that lost its disk would be that yesterday's files
+ * are gone. The controller wires the mount by the entry's own NAME,
+ * StatefulSet style, so the copy needs no matching `volumes:` entry and this
+ * function adds none.
  *
  * The podTemplate's metadata gains {@link sandboxTemplateLabel}: this Sandbox
  * is created DIRECTLY, never adopted out of a pool, so it never gets
@@ -625,55 +680,67 @@ function buildClaimBody(
  * key always wins if the template happened to set it too, since this is the
  * label the translated policy is built to match.
  */
-function buildSandboxBody(
-	namespace: string,
-	name: string,
-	podTemplate: SandboxPodTemplate,
-	shutdownTime: string,
-	runtimeClassName: string | undefined,
-	sandboxTemplateName: string,
-): Record<string, unknown> {
+export function buildSandboxBody(options: SandboxBodyOptions): Record<string, unknown> {
+	const podTemplate = options.template.podTemplate
 	const spec =
-		runtimeClassName !== undefined
-			? { ...podTemplate.spec, runtimeClassName }
+		options.runtimeClassName !== undefined
+			? { ...podTemplate.spec, runtimeClassName: options.runtimeClassName }
 			: { ...podTemplate.spec }
 	const metadata = {
 		...podTemplate.metadata,
-		labels: { ...podTemplate.metadata?.labels, ...sandboxTemplateLabel(sandboxTemplateName) },
+		labels: {
+			...podTemplate.metadata?.labels,
+			...sandboxTemplateLabel(options.sandboxTemplateName),
+		},
 	}
 	return {
 		apiVersion: `${SANDBOX_API_GROUP}/${SANDBOX_API_VERSION}`,
 		kind: 'Sandbox',
-		metadata: { name, namespace },
+		metadata: { name: options.name, namespace: options.namespace },
 		spec: {
 			operatingMode: 'Running',
 			service: true,
-			shutdownTime,
-			shutdownPolicy: 'Delete',
+			...(options.shutdownTime !== undefined
+				? { shutdownTime: options.shutdownTime, shutdownPolicy: 'Delete' }
+				: {}),
+			...(options.template.volumeClaimTemplates !== undefined
+				? { volumeClaimTemplates: options.template.volumeClaimTemplates }
+				: {}),
 			podTemplate: { ...podTemplate, metadata, spec },
 		},
 	}
 }
 
-async function readPodTemplate(
+/** The two halves of a `SandboxTemplate` a directly created Sandbox copies. */
+export interface SandboxTemplateCopy {
+	readonly podTemplate: SandboxPodTemplate
+	/** Absent when the template declares no disk, which is every task template. */
+	readonly volumeClaimTemplates?: readonly SandboxVolumeClaimTemplate[]
+}
+
+export async function readSandboxTemplate(
 	client: KubernetesClient,
 	namespace: string,
-	config: KubernetesBackendInternalConfig,
+	sandboxTemplateName: string,
 	signal?: AbortSignal,
-): Promise<SandboxPodTemplate> {
+): Promise<SandboxTemplateCopy> {
 	const template = await client.request<SandboxTemplateResource>(
 		'GET',
-		sandboxTemplatePath(namespace, config.sandboxTemplateName),
+		sandboxTemplatePath(namespace, sandboxTemplateName),
 		undefined,
 		signal,
 	)
 	const podTemplate = template?.spec?.podTemplate
 	if (!podTemplate || typeof podTemplate.spec !== 'object' || podTemplate.spec === null) {
 		throw new Error(
-			`kubernetes: SandboxTemplate ${config.sandboxTemplateName} in namespace ${namespace} carries no spec.podTemplate.spec, so there is nothing to create a pool-less Sandbox from. Sandbox.spec has no templateRef — the podTemplate has to be copied in.`,
+			`kubernetes: SandboxTemplate ${sandboxTemplateName} in namespace ${namespace} carries no spec.podTemplate.spec, so there is nothing to create a pool-less Sandbox from. Sandbox.spec has no templateRef — the podTemplate has to be copied in.`,
 		)
 	}
-	return podTemplate
+	const volumeClaimTemplates = template?.spec?.volumeClaimTemplates
+	return {
+		podTemplate,
+		...(volumeClaimTemplates !== undefined ? { volumeClaimTemplates } : {}),
+	}
 }
 
 /**
@@ -719,7 +786,8 @@ function bindingFromClaim(
 	}
 }
 
-function bindingFromSandbox(
+/** Ready-or-not-yet, read off a `Sandbox`'s own status. Shared with `workspace.ts`. */
+export function bindingFromSandbox(
 	sandbox: SandboxResource | undefined,
 ): KubernetesSandboxBinding | undefined {
 	if (!isConditionTrue(sandbox?.status?.conditions, READY_CONDITION)) return undefined
@@ -742,7 +810,7 @@ function bindingFromSandbox(
  * including the sleep between attempts, so an expired clock cannot be extended
  * by one more round trip. Shaped after ACI's `pollForRunningIp`.
  */
-async function pollForBinding(
+export async function pollForBinding(
 	read: (signal: AbortSignal) => Promise<KubernetesSandboxBinding | undefined>,
 	deadline: OperationDeadline,
 	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
@@ -776,11 +844,11 @@ async function pollForBinding(
  * changing upstream is a second round trip through `status.selector`, which is
  * exactly what the controller publishes the selector for.
  */
-async function readPodBindToken(
+export async function readPodBindToken(
 	client: KubernetesClient,
 	namespace: string,
 	binding: KubernetesSandboxBinding,
-	signal: AbortSignal,
+	signal?: AbortSignal,
 ): Promise<string> {
 	try {
 		const pod = await client.request<PodResource>(
@@ -790,7 +858,12 @@ async function readPodBindToken(
 			signal,
 		)
 		const uid = pod?.metadata?.uid
-		if (uid) return uid
+		// `isPodLive` matters on the RESUME path in `workspace.ts`: a resumed
+		// pod keeps its name, so for as long as the outgoing one is
+		// terminating this GET can answer with the pod that is leaving and a
+		// uid the new agent will refuse. On the acquire path nothing is
+		// terminating and the filter never fires.
+		if (uid && isPodLive(pod)) return uid
 	} catch (err) {
 		if (!(err instanceof KubernetesAlreadyGoneError)) throw err
 	}
@@ -806,11 +879,11 @@ async function readPodBindToken(
 		)
 		for (const pod of list?.items ?? []) {
 			const uid = pod.metadata?.uid
-			if (uid) return uid
+			if (uid && isPodLive(pod)) return uid
 		}
 	}
 	throw new Error(
-		`kubernetes: could not read a pod uid for sandbox ${binding.name} in namespace ${namespace} — no pod of that name, and its status.selector matched none either. The pod uid is the agent's bind token, so the sandbox is refused rather than returned unauthenticated.`,
+		`kubernetes: could not read a pod uid for sandbox ${binding.name} in namespace ${namespace} — no live pod of that name, and its status.selector matched no live pod either (a pod carrying a deletionTimestamp, or in phase Succeeded/Failed, is never bound to). The pod uid is the agent's bind token, so the sandbox is refused rather than returned unauthenticated.`,
 	)
 }
 
@@ -818,7 +891,7 @@ async function readSandboxSelector(
 	client: KubernetesClient,
 	namespace: string,
 	binding: KubernetesSandboxBinding,
-	signal: AbortSignal,
+	signal?: AbortSignal,
 ): Promise<string | undefined> {
 	try {
 		const sandbox = await client.request<SandboxResource>(
@@ -878,42 +951,62 @@ async function admitProbedSandbox(
 			? { onRenewalError: config.onLeaseRenewalError }
 			: {}),
 	})
+	try {
+		await probeSandboxPrivileges(sandbox, acquisition.binding.name, probeTimeoutMs, options.signal)
+	} catch (err) {
+		await runFailureCleanup(async (signal) => {
+			await sandbox.destroy({ signal })
+		})
+		throw err
+	}
+	return sandbox
+}
+
+/**
+ * Run the probe against a built Sandbox, on its own clock, and throw if it
+ * refuses. Cleanup is the CALLER's, and the two callers want opposite things:
+ * a task acquire destroys the instance, while `workspace.ts` suspends it,
+ * because deleting a workspace deletes its disk and a probe refusal is not a
+ * reason to lose a caller's files.
+ */
+export async function probeSandboxPrivileges(
+	sandbox: Sandbox,
+	sandboxName: string,
+	probeTimeoutMs: number,
+	signal?: AbortSignal,
+): Promise<void> {
 	// Labelled with the sandbox, so an expiry read off a log line says which
 	// acquire stopped answering — and so the catch below can tell THIS
 	// deadline from any other that might surface through the same exec.
-	const probeLabel = `kubernetes privilege probe ${acquisition.binding.name}`
+	const probeLabel = `kubernetes privilege probe ${sandboxName}`
 	try {
-		options.signal?.throwIfAborted()
+		signal?.throwIfAborted()
 		// The deadline's signal covers both ways this should stop early: it
 		// aborts on expiry, and it aborts with the caller's own reason when
-		// `options.signal` does. Handing it to `exec` is what releases the
-		// guest-side execution rather than merely abandoning the wait.
-		await new OperationDeadline(probeTimeoutMs, probeLabel, options.signal).run(
-			async (signal) =>
+		// `signal` does. Handing it to `exec` is what releases the guest-side
+		// execution rather than merely abandoning the wait.
+		await new OperationDeadline(probeTimeoutMs, probeLabel, signal).run(
+			async (execSignal) =>
 				await runPrivilegeProbe(
-					async (command, args) => await sandbox.exec(command, args, { signal }),
-					acquisition.binding.name,
+					async (command, args) => await sandbox.exec(command, args, { signal: execSignal }),
+					sandboxName,
 				),
 		)
 		// An abort that lands WHILE the probe is in flight must not leave a
 		// live sandbox behind: the probe itself may well have finished, and
 		// the caller who cancelled is about to stop holding the reference
 		// that could destroy it. Same cleanup, one branch later.
-		options.signal?.throwIfAborted()
+		signal?.throwIfAborted()
 	} catch (err) {
-		await runFailureCleanup(async (signal) => {
-			await sandbox.destroy({ signal })
-		})
 		// A caller who cancelled mid-probe gets THEIR reason, not the probe's
 		// account of a command that was cancelled out from under it.
-		options.signal?.throwIfAborted()
+		signal?.throwIfAborted()
 		// A probe that ran out of time is a probe that could not run, and is
 		// refused in those words: `OperationDeadlineExpired` on its own would
 		// leave a reader guessing which half of the acquire went quiet.
 		if (err instanceof OperationDeadlineExpired && err.label === probeLabel) {
-			throw privilegeProbeTimedOut(acquisition.binding.name, probeTimeoutMs, err)
+			throw privilegeProbeTimedOut(sandboxName, probeTimeoutMs, err)
 		}
 		throw err
 	}
-	return sandbox
 }

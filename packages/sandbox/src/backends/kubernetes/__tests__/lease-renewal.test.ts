@@ -20,6 +20,8 @@ import { OperationDeadlineExpired } from '../../readiness.js'
 import { buildKubernetesBackend } from '../index.js'
 import { KubernetesAlreadyGoneError } from '../k8s-client.js'
 import { KubernetesLeaseRenewal, jitteredInterval } from '../lease.js'
+import { buildKubernetesSandbox } from '../sandbox.js'
+import { KubernetesAgentTransport } from '../transport.js'
 import {
 	type FakeApiReply,
 	type FakeApiServer,
@@ -269,6 +271,50 @@ function backend(overrides: Record<string, unknown> = {}) {
 		...overrides,
 	})
 }
+
+describe('the lease is configured as a pair or not at all', () => {
+	it('refuses a renewal with no TTL to stamp', () => {
+		// A renewal re-stamps `now + ttlSeconds`, so a zero or absent TTL
+		// stamps an expiry that has already passed: the controller reaps the
+		// object while the loop reports every tick a success — a lease that
+		// deletes the thing it was added to protect. The options type pairs
+		// the two fields; this is the same rule at runtime, for a caller that
+		// arrived through a cast or from JavaScript.
+		const options = {
+			name: SANDBOX_NAME,
+			rootDir: '/workspace',
+			transport: new KubernetesAgentTransport({
+				kind: 'tcp',
+				host: '127.0.0.1',
+				port: 1,
+				token: POD_UID,
+			}),
+			release: async () => undefined,
+			renew: async () => undefined,
+		}
+		expect(() => buildKubernetesSandbox(options as never)).toThrow(/positive ttlSeconds/)
+		expect(() => buildKubernetesSandbox({ ...options, ttlSeconds: 0 } as never)).toThrow(
+			/positive ttlSeconds/,
+		)
+	})
+
+	it('builds a handle with no lease at all when there is no expiry to move', () => {
+		// The workspace's shape: explicitly managed, no `shutdownTime`, and so
+		// no timer. A no-op `renew` would be the wrong way to say it.
+		const sandbox = buildKubernetesSandbox({
+			name: SANDBOX_NAME,
+			rootDir: '/workspace',
+			transport: new KubernetesAgentTransport({
+				kind: 'tcp',
+				host: '127.0.0.1',
+				port: 1,
+				token: POD_UID,
+			}),
+			release: async () => undefined,
+		})
+		expect(sandbox.status).toBe('ready')
+	})
+})
 
 describe('a handle renews its own lease', () => {
 	it('PATCHes the claim it created, moving shutdownTime later', async () => {

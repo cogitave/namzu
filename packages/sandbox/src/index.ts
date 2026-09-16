@@ -46,9 +46,15 @@ import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
 import { buildFirecrackerBackend } from './backends/firecracker/index.js'
 import type { KubernetesEgressConfig } from './backends/kubernetes/egress-policy.js'
 import {
+	type KubernetesBackendInternalConfig,
 	type KubernetesClusterAccess,
 	buildKubernetesBackend,
 } from './backends/kubernetes/index.js'
+import {
+	type KubernetesWorkspace,
+	type KubernetesWorkspaceOptions,
+	createKubernetesWorkspace as buildKubernetesWorkspace,
+} from './backends/kubernetes/workspace.js'
 
 // Re-export the layout types so consumers of `@namzu/sandbox` can
 // import them without also depending on `@namzu/sdk`. The canonical
@@ -115,6 +121,24 @@ export {
 	KubernetesSandboxGoneError,
 } from './backends/kubernetes/sandbox.js'
 export { KubernetesAgentUnauthorizedError } from './backends/kubernetes/transport.js'
+// The persistent workspace: a `Sandbox` that keeps a block disk across a
+// suspend, plus the four errors its lifecycle can refuse with — a template
+// that cannot carry a disk, a standing object that does not match this
+// configuration, a call on a suspended workspace, and a suspend whose pod
+// outlived the wait. Declared in `@namzu/sandbox` rather than on the SDK's
+// `Sandbox` — see `backends/kubernetes/workspace.ts`.
+export type {
+	KubernetesWorkspace,
+	KubernetesWorkspaceDestroyOptions,
+	KubernetesWorkspaceOptions,
+	KubernetesWorkspaceTransitionOptions,
+} from './backends/kubernetes/workspace.js'
+export {
+	KubernetesWorkspaceDiskError,
+	KubernetesWorkspaceMismatchError,
+	KubernetesWorkspaceSuspendTimeoutError,
+	KubernetesWorkspaceSuspendedError,
+} from './backends/kubernetes/workspace.js'
 
 // ---------------------------------------------------------------------------
 // Backend strategy
@@ -827,29 +851,66 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 	// field below is read off the narrowed type, same as the ACI and docker
 	// branches above.
 	if (backend.tier === 'microvm' && backend.service === 'kubernetes') {
-		return buildKubernetesBackend({
-			access: backend.access,
-			namespace: backend.namespace,
-			sandboxTemplateName: backend.sandboxTemplateName,
-			...(backend.warmPoolName !== undefined ? { warmPoolName: backend.warmPoolName } : {}),
-			...(backend.agentPort !== undefined ? { agentPort: backend.agentPort } : {}),
-			...(backend.readyPollIntervalMs !== undefined
-				? { readyPollIntervalMs: backend.readyPollIntervalMs }
-				: {}),
-			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
-			...(backend.claimTtlSeconds !== undefined
-				? { claimTtlSeconds: backend.claimTtlSeconds }
-				: {}),
-			...(backend.onLeaseRenewalError !== undefined
-				? { onLeaseRenewalError: backend.onLeaseRenewalError }
-				: {}),
-			...(backend.runtimeClassName !== undefined
-				? { runtimeClassName: backend.runtimeClassName }
-				: {}),
-			...(backend.egress !== undefined ? { egress: backend.egress } : {}),
-		})
+		return buildKubernetesBackend(kubernetesInternalConfig(backend))
 	}
 	throw new SandboxBackendNotImplementedError(describeBackend(backend))
+}
+
+/**
+ * Public config → the kubernetes backend's own. One function so the two
+ * entry points that build against a cluster — {@link createSandboxProvider}
+ * for task sandboxes and {@link createKubernetesWorkspace} for persistent
+ * ones — cannot drift apart on which fields they forward.
+ */
+function kubernetesInternalConfig(
+	backend: KubernetesBackendConfig,
+): KubernetesBackendInternalConfig {
+	return {
+		access: backend.access,
+		namespace: backend.namespace,
+		sandboxTemplateName: backend.sandboxTemplateName,
+		...(backend.warmPoolName !== undefined ? { warmPoolName: backend.warmPoolName } : {}),
+		...(backend.agentPort !== undefined ? { agentPort: backend.agentPort } : {}),
+		...(backend.readyPollIntervalMs !== undefined
+			? { readyPollIntervalMs: backend.readyPollIntervalMs }
+			: {}),
+		...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
+		...(backend.claimTtlSeconds !== undefined ? { claimTtlSeconds: backend.claimTtlSeconds } : {}),
+		...(backend.onLeaseRenewalError !== undefined
+			? { onLeaseRenewalError: backend.onLeaseRenewalError }
+			: {}),
+		...(backend.runtimeClassName !== undefined
+			? { runtimeClassName: backend.runtimeClassName }
+			: {}),
+		...(backend.egress !== undefined ? { egress: backend.egress } : {}),
+	}
+}
+
+/**
+ * Create — or reattach to — a persistent workspace on a cluster running the
+ * agent-sandbox controller.
+ *
+ * A workspace is the other half of this backend, and deliberately not
+ * something {@link createSandboxProvider} can hand out: a `SandboxProvider`
+ * promises an EPHEMERAL sandbox per run (`workspaceModes: ['ephemeral']`),
+ * while this returns one object with a name the caller chose, a disk that
+ * survives a suspend, and a lifetime nothing reaps on a timer. It is its own
+ * verb so that the difference is visible at the call site.
+ *
+ * `config.warmPoolName` is ignored here: a workspace is always a `Sandbox`
+ * POSTed directly, because a claim cannot carry the immutable disk spec.
+ * `config.sandboxTemplateName` is the default template, and
+ * `options.sandboxTemplateName` overrides it — a deployment normally has a
+ * task template with no disk and a workspace template with a block one.
+ *
+ * Resolves once the workspace is Ready, addressed and has proved it is
+ * deprivileged, exactly as `provider.create()` does for a task sandbox.
+ */
+export async function createKubernetesWorkspace(
+	config: KubernetesBackendConfig,
+	options: KubernetesWorkspaceOptions,
+): Promise<KubernetesWorkspace> {
+	return await buildKubernetesWorkspace(kubernetesInternalConfig(config), options)
 }
 
 /**

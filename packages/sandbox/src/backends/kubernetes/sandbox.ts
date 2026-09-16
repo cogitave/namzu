@@ -109,13 +109,24 @@ export class KubernetesSandboxGoneError extends Error {
 	}
 }
 
-export interface KubernetesSandboxOptions {
+interface KubernetesSandboxBaseOptions {
 	/** The cluster's own name for the bound sandbox — also the sandbox id. */
 	readonly name: string
 	readonly rootDir: string
 	readonly transport: KubernetesAgentTransport
 	/** DELETE the object this backend created. Already-gone counts as done. */
 	readonly release: (signal?: AbortSignal) => Promise<void>
+}
+
+/**
+ * The lease half of the options: a way to move the expiry, and the expiry it
+ * is moving. Required TOGETHER, because `renew` without `ttlSeconds` is a
+ * renewal loop with nothing to stamp — it would re-stamp `now + 0`, an
+ * expiry already in the past, and hand the object straight to the
+ * controller's reaper while reporting every tick a success. A pair is the
+ * only shape that cannot be half-configured.
+ */
+interface KubernetesSandboxLeaseOptions {
 	/** PATCH the object's `shutdownTime` forward. See `lease.ts`. */
 	readonly renew: (shutdownTime: string, signal?: AbortSignal) => Promise<void>
 	/** The TTL acquire stamped; each renewal re-stamps exactly this much. */
@@ -125,6 +136,25 @@ export interface KubernetesSandboxOptions {
 	readonly leaseIntervalMs?: number
 }
 
+/**
+ * The other arm: an object that carries no expiry, so this handle runs no
+ * renewal loop at all — the persistent workspace (`workspace.ts`), which is
+ * explicitly managed and must outlive a host that stopped renewing. A no-op
+ * `renew` would be the wrong way to say that: it would leave a timer ticking
+ * forever to do nothing. The lease fields are typed `undefined` rather than
+ * omitted so that passing one of them here is a type error and not an
+ * excess-property check a spread would slip past.
+ */
+interface KubernetesSandboxUnleasedOptions {
+	readonly renew?: undefined
+	readonly ttlSeconds?: undefined
+	readonly onRenewalError?: undefined
+	readonly leaseIntervalMs?: undefined
+}
+
+export type KubernetesSandboxOptions = KubernetesSandboxBaseOptions &
+	(KubernetesSandboxLeaseOptions | KubernetesSandboxUnleasedOptions)
+
 function detectEnvironment(): SandboxEnvironment {
 	// The guest runs Linux; the enum describes the host-facing shape of the
 	// worker, not the isolation technology under it. Firecracker's guest
@@ -133,12 +163,21 @@ function detectEnvironment(): SandboxEnvironment {
 }
 
 /**
+ * What this backend hands back: the SDK contract, with the two optional
+ * members it DOES implement narrowed to present, so a caller that composes
+ * one — `workspace.ts` wraps this handle — does not have to re-check for a
+ * method this file always defines.
+ */
+export type KubernetesSandboxHandle = Sandbox &
+	Required<Pick<Sandbox, 'openTerminal' | 'openTcpConnection'>>
+
+/**
  * Build the handle. It does NOT run the acquire-time privilege probe — that
  * is `create()`'s job in `index.ts`, so that a refusal can destroy this
  * object before any caller has a reference to it, and so this function stays
  * usable by the workspace path that runs its own probe.
  */
-export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Sandbox {
+export function buildKubernetesSandbox(options: KubernetesSandboxOptions): KubernetesSandboxHandle {
 	// The cluster owns this name. Preserving it verbatim as the sandbox id —
 	// as the Firecracker backend preserves its orchestrator's — means a log
 	// line carrying an id is also a `kubectl get sandbox` argument.
@@ -153,19 +192,42 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Sandb
 	let retirementPromise: Promise<SandboxRetirementObservation> | undefined
 	const terminals = new Set<TerminalSession>()
 
-	const lease = new KubernetesLeaseRenewal({
-		ttlSeconds: options.ttlSeconds,
-		renew: options.renew,
-		onGone: () => {
-			// The object is gone; the pod behind the address went with it.
-			// Refuse every later call by name rather than let it dial into a
-			// connect timeout with nothing to explain it.
-			if (lifecycle === 'active') lifecycle = 'gone'
-		},
-		...(options.onRenewalError !== undefined ? { onRenewalError: options.onRenewalError } : {}),
-		...(options.leaseIntervalMs !== undefined ? { intervalMs: options.leaseIntervalMs } : {}),
-	})
-	lease.start()
+	// No `renew` ⇒ no expiry to move ⇒ no loop. `stop()` on the undefined
+	// case is the caller's problem to not have, which is why every use below
+	// goes through `lease?.stop()`.
+	const renew = options.renew
+	const ttlSeconds = options.ttlSeconds
+	// The type above already pairs the two. This is the runtime half of the
+	// same rule, for a caller that reached here through a cast or from
+	// JavaScript: a lease stamping `now + 0` expires the moment it is written,
+	// and every tick would report success while the controller deleted the
+	// object underneath it.
+	if (renew !== undefined && (typeof ttlSeconds !== 'number' || ttlSeconds <= 0)) {
+		throw new Error(
+			`kubernetes: sandbox ${options.name} was given a lease renewal with ttlSeconds ${String(ttlSeconds)}. A renewal re-stamps shutdownTime as now + ttlSeconds, so a zero or absent TTL stamps an expiry that has already passed and the object is reaped while the loop reports every tick a success. Pass renew and a positive ttlSeconds together, or neither — an object with no expiry (a persistent workspace) runs no renewal loop.`,
+		)
+	}
+	// `ttlSeconds === undefined` is unreachable once `renew` is defined — the
+	// throw above saw to that — and is written out anyway because it is what
+	// narrows the field to a number for the constructor below.
+	const lease =
+		renew === undefined || ttlSeconds === undefined
+			? undefined
+			: new KubernetesLeaseRenewal({
+					ttlSeconds,
+					renew,
+					onGone: () => {
+						// The object is gone; the pod behind the address went with it.
+						// Refuse every later call by name rather than let it dial into a
+						// connect timeout with nothing to explain it.
+						if (lifecycle === 'active') lifecycle = 'gone'
+					},
+					...(options.onRenewalError !== undefined
+						? { onRenewalError: options.onRenewalError }
+						: {}),
+					...(options.leaseIntervalMs !== undefined ? { intervalMs: options.leaseIntervalMs } : {}),
+				})
+	lease?.start()
 
 	const assertAdmissible = (operation: string): void => {
 		if (lifecycle === 'active') return
@@ -175,7 +237,7 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Sandb
 
 	const teardown = (signal?: AbortSignal): Promise<void> => {
 		if (lifecycle === 'active') lifecycle = 'retiring'
-		lease.stop()
+		lease?.stop()
 		if (teardownComplete) return Promise.resolve()
 		if (teardownPromise) return teardownPromise
 		const shared = options.release(signal).then(
@@ -317,7 +379,7 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Sandb
 			// await every one before releasing the object, so the SDK's
 			// ownership contract is real rather than best-effort bookkeeping.
 			lifecycle = lifecycle === 'active' ? 'retiring' : lifecycle
-			lease.stop()
+			lease?.stop()
 			const activeTerminals = [...terminals]
 			for (const terminal of activeTerminals) terminal.kill('SIGKILL')
 			await Promise.allSettled(activeTerminals.map((terminal) => terminal.exited))

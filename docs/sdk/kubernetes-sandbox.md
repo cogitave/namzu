@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Kubernetes sandboxes
-description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, egress policy translation and verify-not-trust.
+description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, persistent block-disk workspaces with suspend and resume, egress policy translation and verify-not-trust.
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
@@ -17,10 +17,10 @@ acquire stays inside a second, and the pod runs under whatever `RuntimeClass`
 the cluster's `SandboxTemplate` names — a Kata class makes the boundary a
 hardware-virtualized guest rather than a namespace.
 
-Acquire, readiness, address resolution, the execution surface, teardown and
-egress translation/verification are implemented. Persistent workspaces
-(suspend/resume with a block-mode disk) and the cluster manifests are not —
-see [what is not here yet](#what-is-not-here-yet).
+Acquire, readiness, address resolution, the execution surface, teardown,
+egress translation/verification and [persistent workspaces](#persistent-workspaces)
+are implemented. The cluster manifests are not — see
+[what is not here yet](#what-is-not-here-yet).
 
 ## Configure a provider
 
@@ -371,6 +371,342 @@ patch, and only the expiry moves.
 This is what makes `patch` on `sandboxclaims`/`sandboxes` a required RBAC
 verb — see [RBAC](#rbac).
 
+## Persistent workspaces
+
+A task sandbox is claimed, used and deleted inside one run. A **workspace** is
+the other object: created once under a name the caller chooses, suspended when
+nobody is using it, resumed days later with yesterday's dependency cache still
+on its disk, and deleted only when someone says so.
+
+```ts
+import { createKubernetesWorkspace } from '@namzu/sandbox'
+
+const workspace = await createKubernetesWorkspace(
+  {
+    tier: 'microvm',
+    service: 'kubernetes',
+    namespace: 'namzu-sandboxes',
+    access: { inCluster: true },
+    // A workspace template: a podTemplate PLUS a block-mode disk.
+    sandboxTemplateName: 'namzu-workspace',
+  },
+  { workspaceId: 'acme-checkout-7', workingDirectory: '/workspace' },
+)
+
+await workspace.exec('pnpm', ['install'])
+await workspace.suspend() // the pod goes away; the disk does not
+await workspace.resume() // a new pod, a new address, a new agent token
+await workspace.destroy() // suspends — the disk survives
+await workspace.destroy({ deleteDisk: true }) // deletes the Sandbox and the disk
+```
+
+`createKubernetesWorkspace` returns a `KubernetesWorkspace`: the SDK's
+`Sandbox`, plus `suspend()`, `resume()`, a `suspended` flag and a `destroy()`
+that takes `deleteDisk`. Those live on a type exported from `@namzu/sandbox`
+and **not** on the SDK's `Sandbox` — they are backend capabilities, and
+putting them on the shared contract would make every other backend answer for
+a lifecycle it does not have.
+
+It is a separate verb from `createSandboxProvider` on purpose: a
+`SandboxProvider` promises an ephemeral sandbox per run
+(`workspaceModes: ['ephemeral']`), and a workspace is the opposite promise.
+`warmPoolName` is ignored here.
+
+### Calling it twice reattaches
+
+The Sandbox is named `namzu-ws-<workspaceId>`, deterministically, which is the
+only way a second host process — or the same one tomorrow — finds the
+workspace again. A create that collides with an existing object of that name
+adopts it (and resumes it, if it was suspended) rather than failing.
+
+A `workspaceId` that is not already a legal DNS-1123 label is **refused**
+rather than lowercased, stripped or hashed: sanitising maps two ids onto one
+name, and two callers who believe they have separate workspaces would be
+sharing one disk.
+
+**What is adopted is checked against the configuration, not against the
+caller's intention.** A create POSTs its own body and knows what is in it; an
+adopt is handed an object whose shape another process — or last month's
+config — decided. Three things about it have to agree before it is woken:
+
+| Checked on the standing object | Refused with |
+|---|---|
+| A block disk, claimed through `volumeDevices`, exactly as on a template | `KubernetesWorkspaceDiskError` |
+| `spec.podTemplate.metadata.labels['sandbox.namzu.ai/template']` is the template this call builds from | `KubernetesWorkspaceMismatchError`, `field: 'sandboxTemplateName'` |
+| `spec.podTemplate.spec.runtimeClassName` is the configured `runtimeClassName`, when one is configured | `KubernetesWorkspaceMismatchError`, `field: 'runtimeClassName'` |
+
+The label check runs whether or not `config.egress` is set, because that label
+is what an [egress policy](#egress-covers-a-workspace-too)'s `podSelector`
+matches: adopting an object built from another template would hand back a pod
+the policy this call just verified does not select, having reported the
+boundary as verified. The RuntimeClass check is there because that is the VM
+boundary and nothing downstream can watch it go missing — the [privilege
+probe](#the-privilege-probe) reads `/proc/self/status` inside the guest and
+passes identically under a Kata class and under `runc`.
+
+Neither is repaired by patching the standing object. Its disk may hold a month
+of the caller's files, and rewriting a live workspace's `podTemplate` to fit a
+new configuration is a larger decision than reattaching to it, so the error
+names the two honest exits instead: point the workspace at the template it was
+built from, or delete the `Sandbox` — which takes its disk with it — and
+create it again.
+
+**A workspace id is a name, not a lock.** Nothing stops two host processes from
+adopting the same running workspace; each gets its own handle over the same
+pod, and either one's `destroy()` suspends the pod the other is executing in.
+That coordination is the caller's, and this backend does not pretend to it.
+
+### The disk is fixed at creation, and must be `Block`
+
+`Sandbox.spec.volumeClaimTemplates` is CEL-immutable ("volumeClaimTemplates is
+immutable"), and a `SandboxClaim` carrying `spec.volumeClaimTemplates` is
+forced to cold-start instead of adopting a pool sandbox. So the disk has to be
+in the spec from creation, a workspace is always a `Sandbox` POSTed directly,
+and the appealing middle road — claim a warm diskless sandbox and attach a
+disk to it later — **is not expressible in this API at all**. Resizing is out
+of scope for the same reason.
+
+The `SandboxTemplate` a workspace is built from must declare at least one
+`volumeClaimTemplates` entry, every entry must be `volumeMode: Block`, and
+every entry must be claimed by a container through `volumeDevices` (never
+`volumeMounts`). Anything else throws `KubernetesWorkspaceDiskError` **before
+anything is created**, because every shape it refuses otherwise works:
+
+| Template | What happens without the refusal |
+|---|---|
+| No `volumeClaimTemplates` | A healthy sandbox whose files vanish on the first suspend. |
+| `volumeMode: Filesystem` | Under a VM-isolating RuntimeClass the PVC reaches the guest over a host/guest filesystem passthrough (virtio-fs), paying a round trip per file operation. Nothing fails — a dependency-tree walk or a `git status` over a large checkout is simply several times slower, which no functional test can see. |
+| `Block` with no `volumeDevices` | The PVC is provisioned and attached to nothing. |
+| `Block` through `volumeMounts` | The kubelet refuses the pod. |
+
+The rule is **every** entry, not merely the one holding the workspace: nothing
+in the API says which `volumeClaimTemplates` entry is the disk, so a
+`Filesystem` scratch or config PVC declared beside the block one is refused
+too — and since `volumeClaimTemplates` is immutable it could not be added
+later either. A workspace template is all-block, or it is not a workspace
+template.
+
+The controller wires the disk by the entry's own name, StatefulSet style: it
+creates the PVC as `<entry name>-<sandbox name>` and matches it against the
+container's `volumeDevices`, so the copied podTemplate needs no `volumes:`
+entry. The image's entrypoint formats the raw device once and mounts it — see
+[what is not here yet](#what-is-not-here-yet) for where that entrypoint lives.
+
+### A workspace carries no lease
+
+Every task sandbox carries `shutdownTime` + `shutdownPolicy: Delete`, and its
+handle [renews that expiry](#the-lease) for as long as it lives. A workspace
+carries **neither**, and its handle runs no renewal loop. An expiry on a
+workspace is a timer that deletes the caller's files, and a renewal loop makes
+keeping them conditional on a host process staying up — exactly backwards for
+an object whose purpose is to outlive the host. A workspace goes away when
+`destroy({ deleteDisk: true })` says so, and not before. Nothing reaps an
+abandoned one, which is the trade: the leak is deliberate and named.
+
+### Resume changes the address and the token
+
+`suspend()` merge-PATCHes `spec.operatingMode: Suspended` — that exact body
+and nothing else — and resolves only once the pod has actually stopped, not
+once the patch is accepted. The controller deletes only the Pod and reconciles
+PVCs unconditionally on every pass, so the disk survives with the same UID. A
+guest whose PID 1 ignores `SIGTERM` rides out its
+`terminationGracePeriodSeconds` first, which is most of how long a suspend
+takes; the wait is bounded by `readyTimeoutMs`, and a pod that outlives it
+rejects with `KubernetesWorkspaceSuspendTimeoutError`, naming both that knob
+and the image behaviour.
+
+Both of those failures leave the workspace in the state that is TRUE rather
+than the one that was asked for — see [a state is recorded when the cluster
+confirms it](#a-state-is-recorded-when-the-cluster-confirms-it):
+
+- A patch the API server **refuses** changed nothing, so nothing changes here
+  either: the pod is still running, the handle still serves calls, and the
+  next `suspend()` sends the patch again.
+- A patch that landed and a pod that **outlived the wait** leaves the
+  workspace admitting no call — the pod is going away and a dial would hang —
+  but does not record the suspend as finished. `suspended` reads `true`,
+  `resume()` still works, and the next `suspend()` patches and waits again
+  rather than returning on a wait this one lost. A suspend is a promise that
+  the disk is quiesced, and a handle that made it on a draining guest would
+  let the next caller resume, or delete, a workspace mid-write.
+
+**The pod is the only thing that wait believes.** Not the Sandbox's own
+`Suspended` condition — upstream's `sandbox_types.go` says the controller
+"does not currently remove this condition when the Sandbox is resumed, so a
+stale Suspended condition may linger", which would make every suspend after
+the first return instantly on last time's answer. And not a `deletionTimestamp`
+either: that appears the moment the DELETE is accepted, while the guest is
+still running and still writing. Gone, or in a terminal phase — those are the
+two states that mean the disk is quiesced.
+
+A call already in flight when `suspend()` is called is not cancelled: it fails
+at the transport when its pod goes away, rather than with the named suspended
+error, which covers calls admitted from the suspend onwards.
+
+`resume()` PATCHes it back, waits for a ready pod, and then **rebuilds
+everything**: a resumed pod keeps the sandbox's name and gets a new uid and a
+new IP, so the address is re-resolved and the bind token re-read, and the
+transport is rebuilt from both. Nothing from before the suspend is reused.
+
+How much of the address actually moves depends on the Service. Every Sandbox
+this backend creates carries `service: true`, and the Service outlives the pod,
+so when the resolved address is `status.serviceFQDN` it is the same string
+before and after — the pod behind it, and the token, are what changed. A pod
+IP, which is what is left when there is no `serviceFQDN`, changes every time.
+The handle re-resolves either way, because it cannot know in advance which of
+the two it will be handed; an operator debugging a resume should expect the
+token to be new and the FQDN not to be.
+
+The pod read skips any pod carrying a `deletionTimestamp` or in a terminal
+phase. For as long as the outgoing pod is still terminating, a `GET` by name
+can answer with it rather than with the new pod, and a list by the sandbox's
+selector can return it beside the new one — binding to its uid produces a
+token the new agent refuses, reported as a flat `unauthorized` with nothing
+pointing at the race.
+
+**`Ready` is not a transition signal, so the uid is polled rather than read
+once.** The controller does not take the condition down for a resume any more
+than it takes `Suspended` down, so the first poll after the Running patch can
+come back Ready while the only pod under that name is still the pre-suspend
+one — no `deletionTimestamp` yet, phase `Running`, and therefore perfectly
+live by every test above. The resume keeps reading, under the same
+`readyTimeoutMs` budget as everything else on the path, until it sees a live
+pod whose uid is **different** from the one the last suspend PATCH retired; a
+budget that runs out while the old pod is still the only answer fails the
+resume and says so, rather than binding a token that will be refused later.
+
+The pod a resume excludes is the one a suspend patch that **landed** took
+away, which includes the suspend whose pod outlived its own wait: the
+controller was asked for that deletion either way, so a resume issued next
+arrives mid-drain, finds no live pod of that name at all, and has to keep
+reading rather than fail on the first answer. Every patch that lands is
+recorded that way — an explicit `suspend()`, the retirement of a pod that
+[stopped answering](#nothing-but-deletedisk-deletes), and the cleanup after a
+failed create or resume, which swallows its own failure so the primary error
+stays primary and therefore records only when the request actually came back.
+A pod nobody asked the controller to remove has no replacement to wait for, so
+excluding it would time out a resume whose workspace was perfectly usable.
+
+The [privilege probe](#the-privilege-probe) runs again on every resume. A
+resumed pod is a new pod, possibly from a re-pulled image, and "it was
+deprivileged last week" is not a check.
+
+Between the two, every call — `exec`, `readFile`, `writeFile`, `listFiles`,
+`openTerminal`, `openTcpConnection` — throws `KubernetesWorkspaceSuspendedError`
+and **issues no dial**. The Service outlives the pod, so the address still
+resolves; a dial would hang on a connect timeout that names nothing.
+
+`status` reports `destroyed` while suspended, because `SandboxStatus` has four
+members and none of them is "suspended", and `destroyed` is the only one
+meaning "cannot serve a call". The `suspended` flag is what tells the
+recoverable state from the final one.
+
+### Egress covers a workspace too
+
+`config.egress` is not a provider-only knob. `createKubernetesWorkspace` runs
+the same two steps [`createSandboxProvider` runs](#egress): a hostname
+allowlist with no FQDN-capable `engine` declared is refused synchronously,
+before a single request, and the `NetworkPolicy` (or `CiliumNetworkPolicy`) an
+operator was supposed to apply is `GET` and matched against the translation
+before anything is created. A missing or drifted policy fails the call and no
+workspace is created — the network boundary on a long-lived sandbox is the
+policy, not the agent's bind token.
+
+**It is verified against the template the workspace is built from**, which is
+`options.sandboxTemplateName` when given and `config.sandboxTemplateName`
+otherwise. That template's name is the label this backend stamps on the pod
+and the label the policy's `podSelector` has to match, so a deployment with a
+separate workspace template needs its own policy object for it — named
+`<workspace template>-egress` by default, or whatever `networkPolicyName`
+says. The task template's policy does not select a workspace pod.
+
+Unlike the provider's once-per-backend check, this one runs on every
+`createKubernetesWorkspace` call: creating a workspace is a rare, explicit act
+and there is nothing to amortise.
+
+### There is no delete-compute-keep-disk verb
+
+The API has `operatingMode` and it has `DELETE`. Nothing in between. So:
+
+- `destroy()` and `destroy({ deleteDisk: false })` **suspend** and leave the
+  object standing. This is the default because `destroy()` is what a `finally`
+  block calls, and a `finally` block must not be able to erase a month of a
+  caller's work. The handle stays usable: it reports `status: 'destroyed'` and
+  `suspended: true`, and `resume()` brings it back. A default `destroy()` is a
+  suspend in every respect, that one included.
+- `destroy({ deleteDisk: true })` DELETEs the `Sandbox`, which cascades to the
+  Pod, the Service and the PVC through `ownerReferences`. Nothing brings the
+  files back. A DELETE that fails **rejects and stays retryable**: the session
+  it tore down on the way is gone, so the workspace reads `suspended: true`,
+  admits nothing, and is one `resume()` away from serving again or one
+  `destroy({ deleteDisk: true })` away from being deleted — both, because
+  neither the delete nor a suspend reached the cluster. An object already gone
+  counts as deleted, that being the state DELETE was asking for.
+- The two compose, in either order: a plain `destroy()` on a workspace that
+  `destroy({ deleteDisk: true })` already removed is a **no-op**, not an
+  error, because `destroy()` is the verb a `finally` block calls and what it
+  asks for has happened. An explicit `suspend()` on a deleted workspace still
+  throws — it asks for something that cannot be done, rather than for a state
+  that already holds.
+
+### A state is recorded when the cluster confirms it
+
+`suspend()` and `destroy()` are both idempotent, and both are idempotent by
+early-returning on a recorded state. That makes the moment the state is
+recorded the whole correctness question, because that early return is what
+every later call reads:
+
+| Recorded | When |
+|---|---|
+| suspended | the `operatingMode: Suspended` patch landed AND the pod was observed stopped |
+| deleted | the DELETE resolved, or reported the object already gone |
+
+Recording either on the way out — before the request that causes it lands —
+turns a failed request into a permanent silent success. A `destroy({
+deleteDisk: true })` whose DELETE 500s would throw once and answer every retry
+"already deleted", leaving the `Sandbox`, its pod and its PVC standing with
+nothing left that would remove them; a `suspend()` whose patch 500s would
+leave a pod running, and billing, behind a handle that says it is asleep. So a
+request that fails leaves the state it found, and the caller can retry.
+
+Concurrency is covered the other way round, with a **single flight per verb**:
+a second `suspend()` or `destroy()` arriving while one is in progress awaits
+that one rather than sending a second request into the window the deferred
+record opens. `destroy()` with no options shares the suspend's flight, because
+it is a suspend. The shared request runs under the **first** caller's
+`signal`; a later caller's `AbortSignal` is not consulted, and an abort by the
+first rejects everyone waiting on it. That is what sharing one request means,
+and a caller who needs its own cancellation scope needs its own transition.
+
+### Nothing but `deleteDisk` deletes
+
+No failure path in the workspace code ever deletes. A create or a resume that
+fails after the object exists — a readiness timeout, a probe refusal —
+suspends it and rethrows, leaving the disk untouched for the caller to come
+back to under the same deterministic name. That holds even when the failing
+call is the one that POSTed the object and its disk is therefore empty,
+because two processes can be coming up on one name at once and the one that
+got the `201` deleting its "own" object would take the disk of the one that
+adopted it. **The cost is a second named leak**: a create that fails after the
+POST leaves one suspended `Sandbox` and its PVC standing, and — like an
+abandoned workspace — nothing reaps them. Both are found again under the same
+`namzu-ws-<id>` name, and both go away on `destroy({ deleteDisk: true })`.
+
+That covers the path nobody calls, too. When an execution's cancellation
+cannot be confirmed — the guest wedged, the pod partitioned, the
+`cancel-execution` window closing with no answer — a command of unknown state
+is left in that pod, and the shared execution controller's rule is that the
+pod stops being reusable and is **retired**. A task sandbox is retired by
+being DELETEd, correctly: the object is disposable and its disk is scratch. A
+workspace is retired by the same `operatingMode: Suspended` patch `suspend()`
+sends. The `exec()` still rejects, carrying `retirement: { accepted: true }`
+once that patch lands (and `accepted: false`, with the error, when it does
+not); the workspace then reads `suspended: true`, admits nothing, and
+`resume()` brings up a fresh pod on the same disk. An eight-second
+cancellation window is not a reason to erase a month of a caller's files, and
+`destroy({ deleteDisk: true })` stays the only thing in this backend that
+removes a disk.
+
 ## What it refuses
 
 `SandboxBackendOptions` carries per-sandbox controls this backend cannot apply,
@@ -476,6 +812,9 @@ named error identifying which field is wrong, and no sandbox is claimed —
 this check never trusts that an object with the right name does what config
 says. It runs once per backend, not once per `create()`; a failed attempt is
 not cached, so fixing the cluster and calling `create()` again retries it.
+[`createKubernetesWorkspace`](#egress-covers-a-workspace-too) runs the same
+check with its own timing — every call, against its own template's policy —
+because a workspace never passes through the provider.
 
 ## RBAC
 
@@ -487,13 +826,19 @@ when `config.egress` is set — `get` on `networkpolicies` (`networking.k8s.io`)
 or, under `engine: 'cilium'`, `get` on `ciliumnetworkpolicies` (`cilium.io`).
 No consumer role is published upstream. A `403` surfaces as an error naming
 the verb and the resource and never the token.
+[Workspaces](#persistent-workspaces) need nothing beyond this list: they use
+`create`/`get`/`patch`/`delete` on `sandboxes`, `get` on `sandboxtemplates`
+and `get`/`list` on `pods`, which the task path already required.
 
 ## What is not here yet
 
-This batch delivers the config type, both acquire paths, readiness, address
-resolution, the execution surface, the privilege probe, the lease, teardown
-and egress translation/verification. Still to come, each in its own change:
+The config type, both acquire paths, readiness, address resolution, the
+execution surface, the privilege probe, the lease, teardown, egress
+translation/verification and the workspace lifecycle are all implemented.
+Still to come:
 
-- **Workspace lifecycle.** Suspend, resume, and a persistent block-mode disk.
-- **Cluster manifests.** The image, the `RuntimeClass`, `SandboxTemplate`,
-  `SandboxWarmPool`, `NetworkPolicy` and RBAC the above assumes.
+- **Cluster manifests.** The image, its entrypoint (which formats and mounts a
+  workspace's raw block device before dropping privileges), the
+  `RuntimeClass`, `SandboxTemplate`, `SandboxWarmPool`, `NetworkPolicy` and
+  RBAC everything above assumes. Until they land, a deployment writes its own
+  — the requirements this page states are the contract they have to meet.
