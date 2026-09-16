@@ -106,6 +106,7 @@ import type {
 	ConversationTurnStartedRecord,
 } from '../integrations/sessions/turn-evidence.js'
 import type { SubagentActivity } from '../integrations/subagents/activity.js'
+import { type OrchestrationRun, liveOrchestrationRuns } from '../integrations/subagents/runs.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
 import { renderMemoryReport, renderMemorySaveResult } from '../memory/presentation.js'
@@ -218,12 +219,15 @@ import {
 } from './shell-escape.js'
 import {
 	type CommandPickerEntry,
+	type OrchestrationRunsListing,
 	type SlashContext,
 	baseBranchReviewPrompt,
+	combineOrchestrationRuns,
 	commitReviewPrompt,
 	hostCommandNames,
 	kernelCommandDescriptors,
 	mergeHostCommands,
+	renderAgentRuns,
 	renderOutcome,
 	reviewPrompt,
 	runSlash,
@@ -363,6 +367,19 @@ type ChoicePickerState = { readonly back?: ChoicePickerState; readonly request?:
 			readonly values: readonly CommandPickerEntry[]
 			readonly options: readonly ChoicePickerOption[]
 			readonly windowSize: number
+	  }
+	| {
+			/**
+			 * `/agents runs`. `values` holds `'loading'` alone while the disk walk
+			 * is still in flight — its lone option carries a `disabledReason`, so
+			 * Enter cannot select it — and is replaced with the resolved rows once
+			 * it settles; never a mix of the two.
+			 */
+			readonly kind: 'agent-runs'
+			readonly title: string
+			readonly notice?: string
+			readonly values: readonly (OrchestrationRun | 'loading')[]
+			readonly options: readonly ChoicePickerOption[]
 	  }
 	| {
 			readonly kind: 'archive-conversation'
@@ -1645,6 +1662,99 @@ export function App({
 		[nextId],
 	)
 
+	/**
+	 * `/agents runs`: opens a picker immediately with a disabled loading row,
+	 * then replaces it once the live snapshot and the disk walk both resolve.
+	 *
+	 * The composer stays reachable the whole time — nothing here awaits before
+	 * the first `setChoicePicker`. A stale read is dropped by comparing
+	 * `choicePickerRef.current` against the exact loading-picker object this
+	 * call put there (the idiom the `/review` pickers already use below),
+	 * rather than a counter: Escape and every other picker-replacing path
+	 * already route through `setChoicePicker`, so they retire this object as a
+	 * side effect and need no separate token bump of their own. That covers
+	 * both "the operator left this picker" (any other object is current now,
+	 * `null` included) and "opened it again" (a second call's own object is
+	 * current instead).
+	 */
+	const openAgentRunsPicker = useCallback((): void => {
+		setSelectedChoice(0)
+		const pending: ChoicePickerState = {
+			kind: 'agent-runs',
+			title: 'Orchestration runs',
+			values: ['loading'],
+			options: [
+				{ label: 'Loading…', description: 'Reading saved evidence…', disabledReason: 'Loading…' },
+			],
+		}
+		setChoicePicker(pending)
+		void (async () => {
+			const live = liveOrchestrationRuns(subagentsRef.current, Date.now())
+			let finished: readonly OrchestrationRun[] = []
+			try {
+				finished = (await session?.listOrchestrationRuns?.()) ?? []
+			} catch {
+				// Disk evidence is optional here: a live-only listing is still an
+				// honest answer, and the empty-history message below still applies
+				// if that live half turns out empty too.
+			}
+			if (appLifetime.signal.aborted || choicePickerRef.current !== pending) return
+			const listing = combineOrchestrationRuns(live, finished)
+			const empty = renderAgentRuns(listing)
+			if (empty) {
+				setChoicePicker(null)
+				pushMessage('system', empty)
+				return
+			}
+			setChoicePicker({
+				kind: 'agent-runs',
+				title: 'Orchestration runs',
+				notice:
+					listing.omitted > 0
+						? `${listing.omitted} older run${listing.omitted === 1 ? '' : 's'} not shown.`
+						: undefined,
+				values: listing.runs,
+				options: listing.runs.map(agentRunOption),
+			})
+		})()
+	}, [appLifetime, pushMessage, session, setChoicePicker, setSelectedChoice])
+	/**
+	 * Opens an `/agents runs` selection straight into its first agent's
+	 * transcript — where the replayed banner actually lives, for a finished
+	 * run — rather than the phase/agent list Ctrl+T lands on.
+	 *
+	 * A finished run's evidence is hydrated first, since a run this operator
+	 * has not opened the cockpit for yet may not be in `subagents` at all.
+	 * A live run skips that: it is already there, and re-reading disk for a
+	 * run this process is still writing would risk the very half-written
+	 * evidence `listSavedOrchestrationRuns` exists to stay off of.
+	 */
+	const openOrchestrationRun = useCallback(
+		async (run: OrchestrationRun): Promise<void> => {
+			if (!run.live) await hydrateSavedChildren()
+			const workflow = agentWorkflows(subagentsRef.current).find((candidate) =>
+				candidate.agents.some((agent) => agent.workflowId === run.id),
+			)
+			const firstPhase = workflow?.phases[0]
+			const firstAgent = firstPhase?.agents[0]
+			if (!firstPhase || !firstAgent) {
+				pushMessage(
+					'system',
+					`Could not open "${run.name}" — its saved evidence is no longer available.`,
+				)
+				return
+			}
+			setAgentSurface({
+				kind: 'transcript',
+				selectedPhaseId: firstPhase.id,
+				selectedId: firstAgent.viewId,
+				returnFocus: 'agents',
+				tailOffset: 0,
+			})
+		},
+		[hydrateSavedChildren, pushMessage, setAgentSurface],
+	)
+
 	const reportedAgentsRef = useRef(new Set<string>())
 	useEffect(() => {
 		reportedAgentsRef.current.clear()
@@ -2422,6 +2532,11 @@ export function App({
 				if (child) setChoicePicker({ ...child, back: picker })
 				return
 			}
+			if (picker.kind === 'agent-runs') {
+				if (value === 'loading') return
+				void openOrchestrationRun(value as OrchestrationRun)
+				return
+			}
 			if (picker.kind === 'archive-conversation') {
 				if (value === 'archive') archiveCurrentConversation()
 				return
@@ -2497,6 +2612,7 @@ export function App({
 			archiveCurrentConversation,
 			ctx.cwd,
 			enqueueQueued,
+			openOrchestrationRun,
 			pushMessage,
 			recordFeedback,
 			removeStoredCredential,
@@ -5453,6 +5569,10 @@ export function App({
 						})
 						return
 					}
+					case 'agent-runs': {
+						openAgentRunsPicker()
+						return
+					}
 					case 'provider-setup':
 						if (state !== 'idle' || permission || choicePickerRef.current) { pushMessage('system', 'Provider setup is available once the active turn and prompts finish.'); return }
 						setProviderSetup(true)
@@ -6385,6 +6505,7 @@ export function App({
 			hostCommands,
 			nextId,
 			openAgentCockpit,
+			openAgentRunsPicker,
 			pushMessage,
 			rawOutput,
 			removeStoredCredential,
@@ -7798,6 +7919,31 @@ function goalStatusLabel(goal: SessionGoal | null, armed: boolean): string | nul
 /** The label the operator saw for the option id they chose. */
 function labelOfOption(question: UserQuestion, optionId: string): string {
 	return question.options.find((option) => option.id === optionId)?.label ?? optionId
+}
+
+/** `/agents runs`' one-line-per-run text, mirroring `/jobs`' own column shape. */
+function agentRunOption(run: OrchestrationRun): ChoicePickerOption {
+	const agents = `${run.agentsDone}/${run.agentsTotal} agent${run.agentsTotal === 1 ? '' : 's'}`
+	const tokens = `${run.tokensTotal.toLocaleString('en-US')} tokens`
+	const columns = [
+		relativeRunStart(run.startedAt),
+		run.phases.join(', '),
+		agents,
+		tokens,
+		formatElapsed(run.elapsedMs),
+	]
+	if (run.live) columns.push('live')
+	return { label: run.name, description: columns.join(' · ') }
+}
+
+/** `just now` / `12m ago` / `3h ago` / `2d ago` — the same buckets a conversation's own resume picker shows. */
+function relativeRunStart(startedAt: number): string {
+	const minutes = Math.round((Date.now() - startedAt) / 60_000)
+	if (minutes < 1) return 'just now'
+	if (minutes < 60) return `${minutes}m ago`
+	const hours = Math.round(minutes / 60)
+	if (hours < 24) return `${hours}h ago`
+	return `${Math.round(hours / 24)}d ago`
 }
 
 function choicePickerSearchable(picker: ChoicePickerState): boolean {

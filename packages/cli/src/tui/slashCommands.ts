@@ -39,6 +39,7 @@ import {
 import { type ConfigDebugSnapshot, renderConfigDebug } from '../config/debug.js'
 import type { HooksConfig } from '../config/schema.js'
 import type { SandboxSummary } from '../context/sandbox.js'
+import type { OrchestrationRun } from '../integrations/subagents/runs.js'
 import {
 	type PermissionMode,
 	effectivePermissionMode,
@@ -69,6 +70,8 @@ export type SlashAction =
 	| { kind: 'command-picker'; commands: readonly CommandPickerEntry[] }
 	/** Observe child runs retained by this TUI conversation. */
 	| { kind: 'agent-cockpit' }
+	/** List past and running orchestration runs; App reads live state and saved evidence. */
+	| { kind: 'agent-runs' }
 	| { kind: 'settings-picker' }
 	| RunLimitsAction
 	| { kind: 'provider-setup' }
@@ -687,14 +690,21 @@ export const CLI_LOCAL_COMMANDS: readonly SlashCommand[] = [
 	},
 	{
 		name: 'agents',
-		description: 'Inspect delegated agents; /agents available lists configured agents.',
-		help: { usage: ['/agents [running|available]'] },
+		description:
+			'Inspect delegated agents; /agents available lists configured agents, /agents runs lists past and running orchestration runs.',
+		help: { usage: ['/agents [running|available|runs]'] },
 		action: (_ctx, args) =>
 			args.length === 0 || (args.length === 1 && args[0] === 'running')
 				? { kind: 'agent-cockpit' }
 				: args.length === 1 && args[0] === 'available'
 					? { kind: 'host-command', name: 'agents', args: [] }
-					: { kind: 'message', role: 'system', content: 'Usage: /agents [running|available]' },
+					: args.length === 1 && args[0] === 'runs'
+						? { kind: 'agent-runs' }
+						: {
+								kind: 'message',
+								role: 'system',
+								content: 'Usage: /agents [running|available|runs]',
+							},
 	},
 	{
 		name: 'goal',
@@ -1348,6 +1358,47 @@ export function renderJobs(jobs: ReturnType<SlashContext['jobs']>): string {
 		'',
 		'The agent reads one with the job tool; ask it to stop one, or /exit stops them all.',
 	].join('\n')
+}
+
+/**
+ * Runs shown newest first, bounded the way {@link DelegationHistory}'s own
+ * reads are: a page an operator can actually read, plus an honest count of
+ * what did not fit rather than a listing that quietly grows with the whole
+ * estate.
+ */
+export const MAX_LISTED_ORCHESTRATION_RUNS = 20
+
+export interface OrchestrationRunsListing {
+	readonly runs: readonly OrchestrationRun[]
+	readonly omitted: number
+}
+
+/**
+ * Merges a conversation's still-running runs with its finished ones into the
+ * one list `/agents runs` shows.
+ *
+ * A run id named by both sources keeps its LIVE row and drops the disk one:
+ * the live monitor is the fresher account of a run this process can still
+ * watch directly, and the disk copy of that same id can only be a run.json
+ * still being written to — never authority over a run its own process is
+ * still reporting on live.
+ */
+export function combineOrchestrationRuns(
+	live: readonly OrchestrationRun[],
+	finished: readonly OrchestrationRun[],
+): OrchestrationRunsListing {
+	const liveIds = new Set(live.map((run) => run.id))
+	const all = [...live, ...finished.filter((run) => !liveIds.has(run.id))].sort(
+		(left, right) => right.startedAt - left.startedAt,
+	)
+	const runs = all.slice(0, MAX_LISTED_ORCHESTRATION_RUNS)
+	return { runs, omitted: Math.max(0, all.length - runs.length) }
+}
+
+/** The honest empty answer for `/agents runs`; a non-empty listing opens the picker instead. */
+export function renderAgentRuns(listing: OrchestrationRunsListing): string | undefined {
+	if (listing.runs.length > 0) return undefined
+	return 'No orchestration runs yet. This conversation has not delegated any work, or none of it is still on disk.'
 }
 
 /** Reports validate their subcommand instead of silently ignoring mistyped arguments. */

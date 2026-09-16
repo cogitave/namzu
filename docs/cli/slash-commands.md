@@ -53,7 +53,7 @@ explain why they cannot run and are checked again when selected.
 | `/init` | Write an AGENTS.md describing this project to future agents. |
 | `/goal` | Open this conversation’s goal menu. `/goal status` reads progress; `/goal set` opens the objective editor. |
 | `/tasks` | Read tasks from this conversation’s current or latest run. Starting another run or changing conversations clears the previous selection. |
-| `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. |
+| `/agents` | Inspect delegated activity in this conversation; `/agents running` opens the same view. `/agents available` lists configured agents. `/agents runs` lists past and running orchestration runs. |
 
 ## Command-specific help
 

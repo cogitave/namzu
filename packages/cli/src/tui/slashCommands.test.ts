@@ -1,15 +1,18 @@
 import type { CostInfo } from '@namzu/sdk'
 import { describe, expect, it, vi } from 'vitest'
 
+import type { OrchestrationRun } from '../integrations/subagents/runs.js'
 import {
 	CLI_LOCAL_COMMANDS,
 	type SlashCommand,
 	type SlashContext,
+	combineOrchestrationRuns,
 	initPrompt,
 	kernelCommandDescriptors,
 	matchSlashCommands,
 	mergeHostCommands,
 	parseSlash,
+	renderAgentRuns,
 	renderAgents,
 	renderCost,
 	renderPermissions,
@@ -45,6 +48,22 @@ function permissionsReadout(ctx: SlashContext) {
 	return {
 		kind: 'message' as const,
 		content: renderPermissions(ctx.permissions, true),
+	}
+}
+
+/** An orchestration run row, for the same reason `cost` and `permissions` exist above. */
+function orchestrationRun(over: Partial<OrchestrationRun> = {}): OrchestrationRun {
+	return {
+		id: 'run-1',
+		name: 'Delegated work',
+		startedAt: 0,
+		phases: ['Work'],
+		agentsDone: 0,
+		agentsTotal: 1,
+		tokensTotal: 0,
+		elapsedMs: 0,
+		live: false,
+		...over,
 	}
 }
 
@@ -1257,6 +1276,61 @@ describe('/jobs', () => {
 		expect(r.content).toContain('2 background jobs this session')
 		expect(r.content).toMatch(/job_1\s+running for \d+s\s+npm run dev/)
 		expect(r.content).toMatch(/job_2\s+exited 0\s+npm test/)
+	})
+})
+
+describe('/agents runs', () => {
+	it('/agents runs is offered and its usage line lists every subcommand', () => {
+		expect(runSlash('/agents runs', context())).toEqual({ kind: 'agent-runs' })
+
+		const usage = runSlash('/agents bogus', context())
+		expect(usage?.kind).toBe('message')
+		if (usage?.kind !== 'message') return
+		expect(usage.content).toContain('running')
+		expect(usage.content).toContain('available')
+		expect(usage.content).toContain('runs')
+	})
+
+	it('/agents with an unknown subcommand shows usage', () => {
+		expect(runSlash('/agents bogus', context())).toEqual({
+			kind: 'message',
+			role: 'system',
+			content: 'Usage: /agents [running|available|runs]',
+		})
+	})
+
+	it('a run in flight is listed from live state, not from disk', () => {
+		// Both name the same parent run. The disk row carries a stale total that
+		// would be wrong if it won — proof the merge picked the live one and not
+		// merely a row that happens to look similar.
+		const live = orchestrationRun({ id: 'run-1', name: 'Auth refactor', live: true, agentsDone: 1 })
+		const stale = orchestrationRun({
+			id: 'run-1',
+			name: 'Delegated work',
+			live: false,
+			agentsDone: 99,
+		})
+		const other = orchestrationRun({ id: 'run-2', name: 'Docs pass', live: false, startedAt: -1 })
+
+		const listing = combineOrchestrationRuns([live], [stale, other])
+
+		expect(listing.runs).toContainEqual(live)
+		expect(listing.runs).not.toContainEqual(stale)
+		expect(listing.runs.find((run) => run.id === 'run-1')?.live).toBe(true)
+		expect(listing.omitted).toBe(0)
+	})
+
+	it('an empty history lists nothing and says so', () => {
+		const listing = combineOrchestrationRuns([], [])
+
+		expect(listing.runs).toEqual([])
+		expect(listing.omitted).toBe(0)
+		expect(renderAgentRuns(listing)).toContain('No orchestration runs')
+	})
+
+	it('says nothing when there is at least one run to show', () => {
+		const listing = combineOrchestrationRuns([orchestrationRun()], [])
+		expect(renderAgentRuns(listing)).toBeUndefined()
 	})
 })
 

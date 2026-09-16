@@ -215,6 +215,10 @@ import { createDelegationHistoryStep } from '../integrations/subagents/history.j
 import { prepareDelegatedEffort } from '../integrations/subagents/model-effort.js'
 import { SubagentPathBuilder, resolveSubagentParent } from '../integrations/subagents/parent.js'
 import { replaySavedChildrenFor } from '../integrations/subagents/replay.js'
+import {
+	type OrchestrationRun,
+	listSavedOrchestrationRuns,
+} from '../integrations/subagents/runs.js'
 import { type SubagentRuntime, createSubagentRuntime } from '../integrations/subagents/runtime.js'
 import { cliLogger } from '../logging.js'
 import { formatMemoryDiagnostics } from '../memory/presentation.js'
@@ -731,6 +735,18 @@ export interface AgentSession {
 	 * disk simply has none to offer.
 	 */
 	readonly savedChildren?: () => Promise<readonly SubagentActivity[]>
+	/**
+	 * Finished parent turns this conversation delegated work under, read from
+	 * disk — the counterpart of {@link savedChildren} for `/agents runs`,
+	 * grouped by parent run rather than flattened to one row per child.
+	 *
+	 * A run still in flight is never reported here: it belongs to
+	 * `liveOrchestrationRuns` over the live monitor's own snapshot instead, the
+	 * same split {@link savedChildren} draws against `subagents`. Optional for
+	 * the same reason that one is — an embedded session with no evidence on
+	 * disk has none to offer.
+	 */
+	readonly listOrchestrationRuns?: () => Promise<readonly OrchestrationRun[]>
 	/**
 	 * Things about this session's configuration the operator must be told, every
 	 * launch — today, an accepted capability disagreement in the provider chain,
@@ -2884,6 +2900,12 @@ export async function createAgentSession(
 		...(subagentRuntime ? { subagents: subagentRuntime.activity } : {}),
 		savedChildren: () =>
 			replaySavedChildrenFor({
+				sessionsRoot: join(projectStateRoot, 'sessions'),
+				sessionId: scope.sessionId,
+				log: cliLogger(),
+			}),
+		listOrchestrationRuns: () =>
+			listSavedOrchestrationRuns({
 				sessionsRoot: join(projectStateRoot, 'sessions'),
 				sessionId: scope.sessionId,
 				log: cliLogger(),

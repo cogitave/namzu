@@ -26,6 +26,7 @@ import type { Preferences } from '../../integrations/providers/index.js'
 import type { SubagentActivity } from '../../integrations/subagents/activity.js'
 import { subagentParentFixture } from '../../integrations/subagents/__fixtures__/parent.js'
 import { createSubagentRuntime } from '../../integrations/subagents/runtime.js'
+import type { OrchestrationRun } from '../../integrations/subagents/runs.js'
 import {
 	AgentCockpit,
 	AgentTaskPanel,
@@ -102,6 +103,14 @@ const savedChildren: {
 	reads: number
 	gate?: Promise<void>
 } = vi.hoisted(() => ({ current: [], reads: 0 }))
+/**
+ * What `/agents runs` finds on disk for this conversation, as the cheap
+ * listing reads it. `gate` holds one open so a test can put the read in
+ * flight underneath a key press, the same shape as `savedChildren.gate`.
+ */
+const orchestrationRuns: { current: readonly OrchestrationRun[]; gate?: Promise<void> } = vi.hoisted(() => ({
+	current: [],
+}))
 
 vi.mock('../../integrations/trust/store.js', () => ({
 	isTrusted: () => true,
@@ -159,6 +168,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 				savedChildren.reads += 1
 				await savedChildren.gate
 				return savedChildren.current
+			},
+			listOrchestrationRuns: async () => {
+				await orchestrationRuns.gate
+				return orchestrationRuns.current
 			},
 			configNotices: [],
 			approvalLatched: () => false,
@@ -300,6 +313,8 @@ beforeEach(() => {
 	savedChildren.current = []
 	savedChildren.reads = 0
 	delete savedChildren.gate
+	orchestrationRuns.current = []
+	delete orchestrationRuns.gate
 	activity.delegate(undefined)
 	activity.set([])
 	parentGate = new Promise<void>((resolve) => {
@@ -1374,6 +1389,113 @@ describe('Ctrl+T', () => {
 		await screen.waitForRender()
 		expect(screen.viewport().join('\n')).toContain('child final answer')
 		expect(screen.viewport().join('\n')).toContain('Completed')
+	})
+})
+
+describe('/agents runs', () => {
+	it('selecting a past run opens the cockpit with the replayed banner', async () => {
+		// Nothing live: this run is entirely on disk, the way a past turn's
+		// work looks once the process that ran it has exited.
+		activity.set([])
+		savedChildren.current = [
+			agent({
+				viewId: 'run-saved-1',
+				workflowId: 'saved-run-1',
+				description: 'Contract critic',
+				status: 'completed',
+				startedAt: 1,
+				completedAt: 2,
+				replayed: true,
+				transcript: [{ id: 'saved-row', kind: 'tool', text: 'Read(src/a.ts)', status: 'completed' }],
+			}),
+		]
+		orchestrationRuns.current = [
+			{
+				id: 'saved-run-1',
+				name: 'Contract critic run',
+				startedAt: 1,
+				phases: ['Work'],
+				agentsDone: 1,
+				agentsTotal: 1,
+				tokensTotal: 0,
+				elapsedMs: 1_000,
+				live: false,
+			},
+		]
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+
+		await submit(screen, '/agents runs')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Contract critic run'),
+			'the run listing did not show the saved run',
+		)
+
+		screen.press('\r')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Replayed from saved evidence.'),
+			'selecting the run did not open the replayed banner',
+		)
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('cannot be continued')
+		expect(frame).toContain('Read(src/a.ts)')
+	})
+
+	it('reports an empty history rather than an empty picker', async () => {
+		activity.set([])
+		savedChildren.current = []
+		orchestrationRuns.current = []
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+
+		await submit(screen, '/agents runs')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('No orchestration runs'),
+			'an empty history did not say so',
+		)
+	})
+
+	it('drops a stale read once the operator has left the loading picker', async () => {
+		activity.set([])
+		orchestrationRuns.current = []
+		let release: () => void = () => {}
+		orchestrationRuns.gate = new Promise<void>((resolve) => {
+			release = resolve
+		})
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 110, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+
+		await submit(screen, '/agents runs')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Orchestration runs'),
+			'the loading picker did not open',
+		)
+
+		// The operator gives up on the read before the disk walk resolves.
+		screen.press('\x1b')
+		await waitUntil(
+			screen,
+			() => !screen.viewport().join('\n').includes('Orchestration runs'),
+			'escape did not close the loading picker',
+		)
+
+		release()
+		// Give the now-resolved read every chance to (wrongly) act.
+		for (let i = 0; i < 5; i += 1) {
+			await screen.waitForRender()
+		}
+
+		// A stale read must not reopen the picker the operator already left,
+		// nor push the empty-history message over whatever is on screen now.
+		expect(screen.viewport().join('\n')).not.toContain('Orchestration runs')
+		expect(painted(screen)).not.toContain('No orchestration runs')
 	})
 })
 

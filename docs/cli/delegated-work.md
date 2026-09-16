@@ -278,6 +278,27 @@ does opening one. A replayed child has no task the scheduler still knows:
 `send_message` cannot reach it, `cancel_agent` has nothing to cancel, and the
 screen offers neither.
 
+### Finding a run to reopen
+
+`/agents runs` lists this conversation's parent turns that delegated at least
+one child, newest first: a run still going is read from the live monitor, and
+a finished one from `run.json` under its children — the same evidence
+`listChildren` already reports, without reading any transcript. Reading a
+transcript per row would make the listing itself pay for what only opening a
+row needs. The walk runs in the background behind a loading row rather than
+holding the composer, and an empty history says so rather than opening an
+empty picker; an unrecognised subcommand shows usage.
+
+Each row's name is its `workflow` label when a live host set a meaningful
+one, and otherwise the opening words of the parent turn that started it — a
+saved child's own `workflow` label is never recovered (see above), so a
+finished run is named from the turn instead. Enter opens the selected run in
+the same cockpit `Ctrl+T` opens, landing directly on the first agent's
+transcript so a finished run's `Replayed from saved evidence.` banner is the
+first thing on screen. The listing is bounded the way the delegation-history
+archive is: at most 20 rows, with an omitted count when a conversation has
+delegated under more parent turns than that.
+
 ### Retention
 
 Child run directories accumulate. Nothing prunes them: not the subagent runtime,
