@@ -70,6 +70,12 @@ function findLoopDevice(): string | undefined {
 const LOOP_DEVICE = findLoopDevice()
 
 const FAKE_TOOLS: Record<string, string> = {
+	// The default (root) so every EXISTING case in this file — none of which
+	// override `id` — keeps taking the root branch, whatever uid the process
+	// actually running this test suite happens to be. A case testing the
+	// non-root branch overrides this with `fakeId(<non-zero>)` in its own
+	// `fakes` map.
+	id: fakeId(0),
 	// `FAKE_BLKID_TYPE` set: prints that type and exits 0 (a filesystem was
 	// found). Otherwise exits `FAKE_BLKID_EXIT` (default 2, "nothing
 	// found" — blkid(8) — matching the real tool's answer for a genuinely
@@ -139,6 +145,17 @@ interface RunOptions {
 	 * since the default would otherwise let the test runner's OWN real
 	 * `blkid` (etc.) answer once a fake is left out. */
 	basePath?: string
+}
+
+/** `id`'s fake, layered on top of `FAKE_TOOLS` by cases that need a specific
+ * uid: `FAKE_TOOLS.id` below defaults to reporting root, so every EXISTING
+ * root-path case keeps taking the root branch it always has, whatever uid
+ * the process actually running this test suite happens to be. */
+function fakeId(uid: number): string {
+	return `#!/bin/sh
+echo "id $*" >> "$NAMZU_TEST_LOG"
+echo "${uid}"
+`
 }
 
 function runEntrypoint(env: Record<string, string | undefined>, options: RunOptions = {}): RunResult {
@@ -244,6 +261,60 @@ describe('no device configured (a task pod)', () => {
 		expect(result.log.some((line) => line.startsWith('mount '))).toBe(false)
 		expect(result.log.some((line) => line.startsWith('chown '))).toBe(false)
 		expect(result.log.some((line) => line.startsWith('setpriv '))).toBe(true)
+	})
+})
+
+describe('running as a non-root uid (sandboxtemplate-task.yaml\'s pod)', () => {
+	it('skips blkid/mkfs/mount/chown and execs setpriv with only --no-new-privs, never the root-path flags', () => {
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
+				NAMZU_WORKSPACE_DEVICE: '',
+			},
+			{ fakes: { ...FAKE_TOOLS, id: fakeId(1001) } },
+		)
+		expect(result.status).toBe(0)
+		expect(result.log.some((line) => line.startsWith('blkid '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('mkfs.ext4 '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('mount '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('chown '))).toBe(false)
+
+		const setprivLine = result.log.find((line) => line.startsWith('setpriv '))
+		expect(setprivLine).toBeDefined()
+		expect(setprivLine).toContain('--no-new-privs')
+		expect(setprivLine).toContain('-- /usr/bin/tini -- node /opt/namzu/agent.cjs')
+		// None of the root-path privilege-drop flags: this process has none
+		// of the capabilities they need (CAP_SETUID/CAP_SETGID/CAP_SETPCAP),
+		// and the pod's own securityContext already dropped everything they
+		// would have dropped.
+		expect(setprivLine).not.toContain('--reuid')
+		expect(setprivLine).not.toContain('--regid')
+		expect(setprivLine).not.toContain('--clear-groups')
+		expect(setprivLine).not.toContain('--inh-caps')
+		expect(setprivLine).not.toContain('--bounding-set')
+		// And it really is the last thing this run did.
+		expect(result.log.at(-1)).toBe(setprivLine)
+	})
+
+	it('exits non-zero, before touching blkid/mkfs/mount, when a device is set but the container is not root', () => {
+		const root = mktempWorkDir()
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: root,
+				// A workspace pod's device, on a pod shaped like a task pod —
+				// the misconfiguration this branch exists to refuse rather
+				// than silently skip.
+				NAMZU_WORKSPACE_DEVICE: '/dev/namzu-workspace',
+			},
+			{ fakes: { ...FAKE_TOOLS, id: fakeId(1001) } },
+		)
+		expect(result.status).not.toBe(0)
+		expect(result.log.some((line) => line.startsWith('blkid '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('mkfs.ext4 '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('mount '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('setpriv '))).toBe(false)
+		expect(result.stderr).toContain('NAMZU_WORKSPACE_DEVICE')
+		expect(result.stderr).toContain('1001')
 	})
 })
 

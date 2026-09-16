@@ -58,23 +58,41 @@ spec:
               containerPort: 1024
               protocol: TCP
           securityContext:
-            # Required for entrypoint.sh's mkfs/mount step, which runs
-            # before it drops every capability via `setpriv` and execs into
-            # the agent — see k8s/entrypoint.sh and k8s/Dockerfile's own
-            # header comments for the full sequence.
+            # This task template mounts no device (no NAMZU_WORKSPACE_DEVICE
+            # below), so entrypoint.sh's blkid/mkfs.ext4/mount branch never
+            # runs — the pod needs no root, and no capability, at any point
+            # in its life. Unlike sandboxtemplate-workspace.yaml (which DOES
+            # need root, up front, for that branch — see its own comment),
+            # this pod starts as the ids below. entrypoint.sh's own uid
+            # check (`id -u`) takes the non-root branch and execs straight
+            # into `setpriv --no-new-privs -- tini -- node agent.cjs`,
+            # skipping the `--reuid`/`--regid`/`--clear-groups`/`--inh-caps`/
+            # `--bounding-set` flags a root start would otherwise need — see
+            # k8s/entrypoint.sh's header comment for the full branch.
             #
-            # This task template mounts no device (no
-            # NAMZU_WORKSPACE_DEVICE below), so entrypoint.sh's mount
-            # branch never runs and `privileged` buys this pod nothing at
-            # runtime — it is here so ONE image and ONE entrypoint serve
-            # both this template and sandboxtemplate-workspace.yaml, which
-            # does need it. The acquire-time privilege probe
+            # This is the container-level shape of the Pod Security
+            # Standards `restricted` profile. `runAsUser`/`runAsGroup` MUST
+            # match k8s/Dockerfile's `AGENT_UID`/`AGENT_GID` — entrypoint.sh
+            # trusts the container's actual uid, not these two env vars, so
+            # a mismatch here would run the agent as an id whose files (the
+            # image's own `/workspace`, chowned at build time) it cannot
+            # write to.
+            #
+            # The acquire-time privilege probe
             # (../../src/backends/kubernetes/privilege-probe.ts) is what
-            # actually proves the AGENT process — after setpriv — carries
-            # none of this: CapBnd/CapEff/CapInh/CapPrm all zero,
-            # NoNewPrivs 1, checked on every single acquire rather than
-            # trusted from this manifest.
-            privileged: true
+            # actually proves the AGENT process carries none of this:
+            # CapBnd/CapEff/CapInh/CapPrm all zero, NoNewPrivs 1, checked on
+            # every single acquire rather than trusted from this manifest —
+            # it still refuses a pod that kept a capability because a
+            # template forgot `drop: [ALL]`, non-root or not.
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: NAMZU_AGENT_TCP_PORT
               value: '1024'

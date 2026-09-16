@@ -2,27 +2,46 @@
 # =============================================================================
 # @namzu/sandbox kubernetes-backend guest entrypoint
 # =============================================================================
-# Runs as root (container pid 1, no init between this script and the
-# kernel). One job, in order:
+# Container pid 1, no init between this script and the kernel. Runs as
+# root ONLY on a pod whose securityContext starts it that way — today, only
+# sandboxtemplate-workspace.yaml, which needs root up front to format and
+# mount a raw block device. sandboxtemplate-task.yaml's pod (and the kind
+# overlay's filesystem-mode workspace variant) starts as the unprivileged
+# `namzu` uid/gid directly, via `runAsUser`/`runAsGroup`, and this script's
+# very first check below (`id -u`) picks the branch that matches. One job,
+# in order:
 #
-#   1. A workspace pod names a raw block device (NAMZU_WORKSPACE_DEVICE);
-#      format it ONLY if it carries no filesystem yet, then mount it at
-#      NAMZU_WORKSPACE_ROOT. A task pod sets no device and this whole step
-#      is skipped — its workspace is just a directory inside the image
-#      (or an emptyDir the pod spec mounted there), already owned by the
-#      unprivileged user at image build time.
-#   2. `exec` into `setpriv`, which drops every privilege this process has
-#      and becomes `tini`, running as the unprivileged user, which in turn
-#      execs the guest agent as ITS child. `exec` REPLACES this shell's
-#      process image — nothing of this script keeps running or stays
-#      resident: `tini` ends up as the container's pid 1, in the SAME mount
-#      namespace the mount above just populated, with no propagation step
-#      needed because there is only ever one container and one namespace.
-#      `tini` as pid 1 (not the agent itself) is a real subreaper: it reaps
-#      an orphan reparented to pid 1 — which the agent's own
-#      `child_process` never would, since it only `waitpid()`s processes it
-#      spawned directly — and forwards `SIGTERM` to the agent, which still
-#      handles it exactly as it always has (`agent-sigterm.test.ts`).
+#   1. ROOT ONLY: a workspace pod names a raw block device
+#      (NAMZU_WORKSPACE_DEVICE); format it ONLY if it carries no filesystem
+#      yet, then mount it at NAMZU_WORKSPACE_ROOT. A task pod sets no
+#      device and — now started non-root — never reaches this step at all:
+#      its workspace is just a directory inside the image (or an emptyDir
+#      the pod spec mounted there), already owned by the unprivileged user
+#      at image build time. A NON-ROOT pod that DOES set a device cannot
+#      format or mount it (no CAP_SYS_ADMIN) and is refused outright rather
+#      than silently skipping a workspace's disk — see the uid check below.
+#   2. `exec` into `setpriv`, which drops every privilege this process
+#      could still have and becomes `tini`, running as the unprivileged
+#      user, which in turn execs the guest agent as ITS child. On the root
+#      path this is a real privilege drop (`--reuid`/`--regid`/
+#      `--clear-groups`/`--inh-caps=-all`/`--bounding-set=-all`); on the
+#      non-root path the pod's securityContext (`runAsUser`,
+#      `capabilities: drop: [ALL]`) already did that work, and this script
+#      only adds `--no-new-privs`, which does not depend on the runtime
+#      honouring `allowPrivilegeEscalation: false` (`--clear-groups`,
+#      `--inh-caps` and `--bounding-set` all need capabilities
+#      (CAP_SETGID/CAP_SETPCAP) a non-root start does not have, so the
+#      identical flags would simply fail there). Either way `exec`
+#      REPLACES this shell's process image — nothing of this script keeps
+#      running or stays resident: `tini` ends up as the container's pid 1,
+#      in the SAME mount namespace the root path's mount above (if any)
+#      just populated, with no propagation step needed because there is
+#      only ever one container and one namespace. `tini` as pid 1 (not the
+#      agent itself) is a real subreaper: it reaps an orphan reparented to
+#      pid 1 — which the agent's own `child_process` never would, since it
+#      only `waitpid()`s processes it spawned directly — and forwards
+#      `SIGTERM` to the agent, which still handles it exactly as it always
+#      has (`agent-sigterm.test.ts`).
 #
 # The one destructive mistake this file exists to make impossible: running
 # mkfs unconditionally. A workspace's disk is formatted exactly ONCE, at
@@ -56,6 +75,44 @@ if ! command -v setpriv >/dev/null 2>&1; then
 	exit 1
 fi
 
+# Which branch this pod takes is decided by its ACTUAL uid, not by which
+# template it thinks it is — a pod's securityContext is what actually
+# determines this at the kernel level, and asking the kernel directly means
+# a hand-edited or mismatched manifest is caught here rather than assumed.
+CURRENT_UID="$(id -u)"
+
+if [ "$CURRENT_UID" -ne 0 ]; then
+	# NON-ROOT PATH: sandboxtemplate-task.yaml's pod (and the kind overlay's
+	# filesystem-mode workspace variant), started directly as the
+	# unprivileged uid/gid by its own securityContext. There is no
+	# CAP_SYS_ADMIN here to format or mount anything, so a device is a
+	# configuration error, not something to skip quietly — a template that
+	# names one but forgot to also run its pod as root would otherwise look
+	# like it worked while never actually formatting or mounting the disk
+	# it was given.
+	if [ -n "${NAMZU_WORKSPACE_DEVICE:-}" ]; then
+		echo "entrypoint.sh: NAMZU_WORKSPACE_DEVICE is set but this container is running as uid $CURRENT_UID, not root; formatting or mounting a block device needs CAP_SYS_ADMIN, which a non-root pod does not have. A pod that names a device must start as root — see sandboxtemplate-workspace.yaml's securityContext, and do not set NAMZU_WORKSPACE_DEVICE on a template shaped like sandboxtemplate-task.yaml." >&2
+		exit 1
+	fi
+
+	# The pod's own securityContext (runAsUser, capabilities: drop: [ALL],
+	# allowPrivilegeEscalation: false) already dropped every capability
+	# this process could have had — `--reuid`/`--regid`/`--clear-groups`/
+	# `--inh-caps`/`--bounding-set` all need capabilities
+	# (CAP_SETUID/CAP_SETGID/CAP_SETPCAP) this process does not have and
+	# would simply fail with, unlike on the root path below. `--no-new-privs`
+	# is the one flag still worth setting here itself: it is what makes
+	# ../../src/backends/kubernetes/privilege-probe.ts's NoNewPrivs check
+	# hold regardless of whether the runtime actually enforces
+	# `allowPrivilegeEscalation: false` (Kubernetes does not guarantee every
+	# runtime maps that field onto the kernel's own no_new_privs bit).
+	export NAMZU_SANDBOX_WORKSPACE="$WORKSPACE_ROOT"
+	exec setpriv --no-new-privs -- /usr/bin/tini -- node /opt/namzu/agent.cjs
+fi
+
+# ROOT PATH: sandboxtemplate-workspace.yaml's pod, which starts as root
+# specifically to format/mount its device before dropping every privilege
+# itself, below.
 if [ -n "${NAMZU_WORKSPACE_DEVICE:-}" ] && [ -b "$NAMZU_WORKSPACE_DEVICE" ]; then
 	DEV="$NAMZU_WORKSPACE_DEVICE"
 

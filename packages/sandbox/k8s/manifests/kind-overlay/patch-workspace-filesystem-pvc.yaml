@@ -18,7 +18,22 @@ spec:
               containerPort: 1024
               protocol: TCP
           securityContext:
-            privileged: true
+            # This overlay's PVC is Filesystem-mode, mounted ready by
+            # kubelet through the volumeMounts entry below — it sets no
+            # NAMZU_WORKSPACE_DEVICE, so entrypoint.sh's blkid/mkfs.ext4/
+            # mount branch never runs here either, unlike the base
+            # sandboxtemplate-workspace.yaml this overlay patches. That
+            # makes this pod behave exactly like a task pod at startup, so
+            # it takes the identical restricted shape — see
+            # ../sandboxtemplate-task.yaml's own comment.
+            runAsUser: 1001
+            runAsGroup: 1001
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+            seccompProfile:
+              type: RuntimeDefault
           env:
             - name: NAMZU_AGENT_TCP_PORT
               value: '1024'

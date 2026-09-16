@@ -41,19 +41,35 @@ function readStatusField(text, field) {
 		if (line.slice(0, colon).trim() !== field) continue
 		return line.slice(colon + 1).trim()
 	}
-	throw new Error(`/proc/self/status has no ${field} line`)
+	return undefined
+}
+
+function requireStatusField(text, field) {
+	const raw = readStatusField(text, field)
+	if (raw === undefined) throw new Error(`/proc/self/status has no ${field} line`)
+	return raw
 }
 
 function parseProcStatus(text) {
 	const masks = {}
 	for (const field of ['CapInh', 'CapPrm', 'CapEff', 'CapBnd']) {
-		const raw = readStatusField(text, field)
+		const raw = requireStatusField(text, field)
 		if (!/^[0-9a-fA-F]+$/.test(raw)) throw new Error(`${field} is not a bare hex mask: ${raw}`)
 		masks[field] = BigInt(`0x${raw}`)
 	}
-	const noNewPrivsRaw = readStatusField(text, 'NoNewPrivs')
+	const noNewPrivsRaw = requireStatusField(text, 'NoNewPrivs')
 	if (!/^\d+$/.test(noNewPrivsRaw)) throw new Error(`NoNewPrivs is not an integer: ${noNewPrivsRaw}`)
-	return { ...masks, NoNewPrivs: Number(noNewPrivsRaw) }
+	// Seccomp is read but never asserted on (#491): whether a requested
+	// profile is actually enforced inside a VM-runtime guest depends on the
+	// runtime's own configuration (e.g. Kata's `disable_guest_seccomp`), so
+	// `0` here does not by itself mean the pod's `seccompProfile` was
+	// ignored — see docs/sdk/kubernetes-sandbox.md's privilege-probe section
+	// for how to read this value on a VM runtime. Read with the tolerant
+	// `readStatusField` (undefined, not a throw, if the line is absent) —
+	// some kernels omit it entirely, and this is diagnostic output, not an
+	// admission check.
+	const seccompRaw = readStatusField(text, 'Seccomp')
+	return { ...masks, NoNewPrivs: Number(noNewPrivsRaw), Seccomp: seccompRaw }
 }
 
 const provider = createSandboxProvider({
@@ -90,13 +106,36 @@ try {
 	console.log(
 		`  CapInh=${privileges.CapInh.toString(16)} CapPrm=${privileges.CapPrm.toString(16)} ` +
 			`CapEff=${privileges.CapEff.toString(16)} CapBnd=${privileges.CapBnd.toString(16)} ` +
-			`NoNewPrivs=${privileges.NoNewPrivs}`,
+			`NoNewPrivs=${privileges.NoNewPrivs} Seccomp=${privileges.Seccomp ?? '(not reported)'}`,
 	)
 	ok = report('CapInh is all-zero', privileges.CapInh === 0n) && ok
 	ok = report('CapPrm is all-zero', privileges.CapPrm === 0n) && ok
 	ok = report('CapEff is all-zero', privileges.CapEff === 0n) && ok
 	ok = report('CapBnd is all-zero (can never be regained)', privileges.CapBnd === 0n) && ok
 	ok = report('NoNewPrivs is 1', privileges.NoNewPrivs === 1) && ok
+	// Seccomp is printed above, never asserted on — see parseProcStatus's own
+	// comment for why `0` here is not by itself evidence of anything on a VM
+	// runtime.
+
+	// Set-id (setuid/setgid) file count (#491): informational, like Seccomp
+	// above — this counts what k8s/Dockerfile's own `find …
+	// -exec chmod ug-s` step is supposed to have already cleared at image
+	// build time, from inside a RUNNING guest, as one more independent
+	// confirmation that the image this pod is actually running from really
+	// is the one that step ran against. Never fails the check itself: an
+	// image that ships no `find` on PATH (a minimal derived image) should
+	// not make this script unusable for the checks above.
+	try {
+		const setidResult = await sandbox.exec('/bin/sh', [
+			'-c',
+			'find / -xdev -perm /6000 -type f 2>/dev/null | wc -l',
+		])
+		console.log(`  set-id files on the guest's root filesystem: ${setidResult.stdout.trim()}`)
+	} catch (err) {
+		console.log(
+			`  set-id file count: could not run (${err instanceof Error ? err.message : String(err)})`,
+		)
+	}
 
 	const mountResult = await sandbox.exec('/bin/sh', [
 		'-c',

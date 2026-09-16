@@ -573,10 +573,52 @@ holds a handle to an under-hardened sandbox. **There is no configuration that
 turns this off** — the value of checking on every acquire rather than once by
 hand is precisely that it cannot be forgotten.
 
-The image's entrypoint is expected to end with
-`exec setpriv --reuid --regid --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- tini -- node agent.cjs`.
-Nothing in the agent knows about that, and nothing on the host can see it —
-which is why it is asked, not assumed.
+The image's entrypoint is expected to end with either
+`exec setpriv --reuid --regid --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- tini -- node agent.cjs`
+(a pod whose `securityContext` started its container as root) or
+`exec setpriv --no-new-privs -- tini -- node agent.cjs` (a pod started
+non-root, where the flags above would simply fail — `--clear-groups` needs
+`CAP_SETGID`, `--bounding-set` needs `CAP_SETPCAP`, neither of which a
+non-root start has). Nothing in the agent knows about either branch, and
+nothing on the host can see which one ran — which is why the probe asks,
+rather than assumes, either way.
+
+### Each shipped template's `securityContext`
+
+The two `SandboxTemplate`s this backend ships (`k8s/manifests/`) do not carry
+the same shape, because only one of them ever needs root:
+
+| Template | `securityContext` | Why |
+|---|---|---|
+| `sandboxtemplate-task.yaml` | `runAsUser: 1001`, `runAsGroup: 1001`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities: { drop: [ALL] }`, `seccompProfile: { type: RuntimeDefault }` | Sets no `NAMZU_WORKSPACE_DEVICE`, so `entrypoint.sh`'s format/mount branch never runs — the pod needs no root and no capability at any point in its life. This is the container-level shape of the Pod Security Standards `restricted` profile. The uid/gid **must** match the image's `AGENT_UID`/`AGENT_GID` (1001 as shipped). |
+| `sandboxtemplate-workspace.yaml` | `privileged: true` | Names a raw block device and needs `CAP_SYS_ADMIN` to `blkid`/`mkfs.ext4`/`mount` it, as root, before `entrypoint.sh` drops every capability itself. Kubernetes runs a `privileged` container unconfined regardless of any `seccompProfile` named alongside it, so this template requests none. |
+
+The `manifests/kind-overlay/` patches follow the same rule, not the same
+template: `patch-task-no-runtimeclass.yaml` takes the task template's
+restricted shape, and so does `patch-workspace-filesystem-pvc.yaml` — its PVC
+is `Filesystem`-mode and mounted ready by kubelet, so it sets no device
+either and starts non-root exactly like a task pod, even though it patches
+the *workspace* template.
+
+Either way, `entrypoint.sh` decides which branch to run from the container's
+**actual** uid (`id -u`), not from which template it believes it is — so a
+hand-edited manifest that names a device on a non-root pod is refused with a
+clear message (a device without `CAP_SYS_ADMIN` cannot be formatted or
+mounted; see `k8s/entrypoint.sh`) instead of silently serving an unformatted
+directory.
+
+**Seccomp on a VM runtime.** `sandboxtemplate-task.yaml`'s `RuntimeDefault`
+profile is a REQUEST, not a guarantee that the guest kernel enforces it: under
+a Kata `RuntimeClass`, whether a profile reaches the guest depends on the
+runtime's own configuration (Kata's `disable_guest_seccomp`, for one). A
+guest reporting `Seccomp: 0` in `/proc/self/status` (what
+`k8s/scripts/capability-check.mjs` prints, alongside the capability masks) is
+therefore not on its own evidence the profile was ignored — check the
+runtime's configuration before concluding that. The privilege probe reads
+only the four capability masks and `NoNewPrivs`, deliberately: refusing on
+`Seccomp: 0` would reject clusters the VM boundary already isolates, for a
+value the probe cannot attribute to "misconfigured template" versus
+"runtime doesn't map this through" from inside the guest alone.
 
 What it is **not**: a boundary against a hostile guest. The probe asks the
 agent to report its own `/proc/self/status`, so an agent that has already been
@@ -1301,22 +1343,36 @@ it already knows, and the rest of what a workspace uses —
 The cluster artifacts the rest of this page assumes are under
 `packages/sandbox/k8s/` (never published — the package's `files` array
 packs only `dist` and `src`; `npm pack --dry-run` from `packages/sandbox`
-confirms it): the guest image (`k8s/Dockerfile`, `k8s/entrypoint.sh` — root
-formats and mounts a workspace's raw block device, then `exec`s into
-`setpriv`, which drops every capability and execs `tini` — the container's
-real PID 1 and subreaper — which in turn runs the guest agent as its
-child; the format decision itself trusts only `blkid`'s exit status — 2,
-"no filesystem found", confirmed by a raw read of the device — never
-treating a missing or failing `blkid` as "the disk is empty"), the
-`RuntimeClass` / `SandboxTemplate` / `SandboxWarmPool` / `NetworkPolicy` /
-RBAC manifests (`k8s/manifests/`, plus a `kind-overlay/` for local
-development — explicitly **not** a security boundary, see that overlay's
-own header comment), and five scripts under `k8s/scripts/` that each
-measure one acceptance criterion below against a live cluster and print a
-`[PASS]`/`[FAIL]` line plus the measured number. `k8s/README.md` has the
-full apply order and the RuntimeClass confirmation step — its registered
-name has drifted between published sources and must be read off
-`kubectl get runtimeclass`, never trusted from a file in this repo.
+confirms it): the guest image (`k8s/Dockerfile`, `k8s/entrypoint.sh` — a
+workspace pod's root start formats and mounts its raw block device, then
+`exec`s into `setpriv`, which drops every capability and execs `tini` — the
+container's real PID 1 and subreaper — which in turn runs the guest agent as
+its child; a task pod skips the format/mount branch entirely, starting
+non-root at the pod level already — see [the privilege probe
+section](#each-shipped-templates-securitycontext) for the two shapes; the
+format decision itself trusts only `blkid`'s exit status — 2, "no filesystem
+found", confirmed by a raw read of the device — never treating a missing or
+failing `blkid` as "the disk is empty". The image also carries no set-id
+(setuid/setgid) binary: `k8s/Dockerfile`'s `RUN find / -xdev -perm /6000
+-type f -exec chmod ug-s {} +` strips the bit from every one Debian's
+`util-linux`/`e2fsprogs` ship — `su`, `mount`, `umount`, `passwd`, `chsh`,
+`chfn`, `gpasswd`, `newgrp`, `chage`, `expiry`, `/usr/sbin/unix_chkpwd` —
+defence in depth for a process that ever runs non-root without
+`--no-new-privs` set some other way, though nothing here depends on it. A
+task image that `FROM`s this one and layers its own packages on top must
+repeat that exact `find`/`chmod` step after its own installs, since a
+package it adds can reintroduce a setuid/setgid binary this image already
+cleared), the `RuntimeClass` / `SandboxTemplate` / `SandboxWarmPool` /
+`NetworkPolicy` / RBAC manifests (`k8s/manifests/`, plus a `kind-overlay/`
+for local development — explicitly **not** a security boundary, see that
+overlay's own header comment), and five scripts under `k8s/scripts/` that
+each measure one acceptance criterion below against a live cluster and print
+a `[PASS]`/`[FAIL]` line plus the measured number
+(`k8s/scripts/capability-check.mjs` additionally prints the guest's
+`Seccomp` value and its set-id file count, informationally — see above).
+`k8s/README.md` has the full apply order and the RuntimeClass confirmation
+step — its registered name has drifted between published sources and must be
+read off `kubectl get runtimeclass`, never trusted from a file in this repo.
 
 ### Acceptance numbers
 

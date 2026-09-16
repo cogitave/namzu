@@ -16,11 +16,25 @@ into `k8s/` would be a publish-time surprise, not a build error.
 ```
 k8s/
   Dockerfile           guest image: node + setpriv/blkid/mkfs.ext4 + the agent
-  entrypoint.sh         format/mount (workspace only) then exec into setpriv
+  entrypoint.sh         format/mount (workspace only, root) then exec into setpriv
   manifests/            apply these to the cluster
   scripts/               run these against the cluster once applied
   __tests__/             sh -n/dash -n + PATH-shimmed logic + YAML structure
 ```
+
+**Task pods run non-root with no capabilities (#491).**
+`manifests/sandboxtemplate-task.yaml`'s container carries `runAsUser: 1001`,
+`runAsGroup: 1001`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false`,
+`capabilities: { drop: [ALL] }` and `seccompProfile: { type: RuntimeDefault }`
+— it names no `NAMZU_WORKSPACE_DEVICE`, so `entrypoint.sh`'s format/mount
+branch never runs for it, and `entrypoint.sh` itself branches on its own
+`id -u` to know which start it got. `manifests/sandboxtemplate-workspace.yaml`
+still runs `privileged: true`, because its device branch genuinely needs
+`CAP_SYS_ADMIN` to `blkid`/`mkfs.ext4`/`mount` a raw block device before
+dropping every capability — see `docs/sdk/kubernetes-sandbox.md`'s privilege
+probe section for the full table of both shapes, including the
+`kind-overlay/` patches (both of which take the task template's restricted
+shape).
 
 ## 1. Confirm the RuntimeClass
 
@@ -48,6 +62,15 @@ Then set that exact reference as `image:` in both
 `manifests/sandboxtemplate-task.yaml` and
 `manifests/sandboxtemplate-workspace.yaml` (each currently carries a
 `REPLACE_WITH_YOUR_REGISTRY/namzu-sandbox-agent:TAG` placeholder).
+
+**A task image that `FROM`s this one and layers its own packages on top must
+repeat the set-id strip.** `Dockerfile` clears every setuid/setgid bit this
+image's own packages carry with `RUN find / -xdev -perm /6000 -type f -exec
+chmod ug-s {} +`; a package a derived image installs afterward can
+reintroduce one (Debian's `sudo`, for one common example), and that step
+only ever runs once, at the layer it is written in. Verify with
+`find / -xdev -perm /6000 -type f` against the FINAL image — it should print
+nothing.
 
 **A new tag and `SandboxWarmPool.spec.updateStrategy`:** `manifests/
 sandboxwarmpool.yaml` uses `OnReplenish` (the CRD default) — an edited
@@ -175,7 +198,9 @@ node scripts/io-compare.mjs \
   --namespace namzu-sandboxes --template namzu-workspace --files 200 --in-cluster
 
 # Criterion 5: the guest really is deprivileged (all-zero cap masks,
-# NoNewPrivs, and a mount attempt the kernel itself refuses).
+# NoNewPrivs, and a mount attempt the kernel itself refuses). Also prints
+# (informationally — neither can fail the check) the guest's Seccomp value
+# and its set-id file count.
 node scripts/capability-check.mjs \
   --namespace namzu-sandboxes --template namzu-task --pool namzu-task-pool --in-cluster
 ```
@@ -189,9 +214,9 @@ currently empty and says so; these five runs are what fill it in.
 
 `__tests__/entrypoint.test.ts` and `__tests__/manifests.test.ts` run in the
 package's normal `pnpm --filter @namzu/sandbox test` — no cluster, no Kata,
-no root. `entrypoint.test.ts` shims `blkid`/`dd`/`mkfs.ext4`/`mount`/`chown`/
-`setpriv` in `PATH` (never the real tools) and exercises the mount-vs-mkfs
-branching against a real, already-existing block device NODE
+no root. `entrypoint.test.ts` shims `id`/`blkid`/`dd`/`mkfs.ext4`/`mount`/
+`chown`/`setpriv` in `PATH` (never the real tools) and exercises the
+mount-vs-mkfs branching against a real, already-existing block device NODE
 (`/dev/loop0`..`7`, present on the `ubuntu-latest` Linux CI runner this repo's own `.github/workflows/ci.yml` uses)
 whose type it only ever `stat()`s — nothing shimmed ever opens it for real.
 It also covers every way `blkid` can fail to answer cleanly: exiting
@@ -200,4 +225,14 @@ It also covers every way `blkid` can fail to answer cleanly: exiting
 quietly answer instead), and exiting 2 ("no filesystem found") on a device
 that then fails the `dd` readability probe entrypoint.sh runs before trusting
 that "2" enough to format. Every one of those must abort before `mkfs.ext4`
-or `mount` ever runs.
+or `mount` ever runs. The `id` shim defaults to reporting root (uid 0), so
+every one of those cases keeps taking the root branch regardless of which
+uid actually runs the test process; a separate describe block overrides it
+to a non-zero uid and covers the non-root branch (#491): no `blkid`/
+`mkfs.ext4`/`mount` call, `setpriv --no-new-privs` (and none of the
+root-path flags) exec'd, and a non-zero exit — before any of those tools run
+— when a device is set on a non-root pod. `manifests.test.ts` asserts
+`sandboxtemplate-task.yaml`'s container carries no `privileged`, drops every
+capability, forbids privilege escalation, sets `runAsNonRoot` and matches the
+Dockerfile's `AGENT_UID`/`AGENT_GID`, and that `sandboxtemplate-workspace.yaml`
+still runs `privileged: true`.

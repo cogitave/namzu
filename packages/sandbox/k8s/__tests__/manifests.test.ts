@@ -138,6 +138,34 @@ describe('sandboxtemplate-task.yaml', () => {
 	it('declares no volumeClaimTemplates (a task sandbox carries no disk)', () => {
 		expect((template.spec as Record<string, unknown>).volumeClaimTemplates).toBeUndefined()
 	})
+
+	it('runs non-root, with no capabilities and no privilege escalation (#491)', () => {
+		const containers = spec.containers as Record<string, unknown>[]
+		expect(containers).toHaveLength(1)
+		const securityContext = containers[0]?.securityContext as Record<string, unknown>
+		expect(securityContext, 'container carries no securityContext').toBeDefined()
+
+		// The flag this whole fix exists to remove — a pod that mounts no
+		// device (asserted above) has no runtime reason to carry it, and it
+		// also rules out any seccompProfile.
+		expect(securityContext.privileged).not.toBe(true)
+
+		expect(securityContext.runAsNonRoot).toBe(true)
+		expect(securityContext.allowPrivilegeEscalation).toBe(false)
+
+		const capabilities = securityContext.capabilities as Record<string, unknown> | undefined
+		expect(capabilities?.drop, 'capabilities.drop').toEqual(['ALL'])
+
+		const seccompProfile = securityContext.seccompProfile as Record<string, unknown> | undefined
+		expect(seccompProfile?.type).toBe('RuntimeDefault')
+	})
+
+	it('runAsUser/runAsGroup match the Dockerfile\'s AGENT_UID/AGENT_GID (1001)', () => {
+		const containers = spec.containers as Record<string, unknown>[]
+		const securityContext = containers[0]?.securityContext as Record<string, unknown>
+		expect(securityContext.runAsUser).toBe(1001)
+		expect(securityContext.runAsGroup).toBe(1001)
+	})
 })
 
 describe('sandboxtemplate-workspace.yaml', () => {
@@ -152,6 +180,12 @@ describe('sandboxtemplate-workspace.yaml', () => {
 
 	it('reads NAMZU_AGENT_BIND_TOKEN from the downward API, never a literal', () => {
 		assertBindTokenFromDownwardApi('sandboxtemplate-workspace.yaml', podSpec)
+	})
+
+	it('stays privileged (#491: only the task template was narrowed — this pod formats/mounts a raw device)', () => {
+		const containers = podSpec.containers as Record<string, unknown>[]
+		const securityContext = containers[0]?.securityContext as Record<string, unknown>
+		expect(securityContext.privileged).toBe(true)
 	})
 
 	it('the volumeClaimTemplate is volumeMode: Block, with a matching volumeDevices entry', () => {
