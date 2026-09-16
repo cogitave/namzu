@@ -594,6 +594,49 @@ adopting the same running workspace; each gets its own handle over the same
 pod, and either one's `destroy()` suspends the pod the other is executing in.
 That coordination is the caller's, and this backend does not pretend to it.
 
+**An adopt can land mid-transition, and waits rather than failing.** The
+second process to reach a workspace arrives at a moment the first one did not
+choose:
+
+- a `suspend()` that ended in `KubernetesWorkspaceSuspendTimeoutError` — the
+  patch landed and the guest is riding out its
+  `terminationGracePeriodSeconds`;
+- two host processes coming up on one workspace during a rollout;
+- a host restarting inside the previous pod's termination grace period.
+
+In each of those the only pod standing under the name carries a
+`deletionTimestamp`, which is never bound to — its uid is the agent's bind
+token, and the pod's replacement refuses it — and that replacement has not
+been created yet. So an adopt that finds the object `Suspended`, **or** finds
+its pod already terminating, polls for the new pod under the same
+`readyTimeoutMs` budget the [resume path](#resume-changes-the-address-and-the-token)
+polls under, and binds it when it appears. A budget that runs out names the
+pod that was still terminating instead of reporting a generic missing uid.
+
+An adopt of an object that was Running with a healthy pod behaves as a create
+does: nothing is being replaced, so a pod that cannot be read is reported at
+once rather than waited out for the whole budget.
+
+**`origin` says how the handle was obtained**, because the two adopted values
+mean a pod this process did not start:
+
+| `origin` | What the call found | What is still there |
+|---|---|---|
+| `created` | Nothing of that name; it POSTed the `Sandbox` | Nothing — a fresh pod and an empty disk |
+| `adopted-running` | An object of that name already `Running` | The disk, and whatever is still running inside the pod — but no terminal |
+| `resumed` | An object of that name `Suspended`; it patched back to `Running` | The disk only: the pod is brand new |
+
+No terminal survives either adopted value. The guest agent kills a terminal's
+process group the moment its connection closes, and a dead host's connections
+closed with it — so a host reattaching to a workspace another process left
+running gets a pod whose background work may still be going and whose
+interactive sessions are all gone. A detached command started with `exec` is
+the part that can outlive its host.
+
+`origin` is fixed for the handle's life. It answers what this call walked
+into, not what state the workspace is in now, which is what `suspended` is
+for; a later `suspend()`/`resume()` cycle does not rewrite it.
+
 ### The disk is fixed at creation, and must be `Block`
 
 `Sandbox.spec.volumeClaimTemplates` is CEL-immutable ("volumeClaimTemplates is

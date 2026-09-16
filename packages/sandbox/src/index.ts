@@ -133,15 +133,17 @@ export {
 } from './backends/kubernetes/sandbox.js'
 export { KubernetesAgentUnauthorizedError } from './backends/kubernetes/transport.js'
 // The persistent workspace: a `Sandbox` that keeps a block disk across a
-// suspend, plus the four errors its lifecycle can refuse with — a template
-// that cannot carry a disk, a standing object that does not match this
-// configuration, a call on a suspended workspace, and a suspend whose pod
-// outlived the wait. Declared in `@namzu/sandbox` rather than on the SDK's
-// `Sandbox` — see `backends/kubernetes/workspace.ts`.
+// suspend, the union naming how a handle came by its object, plus the four
+// errors its lifecycle can refuse with — a template that cannot carry a disk,
+// a standing object that does not match this configuration, a call on a
+// suspended workspace, and a suspend whose pod outlived the wait. Declared in
+// `@namzu/sandbox` rather than on the SDK's `Sandbox` — see
+// `backends/kubernetes/workspace.ts`.
 export type {
 	KubernetesWorkspace,
 	KubernetesWorkspaceDestroyOptions,
 	KubernetesWorkspaceOptions,
+	KubernetesWorkspaceOrigin,
 	KubernetesWorkspaceTransitionOptions,
 } from './backends/kubernetes/workspace.js'
 export {

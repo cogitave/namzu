@@ -76,6 +76,20 @@
  * `destroy()` of either suspends the pod the other is executing in. A
  * workspace id is a name, not a lock.
  *
+ * An adopt also has to survive walking in ON a transition, which is the
+ * normal way a workspace is found rather than an edge: a suspend that ended
+ * in {@link KubernetesWorkspaceSuspendTimeoutError}, a second host coming up
+ * during a rollout, a host restarting inside the previous pod's
+ * `terminationGracePeriodSeconds`. In all three the pod under the name is
+ * draining or already gone, and the replacement has not been created yet. So
+ * an adopt that finds the object `Suspended`, or finds its pod carrying a
+ * `deletionTimestamp`, WAITS for the replacement under the same readiness
+ * budget the resume path waits under, instead of failing on the first read
+ * that finds no live pod. What it came by is then reported as `origin`:
+ * `created`, `adopted-running` or `resumed` — a host that adopted a pod
+ * another process left running needs to know that none of that process's
+ * terminals survived it.
+ *
  * ## There is no delete-compute-keep-disk verb
  *
  * The API has `operatingMode` and it has DELETE. Nothing in between. So
@@ -306,6 +320,20 @@ export interface KubernetesWorkspaceDestroyOptions extends SandboxDestroyOptions
 }
 
 /**
+ * How a {@link KubernetesWorkspace} handle came by its workspace.
+ *
+ *  - `created` — this call POSTed the Sandbox. The pod is this process's own
+ *    and the disk is empty.
+ *  - `adopted-running` — an object of that name already stood, already
+ *    Running. The pod predates this handle, and usually predates this
+ *    process.
+ *  - `resumed` — an object of that name stood Suspended and this call patched
+ *    it back to Running. The disk is whatever the last holder left on it; the
+ *    pod is brand new.
+ */
+export type KubernetesWorkspaceOrigin = 'created' | 'adopted-running' | 'resumed'
+
+/**
  * A {@link Sandbox} that survives having its compute taken away.
  *
  * Declared here rather than on the SDK's `Sandbox`: the brief frames these as
@@ -315,6 +343,26 @@ export interface KubernetesWorkspaceDestroyOptions extends SandboxDestroyOptions
  * `deleteDisk` field on the shared `SandboxDestroyOptions`.
  */
 export interface KubernetesWorkspace extends Sandbox {
+	/**
+	 * How this handle came by its workspace — see
+	 * {@link KubernetesWorkspaceOrigin}.
+	 *
+	 * Fixed for the handle's life. It answers "what did this call walk into",
+	 * not "what state is the workspace in now", which is what `suspended` is
+	 * for; a later suspend/resume cycle does not rewrite it.
+	 *
+	 * It is reported because the two adopted values mean a pod this process
+	 * did not start, and a host reattaching to a workspace another process
+	 * left behind has to know what of that process's work is still there. On
+	 * `resumed` the pod is new, so nothing survived but the disk. On
+	 * `adopted-running` the guest's agent is the same process it was and a
+	 * detached background command may still be running — but no TERMINAL is:
+	 * the agent kills a terminal's process group the moment its connection
+	 * closes, and the previous host's connections closed with the host. A
+	 * caller that reopens terminals unconditionally on this value is right;
+	 * one that assumes it can reattach to them is not.
+	 */
+	readonly origin: KubernetesWorkspaceOrigin
 	/**
 	 * True from the moment `suspend()` starts until `resume()` finishes.
 	 *
@@ -643,7 +691,7 @@ export async function createKubernetesWorkspace(
 		template.volumeClaimTemplates,
 	)
 
-	let created = false
+	let adopted: AdoptedWorkspace | undefined
 	try {
 		await client.request(
 			'POST',
@@ -661,10 +709,9 @@ export async function createKubernetesWorkspace(
 			}),
 			options.signal,
 		)
-		created = true
 	} catch (err) {
 		if (!(err instanceof KubernetesConflictError)) throw err
-		await adoptExistingWorkspace(
+		adopted = await adoptExistingWorkspace(
 			client,
 			namespace,
 			name,
@@ -686,7 +733,8 @@ export async function createKubernetesWorkspace(
 		rootDir: options.workingDirectory,
 		agentPort,
 		readiness,
-		created,
+		origin: adopted === undefined ? 'created' : adopted.resumed ? 'resumed' : 'adopted-running',
+		...(adopted?.drainingPodUid !== undefined ? { drainingPodUid: adopted.drainingPodUid } : {}),
 		...(options.signal !== undefined ? { signal: options.signal } : {}),
 	})
 }
@@ -705,6 +753,14 @@ export async function createKubernetesWorkspace(
  *
  * The refusals all happen BEFORE the resume patch: an object this call will
  * not use is not woken up on the way to being rejected.
+ *
+ * What it OBSERVES, and hands back, is whether the pod this workspace is
+ * about to be bound to is a pod that already exists. Both answers here mean
+ * it is not: an object found `Suspended` has had its pod taken away, and a
+ * pod already carrying a `deletionTimestamp` is one the controller is in the
+ * middle of taking away. Either way the pod this handle will serve has not
+ * been created yet, and the first bind attempt has to WAIT for it rather than
+ * fail on the read that finds no live pod — see {@link PodBindPolicy}.
  */
 async function adoptExistingWorkspace(
 	client: KubernetesClient,
@@ -712,7 +768,7 @@ async function adoptExistingWorkspace(
 	name: string,
 	expected: { readonly sandboxTemplateName: string; readonly runtimeClassName?: string },
 	signal?: AbortSignal,
-): Promise<void> {
+): Promise<AdoptedWorkspace> {
 	const existing = await client.request<SandboxResource>(
 		'GET',
 		sandboxPath(namespace, name),
@@ -725,14 +781,121 @@ async function adoptExistingWorkspace(
 		existing?.spec?.volumeClaimTemplates,
 	)
 	assertAdoptedWorkspaceMatchesConfig(name, namespace, existing?.spec?.podTemplate, expected)
-	if (existing?.spec?.operatingMode === 'Suspended') {
+	const resumed = existing?.spec?.operatingMode === 'Suspended'
+	// Read BEFORE the resume patch, so what is recorded is the state this
+	// adopt WALKED INTO rather than one it provoked. It costs one GET on a
+	// path that is a rare, explicit act with nothing to amortise — the same
+	// trade the egress verification above makes — and it buys the one fact
+	// nothing else on this path can supply: whether the pod standing under
+	// this name is on its way out.
+	const drainingPodUid = await readDrainingPodUid(client, namespace, name, signal)
+	if (resumed) {
 		await client.request('PATCH', sandboxPath(namespace, name), RESUME_PATCH, signal)
 	}
+	return { resumed, ...(drainingPodUid !== undefined ? { drainingPodUid } : {}) }
+}
+
+/** What an adopt found standing under the workspace's name. */
+interface AdoptedWorkspace {
+	/** The object was `Suspended`, and this call patched it back to Running. */
+	readonly resumed: boolean
+	/**
+	 * The uid of a pod that was ALREADY terminating when the adopt looked —
+	 * `deletionTimestamp` set, container still running.
+	 *
+	 * That pod is never bound to: its uid is the agent's bind token and the
+	 * replacement agent refuses it. Recording it is what lets the first bind
+	 * exclude it by name in the failure message, exactly as a resume names
+	 * the pod its own suspend patch retired.
+	 */
+	readonly drainingPodUid?: string
+}
+
+/**
+ * The uid of the pod standing under this Sandbox's name IF it is draining,
+ * and `undefined` for every other answer — no pod, or a pod that is fine.
+ *
+ * One GET by the Sandbox's name, the same convention
+ * {@link readPodBindToken}'s fast path uses: the pod is named after its
+ * Sandbox in the controller this backend targets. No selector fallback,
+ * because the cost of missing a draining pod here is one adopt that fails the
+ * way it does today rather than a wrong answer, while a list on every adopt
+ * is a round trip paid by every caller for a state most of them are not in.
+ *
+ * A 404 is "no pod", which is the ordinary answer on a suspended workspace.
+ * Anything else is rethrown: a host that cannot read pods cannot read a bind
+ * token either, and hearing it here names the real problem.
+ */
+async function readDrainingPodUid(
+	client: KubernetesClient,
+	namespace: string,
+	name: string,
+	signal?: AbortSignal,
+): Promise<string | undefined> {
+	let pod: PodResource | undefined
+	try {
+		pod = await client.request<PodResource>('GET', podPath(namespace, name), undefined, signal)
+	} catch (err) {
+		if (err instanceof KubernetesAlreadyGoneError) return undefined
+		throw err
+	}
+	// `!= null` for the same reason `isPodLive` uses it: an explicit JSON null
+	// must not read as "terminating".
+	if (pod?.metadata?.deletionTimestamp == null) return undefined
+	const uid = pod.metadata.uid
+	return typeof uid === 'string' && uid !== '' ? uid : undefined
 }
 
 /** The two merge patches this module sends, and the only two. */
 const SUSPEND_PATCH = { spec: { operatingMode: 'Suspended' } } as const
 const RESUME_PATCH = { spec: { operatingMode: 'Running' } } as const
+
+/**
+ * Which pod one bind attempt may settle on, and what a read that finds no
+ * live pod is allowed to mean.
+ *
+ * Those two used to be one field: `acquireBoundPod` took the uid of the pod a
+ * suspend had retired, and read "there is one" as "this is a transition, so a
+ * read that finds nothing means not yet rather than failed". That is right
+ * for a resume and wrong for an adopt, where the workspace can be
+ * mid-transition with nothing for THIS handle to exclude — an object
+ * suspended by a process that has since died has no pod at all, and nobody
+ * has asked for its replacement until this call patches it back to Running.
+ * The two questions are therefore separate fields, and each path sets them
+ * from what it actually knows.
+ */
+interface PodBindPolicy {
+	/** Which transition this bind belongs to. Decides the timeout's wording. */
+	readonly transition: 'create' | 'adopt' | 'resume'
+	/**
+	 * A pod the controller has been asked to take away, and so one this bind
+	 * must see REPLACED rather than bind: its uid is the agent's token, and
+	 * the replacement agent refuses it. Set from a landed suspend patch on
+	 * resume, and from a pod found already draining on adopt.
+	 */
+	readonly retiring?: string
+	/**
+	 * Whether a read that finds NO live pod at all is "not yet" rather than
+	 * fatal.
+	 *
+	 * True wherever a pod is known to be on its way out or on its way in: a
+	 * resume behind a landed suspend patch, and an adopt of an object that
+	 * was suspended or whose pod was draining. For a stretch of each of those
+	 * there is no live pod under the name at all, and {@link readPodBindToken}
+	 * answers that by throwing rather than returning undefined.
+	 *
+	 * False on create, and on an adopt of an object that was Running with a
+	 * healthy pod. Nothing is being replaced there, so a pod read that fails
+	 * is a failure with nothing to wait for, and polling it would spend the
+	 * whole readiness budget before saying what the first answer already
+	 * said.
+	 */
+	readonly awaitReplacement: boolean
+}
+
+/** Shared tail of every bind timeout but the resume-specific one. */
+const NO_BINDABLE_POD_ADVICE =
+	"A pod's uid is the agent's bind token, so a pod carrying a deletionTimestamp — or one in a terminal phase — is never bound to: its uid is a token the pod's replacement will refuse. The Ready condition cannot be waited on instead, because the controller leaves it standing across a transition. Raise readyTimeoutMs, or look at why the controller has not brought a pod up."
 
 interface WorkspaceHandleOptions {
 	readonly client: KubernetesClient
@@ -742,8 +905,16 @@ interface WorkspaceHandleOptions {
 	readonly rootDir: string
 	readonly agentPort: number
 	readonly readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number }
-	/** Whether THIS call POSTed the object, for the failure message only. */
-	readonly created: boolean
+	/**
+	 * How the object was come by. Reported as the handle's `origin`, and it
+	 * decides how the FIRST bind behaves — see {@link PodBindPolicy}.
+	 */
+	readonly origin: KubernetesWorkspaceOrigin
+	/**
+	 * A pod found already terminating when the adopt looked; never set on the
+	 * created path, where there is no previous pod at all.
+	 */
+	readonly drainingPodUid?: string
 	readonly signal?: AbortSignal
 }
 
@@ -834,12 +1005,61 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		)
 
 	/**
+	 * The budget ran out with no pod this handle was allowed to bind, worded
+	 * for the transition that ran out.
+	 *
+	 * Three different operator problems arrive here and one sentence cannot
+	 * serve them: a resume whose controller never replaced the pod, an adopt
+	 * that walked in on a pod still riding out its termination grace period,
+	 * and a create whose pod never came up at all. The pod the wait was
+	 * excluding is named whenever there is one, because "which pod is still
+	 * there" is the first thing anyone looks up next.
+	 */
+	const bindTimedOut = (policy: PodBindPolicy, lastError: unknown): Error => {
+		const cause = lastError !== undefined ? { cause: lastError } : undefined
+		const subject = `kubernetes: workspace ${workspaceId} (Sandbox ${name})`
+		const budget = `${readiness.timeoutMs}ms`
+		if (policy.transition === 'resume' && policy.retiring !== undefined) {
+			return new Error(
+				`${subject} was patched back to operatingMode: Running, but ${budget} later the only pod behind it was still the one it was suspended from (uid ${policy.retiring}). A resumed pod keeps the sandbox's name and gets a new uid, and that uid is the agent's bind token, so binding to the old pod would present a token the new agent refuses. The Ready condition cannot be waited on instead — the controller leaves it standing across the transition. Raise readyTimeoutMs, or look at why the controller has not replaced the pod.`,
+				cause,
+			)
+		}
+		if (policy.transition === 'adopt' && policy.retiring !== undefined) {
+			return new Error(
+				`${subject} was adopted while the previous pod (uid ${policy.retiring}) was still TERMINATING, and ${budget} later the controller had still not replaced it. A guest whose PID 1 ignores SIGTERM rides out its terminationGracePeriodSeconds before the replacement is created, so the adopt waits for the new pod under the same readiness budget as everything else on this path. ${NO_BINDABLE_POD_ADVICE}`,
+				cause,
+			)
+		}
+		if (policy.transition === 'adopt' && policy.awaitReplacement) {
+			return new Error(
+				`${subject} was adopted from operatingMode: Suspended and patched back to Running, but ${budget} later no pod this handle could bind to had appeared — the pod it was suspended from is most likely still terminating. ${NO_BINDABLE_POD_ADVICE}`,
+				cause,
+			)
+		}
+		const opened =
+			policy.transition === 'create'
+				? 'was created'
+				: policy.transition === 'adopt'
+					? 'was adopted while it was Running'
+					: 'was patched back to operatingMode: Running'
+		return new Error(
+			`${subject} ${opened}, but ${budget} later no pod this handle could bind to had appeared. ${NO_BINDABLE_POD_ADVICE}`,
+			cause,
+		)
+	}
+
+	/**
 	 * Wait until the Sandbox is Ready AND the pod behind it is a pod this
 	 * handle is allowed to bind to, then read that pod's uid.
 	 *
-	 * On create there is nothing to exclude and this is one poll plus one
-	 * read, exactly as it was. On RESUME `previousPodUid` is the pod the
-	 * workspace was suspended from, and excluding it is the whole point:
+	 * On create there is nothing to exclude and nothing to wait for, and this
+	 * is one poll plus one read, exactly as it was. Everywhere else the pod
+	 * behind the name is MOVING, and `policy` says how: `retiring` is the pod
+	 * this bind must see replaced, and `awaitReplacement` says whether a read
+	 * that finds no live pod at all is "not yet" — see {@link PodBindPolicy}.
+	 *
+	 * Excluding a pod is the whole point wherever one is named, because
 	 * `Ready` is not a transition signal. The controller leaves the condition
 	 * True across a resume — upstream says the same of `Suspended` in the
 	 * other direction — so the very first poll after the Running patch can
@@ -850,20 +1070,45 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * pointing at the race. So the uid is polled, under the SAME deadline as
 	 * everything else on this path, until it is a different pod's.
 	 *
-	 * A failed read is fatal on create and merely "not yet" on resume: for a
-	 * stretch of every resume there is no live pod at all, and
-	 * {@link readPodBindToken} answers that by throwing rather than returning
-	 * undefined. The last such error is carried onto the timeout as `cause`,
-	 * so a resume that never found a pod still says what it kept seeing.
+	 * The last failed read is carried onto the timeout as `cause`, so a wait
+	 * that never found a pod still says what it kept seeing.
 	 */
 	const acquireBoundPod = async (
 		deadline: OperationDeadline,
-		previousPodUid: string | undefined,
+		policy: PodBindPolicy,
 	): Promise<{ binding: KubernetesSandboxBinding; token: string }> => {
 		const label = `workspace ${workspaceId} (Sandbox ${name})`
 		let lastError: unknown
+		/**
+		 * Whether the Sandbox has been seen Ready at least once.
+		 *
+		 * It decides who gets to report a budget that ran out inside the
+		 * readiness poll. Before the first Ready, "never became Ready" is the
+		 * true sentence and `pollForBinding`'s own error is the right one. After
+		 * it, the clock was being spent waiting for a POD, and blaming a
+		 * condition that has been True the whole time points the operator at
+		 * the one thing that is not the problem — see {@link bindTimedOut}.
+		 *
+		 * It rewrites nothing else: a readiness read that failed while the
+		 * budget still had time left failed on its own account.
+		 */
+		let seenReady = false
 		while (deadline.remainingMs() > 0) {
-			const binding = await pollForBinding(readBinding, deadline, readiness, label)
+			let binding: KubernetesSandboxBinding
+			try {
+				binding = await pollForBinding(readBinding, deadline, readiness, label)
+			} catch (err) {
+				// Only a clock that has actually run out is rewritten. A
+				// readiness read that fails for any other reason — the API
+				// server refused it, the caller aborted — is that call's own
+				// failure and travels out unchanged.
+				if (!seenReady || deadline.remainingMs() > 0) throw err
+				// Kept only if no pod read has failed yet: what the wait kept
+				// seeing is more useful as the cause than the clock running out.
+				lastError ??= err
+				break
+			}
+			seenReady = true
 			let token: string | undefined
 			try {
 				token = await deadline.run(
@@ -871,11 +1116,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				)
 			} catch (err) {
 				if (err instanceof OperationDeadlineExpired) break
-				if (previousPodUid === undefined) throw err
+				if (!policy.awaitReplacement) throw err
 				lastError = err
 				token = undefined
 			}
-			if (token !== undefined && token !== previousPodUid) return { binding, token }
+			if (token !== undefined && token !== policy.retiring) return { binding, token }
 			try {
 				await deadline.delay(readiness.pollIntervalMs)
 			} catch (err) {
@@ -883,10 +1128,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				throw err
 			}
 		}
-		throw new Error(
-			`kubernetes: workspace ${workspaceId} (Sandbox ${name}) was patched back to operatingMode: Running, but ${readiness.timeoutMs}ms later the only pod behind it was still the one it was suspended from (uid ${previousPodUid}). A resumed pod keeps the sandbox's name and gets a new uid, and that uid is the agent's bind token, so binding to the old pod would present a token the new agent refuses. The Ready condition cannot be waited on instead — the controller leaves it standing across the transition. Raise readyTimeoutMs, or look at why the controller has not replaced the pod.`,
-			lastError !== undefined ? { cause: lastError } : undefined,
-		)
+		throw bindTimedOut(policy, lastError)
 	}
 
 	/**
@@ -896,20 +1138,19 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * every resume, with nothing carried over between them.
 	 */
 	const startSession = async (
-		label: string,
+		policy: PodBindPolicy,
 		signal?: AbortSignal,
-		previousPodUid?: string,
 	): Promise<KubernetesSandboxHandle> => {
 		const deadline = new OperationDeadline(
 			readiness.timeoutMs,
-			`kubernetes workspace ${name} ${label}`,
+			`kubernetes workspace ${name} ${policy.transition}`,
 			signal,
 		)
 		// Both of these are re-read rather than remembered: a resumed pod keeps
 		// the name and changes the uid and the IP, so a handle that reused
 		// either would present a token the new agent refuses, at an address
 		// whose pod is being deleted.
-		const { binding, token } = await acquireBoundPod(deadline, previousPodUid)
+		const { binding, token } = await acquireBoundPod(deadline, policy)
 		// Recorded before the probe, not after: a probe that refuses suspends
 		// this pod, and the resume that follows has to know which pod it is
 		// waiting to see replaced.
@@ -1121,7 +1362,14 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// plus one read, exactly as it is on create.
 		const replacing = retiredPodUid
 		await client.request('PATCH', sandboxPath(namespace, name), RESUME_PATCH, signal)
-		session = await startSessionOrSuspend('resume', signal, replacing)
+		session = await startSessionOrSuspend(
+			{
+				transition: 'resume',
+				awaitReplacement: replacing !== undefined,
+				...(replacing !== undefined ? { retiring: replacing } : {}),
+			},
+			signal,
+		)
 		state = 'running'
 		// Bound, probed and serving: the pod that was excluded is one no
 		// answer can name any more, and the next suspend records its own.
@@ -1241,12 +1489,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * which the caller finds again under the same deterministic name.
 	 */
 	const startSessionOrSuspend = async (
-		label: string,
+		policy: PodBindPolicy,
 		signal?: AbortSignal,
-		previousPodUid?: string,
 	): Promise<KubernetesSandboxHandle> => {
 		try {
-			return await startSession(label, signal, previousPodUid)
+			return await startSession(policy, signal)
 		} catch (err) {
 			// `suspending`, not `suspended`: `runFailureCleanup` swallows its
 			// own failures so that the primary error stays primary, which
@@ -1278,10 +1525,39 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		return session
 	}
 
+	/**
+	 * How the FIRST bind is allowed to behave, read off how this handle came
+	 * by its object.
+	 *
+	 * A create POSTed the Sandbox itself: no pod existed a moment ago, no pod
+	 * is being replaced, and a read that finds none is a failure to report
+	 * rather than a state to wait out. An adopt is the opposite by default —
+	 * the pod is somebody else's, possibly on its way out — and the two
+	 * shapes that say so are the object standing `Suspended` (its pod has
+	 * been taken away, and the resume patch this adopt just sent is what asks
+	 * for the replacement) and a pod already carrying a `deletionTimestamp`
+	 * (the controller is taking it away now). Both of those leave a window
+	 * with no live pod under the name at all, which is exactly the window a
+	 * host restarting inside a previous pod's terminationGracePeriodSeconds
+	 * arrives in.
+	 *
+	 * An adopt of an object that was Running with a healthy pod keeps the
+	 * create path's behaviour: nothing is being replaced, so nothing is
+	 * waited for.
+	 */
+	const initialBindPolicy: PodBindPolicy =
+		options.origin === 'created'
+			? { transition: 'create', awaitReplacement: false }
+			: {
+					transition: 'adopt',
+					awaitReplacement: options.origin === 'resumed' || options.drainingPodUid !== undefined,
+					...(options.drainingPodUid !== undefined ? { retiring: options.drainingPodUid } : {}),
+				}
+
 	// The first session is brought up here so that `createKubernetesWorkspace`
 	// resolves with a workspace that is Ready, addressed and probed — the same
 	// contract `create()` gives a task sandbox.
-	session = await startSessionOrSuspend(options.created ? 'create' : 'adopt', options.signal)
+	session = await startSessionOrSuspend(initialBindPolicy, options.signal)
 	// Whatever the backend's own Sandbox reports, rather than a second copy of
 	// the same constant: it must keep answering after a suspend has taken the
 	// handle it came from away.
@@ -1289,6 +1565,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 
 	return {
 		id,
+		origin: options.origin,
 		get status(): SandboxStatus {
 			// A suspended workspace reports 'destroyed' because that is the only
 			// member of the SDK's four-way union meaning "cannot serve a call".
