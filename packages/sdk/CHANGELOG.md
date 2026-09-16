@@ -1,5 +1,156 @@
 # Changelog
 
+## 40.0.0
+
+### Major Changes
+
+- 8bfe291: Tool schemas now go on the wire in a shape every provider reads the same way, instead of a draft-07 rendering each driver was expected to translate.
+
+  **What broke, and why this is the fix.** `read`'s `readRange` was a `z.tuple`, which renders as the draft-07 tuple `items: [a, b]`. A wire that validates a tool's `parameters` against the JSON Schema 2020-12 metaschema does not read that as a tuple — it reads it as "not a schema" and refuses the entire request, so one field in one tool killed every other tool in the call and the turn produced nothing. Three of the ten driver packages convert dialects at their boundary; the other seven forward the rendering verbatim, because their wires had never been measured. Converting in seven more places would need seven more measurements, including for endpoints a user configures and nobody here can probe. So the schema is fixed where it is made: the renderer now emits the intersection of draft-07 and 2020-12, which needs no conversion anywhere.
+
+  **Take this upgrade if you talk to any provider that is not Claude-backed.** Nothing you write changes; what changes is which requests come back 400.
+
+  Breaking:
+
+  - **`renderToolSchema` no longer emits a tuple.** A `z.tuple([a, b])` now renders as `{"type":"array","items":{…},"minItems":2,"maxItems":2}` — members deduplicated, or `anyOf` of them when they differ — rather than `items: [a, b]`. If you pinned the rendered bytes of a tuple-shaped tool, or built a driver that depends on receiving the draft-07 spelling in order to convert it, update the expectation. `toSchemaDialect` still exists and still converts; it is simply no longer needed for schemas this kernel rendered.
+  - **`ReadWindowRequest.readRange` is `readonly number[]`, not `readonly [number, number]`.** `z.infer` over `read`'s input schema changes with it. Passing a pair still type-checks; reading one out now needs an undefined check. `resolveReadWindow` already does that and ignores a range that is not two numbers, which the tool's own parser rejects before it ever gets there.
+  - **A bridged MCP tool's positional array reaches the model as a uniform array plus a description naming each position**, where a server that pinned the arity and closed the tail previously produced `prefixItems`. The Zod parser is unchanged and still enforces the order and the member types; only the hint the model is shown is now portable.
+
+  `read`'s parameter did NOT change for the model. It is still `readRange: [start, end]`, 1-indexed and inclusive, and the same calls parse to the same values — both members already carried the identical `integer, minimum 1` constraint, so nothing was expressible in the tuple that the array cannot say.
+
+  Added:
+
+  - `findPortableSchemaViolations(schema)` — every place a schema leaves the intersection, each with its dotted path, keyword and remedy. Use it as a gate over your own tools; the kernel sweeps all of its own with it.
+  - `toPortableToolSchema(schema)` — the normaliser, returning the input unchanged when there is nothing to rewrite.
+  - `toolWireSchema(tool)` — the schema a tool actually sends: its hand-written `modelInputSchema` when it has one, else its rendering, portable either way.
+  - `PortableSchemaViolation`.
+
+### Minor Changes
+
+- 86a3818: A file written and then edited in the same conversation keeps its evidence: the derived step context now references the write call plus the `edit` calls applied on top of it, so the model no longer re-reads a file whose content is fully determined by history it can already see.
+
+  `FileReadTracker` gains four OPTIONAL methods: `recordEdit(key, content, callId)` and `editChain(key)` for the chain, and `recordDriftObserved(key)`/`driftObserved(key)` for the one below. Nothing is required of an existing tracker — the built-in `edit` tool falls back to today's `recordRead(key, content)` when a tracker does not implement `recordEdit`, and `writeCallId(key)` keeps its exact meaning ("the write call whose body IS the current content"), returning `undefined` as soon as an edit lands on the path. A custom tracker that implements only the old shape sees the behavior it saw before, entry for entry.
+
+  The projection admits a chain only after replaying every visible hop through the same apply core the `edit` tool runs and finding the result equal to the ledger's disk-derived fingerprint; it reads no files, never writes that fingerprint, and withholds the whole path if any hop is missing, cleared by compaction, truncated, errored, ambiguous, names another file, or no longer applies. Chains are bounded to eight edit calls, and one request may replay at most 262,144 UTF-16 code units of content — string length, not bytes on disk. A hop is replayed one operation at a time, each operation's post-image length worked out exactly from the body it is about to be applied to and checked against the request's remaining room before it is built, so the ceiling refuses work instead of measuring it and refuses none that would have fitted. The charge is the largest body the hop actually built — for a batch the largest intermediate of the fold rather than the body it ends on, since a batch that grows a file to twenty megabytes and then deletes every character has still built the twenty megabytes. An operation the ceiling turns away costs nothing, leaving the paths behind it their room.
+
+  Mutation-time drift checks still decide what reaches disk, and now also say so: `edit` on either branch, and `write`'s fresh-overwrite check, call `recordDriftObserved(key)` before returning a refusal. That refusal had already read the real file; the flag carries no body, because recording what was read there would re-baseline the comparison that refused. It leaves `fingerprint`, `hasRead`, `writeCallId` and `editChain` untouched, is cleared by the next observation of any kind, and makes the projection withhold the path in the meantime — so a reference is never offered for a body the runtime has been told is behind disk. The projection still reads no files.
+
+- 03630cd: Admit a whole-file `read` as visible file evidence, so the derived work context
+  references a body the model already has in a receipt instead of leaving it to
+  read the file again.
+
+  `FileReadTracker` gains two optional methods. `recordFullRead(key, content,
+callId, renderedFingerprint)` does everything `recordRead(key, content)` does —
+  always with the whole file, never the window — and additionally records that the
+  body is visible in that call's receipt; `readWitness(key)` reports
+  `{ callId, renderedFingerprint }`. Both are optional, so a custom tracker that
+  implements neither keeps its behavior exactly, and `createFileReadTracker()`
+  implements both. The built-in `read` calls `recordFullRead` only when the
+  window covered the whole file, and falls back to `recordRead` for a tracker
+  without it.
+
+  `renderedFingerprint` is of the tool's own output string, not of the file's
+  body: a read's body survives only as the line-numbered rendering its receipt
+  carries, so the projection admits the entry only while the receipt it can see
+  fingerprints to exactly what the tool emitted. A result the output budget elided
+  or spilled, one compaction cleared, or one changed in any other way withholds
+  the path, and nothing anywhere recovers a body by undoing the numbering. A
+  receipt over 32,000 UTF-16 units is not read at all; a larger file is not
+  admitted this way.
+
+  Such an entry carries `kind: "read"` and never `editsInCalls` — a read roots no
+  chain, and the first `edit` on the path withdraws it. Read-rooted entries count
+  against the same six paths as the write-rooted ones, which keep a path both
+  could claim. Existing write and chain entries are unchanged, mutation-time
+  drift checks are untouched, and nothing here reads the filesystem.
+
+- f33c62b: A run now suspends for a background job the model said it was waiting on, instead of settling over it. When the model stops calling tools and a job named by `wait_for_job` is still running, the run waits — no provider request, no tokens — for the job's exit, an operator message, or the settle grace, whichever comes first. On an exit the model gets one more turn with the `[Background job update]` line in front of it; on neither, the run settles and names the job.
+
+  This is the same bounded, zero-token wait `CompletionInbox` already gave a delegated task, and it shares the delegated task's grace — half of what the run has left before it must start finishing — under a ceiling of its own: two minutes, or `NAMZU_JOB_HOLD_MAX_MS`. On a run with a `timeoutMs` the grace comes out of what is left rather than being added to it, so time a `wait_for_job` call already spent shortens the hold by the same amount. On a run WITHOUT one — no run deadline, which is what the CLI ships — there is no remainder to take a share of, and the task ceiling would be a flat hour; that hour is sound for a task, which cannot outlive it, and wrong for a job, which can run forever. The two-minute job ceiling is what bounds that case, so a `wait_for_job` that ran its own bound out is followed by two more minutes at most, not by a second hour. The iteration limit still bounds all of it, and the wait starts nothing and stops nothing.
+
+  **Wait-intent is explicit.** Only a job `wait_for_job` named is awaited, and only for the rest of the run that named it. A job nobody waited on — a dev server, a watcher — never holds a run open, and there is no opt-in flag on `bash run_in_background` that changes that.
+
+  **Why this is `minor` and not `major`.** The signal is new: no run that exists today can have an awaited job, because nothing before this could mark one. A host that never calls `wait_for_job` sees the loop it saw before, so no default changes and no existing behaviour is withdrawn.
+
+  Additive API:
+
+  - `Run.abandonedJobIds` — awaited jobs still running when the run ended, the job-side counterpart to `abandonedTaskIds`. Naming them is not stopping them: a run-owned job is still stopped by the run's own teardown, and one bound to the host's session keeps running.
+  - `RUNTIME_CONTEXT_MESSAGE_KINDS` gains `'job-exit'`, the provenance on the message that carries an exit delivered by the wait. Consumers that exhaustively switch on `RuntimeContextMessageKind` need a case for it.
+  - `BackgroundJobRegistryRef` gains an optional `markAwaited(id)`, and `bindOwner`'s options take an `onAwaited(id)` callback that backs it. Both are optional; a host that wires neither gets the previous behaviour, which is no hold.
+  - `NAMZU_JOB_HOLD_MAX_MS` sets the job ceiling above, in milliseconds, beside the `NAMZU_JOB_WAIT_*` knobs `wait_for_job` already reads. Unset is two minutes.
+
+- 6ae4072: The repeat-call advisory (notices, then escalates, when a tool is called with identical arguments over and over) now reaches the model even when the repeated tool's result is structured content — an image, a document, an MCP resource block — rather than plain text. `attachRepeatNotice` previously required the trailing tool result to be a string and silently dropped the notice otherwise; it now falls back to delivering the advisory as its own runtime-context message immediately after the tool-result batch. No thresholds changed, and a repeat that keeps succeeding is still only ever noticed, never refused.
+
+  `RuntimeContextMessageKind` gains a `'repeat-call'` member for this fallback message. A consumer that exhaustively switches over the union (the CLI's transcript labeling did) needs a case for it; `@namzu/cli` adds one in this release.
+
+- 92ab1d9: A resumed conversation keeps the file witnesses it earned. The observation ledger is process memory, and every resume path handed the run an empty one: the derived work context could admit nothing, and the first thing a resumed agent did was read back a file whose whole body was in the transcript it had just been given.
+
+  The new export `seedObservationLedger(messages, tracker, { workingDirectory, additionalDirectories, sandboxed })` rebuilds a ledger from a conversation's own history. `resumeRun` and `query`'s checkpoint resume call it for you, from the history as repaired rather than as checkpointed, so the ledger describes exactly what the model is about to be shown; the CLI calls it the first time a turn asks for a conversation's tracker, which covers `/resume`, `namzu run --resume`/`--continue`, and a forked conversation — each seeded from its own messages, once. Call it directly if you keep a tracker per conversation and restore one yourself. Nothing is persisted and no session-store schema changes; a host that does nothing sees exactly today's behaviour.
+
+  What a replay may conclude is what the projection would admit, by the same predicates and the same bounded replay. A `write` whose call and successful receipt are both intact restores its body and its witness; the `edit` calls above it are replayed hop by hop and restore the chain. A `read` never supplies a body — the line numbering is never undone to recover one — and can only confirm one already reconstructed, by rendering it forward through the read tool's own renderer and comparing the whole rendering with the receipt. A windowed read, a read that shows something else, a cleared receipt, a hop that no longer applies, a body past the bounds and a call whose arguments run past what a replay reads as evidence each withdraw whatever the pass held for that path. So do the two cases where the transcript settles no outcome: a call it never answered — the unknown-outcome result the kernel's own repair writes for one included — may have landed with the file half written, and a mutation it refused is a tool's own report about that path, a drift refusal above all, made after reading the disk. Each of those costs the path it names and no other. A path whose walk ends holding no body is entered in the ledger nowhere, and a path this conversation only ever read establishes nothing.
+
+  No file's content is read. The one thing the seed does touch the filesystem for is the key each entry is filed under: a ledger entry identifies a file rather than a spelling, so `read`, `write` and `edit` all key on the path canonicalized through its symlinks, and entries filed any other way would be entries no mutation ever checks and no drift refusal can ever withdraw. The paths named in the history are therefore resolved exactly as the tools resolve them — `additionalDirectories` included — before the walk begins. Under a sandbox the keys are the paths as written and no host path is consulted.
+
+  Only content-backed observations are restored, so a seeded ledger is never weaker than the empty one a resume starts from. A path whose body could not be reconstructed is left OUT of the ledger rather than entered without a fingerprint: `hasRead` is the read-before-overwrite refusal, and granting it with no body to compare would let a full overwrite of a file that changed while the session was closed through with nothing checked. Every path the replay does not restore therefore behaves exactly as it does today. A fingerprint it does restore is a claim derived from history and is still compared with the real file at mutation time, so a file changed while the session was closed is refused there and the refusal withdraws the path from the projection.
+
+  Three things seed nothing at all, each leaving today's empty ledger: a history naming more than 1,024 distinct path spellings — the ones only `read` names included, and two spellings of one file counting twice — which is resolved whole or not at all rather than in a prefix that cannot say what a mutation replaced; a tool call id claimed by two calls or answered by two receipts, `read` included, since the receipt that was hidden could be the observation that withdrew a claim; and a mutation no path can be recovered from, whatever came back to it — one declaring no `path`, one whose path no longer resolves inside the directories the run may reach (a refused write to a path outside them is one of these: a key is what withdrawing one path rather than the whole pass takes), or one the provider stream cut off mid-JSON, whose arguments are recorded as `{}`. A merely large call is none of these: the argument bound governs what may be believed, not what may be attributed, so an oversize `write` withdraws its own path's body and leaves every other witness standing.
+
+  `read`'s numbering and windowing move to `tools/builtins/read-render.ts` as pure functions, which is what lets the forward-render comparison run the tool's own renderer rather than a copy of it. The tool's output is unchanged, byte for byte.
+
+- 7ca8c7d: Add a `wait_for_job` builtin tool: it blocks on a background job's exit under a run-length bound and an idle bound that resets on new output, and returns the job's accumulated output in one call — the shell-job counterpart to the existing `wait_for_task`. Neither bound stops the job; a timeout reports which clock ran out and the output read so far, with a `next_offset` to resume from. Ships by default alongside `job` and `bash`, and refuses cleanly on a host with no background job registry.
+
+  `job`'s own description no longer instructs polling with `action: "read"` in a loop; it now points at `wait_for_job` instead. `read` and `list` are unchanged.
+
+  `BackgroundJobRegistry` gains a public `waitForExit(id, { signal })`, resolving immediately for a job that has already exited and honouring an abort signal. `BackgroundJobRegistryRef` (the tool-context surface) gains an optional `waitForExit` of the same shape — additive, so an existing host implementing this interface directly keeps working without it; `wait_for_job` refuses cleanly when it is absent.
+
+### Patch Changes
+
+- 68e535b: Three fixes to the bookkeeping behind the run suspend for a background job the model awaited. Nothing about when a run holds itself open changes; what changes is that the record of an exit no longer outlives the exit.
+
+  - **A job exit that has been read stops counting as pending work.** The record of an exit used to survive the notice that delivered it, gated only by whether anything at all was queued on the job-notice channel — so the next job to end, awaited or not, made that stale record read as news and bought the model a turn to re-read an exit it had already seen. The record is now dropped by the delivery that accounts for it.
+  - **A hold takes an exit only together with the notice that delivers it.** The delivery path took the exits first and asked for the text afterwards; on the branch that found none, the exits were already gone and nothing carried them. Neither is taken unless both are there.
+  - **An exit that lands while the run is settling is delivered, not lost.** An awaited job ending in the moment between the hold's grace expiring and the run finishing was delivered by nobody — the hold had already looked, `abandonedJobIds` could not honestly name a job that had finished, and the host's own between-turns announcer stays quiet while a run is in flight. It now arrives as the same `{ type: 'runtime-context', kind: 'job-exit' }` message on `Run.messages`, so the transcript has it and a continued thread opens with it.
+
+  No API is added or withdrawn. `NAMZU_JOB_HOLD_MAX_MS` is now read with the same parse the `NAMZU_JOB_WAIT_*` bounds use, which only makes an invalid value fall back to the two-minute default the way the others already did.
+
+- a9e4b19: `bash`'s own `timeout` and `run_in_background` parameter descriptions no longer tell the model to "poll with the `job` tool" — they now point at `wait_for_job` (one call, no waiting turns) the same way `job`'s own description already does, and reserve `job` with action `"read"` for incremental output or picking up after a `wait_for_job` timeout. The tool result returned when a background job starts is worded the same way. No schema, behavior or tool-result shape changed.
+- a54dc71: Internal only: `edit`'s apply core (normalizing a call's arguments and applying its replacements or insertion) now lives in a shared internal module instead of being private to the `edit` tool's file. No exported symbol, tool behavior, error message or file output changes — this is a pure refactor that lets a later projection reuse the exact same apply logic instead of a separate reimplementation.
+- a8df193: `CompletionInbox.describeOwnedWork()`'s owned-work projection no longer drops a still-running task purely because more tasks were launched after it. It used to keep a single FIFO over every owned task, so a long-running task launched early fell out of the model's visibility permanently once sixteen more tasks were merely LAUNCHED — whether or not any of those newer ones had actually finished.
+
+  It now lists running tasks first, most recently launched first, and fills whatever slots are left with the most recently settled tasks — still bounded to sixteen entries. A running task that does not fit is named honestly in the preamble ("N running tasks are shown below, and N more still running.") instead of disappearing without a trace. A settled task bumped out is not individually counted; its result already reached the model once, inline or as a notification.
+
+  Model-facing text only. No exported symbol, method signature or wire shape changed.
+
+- dd8702d: Tighten the resume seed's accounting and guards.
+
+  A `write` a `pre_tool_use` hook SKIPPED gets a non-error receipt — the hook
+  declined the call, nothing failed — and the ledger replay read that as a
+  successful write, restoring a fingerprint for a body that never reached the
+  disk. The next edit to that file was then refused for a drift the ledger had
+  invented. The skip is now recognised through the same function the executor
+  writes it with, and withdraws the path instead.
+
+  Three other corrections to the same pass. A read that withdraws a path no
+  longer counts toward the six-body bound, so a later mutation cannot evict a
+  path still holding a body. Attribution reads each call's `path` at most once
+  per seeding and not at all past about a megabyte of arguments; past that the
+  call is a mutation that can be placed nowhere, and the seeding establishes
+  nothing rather than carry a body it may have replaced. And `query`'s checkpoint
+  resume seeds from the repaired history plus whatever of an owned resume turn a
+  completed scan says already ran — a recovered `write` restores the body it put
+  there, an unknown outcome withdraws the path, and a call proved never started
+  is left out because it is about to execute. Previously the seed never saw that
+  turn, so an executed write inside it left the body it replaced standing as a
+  claim.
+
+  A seeding that throws no longer propagates out of a resume: it is logged at
+  debug and the run continues with the empty ledger it would otherwise have had.
+
+  No public surface changed. Hosts calling `seedObservationLedger` directly get
+  the corrected pass with no change to the call.
+
+- e6d6d1e: `bash`'s and the delegation coordinator's private copies of `readPositiveIntEnv` are gone; both now import the one already shared with `wait_for_job` and the iteration runtime. Each call site still samples its environment variable at the same point it always did — module load for `NAMZU_BASH_TIMEOUT_MS`, `NAMZU_BASH_MAX_BUFFER_BYTES`, `NAMZU_BASH_MAX_TIMEOUT_MS` and `NAMZU_DELEGATION_IDLE_MS` — so no knob starts reading its variable at a different time. No behavior, schema or default changed.
+
 ## 39.0.0
 
 ### Major Changes
