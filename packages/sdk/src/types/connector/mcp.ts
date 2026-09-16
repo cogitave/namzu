@@ -65,6 +65,41 @@ export interface MCPJsonRpcError {
 	data?: unknown
 }
 
+/**
+ * A protocol revision this client can still negotiate DOWN to when a server
+ * does not speak the current spec, newest first.
+ *
+ * Kept as a literal union (rather than just `string`) so a caller pattern
+ * matching on `McpEra` gets real exhaustiveness checking; the runtime array
+ * of the same values lives in `constants/mcp` and is typed against this.
+ */
+export type McpLegacyVersion = '2025-11-25' | '2025-06-18' | '2025-03-26' | '2024-11-05'
+
+/**
+ * The protocol revision this client declares support for going forward.
+ *
+ * Declared here so the `McpEra` union below has a modern arm to grow into;
+ * nothing in this workstream actually negotiates it yet — `connect()` still
+ * offers only the newest legacy version in a single `initialize` round trip.
+ */
+export type McpModernVersion = '2026-07-28'
+
+/**
+ * Which family of the wire protocol a connection resolved to, and which
+ * exact revision within it.
+ *
+ * `kind` alone tells a caller which rules apply — whether `_meta` and the
+ * stateless per-request shape are in play, or the `initialize` handshake
+ * and (for 2025-06-18 and later) the `MCP-Protocol-Version` header — without
+ * re-deriving it from the version string on every read. Every connection
+ * this client makes today resolves to a `legacy` era; `modern` exists so a
+ * later workstream has somewhere to put the result of a real modern-era
+ * negotiation without widening this type again.
+ */
+export type McpEra =
+	| { readonly kind: 'modern'; readonly version: McpModernVersion }
+	| { readonly kind: 'legacy'; readonly version: McpLegacyVersion }
+
 export interface MCPJsonRpcMessage {
 	jsonrpc: '2.0'
 	id?: string | number
@@ -89,6 +124,17 @@ export interface MCPRequestOptions {
 export interface MCPTransportSendOptions {
 	/** A pre-aborted signal starts no transport work. */
 	readonly signal?: AbortSignal
+	/**
+	 * Extra headers for this one send.
+	 *
+	 * An HTTP-speaking transport merges these over its static config
+	 * headers; a transport with no header concept (stdio) receives the
+	 * field and does nothing with it. Introduced so the client — which
+	 * alone knows the negotiated era — can ask for `MCP-Protocol-Version`
+	 * on a post-initialize request without the transport having to know
+	 * what a protocol version is.
+	 */
+	readonly headers?: Readonly<Record<string, string>>
 }
 
 export interface MCPTransport {

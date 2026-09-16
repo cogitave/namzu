@@ -17,6 +17,8 @@ import type {
 	MCPToolResult,
 	MCPTransport,
 	MCPTransportUnion,
+	McpEra,
+	McpLegacyVersion,
 } from '../../types/connector/index.js'
 import type { MCPClientId } from '../../types/ids/index.js'
 import { toErrorMessage } from '../../utils/error.js'
@@ -33,7 +35,7 @@ import { StreamableHttpTransport } from './streamable-http.js'
 import {
 	DEFAULT_MCP_REQUEST_TIMEOUT_MS,
 	JSON_RPC_METHOD_NOT_FOUND,
-	MCP_PROTOCOL_VERSION,
+	MCP_LEGACY_VERSIONS,
 	MCP_SUPPORTED_PROTOCOL_VERSIONS,
 } from '../../constants/mcp/index.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
@@ -47,12 +49,36 @@ const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
 
+/**
+ * The revision that introduced the `MCP-Protocol-Version` header.
+ *
+ * Sending it to a server that negotiated an older legacy version is
+ * off-spec — the header did not exist yet, so an older server has no
+ * defined way to interpret it. Compared as a plain string: every version
+ * in `MCP_SUPPORTED_PROTOCOL_VERSIONS` is a `YYYY-MM-DD` literal, so
+ * lexicographic order equals chronological order.
+ */
+const MCP_PROTOCOL_VERSION_HEADER_SINCE = '2025-06-18'
+
+function requiresProtocolVersionHeader(version: string): boolean {
+	return version >= MCP_PROTOCOL_VERSION_HEADER_SINCE
+}
+
 export class MCPClient {
 	readonly id: MCPClientId
 	private transport: MCPTransport
 	private status: MCPConnectionStatus = 'disconnected'
 	private serverInfo?: { name: string; version?: string }
 	private serverCapabilities?: MCPServerCapabilities
+	private era?: McpEra
+	/**
+	 * Set only when the negotiated era requires `MCP-Protocol-Version` on
+	 * every request that follows `initialize` (2025-06-18 and later).
+	 * `undefined` before negotiation completes and for an older legacy era,
+	 * so the header is never attached to `initialize` itself and never sent
+	 * to a server that predates it.
+	 */
+	private protocolVersionHeader?: string
 	private connectedAt?: number
 	private error?: string
 	private pendingRequests = new Map<
@@ -96,6 +122,11 @@ export class MCPClient {
 		}
 
 		this.status = 'connecting'
+		// A reconnect must renegotiate from scratch: neither the era nor the
+		// header it implies belongs to this new handshake until this new
+		// handshake has actually happened.
+		this.era = undefined
+		this.protocolVersionHeader = undefined
 
 		try {
 			this.transport.onMessage((msg) => this.handleMessage(msg))
@@ -117,29 +148,49 @@ export class MCPClient {
 
 			await this.transport.connect()
 
+			// One initialize round trip, offering the newest legacy version
+			// this client speaks — never a per-version waterfall. The spec's
+			// own backward-compatibility algorithm offers one version and
+			// honors whatever the server answers with; a three-step retry
+			// loop would be three times the latency for a path no server
+			// expects. `protocol-negotiation.test.ts` counts `initialize`
+			// frames so this stays true.
+			const offered = MCP_LEGACY_VERSIONS[0]
 			const result = (await this.request('initialize', {
-				protocolVersion: MCP_PROTOCOL_VERSION,
+				protocolVersion: offered,
 				capabilities: this.config.capabilities ?? {},
 				clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
 			})) as MCPInitializeResult
 
 			// The server answers with the version IT will speak, which need
-			// not be the one we asked for. Ignoring that answer — as this did
-			// — makes an unspeakable version look like a healthy connection
-			// until something downstream breaks in a confusing way.
-			const negotiated = result.protocolVersion
-			if (negotiated && !MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(negotiated)) {
+			// not be the one we asked for. Ignoring that answer — as this once
+			// did — makes an unspeakable version look like a healthy
+			// connection until something downstream breaks in a confusing
+			// way. A server that omits the field entirely is tolerated and
+			// treated as having accepted the offer, exactly as before this
+			// broadened the set.
+			const negotiated = result.protocolVersion ?? offered
+			if (!MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(negotiated)) {
 				throw new Error(
 					`MCP server "${this.config.serverName}" negotiated protocol version "${negotiated}", ` +
-						`which this client cannot speak (supported: ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(', ')}).`,
+						`which this client cannot speak (offered "${offered}"; supported: ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(', ')}).`,
 				)
 			}
-			if (negotiated && negotiated !== MCP_PROTOCOL_VERSION) {
+			if (negotiated !== offered) {
 				this.log.info('MCP server negotiated a different protocol version', {
-					'namzu.connector.requested': MCP_PROTOCOL_VERSION,
+					'namzu.connector.requested': offered,
 					'namzu.connector.negotiated': negotiated,
 				})
 			}
+
+			// A legacy `initialize` round trip only ever settles on a legacy
+			// version — a real 2026-07-28 server does not implement this
+			// method at all, so it cannot produce this success shape. The
+			// cast is safe on that basis, not merely convenient.
+			this.era = { kind: 'legacy', version: negotiated as McpLegacyVersion }
+			this.protocolVersionHeader = requiresProtocolVersionHeader(negotiated)
+				? negotiated
+				: undefined
 
 			this.serverInfo = result.serverInfo
 			this.serverCapabilities = result.capabilities
@@ -185,6 +236,19 @@ export class MCPClient {
 
 	isConnected(): boolean {
 		return this.status === 'connected'
+	}
+
+	/**
+	 * Which era and exact revision the last `connect()` negotiated.
+	 *
+	 * `undefined` before a connection has been negotiated. Every connection
+	 * this client makes today resolves `kind: 'legacy'` — broadening
+	 * negotiation to reach a modern origin is later work — but the type
+	 * already has a `modern` arm so this accessor does not need to change
+	 * shape when that lands.
+	 */
+	getEra(): McpEra | undefined {
+		return this.era
 	}
 
 	getState(): MCPClientState {
@@ -504,6 +568,7 @@ export class MCPClient {
 			issued = true
 			const sending = this.transport.send(message, {
 				signal: transportController.signal,
+				...this.protocolVersionHeaderOptions(),
 			})
 			void sending.catch((err) => {
 				settleSendFailure(err)
@@ -513,6 +578,19 @@ export class MCPClient {
 		}
 
 		return result
+	}
+
+	/**
+	 * `{ headers: {...} }` when the negotiated era wants `MCP-Protocol-Version`
+	 * on this send, `{}` otherwise — spread into a `send()` options object so
+	 * a legacy era before 2025-06-18, and every send before negotiation has
+	 * completed (`initialize` itself included), gets no `headers` key at all
+	 * rather than one holding `undefined`.
+	 */
+	private protocolVersionHeaderOptions(): { headers?: Record<string, string> } {
+		return this.protocolVersionHeader
+			? { headers: { 'MCP-Protocol-Version': this.protocolVersionHeader } }
+			: {}
 	}
 
 	/** Ask the peer to stop without letting cleanup become another hanging request. */
@@ -534,7 +612,7 @@ export class MCPClient {
 					method: 'notifications/cancelled',
 					params: { requestId: id, reason },
 				},
-				{ signal: controller.signal },
+				{ signal: controller.signal, ...this.protocolVersionHeaderOptions() },
 			)
 		} catch (err) {
 			clearTimeout(timer)
@@ -586,7 +664,7 @@ export class MCPClient {
 			method,
 			params,
 		}
-		await this.transport.send(message)
+		await this.transport.send(message, this.protocolVersionHeaderOptions())
 	}
 
 	private handleMessage(message: MCPJsonRpcMessage): void {

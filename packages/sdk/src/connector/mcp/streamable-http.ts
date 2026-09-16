@@ -82,7 +82,7 @@ export class StreamableHttpTransport implements MCPTransport {
 			const response = await operation.run(() =>
 				fetch(this.config.url, {
 					method: 'POST',
-					headers: this.buildHeaders(),
+					headers: this.buildHeaders(options?.headers),
 					body: JSON.stringify(message),
 					redirect: 'manual',
 					signal: operation.signal,
@@ -126,11 +126,19 @@ export class StreamableHttpTransport implements MCPTransport {
 		return this.connected
 	}
 
-	private buildHeaders(): Record<string, string> {
+	/**
+	 * `extra` comes from `MCPTransportSendOptions.headers` — the client's
+	 * per-send authority, `MCP-Protocol-Version` today — and is merged over
+	 * this transport's own static config headers so a caller's value wins
+	 * on a collision. `Mcp-Session-Id` is applied after both: it is
+	 * transport-managed state a caller cannot see to conflict with.
+	 */
+	private buildHeaders(extra?: Readonly<Record<string, string>>): Record<string, string> {
 		const headers: Record<string, string> = {
 			'Content-Type': 'application/json',
 			Accept: 'application/json, text/event-stream',
 			...this.config.headers,
+			...extra,
 		}
 
 		if (this.sessionId) {
