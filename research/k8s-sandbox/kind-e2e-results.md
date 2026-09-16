@@ -139,10 +139,16 @@ readable — i.e. that abort really kills the process rather than letting it
 finish. On this cluster the marker file WAS readable (`expected true to be
 false`): the abort-triggered kill did not land in time, on plain `runc`
 with no Kata boundary underneath. Reproduced identically on both runs.
-Worth re-running against a real Kata cluster before treating this as a
+~~Worth re-running against a real Kata cluster before treating this as a
 backend defect — it may be specific to signal delivery/process-tree timing
 under nested WSL2 virtualization, not the kill logic itself, but it is a
-real, repeatable failure on the cluster this run had.
+real, repeatable failure on the cluster this run had.~~ **Corrected below
+(2026-09-16 addendum): it is not an environment artifact.** It reproduces
+byte-for-byte on a bare loopback `agent.cjs` process on an ordinary
+Linux dev machine, no kind/WSL2/Kata involved — a straightforward logic
+defect in `agent.cjs`'s cancel escalation, root-caused, fixed and
+re-verified in-cluster. See "2026-09-16 — AbortSignal root cause, fix and
+re-verification" at the end of this file.
 
 ### Operations: exec / writeFile / readFile / terminal / tcp
 
@@ -384,3 +390,256 @@ throughout. Namespace deleted afterward (`kubectl delete namespace
 namzu-e2e-tcp469 --wait=true`); cluster, controller and every previously
 loaded image (including the ORIGINAL `namzu-e2e-runner:kind` tag this
 addendum's own recheck image does not touch) left running.
+## 2026-09-16 — AbortSignal root cause, fix and re-verification
+
+Root-causing the `AbortSignal` failure above (issue #469's ABORT workstream,
+worktree `issue469/abort-case`, its own namespace `namzu-e2e-abort469`, cleaned
+up after this run). Two independent defects were found, one fixed here, one
+recorded as a follow-up.
+
+### Defect 1 (fixed): `CANCEL_GRACE_MS`'s production default was never
+### actually exercised by any test
+
+`agent.cjs`'s `terminateAndConfirm` sends `SIGTERM` to the owned process
+group, waits up to `NAMZU_AGENT_CANCEL_GRACE_MS` for the group to go quiet,
+and escalates to `SIGKILL` **only if the group is still alive at the end of
+that window** — nothing checks that the exit was actually caused by the
+signal. The default was `2000`. The conformance fixture's ignoring process
+(`trap '' TERM; ...; sleep 0.4; printf late > marker`) finishes on its own in
+~400ms regardless of the signal, so on the production default the natural
+exit always won the race, `terminateAndConfirm` read "group empty" as "the
+signal worked," and the agent reported a clean `exitCode: 0, signal:
+undefined` — reproducing this run's exact `expected true to be false`.
+
+This is not a cluster-timing artifact: it reproduces byte-for-byte,
+deterministically, on a bare loopback `agent.cjs` process on an ordinary
+Linux machine (no Kubernetes, kind or WSL2 involved) — settle time ~430ms,
+marker readable, every time. The reason no existing test caught it: every
+suite that drives this path (`firecracker/__tests__/backend.test.ts`,
+`firecracker/__tests__/conformance.test.ts`, `kubernetes/__tests__/
+conformance.test.ts`, `kubernetes/__tests__/sandbox-surface.test.ts`)
+overrides `NAMZU_AGENT_CANCEL_GRACE_MS` to `50` — the firecracker
+conformance fixture's own comment says why: "so the abort case proves the
+kill in milliseconds, not the production TERM->KILL escalation window." That
+shortening was believed to only change wall-clock speed; because the
+fixture's natural-completion time (400ms) sits between the test override
+(50ms) and the production default (2000ms), it silently flips which side of
+the race wins, and the production default's own behaviour was never
+covered by anything.
+
+**Fix:** lowered the default to `250` — comfortably under the fixture's
+400ms with margin, still enough for a fast, well-behaved handler's cleanup
+(`packages/sandbox/agent/agent.cjs`). **Regression test:**
+`packages/sandbox/src/backends/kubernetes/__tests__/
+agent-cancel-ignoring-process.test.ts`, which deliberately leaves
+`NAMZU_AGENT_CANCEL_GRACE_MS` unset (the one thing every other suite
+shortens) — fails on the old default (`expected true to be false`, same
+message as this run), passes on the new one.
+
+**In-cluster re-verification**, same method as this file's original run
+(pool-less create, `namzu-task` template, image rebuilt with the fix and
+reloaded as `localhost/namzu-sandbox-agent:kind-fixed`): the REAL,
+unmodified `defineSandboxConformance` suite run against a live acquired
+sandbox now reports **11/12** (up from 10/12) — every case passes except
+`openTcpConnection`'s positive case, which is the pre-existing, unrelated,
+fixture-topology failure this file already explains above (own-loopback
+listener, not a backend defect). The `AbortSignal` case:
+
+```
+[PASS] (9637ms) ... exec > honours an AbortSignal: the process is really terminated, never a partial success
+```
+
+### Defect 2 (found, NOT fixed here — follow-up): the agent never reaps an
+### orphaned grandchild, so cancellation of a backgrounding command never
+### confirms in a real pod
+
+The 9637ms above is not free — it is the full `RemoteExecutionController`
+`cancelConfirmTimeoutMs` (8s) plus overhead, ending in
+`RemoteCancellationUnknownError` (which retires the sandbox). The suite
+still PASSES this case (resolve or reject are equally compliant, per its own
+doc comment — the decisive check is only that the marker is absent, which
+it is: the process is genuinely killed within ~300ms). But an 8-second,
+sandbox-destroying "unconfirmed cancellation" on every abort of a command
+that forked a background job is a real cost, worth its own fix.
+
+Root-caused with `/proc` evidence from a live pod, dialing the agent
+directly (raw framed socket, bypassing `RemoteExecutionController` and
+`KubernetesAgentTransport` entirely, to rule out a transport/dial
+explanation — dial time was consistently `0-1ms`, including for a fresh
+connection made *while* the long-running `execute` connection was still
+open, which also rules out the pre-auth pool or a busy-agent-can't-accept
+explanation from issue #469's own suspect list):
+
+```
+pid=1  comm=(node)  state=S ppid=0  pgrp=1
+pid=23 comm=(sh)    state=Z ppid=1  pgrp=22   <- the backgrounded subshell
+pid=24 comm=(sleep) state=Z ppid=1  pgrp=22   <- its sleep, both zombies
+```
+
+`packages/sandbox/k8s/entrypoint.sh` `exec`s straight into `agent.cjs` with
+no init in between, so in a real pod the agent **is PID 1** of the
+container's pid namespace (already documented, for a different reason, in
+`agent-sigterm.test.ts`'s header comment). `terminateAndConfirm` `SIGKILL`s
+the whole process group, which correctly and promptly kills every member —
+Node's `child_process` reaps its own direct child (the top-level `/bin/sh
+-c`, PID 22 in the trace above, already gone by the time this was taken) the
+moment it exits. But a **background job that shell forked** (`(...) &`,
+exactly what both this fixture and the original W10 "how not to daemonize
+through exec()" gotcha use) is `sh`'s own child, not the agent's. When `sh`
+is `SIGKILL`ed before it can reap its own children, those children become
+orphans and — standard Linux behaviour — reparent to PID 1, i.e. the agent
+itself. Node's `child_process` module only calls `waitpid()` for PIDs it
+explicitly spawned and is tracking; a reparented orphan it never spawned is
+invisible to that machinery and is **never reaped**. A zombie's `pgid`
+still counts for `kill(-pgid, 0)` (POSIX: the task struct persists until
+reaped), so `waitForGroupExit`'s liveness poll can never observe
+`groupGone: true` again for that execution — it is stuck FOREVER (not just
+past the confirm deadline; the zombies in the trace above were still there
+20+ seconds later, unbounded by any of the agent's own timeouts) — and every
+cancellation of a command that forked a background job runs out the full
+`cancelConfirmTimeoutMs` and retires the sandbox, every time, not as an
+occasional race.
+
+This cannot be reproduced by any loopback unit test as currently written:
+spawning `agent.cjs` as an ordinary (non-PID-1) test-runner child means an
+orphan reparents to the real machine's actual init/systemd, which reaps it
+immediately, hiding the defect completely. It needs either a real container
+(a PID-namespace boundary) or a test that puts the spawned `agent.cjs` in
+its own PID namespace deliberately (`unshare --pid --fork`, Linux-only).
+
+**Recommended fix (not applied in this change — out of scope for the
+`CANCEL_GRACE_MS` fix above, and larger than "minimal"):** give the
+container a real subreaper instead of running `agent.cjs` directly as PID 1
+— `ENTRYPOINT ["tini", "--", "/entrypoint.sh"]` (or a small equivalent) is
+the standard fix for exactly this class of bug and would, as a side effect,
+also simplify `agent.cjs`'s own SIGTERM handling: as PID 2 rather than PID 1
+it would get the kernel's ordinary default signal disposition for free.
+Needs its own careful verification that fast-SIGTERM-exit (the property
+`agent-sigterm.test.ts` guards) survives the extra layer, and its own
+regression coverage (env-gated, real-container test, since the mechanism is
+not reproducible on loopback — plus a unit-level proxy asserting the image
+actually installs a subreaper as PID 1 rather than `exec`ing straight into
+the agent). Filed here rather than fixed inline because it changes the
+container's process topology (Dockerfile `ENTRYPOINT`, not just an
+`agent.cjs` constant), which is a materially bigger and riskier change than
+the one this addendum's Defect 1 fix makes.
+
+**Disclosure and tracking:** the Defect 1 fix (`CANCEL_GRACE_MS` 2000ms →
+250ms, `.changeset/kubernetes-agent-cancel-grace-default.md`) widens the
+set of cancellations that take the `SIGKILL` path, which widens exposure to
+this defect — the changeset names that trade-off and points back here. **A
+GitHub issue for Defect 2 has not been filed** (attempted from this
+workstream's session and blocked by the environment's own write
+restrictions on external systems); until one exists, this section is the
+only record of the limitation, and a maintainer should open a tracked
+issue referencing this addendum and the changeset above before relying on
+this being remembered.
+
+## 2026-09-16 addendum — Defect 2 mitigated with `tini`; both defects mirrored onto the container worker; final in-cluster recheck
+
+Final round of issue #469's ABORT workstream. Three things happened, in
+this order:
+
+1. **Defect 1's `terminateAndConfirm` race was found to exist VERBATIM in
+   `packages/sandbox/worker/server.js`** (the container/Docker tier's HTTP
+   worker), not just in `agent/agent.cjs` — the review that blocked the
+   previous round of this investigation named this directly. Fixed the
+   same way: `NAMZU_SANDBOX_CANCEL_GRACE_MS`'s default lowered `2000` →
+   `250`, with a comment kept textually parallel to `agent.cjs`'s own so a
+   future reader sees one mechanism, not two independently-discovered
+   ones. New regression test
+   `packages/sandbox/worker/__tests__/server.test.js` ("kills a
+   SIGTERM-ignoring process before it finishes on its own, using the
+   PRODUCTION default NAMZU_SANDBOX_CANCEL_GRACE_MS") — deliberately
+   leaves the grace variable unset, the one thing every other cancellation
+   test in that file overrides — fails against the old `2000`ms default
+   (the marker file the ignoring process schedules DOES appear) and
+   passes against the new `250`ms one. `packages/sandbox/README.md`'s
+   "Protocol readiness and cancellation" section now documents both
+   variables side by side as one mechanism.
+
+2. **Defect 2 (the unreaped orphan) is now MITIGATED in the shipped
+   image, not merely documented.** `packages/sandbox/k8s/Dockerfile`
+   installs `tini`; `k8s/entrypoint.sh`'s final `exec` is now `setpriv
+   ... -- /usr/bin/tini -- node /opt/namzu/agent.cjs` — `setpriv` still
+   drops every privilege first, then execs into `tini`, which becomes the
+   container's real PID 1 (a subreaper: it reaps an orphaned grandchild
+   `agent.cjs` itself never spawned) with the agent as its child, and
+   forwards `SIGTERM` to it exactly as before
+   (`agent-sigterm.test.ts` is unaffected — the agent still gets the same
+   signal, now as an ordinary child rather than as PID 1).
+   `k8s/__tests__/entrypoint.test.ts`'s PATH-shim test now asserts the
+   `setpriv` invocation's own logged argv ends with
+   `-- /usr/bin/tini -- node /opt/namzu/agent.cjs`, i.e. that the exec
+   target is `tini` and its own argv still ends in the agent — see that
+   test file for why a second layer of PATH-shimming through a real `tini`
+   is unnecessary to check this. `docs/sdk/kubernetes-sandbox.md`'s
+   "Known limitation" paragraph is rewritten as "mitigated by `tini`";
+   a host building its own image from `agent.cjs`/`entrypoint.sh` directly
+   rather than from `k8s/Dockerfile` still has to provide its own
+   subreaper as PID 1, which the page now says explicitly.
+
+3. **In-cluster re-verification against a freshly built, `tini`-bearing
+   image.** Script: `research/k8s-sandbox/abort-case-recheck.mjs` (+
+   `abort-case-runner.mjs`, a `poolWarm`+`conformance`-only driver timed
+   per case, structurally identical to `tcp-case-recheck.mjs` /
+   `tcp-case-runner.mjs` — see that script's own header for why it uses
+   ASYNC `wsl()`/`wslCurlFetch()` rather than `kind-e2e-cli.mjs`'s
+   `spawnSync`-blocking originals). Unlike the TCP recheck, this one
+   rebuilds the AGENT image too (`packages/sandbox/k8s/Dockerfile` /
+   `entrypoint.sh` from THIS worktree, i.e. carrying the `tini` fix),
+   tagged `namzu-sandbox-agent:kind-tini469`, loaded into the same `namzu`
+   kind cluster, exercised in a dedicated namespace
+   (`namzu-e2e-abort469`) independent of any other namespace or image tag
+   a concurrent session might be using.
+
+   **Result: 12/12** — every conformance case passes, `AbortSignal`
+   included:
+
+   ```
+   [PASS] (116ms)  exec > reports the exit code and streams stdout/stderr as the command runs
+   [PASS] (322ms)  exec > reports busy while a command is in flight and ready once it settles
+   [PASS] (1502ms) exec > honours an AbortSignal: the process is really terminated, never a partial success
+   [PASS] (80ms)   file IO > round-trips a UTF-8 string through writeFile/readFile
+   [PASS] (89ms)   file IO > round-trips arbitrary binary content byte for byte
+   [PASS] (427ms)  listFiles > lists written files as absolute paths with their sizes
+   [PASS] (137ms)  listFiles > reports a root that does not exist as empty rather than failing
+   [PASS] (375ms)  openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned
+   [PASS] (2112ms) openTcpConnection > forwards a bidirectional stream to a service started inside the guest
+   [PASS] (75ms)   openTcpConnection > refuses a non-loopback host
+   [PASS] (144ms)  destroy > is idempotent, however many times or however concurrently it is called
+   [PASS] (423ms)  destroy > refuses every call once destroyed, rather than admitting one
+   ```
+
+   The decisive number is the `AbortSignal` case's own elapsed time:
+   **1502ms**, down from the **9637ms** the previous round measured for
+   the identical case against the Defect-1-fixed-but-not-Defect-2-fixed
+   image (`## 2026-09-16`, "AbortSignal root cause, fix and
+   re-verification" section above). That earlier 9637ms WAS the full
+   `RemoteExecutionController` `cancelConfirmTimeoutMs` (8s) plus
+   overhead — the suite still passed because resolve-or-reject are both
+   compliant and the marker was absent either way, but the cancellation
+   itself could never confirm because the orphaned backgrounded `sleep`
+   reparented to the unreaped agent-as-PID-1 and stayed a zombie forever.
+   1502ms — comfortably inside the normal range every other case in this
+   run also falls in — is direct evidence that `tini` is now actually
+   reaping that orphan: `waitForGroupExit`'s liveness poll observes the
+   group gone quickly instead of running out the full window.
+
+   **Live evidence.** Namespace `namzu-e2e-abort469` on kind cluster
+   `namzu` (controller
+   `registry.k8s.io/agent-sandbox/agent-sandbox-controller:v1.0.2`,
+   `kubectl` server version `v1.37.0`): Job `namzu-abort-case-recheck`,
+   `succeeded: 1`, warm pool `namzu-task-pool` `readyReplicas: 2/2`
+   throughout, agent image `localhost/namzu-sandbox-agent:kind-tini469`,
+   runner image `localhost/namzu-e2e-abort-runner:kind`. Namespace deleted
+   afterward (`kubectl delete namespace namzu-e2e-abort469 --wait=true`);
+   cluster, controller, and every previously loaded image (the original
+   `:kind`/`:kind-fixed` agent tags and the `namzu-e2e`/`namzu-e2e-tcp469`
+   runner images from earlier rounds) left running and untouched. Full
+   JSON: `research/k8s-sandbox/abort-case-recheck-results.json`.
+
+**Not re-derived:** the other four `runner.mjs` phases
+(`acquireLatency`, `operations`, `leaseProof`, `poolLessCreate`) —
+untouched by either fix, same reasoning this file's "This script vs. this
+run" section already gives.

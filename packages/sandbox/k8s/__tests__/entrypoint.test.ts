@@ -74,6 +74,13 @@ exit 0
 echo "chown $*" >> "$NAMZU_TEST_LOG"
 exit 0
 `,
+	// `setpriv`'s fake never actually execs its own argv (like real setpriv
+	// would) — it only logs `$*` and exits, exactly as every other fake
+	// here does. That is enough to verify the exec CHAIN entrypoint.sh
+	// builds (setpriv's own flags, and that its final argument names
+	// `tini` as the target with `node /opt/namzu/agent.cjs` as tini's own
+	// argv) without needing a real `tini` binary or a second layer of
+	// PATH-shimming to chase the exec through it.
 	setpriv: `#!/bin/sh
 echo "setpriv $*" >> "$NAMZU_TEST_LOG"
 exit 0
@@ -162,7 +169,11 @@ describe('entrypoint.sh always execs into setpriv last', () => {
 		expect(setprivLine).toContain('--inh-caps=-all')
 		expect(setprivLine).toContain('--bounding-set=-all')
 		expect(setprivLine).toContain('--no-new-privs')
-		expect(setprivLine).toContain('-- node /opt/namzu/agent.cjs')
+		// The exec chain's tail: setpriv's own final argument names `tini` as
+		// pid 1 (the subreaper — see the Dockerfile and entrypoint.sh's own
+		// comments on why), which in turn execs the agent as its child, so
+		// the two flags below must appear in this order in the SAME line.
+		expect(setprivLine).toContain('-- /usr/bin/tini -- node /opt/namzu/agent.cjs')
 		// And it really is the LAST thing this run did.
 		expect(result.log.at(-1)).toBe(setprivLine)
 	})

@@ -116,7 +116,26 @@ const EXECUTION_TERMINAL_TTL_MS = Number(
 	process.env.NAMZU_SANDBOX_EXECUTION_TERMINAL_TTL_MS || 60_000,
 )
 const MAX_TRACKED_EXECUTIONS = Number(process.env.NAMZU_SANDBOX_MAX_TRACKED_EXECUTIONS || 1_024)
-const CANCEL_GRACE_MS = Number(process.env.NAMZU_SANDBOX_CANCEL_GRACE_MS || 2_000)
+// `terminateAndConfirm` only escalates SIGTERM to SIGKILL when the owned
+// process group is STILL alive at the end of this window — a group that
+// goes quiet before then is read as "the signal worked," with no check
+// that the signal was the reason. A command that ignores SIGTERM but
+// happens to finish on its own before this elapses therefore runs to
+// completion untouched, and is reported back as a clean, unaborted-looking
+// result: exactly the outcome `SandboxExecOptions.signal`'s contract
+// forbids ("must terminate the owned process ... never silently ignore the
+// signal and let the command run to completion"). This was 2000ms until
+// issue #469's kind conformance run caught the identical mechanism in
+// `agent/agent.cjs` (the Firecracker/kubernetes guest agent this worker's
+// spawn/jail/framing logic is deliberately kept parallel with) — every test
+// in THIS file that drives this path shortens it (80ms, 700ms, ...) "so the
+// abort case proves the kill in milliseconds, not the production window",
+// which hid this default's own behaviour from every one of them exactly as
+// it did on the other transport. Kept short enough to leave the shared
+// SIGTERM-ignoring fixture (~400ms to finish on its own) a wide margin; a
+// deployment that genuinely needs longer for cooperative cleanup sets
+// `NAMZU_SANDBOX_CANCEL_GRACE_MS` explicitly.
+const CANCEL_GRACE_MS = Number(process.env.NAMZU_SANDBOX_CANCEL_GRACE_MS || 250)
 const CANCEL_CONFIRM_TIMEOUT_MS = Number(
 	process.env.NAMZU_SANDBOX_CANCEL_CONFIRM_TIMEOUT_MS || 5_000,
 )

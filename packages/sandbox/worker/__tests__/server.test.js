@@ -502,6 +502,57 @@ describe('worker execution leases and cancellation', () => {
 		await expect(access(marker)).rejects.toMatchObject({ code: 'ENOENT' })
 	}, 10_000)
 
+	// Regression for issue #469's AbortSignal conformance failure, mirrored
+	// onto this transport from `agent/agent.cjs`'s own
+	// `agent-cancel-ignoring-process.test.ts`: the exact same
+	// `terminateAndConfirm` race exists verbatim in this file (see
+	// `CANCEL_GRACE_MS`'s comment above `server.js`), and every OTHER test in
+	// this describe block shortens `NAMZU_SANDBOX_CANCEL_GRACE_MS` (80ms,
+	// 700ms, ...) to stay fast — which is exactly what let the shipped,
+	// unshortened default's own behaviour go unexercised on the Firecracker
+	// transport until issue #469's kind run caught it. This one deliberately
+	// leaves `NAMZU_SANDBOX_CANCEL_GRACE_MS` unset.
+	it('kills a SIGTERM-ignoring process before it finishes on its own, using the PRODUCTION default NAMZU_SANDBOX_CANCEL_GRACE_MS', async () => {
+		worker = await spawnWorker({
+			NAMZU_SANDBOX_CANCEL_CONFIRM_TIMEOUT_MS: '3000',
+		})
+		const marker = path.join(worker.workspace, 'production-grace-survived.txt')
+		const lease = await reserve(worker)
+		const response = await fetch(`${worker.baseUrl}/execute`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				executionId: lease.executionId,
+				command: '/bin/sh',
+				// Identical fixture to `testing/sandbox-conformance.ts`'s "honours
+				// an AbortSignal" case and to the kubernetes agent's own
+				// regression test: both the foreground shell and its backgrounded
+				// child trap and ignore SIGTERM, and the child writes `marker` a
+				// moment after the whole command is observably running.
+				args: [
+					'-c',
+					`trap '' TERM; (trap '' TERM; sleep 0.4; printf late > ${marker}) & echo READY; wait`,
+				],
+				timeoutMs: 5_000,
+			}),
+		})
+		expect(response.status).toBe(200)
+		const reader = response.body.getReader()
+		expect(new TextDecoder().decode((await reader.read()).value)).toContain('READY')
+
+		const cancelled = await cancel(worker, lease.executionId)
+		expect(cancelled.status).toBe(200)
+		expect((await cancelled.json()).ok).toBe(true)
+
+		// The decisive check, straight from the conformance suite's own
+		// comment: if the process was genuinely killed on cancel, the write it
+		// schedules a moment later never happens. On the OLD 2000ms default
+		// the natural exit wins this race and the file DOES appear — this is
+		// the assertion that fails against the pre-fix logic.
+		await new Promise((resolve) => setTimeout(resolve, 650))
+		await expect(access(marker)).rejects.toMatchObject({ code: 'ENOENT' })
+	}, 10_000)
+
 	it('delivers TERM to the owned process group before the kill grace expires', async () => {
 		worker = await spawnWorker({
 			NAMZU_SANDBOX_CANCEL_GRACE_MS: '700',

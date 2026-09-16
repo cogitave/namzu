@@ -84,6 +84,24 @@ Concurrent destroy and automatic-retirement calls share one checked teardown;
 Docker removal is never reported as accepted after a non-zero or aborted
 `docker rm -f`.
 
+**The SIGTERM → SIGKILL grace window.** Both peers implement the same
+mechanism, deliberately kept textually parallel so a future reader sees they
+are one design, not two: `SIGTERM` the owned process group, wait for it to go
+quiet, and escalate to `SIGKILL` only if it is still alive at the end of a
+grace window — with nothing checking that a quiet group went quiet BECAUSE of
+the signal rather than by finishing on its own. A command that ignores
+`SIGTERM` but happens to complete within the window therefore runs to
+completion untouched and reports back as a clean, unaborted-looking success.
+The container worker's `NAMZU_SANDBOX_CANCEL_GRACE_MS` and the Firecracker/
+kubernetes guest agent's `NAMZU_AGENT_CANCEL_GRACE_MS` both default to `250`
+(previously `2000` on both — issue #469's kind conformance run caught this on
+the agent transport first; the identical worker-side race was fixed in the
+same change once found). 250ms is comfortably under the shared conformance
+suite's adversarial fixture (a command that finishes on its own in ~400ms)
+while still enough for a fast, well-behaved `SIGTERM` handler's own cleanup;
+a deployment that genuinely needs a longer cooperative-shutdown window sets
+either variable explicitly.
+
 Every worker and microVM guest publishes its wire-protocol version in the
 readiness response. The host admits only the exact version implemented by its
 release; missing, older, and newer versions fail before a sandbox handle or

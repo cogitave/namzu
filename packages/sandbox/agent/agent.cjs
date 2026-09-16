@@ -159,7 +159,25 @@ const EXECUTION_TERMINAL_TTL_MS = positiveIntegerConfig(
 	60_000,
 )
 const MAX_TRACKED_EXECUTIONS = positiveIntegerConfig('NAMZU_AGENT_MAX_TRACKED_EXECUTIONS', 1_024)
-const CANCEL_GRACE_MS = positiveIntegerConfig('NAMZU_AGENT_CANCEL_GRACE_MS', 2_000, true)
+// `terminateAndConfirm` only escalates SIGTERM to SIGKILL when the owned
+// process group is STILL alive at the end of this window — a group that
+// goes quiet before then is read as "the signal worked," with no check
+// that the signal was the reason. A command that ignores SIGTERM but
+// happens to finish on its own before this elapses therefore runs to
+// completion untouched, and is reported back as a clean, unaborted-looking
+// result: exactly the outcome `SandboxExecOptions.signal`'s contract
+// forbids ("must terminate the owned process ... never silently ignore the
+// signal and let the command run to completion"). This was 2000ms until
+// issue #469's kind conformance run caught it — every suite that drives
+// this path shortens it to 50ms "so the abort case proves the kill in
+// milliseconds, not the production window" (see
+// `firecracker/__tests__/conformance.test.ts`), which happened to flip
+// which side of that race wins for the shared conformance fixture's
+// ~400ms-to-finish ignoring process and hid this default's own behaviour
+// from every test. Kept short enough to leave that fixture a wide margin;
+// a deployment that genuinely needs longer for cooperative cleanup sets
+// `NAMZU_AGENT_CANCEL_GRACE_MS` explicitly.
+const CANCEL_GRACE_MS = positiveIntegerConfig('NAMZU_AGENT_CANCEL_GRACE_MS', 250, true)
 const CANCEL_CONFIRM_TIMEOUT_MS = positiveIntegerConfig(
 	'NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS',
 	5_000,

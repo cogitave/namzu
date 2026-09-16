@@ -1,0 +1,98 @@
+{
+  "collectedAt": "2026-09-16T09:57:03.198Z",
+  "purpose": "re-run of the full conformance suite (AbortSignal case included) against the tini-bearing guest image, issue #469 abort-case final round",
+  "cluster": {
+    "kind": "namzu",
+    "kubernetesVersion": "v1.37.0",
+    "controllerImage": "registry.k8s.io/agent-sandbox/agent-sandbox-controller:v1.0.2"
+  },
+  "namespace": "namzu-e2e-abort469",
+  "agentImageTag": "namzu-sandbox-agent:kind-tini469",
+  "runnerImageTag": "namzu-e2e-abort-runner:kind",
+  "runner": {
+    "startedAt": "2026-09-16T09:56:49.129Z",
+    "purpose": "re-run of the full conformance suite (AbortSignal case included) against the tini-bearing guest image, issue #469 abort-case final round",
+    "namespace": "namzu-e2e-abort469",
+    "template": "namzu-task",
+    "pool": "namzu-task-pool",
+    "phases": {
+      "poolWarm": {
+        "ok": true,
+        "durationMs": 11,
+        "ready": 2,
+        "wanted": 2
+      },
+      "conformance": {
+        "ok": true,
+        "durationMs": 5804,
+        "total": 12,
+        "passed": 12,
+        "failed": 0,
+        "cases": [
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > exec > reports the exit code and streams stdout/stderr as the command runs",
+            "passed": true,
+            "elapsedMs": 116
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > exec > reports busy while a command is in flight and ready once it settles",
+            "passed": true,
+            "elapsedMs": 322
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > exec > honours an AbortSignal: the process is really terminated, never a partial success",
+            "passed": true,
+            "elapsedMs": 1502
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > file IO > round-trips a UTF-8 string through writeFile/readFile",
+            "passed": true,
+            "elapsedMs": 80
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > file IO > round-trips arbitrary binary content byte for byte",
+            "passed": true,
+            "elapsedMs": 89
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > listFiles > lists written files as absolute paths with their sizes",
+            "passed": true,
+            "elapsedMs": 427
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > listFiles > reports a root that does not exist as empty rather than failing",
+            "passed": true,
+            "elapsedMs": 137
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned",
+            "passed": true,
+            "elapsedMs": 375
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > openTcpConnection > forwards a bidirectional stream to a service started inside the guest",
+            "passed": true,
+            "elapsedMs": 2112
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > openTcpConnection > refuses a non-loopback host",
+            "passed": true,
+            "elapsedMs": 75
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > destroy > is idempotent, however many times or however concurrently it is called",
+            "passed": true,
+            "elapsedMs": 144
+          },
+          {
+            "name": "kubernetes (kind e2e, abort-case recheck) — sandbox contract v1 > destroy > refuses every call once destroyed, rather than admitting one",
+            "passed": true,
+            "elapsedMs": 423
+          }
+        ]
+      }
+    },
+    "finishedAt": "2026-09-16T09:56:54.951Z",
+    "ok": true
+  }
+}

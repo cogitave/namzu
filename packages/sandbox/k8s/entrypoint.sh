@@ -12,11 +12,17 @@
 #      (or an emptyDir the pod spec mounted there), already owned by the
 #      unprivileged user at image build time.
 #   2. `exec` into `setpriv`, which drops every privilege this process has
-#      and becomes the guest agent. `exec` REPLACES this shell's process
-#      image — nothing of this script keeps running or stays resident: the
-#      agent ends up as the container's pid 1, in the SAME mount namespace
-#      the mount above just populated, with no propagation step needed
-#      because there is only ever one container and one namespace.
+#      and becomes `tini`, running as the unprivileged user, which in turn
+#      execs the guest agent as ITS child. `exec` REPLACES this shell's
+#      process image — nothing of this script keeps running or stays
+#      resident: `tini` ends up as the container's pid 1, in the SAME mount
+#      namespace the mount above just populated, with no propagation step
+#      needed because there is only ever one container and one namespace.
+#      `tini` as pid 1 (not the agent itself) is a real subreaper: it reaps
+#      an orphan reparented to pid 1 — which the agent's own
+#      `child_process` never would, since it only `waitpid()`s processes it
+#      spawned directly — and forwards `SIGTERM` to the agent, which still
+#      handles it exactly as it always has (`agent-sigterm.test.ts`).
 #
 # The one destructive mistake this file exists to make impossible: running
 # mkfs unconditionally. A workspace's disk is formatted exactly ONCE, at
@@ -79,7 +85,9 @@ export NAMZU_SANDBOX_WORKSPACE="$WORKSPACE_ROOT"
 # them. `../src/backends/kubernetes/privilege-probe.ts` verifies exactly
 # these four masks are zero and NoNewPrivs is 1 on every single acquire —
 # this line is the thing it is checking actually happened, not merely
-# configured.
+# configured. `setpriv` itself still execs (not spawns) into `tini`, so the
+# privilege drop happens before pid 1 is even decided and `tini` never runs
+# with a capability the agent it launches should not have either.
 exec setpriv \
 	--reuid="$AGENT_UID" \
 	--regid="$AGENT_GID" \
@@ -87,4 +95,4 @@ exec setpriv \
 	--inh-caps=-all \
 	--bounding-set=-all \
 	--no-new-privs \
-	-- node /opt/namzu/agent.cjs
+	-- /usr/bin/tini -- node /opt/namzu/agent.cjs

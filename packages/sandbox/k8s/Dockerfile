@@ -47,9 +47,20 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # `blkid` (both ship in this package on Debian, not e2fsprogs, despite the
 # tool's name suggesting otherwise).
 # e2fsprogs: `mkfs.ext4`, for a workspace's block device on its first mount.
+# tini: the container's real PID 1 once `entrypoint.sh` execs into it (see
+# that file's tail). Without a subreaper there, the guest agent itself is
+# PID 1 with no `waitpid()` for a process it never spawned directly, so a
+# background job (`sh -c '... &'`) orphaned by a cancel-triggered `SIGKILL`
+# reparents to the agent and is never reaped — root-caused with in-cluster
+# `/proc` evidence in `research/k8s-sandbox/kind-e2e-results.md` ("Defect 2",
+# `2026-09-16`). `tini` reaps it instead and forwards `SIGTERM`, which is
+# exactly the job a subreaper is for; the agent's own `SIGTERM` handler
+# (see `agent-sigterm.test.ts`) still runs, now as an ordinary signalled
+# child rather than as PID 1.
 RUN apt-get update && apt-get install -y --no-install-recommends \
     util-linux \
     e2fsprogs \
+    tini \
     && rm -rf /var/lib/apt/lists/*
 
 # Same uid:gid the existing worker reference image uses for its unprivileged

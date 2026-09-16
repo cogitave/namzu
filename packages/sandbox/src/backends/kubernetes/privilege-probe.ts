@@ -4,7 +4,9 @@
  *
  * The image's entrypoint mounts the workspace as root and then
  * `exec setpriv --reuid --regid --clear-groups --inh-caps=-all
- * --bounding-set=-all --no-new-privs -- node agent.cjs`. Nothing in
+ * --bounding-set=-all --no-new-privs -- tini -- node agent.cjs` (`tini` is
+ * the container's pid 1 so it can reap an orphan `agent.cjs` itself never
+ * spawned — see `k8s/entrypoint.sh` and the Dockerfile). Nothing in
  * `agent.cjs` knows about any of that, and nothing on the host can see it
  * either — an image built from an older entrypoint, a `RuntimeClass` change,
  * a hand-edited `SandboxTemplate` all produce a sandbox that works perfectly
@@ -185,7 +187,7 @@ export function assertDeprivileged(privileges: ProcStatusPrivileges, sandboxName
 		'privileged',
 		`kubernetes sandbox ${sandboxName} is PRIVILEGED and was refused: ${offenders.join(
 			', ',
-		)} (every capability mask must be 0 and NoNewPrivs must be 1). The probe ran and was read successfully — this is the guest's real state, not a diagnostic failure. The image's entrypoint is expected to end with \`exec setpriv --reuid --regid --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- node agent.cjs\`; a sandbox that reaches this message is running with capabilities the workload could use.`,
+		)} (every capability mask must be 0 and NoNewPrivs must be 1). The probe ran and was read successfully — this is the guest's real state, not a diagnostic failure. The image's entrypoint is expected to end with \`exec setpriv --reuid --regid --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- tini -- node agent.cjs\`; a sandbox that reaches this message is running with capabilities the workload could use.`,
 	)
 }
 

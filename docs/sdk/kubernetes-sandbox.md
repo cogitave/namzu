@@ -190,6 +190,25 @@ the shared `RemoteExecutionController` observed, exactly as the Firecracker
 tier's own `exec` does — the same contract, the same controller, a different
 transport underneath it.
 
+**Mitigated by `tini` in the shipped image:** if a cancelled command left a
+background job running (a shell `... &`), that job's process orphans on
+`SIGKILL` and reparents to whatever is the container's PID 1. Without a
+subreaper there — `agent.cjs` itself has no `waitpid()` for a process it
+never spawned directly — the orphan is never reaped, stays a zombie
+indefinitely, and `waitForGroupExit`'s liveness check can never observe the
+group as gone, running the cancellation out the full cancel-confirm window
+and retiring the sandbox instead of confirming. `k8s/entrypoint.sh`'s final
+`exec` now runs `tini` as PID 1 (as the already-deprivileged user, with
+`agent.cjs` as its child) specifically to reap that orphan and forward
+`SIGTERM`, which closes this gap in the shipped image. **A host building its
+own image from `agent.cjs` and `entrypoint.sh` directly, rather than from
+`k8s/Dockerfile`, must keep a subreaper as PID 1 itself** — nothing on the
+host can see whether an image did, which is exactly why the privilege probe
+above verifies capabilities rather than trusting them, though it has no
+equivalent check for a missing subreaper. Root-caused with in-cluster
+`/proc` evidence in `research/k8s-sandbox/kind-e2e-results.md` ("Defect 2",
+`## 2026-09-16`).
+
 ### Two ways a sandbox ends
 
 `SandboxStatus` has four members and this backend adds none, so a destroyed
@@ -324,7 +343,7 @@ turns this off** — the value of checking on every acquire rather than once by
 hand is precisely that it cannot be forgotten.
 
 The image's entrypoint is expected to end with
-`exec setpriv --reuid --regid --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- node agent.cjs`.
+`exec setpriv --reuid --regid --clear-groups --inh-caps=-all --bounding-set=-all --no-new-privs -- tini -- node agent.cjs`.
 Nothing in the agent knows about that, and nothing on the host can see it —
 which is why it is asked, not assumed.
 
@@ -858,7 +877,9 @@ The cluster artifacts the rest of this page assumes are under
 packs only `dist` and `src`; `npm pack --dry-run` from `packages/sandbox`
 confirms it): the guest image (`k8s/Dockerfile`, `k8s/entrypoint.sh` — root
 formats and mounts a workspace's raw block device, then `exec`s into
-`setpriv` and drops every capability before the guest agent ever runs), the
+`setpriv`, which drops every capability and execs `tini` — the container's
+real PID 1 and subreaper — which in turn runs the guest agent as its
+child), the
 `RuntimeClass` / `SandboxTemplate` / `SandboxWarmPool` / `NetworkPolicy` /
 RBAC manifests (`k8s/manifests/`, plus a `kind-overlay/` for local
 development — explicitly **not** a security boundary, see that overlay's
