@@ -11,8 +11,8 @@
  *
  * Implemented: `exec` (through the shared {@link RemoteExecutionController},
  * so an `AbortSignal` terminates the guest process rather than abandoning
- * the wait), `writeFile`, `readFile`, `listFiles`, `openTerminal`,
- * `openTcpConnection`, `destroy`.
+ * the wait), `writeFile`, `readFile`, `listFiles`, `walkFiles`,
+ * `openTerminal`, `openTcpConnection`, `destroy`.
  *
  * Absent on purpose, because the SDK's contract says a backend that cannot
  * honour an optional method must omit it rather than accept and ignore:
@@ -23,8 +23,6 @@
  *    caller stops looking.
  *  - `spawnDetached` — the guest agent has no op that starts a process and
  *    returns it running. A host asking for background jobs must be told no.
- *  - `walkFiles` — not in this batch. A host that requires bounded search
- *    refuses an absent method, which is the honest answer today.
  *
  * ## Terminals are owned
  *
@@ -55,8 +53,10 @@ import type {
 	SandboxStatus,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
+	SandboxWalkFilesOptions,
 	TerminalSession,
 } from '@namzu/sdk'
+import { walkFilesViaExec } from '@namzu/sdk'
 
 import { OperationDeadline } from '../readiness.js'
 import {
@@ -169,7 +169,7 @@ function detectEnvironment(): SandboxEnvironment {
  * method this file always defines.
  */
 export type KubernetesSandboxHandle = Sandbox &
-	Required<Pick<Sandbox, 'openTerminal' | 'openTcpConnection'>>
+	Required<Pick<Sandbox, 'openTerminal' | 'openTcpConnection' | 'walkFiles'>>
 
 /**
  * Build the handle. It does NOT run the acquire-time privilege probe — that
@@ -372,6 +372,65 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 				}
 				return entries
 			})
+		},
+
+		/**
+		 * Bounded, lazy file discovery — the method the SDK's `glob` and
+		 * `grep` builtins refuse a sandbox for not having.
+		 *
+		 * Built on {@link walkFilesViaExec}, the same host-side enumerator the
+		 * Firecracker and docker backends use, over this transport's `exec`:
+		 * the guest needs no new agent op, because the walk IS an execution —
+		 * `node -e` running the SDK's own walk program and streaming one JSONL
+		 * record per match. The guest image is `node:22-bookworm-slim` (see
+		 * `k8s/Dockerfile`) and the agent is itself node, so node on the
+		 * guest's PATH is a precondition of the agent existing rather than a
+		 * new requirement this method introduces.
+		 *
+		 * Ownership is the same as `exec`'s, and deliberately NOT
+		 * `runExecution`'s: that helper wraps one awaited call, and a walk is a
+		 * sequence of them. `activeExecutions` is therefore held for the whole
+		 * walk rather than per entry — `status` reads `busy` from the first
+		 * `next()` to the last, never flapping between yields — and an
+		 * unconfirmed cancellation retires this handle exactly as a failed
+		 * `exec` cancel does, on the same error class and through the same
+		 * `retire()`.
+		 *
+		 * Cancellation: `options.signal` and the consumer's own
+		 * `iterator.return()` both abort the underlying `exec`, which sends
+		 * the guest a `cancel-execution` and kills the walk's process group —
+		 * so breaking out of the loop after five entries leaves nothing
+		 * running in the pod.
+		 */
+		async *walkFiles(
+			rootPath: string,
+			walkOptions: SandboxWalkFilesOptions,
+		): AsyncIterable<SandboxFileEntry> {
+			assertAdmissible('walkFiles')
+			activeExecutions += 1
+			try {
+				yield* walkFilesViaExec(
+					async (command, argv, execOpts) => await transport.exec(command, argv, execOpts),
+					rootPath,
+					walkOptions,
+				)
+			} catch (error) {
+				// The same rule `runExecution` applies, inlined because a
+				// generator cannot be wrapped by it: a command whose
+				// cancellation the guest could not confirm may still be running
+				// in that pod, so the pod stops being reusable.
+				//
+				// TWO SITES, ONE RULE. This block and `runExecution`'s must
+				// change together — #480, which owns the unconfirmed-cancel
+				// rule for this backend, is the next change to both, and a
+				// change that lands in one of them is a bug in the other.
+				if (error instanceof RemoteCancellationUnknownError) {
+					error.retirement = await retire()
+				}
+				throw error
+			} finally {
+				activeExecutions = Math.max(0, activeExecutions - 1)
+			}
 		},
 
 		async destroy(destroyOptions?: SandboxDestroyOptions): Promise<void> {

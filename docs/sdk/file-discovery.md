@@ -89,7 +89,7 @@ filesystem operation can finish after cancellation, but it cannot schedule
 further traversal; a late directory handle is closed. This does not claim
 atomic protection against a path being replaced concurrently with a read.
 
-Docker, ACI and Firecracker adapters use `walkFilesViaExec`, which accepts the
+Docker, ACI, Firecracker and Kubernetes adapters use `walkFilesViaExec`, which accepts the
 existing `SandboxFileWalkExec` function, root path and options. It runs a bounded
 JSON-lines enumerator inside the backend's Node worker environment. The
 compiled matching plan is shared with local enumeration. JSON framing preserves

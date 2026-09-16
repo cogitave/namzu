@@ -28,10 +28,10 @@
  * Contract behaviour only — never a backend-specific object, field or
  * error string. A case never inspects `sandbox.constructor.name`, never
  * matches an error message, and never assumes a particular
- * {@link SandboxEnvironment}. `openTerminal` and `openTcpConnection` are
- * OPTIONAL on {@link Sandbox} by the SDK's own contract — a backend that
- * cannot honour one must omit it rather than accept and ignore it — so a
- * factory whose sandbox omits either capability skips that section rather
+ * {@link SandboxEnvironment}. `openTerminal`, `openTcpConnection` and
+ * `walkFiles` are OPTIONAL on {@link Sandbox} by the SDK's own contract — a
+ * backend that cannot honour one must omit it rather than accept and ignore
+ * it — so a factory whose sandbox omits any of them skips that section rather
  * than failing it. Every other section runs against every sandbox.
  *
  * ## Where it runs today
@@ -65,7 +65,9 @@ import { createHash } from 'node:crypto'
 import type {
 	OpenTerminalOptions,
 	Sandbox,
+	SandboxExecResult,
 	SandboxTcpConnectOptions,
+	SandboxWalkFilesOptions,
 	TerminalSession,
 } from '@namzu/sdk'
 
@@ -82,7 +84,7 @@ import type {
  * same convention `PROVIDER_DRIVER_CONTRACT_VERSION` uses — raised only
  * when a case is ADDED or TIGHTENED, never on a rewording.
  */
-export const SANDBOX_CONTRACT_VERSION = 2
+export const SANDBOX_CONTRACT_VERSION = 3
 
 /** A sandbox to test, plus whatever teardown building it required. */
 export interface SandboxConformanceHandle {
@@ -719,6 +721,337 @@ export function defineSandboxConformance(options: SandboxConformanceOptions): vo
 								Promise.reject(new Error('unreachable')),
 						)
 					}
+				}),
+			)
+		})
+
+		/**
+		 * Optional on {@link Sandbox} by the SDK's own contract, and the same
+		 * documented skip as `openTerminal`: a factory whose sandbox omits
+		 * `walkFiles` passes every case below vacuously. It is not a small
+		 * omission to make, though — the SDK's `glob` and `grep` builtins
+		 * REFUSE a sandbox that has no `walkFiles`, so a host that registers
+		 * the default builtin set and moves to such a backend loses both
+		 * tools with no change on its own side.
+		 *
+		 * What is asserted here is the contract's own wording: absolute paths,
+		 * regular files only, symlinks not followed, the bounds honoured by
+		 * whoever does the walking, and — the one that is easy to get wrong —
+		 * an exhausted examined-entry budget raising an error carrying
+		 * `ERR_FILE_WALK_LIMIT` rather than handing back a short list a caller
+		 * would read as complete.
+		 */
+		describe('walkFiles', () => {
+			/**
+			 * Every path this walk yielded, sorted.
+			 *
+			 * `walkFiles` is called through `.call(sandbox, …)` for the same
+			 * reason `openTerminal` is above: it may be an ordinary method
+			 * relying on `this`, and detaching it would drop that binding.
+			 */
+			const walkPaths = async (
+				sandbox: Sandbox,
+				root: string,
+				options: SandboxWalkFilesOptions,
+			): Promise<string[]> => {
+				const walk = sandbox.walkFiles
+				if (!walk) throw new Error('unreachable: every case guards on walkFiles first')
+				const paths: string[] = []
+				for await (const entry of walk.call(sandbox, root, options)) paths.push(entry.path)
+				return paths.sort()
+			}
+
+			it(
+				'yields written files as absolute paths with their sizes, bounded by maxEntries',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					await sandbox.writeFile('conformance-walk/a.txt', '1')
+					await sandbox.writeFile('conformance-walk/b.txt', '22')
+					await sandbox.writeFile('conformance-walk/c.txt', '333')
+					const dir = `${sandbox.rootDir}/conformance-walk`
+
+					const sizes = new Map<string, number>()
+					const walk = sandbox.walkFiles
+					for await (const entry of walk.call(sandbox, dir, { maxEntries: 10 })) {
+						sizes.set(entry.path, entry.size)
+					}
+					expect([...sizes.keys()].sort()).toEqual([`${dir}/a.txt`, `${dir}/b.txt`, `${dir}/c.txt`])
+					expect(sizes.get(`${dir}/c.txt`)).toBe(3)
+
+					// The bound is on what is EMITTED, so a walk asked for two
+					// entries yields two and stops — it does not yield three and
+					// leave the caller to discard one.
+					expect((await walkPaths(sandbox, dir, { maxEntries: 2 })).length).toBe(2)
+				}),
+			)
+
+			it(
+				'bounds the descent with maxDepth, counting direct children as depth 1',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					await sandbox.writeFile('conformance-depth/top.txt', 'top')
+					await sandbox.writeFile('conformance-depth/one/mid.txt', 'mid')
+					await sandbox.writeFile('conformance-depth/one/two/deep.txt', 'deep')
+					const dir = `${sandbox.rootDir}/conformance-depth`
+
+					expect(await walkPaths(sandbox, dir, { maxEntries: 50, maxDepth: 1 })).toEqual([
+						`${dir}/top.txt`,
+					])
+					expect(await walkPaths(sandbox, dir, { maxEntries: 50, maxDepth: 2 })).toEqual([
+						`${dir}/one/mid.txt`,
+						`${dir}/top.txt`,
+					])
+				}),
+			)
+
+			it(
+				'keeps hidden names out of a wildcard unless includeHidden is set',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					await sandbox.writeFile('conformance-hidden/visible.txt', 'v')
+					await sandbox.writeFile('conformance-hidden/.secret.txt', 'h')
+					const dir = `${sandbox.rootDir}/conformance-hidden`
+
+					expect(await walkPaths(sandbox, dir, { maxEntries: 50 })).toEqual([`${dir}/visible.txt`])
+					expect(await walkPaths(sandbox, dir, { maxEntries: 50, includeHidden: true })).toEqual([
+						`${dir}/.secret.txt`,
+						`${dir}/visible.txt`,
+					])
+				}),
+			)
+
+			it(
+				'reports a root that does not exist as an empty walk rather than failing',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					const paths = await walkPaths(sandbox, `${sandbox.rootDir}/conformance-never-walked`, {
+						maxEntries: 10,
+					})
+					expect(paths.length).toBe(0)
+				}),
+			)
+
+			it(
+				'does not follow symbolic links, to a file or to a directory',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					await sandbox.writeFile('conformance-links/real/target.txt', 'target')
+					const dir = `${sandbox.rootDir}/conformance-links`
+					const linked = await sandbox.exec('/bin/sh', [
+						'-c',
+						`cd ${dir} && ln -s real/target.txt link-to-file.txt && ln -s real link-to-dir`,
+					])
+					// Never a silent skip. A runtime discovery cannot travel
+					// through this suite's one skip channel — the case's own
+					// title, decided synchronously from the options — so a guest
+					// that cannot build the fixture says so out loud instead of
+					// passing a case that asserted nothing.
+					if (linked.exitCode !== 0) {
+						throw new Error(
+							`walkFiles conformance: this case builds its fixture with POSIX \`ln -s\`, and the guest's shell answered ${linked.exitCode}: ${linked.stderr.trim()}. A guest image that cannot make a symbolic link is not held to "symlinks are not followed" by asserting nothing — ship \`ln\`, or raise the gap so the suite grows a declared skip rather than a quiet one.`,
+						)
+					}
+
+					// The real file, once, under its real path. Following the
+					// directory link would have reported it again through
+					// `link-to-dir/target.txt`, and the file link again as itself.
+					expect(await walkPaths(sandbox, dir, { maxEntries: 50 })).toEqual([
+						`${dir}/real/target.txt`,
+					])
+				}),
+			)
+
+			it(
+				'raises ERR_FILE_WALK_LIMIT when the examined-entry budget runs out',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					for (let index = 0; index < 12; index += 1) {
+						await sandbox.writeFile(`conformance-budget/f${index}.txt`, 'x')
+					}
+					// An incomplete search is an ERROR carrying a code, never a
+					// short list: a caller handed six of twelve files with no
+					// signal reads it as "that is all there is".
+					let code: unknown
+					try {
+						await walkPaths(sandbox, `${sandbox.rootDir}/conformance-budget`, {
+							maxEntries: 50,
+							maxVisitedEntries: 4,
+						})
+					} catch (error) {
+						code = (error as { code?: unknown }).code
+					}
+					expect(code).toBe('ERR_FILE_WALK_LIMIT')
+				}),
+			)
+
+			it(
+				'refuses a walk once the sandbox has been destroyed',
+				withSandbox(async (sandbox) => {
+					if (!sandbox.walkFiles) return
+					const root = sandbox.rootDir
+					await sandbox.destroy()
+					// Consumed, not merely constructed: an async generator runs
+					// nothing until its first `next()`, so a case that built the
+					// iterator and stopped would pass against a sandbox that
+					// admits the walk happily.
+					await expectRejects(expect, () => walkPaths(sandbox, root, { maxEntries: 10 }))
+				}),
+			)
+		})
+
+		/**
+		 * One sandbox, several commands at once.
+		 *
+		 * A supervisor and its sub-agents share a sandbox, so this is the
+		 * ordinary case rather than an exotic one — and nothing in this suite
+		 * used to exercise it. A backend that serialises executions behind one
+		 * connection, or that lets two commands' output frames land in each
+		 * other's result, passes every other case here.
+		 *
+		 * Overlap is proved by the commands themselves rather than by a clock:
+		 * each appends its own mark to a shared file, waits for every other
+		 * mark to appear, and then prints the whole file back. If the backend
+		 * really ran them together every command sees every mark; if it ran
+		 * them one at a time the first one waits out its ceiling and can only
+		 * ever see its own.
+		 */
+		describe('concurrent exec', () => {
+			it(
+				'runs several commands at once on one sandbox, with no cross-talk between their results',
+				withSandbox(async (sandbox) => {
+					const count = 4
+					await sandbox.writeFile('conformance-concurrent/marks', '')
+					const marks = `${sandbox.rootDir}/conformance-concurrent/marks`
+
+					// A rendezvous rather than a sleep: each command appends its
+					// own mark and then WAITS for every other mark to appear
+					// before it prints. A backend that really runs them together
+					// settles as soon as the slowest one has started — no clock
+					// to tune, and nothing that gets tighter on a machine or a
+					// cluster where four dials cost more than a fixed pause. A
+					// backend that serialises them has the first command wait
+					// out the ceiling below and still print only its own mark,
+					// which is what the assertions catch.
+					const everyMark = Array.from({ length: count }, (_unused, index) => index).join(' ')
+					const rendezvous = (index: number): string =>
+						[
+							`printf '[%s]' '${index}' >> "${marks}"`,
+							'waited=0',
+							// 60 × 0.1 s. Only a backend that has already failed
+							// the case ever reaches it.
+							'while [ "$waited" -lt 60 ]; do',
+							`  all=$(cat "${marks}")`,
+							'  seen=1',
+							`  for mark in ${everyMark}; do`,
+							'    case "$all" in *"[$mark]"*) ;; *) seen=0 ;; esac',
+							'  done',
+							'  [ "$seen" -eq 1 ] && break',
+							'  waited=$((waited + 1))',
+							'  sleep 0.1',
+							'done',
+							`printf 'own:%s ' '${index}'`,
+							`cat "${marks}"`,
+						].join('\n')
+
+					const running = Array.from({ length: count }, (_unused, index) =>
+						sandbox.exec('/bin/sh', ['-c', rendezvous(index)]),
+					)
+					// Attached BEFORE the first assertion, and that ordering is
+					// load-bearing: an assertion that threw with four commands
+					// still in flight would leave four promises nobody is
+					// handling, and a backend that then rejects one of them
+					// takes the runner down with an unhandled rejection instead
+					// of failing this case.
+					const settled = Promise.allSettled(running)
+					// Every one of them is in flight right now.
+					expect(sandbox.status).toBe('busy')
+					const results: SandboxExecResult[] = []
+					for (const outcome of await settled) {
+						if (outcome.status === 'rejected') {
+							throw outcome.reason instanceof Error
+								? outcome.reason
+								: new Error(String(outcome.reason))
+						}
+						results.push(outcome.value)
+					}
+
+					for (let index = 0; index < count; index += 1) {
+						const result = results[index]
+						if (!result) throw new Error('unreachable: one result per started command')
+						expect(result.exitCode).toBe(0)
+						// Its OWN identity, on its own result: a backend that
+						// mixed two commands' output frames fails here.
+						expect(result.stdout).toMatch(new RegExp(`own:${index} `))
+						// And every other command's mark, which only holds if
+						// they were all admitted before any of them finished.
+						for (let other = 0; other < count; other += 1) {
+							expect(result.stdout).toMatch(new RegExp(`\\[${other}\\]`))
+						}
+					}
+					expect(sandbox.status).toBe('ready')
+				}),
+			)
+		})
+
+		/**
+		 * `SandboxExecOptions.timeout` and the `timedOut` flag it sets.
+		 *
+		 * `SandboxExecResult.timedOut` is REQUIRED on the contract, so every
+		 * backend answers it on every result — and until now nothing checked
+		 * that a backend ever sets it to `true`. A backend that accepts
+		 * `timeout` and ignores it reports a clean, unaborted-looking success
+		 * after however long the command felt like taking, which is the same
+		 * defect class the `AbortSignal` case above exists for and reads the
+		 * same way to a caller: a result that says the work is done.
+		 */
+		describe('exec timeout', () => {
+			it(
+				'reports a command that outran its timeout as timedOut, and really terminates it',
+				withSandbox(async (sandbox) => {
+					// The same shape as the abort case: the marker file is
+					// written a moment after "ready", so it only ever exists if
+					// the command was left running past its timeout. `trap ''
+					// TERM` on both the shell and the background job makes a
+					// polite TERM insufficient, exactly as a real runaway
+					// command would.
+					const marker = 'conformance-timeout-marker.txt'
+					const started = Date.now()
+					const result = await sandbox.exec(
+						'/bin/sh',
+						[
+							'-c',
+							`trap '' TERM; (trap '' TERM; sleep 1.5; printf late > ${marker}) & echo ready; wait`,
+						],
+						{ timeout: 400 },
+					)
+					const elapsed = Date.now() - started
+
+					expect(result.timedOut).toBe(true)
+					// Settled on the timeout rather than on the command
+					// finishing: the script itself waits 1.5 s, and a generous
+					// ceiling still separates the two outcomes.
+					expect(elapsed < 10_000).toBe(true)
+					// Long enough that a command left running would have written.
+					await sleep(1_800)
+					await expectRejects(expect, () => sandbox.readFile(marker))
+					// And the sandbox is still usable: a timeout is one
+					// command's outcome, not the handle's.
+					expect(sandbox.status).toBe('ready')
+					const after = await sandbox.exec('/bin/sh', ['-c', 'echo conformance-after-timeout'])
+					expect(after.exitCode).toBe(0)
+					expect(after.stdout).toMatch(/conformance-after-timeout/)
+				}),
+			)
+
+			it(
+				'leaves timedOut false for a command that finishes inside its timeout',
+				withSandbox(async (sandbox) => {
+					const result = await sandbox.exec('/bin/sh', ['-c', 'echo conformance-quick'], {
+						timeout: 30_000,
+					})
+					expect(result.timedOut).toBe(false)
+					expect(result.exitCode).toBe(0)
+					expect(result.stdout).toMatch(/conformance-quick/)
 				}),
 			)
 		})

@@ -310,12 +310,12 @@ request envelope.
 | `exec` | Implemented | Through the shared reserve-before-admission controller, so an `AbortSignal` terminates the guest process and the peer confirms it — never abandons the wait. |
 | `writeFile`, `readFile` | Implemented | Base64 over the framed protocol, jailed to the guest workspace. A body larger than one frame is [written in parts](#writing-a-file-larger-than-one-frame). |
 | `listFiles` | Implemented | `find -printf '%p\t%s\n'`, parsed line by line; a root that does not exist is an empty list. |
+| `walkFiles` | Implemented | Bounded, lazy discovery through the SDK's own `walkFilesViaExec` over `exec` — see [bounded search](#bounded-search-and-the-glob-and-grep-builtins). |
 | `openTerminal` | Implemented | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. |
 | `openTcpConnection` | Implemented | Guest loopback only. |
 | `destroy` | Implemented | DELETEs the object this backend created, which cascades to the Pod, Service and Sandbox. Idempotent; an object already gone counts as released. |
 | `setNetworkPolicy` | **Omitted** | Egress here is a `NetworkPolicy` attached to the pool's `SandboxTemplate`; there is no per-running-pod knob. The SDK's contract says a backend that cannot enforce one must omit it rather than accept it and quietly not apply it. |
 | `spawnDetached` | **Omitted** | The guest agent has no op that starts a process and hands it back running. A host that needs background jobs is told no. |
-| `walkFiles` | **Omitted** | Not in this batch. A host requiring bounded search refuses an absent method, which is the honest answer today. |
 
 A confirmed `exec` cancellation resolves with the terminal signal/exit code
 the shared `RemoteExecutionController` observed, exactly as the Firecracker
@@ -452,6 +452,47 @@ bounded by the guest's global frame ceiling (`NAMZU_AGENT_MAX_FRAME_BYTES`,
 256 MiB) instead — a ~189 MiB file. The part protocol is the same code on
 the same transport, so a body past even that is now split there too.
 
+### Bounded search, and the `glob` and `grep` builtins
+
+`walkFiles` is the method the SDK's `glob` and `grep` builtins refuse a
+sandbox for not having, and both are in the default builtin set. A host that
+registers them and moves from the Firecracker or docker backend to this one
+used to lose both tools with no change on its own side, and the message it
+got named the method rather than the fix. That is what this implements.
+
+It adds no wire op. `walkFiles` is the SDK's own `walkFilesViaExec` running
+the SDK's walk program as `node -e` inside the guest, streaming one JSONL
+record per match back over an ordinary `execute` — the same enumerator the
+Firecracker and docker backends use, so all three answer a search identically
+for one tree. The guest image is `node:22-bookworm-slim` and the agent is
+itself node, so node on the guest's `PATH` is a precondition of the agent
+existing rather than a new requirement: `k8s/Dockerfile` needed no change.
+
+It is an execution, with everything that follows from that:
+
+- It counts as busy for the WHOLE walk — from the first entry to the last,
+  never flapping between yields — because one execution is held for the
+  duration rather than one per entry.
+- `options.signal` and the consumer's own `iterator.return()` (breaking out of
+  a `for await`) abort that execution, which sends the guest a
+  `cancel-execution` and kills the walk's process group. Stopping after five
+  entries leaves nothing running in the pod.
+- A cancellation the guest cannot confirm retires the sandbox exactly as a
+  failed `exec` cancel does. There is no second rule for walks.
+
+On a **workspace** it passes the same admission gate every other data-plane
+call passes, once, when the consumer asks for the first entry: a suspended
+workspace refuses a walk exactly as it refuses `readFile` — same error class,
+same `noticedBy: 'admission'`, this operation's own name — and nothing is
+dialed. Admission is not re-checked per entry. A suspend that lands *during* a
+walk therefore fails it the way the transport failed, and this handle learns
+it was suspended elsewhere on its next data-plane call, which is where that
+one-shot diagnosis lives for every operation on the handle.
+
+An exhausted examined-entry budget raises an error carrying
+`ERR_FILE_WALK_LIMIT`. It is never a short list: a caller handed six of twelve
+files with no signal reads it as "that is all there is".
+
 ## Running the conformance suite
 
 The table above is a claim about the `Sandbox` contract, and until this batch
@@ -461,12 +502,17 @@ implementation can be run against — `exec`'s exit codes and streamed output,
 the `AbortSignal` contract (the process is genuinely terminated, never a
 resolved result that looks like an unaborted success), a `writeFile`/`readFile`
 round trip including binary content **and a body larger than one wire frame**,
-`listFiles`, `openTerminal` ownership on `destroy()`, `openTcpConnection` to
-guest loopback and its refusal of a non-loopback host, destroy idempotence,
-and every call failing once destroyed.
-`openTerminal` and `openTcpConnection` are optional on the SDK's own contract,
-so a factory whose sandbox omits either capability skips that section rather
-than failing it.
+`listFiles`, bounded `walkFiles` discovery (`maxEntries`, `maxDepth`,
+`includeHidden`, a missing root, symlinks not followed, and
+`ERR_FILE_WALK_LIMIT` on an exhausted budget), several `exec` calls at once on
+one sandbox with no cross-talk between their results, an `exec` whose
+`timeout` produces a timed-out result and really terminates the command,
+`openTerminal` ownership on `destroy()`, `openTcpConnection` to guest loopback
+and its refusal of a non-loopback host, destroy idempotence, and every call
+failing once destroyed.
+`openTerminal`, `openTcpConnection` and `walkFiles` are optional on the SDK's
+own contract, so a factory whose sandbox omits any of them skips that section
+rather than failing it.
 
 The `openTcpConnection` positive case starts its listener INSIDE the guest,
 through `openTerminal` (`node -e`, reporting the port it bound on its own
@@ -508,8 +554,14 @@ defineSandboxConformance({
 })
 ```
 
-`SANDBOX_CONTRACT_VERSION` is `2`, raised from `1` by the large-body case:
-the suite's label carries it, so a failure names the revision it is asserting.
+`SANDBOX_CONTRACT_VERSION` is `3`, raised from `2` by three added sections —
+`walkFiles`, several `exec` calls at once on one sandbox, and an `exec` whose
+`timeout` produces a timed-out result. The suite's label carries it, so a
+failure names the revision it is asserting. None of the three needs a guest
+feature that did not already exist: `walkFiles` is optional on `Sandbox` and
+skips where a backend omits it, and `timeout`/`timedOut` have been on the
+shared contract and in `agent.cjs` since protocol v2 — so raising the number
+strands no already-deployed guest image.
 
 Both shipped backends run it today, against the same kind of fixture this
 page's other tests use: a real `agent/agent.cjs` on a loopback socket, no

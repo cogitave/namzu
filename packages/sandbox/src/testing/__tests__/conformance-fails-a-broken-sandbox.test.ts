@@ -34,8 +34,10 @@ import type {
 	SandboxFileEntry,
 	SandboxId,
 	SandboxStatus,
+	SandboxWalkFilesOptions,
 	TerminalSession,
 } from '@namzu/sdk'
+import { walkFilesViaExec } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
 import {
@@ -118,12 +120,27 @@ class ReferenceFakeSandbox implements Sandbox {
 				let stdout = ''
 				let stderr = ''
 				let killedByAbort = false
+				let timedOut = false
 
 				const onAbort = () => {
 					killedByAbort = true
 					killTree(child)
 				}
 				opts.signal?.addEventListener('abort', onAbort, { once: true })
+				// `SandboxExecOptions.timeout` is part of the contract this
+				// class is the honest reference for, and `timedOut` is a
+				// REQUIRED field on every result: a reference that always
+				// reported `false` would fail the suite's own timeout case and
+				// tell a backend author the wrong thing about what compliance
+				// costs. The whole process group goes, for the same reason the
+				// abort path kills it rather than the leader alone.
+				const deadline =
+					opts.timeout === undefined
+						? undefined
+						: setTimeout(() => {
+								timedOut = true
+								killTree(child)
+							}, opts.timeout)
 
 				child.stdout.on('data', (chunk: Buffer) => {
 					const data = chunk.toString('utf8')
@@ -138,12 +155,13 @@ class ReferenceFakeSandbox implements Sandbox {
 				child.once('error', reject)
 				child.once('close', (code, signal) => {
 					opts.signal?.removeEventListener('abort', onAbort)
+					if (deadline) clearTimeout(deadline)
 					resolve({
-						exitCode: killedByAbort ? -1 : (code ?? -1),
+						exitCode: killedByAbort || timedOut ? -1 : (code ?? -1),
 						stdout,
 						stderr,
 						...(signal ? { signal } : {}),
-						timedOut: false,
+						timedOut,
 						durationMs: performance.now() - start,
 					})
 				})
@@ -185,6 +203,29 @@ class ReferenceFakeSandbox implements Sandbox {
 		}
 		await walk(rootPath)
 		return entries
+	}
+
+	/**
+	 * The same enumerator the Firecracker, docker and kubernetes backends use,
+	 * over this class's own `exec` — so the suite's `walkFiles` section runs
+	 * against the reference rather than passing vacuously, which is what makes
+	 * a defect in it detectable here at all.
+	 */
+	async *walkFiles(
+		rootPath: string,
+		options: SandboxWalkFilesOptions,
+	): AsyncIterable<SandboxFileEntry> {
+		this.assertAdmissible()
+		this.inFlight += 1
+		try {
+			yield* walkFilesViaExec(
+				async (command, args, opts) => await this.exec(command, args ?? [], opts ?? {}),
+				rootPath,
+				options,
+			)
+		} finally {
+			this.inFlight = Math.max(0, this.inFlight - 1)
+		}
 	}
 
 	async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {
@@ -265,6 +306,24 @@ class CorruptsReadFileSandbox extends ReferenceFakeSandbox {
 		const corrupted = Buffer.from(real)
 		corrupted[0] = (corrupted[0] ?? 0) ^ 0xff
 		return corrupted
+	}
+}
+
+/** Defect 4: admits one command at a time, queueing every other one behind it. */
+class SerialisesExecSandbox extends ReferenceFakeSandbox {
+	private queue: Promise<unknown> = Promise.resolve()
+
+	override async exec(
+		command: string,
+		args: string[] = [],
+		opts: SandboxExecOptions = {},
+	): Promise<SandboxExecResult> {
+		// The shape a backend ships when one connection carries every
+		// execution: nothing is dropped, every single result is correct, and
+		// two commands are simply never in the guest at the same time.
+		const mine = this.queue.then(async () => await super.exec(command, args, opts))
+		this.queue = mine.catch(() => undefined)
+		return await mine
 	}
 }
 
@@ -355,6 +414,25 @@ describe.skipIf(IS_WINDOWS)('the sandbox conformance suite', () => {
 		expect(names).toContain(
 			'openTerminal > is owned by the sandbox: destroy() kills and awaits every terminal it returned',
 		)
+		expect(names).not.toContain(
+			'exec > honours an AbortSignal: the process is really terminated, never a partial success',
+		)
+	})
+
+	it('fails a sandbox that runs one command at a time behind a queue', async () => {
+		const outcomes = await runConformance((root) => new SerialisesExecSandbox(root))
+		const names = failed(outcomes)
+
+		expect(names).toContain(
+			'concurrent exec > runs several commands at once on one sandbox, with no cross-talk between their results',
+		)
+		// Everything about a single command is honest on this sandbox, which is
+		// the point: the concurrency case is the only one that can catch it,
+		// and it does — on the `busy` read, because a command sitting in a
+		// queue is not in flight. A backend that reported `busy` anyway would
+		// go on to fail the marks, whose whole design is that a command run on
+		// its own can only ever see its own.
+		expect(names).not.toContain('file IO > round-trips a UTF-8 string through writeFile/readFile')
 		expect(names).not.toContain(
 			'exec > honours an AbortSignal: the process is really terminated, never a partial success',
 		)

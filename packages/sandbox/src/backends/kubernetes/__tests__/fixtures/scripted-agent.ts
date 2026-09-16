@@ -99,6 +99,16 @@ export interface ScriptedAgent {
 	/** Bind to a different token, as a resumed pod's fresh agent does. */
 	setToken(token: string | undefined): void
 	/**
+	 * Change the canned stdout every later `execute` replies with.
+	 *
+	 * Settable rather than constructor-only for the same reason
+	 * {@link ScriptedAgent.setLosingExecutions} is: the acquire-time privilege
+	 * probe is itself an `execute`, so a case that needs a DIFFERENT canned
+	 * reply — a file walk's JSONL records, say — has to install it after the
+	 * create the probe gated, not before.
+	 */
+	setStdout(stdout: string): void
+	/**
 	 * Start (or stop) losing executions: while this is on, every `execute`
 	 * drops its connection mid-command and every `cancel-execution` refuses to
 	 * confirm what became of it — an agent that has lost the plot, which from
@@ -130,7 +140,7 @@ export async function startScriptedAgent(
 ): Promise<ScriptedAgent> {
 	const requests: Record<string, unknown>[] = []
 	const connections: ScriptedAgentConnection[] = []
-	const stdout = options.stdout ?? DEPRIVILEGED_PROC_STATUS
+	let stdout = options.stdout ?? DEPRIVILEGED_PROC_STATUS
 	const exitCode = options.exitCode ?? 0
 	let token = options.token
 	let losingExecutions = false
@@ -234,6 +244,9 @@ export async function startScriptedAgent(
 		connections,
 		setToken: (next) => {
 			token = next
+		},
+		setStdout: (next) => {
+			stdout = next
 		},
 		setLosingExecutions: (next) => {
 			losingExecutions = next

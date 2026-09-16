@@ -723,10 +723,13 @@ describe('the optional methods a workspace does not offer', () => {
 
 		expect(workspace.setNetworkPolicy).toBeUndefined()
 		expect(workspace.spawnDetached).toBeUndefined()
-		expect(workspace.walkFiles).toBeUndefined()
-		// The ones it does offer are present, and typed present.
+		// The ones it does offer are present, and typed present. `walkFiles`
+		// joined them: it is the SDK's own enumerator over `exec`, so the
+		// guest needed no new op, and its absence used to cost the host the
+		// `glob` and `grep` builtins outright.
 		expect(typeof workspace.openTerminal).toBe('function')
 		expect(typeof workspace.openTcpConnection).toBe('function')
+		expect(typeof workspace.walkFiles).toBe('function')
 		await workspace.destroy()
 	})
 })

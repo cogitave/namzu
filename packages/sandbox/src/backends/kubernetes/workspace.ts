@@ -170,6 +170,7 @@ import type {
 	SandboxStatus,
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
+	SandboxWalkFilesOptions,
 	TerminalSession,
 } from '@namzu/sdk'
 
@@ -448,6 +449,14 @@ export interface KubernetesWorkspace extends Sandbox {
 	readonly suspended: boolean
 	openTerminal(options: OpenTerminalOptions): Promise<TerminalSession>
 	openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection>
+	/**
+	 * Narrowed to present, like the two above: the pod behind a workspace runs
+	 * the same guest agent a task sandbox does, so bounded file discovery is
+	 * always available here and a caller composing this handle does not have
+	 * to re-check for a method the backend always defines. The SDK's `glob`
+	 * and `grep` builtins refuse a sandbox that omits it.
+	 */
+	walkFiles(rootPath: string, options: SandboxWalkFilesOptions): AsyncIterable<SandboxFileEntry>
 	/**
 	 * Re-read `spec.operatingMode` and believe it: a workspace ANOTHER
 	 * process suspended reports `suspended: true` afterwards, and `resume()`
@@ -2170,6 +2179,36 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 
 		async listFiles(rootPath: string): Promise<readonly SandboxFileEntry[]> {
 			return await admitted('listFiles', async (handle) => await handle.listFiles(rootPath))
+		},
+
+		/**
+		 * Admitted ONCE, when the consumer asks for the first entry, and then
+		 * delegated to the inner handle with `yield*`.
+		 *
+		 * {@link admit} is the synchronous gate every data-plane call on this
+		 * handle passes, so a workspace this process knows to be suspended
+		 * refuses a walk exactly as it refuses `readFile` — the same error
+		 * class, the same `noticedBy: 'admission'`, this operation's own name —
+		 * and nothing is dialed. What it deliberately does NOT do is re-admit
+		 * per entry: a suspend that lands mid-walk surfaces as the transport
+		 * failure it is, and this handle learns it was suspended elsewhere on
+		 * its next data-plane call, which is where {@link admitted}'s one-shot
+		 * diagnosis lives for every other operation.
+		 *
+		 * `yield*` is also what makes cancellation work with no code of its own
+		 * here: a consumer breaking out of its `for await` runs this generator's
+		 * `return()`, and the delegation forwards it to the inner walk — which
+		 * is the call that terminates the guest's walk process.
+		 *
+		 * Busy accounting is not repeated either: the inner handle holds one
+		 * execution for the whole walk, so `status` stays `busy` from the first
+		 * entry to the last rather than flapping between them.
+		 */
+		async *walkFiles(
+			rootPath: string,
+			walkOptions: SandboxWalkFilesOptions,
+		): AsyncIterable<SandboxFileEntry> {
+			yield* admit('walkFiles').walkFiles(rootPath, walkOptions)
 		},
 
 		async openTerminal(terminalOptions: OpenTerminalOptions): Promise<TerminalSession> {
