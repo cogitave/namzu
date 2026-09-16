@@ -143,6 +143,9 @@ describe('explicit tool loading reaches the real session and query', () => {
 					expect.arrayContaining([...core, 'Agent', 'save_memory', 'task_create', 'task_list']),
 				)
 				expect(names(requests[0])).not.toContain('search_tools')
+				// Unchanged by `narrate_work`, which mounts only where an operator
+				// is watching (`askUser`) and so is absent from this headless
+				// session — see the pair of cases below.
 				expect(names(requests[0])).toHaveLength(24)
 				expect(JSON.stringify(requests[0].messages)).not.toContain(
 					'Before using a tool listed under',
@@ -152,6 +155,34 @@ describe('explicit tool loading reaches the real session and query', () => {
 			}
 		},
 	)
+
+	it('offers narration only to a host with an operator watching', async () => {
+		// `narrate_work` answers with "the operator saw this". A headless run
+		// has no rail for the line to appear above, so the tool is mounted
+		// under the same condition `ask_user_question` is: somebody is there.
+		mockProvider(() => response())
+		const headless = await open({})
+		try {
+			for await (const _ of headless.send([createUserMessage('Inspect the fixture')])) {
+				// Drain the real query through the fake provider transport.
+			}
+			expect(names(requests[0])).not.toContain('narrate_work')
+		} finally {
+			await headless.close()
+		}
+
+		requests = []
+		mockProvider(() => response())
+		const watched = await open({ askUser: true })
+		try {
+			for await (const _ of watched.send([createUserMessage('Inspect the fixture')])) {
+				// Drain the real query through the fake provider transport.
+			}
+			expect(names(requests[0])).toContain('narrate_work')
+		} finally {
+			await watched.close()
+		}
+	})
 
 	it('does not require optional web tools when selecting the eager core', async () => {
 		mockProvider(() => response())

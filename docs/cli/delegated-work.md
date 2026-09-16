@@ -59,6 +59,51 @@ correction sent`, with the message text beneath it, so the operator can see
 what was said without opening the child's screen. Each side shows the message
 exactly once, however many times the surface re-renders.
 
+`narrate_work` takes one `line` and shows it to the operator directly above the
+agent rail, outside the rail's border, in the parent's own voice. It starts,
+corrects, stops and re-orders nothing: the line is commentary about work the
+rail already reports, and no surface reads it back. Only the three most recent
+lines stay on screen — a further line drops the oldest — each is clipped to one
+row at 200 characters with a marker saying so, and a blank line is refused
+rather than retained. Text longer than twice a row is not a line and the
+schema refuses it, rather than reducing a paragraph to its opening clause; a
+session that has stopped showing narration says that, rather than reporting a
+perfectly good line as blank. The lines are cleared when the conversation is
+reset, exactly like the agent rows beside them, and the band is in-memory only:
+nothing replays it onto the screen after a resume.
+
+The line itself is durable, and the difference is worth knowing before you
+decide what to narrate. The call is recorded like every other tool call — it is
+in the run's transcript and in the conversation's checkpoints, and it returns
+to the model's own history on `/resume`, long after the band that showed it is
+gone. A line not worth writing down is a line not worth narrating.
+
+The call is not reviewed: it declares itself read-only because it starts,
+changes and stops nothing — no file of its own, no request, no task, and the
+transcript record above is the kernel writing down a call, not this tool
+reaching for anything — and asking the operator to approve being shown a line
+would make the tool unusable. `send_message` and `cancel_agent`, which do
+reach into a running child, are reviewed as they were. A successful call adds
+no row to the conversation either: the line it wrote is already on screen, and
+printing the call beneath it would show the same sentence twice, the second
+time as protocol. A refused line keeps its row, because nothing was shown and
+that is the only thing that says so.
+
+The tool is mounted only where somebody is watching — the interactive
+terminal, the same condition `ask_user_question` is mounted under. `namzu run`,
+`namzu run --stream`, `namzu drain` and the resident step have no rail for a
+line to appear above, and a tool whose whole answer is "the operator saw this"
+must not be offered where there is no operator to show it to.
+
+The tool is the parent's alone. It is registered on the parent conversation's
+registry, like `send_message` and `cancel_agent`, and a delegated child's
+roster carries none of those — so nothing a child produces can be rendered as
+the run's own narration. That boundary is the design, not an oversight: a line
+written by a child and shown as if the run said it would be untrusted text
+presented as trusted narration, which is what wrapping a child's output as
+untrusted exists to prevent. If child narration is ever offered, it goes
+through that same wrapping and is attributed to the child by name.
+
 Each observed agent completion adds one named status row to the main transcript,
 whether or not the model calls `wait_for_task`. A correlated wait shows
 `Waiting · <task name>` while active; its successful protocol response does not

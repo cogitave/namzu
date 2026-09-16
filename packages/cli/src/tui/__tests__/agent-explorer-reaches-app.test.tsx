@@ -51,10 +51,12 @@ const PREFS: Preferences = {
 
 const activity = vi.hoisted(() => {
 	let snapshot: readonly unknown[] = []
+	let narration: readonly unknown[] = []
 	const listeners = new Set<() => void>()
 	let delegated:
 		| {
 				getSnapshot: () => readonly unknown[]
+				getNarration?: () => readonly unknown[]
 				subscribe: (listener: () => void) => () => void
 				reset: () => void
 		  }
@@ -62,6 +64,7 @@ const activity = vi.hoisted(() => {
 	return {
 		source: {
 			getSnapshot: () => delegated?.getSnapshot() ?? snapshot,
+			getNarration: () => delegated?.getNarration?.() ?? narration,
 			subscribe: (listener: () => void) => {
 				if (delegated) return delegated.subscribe(listener)
 				listeners.add(listener)
@@ -73,6 +76,7 @@ const activity = vi.hoisted(() => {
 					return
 				}
 				snapshot = []
+				narration = []
 				for (const listener of listeners) listener()
 			},
 		},
@@ -81,6 +85,11 @@ const activity = vi.hoisted(() => {
 		},
 		set: (next: readonly unknown[]) => {
 			snapshot = next
+			for (const listener of listeners) listener()
+		},
+		/** What the parent has narrated, as the monitor would publish it. */
+		narrate: (next: readonly unknown[]) => {
+			narration = next
 			for (const listener of listeners) listener()
 		},
 	}
@@ -317,6 +326,7 @@ beforeEach(() => {
 	delete orchestrationRuns.gate
 	activity.delegate(undefined)
 	activity.set([])
+	activity.narrate([])
 	parentGate = new Promise<void>((resolve) => {
 		releaseParent = resolve
 	})
@@ -2443,5 +2453,211 @@ describe('render order below the message frame', () => {
 		expect((viewport[border + 1] ?? '').length).toBeGreaterThan(0)
 		const railTop = viewport[border + 2] ?? ''
 		expect(railTop.trimStart().charAt(0)).toBe('┌')
+	})
+})
+
+describe('parent narration', () => {
+	/** The message frame's bottom border row, the anchor every row below is read from. */
+	function frameBottom(screen: Screen): number {
+		const border = screen.viewport().findIndex((line) => line.startsWith(' └'))
+		expect(border, 'message frame bottom border not found on screen').toBeGreaterThanOrEqual(0)
+		return border
+	}
+
+	function line(id: string, text: string) {
+		return { id, text, at: 1 }
+	}
+
+	/**
+	 * The rail's own rows, top border through bottom border, read from the
+	 * VIEWPORT — the rows an operator is looking at.
+	 *
+	 * Finding both borders is half the assertion: a rail whose bottom border is
+	 * not on screen fails here rather than returning a short block.
+	 */
+	function railBlock(screen: Screen): string[] {
+		const rows = screen.viewport()
+		const below = frameBottom(screen)
+		const top = rows.findIndex((row, index) => index > below && row.trimStart().startsWith('┌'))
+		expect(top, 'rail top border not on screen').toBeGreaterThan(below)
+		const bottom = rows.findIndex((row, index) => index > top && row.trimStart().startsWith('└'))
+		expect(bottom, 'rail bottom border not on screen').toBeGreaterThan(top)
+		return rows.slice(top, bottom + 1)
+	}
+
+	it('renders between the footer and the rail without displacing an agent row', async () => {
+		activity.set([
+			agent({ viewId: 'narrated-alpha', description: 'Storage lens' }),
+			agent({ viewId: 'narrated-beta', description: 'Reference lens' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Storage lens'),
+			'rail missing',
+		)
+		const quiet = screen.viewport()
+		const railTop = frameBottom(screen) + 2
+		expect((quiet[railTop] ?? '').trimStart().charAt(0)).toBe('┌')
+		// What the rail shows, read from its own top border, so the comparison
+		// below is about the rail's rows rather than about where it sits.
+		const railRows = quiet.slice(railTop, railTop + 4)
+
+		activity.narrate([
+			line('narration-1', 'map returned five lenses, one with a correction'),
+			line('narration-2', 'verifying the storage claim on disk'),
+		])
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('storage claim'),
+			'narration missing',
+		)
+
+		const viewport = screen.viewport()
+		const border = frameBottom(screen)
+		// The footer stays directly under the frame; narration follows it, and
+		// the rail's border follows the narration — commentary above the box,
+		// never inside it and never between the frame and its footer.
+		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		expect(viewport[border + 2]).toContain('map returned five lenses')
+		expect(viewport[border + 3]).toContain('verifying the storage claim')
+		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('┌')
+		// The rail itself is untouched: same rows, same order, same count. An
+		// agent row is never spent on commentary.
+		expect(viewport.slice(border + 4, border + 8)).toEqual(railRows)
+		// Aligned with the rail's own inner text rather than with its border:
+		// the column an agent row's own content starts in, past the border and
+		// the panel's padding.
+		const railRow = viewport[border + 5] ?? ''
+		const inner = railRow.indexOf('│') + 2
+		const narrationRow = viewport[border + 2] ?? ''
+		expect(narrationRow.length - narrationRow.trimStart().length).toBe(inner)
+	})
+
+	it('shows a written line once, and keeps the row for one that was refused', async () => {
+		// The band carries a line that was actually written, so the call that
+		// wrote it adds no row underneath repeating the same sentence. A refused
+		// line wrote nothing, so its row is the only thing that says so and it
+		// stays.
+		sendOverride.current = async function* () {
+			yield {
+				kind: 'tool-start' as const,
+				toolUseId: 'narrate-ok',
+				toolName: 'narrate_work',
+				summary: 'map returned five lenses',
+			}
+			yield {
+				kind: 'tool-end' as const,
+				toolUseId: 'narrate-ok',
+				toolName: 'narrate_work',
+				summary: 'map returned five lenses',
+				isError: false,
+			}
+			yield {
+				kind: 'tool-start' as const,
+				toolUseId: 'narrate-blank',
+				toolName: 'narrate_work',
+				summary: 'Narrating',
+			}
+			yield {
+				kind: 'tool-end' as const,
+				toolUseId: 'narrate-blank',
+				toolName: 'narrate_work',
+				summary: 'Narration must not be blank.',
+				isError: true,
+			}
+			yield { kind: 'done' as const, stopReason: 'end_turn' as const }
+		}
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await submit(screen, 'narrate twice')
+		await waitUntil(
+			screen,
+			() => painted(screen).includes('Narration must not be blank'),
+			'refused narration row missing',
+		)
+
+		expect(painted(screen)).not.toContain('map returned five lenses')
+	})
+
+	it('keeps every rail row on a screen with no spare rows, and scrolls the conversation instead', async () => {
+		// 14 rows is shorter than the brand header, the message frame, the
+		// footer and the rail together, so the band's rows have to come from
+		// somewhere. They come from the TOP: the terminal scrolls, the oldest
+		// row above leaves the screen, and the rail keeps every row it had and
+		// the budget it had them under.
+		//
+		// Read from the viewport rather than from row 0 of the emulator's
+		// buffer. Once the screen has scrolled those are different rows, and
+		// the buffer-top reading shows the rail's last rows as missing while
+		// they are on screen — which is how this was first reported.
+		activity.set([
+			agent({ viewId: 'short-alpha', description: 'Storage lens' }),
+			agent({ viewId: 'short-beta', description: 'Reference lens' }),
+		])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 14 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Storage lens'),
+			'rail missing',
+		)
+		const quiet = railBlock(screen)
+
+		activity.narrate([
+			line('narration-1', 'map returned five lenses, one with a correction'),
+			line('narration-2', 'verifying the storage claim on disk'),
+		])
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('storage claim'),
+			'narration missing',
+		)
+
+		// Byte-identical, borders included: the same rows, the same count, the
+		// same `+N more` — nothing hidden and nothing pushed past the bottom.
+		expect(railBlock(screen)).toEqual(quiet)
+		const viewport = screen.viewport()
+		const border = frameBottom(screen)
+		expect(viewport[border + 1]).toContain('shift+tab to cycle')
+		expect(viewport[border + 2]).toContain('map returned five lenses')
+		expect(viewport[border + 3]).toContain('verifying the storage claim')
+		expect((viewport[border + 4] ?? '').trimStart().charAt(0)).toBe('┌')
+	})
+
+	it('leaves a run with no narration exactly as it was', async () => {
+		activity.set([agent({ viewId: 'quiet-child', description: 'Quiet lens' })])
+		const screen = await renderToScreen(<App ctx={ctx} />, { cols: 100, rows: 28 })
+		mounted = screen
+		await waitUntil(screen, () => painted(screen).includes('model'), 'not ready')
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('Quiet lens'),
+			'rail missing',
+		)
+		const before = screen.viewport()
+
+		activity.narrate([line('narration-1', 'one line of commentary')])
+		await waitUntil(
+			screen,
+			() => screen.viewport().join('\n').includes('one line of commentary'),
+			'narration missing',
+		)
+		expect(screen.viewport()).not.toEqual(before)
+
+		// A conversation reset clears the monitor's commentary; the screen it
+		// leaves is the screen that was there before anything was narrated —
+		// no blank row, no separator, nothing held open for a line to return to.
+		activity.narrate([])
+		await waitUntil(
+			screen,
+			() => !screen.viewport().join('\n').includes('one line of commentary'),
+			'narration stayed on screen',
+		)
+		expect(screen.viewport()).toEqual(before)
 	})
 })

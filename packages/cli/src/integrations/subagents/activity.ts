@@ -8,6 +8,21 @@ export const MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS = 240
 export const MAX_AGENT_PHASE_ORDER = 10_000
 const MAX_IDENTITY_LABEL_CODE_UNITS = 4_096
 const NOTIFY_INTERVAL_MS = 100
+/**
+ * Longest narration line kept. One line of commentary, not a message: a
+ * parent that writes a paragraph gets it clipped with the same marker every
+ * other retained label here carries.
+ */
+export const MAX_NARRATION_CODE_UNITS = 200
+/**
+ * Narration lines retained at once, oldest dropped first.
+ *
+ * Small deliberately. The lines render in the most valuable rows on the
+ * screen — between the composer footer and the agent rail — so a parent that
+ * keeps talking must cost the operator a FIXED number of rows rather than a
+ * growing one. Raising this trades conversation for commentary.
+ */
+export const MAX_RETAINED_NARRATION = 3
 
 /**
  * Appended to a replayed transcript whose saved records could not all be
@@ -116,12 +131,60 @@ export interface SubagentActivity {
 	readonly replayed?: boolean
 }
 
+/**
+ * One line of commentary the PARENT wrote about the work it is coordinating.
+ *
+ * Parent-authored is the whole design, not an implementation detail. A line a
+ * child emitted and this host rendered as the run's own voice would be
+ * untrusted text presented as trusted narration — the injection shape the
+ * coordinator's untrusted-output wrapping exists to prevent. Nothing here
+ * takes a line from a child: the tool that writes these is registered on the
+ * parent's registry only, exactly like `send_message`, and a child's roster is
+ * built from the host's own `buildTools()` which never carries it. If child
+ * narration is ever wanted it goes through that same wrapping and is
+ * attributed to the child by name.
+ *
+ * Commentary carries no status meaning. Nothing reads it back, no surface
+ * derives state from it, and a run with none looks exactly as it did before
+ * this existed.
+ */
+export interface SubagentNarrationLine {
+	/** Stable key for a renderer; unique for the life of this monitor. */
+	readonly id: string
+	readonly text: string
+	readonly at: number
+}
+
+/**
+ * What {@link SubagentActivityMonitor.narrate} did with a line.
+ *
+ * Three cases rather than a line-or-nothing answer, because the two ways
+ * nothing is kept are not the same thing to whoever wrote the line: `empty`
+ * is a line with nothing in it, which the writer can fix by writing another
+ * one, and `closed` is a monitor that has stopped showing anything at all,
+ * which no further line will reach. Reporting the second as the first tells
+ * the writer to correct text that was never the problem.
+ */
+export type SubagentNarrationOutcome =
+	| { readonly kind: 'shown'; readonly line: SubagentNarrationLine }
+	| { readonly kind: 'empty' }
+	| { readonly kind: 'closed' }
+
 /** Read-only side of the current CLI session's child-run monitor. */
 export interface SubagentActivitySource {
 	getSnapshot(): readonly SubagentActivity[]
 	subscribe(listener: () => void): () => void
 	/** Start a new conversation scope; late events from the old one are ignored. */
 	reset(): void
+	/**
+	 * Bounded parent-authored commentary, oldest first.
+	 *
+	 * Optional because this is an ADDITIONAL projection over the same monitor,
+	 * not part of what makes a source one: a host that publishes child rows and
+	 * writes no commentary is complete without it, and absent reads as "no
+	 * narration" at every call site.
+	 */
+	getNarration?(): readonly SubagentNarrationLine[]
 }
 
 /**
@@ -236,6 +299,9 @@ interface MutableActivity {
 export class SubagentActivityMonitor implements SubagentActivitySource {
 	private readonly records = new Map<string, MutableActivity>()
 	private readonly listeners = new Set<() => void>()
+	/** Bounded parent commentary, oldest first. See {@link SubagentNarrationLine}. */
+	private readonly narration: SubagentNarrationLine[] = []
+	private narrationCounter = 0
 	private epoch = 0
 	private counter = 0
 	private fallbackBatchCounter = 0
@@ -463,6 +529,40 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		this.notifyNow()
 	}
 
+	/**
+	 * Retains one line of PARENT-authored commentary for the rail to show.
+	 *
+	 * Callers are the parent's own tool call and nothing else — see
+	 * {@link SubagentNarrationLine} for why that boundary is the design rather
+	 * than a detail. Blank or control-only text is dropped instead of retained,
+	 * so a row is never spent on a line with nothing in it, and the answer
+	 * names which of the two things happened — see
+	 * {@link SubagentNarrationOutcome}.
+	 *
+	 * Independent of the child records: narration is commentary, so it neither
+	 * needs a child to attach to nor disappears when the last one settles —
+	 * which is exactly when a line explaining what happens next is worth most.
+	 */
+	narrate(text: string): SubagentNarrationOutcome {
+		if (this.closed) return { kind: 'closed' }
+		const line = normalizedLabel(text, '', MAX_NARRATION_CODE_UNITS)
+		if (!line) return { kind: 'empty' }
+		const entry: SubagentNarrationLine = Object.freeze({
+			id: `narration-${++this.narrationCounter}`,
+			text: line,
+			at: Date.now(),
+		})
+		this.narration.push(entry)
+		if (this.narration.length > MAX_RETAINED_NARRATION)
+			this.narration.splice(0, this.narration.length - MAX_RETAINED_NARRATION)
+		this.notifyNow()
+		return { kind: 'shown', line: entry }
+	}
+
+	getNarration(): readonly SubagentNarrationLine[] {
+		return [...this.narration]
+	}
+
 	getSnapshot(): readonly SubagentActivity[] {
 		return [...this.records.values()]
 			.sort((left, right) => {
@@ -513,6 +613,10 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		this.records.clear()
 		this.phases.clear()
 		this.phaseCounter = 0
+		// Commentary belongs to the conversation it was written in, like every
+		// other buffer here. The counter is NOT rewound: ids stay unique across
+		// scopes, so a renderer holding a stale key never matches a new line.
+		this.narration.length = 0
 		this.clearNotifyTimer()
 		this.notifyNow()
 	}
@@ -522,6 +626,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		this.closed = true
 		this.records.clear()
 		this.phases.clear()
+		this.narration.length = 0
 		this.clearNotifyTimer()
 		this.notifyNow()
 		this.listeners.clear()

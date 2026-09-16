@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
+	MAX_NARRATION_CODE_UNITS,
+	MAX_RETAINED_NARRATION,
 	type SubagentActivity,
 	SubagentActivityMonitor,
 } from '../activity.js'
@@ -668,6 +670,84 @@ describe('the CLI sub-agent activity monitor', () => {
 		const before = monitor.getSnapshot()
 		monitor.recordMessage('no-such-task', 'lost message', 'to-child')
 		expect(monitor.getSnapshot()).toEqual(before)
+	})
+
+	it('narration is bounded and evicts oldest first', () => {
+		const monitor = new SubagentActivityMonitor()
+		for (let index = 1; index <= MAX_RETAINED_NARRATION + 2; index += 1)
+			monitor.narrate(`line ${index}`)
+
+		expect(monitor.getNarration().map((entry) => entry.text)).toEqual([
+			'line 3',
+			'line 4',
+			'line 5',
+		])
+		// Ids stay distinct across eviction, so a renderer keyed on them never
+		// reuses a dropped line's row for the line that replaced it.
+		expect(new Set(monitor.getNarration().map((entry) => entry.id)).size).toBe(
+			MAX_RETAINED_NARRATION,
+		)
+	})
+
+	it('narration clears on conversation reset', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.narrate('map returned five lenses')
+		expect(monitor.getNarration()).toHaveLength(1)
+
+		monitor.reset()
+
+		expect(monitor.getNarration()).toEqual([])
+		// A line written after the reset belongs to the new conversation and
+		// cannot collide with the key the cleared one used.
+		const next = monitor.narrate('verifying the storage claim')
+		expect(monitor.getNarration().map((entry) => entry.text)).toEqual([
+			'verifying the storage claim',
+		])
+		expect(next).toEqual({
+			kind: 'shown',
+			line: expect.objectContaining({ id: 'narration-2' }),
+		})
+	})
+
+	it('a narration line is one bounded row, and an empty one is not a row at all', () => {
+		const monitor = new SubagentActivityMonitor()
+
+		expect(monitor.narrate('   ')).toEqual({ kind: 'empty' })
+		expect(monitor.narrate('\u0007\u0007')).toEqual({ kind: 'empty' })
+		expect(monitor.getNarration()).toEqual([])
+
+		monitor.narrate(`two\nlines and ${'x'.repeat(MAX_NARRATION_CODE_UNITS)}`)
+
+		const line = monitor.getNarration()[0]
+		expect(line?.text).not.toContain('\n')
+		expect(line?.text.length).toBeLessThanOrEqual(MAX_NARRATION_CODE_UNITS)
+		expect(line?.text).toContain('[clipped]')
+	})
+
+	it('a closed monitor names itself rather than blaming the line', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.close()
+
+		// Two different facts, and the caller reports them to the model as two
+		// different answers: a blank line is the writer's to fix, a closed
+		// monitor is not.
+		expect(monitor.narrate('the last phase came back clean')).toEqual({ kind: 'closed' })
+		expect(monitor.narrate('   ')).toEqual({ kind: 'closed' })
+		expect(monitor.getNarration()).toEqual([])
+	})
+
+	it('narration reaches subscribers without waiting for a child event', () => {
+		const monitor = new SubagentActivityMonitor()
+		let notifications = 0
+		monitor.subscribe(() => {
+			notifications += 1
+		})
+
+		monitor.narrate('starting the verify phase')
+
+		expect(notifications).toBe(1)
+		// Commentary is not a child row: nothing appears in the agent snapshot.
+		expect(monitor.getSnapshot()).toEqual([])
 	})
 
 	it('the resolved child model reaches the activity record', () => {

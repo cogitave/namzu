@@ -2310,6 +2310,16 @@ export async function createAgentSession(
 		if (sub.agentTaskListTool) registry.register(sub.agentTaskListTool)
 		if (sub.sendMessageTool) registry.register(sub.sendMessageTool)
 		if (sub.cancelAgentTool) registry.register(sub.cancelAgentTool)
+		// The parent's registry, and only ever this one — and only where
+		// somebody is there to read it, the same condition `ask_user_question`
+		// mounts under further down. A child's roster is the registry
+		// `buildTools` builds above, which carries none of these: that is what
+		// keeps narration the run's own voice rather than a child's. And a
+		// headless host — `run`, `run-stream`, `drain`, the resident step —
+		// has no rail for a line to appear above, so a tool whose entire
+		// result is "the operator saw this" would be answering with something
+		// that did not happen.
+		if (options.askUser && sub.narrationTool) registry.register(sub.narrationTool)
 		allowedAgentIds = sub.allowedAgentIds
 	} catch (err) {
 		try {

@@ -105,8 +105,12 @@ import type {
 	ConversationTurnOutcome,
 	ConversationTurnStartedRecord,
 } from '../integrations/sessions/turn-evidence.js'
-import type { SubagentActivity } from '../integrations/subagents/activity.js'
+import type {
+	SubagentActivity,
+	SubagentNarrationLine,
+} from '../integrations/subagents/activity.js'
 import { type OrchestrationRun, liveOrchestrationRuns } from '../integrations/subagents/runs.js'
+import { NARRATION_TOOL_NAME } from '../integrations/subagents/runtime.js'
 import { isTrusted, trustDir } from '../integrations/trust/store.js'
 import { checkUpdates } from '../integrations/updates.js'
 import { renderMemoryReport, renderMemorySaveResult } from '../memory/presentation.js'
@@ -122,6 +126,7 @@ import { type UserCommand, discoverUserCommands } from '../user-commands/store.j
 import {
 	AgentCockpit,
 	type AgentCockpitFocus,
+	AgentNarrationBand,
 	AgentTaskPanel,
 	AgentTranscript,
 	activeSubagentCohorts,
@@ -1113,6 +1118,13 @@ export function App({
 	/** Bounded child-run projection published by the current AgentSession. */
 	const [subagents, setSubagentsState] = useState<readonly SubagentActivity[]>([])
 	const subagentsRef = useRef<readonly SubagentActivity[]>([])
+	/**
+	 * The parent's own commentary on the work it is coordinating, from the same
+	 * monitor and the same subscription as the rows below it. Read through the
+	 * optional reader, so a source that publishes no narration is simply a
+	 * session with none.
+	 */
+	const [narration, setNarration] = useState<readonly SubagentNarrationLine[]>([])
 	const [agentSurface, setAgentSurfaceState] = useState<AgentSurface | null>(null)
 	const agentSurfaceRef = useRef<AgentSurface | null>(null)
 	const agentSurfaceCommittedRef = useRef<AgentSurface | null>(null)
@@ -1321,15 +1333,23 @@ export function App({
 		void hydrateSavedChildren()
 		if (!source) {
 			replaceSubagents([])
+			setNarration([])
 			return
 		}
-		const refresh = () => replaceSubagents(source.getSnapshot())
+		const refresh = () => {
+			replaceSubagents(source.getSnapshot())
+			setNarration(source.getNarration?.() ?? [])
+		}
 		refresh()
 		return source.subscribe(refresh)
 	}, [hydrateSavedChildren, replaceSubagents, session, setAgentSurface])
 	const resetSubagentActivity = useCallback(() => {
 		session?.subagents?.reset()
 		setAgentSurface(null)
+		// The monitor clears its own commentary on reset; this drops the copy
+		// already on screen in the same pass as the rows, so the band cannot
+		// outlive the conversation it was written in.
+		setNarration([])
 		// A new conversation starts with no children on screen, saved ones
 		// included: the evidence stays on disk, but it belongs to the runs of
 		// the conversation that was just left behind.
@@ -4412,6 +4432,17 @@ export function App({
 								agent.toolUseId === event.toolUseId &&
 								(event.runId === undefined || agent.workflowId === event.runId),
 						)
+					// The band above the rail already carries a narrated line, in the
+					// parent's own words, from the moment it is written. Printing the
+					// call that wrote it would show the same sentence twice, the
+					// second time as protocol — the same duplicate-protocol case as
+					// the represented Agent call just below, and refused the same
+					// way. A REFUSED line keeps its row: nothing reached the screen,
+					// and that row is the only thing that says so.
+					if (!event.isError && event.toolName === NARRATION_TOOL_NAME) {
+						setState(activeToolsRef.current.length > 0 ? 'tool' : 'thinking')
+						break
+					}
 					if (representedSuccessfulAgent) {
 						// The automatic panel already owned this successful child from
 						// start through settlement. Re-emitting its internal Agent call as
@@ -7787,6 +7818,19 @@ export function App({
 					permissionMode={displayedPermissionMode}
 					canCycleMode
 				/>
+				{/* The parent's commentary, between the footer line and the rail:
+				    below the footer like every other panel, and above the rail's
+				    border so it reads as the run talking rather than as chrome the
+				    panel drew. Not conditioned on the rail having rows — between two
+				    phases there are none, and that is exactly when a line saying what
+				    comes next is worth the row. It draws nothing when there is no
+				    commentary. */}
+				{showComposerSurface &&
+				permission === null &&
+				agentSurface === null &&
+				outputViewer === null ? (
+					<AgentNarrationBand lines={narration} />
+				) : null}
 				{showComposerSurface &&
 				permission === null &&
 				agentSurface === null &&

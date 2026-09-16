@@ -68,6 +68,25 @@ default — that agent's title, plus a `+N` count when the group holds more
 than one — so two unlabelled groups still read as distinct entries rather
 than two identical rows.
 
+Between the footer and the rail sits the parent's own narration, when it has
+written any: up to three dim lines, one row each, unboxed and indented to the
+column the rail's own rows start in, so they read as the run talking rather
+than as chrome the panel drew. They are commentary and carry no status —
+status is on the rail below them, in counts and glyphs as everywhere else.
+They never take a row from the rail: its height budget is computed from the
+terminal's own rows and not from what is above it, so no agent row is traded
+for a line of commentary. On a screen with no row to spare, the band's rows
+are paid for the way every row this TUI adds is paid for — the frame grows and
+the terminal scrolls, so the oldest conversation leaves at the top while the
+rail stays whole at the bottom. Measured in a real terminal 24 rows tall, with
+and without narration, by
+`research/conversation-evidence/narration-band-cli.mjs`. A run that narrates
+nothing draws nothing here: no heading, no blank separator, no reserved row.
+The band is drawn wherever the rail would be drawn, including between phases
+when no child is live — which is when a line saying what comes next is worth
+the row — and it is hidden by the same full-screen surfaces that hide the
+rail.
+
 ## Compact tool activity
 
 Successful built-in file reads, searches and file discovery share an `Explored` heading when consecutive. Each operation keeps its own row and retained output; `Ctrl+O` expands the output, and errors remain explicit ungrouped failures. The CLI `tool-end` event includes optional `output` containing retained tool text before preview formatting; the built-in event adapter supplies it. Background job reads and stops identify the action and job instead of displaying JSON arguments. Reading job output is not an interactive terminal wait or a write to stdin; those operations are not provided by the current job tool.

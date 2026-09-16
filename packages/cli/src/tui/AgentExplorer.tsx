@@ -6,6 +6,7 @@ import {
 	DEFAULT_AGENT_WORKFLOW,
 	type SubagentActivity,
 	type SubagentActivityStatus,
+	type SubagentNarrationLine,
 } from '../integrations/subagents/activity.js'
 import { formatElapsed } from './LiveActivity.js'
 import { selectionWindow } from './selection-window.js'
@@ -60,6 +61,52 @@ export const REPLAYED_TRANSCRIPT_NOTICE =
  */
 const COCKPIT_CHROME_ROWS = 2
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
+
+export interface AgentNarrationBandProps {
+	readonly lines: readonly SubagentNarrationLine[]
+}
+
+/**
+ * The parent's own commentary, directly above the rail and OUTSIDE its border.
+ *
+ * Outside is the point. Inside the frame these rows would read as chrome the
+ * panel emitted about its agents; above it, unboxed and aligned with the
+ * rail's inner text, they read as the run talking — which is what they are
+ * (see {@link SubagentNarrationLine} for why only the parent may write one).
+ *
+ * The band claims a row per line and nothing more: no border, no heading, no
+ * blank separator, and nothing at all when there is no commentary, so a run
+ * that never narrates renders exactly as it did before this existed. The
+ * monitor bounds the list, so the rows this can spend are bounded with it, and
+ * the rail below keeps its own height budget either way — that budget is
+ * computed from the terminal's rows and never from what is above it, so no
+ * agent row is ever traded for a line of commentary.
+ *
+ * On a screen with no spare row, these rows are paid for the way every other
+ * row this TUI adds is paid for: the frame grows, the terminal scrolls, and
+ * what leaves is the oldest conversation at the TOP — the rail stays where it
+ * is, whole. Measured in a real terminal at 24 rows with and without
+ * narration; note that a replay reading row 0 of the emulator's BUFFER rather
+ * than the viewport at `baseY` reports the opposite once the screen has
+ * scrolled, because those are no longer the same rows
+ * (`research/conversation-evidence/narration-band-cli.mjs`).
+ */
+export function AgentNarrationBand({ lines }: AgentNarrationBandProps) {
+	if (lines.length === 0) return null
+	return (
+		// paddingX 2 lands the text where the rail's own inner text starts —
+		// past its border and its padding — so the two columns line up.
+		<Box flexDirection="column" paddingX={2}>
+			{lines.map((line) => (
+				<Box key={line.id}>
+					<Text color={theme.text.muted} wrap="truncate-end">
+						{terminalDisplayText(oneLine(line.text))}
+					</Text>
+				</Box>
+			))}
+		</Box>
+	)
+}
 
 export interface AgentTaskPanelProps {
 	readonly agents: readonly SubagentActivity[]

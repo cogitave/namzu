@@ -78,11 +78,35 @@ import { NAMZU_WORKING_DOCTRINE } from '../../context/doctrine.js'
 import {
 	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
 	MAX_AGENT_PHASE_ORDER,
+	MAX_NARRATION_CODE_UNITS,
+	MAX_RETAINED_NARRATION,
 	SubagentActivityMonitor,
 	type SubagentActivitySource,
 } from './activity.js'
 import { DelegationHistory, HISTORY_GUIDANCE } from './history.js'
 import { CLI_INTERACTIVE_RUN_TIMEOUT_MS } from './policy.js'
+
+/**
+ * The parent's narration tool, named once.
+ *
+ * Exported because a second surface reads the name: the TUI drops the
+ * transcript row for a SUCCESSFUL call, since the line it wrote is already on
+ * screen above the rail and a row repeating it would print the sentence
+ * twice, the second time as protocol. A literal spelled in both places would
+ * drift the moment either is renamed, and the symptom would be a duplicated
+ * sentence rather than an error.
+ */
+export const NARRATION_TOOL_NAME = 'narrate_work'
+
+/**
+ * Longest `line` the tool accepts, as against the width it displays.
+ *
+ * Twice the row, so that a sentence that overruns the row is CLIPPED — the
+ * marker the monitor adds is then something an operator can actually see —
+ * while text long enough to be a paragraph rather than a line is refused by
+ * the schema instead of being silently reduced to its opening clause.
+ */
+const MAX_NARRATION_INPUT_CODE_UNITS = MAX_NARRATION_CODE_UNITS * 2
 
 export const GENERAL_PURPOSE_SUBAGENT = 'general-purpose'
 /**
@@ -226,6 +250,16 @@ export interface SubagentRuntime {
 	/** Queue a correction for an owned task that has not finished. */
 	readonly sendMessageTool: ToolDefinition
 	readonly cancelAgentTool: ToolDefinition
+	/**
+	 * Write one line of commentary above the agent rail.
+	 *
+	 * Registered on the PARENT's registry only, like every other tool here, and
+	 * only by a host that has an operator watching — see `createAgentSession`.
+	 * A child's roster is whatever the host's `buildTools()` returns, which
+	 * never carries this one: that is what makes narration the run's own voice
+	 * rather than a child's, and the property a test holds.
+	 */
+	readonly narrationTool: ToolDefinition
 	readonly allowedAgentIds: readonly string[]
 	/** Live, bounded observation of children created by this CLI session. */
 	readonly activity: SubagentActivitySource
@@ -1092,6 +1126,85 @@ export async function createSubagentRuntime(
 		},
 	})
 
+	const narrationTool = defineTool({
+		name: NARRATION_TOOL_NAME,
+		description: [
+			'Show the operator one short line about the delegated work in flight — what a phase just returned, what you are doing about it, what happens next.',
+			'It renders directly above the agent rail, in your own voice, and changes nothing: no task is started, corrected, stopped or re-ordered by it.',
+			`Only the ${MAX_RETAINED_NARRATION} most recent lines stay on screen; a further line drops the oldest.`,
+			'Use it while coordinating several agents, at most once per turn. It is commentary, never a replacement for answering the operator and never a status report — status is already on the rail.',
+		].join(' '),
+		inputSchema: mcpJsonSchemaToZod({
+			type: 'object',
+			properties: {
+				line: {
+					type: 'string',
+					minLength: 1,
+					// Wider than the row, deliberately. Clipping and refusing are
+					// different answers to overrunning: a sentence a little past the
+					// row is shown with a clip marker, which is the behaviour the
+					// description promises, while a paragraph is refused outright
+					// rather than silently reduced to its first line. A cap equal to
+					// the display width would make the first case impossible and turn
+					// every overrun into a schema error.
+					maxLength: MAX_NARRATION_INPUT_CODE_UNITS,
+					description: `One sentence of commentary. Text past ${MAX_NARRATION_CODE_UNITS} characters is clipped to fit a single row; past ${MAX_NARRATION_INPUT_CODE_UNITS} it is refused, because a paragraph is not a line.`,
+				},
+			},
+			required: ['line'],
+			additionalProperties: false,
+		}),
+		category: 'custom',
+		permissions: [],
+		// Read-only with respect to the WORLD, which is what this flag governs
+		// and what review is for: no file of its own, no process, no request, no
+		// scheduler state. It writes one bounded line to the host's own display,
+		// for the operator who would otherwise be asked to approve being shown
+		// it — a consent dialog per line of commentary is a tool nobody would
+		// call. This is not a claim that the line is ephemeral: the kernel
+		// records THIS call in the run's transcript and checkpoints exactly as
+		// it records every other, so the text comes back into the model's own
+		// history on a resume even though the band it was shown in does not.
+		// Narration's parent-only boundary does not rest on this flag either:
+		// the tool is registered on the parent's registry and is on no child's
+		// roster at all, which a test holds.
+		readOnly: true,
+		destructive: false,
+		concurrencySafe: true,
+		// Prose rather than the call's arguments, for the one row that can still
+		// reach a surface: a REFUSED line keeps its transcript row (a shown line
+		// has none — see the host's own suppression, which cites this tool by
+		// name), and `narrate_work({"line":"…"})` beside the refusal would show
+		// the sentence that was never shown.
+		presentCall: () => ({ kind: 'generic', label: 'Narrating', presentation: 'activity' }),
+		async execute(input, context) {
+			context.abortSignal.throwIfAborted()
+			const { line } = input as { line: string }
+			const outcome = activity.narrate(line)
+			// The two refusals say different things on purpose. A blank line is
+			// the writer's to fix; a closed monitor is not, and telling the model
+			// its text was blank would send it to correct a line that was fine.
+			if (outcome.kind === 'empty')
+				return {
+					success: false,
+					output: '',
+					error: 'Narration must not be blank.',
+				}
+			if (outcome.kind === 'closed')
+				return {
+					success: false,
+					output: '',
+					error: 'This session has stopped showing narration; nothing was displayed.',
+				}
+			return {
+				success: true,
+				output:
+					'Added to the narration band above the agent rail, which shows the three most recent lines whenever the rail itself is on screen. Nothing was started, changed or stopped.',
+				data: { line: outcome.line.text },
+			}
+		},
+	})
+
 	let closePromise: Promise<void> | undefined
 	const close = (): Promise<void> => {
 		if (closePromise) return closePromise
@@ -1142,6 +1255,7 @@ export async function createSubagentRuntime(
 		waitForTaskTool,
 		agentTaskListTool,
 		sendMessageTool,
+		narrationTool,
 		allowedAgentIds: agentTypeIds,
 		activity,
 		close,
