@@ -3,7 +3,10 @@ import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import type { MCPFetchLike, MCPJsonRpcMessage } from '../../../types/connector/index.js'
+import type { LogAttributes } from '../../../utils/log/index.js'
+import type { Logger } from '../../../utils/logger.js'
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 import { HttpSseTransport } from '../http-sse.js'
 import { StreamableHttpTransport } from '../streamable-http.js'
 
@@ -192,10 +195,75 @@ describe('MCP per-request authority: injected fetch, bearer token, headers', () 
 			await client.client.disconnect()
 		})
 	})
+
+	describe('the canonical headers are protected even on an era that sends none of its own', () => {
+		// `buildEnvelope` puts no headers at all on a legacy connection older
+		// than 2025-06-18 — the revision that introduced `MCP-Protocol-Version`
+		// — and `Mcp-Method` / `Mcp-Name` are modern-only headers it never
+		// writes on ANY legacy connection. `requestAuthorityHeaders` used to
+		// derive its protected set from the era's own header keys, so on
+		// these sessions that set was empty and a caller-supplied
+		// `MCP-Protocol-Version`, `Mcp-Method` or `Mcp-Name` reached the wire
+		// unchanged. These two versions are the ones the era actually
+		// negotiates nothing-of-its-own for: 2024-11-05 (no header at all)
+		// and 2025-03-26 (still older than the header's introduction).
+		it.each(['2024-11-05', '2025-03-26'])(
+			'refuses a forged MCP-Protocol-Version / Mcp-Method / Mcp-Name on a %s session',
+			async (negotiatedVersion) => {
+				const { logger, warnings } = recordingLogger()
+				const client = await connectedClient({}, { negotiatedVersion, logger })
+
+				await client.client.listTools({
+					headers: {
+						'MCP-Protocol-Version': 'forged-version',
+						'Mcp-Method': 'forged-method',
+						'Mcp-Name': 'forged-name',
+						'X-Tenant': 'acme',
+					},
+				})
+
+				const headers = client.headersFor('tools/list')
+				expect(headers['mcp-protocol-version']).toBeUndefined()
+				expect(headers['mcp-method']).toBeUndefined()
+				expect(headers['mcp-name']).toBeUndefined()
+				// Everything the protocol does not own still reaches the wire.
+				expect(headers['x-tenant']).toBe('acme')
+
+				const refused = warnings.filter(
+					([message]) => message === 'Refused a per-request MCP header the protocol owns',
+				)
+				expect(refused.map(([, attributes]) => attributes?.['namzu.mcp.header'])).toEqual([
+					'MCP-Protocol-Version',
+					'Mcp-Method',
+					'Mcp-Name',
+				])
+
+				await client.client.disconnect()
+			},
+		)
+	})
 })
 
+/** A logger that keeps every `warn` body and bag, and swallows the rest. */
+function recordingLogger(): { logger: Logger; warnings: [string, LogAttributes?][] } {
+	const warnings: [string, LogAttributes?][] = []
+	const sink = {
+		debug: vi.fn(),
+		info: vi.fn(),
+		error: vi.fn(),
+		warn: (message: string, attributes?: LogAttributes) => {
+			warnings.push([message, attributes])
+		},
+	}
+	const logger = { ...sink, child: () => logger } as unknown as Logger
+	return { logger, warnings }
+}
+
 /** A connected `MCPClient` over a real local Streamable HTTP origin. */
-async function connectedClient(staticHeaders: Record<string, string>): Promise<{
+async function connectedClient(
+	staticHeaders: Record<string, string>,
+	options: { negotiatedVersion?: string; logger?: Logger } = {},
+): Promise<{
 	client: MCPClient
 	headersFor(method: string, occurrence?: number): IncomingMessage['headers']
 	allHeadersFor(method: string): IncomingMessage['headers'][]
@@ -207,7 +275,7 @@ async function connectedClient(staticHeaders: Record<string, string>): Promise<{
 				jsonrpc: '2.0',
 				id: message.id,
 				result: {
-					protocolVersion: '2024-11-05',
+					protocolVersion: options.negotiatedVersion ?? '2024-11-05',
 					capabilities: { tools: {} },
 					serverInfo: { name: 'fixture', version: '1' },
 				},
@@ -224,6 +292,12 @@ async function connectedClient(staticHeaders: Record<string, string>): Promise<{
 	const client = new MCPClient({
 		serverName: 'fixture',
 		transport: { type: 'streamable-http', url: `${origin.url}/rpc`, headers: staticHeaders },
+		// Fresh per client: the shared process-default era cache would let a
+		// legacy era resolved by one client in this file answer for another
+		// client's ORIGIN-DISTINCT connection that happens to reuse a port,
+		// and would make this suite's outcome depend on test order.
+		eraCache: createMcpEraCache(),
+		...(options.logger ? { logger: options.logger } : {}),
 	})
 	await client.connect()
 

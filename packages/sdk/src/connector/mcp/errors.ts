@@ -1,3 +1,4 @@
+import { RESOURCE_NOT_FOUND_CODES } from '../../constants/mcp/index.js'
 import type { MCPInputRequest, MCPJsonRpcError } from '../../types/connector/index.js'
 
 /**
@@ -111,6 +112,16 @@ export function isMissingRequiredClientCapabilityError(error: unknown): error is
 /** A modern server rejected a request's `Mcp-Param-*` headers as stale against its current schema. */
 export function isHeaderMismatchError(error: unknown): error is MCPProtocolError {
 	return error instanceof MCPProtocolError && error.code === HEADER_MISMATCH_CODE
+}
+
+/**
+ * A server answered that the resource, prompt or tool a request named does
+ * not exist — the current spec's `-32002`, or the older `-32602` a
+ * pre-2025-06-18 server may still use for the same condition (see
+ * {@link RESOURCE_NOT_FOUND_CODES}).
+ */
+export function isResourceNotFoundError(error: unknown): error is MCPProtocolError {
+	return error instanceof MCPProtocolError && RESOURCE_NOT_FOUND_CODES.includes(error.code)
 }
 
 /**

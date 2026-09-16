@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 
 /**
  * The three list calls sent an empty params object and returned the first
@@ -19,6 +20,7 @@ function pagedClient(pages: Array<{ tools: unknown[]; nextCursor?: string }>) {
 	const client = new MCPClient({
 		serverName: 'srv',
 		transport: { type: 'stdio', command: '/bin/true' },
+		eraCache: createMcpEraCache(),
 	})
 
 	// The request layer is the seam; connecting a real server is not the

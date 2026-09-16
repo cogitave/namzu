@@ -76,6 +76,7 @@ function harness(protocolVersion: string | undefined) {
 	const client = new MCPClient({
 		serverName: 'fake',
 		transport: { type: 'stdio', command: 'noop' } as MCPTransportUnion,
+		eraCache: createMcpEraCache(),
 	})
 	;(client as unknown as { transport: MCPTransport }).transport = transport
 

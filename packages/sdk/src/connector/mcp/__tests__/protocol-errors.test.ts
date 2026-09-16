@@ -6,10 +6,12 @@ import type {
 	MCPTransportUnion,
 } from '../../../types/connector/index.js'
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 import {
 	MCPProtocolError,
 	isHeaderMismatchError,
 	isMissingRequiredClientCapabilityError,
+	isResourceNotFoundError,
 	isUnsupportedProtocolVersionError,
 } from '../errors.js'
 
@@ -40,6 +42,14 @@ function harness(opts: { requestTimeoutMs?: number } = {}): Harness {
 		isConnected: () => true,
 		send: async (message) => {
 			sent.push(message)
+			if (message.method === 'server/discover') {
+				// Not a `DiscoverResult` (no `supportedVersions`), so the era
+				// probe reads this as a fast, clean "legacy" rather than
+				// waiting out the probe timeout for silence — this harness's
+				// own `eraCache` never sees another test's answer.
+				queueMicrotask(() => onMessage?.({ jsonrpc: '2.0', id: message.id, result: {} }))
+				return
+			}
 			if (message.method === 'initialize') {
 				queueMicrotask(() =>
 					onMessage?.({
@@ -64,6 +74,10 @@ function harness(opts: { requestTimeoutMs?: number } = {}): Harness {
 	const client = new MCPClient({
 		serverName: 'fake',
 		transport: { type: 'stdio', command: 'noop' } as MCPTransportUnion,
+		// A fresh cache per client, not the shared process default: this file
+		// resolves 'noop' to whichever era a test staged, and sharing the
+		// cache would let one test's resolution leak into the next.
+		eraCache: createMcpEraCache(),
 		...(opts.requestTimeoutMs !== undefined ? { requestTimeoutMs: opts.requestTimeoutMs } : {}),
 	})
 	;(client as unknown as { transport: MCPTransport }).transport = transport
@@ -153,6 +167,15 @@ describe('MCP protocol errors preserve code and data', () => {
 			name: 'isMissingRequiredClientCapabilityError',
 		},
 		{ code: -32020, predicate: isHeaderMismatchError, name: 'isHeaderMismatchError' },
+		// `isResourceNotFoundError` recognizes TWO codes — the current spec's
+		// `-32002` and the older `-32602` a pre-2025-06-18 server may still
+		// send for the same condition — so it gets two rows here rather than
+		// one. Each row is still exactly the same assertion every other
+		// predicate gets: this code matches, and every other predicate in
+		// this table (including this one, checked against the OTHER code) is
+		// the negative.
+		{ code: -32602, predicate: isResourceNotFoundError, name: 'isResourceNotFoundError (-32602)' },
+		{ code: -32002, predicate: isResourceNotFoundError, name: 'isResourceNotFoundError (-32002)' },
 	] as const
 
 	it.each(predicates)('$name matches its own code and no other', async ({ code, predicate }) => {

@@ -7,6 +7,7 @@ import type {
 	MCPTransportUnion,
 } from '../../../types/connector/index.js'
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 
 interface SentFrame {
 	readonly message: MCPJsonRpcMessage
@@ -37,6 +38,15 @@ function harness(
 		isConnected: () => true,
 		send: (message, sendOptions) => {
 			sent.push({ message, options: sendOptions })
+			if (message.method === 'server/discover') {
+				// Not a `DiscoverResult` (no `supportedVersions`), so the era
+				// probe reads this as a fast, clean "legacy" rather than
+				// waiting out the probe timeout for silence — this harness's
+				// own `eraCache` never sees another test's answer, and no
+				// per-test `onSend` here needs to know this probe exists.
+				receive?.({ jsonrpc: '2.0', id: message.id, result: {} })
+				return Promise.resolve()
+			}
 			if (message.method === 'initialize') {
 				receive?.({
 					jsonrpc: '2.0',
@@ -63,6 +73,7 @@ function harness(
 	const client = new MCPClient({
 		serverName: 'fixture',
 		transport: { type: 'stdio', command: 'unused' } as MCPTransportUnion,
+		eraCache: createMcpEraCache(),
 		...(options.requestTimeoutMs !== undefined
 			? { requestTimeoutMs: options.requestTimeoutMs }
 			: {}),

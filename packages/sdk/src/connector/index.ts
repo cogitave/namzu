@@ -57,6 +57,7 @@ export {
 	isHeaderMismatchError,
 	isMissingRequiredClientCapabilityError,
 	isRecognizedModernError,
+	isResourceNotFoundError,
 	isUnsupportedProtocolVersionError,
 	mcpEraCacheKey,
 	MCPClient,

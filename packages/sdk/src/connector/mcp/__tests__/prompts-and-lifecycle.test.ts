@@ -8,6 +8,7 @@ import type {
 	MCPTransport,
 } from '../../../types/connector/index.js'
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 import { MCPServer } from '../server/server.js'
 import type { MCPServerPromptProvider, MCPServerToolProvider } from '../server/server.js'
 
@@ -232,6 +233,7 @@ describe('a client says out loud what it already knew', () => {
 		return new MCPClient({
 			serverName: 'srv',
 			transport: { type: 'stdio', command: 'definitely-not-a-real-binary-xyz', args: [] },
+			eraCache: createMcpEraCache(),
 		})
 	}
 

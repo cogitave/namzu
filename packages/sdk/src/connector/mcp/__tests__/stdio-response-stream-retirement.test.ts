@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 import { MCPReconnectSupervisor } from '../reconnect.js'
 
 const FIXTURE = fileURLToPath(
@@ -69,6 +70,7 @@ describe('an MCP response channel is a transport lifetime boundary', () => {
 				args: [FIXTURE, marker],
 			},
 			requestTimeoutMs: 30_000,
+			eraCache: createMcpEraCache(),
 		})
 
 		await client.connect()
@@ -104,6 +106,7 @@ describe('an MCP response channel is a transport lifetime boundary', () => {
 				args: [FIXTURE, marker],
 			},
 			requestTimeoutMs: 30_000,
+			eraCache: createMcpEraCache(),
 		})
 		const supervisor = new MCPReconnectSupervisor(client, {
 			initialDelayMs: 10,

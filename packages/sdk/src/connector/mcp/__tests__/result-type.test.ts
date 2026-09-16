@@ -11,6 +11,7 @@ import type { ToolContext } from '../../../types/tool/index.js'
 import { mcpToolToToolDefinition } from '../adapter.js'
 import { MCPClient } from '../client.js'
 import { decodeResult } from '../envelope.js'
+import { createMcpEraCache } from '../era.js'
 import { MCPInputRequiredError, MCPInvalidResultTypeError, MCPProtocolError } from '../errors.js'
 
 /**
@@ -121,6 +122,7 @@ function harness(replies: readonly unknown[]): Harness {
 	const client = new MCPClient({
 		serverName: 'fake',
 		transport: { type: 'stdio', command: 'noop' } as MCPTransportUnion,
+		eraCache: createMcpEraCache(),
 	})
 	;(client as unknown as { transport: MCPTransport }).transport = transport
 

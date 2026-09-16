@@ -117,6 +117,23 @@ the newest member of the intersection, and:
   attempted: offering one it has not implemented produces a malformed
   exchange later instead of a clean negotiation failure now.
 
+### Typed protocol errors
+
+A JSON-RPC error reply keeps its numeric `code` and untouched `data` as an
+`MCPProtocolError`, and a caller reacts to a specific one through a
+predicate rather than comparing magic numbers itself: `isRecognizedModernError`
+groups the three eras negotiation itself reacts to
+(`isUnsupportedProtocolVersionError` for `-32022`,
+`isMissingRequiredClientCapabilityError` for `-32021`,
+`isHeaderMismatchError` for `-32020`, covered above and in
+[Mirroring tool parameters into headers](#mirroring-tool-parameters-into-headers-x-mcp-header)). `isResourceNotFoundError` recognizes the
+two codes a server may use for "that resource, prompt or tool does not
+exist" — the current spec's `-32002` and the older `-32602` a
+pre-2025-06-18 server may still send for the same condition — and, unlike
+the other three, is not consumed anywhere in this client today; it exists
+for a host that wants to tell "not found" apart from "actually broken"
+without hand-rolling the code list itself.
+
 ## The era cache
 
 A resolved era is remembered per HTTP **origin** (scheme, host and port —

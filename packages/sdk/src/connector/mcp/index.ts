@@ -7,6 +7,7 @@ export { MCPClient } from './client.js'
 export {
 	isHeaderMismatchError,
 	isMissingRequiredClientCapabilityError,
+	isResourceNotFoundError,
 	isUnsupportedProtocolVersionError,
 	MCPHttpStatusError,
 	MCPInputRequiredError,

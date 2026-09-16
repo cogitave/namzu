@@ -6,6 +6,7 @@ import type {
 	MCPTransportUnion,
 } from '../../types/connector/index.js'
 import { MCPClient } from './client.js'
+import { createMcpEraCache } from './era.js'
 
 /**
  * `client.ts` had zero test coverage, and three ways to hang a run:
@@ -47,6 +48,14 @@ function harness(opts: { autoInitialize?: boolean; requestTimeoutMs?: number } =
 		isConnected: () => open,
 		send: async (message) => {
 			sent.push(message)
+			if (message.method === 'server/discover') {
+				// Not a `DiscoverResult` (no `supportedVersions`), so the era
+				// probe reads this as a fast, clean "legacy" rather than
+				// waiting out the probe timeout for silence — this harness's
+				// own `eraCache` never sees another test's answer.
+				queueMicrotask(() => onMessage?.({ jsonrpc: '2.0', id: message.id, result: {} }))
+				return
+			}
 			// Answer `initialize` so `connect()` can complete.
 			if (opts.autoInitialize !== false && message.method === 'initialize') {
 				queueMicrotask(() =>
@@ -72,6 +81,11 @@ function harness(opts: { autoInitialize?: boolean; requestTimeoutMs?: number } =
 	const client = new MCPClient({
 		serverName: 'fake',
 		transport: { type: 'stdio', command: 'noop' } as MCPTransportUnion,
+		// A fresh cache per client: the shared process-default cache would
+		// let an era resolved by an unrelated test leak in here and make
+		// this suite order-dependent on whether it runs before or after one
+		// that already resolved 'noop' to an era.
+		eraCache: createMcpEraCache(),
 		...(opts.requestTimeoutMs !== undefined ? { requestTimeoutMs: opts.requestTimeoutMs } : {}),
 	})
 	// Swap in the fake transport; `createTransport` would spawn a process.
@@ -119,7 +133,14 @@ describe('MCPClient — a wedged server cannot hang the run', () => {
 		await h.client.connect()
 
 		const pending = h.client.listTools()
-		h.receive({ jsonrpc: '2.0', id: 2, result: { tools: [{ name: 'a' }] } })
+		// Read back the id `connect()`'s own era probe left this request at,
+		// rather than assuming `tools/list` is request 2: a fresh `eraCache`
+		// means every test in this file spends its own `server/discover`
+		// probe id, so which numeric id `tools/list` lands on is no longer
+		// this test's business.
+		const toolsList = h.sent.find((m) => m.method === 'tools/list')
+		if (!toolsList) throw new Error('tools/list was never sent')
+		h.receive({ jsonrpc: '2.0', id: toolsList.id, result: { tools: [{ name: 'a' }] } })
 
 		await expect(pending).resolves.toEqual([{ name: 'a' }])
 		// Outlive the timeout; a stale timer would surface as an unhandled

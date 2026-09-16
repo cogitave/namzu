@@ -8,6 +8,7 @@ import type { RunId } from '../../../types/ids/index.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import { mcpToolToToolDefinition } from '../adapter.js'
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 import { HttpSseTransport } from '../http-sse.js'
 import { StreamableHttpTransport } from '../streamable-http.js'
 
@@ -179,6 +180,7 @@ describe('remote MCP requests remain at their configured endpoint', () => {
 				url: `${source.url}/rpc`,
 				headers: { Authorization: 'Bearer mcp-secret' },
 			},
+			eraCache: createMcpEraCache(),
 		})
 		await client.connect()
 		const remoteTool: MCPToolDefinition = {

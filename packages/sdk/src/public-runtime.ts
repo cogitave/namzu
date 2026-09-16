@@ -734,6 +734,7 @@ export {
 	isHeaderMismatchError,
 	isMissingRequiredClientCapabilityError,
 	isRecognizedModernError,
+	isResourceNotFoundError,
 	isUnsupportedProtocolVersionError,
 	LocalExecutionContext,
 	mcpEraCacheKey,

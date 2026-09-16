@@ -57,6 +57,9 @@ import {
 	JSON_RPC_METHOD_NOT_FOUND,
 	MCP_DISCOVER_METHOD,
 	MCP_LEGACY_VERSIONS,
+	MCP_METHOD_HEADER,
+	MCP_NAME_HEADER,
+	MCP_PROTOCOL_VERSION_HEADER,
 	MCP_SUPPORTED_PROTOCOL_VERSIONS,
 } from '../../constants/mcp/index.js'
 import { NAMZU } from '../../constants/telemetry/index.js'
@@ -69,6 +72,28 @@ const MAX_LIST_PAGES = 100
 const CANCEL_NOTIFICATION_TIMEOUT_MS = 1_000
 
 const NAMZU_CLIENT_INFO = { name: 'namzu-sdk', version: VERSION }
+
+/**
+ * The three header names the protocol owns, lower-cased for matching.
+ *
+ * Protected regardless of what era the connection resolved to, and
+ * regardless of whether {@link buildEnvelope} put any headers of its own on
+ * THIS request. A legacy era older than `2025-06-18` sends none of its
+ * own — `buildEnvelope` returns `{ headers: {} }` for it, same as an
+ * unresolved era — so deriving the protected set from the era's own header
+ * keys (as this used to) protected nothing there: a caller could set
+ * `Mcp-Method` on a 2024-11-05 or 2025-03-26 session and it reached the
+ * wire unchanged. `Mcp-Method` and `Mcp-Name` are modern-only headers
+ * {@link buildEnvelope} never writes on ANY legacy connection, so that gap
+ * existed on every legacy era, not only the two oldest ones. The set below
+ * is fixed and total precisely so "does this era currently emit the
+ * header" never again decides whether a caller can forge it.
+ */
+const CANONICAL_MCP_REQUEST_HEADERS = new Set(
+	[MCP_PROTOCOL_VERSION_HEADER, MCP_METHOD_HEADER, MCP_NAME_HEADER].map((name) =>
+		name.toLowerCase(),
+	),
+)
 
 /**
  * Did the peer answer `-32020` (`HeaderMismatch`)?
@@ -1059,8 +1084,10 @@ export class MCPClient {
 	 * {@link buildEnvelope} exists to render unconstructible constructible
 	 * again one layer up, and the failure would reach the host as an opaque
 	 * 400 with nothing pointing at the header that caused it. So a caller
-	 * header colliding with one the era produced is refused and warn-logged,
-	 * naming it. Matching ignores case, because HTTP field names are
+	 * header colliding with one of {@link CANONICAL_MCP_REQUEST_HEADERS} is
+	 * refused and warn-logged, naming it — in EVERY era, including a legacy
+	 * one old enough that {@link buildEnvelope} puts no headers of its own
+	 * on this request. Matching ignores case, because HTTP field names are
 	 * case-insensitive and `{ 'mcp-protocol-version': … }` alongside the
 	 * era's `MCP-Protocol-Version` would otherwise reach the wire as one
 	 * field holding both values, comma-joined.
@@ -1084,7 +1111,10 @@ export class MCPClient {
 		const hasEraHeaders = Object.keys(eraHeaders).length > 0
 		if (!hasEraHeaders && !options?.headers && !options?.bearerToken) return {}
 		const headers: Record<string, string> = { ...eraHeaders }
-		const protocolOwned = new Set(Object.keys(eraHeaders).map((name) => name.toLowerCase()))
+		const protocolOwned = new Set([
+			...CANONICAL_MCP_REQUEST_HEADERS,
+			...Object.keys(eraHeaders).map((name) => name.toLowerCase()),
+		])
 		for (const [name, value] of Object.entries(options?.headers ?? {})) {
 			if (protocolOwned.has(name.toLowerCase())) {
 				this.log.warn('Refused a per-request MCP header the protocol owns', {

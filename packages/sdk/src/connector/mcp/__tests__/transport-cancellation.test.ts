@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MCPTransport } from '../../../types/connector/index.js'
 import type { MCPTransportUnion } from '../../../types/connector/index.js'
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 import { HttpSseTransport } from '../http-sse.js'
 import { StdioTransport } from '../stdio.js'
 import { StreamableHttpTransport } from '../streamable-http.js'
@@ -234,6 +235,18 @@ describe('MCP HTTP transports retain one send operation authority', () => {
 				method?: string
 				params?: { name?: string }
 			}
+			if (message.method === 'server/discover') {
+				// Not a `DiscoverResult` (no `supportedVersions`), so the era
+				// probe reads this as a fast, clean "legacy" rather than
+				// waiting out the probe timeout — and, just as importantly,
+				// without landing in the `toolStarts` counter below meant for
+				// the actual `tools/call` requests this test is about.
+				return Promise.resolve(
+					new Response(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }), {
+						headers: { 'content-type': 'application/json' },
+					}),
+				)
+			}
 			if (message.method === 'initialize') {
 				return Promise.resolve(
 					new Response(
@@ -272,6 +285,7 @@ describe('MCP HTTP transports retain one send operation authority', () => {
 				url: 'https://mcp.example.test/rpc',
 				timeoutMs: 60_000,
 			} as MCPTransportUnion,
+			eraCache: createMcpEraCache(),
 		})
 		await client.connect()
 		const callerA = new AbortController()
@@ -360,6 +374,7 @@ describe('MCP HTTP transports retain one send operation authority', () => {
 				url: 'https://mcp.example.test/rpc',
 				timeoutMs: 5,
 			} as MCPTransportUnion,
+			eraCache: createMcpEraCache(),
 		})
 		await client.connect()
 

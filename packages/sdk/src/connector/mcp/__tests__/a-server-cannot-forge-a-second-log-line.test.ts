@@ -9,6 +9,7 @@ import type {
 import { jsonLinesSink } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { MCPClient } from '../client.js'
+import { createMcpEraCache } from '../era.js'
 
 /**
  * `connect()` used to write the remote server's self-reported name straight
@@ -46,6 +47,14 @@ describe('MCPClient.connect — a hostile server name cannot forge a second log 
 			close: async () => {},
 			isConnected: () => true,
 			send: async (message) => {
+				if (message.method === 'server/discover') {
+					// Not a `DiscoverResult` (no `supportedVersions`), so the era
+					// probe reads this as a fast, clean "legacy" rather than
+					// waiting out the probe timeout for silence — this test's
+					// own `eraCache` never sees another test's answer.
+					queueMicrotask(() => onMessage?.({ jsonrpc: '2.0', id: message.id, result: {} }))
+					return
+				}
 				if (message.method !== 'initialize') return
 				queueMicrotask(() =>
 					onMessage?.({
@@ -66,6 +75,7 @@ describe('MCPClient.connect — a hostile server name cannot forge a second log 
 			serverName: 'hostile',
 			transport: { type: 'stdio', command: 'noop' } as MCPTransportUnion,
 			logger: hostLogger(jsonLinesSink(stream), 'info'),
+			eraCache: createMcpEraCache(),
 		})
 		// Swap in the fake transport — same technique client.test.ts's own
 		// harness uses; `createTransport` would otherwise try to spawn a real
