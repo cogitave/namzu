@@ -12,8 +12,9 @@
  * credentialed transport.
  */
 
+import { randomUUID } from 'node:crypto'
 import dns from 'node:dns'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import net from 'node:net'
 import { type AddressInfo, type Server, type Socket, createServer } from 'node:net'
@@ -29,7 +30,11 @@ import {
 } from '../../firecracker/transport.js'
 import { AGENT_ENV_KEYS } from './fixtures/agent-env.js'
 
-import { KubernetesAgentTransport, type KubernetesTransportTiming } from '../transport.js'
+import {
+	type KubernetesAgentHandle,
+	KubernetesAgentTransport,
+	type KubernetesTransportTiming,
+} from '../transport.js'
 
 const IS_WINDOWS = process.platform === 'win32'
 const require_ = createRequire(import.meta.url)
@@ -423,6 +428,355 @@ describe('KubernetesAgentTransport over a real TCP-listening agent', () => {
 			expect(JSON.stringify(timing)).not.toContain(POD_UID)
 		})
 	})
+})
+
+/**
+ * A pod replaced underneath a live handle, on EVERY operation the Sandbox
+ * surface dials the guest with — `agentAddress: 'pod-ip'`'s one re-read.
+ *
+ * The whole point of the mode is a handle that carries a literal IP, and a
+ * literal IP dies with its pod: an eviction, a node drain or a resume gives
+ * the workspace a new pod at a new address with a new bind token, and the
+ * only symptom on the host is that the next dial is refused. So a dial that
+ * fails at CONNECT re-reads the live pod once and, if the uid changed,
+ * follows it — address and token together — and retries.
+ *
+ * Every case here is driven through the REAL agent, and the agent is bound to
+ * the REPLACEMENT pod's token. A transport that retried without taking the
+ * new token would be answered `unauthorized`, so "it succeeded" is evidence
+ * that both halves of the handle moved.
+ *
+ * `exec()` is the case this suite exists for and the one that must run with
+ * the timing options the backend actually builds — none. It is the only
+ * operation whose failure does not carry the dial's own error: the shared
+ * {@link RemoteExecutionController} bounds its control requests by RACING
+ * them against a 2s timer, so a dial still inside its 30s connect-retry
+ * budget is reported as a reservation that took too long and the connect
+ * failure is discarded, not wrapped. Every other operation hands back the
+ * dial's error and so is dialed here with a spent retry budget, to keep the
+ * suite fast rather than because the distinction matters to them.
+ */
+describe.skipIf(IS_WINDOWS)('a connect failure follows a replaced pod', () => {
+	/** The uid the controller's replacement pod carries — a new bind token. */
+	const REPLACEMENT_UID = 'b7a1c4d0-3e52-4f61-9a08-1d2c3b4a5e6f'
+	/** A dial that gives up at once: no budget to spend on a dead address. */
+	const SPENT_BUDGET = { connectTimeoutMs: 200, connectRetryBudgetMs: 0 } as const
+
+	/** A port nothing is listening on — the pod that was taken away. */
+	async function closedPort(): Promise<number> {
+		const probe = createServer()
+		await new Promise<void>((resolve) => probe.listen(0, '127.0.0.1', resolve))
+		const { port } = probe.address() as AddressInfo
+		await new Promise<void>((resolve) => probe.close(() => resolve()))
+		return port
+	}
+
+	/**
+	 * The OTHER half of "the pod is gone", and the half a routed pod network
+	 * actually produces: a released pod IP black-holes the SYN or waits out
+	 * ARP instead of answering it. 192.0.2.1 (TEST-NET-1, RFC 5737) is
+	 * reserved and never assigned, so a connect toward it is dropped rather
+	 * than refused and the attempt runs to this transport's own connect
+	 * timer. A closed LOOPBACK port answers ECONNREFUSED in microseconds, so
+	 * it can only ever prove the fast half.
+	 */
+	const BLACKHOLE_ADDRESS = { host: '192.0.2.1', port: 9 } as const
+
+	/**
+	 * A transport still pointing at the pod that is gone, whose one re-read
+	 * answers with the pod the controller brought up in its place.
+	 *
+	 * `stale` is what the dead pod's address does to a connect: a closed
+	 * loopback port (the default) refuses it at once, {@link
+	 * BLACKHOLE_ADDRESS} never answers at all.
+	 */
+	async function staleHandle(
+		agentPort: number,
+		options: Record<string, unknown> = {},
+		stale?: { host: string; port: number },
+	): Promise<{ transport: KubernetesAgentTransport; refreshHandle: ReturnType<typeof vi.fn> }> {
+		const refreshHandle = vi.fn(
+			async (): Promise<KubernetesAgentHandle> => ({
+				kind: 'tcp',
+				host: '127.0.0.1',
+				port: agentPort,
+				token: REPLACEMENT_UID,
+			}),
+		)
+		const dead = stale ?? { host: '127.0.0.1', port: await closedPort() }
+		const transport = new KubernetesAgentTransport(
+			{ kind: 'tcp', host: dead.host, port: dead.port, token: POD_UID },
+			{ ...options, refreshHandle },
+		)
+		return { transport, refreshHandle }
+	}
+
+	/** Every abandoned part file left anywhere under the workspace. */
+	function strayPartFiles(dir: string = workDir): string[] {
+		const out: string[] = []
+		for (const entry of readdirSync(dir, { withFileTypes: true })) {
+			const full = join(dir, entry.name)
+			if (entry.isDirectory()) out.push(...strayPartFiles(full))
+			else if (entry.name.startsWith('.namzu-write-')) out.push(full)
+		}
+		return out
+	}
+
+	it('rebinds exec(), with the timing options the backend actually builds', async () => {
+		const { port } = await startAgent(REPLACEMENT_UID)
+		const { transport, refreshHandle } = await staleHandle(port)
+
+		const result = await transport.exec('/bin/sh', ['-c', 'echo ran-on-the-new-pod'])
+
+		expect(result.stdout).toContain('ran-on-the-new-pod')
+		expect(result.exitCode).toBe(0)
+		// Exactly one re-read for the call, and the handle moved with it.
+		expect(refreshHandle).toHaveBeenCalledTimes(1)
+		expect(transport.address).toEqual({ host: '127.0.0.1', port })
+	}, 20_000)
+
+	/**
+	 * The failure shape the docs name as characteristic of `'pod-ip'`, and
+	 * the one `exec()` cannot classify from its error at all.
+	 *
+	 * The default connect timer is 5s and the execution controller bounds a
+	 * control request at 2s, so the bound fires FIRST: the caller is handed
+	 * the bound's bare `… reservation exceeded 2000ms` Error while the
+	 * connect attempt it aborted had not yet failed. Nothing about that error
+	 * says a dial was involved, and a watch that only records FAILED attempts
+	 * has not been written to either — which is why the watch records that a
+	 * connect was ATTEMPTED.
+	 *
+	 * Timing overrides would hide exactly that: any `connectTimeoutMs` under
+	 * the 2s bound turns this back into the refused case above. So this one
+	 * runs on the options the backend actually builds — none.
+	 */
+	it('rebinds exec() when the dial is BLACK-HOLED rather than refused', async () => {
+		const { port } = await startAgent(REPLACEMENT_UID)
+		const { transport, refreshHandle } = await staleHandle(port, {}, BLACKHOLE_ADDRESS)
+
+		const result = await transport.exec('/bin/sh', ['-c', 'echo followed-the-replacement'])
+
+		expect(result.stdout).toContain('followed-the-replacement')
+		expect(result.exitCode).toBe(0)
+		expect(refreshHandle).toHaveBeenCalledTimes(1)
+		expect(transport.address).toEqual({ host: '127.0.0.1', port })
+	}, 30_000)
+
+	it('rebinds readFile()', async () => {
+		const { port } = await startAgent(REPLACEMENT_UID)
+		// Seeded through the replacement pod's own token: the disk followed
+		// the workspace, which is what a resume actually looks like.
+		await new KubernetesAgentTransport({
+			kind: 'tcp',
+			host: '127.0.0.1',
+			port,
+			token: REPLACEMENT_UID,
+		}).writeFile('carried-over.txt', Buffer.from('from the replacement pod'))
+		const { transport, refreshHandle } = await staleHandle(port, SPENT_BUDGET)
+
+		const read = await transport.readFile('carried-over.txt')
+
+		expect(read.toString('utf8')).toBe('from the replacement pod')
+		expect(refreshHandle).toHaveBeenCalledTimes(1)
+	})
+
+	it('rebinds writeFile()', async () => {
+		const { port } = await startAgent(REPLACEMENT_UID)
+		const { transport, refreshHandle } = await staleHandle(port, SPENT_BUDGET)
+
+		await transport.writeFile('written-after-the-rebind.txt', Buffer.from('landed'))
+
+		expect(readFileSync(join(workDir, 'written-after-the-rebind.txt'), 'utf8')).toBe('landed')
+		expect(refreshHandle).toHaveBeenCalledTimes(1)
+	})
+
+	it('rebinds a writeFile() large enough to travel in parts', async () => {
+		const { port } = await startAgent(REPLACEMENT_UID)
+		let connections = 0
+		listener?.on('connection', () => {
+			connections += 1
+		})
+		// `writeFilePartBytes` lowers the split point as well as the part
+		// size, so the multi-part route is exercised without allocating a
+		// body over the guest's 8 MiB pre-auth ceiling.
+		const { transport, refreshHandle } = await staleHandle(port, {
+			...SPENT_BUDGET,
+			writeFilePartBytes: 1_024,
+		})
+		const body = Buffer.alloc(8 * 1_024, 0x7a)
+
+		await transport.writeFile('in-parts.bin', body)
+
+		const written = readFileSync(join(workDir, 'in-parts.bin'))
+		expect(written.length).toBe(body.length)
+		expect(written.equals(body)).toBe(true)
+		expect(refreshHandle).toHaveBeenCalledTimes(1)
+		// It really took the PARTS route: every request dials its own
+		// connection, so one capability probe plus eight parts plus the
+		// rename is a count a single-frame write could not produce.
+		expect(connections).toBeGreaterThan(5)
+		// The retry starts a fresh sequence under a new temp name and finishes
+		// it with the atomic rename, so nothing is left behind.
+		expect(strayPartFiles()).toEqual([])
+	}, 20_000)
+
+	it('rebinds openTcpConnection()', async () => {
+		const { port } = await startAgent(REPLACEMENT_UID)
+		const upstream = createServer((socket) => {
+			socket.once('data', (chunk) => socket.end(Buffer.concat([Buffer.from('reply:'), chunk])))
+		})
+		await new Promise<void>((resolve, reject) => {
+			upstream.once('error', reject)
+			upstream.listen(0, '127.0.0.1', resolve)
+		})
+		try {
+			const address = upstream.address() as AddressInfo
+			const { transport, refreshHandle } = await staleHandle(port, SPENT_BUDGET)
+
+			const connection = await transport.openTcpConnection({ port: address.port })
+			let output = ''
+			const dispose = connection.onData((chunk) => {
+				output += Buffer.from(chunk).toString('utf8')
+			})
+			connection.write('hello')
+			await expect(connection.closed).resolves.toBeUndefined()
+
+			expect(output).toBe('reply:hello')
+			expect(refreshHandle).toHaveBeenCalledTimes(1)
+			dispose()
+		} finally {
+			await new Promise<void>((resolve) => upstream.close(() => resolve()))
+		}
+	})
+
+	it.skipIf(process.platform !== 'linux')(
+		'rebinds openTerminal()',
+		async () => {
+			const { port } = await startAgent(REPLACEMENT_UID)
+			const { transport, refreshHandle } = await staleHandle(port, SPENT_BUDGET)
+
+			const terminal = await transport.openTerminal({
+				command: '/bin/sh',
+				cwd: workDir,
+				size: { cols: 80, rows: 24 },
+			})
+			let output = ''
+			const unsubscribe = terminal.onData((chunk) => {
+				output += chunk
+			})
+			terminal.write('echo __ON_THE_NEW_POD__; exit 0\n')
+			await vi.waitFor(() => expect(output).toContain('__ON_THE_NEW_POD__'))
+			await expect(terminal.exited).resolves.toMatchObject({ exitCode: 0 })
+			unsubscribe()
+
+			expect(refreshHandle).toHaveBeenCalledTimes(1)
+		},
+		20_000,
+	)
+
+	it('leaves the original error standing when the pod is UNCHANGED', async () => {
+		// The re-read answers with the same uid at an address that WOULD
+		// work, so a transport that adopted any refreshed handle would
+		// succeed here. A pod that is still there and still refusing
+		// connections is the guest's problem, and retrying it would hide it.
+		const { port } = await startAgent(POD_UID)
+		let connections = 0
+		listener?.on('connection', () => {
+			connections += 1
+		})
+		const refreshHandle = vi.fn(
+			async (): Promise<KubernetesAgentHandle> => ({
+				kind: 'tcp',
+				host: '127.0.0.1',
+				port,
+				token: POD_UID,
+			}),
+		)
+		const transport = new KubernetesAgentTransport(
+			{ kind: 'tcp', host: '127.0.0.1', port: await closedPort(), token: POD_UID },
+			{ refreshHandle },
+		)
+
+		const error = await transport.exec('/bin/true').then(
+			() => undefined,
+			(err: unknown) => err,
+		)
+
+		// The ORIGINAL failure, unrewritten — for `exec()` that is the
+		// controller's own bound on the reservation, which is what a dial
+		// still inside its retry budget surfaces as.
+		expect((error as Error | undefined)?.message).toMatch(/reservation exceeded \d+ms/)
+		// One re-read for the call, not one per attempt, and no retry: the
+		// live agent was never dialed.
+		expect(refreshHandle).toHaveBeenCalledTimes(1)
+		expect(connections).toBe(0)
+	}, 20_000)
+
+	it('never retries an outcome the controller could not confirm', async () => {
+		// A command that was ADMITTED and then lost its connection is the one
+		// failure a rebind must not touch: the controller says so in its own
+		// words ("do not automatically retry the command"), and it
+		// interpolates the underlying failure into its message — so a cancel
+		// that cannot be dialed puts the dial's own marker inside a
+		// `RemoteCancellationUnknownError`. Classifying on that marker alone
+		// would re-run a command that may already be running, against a disk
+		// that followed the pod.
+		const lost = createServer((socket) => {
+			const reader = new __framing.FrameReader()
+			socket.on('error', () => {})
+			socket.on('data', (chunk: Buffer) => {
+				for (const payload of reader.push(chunk)) {
+					if (payload.length === 0) continue
+					const op = (JSON.parse(payload) as { op?: string }).op
+					if (op === 'reserve-execution') {
+						socket.write(
+							__framing.frame(
+								JSON.stringify({
+									ok: true,
+									protocolVersion: 2,
+									executionId: `exec_${randomUUID()}`,
+									leaseExpiresAt: Date.now() + 60_000,
+								}),
+							),
+						)
+						socket.end()
+						continue
+					}
+					// The command was admitted, and the pod then went away:
+					// nothing more is accepted, and this connection dies with
+					// the command still running as far as the host knows.
+					lost.close()
+					socket.destroy()
+				}
+			})
+		})
+		await new Promise<void>((resolve) => lost.listen(0, '127.0.0.1', resolve))
+		const { port } = lost.address() as AddressInfo
+		const refreshHandle = vi.fn(
+			async (): Promise<KubernetesAgentHandle> => ({
+				kind: 'tcp',
+				host: '127.0.0.1',
+				port: (listener?.address() as AddressInfo | undefined)?.port ?? port,
+				token: REPLACEMENT_UID,
+			}),
+		)
+		const transport = new KubernetesAgentTransport(
+			{ kind: 'tcp', host: '127.0.0.1', port, token: POD_UID },
+			{ ...SPENT_BUDGET, refreshHandle },
+		)
+
+		const error = await transport.exec('/bin/sh', ['-c', 'true']).then(
+			() => undefined,
+			(err: unknown) => err,
+		)
+
+		expect((error as Error | undefined)?.name).toBe('RemoteCancellationUnknownError')
+		// The dial's marker IS in that message — this case is only worth
+		// anything because it is.
+		expect((error as Error).message).toContain('could not connect to agent')
+		expect(refreshHandle).not.toHaveBeenCalled()
+	}, 30_000)
 })
 
 describe('KubernetesAgentTransport connect failure handling', () => {

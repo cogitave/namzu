@@ -116,7 +116,7 @@ let stalePodReads: number
 /**
  * Pod LIST answers after a resume that hold no live pod at all: the pod the
  * suspend patch retired is still draining and the controller has not created
- * its replacement yet. `readPodBindToken` answers that shape by THROWING
+ * its replacement yet. `readBoundPod` answers that shape by THROWING
  * rather than returning undefined, and it is the only shape a resume issued
  * straight after a suspend whose pod outlived its wait ever sees at first.
  */

@@ -234,13 +234,36 @@ export interface SandboxTemplateResource {
 }
 
 /**
- * `metadata.uid` is the per-instance agent bind token; the other two fields
- * exist only to answer "is this the pod that uid belongs to, or the one being
- * deleted?" — see {@link isPodLive}.
+ * `metadata.uid` is the per-instance agent bind token; `deletionTimestamp`
+ * and `phase` exist only to answer "is this the pod that uid belongs to, or
+ * the one being deleted?" — see {@link isPodLive}.
+ *
+ * `podIP` is read by the `pod-ip` address mode only, and deliberately from
+ * the SAME object the uid comes from: an address taken from one pod and a
+ * token taken from another is the mismatch that reports as a flat
+ * `unauthorized` with nothing pointing at the pod that was replaced in
+ * between. Both spellings are carried because a dual-stack cluster fills
+ * `podIPs` and single-stack clusters have always filled `podIP`; the API
+ * server sets `podIP` to the first entry of `podIPs` on every cluster that
+ * sets either, so {@link readPodIP} prefers it and falls back.
  */
 export interface PodResource {
 	readonly metadata?: KubernetesObjectMeta
-	readonly status?: { readonly phase?: string }
+	readonly status?: {
+		readonly phase?: string
+		readonly podIP?: string
+		readonly podIPs?: readonly { readonly ip?: string }[]
+	}
+}
+
+/** The pod's own address, whichever of the two fields this cluster fills. */
+export function readPodIP(pod: PodResource | undefined): string | undefined {
+	const status = pod?.status
+	if (typeof status?.podIP === 'string' && status.podIP !== '') return status.podIP
+	for (const entry of status?.podIPs ?? []) {
+		if (typeof entry?.ip === 'string' && entry.ip !== '') return entry.ip
+	}
+	return undefined
 }
 
 export interface PodListResource {

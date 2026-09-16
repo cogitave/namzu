@@ -70,6 +70,14 @@ export interface ScriptedAgentOptions {
 	readonly token?: string
 	/** Override the `cancel-execution` reply (e.g. to refuse it). */
 	readonly cancelReply?: unknown
+	/**
+	 * Refuse every `read-file` with this error text instead of returning
+	 * content — a failure the guest ANSWERED, as opposed to one the dial
+	 * produced. Its wording is the point wherever it is used: a host-side
+	 * classification that reads an answered error's text can mistake it for
+	 * something about the connection.
+	 */
+	readonly readFileError?: string
 	/** Hold an `execute` open this long before replying, so a case can
 	 * cancel one that is genuinely in flight. */
 	readonly executeDelayMs?: number
@@ -204,7 +212,12 @@ export async function startScriptedAgent(
 					continue
 				}
 				if (op === 'read-file') {
-					send(socket, { ok: true, content: Buffer.from('').toString('base64') })
+					send(
+						socket,
+						options.readFileError !== undefined
+							? { ok: false, error: options.readFileError }
+							: { ok: true, content: Buffer.from('').toString('base64') },
+					)
 					socket.end()
 					continue
 				}

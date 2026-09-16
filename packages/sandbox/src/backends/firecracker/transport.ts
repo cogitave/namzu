@@ -239,6 +239,25 @@ export interface VsockTransportOptions {
 	 */
 	readonly onDial?: (durationMs: number) => void
 	/**
+	 * Fires once per connect ATTEMPT, immediately before it is made, and
+	 * carries nothing at all.
+	 *
+	 * {@link onDial} above only ever fires for an attempt that SUCCEEDED, and
+	 * a caller that has to know a socket was never established cannot learn
+	 * it from the attempt's error either: an attempt can be aborted — by its
+	 * caller, or by a deadline shorter than {@link connectTimeoutMs} — before
+	 * it has failed, and the abort is what the caller is then holding. Paired
+	 * with `onDial`, this says "a dial was attempted and none of them handed
+	 * back a socket", which on the `tcp` arm is exactly "nothing reached the
+	 * guest": that arm resolves only on the socket's own `connect` event, so
+	 * no byte can have been sent before `onDial` fired.
+	 *
+	 * Used by the kubernetes backend's `KubernetesAgentTransport` to decide
+	 * whether a failed `exec()` may be retried against a replaced pod. The
+	 * vsock/mtls/unix arms are free to ignore it.
+	 */
+	readonly onDialAttempt?: () => void
+	/**
 	 * The largest `writeFile` body this transport will accept, in raw
 	 * bytes. Default {@link DEFAULT_MAX_WRITE_FILE_BYTES} (1 GiB).
 	 *
@@ -268,6 +287,25 @@ export interface VsockTransportOptions {
 	 * the pre-auth ceiling allows.
 	 */
 	readonly writeFilePartBytes?: number
+	/**
+	 * Say that a failed connect attempt will NOT fix itself, so the retry
+	 * budget above is not worth spending on it.
+	 *
+	 * Absent by default, which keeps every dial retrying for the whole budget
+	 * exactly as it always has — the budget exists because the common connect
+	 * failure IS transient (an agent re-listening after a resume answers
+	 * `ECONNREFUSED` for a moment). The exception is a failure that is about
+	 * the CALLER's own environment rather than the guest's: the kubernetes
+	 * backend's Service FQDN does not resolve on a host with no cluster DNS,
+	 * and re-asking the same resolver the same question for half a minute
+	 * only ensures the caller's own deadline expires first and reports a
+	 * timeout in place of the diagnosis.
+	 *
+	 * Called with each attempt's error, before the backoff. Returning true
+	 * ends the loop; the error thrown is the same wrapper as an exhausted
+	 * budget, carrying that attempt's failure as its `cause`.
+	 */
+	readonly permanentDialFailure?: (error: unknown) => boolean
 }
 
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
@@ -359,6 +397,25 @@ export class AgentWriteFileTooLargeError extends Error {
 	constructor(message: string) {
 		super(message)
 		this.name = 'AgentWriteFileTooLargeError'
+	}
+}
+
+/**
+ * Thrown by {@link VsockAgentTransport}'s dial when it gives up without a
+ * socket — the retry budget spent, or the failure declared one waiting cannot
+ * cure. The underlying connect failure is its `cause`.
+ *
+ * A class, and not only a phrase in the message, because callers classify on
+ * it: "the failure came out of the dial" means NOTHING was sent to the guest,
+ * which is what makes a retry against a replaced pod safe (the kubernetes
+ * backend's `agentAddress: 'pod-ip'` re-read). A message a guest can quote
+ * back — a command's stderr, a path, a proxy's own error — cannot be allowed
+ * to claim that.
+ */
+export class AgentDialFailedError extends Error {
+	constructor(message: string, options?: { cause?: unknown }) {
+		super(message, options)
+		this.name = 'AgentDialFailedError'
 	}
 }
 
@@ -487,6 +544,7 @@ export class VsockAgentTransport {
 	private readonly connectRetryIntervalMs: number
 	private readonly readIdleTimeoutMs: number
 	private readonly onDial?: (durationMs: number) => void
+	private readonly onDialAttempt?: () => void
 	private readonly maxWriteFileBytes: number
 	private readonly writeFilePartBytes?: number
 	/**
@@ -497,6 +555,7 @@ export class VsockAgentTransport {
 	 * every write that fits pays nothing for it.
 	 */
 	private writeFilePartsSupported?: boolean
+	private readonly permanentDialFailure?: (error: unknown) => boolean
 	private readonly executionController: RemoteExecutionController<
 		Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>
 	>
@@ -509,10 +568,12 @@ export class VsockAgentTransport {
 			options.connectRetryIntervalMs ?? DEFAULT_CONNECT_RETRY_INTERVAL_MS
 		this.readIdleTimeoutMs = options.readIdleTimeoutMs ?? DEFAULT_READ_IDLE_TIMEOUT_MS
 		this.onDial = options.onDial
+		this.onDialAttempt = options.onDialAttempt
 		this.maxWriteFileBytes = options.maxWriteFileBytes ?? DEFAULT_MAX_WRITE_FILE_BYTES
 		if (options.writeFilePartBytes !== undefined) {
 			this.writeFilePartBytes = Math.max(1, Math.floor(options.writeFilePartBytes))
 		}
+		this.permanentDialFailure = options.permanentDialFailure
 		const adapter: RemoteExecutionAdapter<Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>> = {
 			label: 'framed microVM agent',
 			reserve: async (signal) => await this.reserveExecution(signal),
@@ -542,29 +603,48 @@ export class VsockAgentTransport {
 	 * Dial the agent with the resume-survival retry budget. Resolves a
 	 * connected, post-handshake socket. Retries connect/handshake
 	 * failures (ECONNREFUSED while the agent re-listens after a resume,
-	 * a dropped CONNECT ack) until the budget is exhausted.
+	 * a dropped CONNECT ack) until the budget is exhausted — or until
+	 * {@link VsockTransportOptions.permanentDialFailure} says this particular
+	 * failure is not one waiting will cure.
 	 */
 	private async dial(signal?: AbortSignal): Promise<net.Socket> {
 		const deadline = Date.now() + this.connectRetryBudgetMs
 		const dialStartedAt = Date.now()
 		let lastErr: unknown
+		let permanent = false
 		for (;;) {
 			signal?.throwIfAborted()
 			try {
+				// Announced BEFORE the attempt, not after it fails: an attempt
+				// aborted mid-connect never reaches the catch below, and that
+				// is precisely the case a watcher needs to hear about.
+				this.onDialAttempt?.()
 				const socket = await this.connectOnce(signal)
 				this.onDial?.(Date.now() - dialStartedAt)
 				return socket
 			} catch (err) {
 				if (signal?.aborted) throw signal.reason
 				lastErr = err
+				if (this.permanentDialFailure?.(err) === true) {
+					permanent = true
+					break
+				}
 				if (Date.now() >= deadline) break
 				await delay(this.connectRetryIntervalMs, signal)
 			}
 		}
-		throw new Error(
-			`vsock transport: could not connect to agent within ${this.connectRetryBudgetMs}ms (handle=${describeHandle(
-				this.handle,
-			)}): ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
+		throw new AgentDialFailedError(
+			// Two wordings, because claiming a 30 s budget was spent on a dial
+			// that gave up in 3 ms is a false statement in an error message.
+			// Both keep the "could not connect to agent" phrase: that is what
+			// callers classifying a dial failure match on.
+			permanent
+				? `vsock transport: could not connect to agent, and the failure is not one retrying fixes (handle=${describeHandle(
+						this.handle,
+					)}): ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`
+				: `vsock transport: could not connect to agent within ${this.connectRetryBudgetMs}ms (handle=${describeHandle(
+						this.handle,
+					)}): ${lastErr instanceof Error ? lastErr.message : String(lastErr)}`,
 			{ cause: lastErr },
 		)
 	}

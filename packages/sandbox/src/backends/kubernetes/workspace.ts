@@ -177,14 +177,19 @@ import { OperationDeadline, OperationDeadlineExpired, runFailureCleanup } from '
 import { assertEgressPolicyIsEnforceable } from './egress-policy.js'
 import {
 	DEFAULT_AGENT_PORT,
+	type KubernetesAgentAddress,
+	type KubernetesAgentAddressMode,
 	type KubernetesBackendInternalConfig,
+	type KubernetesBoundPod,
 	type KubernetesSandboxBinding,
+	ReadinessPollTimeout,
 	bindingFromSandbox,
+	buildAgentAddressRefresh,
 	buildSandboxBody,
 	clientAccess,
 	pollForBinding,
 	probeSandboxPrivileges,
-	readPodBindToken,
+	readBoundPod,
 	readSandboxTemplate,
 	resolveAgentAddress,
 	resolveKubernetesReadiness,
@@ -745,6 +750,7 @@ export async function createKubernetesWorkspace(
 	const name = workspaceSandboxName(options.workspaceId)
 	const templateName = options.sandboxTemplateName ?? config.sandboxTemplateName
 	const agentPort = config.agentPort ?? DEFAULT_AGENT_PORT
+	const agentAddress = config.agentAddress ?? 'service'
 	const client = createKubernetesClient(clientAccess(config))
 
 	// The same two egress steps `buildKubernetesBackend` runs for a task
@@ -827,6 +833,7 @@ export async function createKubernetesWorkspace(
 		workspaceId: options.workspaceId,
 		rootDir: options.workingDirectory,
 		agentPort,
+		agentAddress,
 		readiness,
 		origin: adopted === undefined ? 'created' : adopted.resumed ? 'resumed' : 'adopted-running',
 		...(adopted?.drainingPodUid !== undefined ? { drainingPodUid: adopted.drainingPodUid } : {}),
@@ -911,7 +918,7 @@ interface AdoptedWorkspace {
  * and `undefined` for every other answer — no pod, or a pod that is fine.
  *
  * One GET by the Sandbox's name, the same convention
- * {@link readPodBindToken}'s fast path uses: the pod is named after its
+ * {@link readBoundPod}'s fast path uses: the pod is named after its
  * Sandbox in the controller this backend targets. No selector fallback,
  * because the cost of missing a draining pod here is one adopt that fails the
  * way it does today rather than a wrong answer, while a list on every adopt
@@ -1001,7 +1008,7 @@ interface PodBindPolicy {
 	 * True wherever a pod is known to be on its way out or on its way in: a
 	 * resume behind a landed suspend patch, and an adopt of an object that
 	 * was suspended or whose pod was draining. For a stretch of each of those
-	 * there is no live pod under the name at all, and {@link readPodBindToken}
+	 * there is no live pod under the name at all, and {@link readBoundPod}
 	 * answers that by throwing rather than returning undefined.
 	 *
 	 * False on create, and on an adopt of an object that was Running with a
@@ -1320,6 +1327,8 @@ interface WorkspaceHandleOptions {
 	readonly workspaceId: string
 	readonly rootDir: string
 	readonly agentPort: number
+	/** Which address each session dials — see {@link KubernetesAgentAddressMode}. */
+	readonly agentAddress: KubernetesAgentAddressMode
 	readonly readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number }
 	/**
 	 * How the object was come by. Reported as the handle's `origin`, and it
@@ -1346,6 +1355,15 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * replacing. Read once per session and never carried across one.
 	 */
 	let podUid: string | undefined
+	/**
+	 * Which session `podUid` belongs to. Bumped when a session starts AND
+	 * when one is dropped ({@link dropSession}), so the number identifies the
+	 * LIVE session and nothing else — a transport whose session has been
+	 * retired never matches it again. Read only by
+	 * {@link followReplacedPod}, which is where the desync it prevents is
+	 * described.
+	 */
+	let sessionSeq = 0
 	/**
 	 * The uid of the pod a suspend patch that LANDED took away, cleared once a
 	 * resume has bound its replacement.
@@ -1430,11 +1448,27 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * and a create whose pod never came up at all. The pod the wait was
 	 * excluding is named whenever there is one, because "which pod is still
 	 * there" is the first thing anyone looks up next.
+	 *
+	 * A fourth arrives only under `agentAddress: 'pod-ip'`, and it takes
+	 * precedence over all of them: the bind DID find its pod, and what never
+	 * turned up was that pod's address. Reporting "no pod this handle could
+	 * bind to had appeared" about a pod the wait had already bound would send
+	 * an operator after the controller for something the CNI never finished.
 	 */
-	const bindTimedOut = (policy: PodBindPolicy, lastError: unknown): Error => {
+	const bindTimedOut = (
+		policy: PodBindPolicy,
+		lastError: unknown,
+		addresslessPodUid?: string,
+	): Error => {
 		const cause = lastError !== undefined ? { cause: lastError } : undefined
 		const subject = `kubernetes: workspace ${workspaceId} (Sandbox ${name})`
 		const budget = `${readiness.timeoutMs}ms`
+		if (addresslessPodUid !== undefined) {
+			return new Error(
+				`${subject} is configured with agentAddress: 'pod-ip', and ${budget} after it bound pod ${addresslessPodUid} that pod still reported no status.podIP, so there is no address to dial it at. A pod is given its IP when the CNI has finished attaching it, so a pod that never gets one has not been given a network at all. Raise readyTimeoutMs, look at the pod's events — or run with the default agentAddress: 'service' if this host is inside the cluster.`,
+				cause,
+			)
+		}
 		if (policy.transition === 'resume' && policy.retiring !== undefined) {
 			return new Error(
 				`${subject} was patched back to operatingMode: Running, but ${budget} later the only pod behind it was still the one it was suspended from (uid ${policy.retiring}). A resumed pod keeps the sandbox's name and gets a new uid, and that uid is the agent's bind token, so binding to the old pod would present a token the new agent refuses. The Ready condition cannot be waited on instead — the controller leaves it standing across the transition. Raise readyTimeoutMs, or look at why the controller has not replaced the pod.`,
@@ -1467,7 +1501,8 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 
 	/**
 	 * Wait until the Sandbox is Ready AND the pod behind it is a pod this
-	 * handle is allowed to bind to, then read that pod's uid.
+	 * handle is allowed to bind to — and, under `agentAddress: 'pod-ip'`, one
+	 * that has an address — then read both facts off it.
 	 *
 	 * On create there is nothing to exclude and nothing to wait for, and this
 	 * is one poll plus one read, exactly as it was. Everywhere else the pod
@@ -1486,15 +1521,27 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * pointing at the race. So the uid is polled, under the SAME deadline as
 	 * everything else on this path, until it is a different pod's.
 	 *
+	 * An ADDRESS-less pod is a third kind of "not yet", and only under
+	 * `'pod-ip'`. The replacement pod is picked up while it is still
+	 * `Pending` — that is the point of excluding by uid rather than waiting
+	 * for Ready — and a `Pending` pod has no `status.podIP` until the CNI has
+	 * attached it. Every real pod passes through that window, so refusing
+	 * there would fail the ordinary resume in milliseconds with the whole
+	 * budget unspent. It is waited out here, on the same deadline, and the
+	 * timeout below names the pod that never got an address.
+	 *
 	 * The last failed read is carried onto the timeout as `cause`, so a wait
 	 * that never found a pod still says what it kept seeing.
 	 */
 	const acquireBoundPod = async (
 		deadline: OperationDeadline,
 		policy: PodBindPolicy,
-	): Promise<{ binding: KubernetesSandboxBinding; token: string }> => {
+	): Promise<{ binding: KubernetesSandboxBinding; pod: KubernetesBoundPod }> => {
 		const label = `workspace ${workspaceId} (Sandbox ${name})`
+		const needsPodIP = options.agentAddress === 'pod-ip'
 		let lastError: unknown
+		/** The last live-but-address-less pod seen, for the timeout's words. */
+		let addresslessPodUid: string | undefined
 		/**
 		 * Whether the Sandbox has been seen Ready at least once.
 		 *
@@ -1517,26 +1564,45 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				// Only a clock that has actually run out is rewritten. A
 				// readiness read that fails for any other reason — the API
 				// server refused it, the caller aborted — is that call's own
-				// failure and travels out unchanged.
-				if (!seenReady || deadline.remainingMs() > 0) throw err
+				// failure and travels out unchanged. That matters most while a
+				// `'pod-ip'` bind is waiting for an address: replacing a 5xx
+				// with "the CNI never gave the pod an address" sends an operator
+				// to the pod's events for a fault that was never the pod's, and
+				// claims an elapsed time that never elapsed.
+				//
+				// The error is what says which happened, and only the error
+				// can: an expiry does not arrive here as an
+				// `OperationDeadlineExpired` — {@link pollForBinding} catches
+				// that itself and reports it in its own words, as
+				// {@link ReadinessPollTimeout} — and asking the clock instead
+				// is wrong by a fraction of a millisecond, because the expiry
+				// timer and `performance.now()` are different clocks and the
+				// timer can fire first.
+				if (!seenReady || !(err instanceof ReadinessPollTimeout)) throw err
 				// Kept only if no pod read has failed yet: what the wait kept
 				// seeing is more useful as the cause than the clock running out.
 				lastError ??= err
 				break
 			}
 			seenReady = true
-			let token: string | undefined
+			let pod: KubernetesBoundPod | undefined
 			try {
-				token = await deadline.run(
-					async (tokenSignal) => await readPodBindToken(client, namespace, binding, tokenSignal),
+				pod = await deadline.run(
+					async (tokenSignal) => await readBoundPod(client, namespace, binding, tokenSignal),
 				)
 			} catch (err) {
 				if (err instanceof OperationDeadlineExpired) break
 				if (!policy.awaitReplacement) throw err
 				lastError = err
-				token = undefined
+				pod = undefined
 			}
-			if (token !== undefined && token !== policy.retiring) return { binding, token }
+			// The IP travels WITH the uid, from this same read: a resumed pod
+			// is a new pod at a new address, so a `'pod-ip'` session that
+			// carried yesterday's IP would dial a pod that no longer exists.
+			if (pod !== undefined && pod.uid !== policy.retiring) {
+				if (!needsPodIP || pod.podIP !== undefined) return { binding, pod }
+				addresslessPodUid = pod.uid
+			}
 			try {
 				await deadline.delay(readiness.pollIntervalMs)
 			} catch (err) {
@@ -1544,7 +1610,44 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				throw err
 			}
 		}
-		throw bindTimedOut(policy, lastError)
+		throw bindTimedOut(policy, lastError, addresslessPodUid)
+	}
+
+	/**
+	 * The re-read a `'pod-ip'` transport follows a replaced pod with, plus the
+	 * one thing the WORKSPACE has to do when it does.
+	 *
+	 * The transport adopts a refreshed handle whenever its token differs, and
+	 * that token is the new pod's uid — so `podUid` has to move with it. A
+	 * session that followed a pod and left `podUid` pointing at the old one
+	 * would have the next `suspend()` stamp `retiredPodUid` with a pod this
+	 * session had already stopped using, and the resume after that would
+	 * exclude the wrong uid and bind the pod the controller is taking away:
+	 * precisely the race `retiredPodUid` exists to prevent.
+	 *
+	 * Only the LIVE session writes, and `generation` is what says so:
+	 * {@link dropSession} bumps `sessionSeq` when a session goes as well as
+	 * when one arrives, so a transport whose session has been retired — a
+	 * terminal being reaped, a request that has not unwound — never matches
+	 * again. Letting one of those report a pod would recreate the same desync
+	 * from the other end.
+	 */
+	const followReplacedPod = (
+		binding: KubernetesSandboxBinding,
+		generation: number,
+	): ((signal?: AbortSignal) => Promise<KubernetesAgentAddress>) => {
+		const refresh = buildAgentAddressRefresh(
+			client,
+			namespace,
+			binding,
+			options.agentPort,
+			'pod-ip',
+		)
+		return async (signal) => {
+			const next = await refresh(signal)
+			if (generation === sessionSeq) podUid = next.token
+			return next
+		}
 	}
 
 	/**
@@ -1566,12 +1669,18 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// the name and changes the uid and the IP, so a handle that reused
 		// either would present a token the new agent refuses, at an address
 		// whose pod is being deleted.
-		const { binding, token } = await acquireBoundPod(deadline, policy)
+		const { binding, pod } = await acquireBoundPod(deadline, policy)
+		const token = pod.uid
 		// Recorded before the probe, not after: a probe that refuses suspends
 		// this pod, and the resume that follows has to know which pod it is
 		// waiting to see replaced.
 		podUid = token
-		const address = resolveAgentAddress(binding, options.agentPort, token)
+		sessionSeq += 1
+		const generation = sessionSeq
+		const address = resolveAgentAddress(binding, options.agentPort, token, {
+			mode: options.agentAddress,
+			...(pod.podIP !== undefined ? { podIP: pod.podIP } : {}),
+		})
 		// A box rather than a `let`, so the callback below can name the handle
 		// it belongs to before that handle exists. Nothing can call it in
 		// between: `release` is reachable only THROUGH the handle.
@@ -1579,7 +1688,12 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		const inner = buildKubernetesSandbox({
 			name,
 			rootDir: options.rootDir,
-			transport: new KubernetesAgentTransport(address),
+			transport: new KubernetesAgentTransport(
+				address,
+				options.agentAddress === 'pod-ip'
+					? { refreshHandle: followReplacedPod(binding, generation) }
+					: {},
+			),
 			// Deliberately NOT `deleteSandbox` — see {@link retireSession}. On
 			// the task path `release` is a DELETE because the object is
 			// disposable; here the same callback would erase the caller's disk
@@ -1595,6 +1709,21 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// and "it was deprivileged last week" is not a check.
 		await probeSandboxPrivileges(inner, name, resolveProbeTimeoutMs(readiness.timeoutMs), signal)
 		return inner
+	}
+
+	/**
+	 * Drop the live session, and with it the right of anything still holding
+	 * that session's transport to report a pod.
+	 *
+	 * The two happen together or the guard in {@link followReplacedPod} is a
+	 * lie: a retired session's transport can still be unwinding a call, and a
+	 * re-read that lands after the drop would write `podUid` for a session
+	 * nothing is using — including in the window before a suspend stamps
+	 * `retiredPodUid` from it.
+	 */
+	const dropSession = (): void => {
+		session = undefined
+		sessionSeq += 1
 	}
 
 	/** Kill and await every terminal this handle returned. */
@@ -1646,7 +1775,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		signal?: AbortSignal,
 	): Promise<void> => {
 		if (retiring === undefined || retiring !== session) return
-		session = undefined
+		dropSession()
 		// Some transition already owns this pod — the suspend that is patching
 		// it away, or a create/resume cleanup — and commits its own state when
 		// its own request settles. Dropping the session is all there is to do.
@@ -1710,7 +1839,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// next resume must see it replaced rather than bind it — whether or
 		// not the wait below is still around when it goes.
 		retiredPodUid = podUid
-		session = undefined
+		dropSession()
 		await awaitPodRetired(client, namespace, name, workspaceId, readiness, signal)
 		state = 'suspended'
 	}
@@ -1812,7 +1941,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// its `release` — which on a workspace is {@link retireSession}, a
 		// SUSPEND patch. A delete does not want one on the way: the object is
 		// going away whole. `retireSession` reads exactly this to know it.
-		session = undefined
+		dropSession()
 		// And the state moves with it. The pod is being taken away however the
 		// DELETE goes, and the handle that served it is now torn down, so a
 		// DELETE that fails leaves a workspace that admits nothing, says so,
@@ -1863,7 +1992,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// running. The state says the transition is unfinished, so a
 			// later suspend() re-sends it rather than believing this one.
 			state = 'suspending'
-			session = undefined
+			dropSession()
 			let retired = false
 			await runFailureCleanup(async (cleanupSignal) => {
 				await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), cleanupSignal)
@@ -1914,7 +2043,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		if ((await readOperatingMode(client, namespace, name, signal)) !== 'Suspended') return false
 		if (state !== 'running') return false
 		state = 'suspending'
-		session = undefined
+		dropSession()
 		retiredPodUid = podUid
 		// Killed but not awaited, exactly as `retireSession` does it and for
 		// the same reason: the frames go to a pod that is being deleted, and

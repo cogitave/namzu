@@ -89,7 +89,7 @@ let operatingMode: 'Running' | 'Suspended'
  * Bind attempts still answered with no pod this handle may take.
  *
  * Consumed by the LIST rather than by the GET, because the list is the last
- * read of one `readPodBindToken` attempt: a GET that answers with a live pod
+ * read of one `readBoundPod` attempt: a GET that answers with a live pod
  * never reaches the list, so a counter at zero ends the wait on the read that
  * finds the replacement rather than one attempt later.
  */

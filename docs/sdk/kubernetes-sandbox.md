@@ -90,11 +90,143 @@ reason the Firecracker backend does.
 | `sandboxTemplateName` | — | Read only on the pool-less path (see below). |
 | `warmPoolName` | unset | Unset means every create is a cold `Sandbox`. |
 | `agentPort` | `1024` | The guest agent's TCP port — same number it uses over vsock on the Firecracker tier. |
+| `agentAddress` | `'service'` | Which address the agent is dialed at. `'pod-ip'` is for a host outside the cluster — see [where the host runs decides the address](#where-the-host-runs-decides-the-address). |
 | `readyPollIntervalMs` | `50` | A pool bind lands in ~120 ms; a half-second poll would sleep through the budget. |
 | `readyTimeoutMs` | `60000` | Whole clock from create to an addressed, Ready sandbox — and then, a second time, the budget the [privilege probe](#the-privilege-probe) may spend on the guest, capped at 15 seconds. A `create()` that goes wrong in both halves therefore takes up to this **plus** `min(this, 15s)`: 75 seconds at the default, 1 second if you set it to 500 ms. |
 | `claimTtlSeconds` | `3600` | Wall-clock lifetime written into every created object, and the amount each [lease renewal](#the-lease) pushes it forward. |
 | `onLeaseRenewalError` | unset | Where a failed lease renewal is reported. Changes no behaviour; see [the lease](#the-lease). |
 | `runtimeClassName` | unset | Pool-less path only — see [refusals](#what-it-refuses). |
+
+### Where the host runs decides the address
+
+A sandbox has two addresses and they fail in opposite places, so the choice is
+a fact about the HOST rather than about the cluster.
+
+`agentAddress: 'service'`, the default, dials
+`<sandbox>.<namespace>.svc.cluster.local` — the Sandbox's `status.serviceFQDN`.
+That name outlives the pod behind it: a workspace that is suspended and
+resumed comes back as a new pod with a new IP under the same name, and the
+transport re-resolves the name on every call, so nothing has to be updated.
+Only the cluster's own DNS answers it. **Correct exactly when the host itself
+runs inside the cluster.**
+
+`agentAddress: 'pod-ip'` dials the bound pod's IP:
+
+```ts
+import { createSandboxProvider } from '@namzu/sandbox'
+
+const provider = createSandboxProvider({
+  backend: {
+    tier: 'microvm',
+    service: 'kubernetes',
+    namespace: 'namzu-sandboxes',
+    access: { server: 'https://cluster.example:6443', getToken },
+    sandboxTemplateName: 'namzu-task',
+    warmPoolName: 'namzu-task-pool',
+    agentAddress: 'pod-ip',
+  },
+})
+
+declare function getToken(): Promise<string>
+```
+
+For a host **outside** the cluster: a peered VNet, an operator on a node, a CI
+runner with a route to the pod network. It needs no cluster resolver at all,
+and it needs two things from the deployment that `'service'` does not:
+
+- **A pod network routable from the host.** A cluster whose pod CIDR is
+  reachable only inside the cluster (an overlay with no route out, most managed
+  clusters' default) cannot serve this mode, and the failure is a connect
+  timeout rather than a name that does not resolve.
+- **A `NetworkPolicy` admitting the host's own address range** on `agentPort`.
+  The [network policy is the primary boundary](#the-agent-credential) on that
+  port; a host dialing from outside the pod network is not selected by a policy
+  written in terms of pods, so its range has to be admitted explicitly. Nothing
+  else about the boundary changes: same per-instance bind token, same
+  acquire-time [privilege probe](#the-privilege-probe), same
+  [egress verification](#verify-never-trust). It needs **no new RBAC verb**:
+  the pod IP is read from the pod `GET` the bind token already required.
+
+**A pod IP dies with its pod, and the backend covers that in two places.**
+The address is read from the same `GET` that reads the pod's uid — never from
+the Sandbox's own `status.podIPs`, which can describe the pod a resume is
+replacing — so the address and the bind token always come from one pod. Every
+[resume](#resume-changes-the-address-and-the-token) re-reads both. And a dial
+that fails at CONNECT (`ECONNREFUSED`, `EHOSTUNREACH`, a connect timeout) makes
+the handle re-read the live pod exactly once: a different uid means the
+controller replaced the pod — an eviction, a drained node — so the handle
+follows the new address and the new token and the call is retried, which is
+safe precisely because nothing reached the guest — the test for that is where
+the failure came from, the dial, and not which `errno` it carried. A pod that
+is unchanged leaves the original error standing rather than replacing it with
+a second one. The re-read is worth one sentence of budgeting: a call that ends
+up following a replaced pod pays for two dials, the failed one's own
+connect-retry budget included, before it returns.
+
+**`exec()` cannot read its own failure, so it watches its dials instead.**
+The shared execution controller bounds a control request at 2 s by racing it
+against a timer, and a dial's own connect timer is 5 s — so the failure shape
+characteristic of this mode is aborted by the bound before it has failed at
+all. A pod IP that has been released drops the SYN or waits out ARP rather
+than refusing it, and what the caller would otherwise be handed is the bound's
+bare `… reservation exceeded 2000ms`, with the dial's failure discarded rather
+than wrapped: nothing left to classify, and the re-read above unreachable for
+the one operation commands actually use. `exec` and `listFiles` therefore
+record what their dials DID — a connect was attempted, and none of them handed
+back a socket — which is the same "nothing reached the guest" guarantee read
+from the other end, because the `tcp` dial resolves only on the socket's own
+`connect` event. That is what the optional `VsockTransportOptions.onDialAttempt`
+hook exists for; unset, as it is everywhere else, it changes nothing.
+
+That is every operation on the [sandbox surface](#the-sandbox-surface) that
+dials the guest — `exec` and `listFiles`, `readFile`, `writeFile` (a body
+[written in parts](#writing-a-file-larger-than-one-frame) included, where the
+retry starts a fresh sequence under a new temporary name and so cannot collide
+with the abandoned one), `openTerminal` and `openTcpConnection` — and one
+deliberate exception: a command whose cancellation the guest could not confirm
+is never retried. Its outcome is unknown by definition, and re-running it
+against a disk that followed the pod is exactly what "do not automatically
+retry" exists to prevent.
+
+**A pod is live before it is addressed, and that wait belongs to the readiness
+budget.** A pod is created `Pending` and has no `status.podIP` until the CNI
+has attached it — a window every pod passes through, and one both paths that
+bind a pod see it inside: an acquire, and a resume, which binds its
+replacement pod long before that pod is Ready because the Sandbox's `Ready`
+condition stays True across the transition. Under `'pod-ip'` a live pod with
+no address yet is therefore "not yet" rather than a refusal: the pod is
+re-read until the address arrives or `readyTimeoutMs` runs out, on the same
+clock as everything else on the path, and only then refused — naming the pod
+that never got an address. Only an expired clock is reported that way: an API
+server that fails during the wait, or a Sandbox deleted underneath it, is
+reported as itself, because "the CNI never gave the pod an address" is the
+wrong thing to send an operator to look at. Under `'service'` the pod is read
+exactly once, as it always was; that mode needs nothing from the pod but its
+uid.
+
+**The DNS-shaped failure names itself.** A host outside the cluster left on the
+default fails every call at name resolution — readiness and the privilege probe
+included, so `create()` rejects on its readiness budget and used to describe a
+timeout. When a dial of a Service FQDN fails with `ENOTFOUND` or `EAI_AGAIN`
+the error is now a `KubernetesAgentAddressUnresolvableError` naming the FQDN,
+saying that only cluster DNS answers it, and pointing at `agentAddress:
+'pod-ip'`. An `ENOTFOUND` also ends the dial's connect-retry budget
+immediately instead of spending it: the resolver has answered definitively
+that the name is not a name here, the address came off a Sandbox that reported
+Ready so its Service exists and its record is published, and re-asking the
+same resolver the same question for half a minute only guarantees that the
+privilege probe's own deadline expires first — which is precisely how the
+diagnosis used to be replaced by a timeout. An `EAI_AGAIN` is not treated that
+way: it means "temporary failure in name resolution", which inside the cluster
+is a CoreDNS restart or a conntrack race, and riding over exactly that is what
+the retry budget is for. It keeps the whole budget, and is still named this
+way if the budget runs out.
+
+Not live-validated against a cluster. The kind test bed's pod IPs are not
+routable from the development host, which is the same condition the mode
+exists for; everything above is covered by tests against a fake API server and
+the real guest agent over loopback, and the in-cluster e2e runner keeps using
+`'service'`.
 
 ## Two acquire paths
 
@@ -737,14 +869,14 @@ everything**: a resumed pod keeps the sandbox's name and gets a new uid and a
 new IP, so the address is re-resolved and the bind token re-read, and the
 transport is rebuilt from both. Nothing from before the suspend is reused.
 
-How much of the address actually moves depends on the Service. Every Sandbox
-this backend creates carries `service: true`, and the Service outlives the pod,
-so when the resolved address is `status.serviceFQDN` it is the same string
-before and after — the pod behind it, and the token, are what changed. A pod
-IP, which is what is left when there is no `serviceFQDN`, changes every time.
-The handle re-resolves either way, because it cannot know in advance which of
-the two it will be handed; an operator debugging a resume should expect the
-token to be new and the FQDN not to be.
+How much of the address actually moves depends on the mode. Every Sandbox this
+backend creates carries `service: true`, and the Service outlives the pod, so
+under the default `agentAddress: 'service'` the address is the same string
+before and after — the pod behind it, and the token, are what changed. Under
+[`'pod-ip'`](#where-the-host-runs-decides-the-address) the IP moves every time,
+and is re-read from the same `GET` the new token comes from. The handle
+re-resolves either way; an operator debugging a resume should expect the token
+to be new, the FQDN not to be, and a pod IP to be.
 
 The pod read skips any pod carrying a `deletionTimestamp` or in a terminal
 phase. For as long as the outgoing pod is still terminating, a `GET` by name

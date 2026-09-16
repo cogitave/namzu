@@ -127,6 +127,7 @@ import {
 	isPodLive,
 	podListPath,
 	podPath,
+	readPodIP,
 	sandboxCollectionPath,
 	sandboxPath,
 	sandboxTemplateLabel,
@@ -166,6 +167,13 @@ export interface KubernetesBackendInternalConfig {
 	readonly warmPoolName?: string
 	/** TCP port the guest agent listens on. Default {@link DEFAULT_AGENT_PORT}. */
 	readonly agentPort?: number
+	/**
+	 * Which of a sandbox's two addresses the transport dials. Default
+	 * `'service'` — see {@link KubernetesAgentAddressMode}, which is where
+	 * the choice is explained, because it is a fact about where the HOST
+	 * runs rather than about the cluster.
+	 */
+	readonly agentAddress?: KubernetesAgentAddressMode
 	readonly readyPollIntervalMs?: number
 	readonly readyTimeoutMs?: number
 	/**
@@ -197,6 +205,29 @@ export interface KubernetesBackendInternalConfig {
 }
 
 /**
+ * Which address a sandbox's agent is dialed at. A property of where the HOST
+ * runs, not of the cluster.
+ *
+ *  - `'service'` (default) — the Sandbox's `status.serviceFQDN`,
+ *    `<name>.<namespace>.svc.cluster.local`. It outlives the pod: a resumed
+ *    workspace comes back behind the same name, and every dial re-resolves
+ *    it. The catch is that only the cluster's own DNS answers it, so this is
+ *    correct exactly when the host itself runs inside the cluster.
+ *  - `'pod-ip'` — the bound pod's IP, read from the same `GET` that reads
+ *    its uid, so the address and the bind token are always one pod's. For a
+ *    host OUTSIDE the cluster on a routable pod network (a peered VNet, a
+ *    node-local operator, a CI runner with a route): it needs no cluster
+ *    resolver at all. The cost is that a pod IP dies with its pod, which is
+ *    why a resume re-reads it and a connect failure re-reads it once.
+ *
+ * The cluster still decides whether either address is REACHABLE: `'pod-ip'`
+ * additionally needs a NetworkPolicy that admits the host's own address
+ * range on the agent port. Neither mode changes the bind token, the
+ * privilege probe or egress verification.
+ */
+export type KubernetesAgentAddressMode = 'service' | 'pod-ip'
+
+/**
  * The address the guest agent answers on, plus the token to present.
  *
  * Structurally the `tcp` arm of the transport's `SandboxAgentHandle`. It is
@@ -224,6 +255,13 @@ export interface KubernetesSandboxBinding {
 export interface KubernetesAcquisition {
 	readonly binding: KubernetesSandboxBinding
 	readonly agent: KubernetesAgentAddress
+	/**
+	 * Re-read the live pod and recompute {@link agent} from it. Present only
+	 * under `agentAddress: 'pod-ip'`, where the address is a literal that
+	 * dies with its pod; a Service FQDN needs no such thing, and handing one
+	 * over anyway would give the default mode a re-read it never had.
+	 */
+	readonly refreshAgent?: (signal?: AbortSignal) => Promise<KubernetesAgentAddress>
 	/** API path of the object THIS backend created — the claim, or the Sandbox. */
 	readonly ownedPath: string
 	/** The TTL acquire stamped, which every renewal re-stamps. */
@@ -579,12 +617,21 @@ export async function acquireKubernetesSandbox(
 						`sandbox ${objectName}`,
 					)
 
-		const token = await deadline.run((signal) =>
-			readPodBindToken(client, namespace, binding, signal),
-		)
+		const agentPort = config.agentPort ?? DEFAULT_AGENT_PORT
+		const mode = config.agentAddress ?? 'service'
+		// One read, two facts: the bind token and — under `'pod-ip'` — the
+		// address, off the same pod. See {@link readAddressedPod}.
+		const pod = await readAddressedPod(client, namespace, binding, deadline, readiness, mode)
 		return {
 			binding,
-			agent: resolveAgentAddress(binding, config.agentPort ?? DEFAULT_AGENT_PORT, token),
+			agent: resolveAgentAddress(binding, agentPort, pod.uid, {
+				mode,
+				...(pod.podIP !== undefined ? { podIP: pod.podIP } : {}),
+			}),
+			// Only the literal-address mode gets one — see the field.
+			...(mode === 'pod-ip'
+				? { refreshAgent: buildAgentAddressRefresh(client, namespace, binding, agentPort, mode) }
+				: {}),
 			ownedPath,
 			ttlSeconds,
 			release,
@@ -746,17 +793,40 @@ export async function readSandboxTemplate(
 /**
  * Where the agent answers.
  *
- * Its own function, and the Service FQDN wins over a pod IP, because the
- * address outlives the pod: a suspended-then-resumed workspace comes back as a
- * new pod with a new IP behind the same name, and the transport re-resolves
- * the name on every dial. A literal IP baked into a long-lived handle is the
- * bug that would produce.
+ * Its own function, and under the default mode the Service FQDN wins over a
+ * pod IP, because that address outlives the pod: a suspended-then-resumed
+ * workspace comes back as a new pod with a new IP behind the same name, and
+ * the transport re-resolves the name on every dial. A literal IP baked into a
+ * long-lived handle is the bug that would produce — and it is exactly the bug
+ * `'pod-ip'` accepts, deliberately, in exchange for an address a host outside
+ * the cluster can resolve at all. That mode pays for it by re-reading the IP
+ * on every resume and once after a failed connect.
+ *
+ * `'pod-ip'` takes the address from `pod`, the record the bind token was just
+ * read out of, and NEVER falls back to `binding.podIPs`. The Sandbox's status
+ * is a second source that can name a different pod — the one a resume is
+ * replacing — and an address from one pod with a token from another is the
+ * mismatch that arrives as a flat `unauthorized`.
  */
 export function resolveAgentAddress(
 	binding: KubernetesSandboxBinding,
 	agentPort: number,
 	token: string,
+	options: {
+		readonly mode?: KubernetesAgentAddressMode
+		/** The live pod the token came from. Required by `'pod-ip'`. */
+		readonly podIP?: string
+	} = {},
 ): KubernetesAgentAddress {
+	if ((options.mode ?? 'service') === 'pod-ip') {
+		const podIP = options.podIP
+		if (podIP === undefined || podIP === '') {
+			throw new Error(
+				`kubernetes: sandbox ${binding.name} is configured with agentAddress: 'pod-ip', but the live pod its bind token was read from reported no status.podIP (nor a status.podIPs entry), so there is no address to dial. Every path that binds a pod POLLS for that address until the readiness deadline before this is reached — see readAddressedPod — so a pod that still reports none was never given one: a CNI that did not attach it, or a pod that never got past scheduling. Nothing is taken from the Sandbox's own status here on purpose — that IP may belong to a different pod than the token does.`,
+			)
+		}
+		return { kind: 'tcp', host: podIP, port: agentPort, token }
+	}
 	const host = binding.serviceFQDN ?? binding.podIPs?.[0]
 	if (host === undefined || host === '') {
 		throw new Error(
@@ -805,10 +875,28 @@ export function bindingFromSandbox(
 }
 
 /**
+ * The readiness poll ran out of budget — and nothing else. Every OTHER
+ * failure {@link pollForBinding} meets is rethrown as itself, so this class
+ * is an exact answer to "was it the clock?", which a caller that has to
+ * choose between two timeout messages needs and cannot get from the clock.
+ *
+ * Reading `remainingMs()` after the fact is NOT that answer: the expiry timer
+ * and `performance.now()` are different clocks, and a timer that fires a
+ * fraction of a millisecond early leaves a positive remainder behind an
+ * expiry that has already happened.
+ */
+export class ReadinessPollTimeout extends Error {
+	override readonly name = 'ReadinessPollTimeout'
+}
+
+/**
  * Poll until `read` reports a binding. `read` returns `undefined` for "not
  * yet" and throws for a failure worth surfacing; the deadline owns every wait,
  * including the sleep between attempts, so an expired clock cannot be extended
  * by one more round trip. Shaped after ACI's `pollForRunningIp`.
+ *
+ * The only failure this raises on its own account is
+ * {@link ReadinessPollTimeout}; anything `read` throws travels out unchanged.
  */
 export async function pollForBinding(
 	read: (signal: AbortSignal) => Promise<KubernetesSandboxBinding | undefined>,
@@ -831,11 +919,34 @@ export async function pollForBinding(
 			throw err
 		}
 	}
-	throw new Error(`kubernetes: ${label} never became Ready (${readiness.timeoutMs}ms)`)
+	throw new ReadinessPollTimeout(
+		`kubernetes: ${label} never became Ready (${readiness.timeoutMs}ms)`,
+	)
 }
 
 /**
- * The per-instance bind token: the backing pod's `metadata.uid`.
+ * The live pod behind a bound sandbox: its uid, and — read in the SAME
+ * answer — the IP it can be dialed at.
+ *
+ * One record rather than two reads because the two facts have to describe one
+ * pod. The uid is the agent's bind token and the IP is where that agent
+ * listens; taking them from separate GETs leaves a window in which a resume,
+ * an eviction or a node drain replaces the pod in between, and the handle
+ * then presents pod A's token at pod B's address. The guest answers that with
+ * a flat `unauthorized`, which says nothing about the race that caused it.
+ */
+export interface KubernetesBoundPod {
+	/** `metadata.uid` — the agent's bind token. */
+	readonly uid: string
+	/** `status.podIP`. Read by `agentAddress: 'pod-ip'`; absent is legal. */
+	readonly podIP?: string
+}
+
+/**
+ * Find the pod a sandbox is currently backed by, and read both facts off it.
+ *
+ * `uid` is the per-instance agent bind token; `podIP` is where that agent
+ * listens, and only `agentAddress: 'pod-ip'` reads it.
  *
  * The pod is named after its Sandbox in agent-sandbox v1.0.2 — verified
  * against a running cluster — but that is an observation, not a documented
@@ -844,12 +955,12 @@ export async function pollForBinding(
  * changing upstream is a second round trip through `status.selector`, which is
  * exactly what the controller publishes the selector for.
  */
-export async function readPodBindToken(
+export async function readBoundPod(
 	client: KubernetesClient,
 	namespace: string,
 	binding: KubernetesSandboxBinding,
 	signal?: AbortSignal,
-): Promise<string> {
+): Promise<KubernetesBoundPod> {
 	try {
 		const pod = await client.request<PodResource>(
 			'GET',
@@ -863,7 +974,7 @@ export async function readPodBindToken(
 		// terminating this GET can answer with the pod that is leaving and a
 		// uid the new agent will refuse. On the acquire path nothing is
 		// terminating and the filter never fires.
-		if (uid && isPodLive(pod)) return uid
+		if (uid && isPodLive(pod)) return boundPod(uid, pod)
 	} catch (err) {
 		if (!(err instanceof KubernetesAlreadyGoneError)) throw err
 	}
@@ -879,12 +990,91 @@ export async function readPodBindToken(
 		)
 		for (const pod of list?.items ?? []) {
 			const uid = pod.metadata?.uid
-			if (uid && isPodLive(pod)) return uid
+			if (uid && isPodLive(pod)) return boundPod(uid, pod)
 		}
 	}
 	throw new Error(
 		`kubernetes: could not read a pod uid for sandbox ${binding.name} in namespace ${namespace} — no live pod of that name, and its status.selector matched no live pod either (a pod carrying a deletionTimestamp, or in phase Succeeded/Failed, is never bound to). The pod uid is the agent's bind token, so the sandbox is refused rather than returned unauthenticated.`,
 	)
+}
+
+function boundPod(uid: string, pod: PodResource): KubernetesBoundPod {
+	const podIP = readPodIP(pod)
+	return { uid, ...(podIP !== undefined ? { podIP } : {}) }
+}
+
+/**
+ * {@link readBoundPod}, plus — under `'pod-ip'` only — the wait for an
+ * address to go with the token.
+ *
+ * Under the default mode this is the single read it has always been: one
+ * `GET`, in the same place in the same order, because a Service FQDN is
+ * published with the Sandbox and needs nothing from the pod but its uid.
+ *
+ * `'pod-ip'` has to wait, because a LIVE pod is not yet an ADDRESSED pod. A
+ * pod is created `Pending` and carries no `status.podIP` until the CNI has
+ * finished attaching it, and {@link isPodLive} accepts `Pending` on purpose —
+ * the resume path in `workspace.ts` binds its replacement pod long before that
+ * pod is Ready, because `Ready` stays True across the transition and the uid
+ * is the only transition signal there is. Refusing an address-less pod outright
+ * would therefore fail on the NORMAL path, in milliseconds, with the whole
+ * readiness budget unspent. So "live, no address yet" is polled on the same
+ * deadline as everything else on this path, and
+ * {@link resolveAgentAddress}'s own refusal is left as the post-deadline
+ * backstop for a pod that never gets an address at all.
+ *
+ * A failed READ stays fatal, exactly as it was: this is the acquire path,
+ * where nothing is being replaced and a pod that cannot be read is not a pod
+ * that is about to appear.
+ */
+export async function readAddressedPod(
+	client: KubernetesClient,
+	namespace: string,
+	binding: KubernetesSandboxBinding,
+	deadline: OperationDeadline,
+	readiness: { readonly pollIntervalMs: number },
+	mode: KubernetesAgentAddressMode,
+): Promise<KubernetesBoundPod> {
+	let pod = await deadline.run((signal) => readBoundPod(client, namespace, binding, signal))
+	if (mode !== 'pod-ip') return pod
+	while (pod.podIP === undefined && deadline.remainingMs() > 0) {
+		try {
+			await deadline.delay(readiness.pollIntervalMs)
+			pod = await deadline.run((signal) => readBoundPod(client, namespace, binding, signal))
+		} catch (err) {
+			// An expired clock hands the address-less pod back rather than
+			// replacing it with a bare "deadline expired": the caller's
+			// `resolveAgentAddress` then reports WHICH fact never arrived.
+			if (err instanceof OperationDeadlineExpired) break
+			throw err
+		}
+	}
+	return pod
+}
+
+/**
+ * The re-read a `'pod-ip'` handle follows a replaced pod with: one live-pod
+ * read, then the same address resolution acquire did.
+ *
+ * Built here rather than inside the transport because finding the pod is a
+ * CONTROL-plane act — the by-name GET, the selector fallback, the
+ * liveness filter — and the transport owns none of that. It is handed over as
+ * a closure so the transport can call it without learning what a Sandbox is.
+ */
+export function buildAgentAddressRefresh(
+	client: KubernetesClient,
+	namespace: string,
+	binding: KubernetesSandboxBinding,
+	agentPort: number,
+	mode: KubernetesAgentAddressMode,
+): (signal?: AbortSignal) => Promise<KubernetesAgentAddress> {
+	return async (signal) => {
+		const pod = await readBoundPod(client, namespace, binding, signal)
+		return resolveAgentAddress(binding, agentPort, pod.uid, {
+			mode,
+			...(pod.podIP !== undefined ? { podIP: pod.podIP } : {}),
+		})
+	}
 }
 
 async function readSandboxSelector(
@@ -943,7 +1133,10 @@ async function admitProbedSandbox(
 	const sandbox = buildKubernetesSandbox({
 		name: acquisition.binding.name,
 		rootDir: options.workingDirectory,
-		transport: new KubernetesAgentTransport(acquisition.agent),
+		transport: new KubernetesAgentTransport(
+			acquisition.agent,
+			acquisition.refreshAgent !== undefined ? { refreshHandle: acquisition.refreshAgent } : {},
+		),
 		release: acquisition.release,
 		renew: acquisition.renew,
 		ttlSeconds: acquisition.ttlSeconds,

@@ -46,6 +46,7 @@ import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
 import { buildFirecrackerBackend } from './backends/firecracker/index.js'
 import type { KubernetesEgressConfig } from './backends/kubernetes/egress-policy.js'
 import {
+	type KubernetesAgentAddressMode,
 	type KubernetesBackendInternalConfig,
 	type KubernetesClusterAccess,
 	buildKubernetesBackend,
@@ -94,6 +95,7 @@ export type {
 	OrchestratorTokenProvider,
 } from './backends/firecracker/index.js'
 export {
+	AgentDialFailedError,
 	AgentPreauthFrameTooLargeError,
 	AgentWriteFileTooLargeError,
 	DEFAULT_MAX_WRITE_FILE_BYTES,
@@ -115,8 +117,14 @@ export {
 
 // Kubernetes (agent-sandbox on any cluster) public surface. The access union
 // is named by `KubernetesBackendConfig.access`, so a host that builds its own
-// credential callback can name what it is passing.
-export type { KubernetesClusterAccess } from './backends/kubernetes/index.js'
+// credential callback can name what it is passing; the address mode is named
+// by `KubernetesBackendConfig.agentAddress` and decides whether the agent is
+// dialed at its Service FQDN (in-cluster host) or at its pod IP (a host
+// outside the cluster, on a routable pod network).
+export type {
+	KubernetesAgentAddressMode,
+	KubernetesClusterAccess,
+} from './backends/kubernetes/index.js'
 // Egress translation types named by `KubernetesBackendConfig.egress` — see
 // `backends/kubernetes/egress-policy.ts` for what each engine can express.
 export type {
@@ -136,7 +144,10 @@ export {
 	KubernetesSandboxDestroyedError,
 	KubernetesSandboxGoneError,
 } from './backends/kubernetes/sandbox.js'
-export { KubernetesAgentUnauthorizedError } from './backends/kubernetes/transport.js'
+export {
+	KubernetesAgentAddressUnresolvableError,
+	KubernetesAgentUnauthorizedError,
+} from './backends/kubernetes/transport.js'
 // The persistent workspace: a `Sandbox` that keeps a block disk across a
 // suspend, the union naming how a handle came by its object, plus the four
 // errors its lifecycle can refuse with — a template that cannot carry a disk,
@@ -500,6 +511,24 @@ export interface KubernetesBackendConfig {
 	readonly warmPoolName?: string
 	/** TCP port the in-pod guest agent listens on. Default 1024. */
 	readonly agentPort?: number
+	/**
+	 * Which of a sandbox's two addresses the transport dials.
+	 *
+	 * `'service'` (default) is the Sandbox's `status.serviceFQDN`, which
+	 * outlives the pod and is re-resolved on every dial — and which ONLY the
+	 * cluster's own DNS answers. A host running outside the cluster fails
+	 * every call at name resolution, readiness included, so it reads as a
+	 * sandbox that never came up.
+	 *
+	 * `'pod-ip'` dials the bound pod's IP, read from the same `GET` that
+	 * reads its bind token. For a host outside the cluster with a route to
+	 * the pod network. It needs that route and a `NetworkPolicy` admitting
+	 * the host's address range on {@link agentPort}; the IP dies with its
+	 * pod, which the backend covers by re-reading it on every resume and once
+	 * after a connect failure. Nothing else changes: same bind token, same
+	 * privilege probe, same egress verification.
+	 */
+	readonly agentAddress?: KubernetesAgentAddressMode
 	/** Delay between readiness polls. Default 50ms. */
 	readonly readyPollIntervalMs?: number
 	/** Total deadline from create to an addressed, Ready sandbox. Default 60000ms. */
@@ -891,6 +920,7 @@ function kubernetesInternalConfig(
 		sandboxTemplateName: backend.sandboxTemplateName,
 		...(backend.warmPoolName !== undefined ? { warmPoolName: backend.warmPoolName } : {}),
 		...(backend.agentPort !== undefined ? { agentPort: backend.agentPort } : {}),
+		...(backend.agentAddress !== undefined ? { agentAddress: backend.agentAddress } : {}),
 		...(backend.readyPollIntervalMs !== undefined
 			? { readyPollIntervalMs: backend.readyPollIntervalMs }
 			: {}),

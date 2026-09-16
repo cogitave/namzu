@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { buildKubernetesBackend } from '../index.js'
+import { ReadinessPollTimeout, buildKubernetesBackend } from '../index.js'
 import {
 	type FakeApiServer,
 	readyCondition,
@@ -56,6 +56,33 @@ describe('a claim that never becomes Ready', () => {
 		// awaited inside the catch, not fired and forgotten.
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(1)
 		expect(performance.now() - startedAt).toBeLessThan(2_000)
+	})
+
+	it('says the CLOCK ran out by type, not only in words', async () => {
+		// Callers that have to choose between two timeout messages ask which
+		// failure this was, and the answer cannot be a clock read: the expiry
+		// timer and `performance.now()` are different clocks, and a timer that
+		// fires a fraction of a millisecond early leaves a positive remainder
+		// behind an expiry that has already happened. So the poll's own
+		// give-up is a TYPE — see `acquireBoundPod` in `workspace.ts`, which
+		// is the caller that would otherwise blame the CNI for a 5xx.
+		server = await startFakeApiServer((req) => {
+			if (req.method === 'POST') return { status: 201, body: {} }
+			if (req.method === 'GET' && req.path.includes('/sandboxclaims/')) {
+				return { status: 200, body: { status: { conditions: [readyCondition('False')] } } }
+			}
+			if (req.method === 'DELETE') return { status: 200, body: {} }
+			return { status: 404, body: {} }
+		})
+
+		const error = await backend(60)
+			.create({ workingDirectory: '/workspace' })
+			.then(
+				() => undefined,
+				(err: unknown) => err,
+			)
+
+		expect(error).toBeInstanceOf(ReadinessPollTimeout)
 	})
 
 	it('polls the claim rather than watching it', async () => {
