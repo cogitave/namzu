@@ -26,6 +26,13 @@ const WIDE_COCKPIT_INNER_COLUMNS = 84
  * never outcompete the row's own description for space.
  */
 const MAX_MODEL_LABEL_WIDTH = 24
+/**
+ * A focused phase's detail is wrapped to the pane width and clipped to this
+ * many rows, so an operator-authored sentence never grows the cockpit taller
+ * than a one-word one. The Box that holds it is always exactly this height
+ * when a detail exists, whether wrapping produced one row or the full budget.
+ */
+const PHASE_DETAIL_LINE_BUDGET = 3
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 export interface AgentTaskPanelProps {
@@ -148,6 +155,8 @@ export interface AgentPhase {
 	readonly workflow: string
 	readonly name: string
 	readonly order?: number
+	/** Detail text the phase's first agent declared; display-only, never execution state. */
+	readonly detail?: string
 	readonly sequence: number
 	readonly startedAt: number
 	readonly status: SubagentActivityStatus
@@ -197,6 +206,9 @@ export function AgentCockpit({
 	const wide = agentCockpitIsWide(terminalColumns)
 	const compact = terminalRows < 20
 	const sideBySide = wide
+	const phasePaneWidth = sideBySide
+		? Math.max(24, Math.min(36, Math.floor(terminalColumns * 0.3)))
+		: undefined
 	if (focus === 'workflows') {
 		const { items } = selectionWindow(workflows, workflowIndex, agentWorkflowPageSize(terminalRows))
 		return (
@@ -286,20 +298,14 @@ export function AgentCockpit({
 				</Text>
 			)}
 			<Box flexDirection={sideBySide ? 'row' : 'column'} flexGrow={1} paddingTop={compact ? 0 : 1}>
-				<Box
-					flexDirection="column"
-					width={
-						sideBySide
-							? Math.max(24, Math.min(36, Math.floor(terminalColumns * 0.3)))
-							: undefined
-					}
-					flexShrink={0}
-				>
+				<Box flexDirection="column" width={phasePaneWidth} flexShrink={0}>
 					<PhasePane
 						phases={phases}
 						selected={selectedPhaseIndex}
 						focused={focus === 'phases'}
 						pageSize={compact ? 1 : agentPhasePageSize(terminalRows, wide)}
+						paneWidth={phasePaneWidth ?? Math.max(1, terminalColumns - COCKPIT_FRAME_COLUMNS)}
+						showDetail={!compact}
 					/>
 				</Box>
 				{sideBySide ? (
@@ -345,13 +351,35 @@ function PhasePane({
 	selected,
 	focused,
 	pageSize,
+	paneWidth,
+	showDetail,
 }: {
 	readonly phases: readonly AgentPhase[]
 	readonly selected: number
 	readonly focused: boolean
 	readonly pageSize: number
+	/** Wrap width for the focused phase's detail text; never affects row layout above it. */
+	readonly paneWidth: number
+	/**
+	 * False in the compact (terminalRows < 20) cockpit layout, where the
+	 * phase and agent panes already share a tight, stacked vertical budget
+	 * that the detail band's rows were never accounted for — showing it
+	 * there starves the agent pane of height and corrupts the frame. Compact
+	 * mode already drops every other non-essential line (the subtitle text,
+	 * the pane paddings); the detail band is dropped the same way, for the
+	 * same reason.
+	 */
+	readonly showDetail: boolean
 }) {
 	const { start, items } = selectionWindow(phases, selected, pageSize)
+	// "Focused" here is the phase carrying the `›` cursor, not which sub-pane
+	// currently holds keyboard focus — the detail stays visible while the
+	// operator drills into that phase's agents.
+	const focusedPhase = phases[selected]
+	const detailLines =
+		showDetail && focusedPhase?.detail
+			? wrapPhaseDetailLines(focusedPhase.detail, paneWidth).slice(0, PHASE_DETAIL_LINE_BUDGET)
+			: []
 	return (
 		<>
 			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
@@ -382,6 +410,22 @@ function PhasePane({
 					</Box>
 				)
 			})}
+			{detailLines.length > 0 ? (
+				<Box
+					flexDirection="column"
+					height={PHASE_DETAIL_LINE_BUDGET}
+					flexShrink={0}
+					overflow="hidden"
+					marginTop={1}
+				>
+					{detailLines.map((line, index) => (
+						// biome-ignore lint/suspicious/noArrayIndexKey: fixed-budget, order-stable lines of one wrap pass
+						<Text key={index} color={theme.text.muted} wrap="truncate-end">
+							{line}
+						</Text>
+					))}
+				</Box>
+			) : null}
 		</>
 	)
 }
@@ -490,6 +534,7 @@ export function agentPhases(agents: readonly SubagentActivity[]): readonly Agent
 			workflow: string
 			name: string
 			order?: number
+			detail?: string
 			sequence: number
 			startedAt: number
 			agents: SubagentActivity[]
@@ -508,6 +553,7 @@ export function agentPhases(agents: readonly SubagentActivity[]): readonly Agent
 				workflow: agent.workflow,
 				name: agent.phase,
 				...(agent.phaseOrder !== undefined ? { order: agent.phaseOrder } : {}),
+				...(agent.phaseDetail !== undefined ? { detail: agent.phaseDetail } : {}),
 				sequence: agent.phaseSequence,
 				startedAt: agent.startedAt,
 				agents: [agent],
@@ -525,6 +571,7 @@ export function agentPhases(agents: readonly SubagentActivity[]): readonly Agent
 			workflow: phase.workflow,
 			name: phase.name,
 			...(phase.order !== undefined ? { order: phase.order } : {}),
+			...(phase.detail !== undefined ? { detail: phase.detail } : {}),
 			sequence: phase.sequence,
 			startedAt: phase.startedAt,
 			status: phaseStatus(phase.agents),
@@ -861,6 +908,32 @@ function phaseProgress(phase: AgentPhase): string {
 		...(failed > 0 ? [`failed ${failed}`] : []),
 		...(cancelled > 0 ? [`cancelled ${cancelled}`] : []),
 	].join(' · ')
+}
+
+/**
+ * Word-wrap phase detail text to `width` cells. An unbroken word wider than
+ * the pane still occupies exactly one line — `wrap="truncate-end"` on the
+ * rendered `Text` clips it visually rather than this function breaking a
+ * word or growing the line count.
+ */
+function wrapPhaseDetailLines(text: string, width: number): readonly string[] {
+	const safeWidth = Math.max(1, width)
+	const words = oneLine(text)
+		.split(' ')
+		.filter((word) => word.length > 0)
+	const lines: string[] = []
+	let line = ''
+	for (const word of words) {
+		const candidate = line ? `${line} ${word}` : word
+		if (line && stringWidth(candidate) > safeWidth) {
+			lines.push(line)
+			line = word
+		} else {
+			line = candidate
+		}
+	}
+	if (line) lines.push(line)
+	return lines
 }
 
 function isTerminalStatus(status: SubagentActivityStatus): boolean {

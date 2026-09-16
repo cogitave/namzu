@@ -238,6 +238,7 @@ function agent(
 		workflow: input.workflow ?? 'Delegated work',
 		phase: input.phase ?? 'Work',
 		...(input.phaseOrder !== undefined ? { phaseOrder: input.phaseOrder } : {}),
+		...(input.phaseDetail ? { phaseDetail: input.phaseDetail } : {}),
 		phaseSequence: input.phaseSequence ?? 1,
 		status: input.status ?? 'working',
 		startedAt: input.startedAt ?? 1,
@@ -1509,6 +1510,121 @@ describe('agent explorer projection', () => {
 			expect(agentHeading).toBeGreaterThan(phaseHeading)
 		}
 		expect(viewport.join('\n')).toContain('esc return')
+	})
+
+	it('the focused phase reveals its detail and the others do not', async () => {
+		const research = agent({
+			viewId: 'research',
+			workflow: 'Release readiness',
+			phase: 'Research',
+			phaseDetail: 'Confirm the rollback plan.',
+		})
+		const verify = agent({
+			viewId: 'verify',
+			workflow: 'Release readiness',
+			phase: 'Verify',
+			phaseDetail: 'Check the queue depth.',
+		})
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[research, verify]}
+				selectedPhaseId={research.phaseId}
+				selectedId={research.viewId}
+				focus="phases"
+				terminalRows={28}
+				terminalColumns={120}
+			/>,
+			{ cols: 120, rows: 28 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Confirm the rollback plan.')
+		expect(frame).not.toContain('Check the queue depth.')
+	})
+
+	it('a long phase detail does not change the pane height', async () => {
+		// Narrow enough to stack Phases above Agents, so a detail box that grew
+		// with its text would visibly push the agent list down.
+		const size = { cols: 60, rows: 30 }
+		const short = agent({ viewId: 'short', phase: 'Verify', phaseDetail: 'Short note.' })
+		const long = agent({
+			viewId: 'long',
+			phase: 'Verify',
+			phaseDetail: `A ${'very '.repeat(60)}long detail that wraps many times over.`,
+		})
+
+		const shortScreen = await renderToScreen(
+			<AgentCockpit
+				agents={[short]}
+				selectedPhaseId={short.phaseId}
+				selectedId={short.viewId}
+				focus="phases"
+				terminalRows={size.rows}
+				terminalColumns={size.cols}
+			/>,
+			size,
+		)
+		const shortViewport = shortScreen.viewport()
+		const shortAgentsRow = shortViewport.findIndex((line) => line.includes('Agents ·'))
+		expect(shortViewport.join('\n')).toContain('Short note.')
+		await shortScreen.unmount()
+
+		const longScreen = await renderToScreen(
+			<AgentCockpit
+				agents={[long]}
+				selectedPhaseId={long.phaseId}
+				selectedId={long.viewId}
+				focus="phases"
+				terminalRows={size.rows}
+				terminalColumns={size.cols}
+			/>,
+			size,
+		)
+		mounted = longScreen
+		const longViewport = longScreen.viewport()
+		const longAgentsRow = longViewport.findIndex((line) => line.includes('Agents ·'))
+		expect(longViewport.join('\n')).toContain('very very very')
+
+		expect(shortAgentsRow).toBeGreaterThanOrEqual(0)
+		expect(longAgentsRow).toBe(shortAgentsRow)
+	})
+
+	it('does not corrupt the compact cockpit frame when a phase carries a detail', async () => {
+		// Same fixture and size as "separates cockpit panes..." above
+		// (cols=40/rows=14, the compact + stacked layout), plus a phase
+		// detail: the compact frame has no spare rows for the detail band,
+		// so it must stay suppressed there rather than pushing the agent
+		// row out of the viewport or bleeding into the footer.
+		const research = agent({
+			viewId: 'research',
+			workflow: 'Narrow workflow',
+			phase: 'Research',
+			phaseOrder: 0,
+			phaseDetail: 'Confirm the rollback plan holds before sign-off.',
+			description: 'Research worker',
+			status: 'completed',
+			startedAt: 1_000,
+			completedAt: 59_000,
+			latestActivity: 'Completed',
+		})
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[research]}
+				selectedPhaseId={research.phaseId}
+				selectedId={research.viewId}
+				focus="phases"
+				terminalRows={14}
+				terminalColumns={40}
+			/>,
+			{ cols: 40, rows: 14 },
+		)
+		mounted = screen
+		const viewport = screen.viewport()
+		const worker = viewport.find((line) => line.includes('Research worker')) ?? ''
+		expect(worker).toMatch(/Research worker\s+Completed · 58s/)
+		const footer = viewport.find((line) => line.includes('esc return')) ?? ''
+		expect(footer).toMatch(/esc return[ │]*$/)
+		expect(viewport.join('\n')).not.toContain('Confirm the rollback plan')
 	})
 
 	it('surfaces failed and cancelled children in phase summaries', () => {

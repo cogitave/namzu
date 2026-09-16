@@ -650,6 +650,12 @@ export async function createSubagentRuntime(
 					description:
 						'Optional zero-based display order for the phase. Tasks in the same phase should use the same value.',
 				},
+				phase_detail: {
+					type: 'string',
+					maxLength: MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
+					description:
+						'Optional detail text for the phase, revealed beneath the phase list only when that phase is focused in the agent cockpit. The first agent to declare a phase sets its detail; later siblings in the same phase cannot change it. Display-only: creates no dependencies, barriers or serial execution.',
+				},
 			},
 			required: ['description', 'prompt'],
 		}),
@@ -668,6 +674,7 @@ export async function createSubagentRuntime(
 				workflow,
 				phase,
 				phase_order,
+				phase_detail,
 				run_in_background,
 				model: requestedModel,
 				provider: requestedProvider,
@@ -683,6 +690,7 @@ export async function createSubagentRuntime(
 				workflow?: string
 				phase?: string
 				phase_order?: number
+				phase_detail?: string
 				run_in_background?: boolean
 			}
 			if (!requestedModel && (requestedProvider || requestedEffort))
@@ -740,6 +748,7 @@ export async function createSubagentRuntime(
 				workflow,
 				phase,
 				phaseOrder: phase_order,
+				phaseDetail: phase_detail,
 			})
 			// The child is a separate run, but its human authority belongs to the
 			// parent turn that invoked Agent. `drainQuery` deliberately auto-approves

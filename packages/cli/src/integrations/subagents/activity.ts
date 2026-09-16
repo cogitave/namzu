@@ -71,6 +71,8 @@ export interface SubagentActivity {
 	readonly workflow: string
 	readonly phase: string
 	readonly phaseOrder?: number
+	/** Detail text the first agent to declare this phase supplied; later siblings never change it. */
+	readonly phaseDetail?: string
 	readonly phaseSequence: number
 	readonly status: SubagentActivityStatus
 	readonly startedAt: number
@@ -113,6 +115,7 @@ interface MutableActivity {
 	workflow: string
 	phase: string
 	phaseOrder?: number
+	phaseDetail?: string
 	phaseSequence: number
 	status: SubagentActivityStatus
 	startedAt: number
@@ -136,7 +139,12 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 	private phaseCounter = 0
 	private readonly phases = new Map<
 		string,
-		{ readonly id: string; readonly order?: number; readonly sequence: number }
+		{
+			readonly id: string
+			readonly order?: number
+			readonly detail?: string
+			readonly sequence: number
+		}
 	>()
 	private notifyTimer: ReturnType<typeof setTimeout> | undefined
 	private closed = false
@@ -152,6 +160,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		readonly workflow?: string
 		readonly phase?: string
 		readonly phaseOrder?: number
+		readonly phaseDetail?: string
 	}): SubagentActivityTracker {
 		const epoch = this.epoch
 		const viewId = `agent-${++this.counter}`
@@ -183,9 +192,15 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		if (!phaseDefinition) {
 			const sequence = ++this.phaseCounter
 			const order = normalizedPhaseOrder(input.phaseOrder)
+			// Reuses normalizedLabel's own trim/control-strip/bound pipeline with an
+			// empty fallback, so an absent or blank detail collapses to `undefined`
+			// rather than a visible placeholder.
+			const detail =
+				normalizedLabel(input.phaseDetail, '', MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS) || undefined
 			phaseDefinition = {
 				id: `phase-${sequence}`,
 				...(order !== undefined ? { order } : {}),
+				...(detail !== undefined ? { detail } : {}),
 				sequence,
 			}
 			this.phases.set(phaseKey, phaseDefinition)
@@ -210,6 +225,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			workflow: bounded(workflowIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			phase: bounded(phaseIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			...(phaseDefinition.order !== undefined ? { phaseOrder: phaseDefinition.order } : {}),
+			...(phaseDefinition.detail !== undefined ? { phaseDetail: phaseDefinition.detail } : {}),
 			phaseSequence: phaseDefinition.sequence,
 			status: 'starting',
 			startedAt: Date.now(),
@@ -302,6 +318,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					workflow: record.workflow,
 					phase: record.phase,
 					...(record.phaseOrder !== undefined ? { phaseOrder: record.phaseOrder } : {}),
+					...(record.phaseDetail !== undefined ? { phaseDetail: record.phaseDetail } : {}),
 					phaseSequence: record.phaseSequence,
 					status: record.status,
 					startedAt: record.startedAt,

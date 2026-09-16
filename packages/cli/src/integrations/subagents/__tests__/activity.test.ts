@@ -1,7 +1,7 @@
 import { RunCancelled, type RunEvent, type RunId, type TaskHandle, type TaskId } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { SubagentActivityMonitor } from '../activity.js'
+import { MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS, SubagentActivityMonitor } from '../activity.js'
 
 const runId = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId
 const taskId = 'tsk_child' as TaskId
@@ -98,6 +98,76 @@ describe('the CLI sub-agent activity monitor', () => {
 				['phase-1', 2, 1],
 			],
 		)
+	})
+
+	it('a phase keeps the detail its first agent declared', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({
+			agentId: 'a',
+			description: 'a',
+			prompt: 'a',
+			workflowId: 'run-parent',
+			workflow: 'Audit',
+			phase: 'Verify',
+			phaseDetail: 'Confirm the fix against the failing case.',
+		})
+		monitor.begin({
+			agentId: 'b',
+			description: 'b',
+			prompt: 'b',
+			workflowId: 'run-parent',
+			workflow: 'Audit',
+			phase: 'Verify',
+			phaseDetail: 'A different detail from a later sibling.',
+		})
+
+		const snapshot = monitor.getSnapshot()
+		expect(snapshot.map((entry) => entry.phaseDetail)).toEqual([
+			'Confirm the fix against the failing case.',
+			'Confirm the fix against the failing case.',
+		])
+	})
+
+	it('phase detail is bounded', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({
+			agentId: 'a',
+			description: 'a',
+			prompt: 'a',
+			phase: 'Verify',
+			phaseDetail: 'x'.repeat(MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS + 200),
+		})
+		const detail = monitor.getSnapshot()[0]?.phaseDetail
+		expect(detail).toBeDefined()
+		expect(detail?.length).toBeLessThanOrEqual(MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
+		expect(detail).toContain('[clipped]')
+
+		const withoutDetail = new SubagentActivityMonitor()
+		withoutDetail.begin({ agentId: 'b', description: 'b', prompt: 'b', phase: 'Work' })
+		expect(withoutDetail.getSnapshot()[0]).not.toHaveProperty('phaseDetail')
+	})
+
+	it('phase detail does not affect phase identity', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({
+			agentId: 'a',
+			description: 'a',
+			prompt: 'a',
+			workflowId: 'run-parent',
+			phase: 'Verify',
+			phaseDetail: 'one detail',
+		})
+		monitor.begin({
+			agentId: 'b',
+			description: 'b',
+			prompt: 'b',
+			workflowId: 'run-parent',
+			phase: 'Verify',
+			phaseDetail: 'a completely different detail',
+		})
+
+		const snapshot = monitor.getSnapshot()
+		expect(snapshot[0]?.phaseId).toBe(snapshot[1]?.phaseId)
 	})
 
 	it('groups concurrent direct calls by batch and never revives a settled earlier wave', () => {

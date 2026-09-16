@@ -397,6 +397,7 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			'workflow',
 			'phase',
 			'phase_order',
+			'phase_detail',
 			'run_in_background',
 		])
 		const keys = Object.keys(input)
@@ -413,7 +414,8 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 			(input.workflow === undefined || typeof input.workflow === 'string') &&
 			(input.phase === undefined || typeof input.phase === 'string') &&
 			(input.phase_order === undefined ||
-				(typeof input.phase_order === 'number' && Number.isSafeInteger(input.phase_order)))
+				(typeof input.phase_order === 'number' && Number.isSafeInteger(input.phase_order))) &&
+			(input.phase_detail === undefined || typeof input.phase_detail === 'string')
 		if (shapeIsKnown) {
 			const known = input as {
 				description: string
@@ -426,6 +428,7 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 				workflow?: string
 				phase?: string
 				phase_order?: number
+				phase_detail?: string
 				run_in_background?: boolean
 			}
 			return {
@@ -448,6 +451,9 @@ function summarizeKnownCall(name: string, input: unknown): ReadableCallSummary {
 					...(known.phase !== undefined ? readableField('Phase label', known.phase) : []),
 					...(known.phase_order !== undefined
 						? [`Phase display order: ${String(known.phase_order + 1)}`]
+						: []),
+					...(known.phase_detail !== undefined
+						? readableField('Phase detail', known.phase_detail)
 						: []),
 					...readableField('Instructions', known.prompt),
 				],
@@ -498,10 +504,16 @@ function compactAgentPlan(calls: readonly { input: unknown; isDestructive: boole
 		const input = call.input as Record<string, unknown>
 		const workflow = typeof input.workflow === 'string' ? oneLine(input.workflow) : ''
 		const phase = typeof input.phase === 'string' ? oneLine(input.phase) : ''
+		const phaseDetail = typeof input.phase_detail === 'string' ? oneLine(input.phase_detail) : ''
+		// Grouping key stays workflow+phase only, matching the cockpit's phase
+		// identity; the detail shown is whichever call in the group declared it
+		// first, the same first-writer-wins rule the monitor applies.
 		const group = JSON.stringify([workflow, phase])
 		if (group !== previousGroup) {
-			if (workflow || phase) lines.push([workflow, phase].filter(Boolean).join(' / '))
-			else if (previousGroup) lines.push('Other agents')
+			if (workflow || phase) {
+				lines.push([workflow, phase].filter(Boolean).join(' / '))
+				if (phaseDetail) lines.push(`  ${phaseDetail}`)
+			} else if (previousGroup) lines.push('Other agents')
 			previousGroup = group
 		}
 		const type = input.subagent_type

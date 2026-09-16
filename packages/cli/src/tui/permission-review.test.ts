@@ -114,6 +114,7 @@ describe('buildPermissionSummary', () => {
 						workflow: 'Product review',
 						phase: 'Research',
 						phase_order: 0,
+						phase_detail: 'Gather evidence before the design review.',
 						run_in_background: true,
 					},
 					isDestructive: false,
@@ -136,9 +137,15 @@ describe('buildPermissionSummary', () => {
 		expect(summary.text).toContain('Instructions: Complete api research and report evidence.')
 		expect(summary.text).toContain('Workflow label: Product review')
 		expect(summary.text).toContain('Phase display order: 1')
+		expect(summary.text).toContain('Phase detail: Gather evidence before the design review.')
 		expect(summary.text).toContain('Task: Delivery plan')
 		expect(summary.text).not.toContain('call_0')
 		expect(summary.text).not.toContain('"calls"')
+
+		// The compact plan every operator sees by default agrees with the
+		// detailed pager: the phase group header carries the same detail text.
+		expect(summary.compactText).toContain('Product review / Research')
+		expect(summary.compactText).toContain('Gather evidence before the design review.')
 	})
 
 	it('identifies the default Agent capability before a long task prompt', () => {

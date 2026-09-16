@@ -29,6 +29,12 @@ labels. Background execution is marked on that row. Long rows wrap on narrow
 terminals and large batches remain paged. Press `d` for full instructions and
 exact prepared arguments; evolved input shapes still open in the exact view.
 These labels do not imply dependencies or additional planned phases.
+An optional `phase_detail` string adds explanatory text to a phase, shown
+beneath its header in the compact plan and — in the agent cockpit — beneath
+the phase list only while that phase is focused. It is display-only, exactly
+like `workflow`, `phase` and `phase_order`: it creates no dependencies,
+barriers or serial execution. The first agent to declare a phase's detail
+sets it; a later sibling in the same phase cannot change it.
 
 Reviews identify the requesting agent by its exact run ID in the activity monitor. If the run has not appeared in the monitor, the full run ID is shown instead of guessing an agent. This attribution stays with each queued review.
 
@@ -100,7 +106,13 @@ Ctrl+T opens a dedicated agent browser using the terminal's available height.
 The main composer is hidden there, with its draft preserved. Ctrl+T returns to
 chat; Enter inspects a child transcript, Esc goes back and `q` returns from the
 child to the parent. Workflows and phases remain navigation groups, not execution
-dependencies.
+dependencies. A phase's `phase_detail`, when supplied, is revealed beneath the
+phase list only while that phase is focused — the other phases show none, and
+a phase with no detail renders exactly as it did before this text existed. The
+text wraps to the pane width and is clipped to a fixed number of lines, so the
+pane's height never depends on how long the detail is. On a short terminal
+(the cockpit's compact layout) the detail stays hidden entirely, the same way
+the cockpit already drops its other secondary text there.
 
 Each row in the automatic rail, the agent cockpit and the child transcript
 header shows the child's status, elapsed time, description and — when the
