@@ -731,6 +731,7 @@ export async function createSubagentRuntime(
 			}
 			const tracker = activity.begin({
 				agentId,
+				model: selection?.model ?? fileAgent?.model ?? opts.model,
 				description,
 				prompt,
 				batchId: context.toolBatchId,

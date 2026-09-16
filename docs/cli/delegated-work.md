@@ -102,6 +102,22 @@ chat; Enter inspects a child transcript, Esc goes back and `q` returns from the
 child to the parent. Workflows and phases remain navigation groups, not execution
 dependencies.
 
+Each row in the automatic rail, the agent cockpit and the child transcript
+header shows the child's status, elapsed time, description and — when the
+host reported them — its resolved model and live counters: cumulative spend
+compacted to `42.1k`/`1.38M` and a `· N tools` tool-call count, both drawn
+from the same run events the transcript itself renders and never a percentage
+or fill bar. Spend is the child's cumulative usage, not its current context
+size, which is a different number that falls on compaction. A child that has
+not yet reported usage shows an em dash rather than `0`, since the two are
+different facts. On a narrow terminal the counters are the first thing
+dropped, then the model name; the status, elapsed time and description remain
+legible at any width this browser supports. A resolved model id is
+host-reported, unbounded text — a self-hosted or gateway-style id can run
+well past what a row has room for — so the label itself is capped to a short
+budget with an ellipsis before it is ever placed next to the description,
+rather than being shown in full and left to crowd the description out.
+
 ## Run limits
 
 Built-in children use the configured [run limits](run-limits.md), including

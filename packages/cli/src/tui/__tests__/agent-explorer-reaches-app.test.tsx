@@ -215,6 +215,9 @@ function agent(
 		viewId: input.viewId,
 		...(input.taskId ? { taskId: input.taskId } : {}),
 		agentId: input.agentId ?? 'general-purpose',
+		...(input.model ? { model: input.model } : {}),
+		...(input.tokens !== undefined ? { tokens: input.tokens } : {}),
+		...(input.toolCalls !== undefined ? { toolCalls: input.toolCalls } : {}),
 		description: input.description ?? input.viewId,
 		prompt: input.prompt ?? `prompt for ${input.viewId}`,
 		batchId: input.batchId ?? 'batch-live',
@@ -1299,6 +1302,114 @@ describe('agent explorer projection', () => {
 		} finally {
 			panel.unmount()
 		}
+	})
+
+	it('an agent row shows its model and counters', async () => {
+		const busy = agent({
+			viewId: 'agent-busy',
+			description: 'Audit dependencies',
+			model: 'test-model-large',
+			tokens: 42_123,
+			toolCalls: 18,
+		})
+		const screen = await renderToScreen(
+			<AgentTaskPanel agents={[busy]} terminalRows={10} terminalColumns={100} />,
+			{ cols: 100, rows: 10 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Audit dependencies')
+		expect(frame).toContain('test-model-large')
+		expect(frame).toContain('42.1k · 18 tools')
+	})
+
+	it('a narrow viewport drops counters before the description', async () => {
+		const busy = agent({
+			viewId: 'agent-narrow',
+			description: 'Audit dependencies',
+			model: 'test-model-large',
+			tokens: 42_123,
+			toolCalls: 18,
+		})
+		const screen = await renderToScreen(
+			<AgentTaskPanel agents={[busy]} terminalRows={10} terminalColumns={40} />,
+			{ cols: 40, rows: 10 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Audit dependencies')
+		expect(frame).not.toContain('test-model-large')
+		expect(frame).not.toContain('42.1k')
+		expect(frame).not.toContain('tools')
+	})
+
+	// A resolved model id is host-reported, unbounded text: a self-hosted or
+	// gateway-style id routinely runs 60-90+ cells, well past anything a
+	// short fixture like 'test-model-large' exercises. The meta box carrying
+	// it is `flexShrink={0}`, so an uncapped label does not truncate itself —
+	// it forces its shrinkable neighbours (the description, the elapsed/
+	// activity text) down first, to zero once the deficit is large enough.
+	// These three cases pin one long id at each of the three required render
+	// sites and assert the description survives rather than vanishing.
+	const REALISTIC_LONG_MODEL = 'gateway/production/anthropic/claude-opus-4-1-20250805-experimental-v3'
+
+	it('a long model id never erases the description in the automatic rail', async () => {
+		const busy = agent({
+			viewId: 'agent-long-model',
+			description: 'Audit dependencies',
+			model: REALISTIC_LONG_MODEL,
+			tokens: 42_123,
+			toolCalls: 18,
+		})
+		const screen = await renderToScreen(
+			<AgentTaskPanel agents={[busy]} terminalRows={10} terminalColumns={96} />,
+			{ cols: 96, rows: 10 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Audit dependencies')
+		expect(frame).toContain('42.1k · 18 tools')
+	})
+
+	it('a long model id never erases the description in the agent cockpit', async () => {
+		const busy = agent({
+			viewId: 'agent-long-model',
+			description: 'Audit dependencies for known vulnerabilities',
+			model: REALISTIC_LONG_MODEL,
+			tokens: 42_123,
+			toolCalls: 18,
+		})
+		const screen = await renderToScreen(
+			<AgentCockpit
+				agents={[busy]}
+				selectedPhaseId={busy.phaseId}
+				selectedId={busy.viewId}
+				focus="agents"
+				terminalRows={24}
+				terminalColumns={130}
+			/>,
+			{ cols: 130, rows: 24 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Audit dependencies')
+	})
+
+	it('a long model id never erases the description in the transcript header', async () => {
+		const child = agent({
+			viewId: 'agent-long-model',
+			description: 'Inspect project sources',
+			model: REALISTIC_LONG_MODEL,
+			tokens: 42_123,
+			toolCalls: 18,
+		})
+		const screen = await renderToScreen(
+			<AgentTranscript agent={child} tailOffset={0} terminalRows={24} terminalColumns={80} />,
+			{ cols: 80, rows: 24 },
+		)
+		mounted = screen
+		const frame = screen.viewport().join('\n')
+		expect(frame).toContain('Inspect project sources')
 	})
 
 	it('groups agents by explicit workflow phase and preserves declared order', () => {

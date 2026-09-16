@@ -6,6 +6,24 @@ import { SubagentActivityMonitor } from '../activity.js'
 const runId = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId
 const taskId = 'tsk_child' as TaskId
 
+function usage(totalTokens: number) {
+	return {
+		promptTokens: totalTokens,
+		completionTokens: 0,
+		totalTokens,
+		cachedTokens: 0,
+		cacheWriteTokens: 0,
+	}
+}
+
+const cost = {
+	inputCostPer1M: 0,
+	outputCostPer1M: 0,
+	totalCost: 0,
+	cacheDiscount: 0,
+	unpricedTokens: 0,
+}
+
 function handle(state: TaskHandle['state'] = 'completed'): TaskHandle {
 	return {
 		taskId,
@@ -364,5 +382,73 @@ describe('the CLI sub-agent activity monitor', () => {
 
 		vi.advanceTimersByTime(100)
 		expect(notifications).toBe(1)
+	})
+
+	it('a token usage update reaches the agent row', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
+		tracker.onEvent({
+			type: 'token_usage_updated',
+			runId,
+			usage: usage(1_234),
+			cost,
+		} as RunEvent)
+		expect(monitor.getSnapshot()[0]?.tokens).toBe(1_234)
+	})
+
+	it('context size is not mistaken for spend', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
+		tracker.onEvent({
+			type: 'token_usage_updated',
+			runId,
+			usage: usage(9_000),
+			cost,
+			contextTokens: 500,
+		} as RunEvent)
+		expect(monitor.getSnapshot()[0]?.tokens).toBe(9_000)
+	})
+
+	it('tool calls are counted once per execution', () => {
+		const monitor = new SubagentActivityMonitor()
+		const tracker = monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
+		for (const toolUseId of ['tool-a', 'tool-b']) {
+			tracker.onEvent({
+				type: 'tool_executing',
+				runId,
+				iteration: 1,
+				toolUseId: toolUseId as never,
+				toolName: 'read',
+				input: {},
+				isDestructive: false,
+			} as RunEvent)
+			tracker.onEvent({
+				type: 'tool_completed',
+				runId,
+				iteration: 1,
+				toolUseId: toolUseId as never,
+				toolName: 'read',
+				isError: false,
+				result: 'ok',
+			} as unknown as RunEvent)
+		}
+		expect(monitor.getSnapshot()[0]?.toolCalls).toBe(2)
+	})
+
+	it('an agent that never reported usage has no token count', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({ agentId: 'worker', description: 'work', prompt: 'do it' })
+		expect(monitor.getSnapshot()[0]).not.toHaveProperty('tokens')
+	})
+
+	it('the resolved child model reaches the activity record', () => {
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({
+			agentId: 'worker',
+			model: 'test-child-model',
+			description: 'work',
+			prompt: 'do it',
+		})
+		expect(monitor.getSnapshot()[0]?.model).toBe('test-child-model')
 	})
 })

@@ -9,11 +9,23 @@ import type {
 import { formatElapsed } from './LiveActivity.js'
 import { selectionWindow } from './selection-window.js'
 import { terminalDisplayText } from './terminal-display.js'
+import { truncateChoiceText } from './terminal-choice-text.js'
 import { theme } from './theme.js'
 
 const MAX_PICKER_ROWS = 9
 const COCKPIT_FRAME_COLUMNS = 4
 const WIDE_COCKPIT_INNER_COLUMNS = 84
+/**
+ * A resolved model id is host-reported, unbounded text — a self-hosted or
+ * gateway-style id routinely runs 60-90+ cells. The meta box that carries it
+ * sits `flexShrink={0}` beside the description/activity boxes that ARE
+ * allowed to shrink, so an uncapped model string does not get truncated
+ * itself: it forces its shrinkable neighbours down first, to zero if the
+ * deficit is large enough. Capping the label here, before it ever reaches
+ * `agentMetaParts`, bounds the meta box's width unconditionally so it can
+ * never outcompete the row's own description for space.
+ */
+const MAX_MODEL_LABEL_WIDTH = 24
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' })
 
 export interface AgentTaskPanelProps {
@@ -39,6 +51,8 @@ export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentT
 	const workflows = [...new Set(agents.map((agent) => agent.workflow))]
 	const title = workflows.length === 1 ? (workflows[0] ?? 'Delegated work') : 'Delegated work'
 	const narrow = terminalColumns < 64
+	const showModel = !narrow && terminalColumns >= 76
+	const showCounters = !narrow && terminalColumns >= 96
 
 	return (
 		<Box
@@ -63,6 +77,7 @@ export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentT
 			</Box>
 			{visible.map((agent) => {
 				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
+				const meta = agentMetaParts(agent, { showModel, showCounters })
 				return (
 					<Box key={agent.viewId}>
 						<Box width={narrow ? 2 : 3} flexShrink={0}>
@@ -79,6 +94,13 @@ export function AgentTaskPanel({ agents, terminalRows, terminalColumns }: AgentT
 								{!narrow && agent.latestActivity ? ` · ${oneLine(agent.latestActivity)}` : ''}
 							</Text>
 						</Box>
+						{meta.length > 0 ? (
+							<Box flexShrink={0} marginLeft={1}>
+								<Text color={theme.text.muted} wrap="truncate-end">
+									{meta.join(' · ')}
+								</Text>
+							</Box>
+						) : null}
 					</Box>
 				)
 			})}
@@ -305,6 +327,7 @@ export function AgentCockpit({
 						pageSize={compact ? 1 : agentPickerPageSize(terminalRows, wide)}
 						now={now}
 						wide={wide}
+						terminalColumns={terminalColumns}
 					/>
 				</Box>
 			</Box>
@@ -370,6 +393,7 @@ function AgentPane({
 	pageSize,
 	now,
 	wide,
+	terminalColumns,
 }: {
 	readonly agents: readonly SubagentActivity[]
 	readonly selected: number
@@ -377,8 +401,11 @@ function AgentPane({
 	readonly pageSize: number
 	readonly now: number
 	readonly wide: boolean
+	readonly terminalColumns: number
 }) {
 	const { start, items } = selectionWindow(agents, selected, pageSize)
+	const showModel = wide
+	const showCounters = wide && terminalColumns >= 120
 	return (
 		<>
 			<Text color={focused ? theme.accent.assistant : theme.text.secondary} bold>
@@ -387,6 +414,7 @@ function AgentPane({
 			{items.map((agent, visibleIndex) => {
 				const active = start + visibleIndex === selected
 				const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
+				const meta = agentMetaParts(agent, { showModel, showCounters })
 				return (
 					<Box key={agent.viewId}>
 						<Box width={4} flexShrink={0}>
@@ -404,11 +432,20 @@ function AgentPane({
 							</Text>
 						</Box>
 						<Box marginLeft={1} flexShrink={0} width={wide ? '50%' : undefined}>
-							<Text color={theme.text.secondary} wrap="truncate-end">
-								{statusLabel(agent.status)} ·{' '}
-								{elapsed}
-								{wide && distinctActivity(agent) ? ` · ${distinctActivity(agent)}` : ''}
-							</Text>
+							<Box flexGrow={1} flexShrink={1} minWidth={0}>
+								<Text color={theme.text.secondary} wrap="truncate-end">
+									{statusLabel(agent.status)} ·{' '}
+									{elapsed}
+									{wide && distinctActivity(agent) ? ` · ${distinctActivity(agent)}` : ''}
+								</Text>
+							</Box>
+							{meta.length > 0 ? (
+								<Box flexShrink={0} marginLeft={1}>
+									<Text color={theme.text.muted} wrap="truncate-end">
+										{meta.join(' · ')}
+									</Text>
+								</Box>
+							) : null}
 						</Box>
 					</Box>
 				)
@@ -536,6 +573,10 @@ export function AgentTranscript({
 	const now = useLiveNow(agent.completedAt === undefined)
 	const elapsed = formatElapsed((agent.completedAt ?? now) - agent.startedAt)
 	const tailLabel = isTerminalStatus(agent.status) ? 'Latest' : 'Live'
+	const meta = agentMetaParts(agent, {
+		showModel: terminalColumns >= 50,
+		showCounters: terminalColumns >= 70,
+	})
 	const navigation =
 		terminalColumns >= 70
 			? `PgUp/PgDn · Home oldest · End ${tailLabel.toLowerCase()} · esc agents · q parent`
@@ -568,9 +609,20 @@ export function AgentTranscript({
 					</Text>
 				</Box>
 			</Box>
-			<Text color={theme.text.primary} bold wrap="truncate-end">
-				{oneLine(agent.description || agent.agentId)}
-			</Text>
+			<Box height={1} flexShrink={0}>
+				<Box flexGrow={1} flexShrink={1} minWidth={0}>
+					<Text color={theme.text.primary} bold wrap="truncate-end">
+						{oneLine(agent.description || agent.agentId)}
+					</Text>
+				</Box>
+				{meta.length > 0 ? (
+					<Box flexShrink={0} marginLeft={1}>
+						<Text color={theme.text.muted} wrap="truncate-end">
+							{meta.join(' · ')}
+						</Text>
+					</Box>
+				) : null}
+			</Box>
 			<Box flexDirection="column" marginTop={1} height={page.pageSize} flexShrink={0}>
 				{page.rows.length === 0 ? (
 					<Text color={theme.text.muted} wrap="truncate-end">
@@ -744,6 +796,44 @@ function expandTabs(line: string): string {
 
 function oneLine(text: string): string {
 	return terminalDisplayText(text).replace(/\r?\n/g, ' ↵ ').replace(/\t/g, ' ⇥ ')
+}
+
+/** `42.1k`, `1.38M`; below 1,000 the exact count is short enough to show plainly. */
+function formatCompactCount(value: number): string {
+	if (value < 1_000) return String(value)
+	if (value < 1_000_000) return `${(value / 1_000).toFixed(1)}k`
+	return `${(value / 1_000_000).toFixed(2)}M`
+}
+
+/**
+ * `undefined` when this child has reported neither figure — there is nothing
+ * to show yet, which is different from having spent or called zero. Once
+ * spend is known but the tool count is not (or vice versa), the missing half
+ * renders as an em dash rather than a fabricated 0.
+ */
+function agentCounterText(agent: SubagentActivity): string | undefined {
+	if (agent.tokens === undefined && agent.toolCalls === undefined) return undefined
+	const tokens = agent.tokens !== undefined ? formatCompactCount(agent.tokens) : '—'
+	if (agent.toolCalls === undefined) return tokens
+	return `${tokens} · ${agent.toolCalls} ${agent.toolCalls === 1 ? 'tool' : 'tools'}`
+}
+
+/**
+ * Ordered so a caller can drop the least essential piece first: counters
+ * need the most room, the model name less, and the description (rendered
+ * separately by every caller) never yields to either.
+ */
+function agentMetaParts(
+	agent: SubagentActivity,
+	options: { readonly showModel: boolean; readonly showCounters: boolean },
+): readonly string[] {
+	const parts: string[] = []
+	if (options.showModel && agent.model) {
+		parts.push(truncateChoiceText(agent.model, MAX_MODEL_LABEL_WIDTH))
+	}
+	const counters = options.showCounters ? agentCounterText(agent) : undefined
+	if (counters) parts.push(counters)
+	return parts
 }
 
 function distinctActivity(agent: SubagentActivity): string | undefined {

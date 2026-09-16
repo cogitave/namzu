@@ -45,6 +45,17 @@ export interface SubagentActivity {
 	readonly taskId?: string
 	readonly runId?: string
 	readonly agentId: string
+	/** The resolved child model, when a host supplied one at launch. */
+	readonly model?: string
+	/**
+	 * Cumulative spend from the child's latest `token_usage_updated` event —
+	 * never `contextTokens`, which shrinks on compaction and answers a
+	 * different question. Absent means this child has not reported usage
+	 * yet, which is a distinct fact from having spent zero.
+	 */
+	readonly tokens?: number
+	/** Tool executions started so far, counted once per execution. */
+	readonly toolCalls?: number
 	readonly description: string
 	readonly prompt: string
 	/** Direct tool batch that launched this concurrent sibling cohort. */
@@ -89,6 +100,9 @@ interface MutableActivity {
 	taskId?: string
 	runId?: string
 	agentId: string
+	model?: string
+	tokens?: number
+	toolCalls?: number
 	description: string
 	prompt: string
 	batchId: string
@@ -129,6 +143,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 
 	begin(input: {
 		readonly agentId: string
+		readonly model?: string
 		readonly description: string
 		readonly prompt: string
 		readonly batchId?: string
@@ -180,6 +195,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			order: this.counter,
 			viewId,
 			agentId: bounded(input.agentId, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
+			...(input.model?.trim()
+				? { model: bounded(input.model.trim(), MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS) }
+				: {}),
 			description: bounded(input.description, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
 			prompt: bounded(input.prompt, MAX_PROMPT_CODE_UNITS),
 			batchId,
@@ -271,6 +289,9 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 					...(record.taskId ? { taskId: record.taskId } : {}),
 					...(record.runId ? { runId: record.runId } : {}),
 					agentId: record.agentId,
+					...(record.model ? { model: record.model } : {}),
+					...(record.tokens !== undefined ? { tokens: record.tokens } : {}),
+					...(record.toolCalls !== undefined ? { toolCalls: record.toolCalls } : {}),
 					description: record.description,
 					prompt: record.prompt,
 					batchId: record.batchId,
@@ -373,6 +394,13 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 			record.status = 'working'
 			record.latestActivity = 'Working'
 			return
+		case 'token_usage_updated':
+			// `usage` is cumulative spend across the run; `contextTokens` beside
+			// it is the current conversation size and shrinks on compaction —
+			// a different question this row never asks. See the event's own
+			// doc comment for why conflating the two was a shipped defect.
+			record.tokens = event.usage.totalTokens
+			return
 		case 'reasoning_started':
 		case 'reasoning_delta':
 			record.status = 'working'
@@ -408,6 +436,7 @@ function projectEvent(record: MutableActivity, event: RunEvent): void {
 		}
 		case 'tool_executing': {
 			record.status = 'working'
+			record.toolCalls = (record.toolCalls ?? 0) + 1
 			const label = `${event.toolName}(${genericLabel(event.input)})`
 			record.latestActivity = bounded(label, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS)
 			pushRow(record, {
