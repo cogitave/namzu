@@ -216,7 +216,8 @@ which the legacy eras do:
 - no `initialize` and no `notifications/initialized` — the handshake is gone
 - no `Mcp-Session-Id` sent or captured, even if an origin offers one
 - no `GET` and no `DELETE` — there is no session to open or terminate
-- no `Last-Event-ID` — resumable SSE streams are not supported
+- no `Last-Event-ID` — resumable SSE streams are not supported (legacy does
+  support it — see [Legacy session and stream fidelity](#legacy-session-and-stream-fidelity))
 - **no `notifications/cancelled` POST on Streamable HTTP** — closing the SSE
   response stream *is* the cancellation signal there, so the notification
   would be a second, redundant POST. stdio has no stream to close, so it
@@ -435,6 +436,59 @@ and never on `initialize` itself, since the negotiated version is not known
 until that request's reply arrives. On a modern connection it is sent on
 every request including the probe, and means the version carried in *that
 request's* `_meta` rather than one negotiated for a session.
+
+## Legacy session and stream fidelity
+
+Three behaviors the 2025-03-26 through 2025-11-25 Streamable HTTP transports
+specify, and that a legacy connection now does. All three are gated to
+legacy **structurally**, not by a flag threaded through the transport: a
+modern connection never sends `initialize` (it probes with `server/discover`
+instead), so `StreamableHttpTransport` never captures a `Mcp-Session-Id` in
+the first place, and each behavior below is conditioned on a session id
+being present.
+
+**A session `404` triggers exactly one re-initialize.** A legacy server that
+has forgotten a session — expired it, restarted, whatever the reason —
+answers a request carrying its stale `Mcp-Session-Id` with a bare `404`. On
+that specific failure, `MCPClient` drops the session id and runs the
+`initialize`/`notifications/initialized` handshake again from scratch,
+then retries the original request exactly once. A second `404` — from the
+retried request, on the freshly re-initialized session — surfaces as a
+failure rather than triggering a second recovery; masking a genuinely broken
+server as a transient hiccup forever would be worse than a clean error. The
+re-initialize only ever runs for a request issued after `connect()` has
+already completed — the *first* `initialize` of a connection has no session
+yet to lose, so a `404` there is an ordinary connection failure, not a
+recovery trigger.
+
+**`close()` sends a best-effort `DELETE`.** A legacy connection that
+established a session tells the server it is done with it: `close()` fires a
+`DELETE` carrying `Mcp-Session-Id`, and never awaits it — the request is
+fire-and-forget, bounded by its own short timeout, so a peer that never
+answers (or is simply gone) cannot delay or fail the transport's existing
+bounded-teardown guarantee. A modern connection never sends this either: it
+never held a session id to name.
+
+**`Last-Event-ID` arms a legacy reconnect.** `parseSseMessages`
+(`connector/mcp/streamable-http.ts`) now captures the newest SSE `id:` field
+it sees, across every event in a response body — including one whose `data:`
+was empty, the priming event the 2025-11-25 transport mandates. The captured
+id survives a `close()`/`connect()` cycle (deliberately: that is the whole
+point of it) and is sent as `Last-Event-ID` on the next request built on a
+session, so a server that supports resumption can replay whatever this
+client may have missed across the gap. A `:`-prefixed comment or keep-alive
+line, and any other field this parser does not read, are ignored rather than
+treated as malformed — already true before this workstream for everything
+but `id:`, since both filters select a line by its own prefix and so already
+ignore anything else.
+
+This client's Streamable HTTP transport buffers each response fully rather
+than holding a live SSE stream open across requests (see `dispatchResponseMessages`),
+so "resumption" here is narrower than the spec's GET-stream reconnection: it
+is a best-effort hint carried on the next ordinary request after a
+reconnect, not a dedicated resumed stream. Real fidelity to the full
+GET-stream resumption story is future work; this closes the gap the SSE
+parser itself had (event ids were parsed and thrown away).
 
 ## Changed defaults
 
@@ -703,6 +757,3 @@ reading `ToolResult.data` today sees a new code it previously never could.
   any era, so omitting it regresses nothing — but it does mean a modern
   connection receives no server-initiated notifications at all. Tracked
   separately.
-- **Legacy session and stream fidelity** — 404 re-initialize, `DELETE` on
-  close, `Last-Event-ID` resumption. All legacy-only by construction; the
-  modern era already does none of them, as listed above.

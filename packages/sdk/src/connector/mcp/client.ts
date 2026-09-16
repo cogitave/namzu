@@ -199,60 +199,7 @@ export class MCPClient {
 				return this.completeModernConnection(resolution)
 			}
 
-			// One initialize round trip, offering the newest legacy version
-			// this client speaks — never a per-version waterfall. The spec's
-			// own backward-compatibility algorithm offers one version and
-			// honors whatever the server answers with; a three-step retry
-			// loop would be three times the latency for a path no server
-			// expects. `protocol-negotiation.test.ts` counts `initialize`
-			// frames so this stays true.
-			const offered = MCP_LEGACY_VERSIONS[0]
-			const result = (await this.request('initialize', {
-				protocolVersion: offered,
-				capabilities: this.config.capabilities ?? {},
-				clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
-			})) as MCPInitializeResult
-
-			// The server answers with the version IT will speak, which need
-			// not be the one we asked for. Ignoring that answer — as this once
-			// did — makes an unspeakable version look like a healthy
-			// connection until something downstream breaks in a confusing
-			// way. A server that omits the field entirely is tolerated and
-			// treated as having accepted the offer, exactly as before this
-			// broadened the set.
-			const negotiated = result.protocolVersion ?? offered
-			if (!MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(negotiated)) {
-				throw new Error(
-					`MCP server "${this.config.serverName}" negotiated protocol version "${negotiated}", ` +
-						`which this client cannot speak (offered "${offered}"; supported: ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(', ')}).`,
-				)
-			}
-			if (negotiated !== offered) {
-				this.log.info('MCP server negotiated a different protocol version', {
-					'namzu.connector.requested': offered,
-					'namzu.connector.negotiated': negotiated,
-				})
-			}
-
-			// A real modern server does not implement `initialize` at all, so a
-			// success shape here naming a modern revision is a server
-			// contradicting itself. Refusing is the only honest answer: the
-			// alternative is recording a `legacy` era at a version that is not
-			// a legacy one, which would then write a modern version number
-			// onto requests carrying none of what that version requires.
-			if (!(MCP_LEGACY_VERSIONS as readonly string[]).includes(negotiated)) {
-				throw new Error(
-					`MCP server "${this.config.serverName}" answered the legacy initialize handshake with "${negotiated}", ` +
-						`which is not a legacy revision (offered "${offered}"; legacy revisions: ${MCP_LEGACY_VERSIONS.join(', ')}). ` +
-						'A server that speaks that revision does not implement initialize at all.',
-				)
-			}
-			this.era = { kind: 'legacy', version: negotiated as McpLegacyVersion }
-
-			this.serverInfo = result.serverInfo
-			this.serverCapabilities = result.capabilities
-
-			await this.notify('notifications/initialized', {})
+			const result = await this.performLegacyInitializeHandshake()
 
 			this.status = 'connected'
 			this.connectedAt = Date.now()
@@ -277,6 +224,130 @@ export class MCPClient {
 			this.log.error('MCP connection failed', { 'exception.message': this.error })
 			this.emitLifecycle({ type: 'mcp_client_error', clientId: this.id, error: this.error })
 			throw err
+		}
+	}
+
+	/**
+	 * One `initialize` round trip, offering the newest legacy version this
+	 * client speaks — never a per-version waterfall. The spec's own
+	 * backward-compatibility algorithm offers one version and honors
+	 * whatever the server answers with; a three-step retry loop would be
+	 * three times the latency for a path no server expects.
+	 * `protocol-negotiation.test.ts` counts `initialize` frames so this
+	 * stays true.
+	 *
+	 * Shared by `connect()`'s first handshake and by
+	 * {@link reinitializeLegacySession}'s recovery from a `404`d session —
+	 * the second call is not a special case, it is this same function run
+	 * again on a connection that already exists.
+	 */
+	private async performLegacyInitializeHandshake(): Promise<MCPInitializeResult> {
+		const offered = MCP_LEGACY_VERSIONS[0]
+		const result = (await this.request('initialize', {
+			protocolVersion: offered,
+			capabilities: this.config.capabilities ?? {},
+			clientInfo: this.config.clientInfo ?? NAMZU_CLIENT_INFO,
+		})) as MCPInitializeResult
+
+		// The server answers with the version IT will speak, which need
+		// not be the one we asked for. Ignoring that answer — as this once
+		// did — makes an unspeakable version look like a healthy
+		// connection until something downstream breaks in a confusing
+		// way. A server that omits the field entirely is tolerated and
+		// treated as having accepted the offer, exactly as before this
+		// broadened the set.
+		const negotiated = result.protocolVersion ?? offered
+		if (!MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(negotiated)) {
+			throw new Error(
+				`MCP server "${this.config.serverName}" negotiated protocol version "${negotiated}", ` +
+					`which this client cannot speak (offered "${offered}"; supported: ${MCP_SUPPORTED_PROTOCOL_VERSIONS.join(', ')}).`,
+			)
+		}
+		if (negotiated !== offered) {
+			this.log.info('MCP server negotiated a different protocol version', {
+				'namzu.connector.requested': offered,
+				'namzu.connector.negotiated': negotiated,
+			})
+		}
+
+		// A real modern server does not implement `initialize` at all, so a
+		// success shape here naming a modern revision is a server
+		// contradicting itself. Refusing is the only honest answer: the
+		// alternative is recording a `legacy` era at a version that is not
+		// a legacy one, which would then write a modern version number
+		// onto requests carrying none of what that version requires.
+		if (!(MCP_LEGACY_VERSIONS as readonly string[]).includes(negotiated)) {
+			throw new Error(
+				`MCP server "${this.config.serverName}" answered the legacy initialize handshake with "${negotiated}", ` +
+					`which is not a legacy revision (offered "${offered}"; legacy revisions: ${MCP_LEGACY_VERSIONS.join(', ')}). ` +
+					'A server that speaks that revision does not implement initialize at all.',
+			)
+		}
+		this.era = { kind: 'legacy', version: negotiated as McpLegacyVersion }
+
+		this.serverInfo = result.serverInfo
+		this.serverCapabilities = result.capabilities
+
+		await this.notify('notifications/initialized', {})
+
+		return result
+	}
+
+	/**
+	 * A request answered `404` on a session-bearing legacy connection: the
+	 * legacy Streamable HTTP transports specify that a terminated session
+	 * answers this way, and the client's remedy is to drop it and run the
+	 * handshake again, exactly once, before giving up.
+	 *
+	 * Gated to legacy by construction, not by a flag: `hasSession()` is only
+	 * ever true on a connection that completed the legacy `initialize`
+	 * handshake in the first place — a modern connection never calls it (see
+	 * `probeDiscover`), so `resetSession`/`hasSession` have nothing to report
+	 * there.
+	 */
+	private isLegacySessionLostError(err: unknown): boolean {
+		return (
+			this.era?.kind === 'legacy' &&
+			this.transport instanceof StreamableHttpTransport &&
+			this.transport.hasSession() &&
+			err instanceof MCPHttpStatusError &&
+			err.status === 404
+		)
+	}
+
+	/** Drop the stale session and run the legacy handshake again, from scratch. */
+	private async reinitializeLegacySession(): Promise<void> {
+		if (this.transport instanceof StreamableHttpTransport) {
+			this.transport.resetSession()
+		}
+		await this.performLegacyInitializeHandshake()
+	}
+
+	/**
+	 * `request()`, with the legacy session recovery a live connection needs
+	 * that the initial handshake does not: `connect()`'s own `initialize`
+	 * call has no session yet to lose, so it goes through `request()`
+	 * directly and never through here.
+	 *
+	 * At most one recovery attempt. A retry that fails the same way is not
+	 * retried again — surfacing it is more honest than masking a second
+	 * genuine failure as a transient one.
+	 */
+	private async requestWithSessionRecovery(
+		method: string,
+		params: Record<string, unknown>,
+		options?: MCPRequestOptions,
+	): Promise<unknown> {
+		try {
+			return await this.request(method, params, options)
+		} catch (err) {
+			if (!this.isLegacySessionLostError(err)) throw err
+			this.log.warn('MCP legacy session lost; re-initializing once before retrying', {
+				'namzu.connector.server': this.config.serverName,
+				'namzu.connector.method': method,
+			})
+			await this.reinitializeLegacySession()
+			return await this.request(method, params, options)
 		}
 	}
 
@@ -594,7 +665,11 @@ export class MCPClient {
 		args: Record<string, unknown>,
 		options: MCPRequestOptions | undefined,
 	): Promise<unknown> {
-		const raw = await this.request('tools/call', { name, arguments: args }, options)
+		const raw = await this.requestWithSessionRecovery(
+			'tools/call',
+			{ name, arguments: args },
+			options,
+		)
 		const decoded = decodeResult(raw)
 		if (decoded.kind === 'complete') return decoded.result
 
@@ -604,7 +679,7 @@ export class MCPClient {
 				'namzu.connector.server': this.config.serverName,
 				'namzu.connector.tool': name,
 			})
-			const retryRaw = await this.request(
+			const retryRaw = await this.requestWithSessionRecovery(
 				'tools/call',
 				{ name, arguments: args, requestState: decoded.requestState },
 				options,
@@ -633,7 +708,7 @@ export class MCPClient {
 
 	async readResource(uri: string, options?: MCPRequestOptions): Promise<MCPContentBlock[]> {
 		this.requireConnected()
-		const result = (await this.request('resources/read', { uri }, options)) as {
+		const result = (await this.requestWithSessionRecovery('resources/read', { uri }, options)) as {
 			contents: MCPContentBlock[]
 		}
 		return result.contents
@@ -672,7 +747,7 @@ export class MCPClient {
 		options?: MCPRequestOptions,
 	): Promise<{ description?: string; messages: MCPPromptMessage[] }> {
 		this.requireConnected()
-		const result = (await this.request(
+		const result = (await this.requestWithSessionRecovery(
 			'prompts/get',
 			{
 				name,
@@ -717,7 +792,7 @@ export class MCPClient {
 		let cursor: string | undefined
 
 		for (let page = 1; ; page++) {
-			const result = (await this.request(
+			const result = (await this.requestWithSessionRecovery(
 				method,
 				cursor === undefined ? {} : { cursor },
 				options,

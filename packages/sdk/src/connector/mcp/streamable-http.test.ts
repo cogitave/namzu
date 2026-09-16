@@ -156,6 +156,12 @@ describe('Streamable HTTP MCP transport', () => {
 		})
 		let resolveOldCancel!: (response: Response) => void
 		const fetchMock = vi.fn((_: string | URL | Request, init?: RequestInit) => {
+			// The best-effort legacy session DELETE `close()` now sends carries
+			// no body at all — answer it generically before anything below
+			// tries to JSON.parse a body that was never there.
+			if (init?.method === 'DELETE') {
+				return Promise.resolve(new Response(null, { status: 204 }))
+			}
 			const message = JSON.parse(String(init?.body)) as MCPJsonRpcMessage
 			if (message.method === 'initialize') {
 				initializeCount++
@@ -242,7 +248,12 @@ describe('Streamable HTTP MCP transport', () => {
 			content: [{ type: 'text', text: 'new generation' }],
 		})
 		const callB = fetchMock.mock.calls
-			.map((_, index) => requestAt(fetchMock, index))
+			.map((_, index) => index)
+			// The best-effort session DELETE `close()` now sends has no body at
+			// all; skip it rather than teach `requestAt` to tolerate a call
+			// shape every other assertion in this file assumes carries one.
+			.filter((index) => typeof fetchMock.mock.calls[index]?.[1]?.body === 'string')
+			.map((index) => requestAt(fetchMock, index))
 			.find((request) => (request.body.params as { name?: string } | undefined)?.name === 'B')
 		expect(callB?.headers['Mcp-Session-Id']).toBe('sid_new')
 		expect(notifications).toEqual([])
@@ -254,6 +265,9 @@ describe('Streamable HTTP MCP transport', () => {
 			.mockResolvedValueOnce(
 				new Response(null, { status: 204, headers: { 'mcp-session-id': 'sid_old' } }),
 			)
+			// `close()` sends a best-effort DELETE for the session just
+			// captured above, before the reconnect below sends anything else.
+			.mockResolvedValueOnce(new Response(null, { status: 204 }))
 			.mockResolvedValueOnce(new Response(null, { status: 204 }))
 		vi.stubGlobal('fetch', fetchMock)
 		const transport = new StreamableHttpTransport({
@@ -266,7 +280,12 @@ describe('Streamable HTTP MCP transport', () => {
 		await transport.connect()
 		await transport.send({ jsonrpc: '2.0', method: 'notifications/second', params: {} })
 
-		expect(requestAt(fetchMock, 1).headers['Mcp-Session-Id']).toBeUndefined()
+		const deleteCall = fetchMock.mock.calls[1]
+		expect(deleteCall?.[1]?.method).toBe('DELETE')
+		expect(
+			(deleteCall?.[1]?.headers as Record<string, string> | undefined)?.['Mcp-Session-Id'],
+		).toBe('sid_old')
+		expect(requestAt(fetchMock, 2).headers['Mcp-Session-Id']).toBeUndefined()
 	})
 
 	it('accepts a session id only from initialize, not from a later ordinary send', async () => {

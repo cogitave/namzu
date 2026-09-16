@@ -7,11 +7,7 @@ import {
 	MCP_NAME_HEADER_METHODS,
 	MCP_PROTOCOL_VERSION_HEADER,
 } from '../../constants/mcp/index.js'
-import type {
-	MCPClientCapabilities,
-	MCPInputRequest,
-	McpEra,
-} from '../../types/connector/index.js'
+import type { MCPClientCapabilities, MCPInputRequest, McpEra } from '../../types/connector/index.js'
 import { MCPInvalidResultTypeError } from './errors.js'
 import { type McpParamHeaderBinding, mcpParamHeaderValues } from './x-mcp-header.js'
 

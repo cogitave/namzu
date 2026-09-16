@@ -13,12 +13,33 @@ import { refuseMcpHttpRedirect } from './http-redirect.js'
 
 const DEFAULT_TIMEOUT_MS = 30_000
 
+/**
+ * How long a best-effort session teardown DELETE is given before this
+ * transport stops tracking it.
+ *
+ * `close()` never awaits this at all — the bound exists only so a DELETE to
+ * an unresponsive peer does not accumulate as a dangling request forever.
+ */
+const SESSION_DELETE_TIMEOUT_MS = 5_000
+
 export class StreamableHttpTransport implements MCPTransport {
 	private messageHandlers: Array<(message: MCPJsonRpcMessage) => void> = []
 	private closeHandlers: Array<() => void> = []
 	private errorHandlers: Array<(error: Error) => void> = []
 	private connected = false
 	private sessionId: string | null = null
+	/**
+	 * The most recent SSE event `id` this transport has seen, if any.
+	 *
+	 * Legacy-only in effect, never in name: this transport only ever holds a
+	 * `sessionId` on a legacy connection (a modern connection has no
+	 * `initialize` reply to capture one from — `MCPClient` probes with
+	 * `server/discover` instead), and {@link buildHeaders} sends
+	 * `Last-Event-ID` only alongside a session id. Deliberately NOT cleared
+	 * by `close()`: the whole point is arming the header for the request
+	 * that follows a reconnect, once a fresh session exists to carry it.
+	 */
+	private lastEventId: string | null = null
 	private generation = 0
 	private activeSends = new Set<AbortController>()
 	private log: Logger
@@ -46,22 +67,94 @@ export class StreamableHttpTransport implements MCPTransport {
 	}
 
 	async close(): Promise<void> {
+		// Read and clear before anything else can observe or re-enter: whatever
+		// happens below, this transport no longer believes it holds this session.
+		const sessionId = this.sessionId
+		this.sessionId = null
+
 		if (!this.connected) {
 			// Never connected, or already closed: nothing will notify, so this is
 			// the only chance to drop what `connect()` registered before it failed.
 			this.clearHandlers()
-			this.sessionId = null
+			if (sessionId) this.sendSessionDelete(sessionId)
 			return
 		}
 		this.connected = false
 		this.generation++
-		this.sessionId = null
 		const reason = new Error('StreamableHttpTransport closed')
 		for (const controller of this.activeSends) controller.abort(reason)
 		this.activeSends.clear()
 		for (const handler of this.closeHandlers) handler()
 		// After the notification, never before it.
 		this.clearHandlers()
+		if (sessionId) this.sendSessionDelete(sessionId)
+	}
+
+	/**
+	 * Forget the session this transport has been attaching to requests,
+	 * without otherwise disturbing the connection.
+	 *
+	 * Used by `MCPClient`'s legacy session-recovery path: a `404` on a
+	 * request means the server has forgotten this session, and the spec's
+	 * remedy is a fresh `initialize` sent with no session id attached — which
+	 * only happens if this transport stops sending the stale one first.
+	 */
+	resetSession(): void {
+		this.sessionId = null
+	}
+
+	/** Whether this transport is currently attaching a session id to its requests. */
+	hasSession(): boolean {
+		return this.sessionId !== null
+	}
+
+	/**
+	 * Tell the peer this session is done, without making `close()` wait on
+	 * the answer.
+	 *
+	 * A SHOULD, not a MUST: it lets a cooperative server free resources
+	 * promptly instead of waiting out its own idle timeout, but a server that
+	 * never hears it is no worse off than before this existed. Fire-and-forget
+	 * on purpose — `close()`'s existing bounded-teardown guarantee must not
+	 * grow a dependency on a round trip to a peer that may already be gone —
+	 * and bounded by its own short timeout so a peer that never answers does
+	 * not leave a request open indefinitely. A modern origin never reaches
+	 * this: it never had a session id to send in the first place.
+	 */
+	private sendSessionDelete(sessionId: string): void {
+		const controller = new AbortController()
+		const timer = setTimeout(() => {
+			controller.abort(new Error('MCP session DELETE timed out'))
+		}, SESSION_DELETE_TIMEOUT_MS)
+		timer.unref?.()
+		const headers: Record<string, string> = {
+			...this.config.headers,
+			'Mcp-Session-Id': sessionId,
+		}
+		let sending: Promise<Response>
+		try {
+			sending = this.fetchImpl(this.config.url, {
+				method: 'DELETE',
+				headers,
+				redirect: 'manual',
+				signal: controller.signal,
+			})
+		} catch (err) {
+			clearTimeout(timer)
+			this.log.debug('Failed to send MCP legacy session DELETE', {
+				'namzu.mcp.url': this.config.url,
+				'exception.message': err instanceof Error ? err.message : String(err),
+			})
+			return
+		}
+		void sending
+			.catch((err: unknown) => {
+				this.log.debug('Failed to send MCP legacy session DELETE', {
+					'namzu.mcp.url': this.config.url,
+					'exception.message': err instanceof Error ? err.message : String(err),
+				})
+			})
+			.finally(() => clearTimeout(timer))
 	}
 
 	/** See {@link StdioTransport} — the same append-only handler leak. */
@@ -153,6 +246,11 @@ export class StreamableHttpTransport implements MCPTransport {
 
 		if (this.sessionId) {
 			headers['Mcp-Session-Id'] = this.sessionId
+			// Resumption is a legacy-only concept, and gated the same way the
+			// session id itself is: a modern connection never captures a
+			// `sessionId` (see the field's own doc comment), so this branch is
+			// unreachable there without a second, redundant era flag.
+			if (this.lastEventId) headers['Last-Event-ID'] = this.lastEventId
 		}
 
 		return headers
@@ -209,7 +307,7 @@ export class StreamableHttpTransport implements MCPTransport {
 
 		const contentType = response.headers.get('content-type') ?? ''
 		const messages = contentType.includes('text/event-stream')
-			? parseSseMessages(text)
+			? this.parseSseAndCaptureEventId(text)
 			: parseJsonMessages(text)
 
 		for (const message of messages) {
@@ -219,6 +317,20 @@ export class StreamableHttpTransport implements MCPTransport {
 				handler(message)
 			}
 		}
+	}
+
+	/**
+	 * Parse an SSE body and remember the newest event `id` it carried, if
+	 * any.
+	 *
+	 * The id survives past this one call — see the `lastEventId` field's own
+	 * doc comment — so it is available to arm `Last-Event-ID` on whatever
+	 * request follows a later reconnect.
+	 */
+	private parseSseAndCaptureEventId(raw: string): MCPJsonRpcMessage[] {
+		const { messages, lastEventId } = parseSseMessages(raw)
+		if (lastEventId !== undefined) this.lastEventId = lastEventId
+		return messages
 	}
 }
 
@@ -248,14 +360,51 @@ function parseJsonMessages(raw: string): MCPJsonRpcMessage[] {
 	return Array.isArray(parsed) ? parsed : [parsed]
 }
 
-function parseSseMessages(raw: string): MCPJsonRpcMessage[] {
+/** What one SSE-formatted Streamable HTTP response body parsed into. */
+export interface MCPSseParseResult {
+	readonly messages: MCPJsonRpcMessage[]
+	/**
+	 * The value of the last `id:` field seen across every event in the body
+	 * — including one whose `data:` was empty, SSE's own priming event.
+	 * `undefined` when no event in the body carried an id at all.
+	 */
+	readonly lastEventId?: string
+}
+
+/**
+ * Parse a response body served as `text/event-stream`.
+ *
+ * Exported and pure so it is a direct unit-test target, with no transport,
+ * socket or server needed to see what it decides.
+ *
+ * Already correct on three counts before this: `data:` with or without a
+ * leading space, multi-line data joined with `\n`, and the empty-data
+ * priming event skipped as a message. This adds the two genuinely new
+ * pieces — capturing `id:` (armed by the caller for a legacy
+ * `Last-Event-ID` reconnect) and treating a `:`-prefixed comment or another
+ * unrecognized line as exactly what the spec says it is: not a field, never
+ * malformed input. Neither needed a special case: both filters below already
+ * select a line by its OWN prefix and so already ignore anything else — a
+ * comment, an `event:` line, a `retry:` line — without one.
+ */
+export function parseSseMessages(raw: string): MCPSseParseResult {
 	const normalized = raw.replace(/\r\n/g, '\n')
 	const events = normalized.split(/\n\n+/)
 	const messages: MCPJsonRpcMessage[] = []
+	let lastEventId: string | undefined
 
 	for (const event of events) {
-		const dataLines = event
-			.split('\n')
+		const lines = event.split('\n')
+
+		const idLines = lines
+			.filter((line) => line.startsWith('id:'))
+			.map((line) => line.slice('id:'.length).trim())
+		// The LAST `id:` field within one event wins, per SSE's own
+		// field-processing rules — relevant only for a malformed event that
+		// repeats the field, but cheap to get right.
+		if (idLines.length > 0) lastEventId = idLines.at(-1)
+
+		const dataLines = lines
 			.filter((line) => line.startsWith('data:'))
 			.map((line) => line.slice('data:'.length).trimStart())
 
@@ -272,5 +421,5 @@ function parseSseMessages(raw: string): MCPJsonRpcMessage[] {
 		}
 	}
 
-	return messages
+	return lastEventId !== undefined ? { messages, lastEventId } : { messages }
 }
