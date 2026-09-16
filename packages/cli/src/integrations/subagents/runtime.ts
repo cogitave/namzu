@@ -802,6 +802,16 @@ export async function createSubagentRuntime(
 						agentId,
 						prompt,
 						workingDirectory: opts.cwd,
+						// The same labels the monitor was seeded with, sent down so the
+						// child's `agent_pending` carries them: a listener or SSE
+						// consumer outside this process then groups the child the way
+						// the operator sees it here, instead of the grouping living
+						// only in the closure above. Display-only on both paths — no
+						// dependency, barrier or serial execution follows from any.
+						...(workflow ? { workflow } : {}),
+						...(phase ? { phase } : {}),
+						...(phase_detail ? { phaseDetail: phase_detail } : {}),
+						...(phase_order !== undefined ? { phaseOrder: phase_order } : {}),
 						// Hang the child run off THIS tool's span, so the delegation
 						// shows up inside the turn that asked for it. Without it a
 						// sub-agent opens its OWN root trace, and the one structure

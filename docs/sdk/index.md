@@ -40,6 +40,7 @@ The kernel.
 * [Cognitive architecture research](cognitive-architecture.md) - Draft process architecture, neuroscience motivation and bounded experiments for state, recall, action and evidence.
 * [Cognitive storage research](cognitive-storage.md) - Pydantic AI source comparison and proposed boundaries for RAM, durable records, retrieval indexes and recovery.
 * [Ids](ids.md) - Opaque UUIDs, nominal entity types and strict storage admission.
+* [Delegation events](delegation-events.md) - What the kernel says when a run delegates, which fields a host may act on, and which are captions for a screen.
 * [Hook events](hooks.md) - The events the kernel fires for extensions and shell hooks, what each carries, which can answer with a verdict, and the JSON a shell hook reads on stdin.
 * [The review policy](review-policy.md) - The five modes a run resolves undecided tool calls under, which calls skip review, and how a host supplies the person to ask.
 * [The salience-scored working set](salience-working-set.md) - Context scoring, multimodal token estimates, retention and recovery limits.

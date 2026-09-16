@@ -1,7 +1,11 @@
 import { RunCancelled, type RunEvent, type RunId, type TaskHandle, type TaskId } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
-import { MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS, SubagentActivityMonitor } from '../activity.js'
+import {
+	MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS,
+	type SubagentActivity,
+	SubagentActivityMonitor,
+} from '../activity.js'
 
 const runId = '4721e070-5ba2-425a-bf5a-8cc927907e9a' as RunId
 const taskId = 'tsk_child' as TaskId
@@ -31,6 +35,18 @@ function handle(state: TaskHandle['state'] = 'completed'): TaskHandle {
 		state,
 		createdAt: 10,
 		completedAt: 20,
+	}
+}
+
+function grouping(entry: SubagentActivity | undefined) {
+	return {
+		workflowGroupId: entry?.workflowGroupId,
+		phaseId: entry?.phaseId,
+		phaseSequence: entry?.phaseSequence,
+		workflow: entry?.workflow,
+		phase: entry?.phase,
+		phaseOrder: entry?.phaseOrder,
+		phaseDetail: entry?.phaseDetail,
 	}
 }
 
@@ -168,6 +184,124 @@ describe('the CLI sub-agent activity monitor', () => {
 
 		const snapshot = monitor.getSnapshot()
 		expect(snapshot[0]?.phaseId).toBe(snapshot[1]?.phaseId)
+	})
+
+	it('labels from the event and from begin() agree', () => {
+		// The labels now ride the child's own `agent_pending` as well as the
+		// launch call, and the monitor reads both. This pins the thing that
+		// change must NOT do: for a run supplying the same labels on both
+		// paths, the grouping is byte-identical to what the launch call alone
+		// produced. It moves where the labels travel, not how they group.
+		const launch = [
+			{ agentId: 'a', description: 'a', prompt: 'a', workflowId: 'run-parent' },
+			{ workflow: 'Audit', phase: 'Research', phaseOrder: 0, phaseDetail: 'Read the code.' },
+		] as const
+		const pending = {
+			type: 'agent_pending' as const,
+			runId,
+			taskId,
+			parentAgentId: 'namzu',
+			childAgentId: 'a',
+			depth: 0,
+		}
+
+		// The pre-change path: labels at launch, an event that carries none.
+		const baseline = new SubagentActivityMonitor()
+		baseline.begin({ ...launch[0], ...launch[1] }).onEvent(pending)
+
+		const monitor = new SubagentActivityMonitor()
+		monitor.begin({ ...launch[0], ...launch[1] }).onEvent({ ...pending, ...launch[1] })
+
+		expect(grouping(monitor.getSnapshot()[0])).toEqual(grouping(baseline.getSnapshot()[0]))
+		expect(grouping(monitor.getSnapshot()[0])).toEqual({
+			workflowGroupId: JSON.stringify(['run-parent', 'workflow', 'Audit']),
+			phaseId: 'phase-1',
+			phaseSequence: 1,
+			workflow: 'Audit',
+			phase: 'Research',
+			phaseOrder: 0,
+			phaseDetail: 'Read the code.',
+		})
+	})
+
+	it('groups a child whose labels arrive only on its event', () => {
+		// A host that supplies labels to the kernel and not to the monitor —
+		// every non-CLI host, since the options types are the surface it has —
+		// still gets grouped work rather than one undifferentiated batch.
+		const monitor = new SubagentActivityMonitor()
+		monitor
+			.begin({ agentId: 'a', description: 'a', prompt: 'a', workflowId: 'run-parent' })
+			.onEvent({
+				type: 'agent_pending',
+				runId,
+				taskId,
+				parentAgentId: 'namzu',
+				childAgentId: 'a',
+				depth: 0,
+				workflow: 'Audit',
+				phase: 'Research',
+				phaseOrder: 0,
+			})
+
+		expect(monitor.getSnapshot()[0]).toMatchObject({
+			workflowGroupId: JSON.stringify(['run-parent', 'workflow', 'Audit']),
+			workflow: 'Audit',
+			phase: 'Research',
+			phaseOrder: 0,
+		})
+	})
+
+	it('keeps the launch labels when an agent never reaches its event', () => {
+		// `begin()` stays the seed for exactly this: a child that fails during
+		// admission emits no `agent_pending` at all, and it still belongs in
+		// the phase the operator watched it launch into.
+		const monitor = new SubagentActivityMonitor()
+		monitor
+			.begin({
+				agentId: 'a',
+				description: 'a',
+				prompt: 'a',
+				workflowId: 'run-parent',
+				workflow: 'Audit',
+				phase: 'Research',
+			})
+			.fail(new Error('no capacity'))
+
+		expect(monitor.getSnapshot()[0]).toMatchObject({
+			status: 'failed',
+			workflow: 'Audit',
+			phase: 'Research',
+		})
+	})
+
+	it('an event naming one label leaves the others as they were launched', () => {
+		// The merge is seed-under-event, so a host that names a phase and no
+		// workflow does not silently drop the workflow it launched under.
+		const monitor = new SubagentActivityMonitor()
+		monitor
+			.begin({
+				agentId: 'a',
+				description: 'a',
+				prompt: 'a',
+				workflowId: 'run-parent',
+				workflow: 'Audit',
+				phase: 'Research',
+			})
+			.onEvent({
+				type: 'agent_pending',
+				runId,
+				taskId,
+				parentAgentId: 'namzu',
+				childAgentId: 'a',
+				depth: 0,
+				phase: 'Verify',
+			})
+
+		expect(monitor.getSnapshot()[0]).toMatchObject({
+			workflow: 'Audit',
+			phase: 'Verify',
+			workflowGroupId: JSON.stringify(['run-parent', 'workflow', 'Audit']),
+		})
 	})
 
 	it('groups concurrent direct calls by batch and never revives a settled earlier wave', () => {

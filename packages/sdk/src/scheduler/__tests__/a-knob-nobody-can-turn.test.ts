@@ -173,6 +173,63 @@ describe('a delegated run is built with the config its caller asked for', () => 
 	})
 })
 
+/**
+ * The same hop, for the display grouping — and for the same reason.
+ *
+ * `workflow`, `phase`, `phaseDetail` and `phaseOrder` are declared on
+ * `CreateTaskOptions` and read off `SendMessageOptions` by the agent manager,
+ * which puts them on `agent_pending`. Nothing between the two reads them, so a
+ * `createTask` that forgot to forward them would type-check, lint, and leave
+ * every test above green while the labels stopped reaching the event — exactly
+ * how `configOverrides` was lost at this spot.
+ *
+ * Display-only, as everywhere else: they create no dependencies, barriers, or
+ * serial execution. This asserts reachability, not meaning.
+ */
+describe('a delegated run carries the display grouping its caller asked for', () => {
+	it('forwards the four labels to the spawn', async () => {
+		const manager = new RecordingManager()
+		const gateway = new LocalTaskScheduler(manager, context())
+
+		await gateway.createTask({
+			agentId: 'worker',
+			prompt: 'work',
+			workingDirectory: '/tmp',
+			workflow: 'Release audit',
+			phase: 'Verify',
+			phaseDetail: 'Confirm the fix against the failing case.',
+			// Zero is the first phase, not an absent one: the spread that
+			// forwards it tests `!== undefined` for exactly this.
+			phaseOrder: 0,
+		})
+
+		expect(manager.sent[0]).toMatchObject({
+			workflow: 'Release audit',
+			phase: 'Verify',
+			phaseDetail: 'Confirm the fix against the failing case.',
+			phaseOrder: 0,
+		})
+	})
+
+	it('sends no labels at all when the caller named none', async () => {
+		// Absent, not empty. A host that groups nothing must stay
+		// distinguishable from one that grouped everything under a blank
+		// label, and that distinction is only preserved if the keys are
+		// missing rather than present and undefined.
+		const manager = new RecordingManager()
+		const gateway = new LocalTaskScheduler(manager, context())
+
+		await gateway.createTask({
+			agentId: 'worker',
+			prompt: 'work',
+			workingDirectory: '/tmp',
+		})
+
+		for (const key of ['workflow', 'phase', 'phaseDetail', 'phaseOrder'])
+			expect(manager.sent[0]).not.toHaveProperty(key)
+	})
+})
+
 describe('a task-specific event observer', () => {
 	const events = [
 		{

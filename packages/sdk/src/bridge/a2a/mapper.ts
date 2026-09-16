@@ -280,6 +280,14 @@ const MAPPING: {
 	plan_completed: null,
 	plan_failed: null,
 
+	// Delegation is this runtime's internal division of labour: a peer asked
+	// for one task and models one task lifecycle, so who this runtime spawned
+	// to serve it is not a fact about the peer's task. The display grouping
+	// `agent_pending` carries (workflow, phase, phase detail, phase order) is
+	// deliberately not on this wire either — it is caption text for an
+	// operator's screen, it creates no dependencies, barriers or serial
+	// execution, and a peer has no screen of ours to put it on. Hosts that do
+	// want it read the SSE wire, where `agent.pending` carries it.
 	agent_pending: null,
 	agent_completed: null,
 	agent_failed: null,

@@ -103,6 +103,24 @@ export interface SubagentActivitySource {
 	reset(): void
 }
 
+/**
+ * The display grouping one delegation carries. Supplied at `begin()` and
+ * again on the child's `agent_pending` event, which is the copy that leaves
+ * this process; both name the same thing, and the monitor keeps the `begin()`
+ * values as the seed so a child that fails before the event ever arrives still
+ * groups where the operator saw it launch.
+ *
+ * Display-only, exactly as the `Agent` tool's schema says: these create no
+ * dependencies, barriers or serial execution. Phase IDENTITY stays
+ * monitor-owned (`phaseId`) and is never one of these labels.
+ */
+export interface SubagentDisplayLabels {
+	readonly workflow?: string
+	readonly phase?: string
+	readonly phaseOrder?: number
+	readonly phaseDetail?: string
+}
+
 export interface SubagentActivityTracker {
 	readonly onEvent: (event: RunEvent) => void
 	settle(handle: TaskHandle): void
@@ -131,6 +149,8 @@ interface MutableActivity {
 	phaseOrder?: number
 	phaseDetail?: string
 	phaseSequence: number
+	/** Labels this record is currently grouped by; the seed for a later event. */
+	labels: SubagentDisplayLabels
 	status: SubagentActivityStatus
 	startedAt: number
 	completedAt?: number
@@ -184,42 +204,8 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		const batchId = requestedBatchId
 			? bounded(requestedBatchId, MAX_IDENTITY_LABEL_CODE_UNITS)
 			: this.fallbackBatchId(workflowId)
-		const workflowIdentity = normalizedLabel(
-			input.workflow,
-			DEFAULT_AGENT_WORKFLOW,
-			MAX_IDENTITY_LABEL_CODE_UNITS,
-		)
-		const phaseIdentity = normalizedLabel(
-			input.phase,
-			DEFAULT_AGENT_PHASE,
-			MAX_IDENTITY_LABEL_CODE_UNITS,
-		)
-		// A tool batch is a concurrency boundary, not a workflow phase. Explicit
-		// workflow annotations may span several batches within their parent run;
-		// unrelated unlabelled batches have no evidence of a shared workflow.
-		const workflowGroupId = JSON.stringify(
-			input.workflow?.trim()
-				? [workflowId, 'workflow', workflowIdentity]
-				: [workflowId, 'batch', batchId],
-		)
-		const phaseKey = JSON.stringify([workflowGroupId, phaseIdentity])
-		let phaseDefinition = this.phases.get(phaseKey)
-		if (!phaseDefinition) {
-			const sequence = ++this.phaseCounter
-			const order = normalizedPhaseOrder(input.phaseOrder)
-			// Reuses normalizedLabel's own trim/control-strip/bound pipeline with an
-			// empty fallback, so an absent or blank detail collapses to `undefined`
-			// rather than a visible placeholder.
-			const detail =
-				normalizedLabel(input.phaseDetail, '', MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS) || undefined
-			phaseDefinition = {
-				id: `phase-${sequence}`,
-				...(order !== undefined ? { order } : {}),
-				...(detail !== undefined ? { detail } : {}),
-				sequence,
-			}
-			this.phases.set(phaseKey, phaseDefinition)
-		}
+		const labels = displayLabels(input)
+		const grouping = this.group(workflowId, batchId, labels)
 		const record: MutableActivity = {
 			epoch,
 			order: this.counter,
@@ -235,13 +221,8 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				? { toolUseId: bounded(input.toolUseId, MAX_IDENTITY_LABEL_CODE_UNITS) }
 				: {}),
 			workflowId,
-			workflowGroupId,
-			phaseId: phaseDefinition.id,
-			workflow: bounded(workflowIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
-			phase: bounded(phaseIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
-			...(phaseDefinition.order !== undefined ? { phaseOrder: phaseDefinition.order } : {}),
-			...(phaseDefinition.detail !== undefined ? { phaseDetail: phaseDefinition.detail } : {}),
-			phaseSequence: phaseDefinition.sequence,
+			...grouping,
+			labels,
 			status: 'starting',
 			startedAt: Date.now(),
 			rows: [],
@@ -259,6 +240,7 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 			onEvent: (event) => {
 				const owned = current()
 				if (!owned) return
+				if (event.type === 'agent_pending') this.relabel(owned, event)
 				projectEvent(owned, event)
 				this.scheduleNotify()
 			},
@@ -390,6 +372,115 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 		this.listeners.clear()
 	}
 
+	/**
+	 * Resolves display labels to this monitor's grouping identities.
+	 *
+	 * Phase identity is allocated here and only here, first-writer-wins per
+	 * `[workflowGroupId, phase]`: the first agent to name a phase fixes its
+	 * id, its display order and its detail text, and a later sibling that
+	 * disagrees joins the phase rather than changing it. That is what keeps a
+	 * pane from flickering between two wordings of the same stage, and it is
+	 * also why calling this twice for one agent with the same labels is
+	 * exactly a no-op — the second call finds the definition the first made.
+	 *
+	 * Definitions live for the conversation: `reset()` and `dispose()` clear
+	 * them and nothing prunes them in between, so the map holds one entry per
+	 * distinct `[workflowGroupId, phase]` anything has named. A host that
+	 * labels one child differently at `begin()` and on its event defines two of
+	 * them; the size follows how many wordings a host invents, not how long the
+	 * session runs.
+	 */
+	private group(
+		workflowId: string,
+		batchId: string,
+		labels: SubagentDisplayLabels,
+	): {
+		workflowGroupId: string
+		phaseId: string
+		workflow: string
+		phase: string
+		phaseOrder?: number
+		phaseDetail?: string
+		phaseSequence: number
+	} {
+		const workflowIdentity = normalizedLabel(
+			labels.workflow,
+			DEFAULT_AGENT_WORKFLOW,
+			MAX_IDENTITY_LABEL_CODE_UNITS,
+		)
+		const phaseIdentity = normalizedLabel(
+			labels.phase,
+			DEFAULT_AGENT_PHASE,
+			MAX_IDENTITY_LABEL_CODE_UNITS,
+		)
+		// A tool batch is a concurrency boundary, not a workflow phase. Explicit
+		// workflow annotations may span several batches within their parent run;
+		// unrelated unlabelled batches have no evidence of a shared workflow.
+		const workflowGroupId = JSON.stringify(
+			labels.workflow?.trim()
+				? [workflowId, 'workflow', workflowIdentity]
+				: [workflowId, 'batch', batchId],
+		)
+		const phaseKey = JSON.stringify([workflowGroupId, phaseIdentity])
+		let phaseDefinition = this.phases.get(phaseKey)
+		if (!phaseDefinition) {
+			const sequence = ++this.phaseCounter
+			const order = normalizedPhaseOrder(labels.phaseOrder)
+			// Reuses normalizedLabel's own trim/control-strip/bound pipeline with an
+			// empty fallback, so an absent or blank detail collapses to `undefined`
+			// rather than a visible placeholder.
+			const detail =
+				normalizedLabel(labels.phaseDetail, '', MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS) || undefined
+			phaseDefinition = {
+				id: `phase-${sequence}`,
+				...(order !== undefined ? { order } : {}),
+				...(detail !== undefined ? { detail } : {}),
+				sequence,
+			}
+			this.phases.set(phaseKey, phaseDefinition)
+		}
+		return {
+			workflowGroupId,
+			phaseId: phaseDefinition.id,
+			workflow: bounded(workflowIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
+			phase: bounded(phaseIdentity, MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS),
+			...(phaseDefinition.order !== undefined ? { phaseOrder: phaseDefinition.order } : {}),
+			...(phaseDefinition.detail !== undefined ? { phaseDetail: phaseDefinition.detail } : {}),
+			phaseSequence: phaseDefinition.sequence,
+		}
+	}
+
+	/**
+	 * Re-reads the grouping from the labels the child's own `agent_pending`
+	 * carried.
+	 *
+	 * The event is the copy that leaves this process, so a host that supplies
+	 * labels there and nowhere else still gets grouped. The `begin()` values
+	 * stay the seed and are merged under the event's, which is what keeps an
+	 * agent that fails before `agent_pending`
+	 * ever arrives grouped where the operator saw it launch, and what stops a
+	 * partially labelled event from erasing a label it never mentioned.
+	 *
+	 * An event naming none of the four changes nothing at all: the common case
+	 * is the same labels arriving twice, where `group()` returns the definition
+	 * `begin()` already made and every field is rewritten to the value it
+	 * already held.
+	 */
+	private relabel(record: MutableActivity, labels: SubagentDisplayLabels): void {
+		const supplied = displayLabels(labels)
+		if (Object.keys(supplied).length === 0) return
+		const merged: SubagentDisplayLabels = { ...record.labels, ...supplied }
+		const grouping = this.group(record.workflowId, record.batchId, merged)
+		record.workflowGroupId = grouping.workflowGroupId
+		record.phaseId = grouping.phaseId
+		record.workflow = grouping.workflow
+		record.phase = grouping.phase
+		record.phaseOrder = grouping.phaseOrder
+		record.phaseDetail = grouping.phaseDetail
+		record.phaseSequence = grouping.phaseSequence
+		record.labels = merged
+	}
+
 	private fallbackBatchId(workflowId: string): string {
 		for (const record of this.records.values()) {
 			if (record.workflowId === workflowId && !isTerminal(record.status)) return record.batchId
@@ -432,6 +523,41 @@ export class SubagentActivityMonitor implements SubagentActivitySource {
 				// broken renderer must not keep other surfaces from receiving state.
 			}
 		}
+	}
+}
+
+/**
+ * The display labels present on an input, with absent ones left out rather
+ * than carried as `undefined` keys — the merge in `relabel` is a spread, and
+ * an explicit `undefined` there would erase a seeded label instead of leaving
+ * it alone. Present-but-empty is kept: `''` and absent are different answers,
+ * and only the caller's own `!== undefined` test can tell them apart. No event
+ * this repo emits can carry `''` — the agent manager, the scheduler and the SSE
+ * transform each drop an empty label by truthiness, the same way they treat
+ * `planId` — so that distinction answers a host that builds the event itself.
+ *
+ * Bounded because the result is RETAINED as a record's seed, and one source of
+ * these is now an event rather than this process's own tool call. The bound is
+ * the identity ceiling `group()` already truncates at, not the narrower display
+ * cap: `group()` derives phase identity from these through `normalizedLabel`,
+ * so clipping shorter here would change which phase a long label lands in on
+ * the `begin()` path too, and that grouping must not move. Nothing the `Agent`
+ * tool can produce reaches either ceiling — its schema caps the three strings
+ * at `MAX_AGENT_ACTIVITY_LABEL_CODE_UNITS` — so this is a bound on what an
+ * arbitrary host may make this monitor hold, not a clip on a real label.
+ */
+function displayLabels(input: SubagentDisplayLabels): SubagentDisplayLabels {
+	return {
+		...(input.workflow !== undefined
+			? { workflow: bounded(input.workflow, MAX_IDENTITY_LABEL_CODE_UNITS) }
+			: {}),
+		...(input.phase !== undefined
+			? { phase: bounded(input.phase, MAX_IDENTITY_LABEL_CODE_UNITS) }
+			: {}),
+		...(input.phaseOrder !== undefined ? { phaseOrder: input.phaseOrder } : {}),
+		...(input.phaseDetail !== undefined
+			? { phaseDetail: bounded(input.phaseDetail, MAX_IDENTITY_LABEL_CODE_UNITS) }
+			: {}),
 	}
 }
 

@@ -437,6 +437,17 @@ const MAPPING: {
 			depth: e.depth,
 			...(e.planId ? { plan_id: e.planId } : {}),
 			...(e.planStepId ? { plan_step_id: e.planStepId } : {}),
+			// Display grouping, so a remote consumer can rebuild the tree the
+			// operator sees instead of a flat list of children. These fields are
+			// display annotations only; they do not create dependencies,
+			// barriers, or serial execution — `plan_id`/`plan_step_id` above are
+			// the correlation a consumer may act on. Spread conditionally: this
+			// transform is an allowlist, and a key that is always present would
+			// tell a consumer a host had grouped work when it had not.
+			...(e.workflow ? { workflow: e.workflow } : {}),
+			...(e.phase ? { phase: e.phase } : {}),
+			...(e.phaseDetail ? { phase_detail: e.phaseDetail } : {}),
+			...(e.phaseOrder !== undefined ? { phase_order: e.phaseOrder } : {}),
 		}),
 	},
 

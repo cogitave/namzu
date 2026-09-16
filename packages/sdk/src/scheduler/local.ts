@@ -114,6 +114,14 @@ export class LocalTaskScheduler implements TaskScheduler {
 				beforeStart: options.beforeStart,
 				...(options.planId ? { planId: options.planId } : {}),
 				...(options.planStepId ? { planStepId: options.planStepId } : {}),
+				// Display grouping travels with the spawn so the manager can put it
+				// on `agent_pending`. Spread conditionally, like the plan edge
+				// above: a host that groups nothing must not be made to look like
+				// one that grouped everything under an empty label.
+				...(options.workflow ? { workflow: options.workflow } : {}),
+				...(options.phase ? { phase: options.phase } : {}),
+				...(options.phaseDetail ? { phaseDetail: options.phaseDetail } : {}),
+				...(options.phaseOrder !== undefined ? { phaseOrder: options.phaseOrder } : {}),
 				input: {
 					messages: [createUserMessage(options.prompt)],
 					workingDirectory: options.workingDirectory,

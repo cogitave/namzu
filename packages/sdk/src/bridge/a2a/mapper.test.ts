@@ -358,6 +358,48 @@ describe('mapRunToA2AEvent — explicit null set', () => {
 	)
 })
 
+describe('delegation stays off the A2A wire', () => {
+	// The null entries are covered above; this pins the DECISION behind them
+	// against the change most likely to look like a reason to revisit it. A
+	// peer asked for one task and models one task lifecycle: which children
+	// this runtime spawned is not a fact about that task, and the display
+	// grouping those children carry is caption text for an operator's screen
+	// — it creates no dependencies, barriers or serial execution, and a peer
+	// has no screen of ours to put it on.
+	const delegation: RunEvent[] = [
+		{
+			type: 'agent_pending',
+			runId: RID,
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+			parentAgentId: 'supervisor',
+			childAgentId: 'worker',
+			depth: 1,
+			workflow: 'Release audit',
+			phase: 'Verify',
+			phaseDetail: 'Confirm the fix against the failing case.',
+			phaseOrder: 0,
+		},
+		{
+			type: 'agent_failed',
+			runId: RID,
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+			error: 'e',
+		},
+		{
+			type: 'agent_canceled',
+			runId: RID,
+			taskId: '5f5d0823-8327-45fd-a288-bf8fd5f45f91' as TaskId,
+		},
+	]
+
+	it.each(delegation.map((e) => [e.type, e] as const))(
+		'%s stays unmapped, display labels and all',
+		(_name, event) => {
+			expect(mapRunToA2AEvent(event)).toBeNull()
+		},
+	)
+})
+
 describe('mapSessionToA2AEvent (deprecated alias)', () => {
 	it('is the same function reference as mapRunToA2AEvent', () => {
 		// toEqual against paired invocations races the ISO timestamp

@@ -326,6 +326,55 @@ describe('mapRunToStreamEvent — mapped variants', () => {
 		})
 	})
 
+	it('agent.pending carries display labels when present', () => {
+		const pending = mapRunToStreamEvent(
+			{
+				type: 'agent_pending',
+				runId: RID,
+				taskId: 'task_1' as TaskId,
+				parentAgentId: 'supervisor',
+				childAgentId: 'worker',
+				depth: 1,
+				workflow: 'Release audit',
+				phase: 'Verify',
+				phaseDetail: 'Confirm the fix against the failing case.',
+				phaseOrder: 0,
+			},
+			RID,
+		)
+
+		expect(pending?.data).toMatchObject({
+			workflow: 'Release audit',
+			phase: 'Verify',
+			phase_detail: 'Confirm the fix against the failing case.',
+			// Zero is the FIRST phase, not a missing one. The transform tests
+			// `!== undefined` for exactly this; a truthiness check here would
+			// drop the opening phase of every grouped run.
+			phase_order: 0,
+		})
+	})
+
+	it('agent.pending omits them when absent', () => {
+		// The transform is an allowlist, so both directions need pinning: a
+		// consumer distinguishes "this host groups nothing" from "grouped
+		// under an empty label" by the key not being there at all.
+		const pending = mapRunToStreamEvent(
+			{
+				type: 'agent_pending',
+				runId: RID,
+				taskId: 'task_1' as TaskId,
+				parentAgentId: 'supervisor',
+				childAgentId: 'worker',
+				depth: 1,
+			},
+			RID,
+		)
+
+		expect(pending?.wire).toBe('agent.pending')
+		for (const key of ['workflow', 'phase', 'phase_detail', 'phase_order'])
+			expect(pending?.data).not.toHaveProperty(key)
+	})
+
 	it('task_created / task_updated map cleanly', () => {
 		const a = mapRunToStreamEvent(
 			{

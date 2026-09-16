@@ -80,13 +80,25 @@ inside a model batch, so a following verification read sees completed foreground
 mutations. A background shell command releases that barrier after job launch;
 wait for the job before reading its eventual output.
 
-When an `Agent` call is associated with the active plan step, the scheduler
-retains that optional plan and step identity while the child is queued and after
-it is admitted. SDK hosts receive the same `planId` and `planStepId` on the
-initial `agent_pending` event, and SSE consumers receive `plan_id` and
-`plan_step_id`. This lets a host correlate pending delegated work before the
-child starts without treating display-oriented workflow or phase labels as plan
-dependencies.
+Both kinds of annotation now reach a host the same way, on the child's initial
+`agent_pending` event, so what separates them is what they mean rather than
+where they travel. When an `Agent` call is associated with the active plan step,
+the scheduler retains that plan and step identity while the child is queued and
+after it is admitted, and SDK hosts receive `planId` and `planStepId` (SSE
+consumers: `plan_id` and `plan_step_id`) — correlation a host may act on,
+naming an approved plan edge the kernel also knows about. The `workflow`,
+`phase`, `phase_detail` and `phase_order` supplied on the same call ride that
+event too, as `workflow`, `phase`, `phaseDetail` and `phaseOrder` (SSE:
+`workflow`, `phase`, `phase_detail`, `phase_order`), and they remain display
+annotations only: they create no dependencies, barriers or serial execution, and
+nothing in the kernel reads them back. Carrying them there is what gives the
+grouping reach: a listener or SSE consumer outside this process sees the same
+grouping instead of a flat list of children, where a label held in the tool
+call's own memory would reach nobody. It does not make the grouping durable —
+delegation events go straight to a host's listener and enter no run's log, so
+nothing here survives a restart unless a host records it itself.
+Every one of these fields is absent unless supplied. See
+[delegation events](../sdk/delegation-events.md) for the full event surface.
 
 
 For parallel work, send the independent Agent calls in the same response or

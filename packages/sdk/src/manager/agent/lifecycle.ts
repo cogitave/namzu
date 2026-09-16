@@ -254,6 +254,7 @@ export class AgentManager {
 				depth: context.depth,
 				...(options.planId ? { planId: options.planId } : {}),
 				...(options.planStepId ? { planStepId: options.planStepId } : {}),
+				...displayLabels(options),
 			})
 			entry.ready = true
 		} catch (error) {
@@ -548,6 +549,7 @@ export class AgentManager {
 						depth: context.depth,
 						...(options.planId ? { planId: options.planId } : {}),
 						...(options.planStepId ? { planStepId: options.planStepId } : {}),
+						...displayLabels(options),
 					})
 
 				const lineage: Lineage = {
@@ -1587,6 +1589,33 @@ export class AgentManager {
 		}
 	}
 }
+
+/**
+ * The display grouping a host supplied at spawn, in the shape `agent_pending`
+ * carries it.
+ *
+ * Present only when named. A blank workflow spread onto the event would make a
+ * host that grouped nothing indistinguishable from one that grouped everything
+ * under an empty label, and the two are different answers to a consumer
+ * rebuilding the operator's view.
+ *
+ * Nothing in this file reads the values back: they are display annotations
+ * only; they do not create dependencies, barriers, or serial execution.
+ * Admission, ordering and capacity are decided above without consulting them.
+ */
+function displayLabels(options: DelegationDisplayLabels): DelegationDisplayLabels {
+	return {
+		...(options.workflow ? { workflow: options.workflow } : {}),
+		...(options.phase ? { phase: options.phase } : {}),
+		...(options.phaseDetail ? { phaseDetail: options.phaseDetail } : {}),
+		...(options.phaseOrder !== undefined ? { phaseOrder: options.phaseOrder } : {}),
+	}
+}
+
+type DelegationDisplayLabels = Pick<
+	SendMessageOptions,
+	'workflow' | 'phase' | 'phaseDetail' | 'phaseOrder'
+>
 
 /**
  * Maps a {@link BaseAgentResult} to {@link SessionSummaryOutcome}. Phase 6

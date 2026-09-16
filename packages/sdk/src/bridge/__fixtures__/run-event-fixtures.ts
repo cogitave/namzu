@@ -27,10 +27,16 @@ import { RUN_EVENT_SCHEMA_VERSION } from '../../types/run/schema-version.js'
  * drift, and the drift is invisible: each file still compiles, each still
  * passes, and the two wires are quietly tested against different events.
  *
- * Minimal by construction — required fields only, at their least
- * interesting values, with a fixed `new Date(0)`. A payload here is a
- * SHAPE, and filling it with plausible data would make reviewing a wire
- * change a review of the fixtures instead.
+ * Minimal by construction — required fields at their least interesting
+ * values, with a fixed `new Date(0)`. An optional field appears only where
+ * the exhaustive pass in a wire's `wire-snapshot.test.ts` is meant to pin
+ * the key it produces: `background_job_exited`'s `exitCode` and, on
+ * `agent_pending`, the plan edge and the display labels. One fixture can
+ * only exercise one side of a conditional spread, so the absent direction
+ * is pinned by hand in the tests beside it. Either way nothing here
+ * carries interesting data: a payload is a SHAPE, and filling it with
+ * plausible prose would make reviewing a wire change a review of the
+ * fixtures instead.
  */
 
 export const FIXTURE_RUN_ID = '6b329af9-e3f1-48a6-b7d9-b65487ac303c' as RunId
@@ -340,6 +346,16 @@ export const RUN_EVENT_FIXTURES: Record<RunEvent['type'], () => RunEvent> = {
 		parentAgentId: 'x',
 		childAgentId: 'x',
 		depth: 1,
+		// This event's optional half, so a wire snapshot records every key a
+		// fully annotated delegation produces rather than half of them: the
+		// plan edge a consumer may act on, and the display labels it may only
+		// caption with. Each mapper still decides whether they travel.
+		planId: 'x',
+		planStepId: 'x',
+		workflow: 'x',
+		phase: 'x',
+		phaseDetail: 'x',
+		phaseOrder: 0,
 	}),
 	agent_completed: () => ({
 		type: 'agent_completed',

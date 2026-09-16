@@ -58,6 +58,27 @@ export interface CreateTaskOptions {
 	readonly planId?: string
 	readonly planStepId?: string
 
+	/**
+	 * Display grouping for the delegated child, carried onto its
+	 * `agent_pending` event so a consumer watching from outside this process
+	 * can group the child the way this caller meant. Reach, not durability:
+	 * that event goes straight to a host's listener and enters no run's log,
+	 * so nothing here is persisted by the kernel. See the `agent_pending`
+	 * variant in `types/run/events.ts` for the full contract.
+	 *
+	 * These fields are display annotations only; they do not create
+	 * dependencies, barriers, or serial execution. The kernel reads none of
+	 * them — a caller wanting correlation a host may act on has
+	 * {@link planId} and {@link planStepId} for that.
+	 */
+	readonly workflow?: string
+	/** Stage within {@link workflow}. Display-only on the same terms. */
+	readonly phase?: string
+	/** Longer text explaining {@link phase}. Display-only on the same terms. */
+	readonly phaseDetail?: string
+	/** Zero-based DISPLAY order for {@link phase}. Display-only on the same terms. */
+	readonly phaseOrder?: number
+
 	agentId: string
 
 	/**

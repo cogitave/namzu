@@ -543,6 +543,76 @@ describe('AgentManager.sendMessage — Phase 6 SubSession spawn', () => {
 	})
 })
 
+/**
+ * Display grouping is supplied by the delegating host and is never read back
+ * by the kernel. What makes it worth carrying is where the event goes: a
+ * listener outside the delegating process receives it, and through the SSE
+ * bridge so does a remote consumer — either can then group the child the way
+ * the host meant. A label that stayed in that process's memory could do
+ * neither.
+ *
+ * Reach, not durability. `agent_pending` is handed straight to a host's
+ * listener and never enters a run's log (see the `seq` contract in
+ * `types/run/events.ts`), so what the listener receives is the whole of what
+ * the kernel promises — which is exactly what these tests assert against.
+ */
+describe('AgentManager.sendMessage — display labels on agent_pending', () => {
+	it('carries the labels the delegating tool supplied', async () => {
+		const childAgent = makeAgent('child-1', async () => successResult())
+		const harness = await buildHarness(childAgent)
+		const events: RunEvent[] = []
+
+		const task = await harness.manager.sendMessage(
+			{
+				...buildOptions('child-1', harness.parentSession.id, harness.projectId),
+				workflow: 'Release audit',
+				phase: 'Verify',
+				phaseDetail: 'Confirm the fix against the failing case.',
+				// Zero is the first phase, not an absent one — the spread that
+				// builds the event tests `!== undefined` for exactly this.
+				phaseOrder: 0,
+			},
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
+			(e) => {
+				events.push(e)
+			},
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		const pending = events.find((e) => e.type === 'agent_pending')
+		expect(pending).toMatchObject({
+			workflow: 'Release audit',
+			phase: 'Verify',
+			phaseDetail: 'Confirm the fix against the failing case.',
+			phaseOrder: 0,
+		})
+	})
+
+	it('emits the event unchanged when the host supplies none', async () => {
+		// Every field is optional and absent by default: a host that groups
+		// nothing must not be made to look like one that grouped everything
+		// under an empty label, and a consumer written before these fields
+		// existed has to keep reading the same event.
+		const childAgent = makeAgent('child-1', async () => successResult())
+		const harness = await buildHarness(childAgent)
+		const events: RunEvent[] = []
+
+		const task = await harness.manager.sendMessage(
+			buildOptions('child-1', harness.parentSession.id, harness.projectId),
+			buildContext(harness.parentSession.id, harness.projectId, harness.topicId),
+			(e) => {
+				events.push(e)
+			},
+		)
+		await waitForTask(harness.manager, task.taskId)
+
+		const pending = events.find((e) => e.type === 'agent_pending')
+		expect(pending).toBeDefined()
+		for (const key of ['workflow', 'phase', 'phaseDetail', 'phaseOrder'])
+			expect(pending).not.toHaveProperty(key)
+	})
+})
+
 // Phase 9 Known Delta #5: legacy compat mode removed — AgentManagerDeps is
 // unconditional required. Prior `describe('AgentManager.sendMessage — legacy
 // mode (no session deps)')` block deleted; every spawn now produces a

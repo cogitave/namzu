@@ -109,7 +109,7 @@ afterEach(() => {
 
 describe('the Agent tool parents a delegated run to the turn that asked for it', () => {
 	it('carries parsed cockpit annotations through the production tool into activity', async () => {
-		const { agentTool, activity, close } = await buildAgentTool()
+		const { agentTool, activity, close, created } = await buildAgentTool()
 		try {
 			const parsed = agentTool.inputSchema.parse({
 				description: 'API research',
@@ -117,6 +117,7 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 				workflow: 'Basicbox research',
 				phase: 'Research',
 				phase_order: 1,
+				phase_detail: 'Read the provider APIs we already depend on.',
 			})
 			await agentTool.execute(parsed, toolContext())
 
@@ -127,6 +128,33 @@ describe('the Agent tool parents a delegated run to the turn that asked for it',
 				phaseOrder: 1,
 				phaseSequence: 1,
 			})
+			// And down into the delegation itself, not only into the closure
+			// the monitor was handed: the scheduler puts these on the child's
+			// `agent_pending`, which is the copy a listener or SSE consumer
+			// outside this process receives. A label that reached the monitor
+			// alone would be visible to this process and nothing else.
+			expect(created[0]).toMatchObject({
+				workflow: 'Basicbox research',
+				phase: 'Research',
+				phaseOrder: 1,
+				phaseDetail: 'Read the provider APIs we already depend on.',
+			})
+		} finally {
+			await close()
+		}
+	})
+
+	it('sends no display labels down when the call carried none', async () => {
+		// Absent, not empty. The kernel spreads these conditionally, so an
+		// unlabelled delegation must arrive with the keys missing rather than
+		// present and blank — the two say different things to a consumer
+		// rebuilding the operator's view from the event stream.
+		const { agentTool, close, created } = await buildAgentTool()
+		try {
+			await agentTool.execute({ description: 'audit', prompt: 'inspect' }, toolContext())
+
+			for (const key of ['workflow', 'phase', 'phaseOrder', 'phaseDetail'])
+				expect(created[0]).not.toHaveProperty(key)
 		} finally {
 			await close()
 		}

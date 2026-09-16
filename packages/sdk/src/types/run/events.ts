@@ -812,6 +812,62 @@ type CoreRunEvent =
 			/** Approved plan edge carried while the blocking tool is still live. */
 			planId?: string
 			planStepId?: string
+			/**
+			 * How the host that delegated this child wants it GROUPED on screen —
+			 * a shared label over a set of related delegations, typically one
+			 * operator-visible piece of work several children are doing together.
+			 *
+			 * These fields are display annotations only; they do not create
+			 * dependencies, barriers, or serial execution. Nothing in the kernel
+			 * reads them: admission, ordering and concurrency come from the
+			 * scheduler and from {@link planId}/{@link planStepId}, which is the
+			 * field pair that DOES carry correlation a host may act on. A reader
+			 * who infers execution structure from a label here has inferred it
+			 * from a caption.
+			 *
+			 * Absent unless the delegating host supplied them, which is the
+			 * normal case — a host that groups nothing sends nothing, and a
+			 * consumer written before these existed reads the same event it
+			 * always did.
+			 *
+			 * They ride this event rather than staying in the delegating
+			 * process's memory for REACH: a consumer watching from outside
+			 * that process — another listener, or an SSE client — can rebuild
+			 * the same picture instead of seeing an undifferentiated list of
+			 * children.
+			 *
+			 * Reach is not durability, and this event buys only the first.
+			 * Like every delegation lifecycle event, it is handed straight to
+			 * a host's listener and never enters a run's log — which is what
+			 * the absent `seq` on this variant says, and what the `seq` doc
+			 * above spells out. A label here is therefore written nowhere by
+			 * the kernel and does not survive a restart of the host that chose
+			 * it; a host wanting the grouping to outlive its process records it
+			 * from the listener.
+			 */
+			workflow?: string
+			/**
+			 * Display group WITHIN {@link workflow} — a stage of that work, as
+			 * the delegating host labelled it. Display-only on the same terms as
+			 * {@link workflow}: it creates no dependencies, barriers or serial
+			 * execution, and two children naming the same phase are not thereby
+			 * sequenced or synchronised.
+			 */
+			phase?: string
+			/**
+			 * Longer text explaining {@link phase}, for a surface that has room
+			 * to show it. Display-only on the same terms as {@link workflow}.
+			 */
+			phaseDetail?: string
+			/**
+			 * Where {@link phase} sits in the host's intended DISPLAY order,
+			 * zero-based. Display-only on the same terms as {@link workflow}: it
+			 * orders a list on a screen and orders nothing that runs. Children in
+			 * one phase are expected to carry the same value; a consumer that
+			 * sees two disagree should keep the first rather than resequence,
+			 * because nothing here is authoritative enough to arbitrate.
+			 */
+			phaseOrder?: number
 	  }
 	| {
 			type: 'agent_completed'
