@@ -97,10 +97,10 @@
  * A create that collides with an existing object of the same name ADOPTS it,
  * because the deterministic name is only worth having if coming back is the
  * normal path. What is adopted is then checked against the configuration: the
- * block disk, the `sandbox.namzu.ai/template` pod label (the label an egress
- * NetworkPolicy selects by) and `runtimeClassName` (the VM boundary). A
- * standing object that disagrees with any of them is refused by name rather
- * than driven — see {@link KubernetesWorkspaceMismatchError}. What is NOT
+ * block disk, the `sandbox.namzu.ai/template` pod label (the label the
+ * ingress and egress policies select by) and `runtimeClassName` (the VM
+ * boundary). A standing object that disagrees with any of them is refused by
+ * name rather than driven — see {@link KubernetesWorkspaceMismatchError}. What is NOT
  * checked, and cannot be from here, is whether somebody else is already using
  * it: two host processes can hold handles to one running workspace, and the
  * `destroy()` of either suspends the pod the other is executing in. A
@@ -187,6 +187,7 @@ import {
 	ReadinessPollTimeout,
 	bindingFromSandbox,
 	buildAgentAddressRefresh,
+	buildIngressVerifier,
 	buildSandboxBody,
 	clientAccess,
 	clientOptions,
@@ -198,6 +199,7 @@ import {
 	resolveKubernetesReadiness,
 	resolveProbeTimeoutMs,
 	resolveStreamHeartbeatMs,
+	sandboxPodLabels,
 	verifyEgressPolicyConfigured,
 } from './index.js'
 import {
@@ -964,6 +966,25 @@ export async function createKubernetesWorkspace(
 		template.podTemplate,
 		template.volumeClaimTemplates,
 	)
+
+	// And the other half of the boundary the egress block above calls
+	// primary: an ingress policy that actually closes the agent port on the
+	// labels this pod will carry. Checked before the POST, so a refusal leaves
+	// no Sandbox and no PVC behind — and, on the adopt path, sends no resume
+	// patch: a workspace whose port stopped being covered is refused asleep
+	// rather than woken up to be refused. `sandboxPodLabels` is the same function the
+	// create body stamps its labels with, so the check cannot verify a pod
+	// nobody creates. Not memoized, for the reason the egress check above is
+	// not: this is a rare, explicit act with nothing to amortise, and a policy
+	// deleted since the last call has to be noticed.
+	const verifyIngress = buildIngressVerifier(client, config)
+	if (verifyIngress !== undefined) {
+		await verifyIngress(
+			sandboxPodLabels(template, templateName),
+			`to open workspace ${options.workspaceId} as Sandbox ${name} in namespace ${namespace}`,
+			options.signal,
+		)
+	}
 
 	let adopted: AdoptedWorkspace | undefined
 	try {

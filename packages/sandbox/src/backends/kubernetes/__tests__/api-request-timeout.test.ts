@@ -165,6 +165,7 @@ async function openWorkspace(apiRequestTimeoutMs: number | undefined = BOUND_MS)
 			agentPort: agent.port,
 			readyTimeoutMs: 4_000,
 			readyPollIntervalMs: 5,
+			ingress: 'unverified' as const,
 			...(apiRequestTimeoutMs !== undefined ? { apiRequestTimeoutMs } : {}),
 		},
 		{ workspaceId: WORKSPACE_ID, workingDirectory: '/workspace' },

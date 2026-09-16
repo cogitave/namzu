@@ -262,6 +262,7 @@ async function openWorkspace(): Promise<KubernetesWorkspace> {
 			agentPort,
 			readyTimeoutMs: 5_000,
 			readyPollIntervalMs: 5,
+			ingress: 'unverified' as const,
 		},
 		{ workspaceId: WORKSPACE_ID, workingDirectory: workDir },
 	)

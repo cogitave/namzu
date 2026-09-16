@@ -124,6 +124,20 @@ spec:
         resources:
           requests:
             storage: 10Gi
+  # COVERS NO WORKSPACE POD. The controller translates this block into a
+  # managed NetworkPolicy selecting `agents.x-k8s.io/sandbox-template-ref-hash`,
+  # which it writes only onto a Sandbox adopted out of a SandboxWarmPool — and
+  # a workspace is NEVER pooled (see this file's own header): it is always a
+  # Sandbox the backend POSTs directly. So the ingress rule below protects
+  # nothing here, and the policy that does is the standalone
+  # `networkpolicy.yaml`, which selects `sandbox.namzu.ai/template` by
+  # existence and which the backend now verifies before every create.
+  #
+  # Kept rather than deleted so this template stays a faithful copy of the
+  # task template's shape (one image, one entrypoint, one reviewed set of
+  # rules) and so an operator who later pools a disk-less variant of it gets
+  # the same second layer the task template gets. It is a second layer that
+  # happens to be empty here, never the boundary.
   networkPolicyManagement: Managed
   networkPolicy:
     ingress:

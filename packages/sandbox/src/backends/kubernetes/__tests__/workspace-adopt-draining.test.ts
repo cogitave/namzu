@@ -214,6 +214,7 @@ async function openWorkspace(overrides: { readyTimeoutMs?: number } = {}) {
 			agentPort: agent.port,
 			readyTimeoutMs: 1_000,
 			readyPollIntervalMs: 5,
+			ingress: 'unverified' as const,
 			...overrides,
 		},
 		{ workspaceId: WORKSPACE_ID, workingDirectory: '/workspace' },

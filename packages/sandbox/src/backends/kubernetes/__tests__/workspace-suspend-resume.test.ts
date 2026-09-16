@@ -275,6 +275,7 @@ async function openWorkspace(
 			agentPort: agent.port,
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 5,
+			ingress: 'unverified' as const,
 			...backend,
 		},
 		{

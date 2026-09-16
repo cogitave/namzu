@@ -424,10 +424,18 @@ export function podListPath(namespace: string, labelSelector: string): string {
 	return `/api/v1/namespaces/${segment(namespace)}/pods?labelSelector=${encodeURIComponent(labelSelector)}`
 }
 
+export function networkPolicyCollectionPath(namespace: string): string {
+	return `/apis/${CORE_NETWORK_POLICY_API_GROUP}/${CORE_NETWORK_POLICY_API_VERSION}/namespaces/${segment(namespace)}/networkpolicies`
+}
+
 export function networkPolicyPath(namespace: string, name: string): string {
-	return `/apis/${CORE_NETWORK_POLICY_API_GROUP}/${CORE_NETWORK_POLICY_API_VERSION}/namespaces/${segment(namespace)}/networkpolicies/${segment(name)}`
+	return `${networkPolicyCollectionPath(namespace)}/${segment(name)}`
+}
+
+export function ciliumNetworkPolicyCollectionPath(namespace: string): string {
+	return `/apis/${CILIUM_NETWORK_POLICY_API_GROUP}/${CILIUM_NETWORK_POLICY_API_VERSION}/namespaces/${segment(namespace)}/ciliumnetworkpolicies`
 }
 
 export function ciliumNetworkPolicyPath(namespace: string, name: string): string {
-	return `/apis/${CILIUM_NETWORK_POLICY_API_GROUP}/${CILIUM_NETWORK_POLICY_API_VERSION}/namespaces/${segment(namespace)}/ciliumnetworkpolicies/${segment(name)}`
+	return `${ciliumNetworkPolicyCollectionPath(namespace)}/${segment(name)}`
 }

@@ -16,7 +16,7 @@
 # nothing for it to register. Use this overlay only to develop and smoke-
 # test the plumbing (claim → bind → exec, suspend/resume, egress shape)
 # against a real API server, never as a stand-in for the acceptance run
-# against a genuine Kata cluster the five ../scripts/ measure.
+# against a genuine Kata cluster the six ../scripts/ measure.
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 

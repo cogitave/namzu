@@ -1,11 +1,18 @@
 # Standalone, operator-applied core NetworkPolicy — the PRIMARY boundary on
-# every sandbox this backend creates (docs/sdk/kubernetes-sandbox.md#the-
-# agent-credential: "the primary boundary is the NetworkPolicy ingress rule
-# restricting the agent port to the host's own pods; the bind token is
-# defence-in-depth"). This backend never creates or edits this object
-# itself — same operator-applies-the-boundary precedent as the docker
-# backend's network — it only verifies one exists and matches, and only
-# when `config.egress` is set (see below).
+# every sandbox this backend creates, and REQUIRED: skipping this one file
+# is what used to leave the agent port open from the whole cluster while
+# three other pieces of shipped text said it was covered.
+#
+# The backend never creates or edits this object — same
+# operator-applies-the-boundary precedent as the docker backend's network.
+# What it does, before every create and by default, is LIST this namespace's
+# NetworkPolicy objects (and, under `ingress.engine: 'cilium'`, that CNI's
+# policy CRD too) and refuse unless one of them enforces ingress on the pod's
+# real labels and none of them admits a wide-open peer on the agent port. It
+# never GETs this object BY NAME: a name proves an object exists, not that
+# its selector still matches these pods. A deployment that closes the port
+# somewhere a namespaced Role cannot read sets `ingress: 'unverified'` on the
+# backend config and says so out loud.
 #
 # BEFORE APPLYING: replace `namzu.ai/component: host` with the actual label
 # your namzu host Deployment's pods carry — see sandboxtemplate-task.yaml's
@@ -25,7 +32,8 @@
 # ingress too. If you DO set `config.egress`, apply that second, narrower
 # object as well — NetworkPolicies selecting the same pods union their
 # allow-lists, they do not replace each other, so the two compose rather
-# than conflict.
+# than conflict. The union is also why the ingress check refuses on ONE open
+# rule however many closed ones sit beside it.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

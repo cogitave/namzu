@@ -100,6 +100,7 @@ function backend() {
 		agentPort: agent.port,
 		readyTimeoutMs: 2_000,
 		readyPollIntervalMs: 5,
+		ingress: 'unverified' as const,
 		egress: { policy: { kind: 'deny-all' } },
 	})
 }
@@ -214,6 +215,7 @@ describe('verify-not-trust, against a real fake API server', () => {
 			agentPort: agent?.port ?? 0,
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 5,
+			ingress: 'unverified' as const,
 		}).create({ workingDirectory: '/workspace' })
 
 		expect(server.matching('GET', '/networkpolicies/')).toHaveLength(0)

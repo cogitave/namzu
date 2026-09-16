@@ -84,6 +84,16 @@
  * that translated policy's `podSelector` has something stable to match —
  * see `objects.ts`'s doc comment on that label for why agent-sandbox's own
  * controller-owned label does not cover this path.
+ *
+ * ## Ingress
+ *
+ * `config.ingress` is the opposite default: verification is ON unless a
+ * deployment says `'unverified'`. Before the POST for a direct Sandbox, and
+ * after the bind for a claimed one, `ingress-policy.ts` lists the namespace's
+ * policies and refuses unless one of them actually closes the agent port on
+ * the labels this pod carries. Nothing checked that before, while three
+ * pieces of shipped text said it was covered — see that module's own doc
+ * comment for what was measured.
  */
 
 import type { Sandbox } from '@namzu/sdk'
@@ -103,6 +113,12 @@ import {
 	translateEgressPolicy,
 	verifyEgressPolicyApplied,
 } from './egress-policy.js'
+import {
+	type KubernetesIngressConfig,
+	ingressVerificationEnabled,
+	resolveIngressEngine,
+	verifyIngressPolicyApplied,
+} from './ingress-policy.js'
 import {
 	type KubernetesAccess,
 	KubernetesAlreadyGoneError,
@@ -139,6 +155,7 @@ import { buildKubernetesSandbox } from './sandbox.js'
 import { KubernetesAgentTransport } from './transport.js'
 
 export type { KubernetesEgressConfig, KubernetesEgressEngine } from './egress-policy.js'
+export type { KubernetesIngressConfig, KubernetesIngressEngine } from './ingress-policy.js'
 
 /**
  * How the backend reaches the API server. Two sources, neither needing a YAML
@@ -198,11 +215,28 @@ export interface KubernetesBackendInternalConfig {
 	/**
 	 * Egress policy this backend's `NetworkPolicy` (or `CiliumNetworkPolicy`,
 	 * under `engine: 'cilium'`) is expected to carry. Unset means this backend
-	 * neither computes nor verifies one — the cluster's default posture (the
-	 * SandboxTemplate's own managed NetworkPolicy) is all that applies. See
-	 * `egress-policy.ts`.
+	 * neither computes nor verifies one, and OUTBOUND traffic is then whatever
+	 * the cluster's own policies happen to allow.
+	 *
+	 * Deliberately not described as "covered by the SandboxTemplate's managed
+	 * NetworkPolicy", which is what this comment used to claim: that policy
+	 * selects `agents.x-k8s.io/sandbox-template-ref-hash`, a label the
+	 * controller writes only onto a Sandbox adopted out of a `SandboxWarmPool`
+	 * and never onto one this backend POSTs — so for every pool-less sandbox
+	 * and every workspace it selects nothing at all. See `ingress-policy.ts`.
 	 */
 	readonly egress?: KubernetesEgressConfig
+	/**
+	 * Whether the agent port's INGRESS boundary is verified before a sandbox
+	 * is created, and against which policy resources.
+	 *
+	 * Unset means VERIFY — the one field in this config whose absent value is
+	 * the strict one, because the deployment that needs the check is the one
+	 * that would never have set it. `'unverified'` reads no policy and issues
+	 * no request, for a deployment whose boundary lives somewhere a namespaced
+	 * Role cannot see. See `ingress-policy.ts`.
+	 */
+	readonly ingress?: KubernetesIngressConfig
 	/**
 	 * Bound on every single Kubernetes API request this backend sends. See
 	 * {@link KubernetesClientOptions.requestTimeoutMs} in `k8s-client.ts`,
@@ -485,6 +519,13 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 	// failed attempt is not cached: a transient API error should not wedge
 	// every later create() behind the same stale rejection forever.
 	let egressVerification: Promise<void> | undefined
+	// Ingress is cached PER LABEL SET rather than once per backend, because
+	// unlike egress it is a question about one pod: a pooled sandbox's labels
+	// come off the pool's template and a pool-less one's off this config, and
+	// a single memo would answer for a pod it never examined. Same
+	// failure handling as the egress memo — a failed attempt is dropped, so a
+	// transient API error does not wedge every later create() behind it.
+	const ingressVerifier = buildIngressVerifier(client, config, new Map())
 	return {
 		tier: 'microvm',
 		name: 'kubernetes',
@@ -502,7 +543,13 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 				})
 				await egressVerification
 			}
-			const acquisition = await acquireKubernetesSandbox(client, config, options, readiness)
+			const acquisition = await acquireKubernetesSandbox(
+				client,
+				config,
+				options,
+				readiness,
+				ingressVerifier,
+			)
 			return await admitProbedSandbox(
 				acquisition,
 				config,
@@ -542,6 +589,57 @@ export async function verifyEgressPolicyConfigured(
 	await verifyEgressPolicyApplied(client, translated, signal)
 }
 
+/**
+ * What a create path calls to prove the agent port is closed before it hands
+ * a sandbox back. `undefined` when `config.ingress` is `'unverified'`, so the
+ * opt-out is one absent function rather than a flag every call site re-reads.
+ */
+export type IngressVerifier = (
+	podLabels: Readonly<Record<string, string>>,
+	subject: string,
+	signal?: AbortSignal,
+) => Promise<void>
+
+/** Canonical key for one label set — order-independent, so two spellings of the same pod share a memo. */
+function ingressCacheKey(podLabels: Readonly<Record<string, string>>): string {
+	return JSON.stringify(Object.entries(podLabels).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+}
+
+/**
+ * Build the ingress check this config asks for, or nothing at all.
+ *
+ * `cache` is the provider path's per-label-set memo; a workspace passes none,
+ * and re-checks on every call for the same reason its egress check does —
+ * creating a workspace is a rare, explicit act with nothing to amortise, and
+ * a policy deleted since the last call must be noticed.
+ */
+export function buildIngressVerifier(
+	client: KubernetesClient,
+	config: KubernetesBackendInternalConfig,
+	cache?: Map<string, Promise<void>>,
+): IngressVerifier | undefined {
+	if (!ingressVerificationEnabled(config.ingress)) return undefined
+	const engine = resolveIngressEngine(config.ingress, config.egress?.engine)
+	const agentPort = config.agentPort ?? DEFAULT_AGENT_PORT
+	return async (podLabels, subject, signal) => {
+		const target = { namespace: config.namespace, podLabels, agentPort, engine, subject }
+		if (cache === undefined) {
+			await verifyIngressPolicyApplied(client, target, signal)
+			return
+		}
+		const key = ingressCacheKey(podLabels)
+		let pending = cache.get(key)
+		if (pending === undefined) {
+			pending = verifyIngressPolicyApplied(client, target, signal).catch((err: unknown) => {
+				cache.delete(key)
+				throw err
+			})
+			cache.set(key, pending)
+		}
+		await pending
+	}
+}
+
 /** Config → the client's own access shape. Shared with `workspace.ts`. */
 export function clientAccess(config: KubernetesBackendInternalConfig): KubernetesAccess {
 	const access = config.access
@@ -567,6 +665,7 @@ export async function acquireKubernetesSandbox(
 	config: KubernetesBackendInternalConfig,
 	options: SandboxBackendOptions,
 	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
+	verifyIngress: IngressVerifier | undefined = buildIngressVerifier(client, config),
 ): Promise<KubernetesAcquisition> {
 	options.signal?.throwIfAborted()
 	assertEnforceable(options)
@@ -626,21 +725,37 @@ export async function acquireKubernetesSandbox(
 		config.warmPoolName !== undefined
 			? claimCollectionPath(namespace)
 			: sandboxCollectionPath(namespace)
-	const createBody =
-		config.warmPoolName !== undefined
-			? buildClaimBody(namespace, objectName, config.warmPoolName, shutdownTime)
-			: buildSandboxBody({
-					namespace,
-					name: objectName,
-					template: await deadline.run((signal) =>
-						readSandboxTemplate(client, namespace, config.sandboxTemplateName, signal),
-					),
-					sandboxTemplateName: config.sandboxTemplateName,
-					shutdownTime,
-					...(config.runtimeClassName !== undefined
-						? { runtimeClassName: config.runtimeClassName }
-						: {}),
-				})
+	let createBody: Record<string, unknown>
+	if (config.warmPoolName !== undefined) {
+		createBody = buildClaimBody(namespace, objectName, config.warmPoolName, shutdownTime)
+	} else {
+		const template = await deadline.run((signal) =>
+			readSandboxTemplate(client, namespace, config.sandboxTemplateName, signal),
+		)
+		// A direct Sandbox's pod labels are decided HERE, by the body below,
+		// so the ingress boundary is checked against the real labels before
+		// anything is created — a refusal leaves no Sandbox and no PVC behind
+		// rather than one of each to clean up.
+		if (verifyIngress !== undefined) {
+			await deadline.run((signal) =>
+				verifyIngress(
+					sandboxPodLabels(template, config.sandboxTemplateName),
+					`to create Sandbox ${objectName} in namespace ${namespace}`,
+					signal,
+				),
+			)
+		}
+		createBody = buildSandboxBody({
+			namespace,
+			name: objectName,
+			template,
+			sandboxTemplateName: config.sandboxTemplateName,
+			shutdownTime,
+			...(config.runtimeClassName !== undefined
+				? { runtimeClassName: config.runtimeClassName }
+				: {}),
+		})
+	}
 
 	try {
 		// Inside the cleanup block: a POST that fails client-side may still have
@@ -683,6 +798,20 @@ export async function acquireKubernetesSandbox(
 		// One read, two facts: the bind token and — under `'pod-ip'` — the
 		// address, off the same pod. See {@link readAddressedPod}.
 		const pod = await readAddressedPod(client, namespace, binding, deadline, readiness, mode)
+		// A CLAIMED sandbox's pod was built from the pool's own template, so
+		// its labels are not knowable until the controller has bound one.
+		// Checking here rather than not at all is the trade: a refusal
+		// releases the claim through the cleanup below, which is the same
+		// path a failed privilege probe takes.
+		if (config.warmPoolName !== undefined && verifyIngress !== undefined) {
+			await deadline.run((signal) =>
+				verifyIngress(
+					pod.labels ?? {},
+					`the pod bound to Sandbox ${binding.name} in namespace ${namespace}`,
+					signal,
+				),
+			)
+		}
 		return {
 			binding,
 			agent: resolveAgentAddress(binding, agentPort, pod.uid, {
@@ -796,10 +925,7 @@ export function buildSandboxBody(options: SandboxBodyOptions): Record<string, un
 			: { ...podTemplate.spec }
 	const metadata = {
 		...podTemplate.metadata,
-		labels: {
-			...podTemplate.metadata?.labels,
-			...sandboxTemplateLabel(options.sandboxTemplateName),
-		},
+		labels: sandboxPodLabels(options.template, options.sandboxTemplateName),
 	}
 	return {
 		apiVersion: `${SANDBOX_API_GROUP}/${SANDBOX_API_VERSION}`,
@@ -816,6 +942,26 @@ export function buildSandboxBody(options: SandboxBodyOptions): Record<string, un
 				: {}),
 			podTemplate: { ...podTemplate, metadata, spec },
 		},
+	}
+}
+
+/**
+ * The labels a directly created Sandbox's pod will carry: whatever the
+ * template declares, plus this backend's own template label, which always
+ * wins because it is the label a policy selector is built to match.
+ *
+ * Its own function because the ingress check has to reason about EXACTLY the
+ * labels {@link buildSandboxBody} stamps, before the POST that stamps them.
+ * Two expressions of the same rule would be one rename away from a check that
+ * verifies a pod nobody creates.
+ */
+export function sandboxPodLabels(
+	template: SandboxTemplateCopy,
+	sandboxTemplateName: string,
+): Readonly<Record<string, string>> {
+	return {
+		...template.podTemplate.metadata?.labels,
+		...sandboxTemplateLabel(sandboxTemplateName),
 	}
 }
 
@@ -1001,6 +1147,15 @@ export interface KubernetesBoundPod {
 	readonly uid: string
 	/** `status.podIP`. Read by `agentAddress: 'pod-ip'`; absent is legal. */
 	readonly podIP?: string
+	/**
+	 * `metadata.labels` — what an ingress policy's `podSelector` actually
+	 * matches. Read off the SAME object the uid and the address come from,
+	 * for the same reason they are: a policy decision made about one pod and
+	 * a connection made to another is the mismatch this record exists to
+	 * prevent. Only the claim path reads it — a directly created Sandbox's
+	 * labels are known before its pod exists. See `ingress-policy.ts`.
+	 */
+	readonly labels?: Readonly<Record<string, string>>
 }
 
 /**
@@ -1061,7 +1216,12 @@ export async function readBoundPod(
 
 function boundPod(uid: string, pod: PodResource): KubernetesBoundPod {
 	const podIP = readPodIP(pod)
-	return { uid, ...(podIP !== undefined ? { podIP } : {}) }
+	const labels = pod.metadata?.labels
+	return {
+		uid,
+		...(podIP !== undefined ? { podIP } : {}),
+		...(labels !== undefined ? { labels } : {}),
+	}
 }
 
 /**

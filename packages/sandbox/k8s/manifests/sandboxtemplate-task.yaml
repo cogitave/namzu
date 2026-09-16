@@ -130,13 +130,24 @@ spec:
   # `status.sandbox.serviceFQDN` reports back and what the host's transport
   # dials, so a resumed/rebound pod's new address costs nothing extra.
   service: true
-  # Enforced independently by agent-sandbox's own controller (translated
-  # into ITS OWN managed NetworkPolicy object) as a SECOND, earlier layer —
-  # it applies at pod admission, before this backend's own `create()` ever
-  # runs its verify-not-trust GET against the STANDALONE
-  # `networkpolicy.yaml` this repo also ships (see that file's header for
-  # why the two are not the same object and are not required to have the
-  # same name). Keep both in sync by hand; nothing cross-checks them.
+  # READ THIS BEFORE TREATING THE BLOCK BELOW AS COVERAGE. The controller
+  # translates it into its OWN managed NetworkPolicy, and that policy's
+  # podSelector is `agents.x-k8s.io/sandbox-template-ref-hash` — a label the
+  # controller writes only onto a Sandbox ADOPTED out of a SandboxWarmPool.
+  # A Sandbox the backend POSTs directly (every workspace, and every task
+  # sandbox created with `warmPoolName` unset) never carries it, so for those
+  # pods this block selects NOTHING and closes NOTHING. Measured on a managed
+  # cluster: pods created that way had ingress enforcement absent entirely and
+  # TCP 1024 answered from every namespace tried, while warm-pool pods — which
+  # do carry the label — dropped every SYN.
+  #
+  # The policy that covers BOTH kinds is the standalone `networkpolicy.yaml`
+  # this repo also ships, which selects `sandbox.namzu.ai/template` by
+  # existence. It is not optional: the backend now LISTS this namespace's
+  # policies before every create and refuses when none of them closes the
+  # agent port on the pod's real labels (`ingress: 'unverified'` is the
+  # explicit opt-out). Keep this block and that file in sync by hand; nothing
+  # cross-checks them.
   networkPolicyManagement: Managed
   networkPolicy:
     ingress:

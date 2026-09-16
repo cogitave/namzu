@@ -311,6 +311,7 @@ function clusterConfig(overrides: { readyTimeoutMs?: number } = {}): KubernetesB
 		agentPort: agent.port,
 		readyTimeoutMs: 1_000,
 		readyPollIntervalMs: 5,
+		ingress: 'unverified' as const,
 		...overrides,
 	}
 }

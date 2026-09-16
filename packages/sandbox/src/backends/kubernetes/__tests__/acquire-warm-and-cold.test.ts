@@ -68,6 +68,7 @@ function backend(overrides: { warmPoolName?: string } = {}) {
 		agentPort: agent.port,
 		readyTimeoutMs: 2_000,
 		readyPollIntervalMs: 5,
+		ingress: 'unverified' as const,
 		...overrides,
 	})
 }
@@ -245,6 +246,7 @@ describe('warm acquire, against a claim the pool adopts', () => {
 			agentPort: agent?.port ?? 0,
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 5,
+			ingress: 'unverified' as const,
 		}).create({ workingDirectory: '/workspace' })
 
 		const shutdownAt = Date.parse(
@@ -541,6 +543,7 @@ describe('cold acquire, with no pool configured', () => {
 			agentPort: agent?.port ?? 0,
 			readyTimeoutMs: 2_000,
 			readyPollIntervalMs: 5,
+			ingress: 'unverified' as const,
 		}).create({ workingDirectory: '/workspace' })
 
 		const body = server.matching('POST', '/sandboxes')[0]?.body as {
@@ -693,6 +696,7 @@ describe('the address the transport will dial', () => {
 				namespace: NAMESPACE,
 				sandboxTemplateName: 'namzu-task',
 				warmPoolName: 'namzu-task-pool',
+				ingress: 'unverified' as const,
 			},
 			{ workingDirectory: '/workspace' },
 			{ timeoutMs: 2_000, pollIntervalMs: 5 },

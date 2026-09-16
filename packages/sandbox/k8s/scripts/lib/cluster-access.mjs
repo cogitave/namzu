@@ -1,5 +1,5 @@
 /**
- * Small shared plumbing for the five acceptance scripts in `../`: CLI flag
+ * Small shared plumbing for the six acceptance scripts in `../`: CLI flag
  * parsing, resolving a `KubernetesClusterAccess` from either `--in-cluster`
  * or an explicit `{ server, ca, getToken }`, and one consistent pass/fail
  * line format. No business logic lives here — every acceptance check itself
@@ -11,7 +11,7 @@ import https from 'node:https'
 
 /**
  * `--flag value`, `--flag=value` and bare `--flag` (boolean `true`), in any
- * order. Not a general-purpose parser — just enough for these five scripts'
+ * order. Not a general-purpose parser — just enough for these six scripts'
  * own flags, which this file also documents by being the one place they are
  * all read.
  */
@@ -167,7 +167,7 @@ export async function getResource(access, path) {
 	})
 }
 
-/** One line, one shape, across all five scripts. */
+/** One line, one shape, across all six scripts. */
 export function report(name, passed, detail) {
 	const line = `[${passed ? 'PASS' : 'FAIL'}] ${name}${detail ? ` — ${detail}` : ''}`
 	console.log(line)

@@ -34,6 +34,7 @@ function backend(timeoutMs = 100) {
 		warmPoolName: 'namzu-task-pool',
 		readyTimeoutMs: timeoutMs,
 		readyPollIntervalMs: 5,
+		ingress: 'unverified' as const,
 	})
 }
 

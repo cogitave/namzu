@@ -448,6 +448,7 @@ function backend(overrides: Record<string, unknown> = {}) {
 		claimTtlSeconds: 1,
 		readyTimeoutMs: 2_000,
 		readyPollIntervalMs: 5,
+		ingress: 'unverified' as const,
 		...overrides,
 	})
 }

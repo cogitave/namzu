@@ -260,6 +260,7 @@ function backend(readyTimeoutMs = 2_000) {
 		agentPort: agent.port,
 		readyTimeoutMs,
 		readyPollIntervalMs: 5,
+		ingress: 'unverified' as const,
 	})
 }
 

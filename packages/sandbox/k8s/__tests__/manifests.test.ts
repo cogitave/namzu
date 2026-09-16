@@ -293,16 +293,19 @@ describe('rbac.yaml', () => {
 		expect(byResource.get('sandboxtemplates')).toEqual(new Set(['get']))
 		expect(byResource.get('sandboxwarmpools')).toEqual(new Set(['get']))
 		expect(byResource.get('pods')).toEqual(new Set(['get', 'list']))
-		expect(byResource.get('networkpolicies')).toEqual(new Set(['get']))
-		expect(byResource.get('ciliumnetworkpolicies')).toEqual(new Set(['get']))
+		// `get` is the egress check's (one object, by name); `list` is the
+		// ingress check's, which has to enumerate every policy in the
+		// namespace because a name proves existence and not selection.
+		expect(byResource.get('networkpolicies')).toEqual(new Set(['get', 'list']))
+		expect(byResource.get('ciliumnetworkpolicies')).toEqual(new Set(['get', 'list']))
 	})
 
-	it('grants get on ciliumnetworkpolicies in the cilium.io apiGroup, for engine: "cilium" (#474)', () => {
+	it('grants get AND list on ciliumnetworkpolicies in the cilium.io apiGroup, for engine: "cilium"', () => {
 		const rules = role.rules as Record<string, unknown>[]
 		const rule = rules.find((r) => (r.resources as string[]).includes('ciliumnetworkpolicies'))
 		expect(rule, 'no rule grants ciliumnetworkpolicies').toBeDefined()
 		expect(rule?.apiGroups).toEqual(['cilium.io'])
-		expect(rule?.verbs).toEqual(['get'])
+		expect(rule?.verbs).toEqual(['get', 'list'])
 	})
 
 	it('binds the Role to the ServiceAccount this backend actually runs as', () => {

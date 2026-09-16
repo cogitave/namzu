@@ -224,6 +224,7 @@ function backend(agentAddress?: 'service' | 'pod-ip') {
 		agentPort: agent.port,
 		readyTimeoutMs: 2_000,
 		readyPollIntervalMs: 5,
+		ingress: 'unverified' as const,
 		...(agentAddress !== undefined ? { agentAddress } : {}),
 	})
 }
@@ -242,6 +243,7 @@ async function podIpWorkspace(readyTimeoutMs = 2_000) {
 			agentAddress: 'pod-ip',
 			readyTimeoutMs,
 			readyPollIntervalMs: 5,
+			ingress: 'unverified' as const,
 		},
 		{ workspaceId: 'addressed', workingDirectory: '/workspace' },
 	)

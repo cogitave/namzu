@@ -51,6 +51,7 @@ import {
 	type KubernetesClusterAccess,
 	buildKubernetesBackend,
 } from './backends/kubernetes/index.js'
+import type { KubernetesIngressConfig } from './backends/kubernetes/ingress-policy.js'
 import {
 	type KubernetesWorkspace,
 	type KubernetesWorkspaceOptions,
@@ -153,6 +154,19 @@ export type {
 	KubernetesEgressConfig,
 	KubernetesEgressEngine,
 } from './backends/kubernetes/egress-policy.js'
+// Ingress verification types named by `KubernetesBackendConfig.ingress`, plus
+// the refusal a create raises when no applied policy closes the agent port —
+// catchable by class, and distinct from every other refusal on that path. See
+// `backends/kubernetes/ingress-policy.ts`.
+export type {
+	ExaminedIngressPolicy,
+	IngressPolicyRefusal,
+	IngressPolicyVerdict,
+	KubernetesIngressConfig,
+	KubernetesIngressEngine,
+	UnreadIngressPolicySource,
+} from './backends/kubernetes/ingress-policy.js'
+export { KubernetesIngressPolicyError } from './backends/kubernetes/ingress-policy.js'
 // The errors a caller of a kubernetes sandbox has to be able to catch BY
 // CLASS rather than by matching a message: an acquire refused because the
 // guest is not deprivileged, a call after the handle ended (this host
@@ -639,6 +653,28 @@ export interface KubernetesBackendConfig {
 	 */
 	readonly egress?: KubernetesEgressConfig
 	/**
+	 * Whether this backend proves, before creating a sandbox, that an applied
+	 * policy actually closes {@link agentPort} on the pod it is about to hand
+	 * back — and against which policy resources.
+	 *
+	 * **Unset means verify.** This is the one field here whose absent value is
+	 * the strict one, because the deployment that needs the check is the one
+	 * that would never have switched it on: the guest agent's own source calls
+	 * the network rule in front of its port the boundary, and until this field
+	 * existed nothing confirmed there was one.
+	 *
+	 * `{ engine: 'cilium' }` also enumerates that CNI's own policy CRD;
+	 * `engine` otherwise defaults to `egress?.engine ?? 'core'`.
+	 *
+	 * `'unverified'` reads no policy and issues no request. It is the
+	 * supported answer for a deployment whose boundary a namespaced Role
+	 * cannot see — a cluster-scoped policy, a service mesh, a cloud security
+	 * group — and it is a claim the deployment makes on purpose rather than a
+	 * default it inherits. See `docs/sdk/kubernetes-sandbox.md`'s ingress
+	 * section.
+	 */
+	readonly ingress?: KubernetesIngressConfig
+	/**
 	 * How long a single Kubernetes API request may take, end to end —
 	 * resolving the token, connecting, and reading the reply. Default
 	 * `30000`; minimum `1000`; there is no value that turns it off.
@@ -1026,6 +1062,7 @@ function kubernetesInternalConfig(
 			? { runtimeClassName: backend.runtimeClassName }
 			: {}),
 		...(backend.egress !== undefined ? { egress: backend.egress } : {}),
+		...(backend.ingress !== undefined ? { ingress: backend.ingress } : {}),
 		...(backend.apiRequestTimeoutMs !== undefined
 			? { apiRequestTimeoutMs: backend.apiRequestTimeoutMs }
 			: {}),

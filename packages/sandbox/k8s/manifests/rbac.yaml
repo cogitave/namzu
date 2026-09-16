@@ -7,13 +7,15 @@
 # No consumer role is published upstream by agent-sandbox itself; this is
 # this repo's own minimal grant, read off two places:
 #   - The backend's own call sites (packages/sandbox/src/backends/
-#     kubernetes/{index,workspace,egress-policy}.ts via k8s-client.ts):
-#     sandboxclaims create/get/patch/delete, sandboxes create/get/list/
-#     patch/delete, sandboxtemplates get, pods get/list, and — only when a
-#     deployment configures `config.egress` — networkpolicies get (or, under
-#     `engine: 'cilium'`, ciliumnetworkpolicies get instead — both are
-#     granted below; a cluster with no Cilium CRDs installed simply never
-#     matches the second rule).
+#     kubernetes/{index,workspace,egress-policy,ingress-policy}.ts via
+#     k8s-client.ts): sandboxclaims create/get/patch/delete, sandboxes
+#     create/get/list/patch/delete, sandboxtemplates get, pods get/list,
+#     networkpolicies list (the ingress check, on by default, before every
+#     create) plus networkpolicies get (only when a deployment configures
+#     `config.egress`), and the same two verbs on ciliumnetworkpolicies for
+#     a deployment that declares `engine: 'cilium'` — both are granted
+#     below; a cluster with no Cilium CRDs installed simply never matches
+#     that rule.
 #   - ../scripts/acquire-p50.mjs's own diagnostic: it reads the
 #     SandboxWarmPool's `status.readyReplicas` before timing so a cold,
 #     still-warming pool cannot masquerade as a fast acquire. That read goes
@@ -54,18 +56,22 @@ rules:
   - apiGroups: ['']
     resources: [pods]
     verbs: [get, list]
-  # Only exercised when a deployment sets `config.egress` — the default
-  # engine ('core') reads the resource below; `engine: 'cilium'` reads the
-  # one after it instead. See the header comment.
+  # `list`, not `get`, is the ingress check's: it has to ENUMERATE every
+  # policy in the namespace and evaluate each selector against the pod's own
+  # labels, because a GET by name proves an object exists and not that it
+  # selects these pods. It runs before every create unless the deployment
+  # sets `ingress: 'unverified'`. `get` is the egress check's, and is
+  # exercised only when a deployment sets `config.egress`.
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]
-    verbs: [get]
-  # `config.egress.engine: 'cilium'` only — see the header comment. A
-  # cluster with no Cilium CRDs installed simply never matches this rule;
-  # granting it costs nothing there.
+    verbs: [get, list]
+  # The same two verbs, for a deployment that declares `engine: 'cilium'` on
+  # either check — see the header comment. A cluster with no Cilium CRDs
+  # installed simply never matches this rule; granting it costs nothing
+  # there.
   - apiGroups: [cilium.io]
     resources: [ciliumnetworkpolicies]
-    verbs: [get]
+    verbs: [get, list]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
