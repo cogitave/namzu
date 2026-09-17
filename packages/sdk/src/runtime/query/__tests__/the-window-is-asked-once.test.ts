@@ -234,43 +234,63 @@ describe('the context window is asked for once per run', () => {
 			markStarted()
 			return held
 		}, 0)
-		const running = run(provider, 1, undefined, 20)
-		let settled = false
-		void running.then(
-			() => {
-				settled = true
-			},
-			() => {
-				settled = true
-			},
-		)
 
-		await started
-		let waitFailure: unknown
+		// The clock is fake for exactly this case, and it is advanced exactly
+		// once. No real timer appears anywhere below, in the assertions or in
+		// the waiting: the deadline under this clock is the only thing that
+		// can settle the run, so a step of the clock is a deterministic probe
+		// rather than a guess about how fast the machine is.
+		vi.useFakeTimers()
 		try {
-			await vi.waitFor(() => expect(settled).toBe(true), { timeout: 1_000, interval: 10 })
-		} catch (err) {
-			waitFailure = err
-		} finally {
-			// A mutation that drops the private deadline must fail its assertion
-			// and still release the hostile resolver so the suite remains clean.
-			release(undefined)
-		}
+			const running = run(provider, 1, undefined, 20)
 
-		const { result, events } = await running
-		if (waitFailure) throw waitFailure
-		expect(result.status).toBe('completed')
-		expect(provider.requests).toHaveLength(1)
-		expect(provider.resolverSignals).toHaveLength(1)
-		expect(provider.resolverSignals[0]?.aborted).toBe(true)
-		expect(provider.resolverSignals[0]?.reason).toMatchObject({
-			message: 'Provider context-window lookup exceeded 20ms',
-		})
-		const usage = events.filter(
-			(event): event is Extract<RunEvent, { type: 'token_usage_updated' }> =>
-				event.type === 'token_usage_updated',
-		)
-		expect(usage.every((event) => event.windowSource !== 'provider')).toBe(true)
+			await started
+
+			// `timeoutMs` is BOTH the run's budget and the resolver's deadline
+			// — `resolveProviderContextWindow` is handed `runConfig.timeoutMs`
+			// — and on a real clock the two raced: the run's seam checks could
+			// see a 20 ms budget already spent by the very wait the deadline
+			// exists to end, so this case measured the machine and failed in
+			// both directions (no request at all, or a second one after the
+			// stream was cut). Under a fake clock the deadline is the only
+			// thing that elapses here, and it elapses exactly once.
+			//
+			// The guard is built AFTER the fallback — `resolveProviderContextWindow`
+			// is awaited at `index.ts:1223` and `new GuardCoordinator` follows at
+			// `index.ts:1933` — so the run's own budget starts at this
+			// post-fallback instant and keeps reading zero for the rest of the
+			// case. Nothing below can time the run out, in either direction,
+			// and nothing below consults a wall clock.
+			await vi.advanceTimersByTimeAsync(20)
+
+			// Read BEFORE anything waits on the run. This is what a mutation
+			// that drops the private deadline cannot produce, so it fails HERE,
+			// by name, instead of leaving Vitest waiting on a resolver that
+			// never answers.
+			try {
+				expect(provider.resolverSignals).toHaveLength(1)
+				expect(provider.resolverSignals[0]?.aborted).toBe(true)
+				expect(provider.resolverSignals[0]?.reason).toMatchObject({
+					message: 'Provider context-window lookup exceeded 20ms',
+				})
+			} finally {
+				// Whether that passed or failed, the resolver is released: the
+				// run above is still holding it, and a failing case must not
+				// leave a promise nobody settles behind it.
+				release(undefined)
+			}
+
+			const { result, events } = await running
+			expect(result.status).toBe('completed')
+			expect(provider.requests).toHaveLength(1)
+			const usage = events.filter(
+				(event): event is Extract<RunEvent, { type: 'token_usage_updated' }> =>
+					event.type === 'token_usage_updated',
+			)
+			expect(usage.every((event) => event.windowSource !== 'provider')).toBe(true)
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	it('does not enter the optional resolver after authority was already withdrawn', async () => {

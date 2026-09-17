@@ -68,3 +68,17 @@ runs, the batch produces no messages at all and the assistant turn keeps its
 `tool_use` blocks unanswered for a resume to repair. The comment now says so.
 No behaviour changed here; the guarantee was never provided on that path and
 the run-level outcome is unchanged.
+
+**One test that measured the machine instead of the code is de-flaked, with
+no behaviour change at all.** `the-window-is-asked-once.test.ts`'s "falls
+back and runs when metadata stays pending" drove a run with `timeoutMs: 20`
+— which is simultaneously the run's budget and the context-window resolver's
+private deadline — and then asserted that the run settled inside a 1000 ms
+poll. The two 20 ms deadlines raced on a real clock: the run's own seam
+checks could see the budget already spent by the very wait the deadline
+exists to end, so the case failed in BOTH directions — no model request at
+all, and a second one after the stream was cut — in three of five full-suite
+runs, while passing every time on its own. It now runs under a fake clock
+advanced exactly once, by exactly the deadline, and reads the resolver's
+aborted signal before it waits on anything. The assertions are the same
+ones, and none of them rests on a wall clock.
