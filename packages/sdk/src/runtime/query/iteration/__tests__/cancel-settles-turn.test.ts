@@ -5,6 +5,7 @@ import { resetRuntimeMetrics } from '../../../../telemetry/metrics.js'
 import type { RunId } from '../../../../types/ids/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../../types/provider/index.js'
 import type { LLMProvider } from '../../../../types/provider/interface.js'
+import { RunCancelled } from '../../../../types/run/cancel-cause.js'
 import type { RunEvent } from '../../../../types/run/index.js'
 import type { Logger } from '../../../../utils/logger.js'
 import { streamProviderTurn } from '../stream-turn.js'
@@ -55,7 +56,7 @@ function makeLogger(): Logger {
 }
 
 /** Streams a little, then blocks until the caller aborts. */
-function stallingProvider(controller: AbortController): LLMProvider {
+function stallingProvider(controller: AbortController, reason: unknown): LLMProvider {
 	return {
 		id: 'stalling',
 		name: 'stalling',
@@ -73,7 +74,7 @@ function stallingProvider(controller: AbortController): LLMProvider {
 					cacheWriteTokens: 40,
 				},
 			}
-			controller.abort()
+			controller.abort(reason)
 			// The runtime checks the signal between chunks.
 			yield { id: 'm1', delta: { content: 'never seen' } }
 		},
@@ -86,12 +87,18 @@ function stallingProvider(controller: AbortController): LLMProvider {
 	}
 }
 
-async function runCancelled(): Promise<{ events: RunEvent[]; written: Written[] }> {
+async function runCancelled(): Promise<{
+	events: RunEvent[]
+	written: Written[]
+	rejection: unknown
+	reason: unknown
+}> {
 	const written: Written[] = []
 	captureMetrics(written)
 
 	const controller = new AbortController()
 	const events: RunEvent[] = []
+	const reason = new RunCancelled('user')
 	const params = {
 		model: 'cancel-model',
 		messages: [{ role: 'user' as const, content: 'hi' }],
@@ -99,7 +106,7 @@ async function runCancelled(): Promise<{ events: RunEvent[]; written: Written[] 
 	} as ChatCompletionParams
 
 	const iterator = streamProviderTurn(
-		stallingProvider(controller),
+		stallingProvider(controller, reason),
 		params,
 		async (e: RunEvent) => {
 			events.push(e)
@@ -111,17 +118,18 @@ async function runCancelled(): Promise<{ events: RunEvent[]; written: Written[] 
 		makeLogger(),
 	)
 
-	await expect(
-		(async () => {
-			for (;;) {
-				const next = await iterator.next()
-				if (next.done) return next.value
-				events.push(next.value)
-			}
-		})(),
-	).rejects.toThrow()
+	let rejection: unknown
+	try {
+		for (;;) {
+			const next = await iterator.next()
+			if (next.done) break
+			events.push(next.value)
+		}
+	} catch (err) {
+		rejection = err
+	}
 
-	return { events, written }
+	return { events, written, rejection, reason }
 }
 
 beforeEach(() => {
@@ -225,9 +233,14 @@ describe('a turn cancelled mid-stream', () => {
 		expect(completed?.content).toBe('partial answer')
 	})
 
-	it('still propagates the cancellation', async () => {
-		// Settling the bookkeeping must not swallow the reason the turn
-		// ended — the run loop needs the throw to settle as cancelled.
-		await expect(runCancelled()).resolves.toBeDefined()
+	it("propagates the caller's own abort reason, not a replacement for it", async () => {
+		// Settling the bookkeeping must not swallow the reason the turn ended,
+		// and it must not replace it either. `isCallerAbortError` — the
+		// classifier that decides between "cancelled" and "failed" at the run
+		// boundary — asks whether the thrown error IS the signal's reason. A
+		// wrapped or re-created Error carries the same message and settles the
+		// run as a FAILURE, which an operator's Stop must never be.
+		const { rejection, reason } = await runCancelled()
+		expect(rejection).toBe(reason)
 	})
 })
