@@ -16,8 +16,8 @@
     "sandbox:smoke": "pnpm --filter @namzu/sandbox test:smoke",
     "typecheck": "tsc --build",
     "namzu": "tsx packages/cli/src/bin.ts",
-    "api": "tsx packages/api/src/server.ts",
-    "api:dev": "tsx watch packages/api/src/server.ts"
+    "api": "node scripts/check-local-entry.mjs packages/api/src/server.ts && tsx packages/api/src/server.ts",
+    "api:dev": "node scripts/check-local-entry.mjs packages/api/src/server.ts && tsx watch packages/api/src/server.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.0",

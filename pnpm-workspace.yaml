@@ -6,5 +6,13 @@ packages:
   # but are not Git-tracked, so CI never sees them. Keeping them as
   # workspace members would break Changesets config validation on CI
   # (an `ignore` list pointing at packages missing from the checkout).
+  #
+  # This list and the "Local-only packages" block in .gitignore name the
+  # same four packages. They are two statements of one arrangement, and
+  # when they disagreed — agents and api excluded here, contracts and docs
+  # left matched by `packages/*` and so still workspace members — nothing
+  # failed, which is exactly how a disagreement like that survives.
   - "!packages/agents"
   - "!packages/api"
+  - "!packages/contracts"
+  - "!packages/docs"

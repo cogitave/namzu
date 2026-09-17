@@ -39,6 +39,17 @@ pnpm build        # Build all packages
 Use `pnpm --filter <pkg>` to scope commands to a single package. SDK tests run
 through `pnpm --filter @namzu/sdk test -- <file>`, never bare `vitest`.
 
+Four packages are **local-only**: `packages/contracts`, `packages/agents`,
+`packages/api` and `packages/docs`. They are absent from a fresh checkout by
+design — `.gitignore` lists them under "Local-only packages" and
+`pnpm-workspace.yaml` excludes the same four from the workspace — so nothing
+in Git carries them and CI never sees them. Where one does exist, it is what a
+root script can run through `tsx`: `packages/api` is what `api` and `api:dev`
+run, and only a working copy that has the package can. A root script whose
+entry point is one of those paths runs
+`node scripts/check-local-entry.mjs <path>` first, which says that in one line
+rather than leaving `tsx` to report a bare `ERR_MODULE_NOT_FOUND`.
+
 <ci_gates>
 Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml` runs the steps below, in this order, and the branch is not green until every one passes.
 
@@ -53,6 +64,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | Process-level regression tests | `pnpm --filter @namzu/sdk test:proc` |
 | External-name audit | `node --import tsx --test scripts/__tests__/audit-external-names.test.ts && node scripts/audit-external-names.mjs` |
 | Log standard gate | `node --import tsx --test scripts/__tests__/check-log-standard.test.ts && node scripts/check-log-standard.mjs` |
+| Local entry-point check | `node --import tsx --test scripts/__tests__/check-local-entry.test.ts` |
 | Model price catalogue matches its source | `node scripts/generate-model-prices.mjs --check` |
 | Installer parses as POSIX sh | `sh -n install.sh && dash -n install.sh` |
 | Evals | `node packages/cli/dist/bin.js eval --dir packages/evals --out eval-report.json` |

@@ -185,6 +185,29 @@ jobs:
           node --import tsx --test scripts/__tests__/check-log-standard.test.ts
           node scripts/check-log-standard.mjs
 
+      # The root `api` and `api:dev` scripts target `packages/api`, which is
+      # local-only on purpose: `.gitignore` lists it under "Local-only
+      # packages" and `pnpm-workspace.yaml` carries the matching exclusion, so
+      # the scripts are truthful on the machine that has the package and a
+      # bare `ERR_MODULE_NOT_FOUND` everywhere else. The preflight in front of
+      # them says which path is missing and where that arrangement is written
+      # down.
+      #
+      # `scripts/__tests__/` has no package of its own, so this step is the
+      # only thing that runs this test — the same reason the two steps above
+      # name theirs. It asserts the absent case against fixture trees reached
+      # through `--root`, not against this checkout: whether a checkout
+      # contains `packages/api` is exactly what differs between the owner's
+      # machine and this runner, so running the preflight against the tree
+      # here would test the runner rather than the script.
+      #
+      # `if: matrix.gates` because it is one of the deterministic gates the
+      # matrix comment above counts: it reads files and would answer
+      # identically on every leg.
+      - name: Local entry-point check
+        if: matrix.gates
+        run: node --import tsx --test scripts/__tests__/check-local-entry.test.ts
+
       # The model price catalogue is a generated module that is checked in, and
       # a generated file that has drifted from its generator is a lie with a
       # timestamp: it reads as reviewed data and is whatever somebody last

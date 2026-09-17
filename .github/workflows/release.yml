@@ -79,6 +79,9 @@ jobs:
       - name: Log standard gate
         run: node scripts/check-log-standard.mjs
 
+      - name: Local entry-point check
+        run: node --import tsx --test scripts/__tests__/check-local-entry.test.ts
+
       - name: Model price catalogue matches its source
         run: node scripts/generate-model-prices.mjs --check
 
