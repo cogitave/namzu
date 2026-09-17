@@ -28,6 +28,7 @@ import { randomUUID } from 'node:crypto'
 import net from 'node:net'
 
 import type {
+	BackgroundJobStatus,
 	OpenTerminalOptions,
 	SandboxExecOptions,
 	SandboxExecResult,
@@ -41,11 +42,15 @@ import {
 	EXECUTION_ATTACH_FEATURE,
 	type ExecRequest,
 	ExecResultAccumulator,
+	SESSIONS_FEATURE,
+	type SessionKind,
+	type SessionState,
 	parseExecEvent,
 } from '../firecracker/protocol.js'
 import {
 	AgentDialFailedError,
 	type AgentRequest,
+	type AgentTerminalStream,
 	type SandboxAgentHandle,
 	VsockAgentTransport,
 	type VsockTransportOptions,
@@ -801,6 +806,310 @@ export interface KubernetesDetachedExecOptions
 	readonly reattachWindowMs?: number
 }
 
+// --- guest sessions (#478) ------------------------------------------------
+
+/**
+ * Thrown before anything is started, when the caller asked for a session and
+ * the guest does not advertise {@link SESSIONS_FEATURE}.
+ *
+ * Refused, never downgraded to a connection-bound terminal. A caller that
+ * asked for a session is about to rely on coming back to it after its own
+ * process has been replaced; handing it one that dies with the socket would
+ * look like it worked until the one moment it was needed.
+ */
+export class KubernetesSessionsUnsupportedError extends Error {
+	override readonly name = 'KubernetesSessionsUnsupportedError'
+
+	constructor(
+		readonly feature: string,
+		message: string,
+	) {
+		super(message)
+	}
+}
+
+/** Why the guest refused a session request. */
+export type KubernetesSessionRefusal =
+	| 'unknown_session'
+	| 'invalid_session_id'
+	| 'invalid_offset'
+	| 'session_exists'
+	| 'session_capacity'
+	| 'missing_command'
+	| 'spawn_failed'
+	| 'agent_retiring'
+	| 'unknown'
+
+const SESSION_REFUSALS = new Set<KubernetesSessionRefusal>([
+	'unknown_session',
+	'invalid_session_id',
+	'invalid_offset',
+	'session_exists',
+	'session_capacity',
+	'missing_command',
+	'spawn_failed',
+	'agent_retiring',
+])
+
+function isSessionRefusal(value: string): value is KubernetesSessionRefusal {
+	return SESSION_REFUSALS.has(value as KubernetesSessionRefusal)
+}
+
+/**
+ * Thrown when the guest ANSWERED and refused: the session is past its
+ * retention, ran in a pod that has since been replaced, the id is already
+ * taken, or the offset names bytes it does not have.
+ *
+ * Distinct from a transport failure for the same reason
+ * {@link KubernetesExecutionNotAttachableError} is: a refusal does not
+ * become a success by being retried.
+ */
+export class KubernetesSessionRefusedError extends Error {
+	override readonly name = 'KubernetesSessionRefusedError'
+
+	constructor(
+		readonly sessionId: string,
+		readonly reason: KubernetesSessionRefusal,
+		message: string,
+		options?: { cause?: unknown },
+	) {
+		super(message, options)
+	}
+}
+
+/** One row of {@link KubernetesAgentTransport.listSessions}. */
+export interface KubernetesSessionSummary {
+	readonly sessionId: string
+	readonly kind: SessionKind
+	/** The program, as it was asked for. Never the environment it was given. */
+	readonly command: string
+	readonly args: readonly string[]
+	readonly startedAt: number
+	readonly lastInputAt?: number
+	readonly lastOutputAt?: number
+	/** Pass as `fromOffset` to read everything this session has printed since. */
+	readonly nextOffset: number
+	/** Bytes the ring has evicted over this session's life. */
+	readonly droppedBytes: number
+	readonly state: SessionState
+	/** Whether a host process is attached to it right now. */
+	readonly attached: boolean
+	readonly exitCode?: number
+	readonly signal?: number
+}
+
+/**
+ * One read of a session's retained output, in the SDK's
+ * `BackgroundJobOutput` shape — deliberately, because it answers the same
+ * question for the same kind of consumer and a second vocabulary for
+ * "here is the next chunk and here is what you missed" helps nobody.
+ */
+export interface KubernetesSessionOutput {
+	readonly chunk: string
+	readonly nextOffset: number
+	readonly droppedBytes: number
+	readonly status: BackgroundJobStatus
+	readonly exitCode?: number
+}
+
+/**
+ * A terminal on a workspace, with the three things only a SESSION's reader
+ * needs. On a connection-bound terminal the two optional members are absent,
+ * which is the honest answer: there is no session to name and nothing to
+ * detach from.
+ */
+export interface KubernetesWorkspaceTerminal extends TerminalSession {
+	/** Present exactly when this terminal belongs to a guest session. */
+	readonly sessionId?: string
+	/** One past the newest retained byte delivered so far. */
+	nextOffset?(): number | undefined
+	/**
+	 * Stop reading and leave the program running — the opposite of
+	 * {@link TerminalSession.kill}. `exited` then rejects with
+	 * `AgentSessionDetachedError`, because a resolved `exited` would claim
+	 * an exit that did not happen.
+	 */
+	detach?(): void
+}
+
+/**
+ * What an ATTACH hands back: the same terminal, with the three session
+ * members present rather than optional. `openTerminal` returns the looser
+ * type because it serves both shapes and a connection-bound terminal
+ * genuinely has no session to name.
+ */
+export interface KubernetesSessionTerminal extends KubernetesWorkspaceTerminal {
+	readonly sessionId: string
+	nextOffset(): number | undefined
+	detach(): void
+}
+
+/** `openTerminal` on a workspace, widened by the two session fields. */
+export interface KubernetesOpenTerminalOptions extends OpenTerminalOptions {
+	/**
+	 * Name this terminal so a later host process can find it again.
+	 * Requires {@link persistent}; on its own it names nothing.
+	 */
+	readonly sessionId?: string
+	/**
+	 * Hand the PTY to the guest's session registry rather than to this
+	 * connection. Losing the connection then DETACHES — no signal is sent,
+	 * and the program ends when it exits, on `killSession`, or when the pod
+	 * stops.
+	 */
+	readonly persistent?: boolean
+}
+
+/** Rejoin a terminal session that is already running. */
+export interface KubernetesAttachTerminalOptions {
+	/** Byte offset to replay from. Default 0 — everything the ring still holds. */
+	readonly fromOffset?: number
+	/** Resize the PTY on attach, for a reader whose window is a different shape. */
+	readonly size?: { readonly cols: number; readonly rows: number }
+}
+
+/** Start a program with no terminal, which only a kill or the pod ends. */
+export interface KubernetesStartDetachedOptions {
+	readonly sessionId: string
+	readonly command: string
+	readonly args?: readonly string[]
+	readonly cwd?: string
+	readonly env?: Record<string, string>
+}
+
+/** Read a session's retained output without attaching to it. */
+export interface KubernetesReadSessionOptions {
+	readonly fromOffset?: number
+}
+
+function sessionNumber(value: unknown, fallback = 0): number {
+	const parsed = Number(value)
+	return Number.isFinite(parsed) ? parsed : fallback
+}
+
+/** How long one `readSession` may spend reading a bounded, one-shot reply. */
+const SESSION_READ_TIMEOUT_MS = 30_000
+
+/**
+ * The same shape the guest enforces, checked here so a bad id is a local
+ * error naming the rule rather than a round trip that comes back
+ * `invalid_session_id`.
+ */
+const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
+
+function assertSessionId(sessionId: string): void {
+	if (!SESSION_ID_PATTERN.test(sessionId)) {
+		throw new Error(
+			`kubernetes: ${JSON.stringify(sessionId)} cannot name a session. It must be 1-64 characters of letters, digits, '.', '_' or '-', starting alphanumeric. The id is the ONLY way another host process finds this session again, so it is refused rather than sanitised.`,
+		)
+	}
+}
+
+/**
+ * Both session fields or neither.
+ *
+ * A `sessionId` without `persistent` would open a terminal that dies with
+ * its connection under a name nothing can use, and `persistent` without an
+ * id would open one nobody can ever find. Either alone is a mistake worth a
+ * message rather than a surprise.
+ */
+function assertSessionOpen(options: KubernetesOpenTerminalOptions): string {
+	if (options.sessionId === undefined || options.persistent !== true) {
+		throw new Error(
+			'kubernetes: a persistent terminal needs both `sessionId` and `persistent: true`. An id without `persistent` opens a connection-bound terminal under a name nothing can attach to, and `persistent` without an id opens one nobody can find again.',
+		)
+	}
+	assertSessionId(options.sessionId)
+	return options.sessionId
+}
+
+/** The workspace-facing terminal around one open session stream. */
+function sessionTerminal(
+	stream: AgentTerminalStream,
+	sessionId: string,
+): KubernetesSessionTerminal {
+	return {
+		...stream.session,
+		sessionId,
+		nextOffset: () => stream.nextOffset(),
+		detach: () => stream.detach(),
+	}
+}
+
+/** The guest's row, structurally validated. */
+function parseSessionSummary(value: unknown): KubernetesSessionSummary {
+	if (!value || typeof value !== 'object') {
+		throw new RemoteProtocolError('kubernetes: the guest sent a session row that is not an object')
+	}
+	const row = value as Record<string, unknown>
+	if (typeof row.sessionId !== 'string') {
+		throw new RemoteProtocolError('kubernetes: the guest sent a session row with no sessionId')
+	}
+	const kind = row.kind === 'detached' ? 'detached' : 'terminal'
+	const state = row.state === 'exited' ? 'exited' : 'running'
+	return {
+		sessionId: row.sessionId,
+		kind,
+		command: typeof row.command === 'string' ? row.command : '',
+		args: Array.isArray(row.args) ? row.args.map(String) : [],
+		startedAt: sessionNumber(row.startedAt),
+		...(row.lastInputAt !== undefined ? { lastInputAt: sessionNumber(row.lastInputAt) } : {}),
+		...(row.lastOutputAt !== undefined ? { lastOutputAt: sessionNumber(row.lastOutputAt) } : {}),
+		nextOffset: sessionNumber(row.nextOffset),
+		droppedBytes: sessionNumber(row.droppedBytes),
+		state,
+		attached: row.attached === true,
+		...(typeof row.exitCode === 'number' ? { exitCode: row.exitCode } : {}),
+		...(typeof row.signal === 'number' ? { signal: row.signal } : {}),
+	}
+}
+
+/**
+ * The SDK's three-way job status, from the guest's two-way state plus the
+ * signal. A program the kernel stopped is `killed`, not `exited`: the
+ * distinction is the whole reason `BackgroundJobStatus` has three members.
+ */
+function sessionStatus(summary: {
+	readonly state: SessionState
+	readonly signal?: number
+}): BackgroundJobStatus {
+	if (summary.state === 'running') return 'running'
+	return summary.signal !== undefined ? 'killed' : 'exited'
+}
+
+/** The refusal shape every session op answers a bad request with. */
+function sessionRefusal(
+	sessionId: string,
+	reply: Record<string, unknown>,
+	operation: string,
+	cause?: unknown,
+): KubernetesSessionRefusedError {
+	const code = typeof reply.error === 'string' ? reply.error : 'unknown'
+	const detail = typeof reply.message === 'string' ? ` ${reply.message}` : ''
+	return new KubernetesSessionRefusedError(
+		sessionId,
+		isSessionRefusal(code) ? code : 'unknown',
+		`kubernetes: the guest refused ${operation} for session ${sessionId} (${code}).${detail} A session lives in the pod's memory only: it is lost when the pod is replaced, and an exited one is kept for the window NAMZU_AGENT_SESSION_TERMINAL_TTL_MS names.`,
+		cause !== undefined ? { cause } : undefined,
+	)
+}
+
+/**
+ * The same refusal, arriving on a STREAM rather than in a reply.
+ *
+ * `openTerminal` and `attachSession` do not get a `{ ok: false }` body: the
+ * guest refuses them with an `error` FRAME, which the vsock transport
+ * surfaces as a plain `Error` carrying the guest's code as its message. Left
+ * alone, those two would be the only session verbs a caller could not catch
+ * by class — so the code is recognised here, at the one boundary where it is
+ * still recognisable, and everything else (a dial failure, an idle timeout)
+ * is handed back untouched.
+ */
+function sessionStreamFailure(sessionId: string, operation: string, error: unknown): unknown {
+	if (!(error instanceof Error) || !isSessionRefusal(error.message)) return error
+	return sessionRefusal(sessionId, { error: error.message }, operation, error)
+}
+
 /**
  * The kubernetes backend's dialable transport: a `tcp` handle plus a
  * `RemoteExecutionAdapter` built from it, so `exec()` gets the same
@@ -1128,8 +1437,255 @@ export class KubernetesAgentTransport {
 		}
 	}
 
-	async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {
-		return await this.withRebind(async () => await this.wire.openTerminal(options))
+	/**
+	 * A guest PTY. Without `sessionId`/`persistent` this is exactly the
+	 * terminal it has always been, down to the wire request.
+	 *
+	 * With them the PTY belongs to the guest's session registry: losing this
+	 * connection detaches rather than killing, a later process rejoins it
+	 * with {@link attachSession}, and the capability is verified against the
+	 * guest's `healthz` features BEFORE the shell is started — never
+	 * downgraded to a connection-bound terminal, which would look like it
+	 * worked until the rollout it exists for.
+	 */
+	async openTerminal(options: KubernetesOpenTerminalOptions): Promise<KubernetesWorkspaceTerminal> {
+		if (options.sessionId === undefined && options.persistent !== true) {
+			return await this.withRebind(async () => await this.wire.openTerminal(options))
+		}
+		const sessionId = assertSessionOpen(options)
+		await this.assertSessionsSupported()
+		return await this.sessionStream(
+			sessionId,
+			'openTerminal',
+			async () => await this.wire.openSessionTerminal(options),
+		)
+	}
+
+	/**
+	 * One open of a session stream, with the guest's refusal mapped to
+	 * {@link KubernetesSessionRefusedError} — see {@link sessionStreamFailure}.
+	 */
+	private async sessionStream(
+		sessionId: string,
+		operation: string,
+		open: () => Promise<AgentTerminalStream>,
+	): Promise<KubernetesSessionTerminal> {
+		try {
+			return sessionTerminal(await this.withRebind(open), sessionId)
+		} catch (error) {
+			throw sessionStreamFailure(sessionId, operation, error)
+		}
+	}
+
+	/**
+	 * Rejoin a terminal session, replaying from `fromOffset` and then
+	 * following it live.
+	 *
+	 * The guest allows one attachment per session and ends the previous one
+	 * by name, so two host processes cannot interleave keystrokes into one
+	 * shell. Losing this connection detaches; ending the program is
+	 * {@link killSession} and nothing else.
+	 */
+	async attachSession(
+		sessionId: string,
+		options: KubernetesAttachTerminalOptions = {},
+	): Promise<KubernetesSessionTerminal> {
+		assertSessionId(sessionId)
+		await this.assertSessionsSupported()
+		return await this.sessionStream(
+			sessionId,
+			'attachSession',
+			async () =>
+				await this.wire.attachSessionTerminal({
+					sessionId,
+					...(options.fromOffset !== undefined ? { fromOffset: options.fromOffset } : {}),
+					...(options.size !== undefined
+						? { cols: options.size.cols, rows: options.size.rows }
+						: {}),
+				}),
+		)
+	}
+
+	/**
+	 * Start a program with no terminal at all, in its own kernel session,
+	 * with stdin closed and both output streams going into the guest's
+	 * retained log.
+	 *
+	 * It is not the SDK's `spawnDetached` and deliberately does not pretend
+	 * to be: that one hands back a host `ChildProcess`, which cannot cross a
+	 * process boundary. This returns a NAME, and the name is what a
+	 * redeployed host comes back with.
+	 */
+	async startDetached(
+		options: KubernetesStartDetachedOptions,
+		signal?: AbortSignal,
+	): Promise<KubernetesSessionSummary> {
+		assertSessionId(options.sessionId)
+		await this.assertSessionsSupported(signal)
+		const reply = (await this.withRebind(
+			async () =>
+				await requestChecked(
+					this.wire,
+					{
+						op: 'start-detached',
+						body: {
+							sessionId: options.sessionId,
+							command: options.command,
+							...(options.args !== undefined ? { args: options.args } : {}),
+							...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+							...(options.env !== undefined ? { env: { ...options.env } } : {}),
+						},
+					},
+					signal,
+				),
+			signal,
+		)) as Record<string, unknown>
+		if (reply.ok !== true) throw sessionRefusal(options.sessionId, reply, 'startDetached')
+		return parseSessionSummary(reply)
+	}
+
+	/** Every session this pod's agent is holding, running and recently exited. */
+	async listSessions(signal?: AbortSignal): Promise<readonly KubernetesSessionSummary[]> {
+		await this.assertSessionsSupported(signal)
+		const reply = (await this.withRebind(
+			async () => await requestChecked(this.wire, { op: 'list-sessions' }, signal),
+			signal,
+		)) as Record<string, unknown>
+		if (reply.ok !== true) {
+			throw new RemoteProtocolError(
+				`kubernetes: the guest refused to list sessions: ${String(reply.error ?? 'no reason given')}`,
+			)
+		}
+		if (!Array.isArray(reply.sessions)) {
+			throw new RemoteProtocolError(
+				'kubernetes: the guest sent a session list that is not an array',
+			)
+		}
+		return reply.sessions.map(parseSessionSummary)
+	}
+
+	/**
+	 * End one session and everything still in it — the shell, its
+	 * backgrounded jobs, and the program a detached session started.
+	 *
+	 * Idempotent: a session that has already exited answers with what it
+	 * exited with. The reply carries the session's state, so a program that
+	 * ignored a `SIGTERM` and outlived the guest's confirm window is
+	 * reported still running rather than reported dead.
+	 */
+	async killSession(
+		sessionId: string,
+		options: { readonly signal?: string; readonly abort?: AbortSignal } = {},
+	): Promise<KubernetesSessionSummary> {
+		assertSessionId(sessionId)
+		await this.assertSessionsSupported(options.abort)
+		const reply = (await this.withRebind(
+			async () =>
+				await requestChecked(
+					this.wire,
+					{
+						op: 'kill-session',
+						body: {
+							sessionId,
+							...(options.signal !== undefined ? { signal: options.signal } : {}),
+						},
+					},
+					options.abort,
+				),
+			options.abort,
+		)) as Record<string, unknown>
+		if (reply.ok !== true) throw sessionRefusal(sessionId, reply, 'killSession')
+		return parseSessionSummary(reply)
+	}
+
+	/**
+	 * Read what a session has printed since `fromOffset`, without attaching
+	 * to it and without signalling anything.
+	 *
+	 * One request, one answer, in the SDK's `BackgroundJobOutput` shape: the
+	 * chunk, the offset to come back with, the bytes the ring dropped before
+	 * it, and the program's status. A caller polling in a loop can neither
+	 * re-read nor skip, because the offset is the guest's own.
+	 */
+	async readSession(
+		sessionId: string,
+		options: KubernetesReadSessionOptions = {},
+		signal?: AbortSignal,
+	): Promise<KubernetesSessionOutput> {
+		assertSessionId(sessionId)
+		await this.assertSessionsSupported(signal)
+		const fromOffset = options.fromOffset ?? 0
+		let chunk = ''
+		let nextOffset = fromOffset
+		let droppedBytes = 0
+		let state: SessionState = 'running'
+		let exitCode: number | undefined
+		let exitSignal: number | undefined
+		let refusal: KubernetesSessionRefusedError | undefined
+		// Accumulating INSIDE a `withRebind` is safe for the one reason that
+		// matters: the wrapper retries only a DIAL failure, and a dial that
+		// failed delivered no frame, so a retry starts from an untouched
+		// chunk and the offset the caller asked for.
+		await this.withRebind(
+			async () =>
+				await this.wire.streamFramedRequest(
+					{ op: 'attach-session', body: { sessionId, fromOffset, follow: false } },
+					(event) => {
+						if (isUnauthorized(event)) throw new KubernetesAgentUnauthorizedError()
+						if (event.type === 'ready') {
+							nextOffset = sessionNumber(event.nextOffset, nextOffset)
+							droppedBytes = sessionNumber(event.droppedBytes)
+							state = event.state === 'exited' ? 'exited' : 'running'
+							if (typeof event.exitCode === 'number') exitCode = event.exitCode
+							if (typeof event.signal === 'number') exitSignal = event.signal
+							return
+						}
+						if (event.type === 'data') {
+							chunk += String(event.data ?? '')
+							nextOffset = sessionNumber(event.nextOffset, nextOffset)
+							return
+						}
+						if (event.type === 'error') {
+							refusal = sessionRefusal(
+								sessionId,
+								{
+									error: event.error,
+									...(event.message !== undefined ? { message: event.message } : {}),
+								},
+								'readSession',
+							)
+							return
+						}
+						throw new RemoteProtocolError(
+							`kubernetes: the guest sent an unexpected frame reading session ${sessionId}: ${JSON.stringify(event).slice(0, 200)}`,
+						)
+					},
+					{ observationTimeoutMs: SESSION_READ_TIMEOUT_MS },
+					signal,
+				),
+			signal,
+		)
+		if (refusal !== undefined) throw refusal
+		return {
+			chunk,
+			nextOffset,
+			droppedBytes,
+			status: sessionStatus({ state, ...(exitSignal !== undefined ? { signal: exitSignal } : {}) }),
+			...(exitCode !== undefined ? { exitCode } : {}),
+		}
+	}
+
+	/**
+	 * Whether this guest keeps a session registry at all, asked once per
+	 * transport and only when a caller wants one.
+	 */
+	private async assertSessionsSupported(signal?: AbortSignal): Promise<void> {
+		const features = await this.wire.guestFeatures(signal)
+		if (features.includes(SESSIONS_FEATURE)) return
+		throw new KubernetesSessionsUnsupportedError(
+			SESSIONS_FEATURE,
+			`kubernetes: this workspace's guest agent does not advertise the '${SESSIONS_FEATURE}' healthz feature, so a terminal opened here would die with this connection and a detached program could not be named, read or killed. The request is refused rather than served as a connection-bound terminal. Rebuild the workspace image from this Namzu release.`,
+		)
 	}
 
 	async openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection> {

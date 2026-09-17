@@ -37,6 +37,13 @@ export const AGENT_ENV_KEYS = [
 	'NAMZU_AGENT_EXECUTION_LOG_BYTES',
 	'NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS',
 	'NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS',
+	// Sessions: a terminal or program that outlives the connection that
+	// started it, how much of its output is kept, how long an exited one's
+	// record survives, and how long a kill waits for it to go.
+	'NAMZU_AGENT_MAX_SESSIONS',
+	'NAMZU_AGENT_SESSION_LOG_BYTES',
+	'NAMZU_AGENT_SESSION_TERMINAL_TTL_MS',
+	'NAMZU_AGENT_SESSION_KILL_CONFIRM_TIMEOUT_MS',
 	// The ceiling on a caller-requested command timeout.
 	'NAMZU_SANDBOX_MAX_TIMEOUT_MS',
 	// What one ranged read may ask for, and what one streamed `data` frame

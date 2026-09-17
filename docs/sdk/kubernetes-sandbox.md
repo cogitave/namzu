@@ -418,11 +418,11 @@ request envelope.
 | `readFileStream` | Implemented | The same read as chunks, so neither the pod nor this process holds the file. See [reading a file larger than one frame](#reading-a-file-larger-than-one-frame). |
 | `listFiles` | Implemented | `find -printf '%p\t%s\n'`, parsed line by line; a root that does not exist is an empty list. |
 | `walkFiles` | Implemented | Bounded, lazy discovery through the SDK's own `walkFilesViaExec` over `exec` — see [bounded search](#bounded-search-and-the-glob-and-grep-builtins). |
-| `openTerminal` | Implemented | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. |
+| `openTerminal` | Implemented | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. Its teardown reaches [the whole session](#a-terminal-or-a-program-can-outlive-the-host-process), not only `script`'s process group. On a workspace it also takes `sessionId`/`persistent`. |
 | `openTcpConnection` | Implemented | Guest loopback only. |
 | `destroy` | Implemented | DELETEs the object this backend created, which cascades to the Pod, Service and Sandbox. Idempotent; an object already gone counts as released. |
 | `setNetworkPolicy` | **Omitted** | Egress here is a `NetworkPolicy` attached to the pool's `SandboxTemplate`; there is no per-running-pod knob. The SDK's contract says a backend that cannot enforce one must omit it rather than accept it and quietly not apply it. |
-| `spawnDetached` | **Omitted** | The guest agent has no op that starts a process and hands it back running. A host that needs background jobs is told no. |
+| `spawnDetached` | **Omitted** | It returns a host `ChildProcess`, which cannot cross a process boundary, so it stays omitted rather than half-implemented. A workspace's [`startDetached`](#a-terminal-or-a-program-can-outlive-the-host-process) is the thing that does exist: it returns a NAME another host process can come back with. |
 
 A confirmed `exec` cancellation resolves with the terminal signal/exit code
 the shared `RemoteExecutionController` observed, exactly as the Firecracker
@@ -1789,6 +1789,170 @@ and no image has to roll together with this release.
 `SandboxExecOptions` is untouched, so every other backend's exec contract —
 and the Firecracker tier's — is exactly what it was; the options type here
 only widens what a Kubernetes workspace's own `exec()` accepts.
+
+### A terminal or a program can outlive the host process
+
+A workspace is built to outlive the host process — it carries no lease for
+exactly that reason, and a second process reattaches to it by name. Until this
+release the processes *inside* it did not.
+
+- A terminal belonged to the framed connection that opened it. When the host
+  process went away — a deploy, a crash, an OOM kill — its sockets closed and
+  every terminal it had opened was torn down.
+- **The teardown did not reach what it claimed to.** The agent's comment said
+  its process-group kill "reaches the shell and every descendant". It did not:
+  util-linux `script` starts the shell in a **new session**, so the kill
+  reached `script` alone. `script`, the shell and the foreground job then died
+  of the PTY hanging up, but a job backgrounded with `&` was never signalled.
+  It kept running with no terminal, holding its port, reachable by no op, until
+  the pod stopped.
+- Replay lived in the host process: output that arrived with nobody listening
+  was buffered on the host, so a new host process had no buffer and no way to
+  name the terminal.
+- Nothing could run outside a terminal at all. `exec` caps at 30 minutes and
+  kills the process group when the timeout fires.
+
+The guest now keeps a **session registry**: programs it is running that are
+not bound to the connection that started them. A second host process finds
+them by name and picks up where the first one left off.
+
+```ts
+import { createKubernetesWorkspace } from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+// --- the host process that starts them ---
+const host = await createKubernetesWorkspace(cluster, {
+  workspaceId: 'acme-checkout-7',
+  workingDirectory: '/workspace',
+})
+
+// A shell that belongs to the pod, not to this socket.
+await host.openTerminal({
+  sessionId: 'editor-shell',
+  persistent: true,
+  size: { cols: 120, rows: 40 },
+})
+
+// A preview server with no terminal at all.
+await host.startDetached({
+  sessionId: 'preview',
+  command: 'node',
+  args: ['server.js'],
+})
+
+// --- the host process that replaces it, after a deploy ---
+const successor = await createKubernetesWorkspace(cluster, {
+  workspaceId: 'acme-checkout-7',
+  workingDirectory: '/workspace',
+})
+
+for (const session of await successor.listSessions()) {
+  console.log(session.sessionId, session.kind, session.state, session.nextOffset)
+}
+
+const shell = await successor.attachTerminal('editor-shell', { fromOffset: 0 })
+shell.onData((chunk) => process.stdout.write(chunk))
+shell.write('git status\n')
+
+const output = await successor.readSession('preview', { fromOffset: 0 })
+console.log(output.chunk, output.nextOffset, output.droppedBytes, output.status)
+
+await successor.killSession('preview')
+```
+
+**A closed connection is a detach, and sends no signal of any kind.** A
+persistent session ends when its program exits, when `killSession` ends it, or
+when the pod stops — and nothing else. On such a terminal `exited` **rejects**
+with `AgentSessionDetachedError` when the attachment ends and the program does
+not, because resolving it would report an exit that never happened; the error
+carries the byte offset to come back at. A plain `openTerminal` — no
+`sessionId`, no `persistent` — is unchanged in every other respect, down to
+the wire request it sends.
+
+**Output keeps flowing with nobody attached.** The guest reads a session's
+output into a ring buffer whether or not anyone is reading it, so a program
+with no reader never blocks on a full PTY. That ring is the **same
+`OutputLog`** a [detached execution](#a-command-can-outlive-the-connection-watching-it)
+uses: one ordered, size-bounded log of stdout and stderr in a single
+monotonically increasing byte-offset space. Eviction advances its start offset
+and a read from before that is answered with a `droppedBytes` count. A gap is
+reported; output is never quietly shortened into something that looks
+complete. Every frame carries its own byte range, so a reattach never derives
+an offset from decoded text.
+
+**One attachment per session.** A second attach ends the first by name, so two
+host processes cannot interleave keystrokes into one shell. The loser is an
+observer: its stream ends, and the shell it was reading is untouched. A
+`readSession` is **not** an attachment: it replays what it was asked for and
+ends, taking nothing from the live reader and signalling nothing, so a host
+polling a shell's tail does not end the terminal it is polling.
+
+**A signal is coerced to the terminal set, whichever connection sent it.**
+`killSession(id, { signal })` and `TerminalSession.kill(signal)` accept
+`SIGTERM`, `SIGKILL`, `SIGINT` and `SIGHUP`; anything else becomes `SIGTERM`
+(`killSession` defaults to `SIGKILL`, a terminal's own `kill` to `SIGTERM`).
+The rule is applied in one place, so a frame means the same thing on the
+connection that opened a terminal and on a later attachment to it — a session
+wedged in `T` by a `SIGSTOP` from one of the two would be reachable by nothing
+but `SIGKILL` and reported as still running.
+
+**A kill reaches the whole session — and so does a non-persistent terminal's
+teardown.** Both signal every process still in the kernel session the shell was
+started in, found through `/proc`, not only the process group the agent
+spawned. A job backgrounded inside a terminal therefore no longer outlives it.
+**This is the one behaviour change that is not opt-in**, it is what the old
+comment already promised, and a host that was relying on the leak — starting a
+dev server with `&` inside a terminal and expecting it to survive — must move
+it to `startDetached`, which is the verb for a program that outlives its
+caller. What no signal can follow is a process that called `setsid` for itself:
+it has left the session, and nothing short of a PID namespace or a cgroup
+reaches it.
+
+**The registry is the pod's memory.** It is never written to disk. After
+`suspend()` and `resume()` — a new pod, a fresh agent — `listSessions()` is
+empty, and so it is after any eviction, node drain or restart. Nothing here
+makes a program survive the pod; it makes a program survive the *host*.
+
+**`spawnDetached` stays absent.** The SDK's version returns a host
+`ChildProcess` synchronously, which cannot cross a process boundary, and its
+consumer keeps jobs in an in-memory map inside one host process. `startDetached`
+is a differently-named verb because it does a different thing: it returns a
+name, and the name is what a redeployed host comes back with. `readSession`
+answers in the SDK's `BackgroundJobOutput` shape — `chunk`, `nextOffset`,
+`droppedBytes`, `status`, `exitCode` — because it answers the same question for
+the same kind of consumer.
+
+**What it costs the guest, and the knobs.** A session's ring is heap in the
+same 512Mi the workload shares, so it is bounded twice, exactly as retained
+execution output is. All three are in the shipped workspace template's `env`
+block at their defaults.
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `NAMZU_AGENT_MAX_SESSIONS` | `16` | How many sessions may exist at once. Exited ones are given up first; a guest already holding this many LIVE sessions refuses the next one before it starts a process. |
+| `NAMZU_AGENT_SESSION_LOG_BYTES` | `1048576` (1 MiB) | Retained output per session. The oldest bytes go first and the loss is reported as `droppedBytes`. |
+| `NAMZU_AGENT_SESSION_TERMINAL_TTL_MS` | `600000` (10 min) | How long an exited session's record and output outlive its program, so a redeployed host can still read the tail and the exit status. Expiry is checked when the next session op arrives rather than on a timer, so a record can outlast its window in a pod nobody is talking to — `NAMZU_AGENT_MAX_SESSIONS` is what bounds that. |
+
+**The guest has to advertise it.** `healthz` answers with `features: ["write-file-parts",
+"execution-attach", "stream-heartbeat", "sessions"]`, and a host asking for any
+session verb against an image without the last string is refused with
+`KubernetesSessionsUnsupportedError` — **never** downgraded to a
+connection-bound terminal, which would look like it worked until the rollout it
+exists for. The guest wire protocol version is unchanged: `sessionId`,
+`persistent` and the four new ops (`attach-session`, `start-detached`,
+`list-sessions`, `kill-session`) are all additive, so no host and no image has
+to roll together with this release.
+
+**Where it lives.** All of it is on `KubernetesWorkspace`, not on the SDK's
+`Sandbox`. `OpenTerminalOptions` and `TerminalSession` are untouched, so every
+other backend — the Firecracker tier included — is exactly what it was.
 
 ### Egress covers a workspace too
 

@@ -157,11 +157,16 @@ const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
 //    shape: an agent that predates them would IGNORE `offset`/`length`
 //    and answer with the WHOLE file, which the caller would read as its
 //    slice.
+//  - `sessions` — `terminal` accepts `{ sessionId, persistent: true }`, and
+//    the `attach-session`, `start-detached`, `list-sessions` and
+//    `kill-session` ops name, read, start and end a program that outlives
+//    the connection that started it. See `sessions`.
 const AGENT_FEATURES = [
 	'write-file-parts',
 	'execution-attach',
 	'stream-heartbeat',
 	'read-file-stream',
+	'sessions',
 ]
 
 // --- config (mirrors worker/server.js env contract) -----------------------
@@ -246,6 +251,37 @@ const EXECUTION_RETAINED_TTL_MS = positiveIntegerConfig(
 // the bound, because a reader further behind than that has nothing left
 // to catch up TO.
 const ATTACH_WRITE_BUFFER_BYTES = EXECUTION_LOG_BYTES
+// How many sessions — persistent terminals and detached processes together —
+// this guest will hold, and how much of each one's output it keeps.
+//
+// The same two-sided bound the retained-execution logs above carry, and for
+// the same reason: the product is the whole of what the feature can cost the
+// guest's heap, 16 x 1 MiB = 16 MiB inside the 512Mi the shipped workspace
+// template gives the container to share with the workload. A count alone
+// would let one `yes` in one shell eat the container; bytes alone would let
+// the count multiply the bound.
+//
+// A session is created only when a caller NAMES one, so a guest nobody has
+// asked to keep anything costs exactly what it always did.
+const MAX_SESSIONS = positiveIntegerConfig('NAMZU_AGENT_MAX_SESSIONS', 16)
+const SESSION_LOG_BYTES = positiveIntegerConfig('NAMZU_AGENT_SESSION_LOG_BYTES', 1024 * 1024)
+// How long an exited session's record and its output outlive the program —
+// the window in which a redeployed host can still come back, read the tail
+// and learn the exit status. Ten minutes, matching
+// `NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS`, because it answers the same
+// question for the same reader.
+const SESSION_TERMINAL_TTL_MS = positiveIntegerConfig(
+	'NAMZU_AGENT_SESSION_TERMINAL_TTL_MS',
+	10 * 60 * 1000,
+)
+// How long `kill-session` waits for the program to actually go before it
+// answers. The answer carries the session's state either way, so a program
+// that outlives the wait is reported still running rather than reported dead.
+const SESSION_KILL_CONFIRM_TIMEOUT_MS = positiveIntegerConfig(
+	'NAMZU_AGENT_SESSION_KILL_CONFIRM_TIMEOUT_MS',
+	5_000,
+)
+const SESSION_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/
 // `terminateAndConfirm` only escalates SIGTERM to SIGKILL when the owned
 // process group is STILL alive at the end of this window — a group that
 // goes quiet before then is read as "the signal worked," with no check
@@ -2176,12 +2212,16 @@ async function processChildren(pid) {
 }
 
 /**
- * Resolve the slave allocated by util-linux `script`.
+ * Resolve the slave allocated by util-linux `script`, and the pid holding it.
  *
  * `script` owns the PTY master and the login shell is its child. The child's
  * fd 0 is therefore the authoritative slave path; discovering it through proc
  * lets resize use the real TIOCSWINSZ ioctl through `stty -F`, including the
  * SIGWINCH programs expect. No pipe is represented as a terminal.
+ *
+ * The pid comes back with it because the shell is also the leader of the
+ * kernel session `script` created for it — the unit a teardown has to signal,
+ * and the one a process-group kill misses entirely.
  */
 async function findPtySlave(scriptPid) {
 	for (let attempt = 0; attempt < 200; attempt += 1) {
@@ -2190,7 +2230,7 @@ async function findPtySlave(scriptPid) {
 			const pid = queue.shift()
 			try {
 				const target = await fs.readlink(`/proc/${pid}/fd/0`)
-				if (/^\/dev\/pts\/\d+$/.test(target)) return target
+				if (/^\/dev\/pts\/\d+$/.test(target)) return { slavePath: target, shellPid: pid }
 			} catch {}
 			queue.push(...(await processChildren(pid)))
 		}
@@ -2318,10 +2358,673 @@ function armStreamHeartbeat(socket, intervalMs, onDead) {
 	}
 }
 
+// --- guest-owned sessions -------------------------------------------------
+
 /**
- * Start one interactive PTY inside the guest and bind it to this framed
- * connection. The runtime gateway owns the connection; disconnect/kill tears
- * down the complete detached process group before the microVM can be released.
+ * The programs this guest is running that are NOT bound to the connection
+ * that started them, keyed by the `sessionId` their caller chose.
+ *
+ * A workspace exists to outlive the host process — it carries no lease for
+ * exactly that reason — and until this registry the processes inside it did
+ * not. A terminal belonged to one socket: the host went away, the socket
+ * closed, and the agent killed what it could reach. This is the other half
+ * of that promise, and it is deliberately small: a map, one
+ * {@link OutputLog} per entry, and at most one attachment.
+ *
+ *  - **The log is W4's, not a second one.** `attach-execution` and every op
+ *    here read the same class, so there is one overflow accounting, one
+ *    monotonic offset space and one way to ask what was lost. A reader never
+ *    has to know which registry it is talking to.
+ *  - **Output keeps flowing with nobody attached.** The child's pipes are
+ *    read into the log whether or not anyone is reading the log, so a
+ *    detached program never blocks on a full PTY. What a disconnected host
+ *    misses is eviction, and eviction is reported.
+ *  - **At most one attachment.** A second attach ends the first with a named
+ *    `detached` frame, so two host processes cannot interleave keystrokes
+ *    into one shell.
+ *  - **In memory only.** A resumed pod runs a fresh agent, so it comes back
+ *    with no sessions. That is stated in the docs rather than worked around:
+ *    a registry on the disk would promise a process that is not there.
+ */
+const sessions = new Map()
+
+/** The agent's own kernel session, so nothing here can ever signal it. */
+let ownUnixSessionId
+
+function validateSessionId(sessionId) {
+	return typeof sessionId === 'string' && SESSION_ID_PATTERN.test(sessionId)
+}
+
+function pruneSessions(now = Date.now()) {
+	for (const [sessionId, record] of sessions) {
+		if (record.state === 'exited' && record.expiresAt <= now) sessions.delete(sessionId)
+	}
+}
+
+/**
+ * Make a slot available by giving up the OLDEST-expiring exited sessions,
+ * and answer whether there is one now.
+ *
+ * A running session is never evicted: its program has nowhere else to go and
+ * its output has nowhere else to be kept, so a guest already holding
+ * `MAX_SESSIONS` live programs refuses the next one before it starts a
+ * process rather than quietly dropping one it is still serving.
+ */
+function makeRoomForSession() {
+	if (sessions.size < MAX_SESSIONS) return true
+	const finished = [...sessions.entries()]
+		.filter(([, record]) => record.state === 'exited')
+		.sort(([, left], [, right]) => left.expiresAt - right.expiresAt)
+	for (const [sessionId] of finished) {
+		sessions.delete(sessionId)
+		if (sessions.size < MAX_SESSIONS) return true
+	}
+	return false
+}
+
+/**
+ * The kernel session id (`/proc/<pid>/stat` field 6) of one process.
+ *
+ * Parsed from the last `)` rather than by splitting on spaces: field 2 is
+ * the executable's own name, in parentheses, and it may contain spaces and
+ * parentheses of its own.
+ */
+async function readUnixSessionId(pid) {
+	try {
+		const raw = await fs.readFile(`/proc/${pid}/stat`, 'utf8')
+		const close = raw.lastIndexOf(')')
+		if (close < 0) return undefined
+		// state, ppid, pgrp, session — the four fields after the name.
+		const sessionId = Number(raw.slice(close + 2).split(' ')[3])
+		return Number.isInteger(sessionId) && sessionId > 0 ? sessionId : undefined
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * Every live process in one of `wanted`, which is the ONLY way to reach a
+ * job a shell left running.
+ *
+ * The comment this replaces claimed a process-group kill "reaches the shell
+ * and every descendant". It does not, and the gap is not subtle: util-linux
+ * `script` starts the shell in a NEW session, so `kill(-script.pid)` reaches
+ * `script` alone. `script`, the shell and the FOREGROUND job then die of the
+ * PTY hanging up — but a job backgrounded with `&` is never signalled, keeps
+ * running with no terminal, holds its port, and is reachable by no op until
+ * the pod stops. A process group is the wrong unit here; the kernel session
+ * the shell created is the right one, and it is stable: a session id never
+ * changes for the life of a process unless that process calls `setsid`
+ * itself, so a job reparented to PID 1 is still found by this scan.
+ *
+ * The agent's own session is excluded by construction, and so are PID 1 and
+ * this process: a bug in the caller must not be able to signal the agent, the
+ * init the image runs, or the test runner that loaded this module.
+ */
+async function processesInSessions(wanted) {
+	if (ownUnixSessionId === undefined) {
+		ownUnixSessionId = (await readUnixSessionId(process.pid)) ?? 0
+	}
+	const targets = new Set(
+		[...wanted].filter(
+			(sessionId) => Number.isInteger(sessionId) && sessionId > 1 && sessionId !== ownUnixSessionId,
+		),
+	)
+	if (targets.size === 0) return []
+	let entries
+	try {
+		entries = await fs.readdir('/proc')
+	} catch {
+		return []
+	}
+	const pids = []
+	for (const entry of entries) {
+		const pid = Number(entry)
+		if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue
+		const sessionId = await readUnixSessionId(pid)
+		if (sessionId !== undefined && targets.has(sessionId)) pids.push(pid)
+	}
+	return pids
+}
+
+/**
+ * Signal everything one session owns, and answer with the pids that were
+ * signalled.
+ *
+ * Both units, because neither alone is the session: the process group is
+ * what reaches the leader the agent spawned (`script`, or a detached
+ * program) and is the only thing available when a PTY never appeared, while
+ * the `/proc` scan is what reaches the shell and its jobs. They overlap
+ * harmlessly and neither is optional.
+ *
+ * The scan runs FIRST, and that order is deliberate. Killing `script` hangs
+ * the PTY up, and the hangup takes the shell with it — so a scan afterwards
+ * races the very processes it is looking for, and would report having
+ * signalled nothing on exactly the runs where the kernel happened to win.
+ * What the hangup does NOT reliably reach is the job: whether a backgrounded
+ * process dies with its shell depends on which shell the image ships and
+ * what it does with SIGHUP, and a teardown may not depend on that.
+ */
+async function signalSessionProcesses(record, signal) {
+	const signalled = new Set()
+	for (const pid of await processesInSessions(record.unixSessionIds ?? [])) {
+		try {
+			process.kill(pid, signal)
+			signalled.add(pid)
+		} catch {}
+	}
+	if (record.processGroupId && process.platform !== 'win32') {
+		try {
+			process.kill(-record.processGroupId, signal)
+			// One call, many processes, and the kernel never says how many it
+			// reached — so the count claims the leader alone, which is the one
+			// pid this call is known to have signalled. The scan above has
+			// usually found it already; the set is what stops it being counted
+			// twice, and what stops a session whose PTY never appeared
+			// reporting that it signalled nothing.
+			signalled.add(record.processGroupId)
+		} catch {}
+	}
+	return [...signalled]
+}
+
+/** One session's row in `list-sessions`, and the reply `kill-session` ends with. */
+function sessionSummary(record) {
+	return {
+		sessionId: record.sessionId,
+		kind: record.kind,
+		command: record.command,
+		args: record.args,
+		startedAt: record.startedAt,
+		lastInputAt: record.lastInputAt,
+		lastOutputAt: record.lastOutputAt,
+		// The log's own numbers, so a caller can ask for exactly what it has
+		// not read and be told exactly what it missed.
+		nextOffset: record.log.endOffset,
+		droppedBytes: record.log.droppedBytes,
+		state: record.state,
+		attached: record.attachment !== undefined,
+		...(record.state === 'exited'
+			? {
+					exitCode: record.exitCode,
+					...(record.signal !== undefined ? { signal: record.signal } : {}),
+				}
+			: {}),
+	}
+}
+
+/**
+ * The one place a terminal stream's opening frame is built.
+ *
+ * Every consumer sends the same `ready` — the connection that starts a
+ * connection-bound terminal, the one that starts a persistent session, a
+ * later attach, and a one-shot read — so a field added to it later is added
+ * ONCE. `record` is undefined for a connection-bound terminal, which has no
+ * registry entry to describe: that frame is then exactly the bare `ready`
+ * this op has always sent. `heartbeatMs` is W5's echo and rides in `extra`,
+ * present only when the host asked for one.
+ */
+function readyFrame(record, extra) {
+	return {
+		type: 'ready',
+		...(record !== undefined
+			? {
+					sessionId: record.sessionId,
+					kind: record.kind,
+					state: record.state,
+					...(record.state === 'exited'
+						? {
+								exitCode: record.exitCode,
+								...(record.signal !== undefined ? { signal: record.signal } : {}),
+							}
+						: {}),
+				}
+			: {}),
+		...extra,
+	}
+}
+
+/**
+ * Append one chunk to a session's log and hand it to the attachment, if
+ * there is one.
+ *
+ * The append happens first and the frame carries the span it occupies, for
+ * the reason `recordOutput` states: a host cannot recover a byte offset from
+ * decoded text, because a chunk that ends mid-character decodes WIDER than
+ * the bytes it replaced. Nothing here pauses the child. An attachment that
+ * has stopped draining is dropped instead — everything it misses is in the
+ * log, and its next attach replays from the offset it last saw.
+ */
+function recordSessionOutput(record, stream, data) {
+	const offset = record.log.append(stream, data)
+	record.lastOutputAt = Date.now()
+	const attachment = record.attachment
+	if (attachment === undefined) return
+	try {
+		writeFrame(attachment.socket, {
+			type: 'data',
+			stream,
+			data: data.toString('utf8'),
+			offset,
+			nextOffset: offset + data.length,
+		})
+		if (attachment.socket.writableLength > SESSION_LOG_BYTES) {
+			endAttachment(record, 'slow_reader', true)
+		}
+	} catch {}
+}
+
+/**
+ * End the current attachment WITHOUT touching the program.
+ *
+ * `reason` is on the wire because the three are different facts to the host:
+ * `superseded` means another process took the session, `slow_reader` means
+ * this one stopped draining, and neither is the program exiting.
+ */
+function endAttachment(record, reason, destroy = false) {
+	const attachment = record.attachment
+	if (attachment === undefined) return
+	record.attachment = undefined
+	attachment.heartbeat?.stop()
+	try {
+		writeFrame(attachment.socket, { type: 'detached', reason })
+		writeTerminator(attachment.socket)
+		attachment.socket.end()
+	} catch {}
+	if (destroy) attachment.socket.destroy()
+}
+
+/**
+ * Record a session's program as gone and tell whoever is attached.
+ *
+ * The record OUTLIVES the program by `SESSION_TERMINAL_TTL_MS`, because the
+ * whole point of the registry is that the host which started it may be gone
+ * and may come back: it comes back to an exit code and the tail of the
+ * output, not to "no such session".
+ */
+function finishSession(record, exitCode, signal) {
+	if (record.state === 'exited') return
+	record.state = 'exited'
+	record.exitCode = typeof exitCode === 'number' ? exitCode : -1
+	if (signal && osConstants.signals[signal]) record.signal = osConstants.signals[signal]
+	record.exitedAt = Date.now()
+	record.expiresAt = record.exitedAt + SESSION_TERMINAL_TTL_MS
+	record.child = undefined
+	record.resolveDone?.()
+	const attachment = record.attachment
+	if (attachment === undefined) return
+	record.attachment = undefined
+	attachment.heartbeat?.stop()
+	try {
+		writeFrame(attachment.socket, {
+			type: 'exit',
+			exitCode: record.exitCode,
+			...(record.signal !== undefined ? { signal: record.signal } : {}),
+			nextOffset: record.log.endOffset,
+		})
+		writeTerminator(attachment.socket)
+		attachment.socket.end()
+	} catch {}
+}
+
+/** A fresh registry entry. `child` and the session ids are filled in as they become known. */
+function createSessionRecord(sessionId, kind, command, args) {
+	const record = {
+		sessionId,
+		kind,
+		command,
+		args,
+		startedAt: Date.now(),
+		lastInputAt: undefined,
+		lastOutputAt: undefined,
+		log: new OutputLog(SESSION_LOG_BYTES),
+		state: 'running',
+		exitCode: undefined,
+		signal: undefined,
+		child: undefined,
+		processGroupId: undefined,
+		slavePath: undefined,
+		/** Every kernel session this entry owns; see `processesInSessions`. */
+		unixSessionIds: [],
+		attachment: undefined,
+	}
+	record.done = new Promise((resolve) => {
+		record.resolveDone = resolve
+	})
+	sessions.set(sessionId, record)
+	return record
+}
+
+/**
+ * Apply one host to guest terminal event to whatever process is behind it.
+ *
+ * The accessors are read lazily on purpose: the SAME routine serves the
+ * connection that started a terminal — where the child does not exist yet
+ * when the handler is built — and every later attachment to the same
+ * session, where it already does. One implementation, so input, resize and
+ * kill cannot come to mean different things depending on which connection a
+ * keystroke arrived on.
+ */
+function applyTerminalEvent(event, context) {
+	if (!event || typeof event !== 'object') return
+	if (event.type === 'heartbeat') return
+	if (event.type === 'input') {
+		const child = context.child()
+		if (typeof event.data === 'string' && child?.stdin?.writable) {
+			context.onInput?.()
+			if (!child.stdin.write(event.data)) {
+				context.pause()
+				// Nothing is read while this is paused, so the watchdog must
+				// not read that as the host having gone away.
+				context.heartbeat()?.suspend()
+				child.stdin.once('drain', () => {
+					context.resume()
+					context.heartbeat()?.resume()
+				})
+			}
+		}
+		return
+	}
+	if (event.type === 'resize') {
+		try {
+			const cols = terminalDimension(event.cols, MAX_TERMINAL_COLS, 'cols')
+			const rows = terminalDimension(event.rows, MAX_TERMINAL_ROWS, 'rows')
+			const slavePath = context.slavePath()
+			if (slavePath) void resizePty(slavePath, cols, rows).catch(() => {})
+		} catch {}
+		return
+	}
+	if (event.type === 'kill') {
+		// The allow-list is applied HERE rather than in either context, so the
+		// frame means the same signal on the connection that opened the
+		// terminal and on every later attachment to it. Applied in one of the
+		// two it would be no allow-list at all: an attached caller could stop
+		// a session with SIGSTOP that the opening caller could only terminate.
+		const requested = typeof event.signal === 'string' ? event.signal : 'SIGTERM'
+		context.kill(TERMINAL_SIGNALS.has(requested) ? requested : 'SIGTERM')
+	}
+}
+
+/**
+ * Serve one connection reading a session: replay from `fromOffset`, then
+ * either follow the program live or end.
+ *
+ * Synchronous from the replay to joining the live set, exactly as
+ * `handleAttachExecution` is and for the same reason: no chunk can be both
+ * replayed and broadcast, and none can fall between the two.
+ *
+ * Returns the stream handle for a following attachment, and nothing for a
+ * refusal or a one-shot read — both of which have already ended the socket.
+ */
+function attachToSession(socket, record, options) {
+	const refuse = (error, extra) => {
+		writeFrame(socket, { type: 'error', error, ...extra })
+		writeTerminator(socket)
+		socket.end()
+	}
+	const fromOffset = options.fromOffset === undefined ? 0 : Number(options.fromOffset)
+	const replay = record.log.read(fromOffset)
+	if (replay === undefined) {
+		refuse('invalid_offset', { nextOffset: record.log.endOffset })
+		return undefined
+	}
+	const follow = options.follow !== false
+	writeFrame(
+		socket,
+		readyFrame(record, {
+			fromOffset: replay.fromOffset,
+			// The bytes between what the reader asked for and what survives.
+			// A gap is REPORTED; output is never quietly skipped.
+			droppedBytes: replay.droppedBytes,
+			nextOffset: replay.nextOffset,
+			...(options.heartbeatMs !== undefined ? { heartbeatMs: options.heartbeatMs } : {}),
+		}),
+	)
+	for (const chunk of replay.chunks) {
+		writeFrame(socket, {
+			type: 'data',
+			stream: chunk.stream,
+			data: chunk.data.toString('utf8'),
+			offset: chunk.offset,
+			nextOffset: chunk.offset + chunk.data.length,
+		})
+	}
+	if (!follow) {
+		// A READ is not an attachment. It has taken nothing from the live
+		// reader and signalled nothing, which is what `readSession` promises
+		// — a host polling a shell's tail must not end the terminal it is
+		// polling. The supersede below is reached only by a real attach.
+		writeTerminator(socket)
+		socket.end()
+		return undefined
+	}
+	if (record.state === 'exited') {
+		writeFrame(socket, {
+			type: 'exit',
+			exitCode: record.exitCode ?? -1,
+			...(record.signal !== undefined ? { signal: record.signal } : {}),
+			nextOffset: record.log.endOffset,
+		})
+		writeTerminator(socket)
+		socket.end()
+		return undefined
+	}
+	const attachment = { socket }
+	// One attachment per session: the previous reader is told, by name, that
+	// it has been taken over, so two host processes never interleave
+	// keystrokes into one shell.
+	if (record.attachment !== undefined) endAttachment(record, 'superseded')
+	record.attachment = attachment
+	if (options.heartbeatMs !== undefined) {
+		// Destroying the socket runs `onClose` below, which is the same
+		// cleanup a host that simply went away already triggers — and on a
+		// persistent session that cleanup signals nothing.
+		attachment.heartbeat = armStreamHeartbeat(socket, options.heartbeatMs, () => socket.destroy())
+	}
+	if (record.kind === 'terminal' && options.cols !== undefined && options.rows !== undefined) {
+		applyTerminalEvent(
+			{ type: 'resize', cols: options.cols, rows: options.rows },
+			sessionEventContext(socket, record, attachment),
+		)
+	}
+	return {
+		onFrame(payload) {
+			let event
+			try {
+				event = JSON.parse(payload)
+			} catch {
+				return
+			}
+			applyTerminalEvent(event, sessionEventContext(socket, record, attachment))
+		},
+		onClose() {
+			attachment.heartbeat?.stop()
+			// A closed connection DETACHES. No signal of any kind: the
+			// session ends when its program exits, on an explicit kill, or
+			// when the pod stops, and that is the whole feature.
+			if (record.attachment === attachment) record.attachment = undefined
+		},
+	}
+}
+
+/** The lazily-read accessors {@link applyTerminalEvent} needs for a session. */
+function sessionEventContext(socket, record, attachment) {
+	return {
+		child: () => record.child,
+		slavePath: () => record.slavePath,
+		heartbeat: () => attachment?.heartbeat,
+		pause: () => socket.pause(),
+		resume: () => socket.resume(),
+		onInput: () => {
+			record.lastInputAt = Date.now()
+		},
+		// The signal has already been through the allow-list:
+		// `applyTerminalEvent` is this context's only caller, and the rule
+		// lives there precisely so an attachment cannot send one the
+		// connection that opened the terminal could not.
+		kill: (signal) => {
+			void signalSessionProcesses(record, signal).catch(() => {})
+		},
+	}
+}
+
+async function handleStartDetached(socket, body) {
+	pruneSessions()
+	if (!validateSessionId(body?.sessionId)) {
+		writeFrame(socket, { ok: false, error: 'invalid_session_id' })
+		return
+	}
+	if (sessions.has(body.sessionId)) {
+		// Not an attach and not a second start: an id that already names a
+		// session is a caller confusion, and starting a second program under
+		// one name would make `kill-session` ambiguous forever after.
+		writeFrame(socket, { ok: false, error: 'session_exists' })
+		return
+	}
+	if (typeof body?.command !== 'string' || body.command.length === 0) {
+		writeFrame(socket, { ok: false, error: 'missing_command' })
+		return
+	}
+	if (!makeRoomForSession()) {
+		writeFrame(socket, { ok: false, error: 'session_capacity' })
+		return
+	}
+	const cwd = body.cwd ? resolveWithinWorkspace(body.cwd, WORKSPACE_ROOT) : WORKSPACE_ROOT
+	await fs.mkdir(cwd, { recursive: true })
+	const args = Array.isArray(body.args) ? body.args.map(String) : []
+	const record = createSessionRecord(body.sessionId, 'detached', body.command, args)
+	let child
+	try {
+		child = spawn(body.command, args, {
+			cwd,
+			// Scrubbed exactly like an `execute` child and a `terminal` one:
+			// the agent's own configuration, its bind token included, never
+			// enters the workload's environment.
+			env: childEnvironment(body.env),
+			// Its own kernel session, which is what makes it survivable AND
+			// killable: nothing it starts is in the agent's session, and
+			// everything it starts is in its own until something calls
+			// `setsid` for itself.
+			detached: true,
+			// No PTY and no stdin. A detached program has no terminal to read
+			// from, and leaving stdin open would hand it a pipe nobody writes
+			// to — which reads as a terminal that never answers.
+			stdio: ['ignore', 'pipe', 'pipe'],
+		})
+	} catch (error) {
+		sessions.delete(record.sessionId)
+		writeFrame(socket, {
+			ok: false,
+			error: 'spawn_failed',
+			message: String(error?.message ?? error),
+		})
+		return
+	}
+	record.child = child
+	record.processGroupId = child.pid
+	record.unixSessionIds = [child.pid]
+	child.stdout.on('data', (chunk) => recordSessionOutput(record, 'stdout', chunk))
+	child.stderr.on('data', (chunk) => recordSessionOutput(record, 'stderr', chunk))
+	let spawnError
+	child.once('error', (error) => {
+		spawnError = error
+		finishSession(record, -1, undefined)
+	})
+	child.once('close', (exitCode, signal) => finishSession(record, exitCode, signal))
+	const started = await new Promise((resolve) => {
+		child.once('spawn', () => resolve(true))
+		child.once('error', () => resolve(false))
+	})
+	if (!started) {
+		sessions.delete(record.sessionId)
+		writeFrame(socket, {
+			ok: false,
+			error: 'spawn_failed',
+			message: String(spawnError?.message ?? 'the program could not be started'),
+		})
+		return
+	}
+	writeFrame(socket, { ok: true, ...sessionSummary(record), pid: child.pid })
+}
+
+function handleListSessions(socket) {
+	pruneSessions()
+	writeFrame(socket, { ok: true, sessions: [...sessions.values()].map(sessionSummary) })
+}
+
+async function handleKillSession(socket, body) {
+	pruneSessions()
+	if (!validateSessionId(body?.sessionId)) {
+		writeFrame(socket, { ok: false, error: 'invalid_session_id' })
+		return
+	}
+	const record = sessions.get(body.sessionId)
+	if (record === undefined) {
+		writeFrame(socket, { ok: false, error: 'unknown_session' })
+		return
+	}
+	// Idempotent: a session that has already exited answers with what it
+	// exited with, so a retried kill is not an error.
+	if (record.state === 'exited') {
+		writeFrame(socket, { ok: true, ...sessionSummary(record) })
+		return
+	}
+	const requested = body?.signal
+	const signal =
+		typeof requested === 'string' && TERMINAL_SIGNALS.has(requested) ? requested : 'SIGKILL'
+	const signalled = await signalSessionProcesses(record, signal)
+	// Bounded, and the state is reported either way: a program that ignores
+	// SIGTERM and outlives the wait is answered as still running rather than
+	// answered as dead.
+	await Promise.race([record.done, delay(SESSION_KILL_CONFIRM_TIMEOUT_MS)])
+	writeFrame(socket, { ok: true, ...sessionSummary(record), signalled: signalled.length })
+}
+
+function handleAttachSession(socket, body) {
+	const refuse = (error, extra) => {
+		writeFrame(socket, { type: 'error', error, ...extra })
+		writeTerminator(socket)
+		socket.end()
+	}
+	if (!validateSessionId(body?.sessionId)) {
+		refuse('invalid_session_id')
+		return undefined
+	}
+	pruneSessions()
+	const record = sessions.get(body.sessionId)
+	if (record === undefined) {
+		// Past retention, or in a pod this session never ran in. Both are the
+		// same answer from here, and the docs say so.
+		refuse('unknown_session')
+		return undefined
+	}
+	return attachToSession(socket, record, {
+		fromOffset: body.fromOffset,
+		follow: body.follow,
+		...(body.cols !== undefined ? { cols: body.cols } : {}),
+		...(body.rows !== undefined ? { rows: body.rows } : {}),
+		...(normalizeHeartbeatMs(body?.heartbeatMs) !== undefined
+			? { heartbeatMs: normalizeHeartbeatMs(body.heartbeatMs) }
+			: {}),
+	})
+}
+
+/**
+ * Start one interactive PTY inside the guest.
+ *
+ * Two shapes, and the difference is what a closed connection means.
+ *
+ *  - **Connection-bound**, the default and what this op has always been: the
+ *    PTY belongs to the framed connection that opened it, and losing the
+ *    connection tears the terminal down. Unchanged in every respect but one —
+ *    the teardown now reaches the whole session rather than `script`'s
+ *    process group, which is what its own comment always claimed. See
+ *    `processesInSessions` for what that comment was wrong about.
+ *  - **Persistent**, when the body names a `sessionId` and sets
+ *    `persistent: true`: the PTY belongs to the SESSION REGISTRY, output is
+ *    read into a retained log whether or not anyone is attached, and closing
+ *    the connection detaches without signalling anything. It ends when its
+ *    program exits, on `kill-session`, or when the pod stops.
  */
 function handleTerminal(socket, body) {
 	let child
@@ -2333,47 +3036,55 @@ function handleTerminal(socket, body) {
 	// `armStreamHeartbeat`.
 	const heartbeatMs = normalizeHeartbeatMs(body?.heartbeatMs)
 	let heartbeat
+	/** The registry entry, for a persistent terminal only. */
+	let record
+	/** This connection's attachment to it, so a supersede can tell it apart. */
+	let attachment
+	const persistent = body?.persistent === true
 
+	/** Every kernel session this terminal owns; see `findPtySlave`. */
+	let ownedSessionIds = []
+
+	/**
+	 * Signal everything this terminal started — the shell, its jobs and
+	 * `script` itself.
+	 *
+	 * Deliberately not a bare `process.kill(-child.pid)`: that reaches
+	 * `script` and nothing else, so a job backgrounded with `&` survived
+	 * every teardown this agent performed. The scan is asynchronous and this
+	 * is not awaited, because every caller of it is a signal-and-forget path;
+	 * `kill-session` is the op that waits and reports.
+	 *
+	 * `settled` is the guard this has always had, and it matters more here
+	 * than it did: once the child is gone, the scan and the group kill would
+	 * go out against a pid and a kernel session id the kernel is free to have
+	 * given to somebody else. The signal has already been through the
+	 * allow-list — {@link applyTerminalEvent} is where that rule lives, so
+	 * that no connection can make this mean something another cannot.
+	 */
 	const kill = (signal = 'SIGTERM') => {
 		if (!child?.pid || settled) return
-		const safeSignal = TERMINAL_SIGNALS.has(signal) ? signal : 'SIGTERM'
-		try {
-			// detached:true makes the script process the process-group leader;
-			// negative pid reaches the shell and every descendant, not just script.
-			process.kill(-child.pid, safeSignal)
-		} catch {}
+		void signalSessionProcesses(
+			{ processGroupId: child.pid, unixSessionIds: ownedSessionIds },
+			signal,
+		).catch(() => {})
 	}
 
-	const apply = (event) => {
-		if (!event || typeof event !== 'object') return
-		if (event.type === 'heartbeat') return
-		if (event.type === 'input') {
-			if (
-				typeof event.data === 'string' &&
-				child?.stdin?.writable &&
-				!child.stdin.write(event.data)
-			) {
-				socket.pause()
-				// Nothing is read while this is paused, so the watchdog must
-				// not read that as the host having gone away.
-				heartbeat?.suspend()
-				child.stdin.once('drain', () => {
-					if (!settled) socket.resume()
-					heartbeat?.resume()
-				})
-			}
-			return
-		}
-		if (event.type === 'resize') {
-			try {
-				const cols = terminalDimension(event.cols, MAX_TERMINAL_COLS, 'cols')
-				const rows = terminalDimension(event.rows, MAX_TERMINAL_ROWS, 'rows')
-				if (slavePath) void resizePty(slavePath, cols, rows).catch(() => {})
-			} catch {}
-			return
-		}
-		if (event.type === 'kill') kill(typeof event.signal === 'string' ? event.signal : 'SIGTERM')
+	const context = {
+		child: () => child,
+		slavePath: () => slavePath,
+		heartbeat: () => heartbeat,
+		pause: () => socket.pause(),
+		resume: () => {
+			if (!settled) socket.resume()
+		},
+		onInput: () => {
+			if (record) record.lastInputAt = Date.now()
+		},
+		kill,
 	}
+
+	const apply = (event) => applyTerminalEvent(event, context)
 
 	const start = async () => {
 		if (!body || typeof body !== 'object') throw new Error('missing_terminal_options')
@@ -2384,6 +3095,13 @@ function handleTerminal(socket, body) {
 
 		const command = typeof body.command === 'string' && body.command ? body.command : '/bin/sh'
 		const args = Array.isArray(body.args) ? body.args.map(String) : []
+		if (persistent) {
+			pruneSessions()
+			if (!validateSessionId(body.sessionId)) throw new Error('invalid_session_id')
+			if (sessions.has(body.sessionId)) throw new Error('session_exists')
+			if (!makeRoomForSession()) throw new Error('session_capacity')
+			record = createSessionRecord(body.sessionId, 'terminal', command, args)
+		}
 		const commandLine = ['exec', shellQuote(command), ...args.map(shellQuote)].join(' ')
 		child = spawn('/usr/bin/script', ['-qefc', commandLine, '/dev/null'], {
 			cwd,
@@ -2396,7 +3114,23 @@ function handleTerminal(socket, body) {
 			detached: true,
 			stdio: ['pipe', 'pipe', 'pipe'],
 		})
+		ownedSessionIds = [child.pid]
+		if (record) {
+			record.child = child
+			record.processGroupId = child.pid
+			record.unixSessionIds = ownedSessionIds
+		}
 		const forward = (source, chunk) => {
+			// A persistent session's output goes into the ring first and to
+			// the attachment second, and NOTHING here pauses the PTY: a
+			// program with nobody attached must not block on a socket that is
+			// not being read. A connection-bound terminal keeps the
+			// backpressure it always had, because its only consumer is the
+			// connection.
+			if (record) {
+				recordSessionOutput(record, source === child.stderr ? 'stderr' : 'stdout', chunk)
+				return
+			}
 			if (!writeFrame(socket, { type: 'data', data: chunk.toString('utf8') })) {
 				source.pause()
 				socket.once('drain', () => {
@@ -2407,6 +3141,7 @@ function handleTerminal(socket, body) {
 		child.stdout.on('data', (chunk) => forward(child.stdout, chunk))
 		child.stderr.on('data', (chunk) => forward(child.stderr, chunk))
 		child.once('error', (error) => {
+			if (record) finishSession(record, -1, undefined)
 			if (settled) return
 			settled = true
 			heartbeat?.stop()
@@ -2414,6 +3149,14 @@ function handleTerminal(socket, body) {
 			socket.end()
 		})
 		child.once('close', (exitCode, signal) => {
+			// The registry answers its own attachment — including one on a
+			// DIFFERENT connection from this one — so the exit frame is sent
+			// from exactly one place.
+			if (record) {
+				finishSession(record, exitCode, signal)
+				settled = true
+				return
+			}
 			if (settled) return
 			settled = true
 			heartbeat?.stop()
@@ -2425,17 +3168,42 @@ function handleTerminal(socket, body) {
 			socket.end()
 		})
 
-		slavePath = await findPtySlave(child.pid)
+		const pty = await findPtySlave(child.pid)
+		slavePath = pty.slavePath
+		// The shell's own kernel session — the one `script` created with
+		// `setsid` and the one a backgrounded job stays in. Without it a kill
+		// reaches `script` alone, which is the defect this whole feature is
+		// built around. Recorded for a connection-bound terminal too: its
+		// teardown has exactly the same gap to close.
+		const shellSessionId = await readUnixSessionId(pty.shellPid)
+		if (shellSessionId !== undefined) ownedSessionIds = [child.pid, shellSessionId]
+		if (record) {
+			record.slavePath = slavePath
+			record.unixSessionIds = ownedSessionIds
+		}
 		await resizePty(slavePath, cols, rows)
 		ready = true
-		// The echo is what arms the host, and it carries the CLAMPED value so
-		// both sides count the same interval. A host that asked for nothing
-		// gets the same bare `ready` it always got.
-		writeFrame(socket, { type: 'ready', ...(heartbeatMs !== undefined ? { heartbeatMs } : {}) })
-		if (heartbeatMs !== undefined) {
-			// Destroying the socket runs `onClose` below, which is the same
-			// cleanup a host that simply went away already triggers.
-			heartbeat = armStreamHeartbeat(socket, heartbeatMs, () => socket.destroy())
+		if (record) {
+			// The registry builds the `ready` frame, replays (nothing yet) and
+			// makes this connection the session's one attachment, so the
+			// opening frame has exactly one construction site.
+			attachToSession(socket, record, {
+				fromOffset: 0,
+				follow: true,
+				...(heartbeatMs !== undefined ? { heartbeatMs } : {}),
+			})
+			attachment = record.attachment
+			heartbeat = attachment?.heartbeat
+		} else {
+			// The echo is what arms the host, and it carries the CLAMPED value
+			// so both sides count the same interval. A host that asked for
+			// nothing gets the same bare `ready` it always got.
+			writeFrame(socket, readyFrame(undefined, heartbeatMs !== undefined ? { heartbeatMs } : {}))
+			if (heartbeatMs !== undefined) {
+				// Destroying the socket runs `onClose` below, which is the same
+				// cleanup a host that simply went away already triggers.
+				heartbeat = armStreamHeartbeat(socket, heartbeatMs, () => socket.destroy())
+			}
 		}
 		for (const event of pending.splice(0)) apply(event)
 	}
@@ -2447,6 +3215,12 @@ function handleTerminal(socket, body) {
 			type: 'error',
 			error: error instanceof Error ? error.message : String(error),
 		})
+		// A terminal that failed to come up leaves nothing behind: the
+		// registry entry goes with it, so its id is free for the retry.
+		if (record && record.state !== 'exited') {
+			sessions.delete(record.sessionId)
+			record = undefined
+		}
 		kill('SIGKILL')
 		settled = true
 		socket.end()
@@ -2465,6 +3239,15 @@ function handleTerminal(socket, body) {
 		},
 		onClose() {
 			heartbeat?.stop()
+			// A persistent session outlives its connection: this is a DETACH
+			// and it signals nothing. Everything else is torn down, now
+			// reaching the whole session rather than `script` alone.
+			if (record) {
+				if (record.attachment === attachment && attachment !== undefined) {
+					record.attachment = undefined
+				}
+				return
+			}
 			kill('SIGKILL')
 		},
 	}
@@ -2935,7 +3718,7 @@ function dispatch(socket, req) {
 			.finally(() => socket.end())
 		return
 	}
-	if (agentRetiring && op === 'attach-execution') {
+	if (agentRetiring && (op === 'attach-execution' || op === 'attach-session')) {
 		// Every other op is refused with the request-shaped reply below. An
 		// attach's caller is reading a STREAM, so a fenced agent answers it
 		// in the stream's own refusal shape — `{type:'error'}` and the
@@ -2970,6 +3753,26 @@ function dispatch(socket, req) {
 	}
 	if (op === 'terminal') {
 		return handleTerminal(socket, req.body)
+	}
+	if (op === 'attach-session') {
+		return handleAttachSession(socket, req.body)
+	}
+	if (op === 'start-detached') {
+		handleStartDetached(socket, req.body)
+			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
+			.finally(() => socket.end())
+		return
+	}
+	if (op === 'list-sessions') {
+		handleListSessions(socket)
+		socket.end()
+		return
+	}
+	if (op === 'kill-session') {
+		handleKillSession(socket, req.body)
+			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
+			.finally(() => socket.end())
+		return
 	}
 	if (op === 'tcp-connect') {
 		return handleTcpConnect(socket, req.body)
@@ -3153,6 +3956,7 @@ async function main() {
 // agent in-process without spawning a separate node binary.
 module.exports = {
 	AGENT_FEATURES,
+	sessions,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
 	MAX_TIMEOUT_MS,
 	OutputLog,

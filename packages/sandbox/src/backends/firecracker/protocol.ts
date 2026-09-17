@@ -272,6 +272,20 @@ export interface TerminalOpenRequest {
 	readonly rows: number
 	/** See {@link StreamHeartbeat}. Absent → no heartbeat on this stream. */
 	readonly heartbeatMs?: number
+	/**
+	 * Name this terminal so it can be found again. Both fields are ADDITIVE
+	 * and both are required together: a guest that predates them ignores
+	 * them and serves the connection-bound terminal it always served, which
+	 * is why a host only ever sends them to one advertising
+	 * {@link SESSIONS_FEATURE}.
+	 *
+	 * With them, the PTY belongs to the guest's session registry rather than
+	 * to this connection: output is read into a retained log whether or not
+	 * anybody is attached, and closing the connection detaches instead of
+	 * killing.
+	 */
+	readonly sessionId?: string
+	readonly persistent?: boolean
 }
 
 /** Host → guest messages after the terminal stream reports ready. */
@@ -283,15 +297,118 @@ export type TerminalInputEvent =
 
 /** Guest → host events carried for the lifetime of the terminal stream. */
 export type TerminalOutputEvent =
-	| { readonly type: 'ready'; readonly heartbeatMs?: number }
-	| { readonly type: 'data'; readonly data: string }
+	| TerminalReadyEvent
+	| {
+			readonly type: 'data'
+			readonly data: string
+			/** Only on a session stream: where this chunk sits in the retained log. */
+			readonly stream?: SessionStreamName
+			readonly offset?: number
+			readonly nextOffset?: number
+	  }
 	| {
 			readonly type: 'exit'
 			readonly exitCode: number
 			readonly signal?: number
+			readonly nextOffset?: number
 	  }
+	| SessionDetachedEvent
 	| { readonly type: 'error'; readonly error: string }
 	| StreamHeartbeat
+
+/**
+ * The opening frame of a terminal stream, and the one place the session ops
+ * add to it.
+ *
+ * Every session field is optional because a connection-bound terminal sends
+ * none of them, and a guest that predates the registry sends none either.
+ */
+export interface TerminalReadyEvent {
+	readonly type: 'ready'
+	readonly heartbeatMs?: number
+	readonly sessionId?: string
+	readonly kind?: SessionKind
+	readonly state?: SessionState
+	/** Where the replay this stream is about to send begins. */
+	readonly fromOffset?: number
+	/** Bytes evicted between what the reader asked for and what survived. */
+	readonly droppedBytes?: number
+	/** One past the newest byte the guest had when the stream opened. */
+	readonly nextOffset?: number
+	readonly exitCode?: number
+	readonly signal?: number
+}
+
+// ---------------------------------------------------------------------------
+// Sessions — a program that outlives the connection that started it
+// ---------------------------------------------------------------------------
+
+/**
+ * The `healthz` feature string an agent advertises when it keeps a session
+ * registry: `terminal` with `{ sessionId, persistent: true }`, plus the
+ * `attach-session`, `start-detached`, `list-sessions` and `kill-session`
+ * ops.
+ *
+ * A host asking for any of them against a guest that does not advertise it
+ * is refused by name and never falls back to a connection-bound terminal: a
+ * caller that asked for a session is about to rely on coming back to it, and
+ * handing it one that dies with the socket would keep nothing and tell
+ * nobody.
+ */
+export const SESSIONS_FEATURE = 'sessions'
+
+/** A PTY, or a program started with no terminal at all. */
+export type SessionKind = 'terminal' | 'detached'
+
+export type SessionState = 'running' | 'exited'
+
+/** Which of the two streams a retained chunk came from. */
+export type SessionStreamName = 'stdout' | 'stderr'
+
+/** Why an attachment ended without the program exiting. */
+export type SessionDetachReason = 'superseded' | 'slow_reader'
+
+/**
+ * Sent to the attachment a session is taking away from it. It is never an
+ * exit: the program is still running, and the reason says who took it.
+ */
+export interface SessionDetachedEvent {
+	readonly type: 'detached'
+	readonly reason: SessionDetachReason
+}
+
+/** Read one session's retained output, and optionally follow it live. */
+export interface AttachSessionRequest {
+	readonly sessionId: string
+	/** Byte offset to resume from. Default 0 — the whole retained log. */
+	readonly fromOffset?: number
+	/**
+	 * `false` replays what is retained and ends. Default `true`: stay
+	 * attached, and — for a terminal session — accept input and resize.
+	 */
+	readonly follow?: boolean
+	/** Resize the PTY on attach, for a terminal whose new reader has its own window. */
+	readonly cols?: number
+	readonly rows?: number
+	/** See {@link StreamHeartbeat}. Absent → no heartbeat on this stream. */
+	readonly heartbeatMs?: number
+}
+
+/** Start a program with no terminal, which nothing but a kill ends. */
+export interface StartDetachedRequest {
+	readonly sessionId: string
+	readonly command: string
+	readonly args?: readonly string[]
+	readonly cwd?: string
+	readonly env?: Record<string, string>
+}
+
+/** End one session and everything still in it. */
+export interface KillSessionRequest {
+	readonly sessionId: string
+	/** `SIGTERM`, `SIGKILL`, `SIGINT` or `SIGHUP`. Default `SIGKILL`. */
+	readonly signal?: string
+}
 
 // ---------------------------------------------------------------------------
 // Loopback TCP — publish a service without moving it out of the sandbox

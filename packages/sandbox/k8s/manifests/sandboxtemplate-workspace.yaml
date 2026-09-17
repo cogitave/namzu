@@ -86,6 +86,22 @@ spec:
             # end here too.
             - name: NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS
               value: '600000'
+            # Sessions: a terminal or background program that outlives the
+            # host process that started it. Shown at their DEFAULTS like the
+            # four above, and bounded the same way — per session, and by how
+            # many sessions may exist: 1 MiB x 16 = 16 MiB worst case, in the
+            # same 512Mi the workload shares. A session exists only when a
+            # caller NAMES one, so a deployment that never asks for one pays
+            # nothing here.
+            - name: NAMZU_AGENT_MAX_SESSIONS
+              value: '16'
+            - name: NAMZU_AGENT_SESSION_LOG_BYTES
+              value: '1048576'
+            # How long an exited session's record and output outlive the
+            # program — the window in which a redeployed host can still read
+            # its tail and its exit status.
+            - name: NAMZU_AGENT_SESSION_TERMINAL_TTL_MS
+              value: '600000'
             - name: NAMZU_AGENT_BIND_TOKEN
               # Same rule as the task template: the pod's own uid, never a
               # value this manifest invents or shares across instances. A

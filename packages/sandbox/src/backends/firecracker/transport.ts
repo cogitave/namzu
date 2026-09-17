@@ -76,8 +76,10 @@ import {
 } from '../remote-execution-controller.js'
 import {
 	type AgentRequestCredential,
+	type AttachSessionRequest,
 	type ExecRequest,
 	ExecResultAccumulator,
+	type KillSessionRequest,
 	MIN_STREAM_HEARTBEAT_MS,
 	READ_FILE_STREAM_FEATURE,
 	type ReadFileRequest,
@@ -86,12 +88,14 @@ import {
 	type ReadFileStreamRequest,
 	STREAM_HEARTBEAT_MAX_ECHO_FACTOR,
 	STREAM_HEARTBEAT_MISS_LIMIT,
+	type StartDetachedRequest,
 	type TcpConnectRequest,
 	type TcpInputEvent,
 	type TcpOutputEvent,
 	type TerminalInputEvent,
 	type TerminalOpenRequest,
 	type TerminalOutputEvent,
+	type TerminalReadyEvent,
 	WRITE_FILE_PARTS_FEATURE,
 	type WriteFileRequest,
 	type WriteFileResponse,
@@ -223,6 +227,13 @@ export type AgentRequest = (
 	| { readonly op: 'read-file-stream'; readonly body: ReadFileStreamRequest }
 	| { readonly op: 'write-file'; readonly body: WriteFileRequest }
 	| { readonly op: 'terminal'; readonly body: TerminalOpenRequest }
+	// The four session ops. Every one of them is additive and every one is
+	// sent only to a guest that advertised `sessions` in its `healthz`
+	// features — see {@link SESSIONS_FEATURE}.
+	| { readonly op: 'attach-session'; readonly body: AttachSessionRequest }
+	| { readonly op: 'start-detached'; readonly body: StartDetachedRequest }
+	| { readonly op: 'list-sessions' }
+	| { readonly op: 'kill-session'; readonly body: KillSessionRequest }
 	| { readonly op: 'tcp-connect'; readonly body: TcpConnectRequest }
 	| { readonly op: 'healthz' }
 ) &
@@ -495,6 +506,59 @@ const READ_FILE_STREAM_HIGH_WATER_BYTES = 4 * 1024 * 1024
  * back — a command's stderr, a path, a proxy's own error — cannot be allowed
  * to claim that.
  */
+/**
+ * The two fields that turn a connection-bound terminal into a session, on
+ * the host's side of {@link VsockAgentTransport.openTerminal}.
+ *
+ * Both are optional and both are ignored by a guest that predates the
+ * session registry, which is why the caller — never this transport — is the
+ * one that checks the guest advertises the capability first.
+ */
+export interface SessionTerminalOpen {
+	readonly sessionId?: string
+	readonly persistent?: boolean
+}
+
+/**
+ * One open terminal stream, plus what only a SESSION's reader needs: the
+ * guest's opening frame, the byte offset to come back at, and a way to stop
+ * reading without signalling the program.
+ */
+export interface AgentTerminalStream {
+	readonly session: TerminalSession
+	/** The guest's `ready` frame. Carries the session fields, when there are any. */
+	readonly ready: TerminalReadyEvent
+	/** One past the newest retained byte this stream has delivered, if any. */
+	nextOffset(): number | undefined
+	/**
+	 * End this attachment locally. Nothing is signalled in the guest: the
+	 * program goes on running and its output goes on filling the retained
+	 * log, which is the entire difference between this and `kill`.
+	 */
+	detach(): void
+}
+
+/**
+ * Thrown — as the rejection of a session terminal's `exited` — when the
+ * attachment ended and the program did not.
+ *
+ * `exited` may not RESOLVE here: a resolved `exited` says the program is
+ * over, and reporting `exitCode: -1` for a shell that is still running in
+ * the pod is exactly the confusion this whole feature exists to remove. The
+ * offset is carried because it is what the next attach resumes from.
+ */
+export class AgentSessionDetachedError extends Error {
+	override readonly name = 'AgentSessionDetachedError'
+
+	constructor(
+		readonly nextOffset: number | undefined,
+		message: string,
+		options?: { cause?: unknown },
+	) {
+		super(message, options)
+	}
+}
+
 export class AgentDialFailedError extends Error {
 	constructor(message: string, options?: { cause?: unknown }) {
 		super(message, options)
@@ -2077,8 +2141,22 @@ export class VsockAgentTransport {
 	 * browser never reaches this transport directly; the runtime gateway owns
 	 * the session and its authenticated WebSocket attachment.
 	 */
-	async openTerminal(options: OpenTerminalOptions): Promise<TerminalSession> {
-		const askedHeartbeatMs = this.heartbeatMs
+	async openTerminal(options: OpenTerminalOptions & SessionTerminalOpen): Promise<TerminalSession> {
+		return (await this.openSessionTerminal(options)).session
+	}
+
+	/**
+	 * The same open, handing back the session's own handles as well as the
+	 * `TerminalSession` — the offset to come back at, and the detach that
+	 * ends the attachment without signalling the program.
+	 *
+	 * Exactly one code path serves both: a persistent terminal is not a
+	 * second kind of terminal, it is the same stream with a different answer
+	 * to "what does a closed connection mean".
+	 */
+	async openSessionTerminal(
+		options: OpenTerminalOptions & SessionTerminalOpen,
+	): Promise<AgentTerminalStream> {
 		const request: TerminalOpenRequest = {
 			...(options.command !== undefined ? { command: options.command } : {}),
 			...(options.args !== undefined ? { args: options.args } : {}),
@@ -2088,15 +2166,55 @@ export class VsockAgentTransport {
 			rows: options.size.rows,
 			// Additive and optional: an agent that predates it ignores the
 			// field and echoes nothing back, and nothing below arms.
-			...(askedHeartbeatMs !== undefined ? { heartbeatMs: askedHeartbeatMs } : {}),
+			...(this.heartbeatMs !== undefined ? { heartbeatMs: this.heartbeatMs } : {}),
+			// Equally additive, and only ever sent by a caller that checked
+			// the guest advertises `sessions` — see `protocol.ts`.
+			...(options.sessionId !== undefined ? { sessionId: options.sessionId } : {}),
+			...(options.persistent !== undefined ? { persistent: options.persistent } : {}),
 		}
-		const openPayload = JSON.stringify(
-			this.withCredential({ op: 'terminal', body: request } satisfies AgentRequest),
+		return await this.openTerminalStream(
+			{ op: 'terminal', body: request },
+			{ detachable: options.persistent === true },
 		)
+	}
+
+	/**
+	 * The framed, bidirectional stream behind every terminal this transport
+	 * opens — the one the `terminal` op starts, and the one `attach-session`
+	 * joins to a terminal that is already running.
+	 *
+	 * Parameterised rather than copied, because the two differ in exactly two
+	 * places and everything else — the dial, the framing, the ready
+	 * handshake, the read-idle timer that is cleared once a shell may
+	 * legitimately go quiet, the heartbeat, the output buffering before the
+	 * first listener, the kill grace — has to behave identically or a
+	 * reattached terminal is a second terminal implementation with its own
+	 * bugs. The two differences:
+	 *
+	 *  - **`detachable`.** For a connection-bound terminal a lost stream IS
+	 *    the end of the program, and `exited` resolves with `exitCode: -1`
+	 *    exactly as it always has. For a session attachment it is not: the
+	 *    program is still running in the pod, so `exited` REJECTS with
+	 *    {@link AgentSessionDetachedError} rather than reporting an exit that
+	 *    did not happen. The rejection is pre-handled here so a caller that
+	 *    only reads output cannot take the host process down with an
+	 *    unhandled rejection.
+	 *  - **the offsets.** A session stream's frames carry their place in the
+	 *    guest's retained log, and {@link AgentTerminalStream.nextOffset} is
+	 *    what a reattach resumes from. It is never computed from the decoded
+	 *    text: a chunk that ends mid-character decodes wider than the bytes
+	 *    it replaced.
+	 */
+	private async openTerminalStream(
+		req: AgentRequest,
+		init: { readonly detachable: boolean },
+	): Promise<AgentTerminalStream> {
+		const askedHeartbeatMs = this.heartbeatMs
+		const openPayload = JSON.stringify(this.withCredential(req))
 		this.assertPreauthBudget(openPayload)
 		const socket = await this.dial()
 
-		return await new Promise<TerminalSession>((resolve, reject) => {
+		return await new Promise<AgentTerminalStream>((resolve, reject) => {
 			const KILL_GRACE_MS = 5_000
 			const reader = new FrameReader()
 			const listeners = new Set<(chunk: string) => void>()
@@ -2105,12 +2223,19 @@ export class VsockAgentTransport {
 			let ready = false
 			let settled = false
 			let killTimer: ReturnType<typeof setTimeout> | undefined
+			let readyEvent: TerminalReadyEvent = { type: 'ready' }
+			let nextOffset: number | undefined
 			/** Armed only if the guest echoed the interval — see `protocol.ts`. */
 			let liveness: StreamLiveness | undefined
 			let resolveExit!: (event: { exitCode: number; signal?: number }) => void
-			const exited = new Promise<{ exitCode: number; signal?: number }>((done) => {
+			let rejectExit!: (error: unknown) => void
+			const exited = new Promise<{ exitCode: number; signal?: number }>((done, fail) => {
 				resolveExit = done
+				rejectExit = fail
 			})
+			// See the header: a detachable stream's `exited` can reject, and
+			// the caller may legitimately never look at it.
+			if (init.detachable) void exited.catch(() => undefined)
 			const idle = new IdleTimer(this.readIdleTimeoutMs, () => {
 				finish(
 					new Error(
@@ -2119,10 +2244,7 @@ export class VsockAgentTransport {
 				)
 			})
 
-			const finish = (
-				error: Error | null,
-				exit: { exitCode: number; signal?: number } = { exitCode: -1 },
-			) => {
+			const finish = (error: Error | null, exit?: { exitCode: number; signal?: number }) => {
 				if (settled) return
 				settled = true
 				idle.clear()
@@ -2130,7 +2252,18 @@ export class VsockAgentTransport {
 				if (killTimer) clearTimeout(killTimer)
 				socket.destroy()
 				listeners.clear()
-				resolveExit(exit)
+				if (exit !== undefined) resolveExit(exit)
+				else if (init.detachable) {
+					rejectExit(
+						new AgentSessionDetachedError(
+							nextOffset,
+							`vsock transport: this attachment ended without the session's program exiting${
+								error ? `: ${error.message}` : ''
+							}. The program is still the guest's to run; attach again to go on reading it.`,
+							{ cause: error ?? undefined },
+						),
+					)
+				} else resolveExit({ exitCode: -1 })
 				if (!ready) reject(error ?? new Error('terminal exited before readiness'))
 			}
 
@@ -2185,6 +2318,10 @@ export class VsockAgentTransport {
 					return
 				}
 				for (const payload of payloads) {
+					// The guest ends a session stream with the same zero-length
+					// terminator every other streamed op uses. Nothing follows it,
+					// and the close below is what settles this stream.
+					if (payload.length === 0) continue
 					let event: TerminalOutputEvent
 					try {
 						event = JSON.parse(payload) as TerminalOutputEvent
@@ -2195,6 +2332,8 @@ export class VsockAgentTransport {
 					if (event.type === 'ready') {
 						if (!ready) {
 							ready = true
+							readyEvent = event
+							if (typeof event.nextOffset === 'number') nextOffset = event.nextOffset
 							// Once ready, an interactive shell may legitimately sit silent
 							// for hours. Runtime/session TTL owns idle cleanup; a transport
 							// read timer would incorrectly kill a healthy quiet terminal.
@@ -2216,12 +2355,20 @@ export class VsockAgentTransport {
 										),
 								)
 							}
-							resolve(session)
+							resolve({
+								session,
+								get ready() {
+									return readyEvent
+								},
+								nextOffset: () => nextOffset,
+								detach: () => finish(new Error('vsock transport: attachment released by the host')),
+							})
 						}
 						continue
 					}
 					if (event.type === 'heartbeat') continue
 					if (event.type === 'data') {
+						if (typeof event.nextOffset === 'number') nextOffset = event.nextOffset
 						if (listeners.size === 0) {
 							buffered.push(event.data)
 							bufferedBytes += Buffer.byteLength(event.data)
@@ -2234,10 +2381,18 @@ export class VsockAgentTransport {
 						continue
 					}
 					if (event.type === 'exit') {
+						if (typeof event.nextOffset === 'number') nextOffset = event.nextOffset
 						finish(null, {
 							exitCode: event.exitCode,
 							...(event.signal !== undefined ? { signal: event.signal } : {}),
 						})
+						return
+					}
+					if (event.type === 'detached') {
+						// The program did not exit: another attachment took the
+						// session, or this one stopped draining. Either way this
+						// stream ends and nothing in the guest was signalled.
+						finish(new Error(`the guest ended this attachment (${event.reason})`))
 						return
 					}
 					finish(new Error(event.error))
@@ -2251,6 +2406,28 @@ export class VsockAgentTransport {
 			idle.bump()
 			socket.write(frame(openPayload))
 		})
+	}
+
+	/**
+	 * Join a terminal session that is already running in the guest, replaying
+	 * what it printed from `fromOffset` before following it live.
+	 *
+	 * The guest allows ONE attachment per session and ends the previous one
+	 * by name, so two host processes cannot interleave keystrokes into one
+	 * shell. Nothing here signals the program: releasing this stream is a
+	 * detach, and ending the session is `kill-session`.
+	 */
+	async attachSessionTerminal(request: AttachSessionRequest): Promise<AgentTerminalStream> {
+		return await this.openTerminalStream(
+			{
+				op: 'attach-session',
+				body: {
+					...request,
+					...(this.heartbeatMs !== undefined ? { heartbeatMs: this.heartbeatMs } : {}),
+				},
+			},
+			{ detachable: true },
+		)
 	}
 
 	/** Open one TCP stream to a service listening on guest loopback. */

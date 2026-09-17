@@ -159,7 +159,6 @@
  */
 
 import type {
-	OpenTerminalOptions,
 	Sandbox,
 	SandboxDestroyOptions,
 	SandboxEnvironment,
@@ -171,7 +170,6 @@ import type {
 	SandboxTcpConnectOptions,
 	SandboxTcpConnection,
 	SandboxWalkFilesOptions,
-	TerminalSession,
 } from '@namzu/sdk'
 
 import { OperationDeadline, OperationDeadlineExpired, runFailureCleanup } from '../readiness.js'
@@ -235,7 +233,15 @@ import {
 import {
 	KubernetesAgentTransport,
 	type KubernetesAttachExecutionOptions,
+	type KubernetesAttachTerminalOptions,
 	type KubernetesDetachedExecOptions,
+	type KubernetesOpenTerminalOptions,
+	type KubernetesReadSessionOptions,
+	type KubernetesSessionOutput,
+	type KubernetesSessionSummary,
+	type KubernetesSessionTerminal,
+	type KubernetesStartDetachedOptions,
+	type KubernetesWorkspaceTerminal,
 } from './transport.js'
 
 /**
@@ -559,6 +565,19 @@ export interface KubernetesWorkspaceTransitionOptions {
 }
 
 /**
+ * `killSession()`'s two signals, which are different things and are named
+ * apart for that reason: `signal` is the POSIX signal the guest sends to the
+ * session, and `abort` is the `AbortSignal` that cancels the REQUEST.
+ * Collapsing them into one field called `signal` is how a caller ends up
+ * sending `SIGKILL` to a shell it only meant to stop asking about.
+ */
+export interface KubernetesKillSessionOptions {
+	/** `SIGTERM`, `SIGKILL`, `SIGINT` or `SIGHUP`. Default `SIGKILL`. */
+	readonly signal?: string
+	readonly abort?: AbortSignal
+}
+
+/**
  * `destroy()` on a workspace, with the one field that decides whether the
  * disk survives. See the module comment: the default keeps it.
  */
@@ -679,7 +698,77 @@ export interface KubernetesWorkspace extends Sandbox {
 		executionId: string,
 		options?: KubernetesWorkspaceTransitionOptions,
 	): Promise<void>
-	openTerminal(options: OpenTerminalOptions): Promise<TerminalSession>
+	/**
+	 * A guest PTY. Without `sessionId` and `persistent: true` this is exactly
+	 * the terminal it has always been — same wire request, same behaviour —
+	 * except that its teardown now reaches the whole session rather than only
+	 * `script`'s process group, so a job the shell backgrounded no longer
+	 * outlives the terminal that started it.
+	 *
+	 * With them the PTY belongs to the pod rather than to this connection:
+	 * losing the connection DETACHES, and {@link attachTerminal} rejoins the
+	 * same shell from another process. `exited` on such a terminal rejects
+	 * with `AgentSessionDetachedError` when the attachment ends and the
+	 * program does not, because resolving it would claim an exit that never
+	 * happened.
+	 */
+	openTerminal(options: KubernetesOpenTerminalOptions): Promise<KubernetesWorkspaceTerminal>
+	/**
+	 * Rejoin a terminal session by the id it was opened with — from this
+	 * process or from one that replaced it.
+	 *
+	 * The guest replays from `fromOffset` and then follows live, so a reader
+	 * starting at 0 sees what the shell printed while nobody was watching,
+	 * and is told how much the ring had to evict. At most one attachment
+	 * exists at a time: a second attach ends the first by name rather than
+	 * letting two processes interleave keystrokes into one shell.
+	 */
+	attachTerminal(
+		sessionId: string,
+		options?: KubernetesAttachTerminalOptions,
+	): Promise<KubernetesSessionTerminal>
+	/**
+	 * Start a program with no terminal, in its own kernel session, with
+	 * stdin closed and both output streams going into the guest's retained
+	 * log.
+	 *
+	 * This is not the SDK's `spawnDetached` and does not pretend to be: that
+	 * hands back a host `ChildProcess`, which cannot cross a process
+	 * boundary, and it stays absent here. What this returns is a NAME, and
+	 * the name is what another host process comes back with.
+	 */
+	startDetached(options: KubernetesStartDetachedOptions): Promise<KubernetesSessionSummary>
+	/**
+	 * Read a session's output from `fromOffset` without attaching to it and
+	 * without signalling anything — the chunk, the offset to come back with,
+	 * the bytes the ring dropped before it, and the program's status.
+	 */
+	readSession(
+		sessionId: string,
+		options?: KubernetesReadSessionOptions,
+	): Promise<KubernetesSessionOutput>
+	/**
+	 * Every session this workspace's pod is holding, running and recently
+	 * exited. Empty after a suspend and resume: the registry is the pod's
+	 * memory, and a resumed workspace is a new pod.
+	 */
+	listSessions(
+		options?: KubernetesWorkspaceTransitionOptions,
+	): Promise<readonly KubernetesSessionSummary[]>
+	/**
+	 * End one session and everything still in it — the shell, the jobs it
+	 * backgrounded, and whatever a detached session started. Idempotent, and
+	 * the reply says what the session's state actually is, so a program that
+	 * ignored a `SIGTERM` is reported still running rather than reported
+	 * dead.
+	 *
+	 * `options.signal` is the POSIX signal to send (`SIGKILL` by default);
+	 * `options.abort` is the `AbortSignal` that cancels the request.
+	 */
+	killSession(
+		sessionId: string,
+		options?: KubernetesKillSessionOptions,
+	): Promise<KubernetesSessionSummary>
 	openTcpConnection(options: SandboxTcpConnectOptions): Promise<SandboxTcpConnection>
 	/**
 	 * Narrowed to present, like the two above: the pod behind a workspace runs
@@ -2062,7 +2151,24 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * it would time out a resume whose workspace was perfectly usable.
 	 */
 	let retiredPodUid: string | undefined
-	const terminals = new Set<TerminalSession>()
+	const terminals = new Set<KubernetesWorkspaceTerminal>()
+
+	/**
+	 * Let go of one terminal this handle handed out, on the way to giving the
+	 * pod back.
+	 *
+	 * A connection-bound terminal is KILLED, exactly as it always was: its
+	 * program lives on this connection and the pod is going away. A session
+	 * ATTACHMENT is only detached — the program is the registry's, not this
+	 * connection's, and this path exists to stop a caller waiting on an
+	 * `exited` that would otherwise resolve only when TCP notices, not to
+	 * decide the program's fate. Either way the session dies with the pod;
+	 * what differs is whether this handle claims to have ended it.
+	 */
+	const releaseTerminal = (terminal: KubernetesWorkspaceTerminal): void => {
+		if (typeof terminal.detach === 'function') terminal.detach()
+		else terminal.kill('SIGKILL')
+	}
 	/**
 	 * The transport behind each session's inner handle.
 	 *
@@ -2446,7 +2552,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	/** Kill and await every terminal this handle returned. */
 	const reapTerminals = async (): Promise<void> => {
 		const open = [...terminals]
-		for (const terminal of open) terminal.kill('SIGKILL')
+		for (const terminal of open) releaseTerminal(terminal)
 		await Promise.allSettled(open.map((terminal) => terminal.exited))
 		terminals.clear()
 	}
@@ -3252,11 +3358,25 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			yield* admit('walkFiles').walkFiles(rootPath, walkOptions)
 		},
 
-		async openTerminal(terminalOptions: OpenTerminalOptions): Promise<TerminalSession> {
-			const terminal = await admitted(
-				'openTerminal',
-				async (handle) => await handle.openTerminal(terminalOptions),
-			)
+		async openTerminal(
+			terminalOptions: KubernetesOpenTerminalOptions,
+		): Promise<KubernetesWorkspaceTerminal> {
+			// A session terminal goes through the TRANSPORT rather than the
+			// inner handle, for the reason `sessionTransports` states: the
+			// session ops are the workspace's own surface, and keeping them
+			// off the inner handle's automatic-retirement path is what makes
+			// "losing a connection costs the workspace nothing" true here too.
+			const terminal =
+				terminalOptions.sessionId === undefined && terminalOptions.persistent !== true
+					? await admitted(
+							'openTerminal',
+							async (handle) => await handle.openTerminal(terminalOptions),
+						)
+					: await admitted(
+							'openTerminal',
+							async (handle) =>
+								await admittedTransport('openTerminal', handle).openTerminal(terminalOptions),
+						)
 			// Tracked HERE as well as by the inner handle, because a suspend
 			// reaps terminals without going through the inner handle's
 			// `destroy()` — the pod is being deleted, and a caller left holding
@@ -3272,6 +3392,68 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				})
 				.catch(() => undefined)
 			return terminal
+		},
+
+		async attachTerminal(
+			sessionId: string,
+			attachOptions?: KubernetesAttachTerminalOptions,
+		): Promise<KubernetesSessionTerminal> {
+			const terminal = await admitted(
+				'attachTerminal',
+				async (handle) =>
+					await admittedTransport('attachTerminal', handle).attachSession(sessionId, attachOptions),
+			)
+			// Tracked exactly like an `openTerminal` result, and released the
+			// same way: a suspend detaches it rather than killing the shell.
+			terminals.add(terminal)
+			void terminal.exited
+				.finally(() => {
+					terminals.delete(terminal)
+				})
+				.catch(() => undefined)
+			return terminal
+		},
+
+		async startDetached(
+			detachedOptions: KubernetesStartDetachedOptions,
+		): Promise<KubernetesSessionSummary> {
+			return await admitted(
+				'startDetached',
+				async (handle) =>
+					await admittedTransport('startDetached', handle).startDetached(detachedOptions),
+			)
+		},
+
+		async readSession(
+			sessionId: string,
+			readOptions?: KubernetesReadSessionOptions,
+		): Promise<KubernetesSessionOutput> {
+			return await admitted(
+				'readSession',
+				async (handle) =>
+					await admittedTransport('readSession', handle).readSession(sessionId, readOptions),
+			)
+		},
+
+		async listSessions(
+			transitionOptions?: KubernetesWorkspaceTransitionOptions,
+		): Promise<readonly KubernetesSessionSummary[]> {
+			return await admitted(
+				'listSessions',
+				async (handle) =>
+					await admittedTransport('listSessions', handle).listSessions(transitionOptions?.signal),
+			)
+		},
+
+		async killSession(
+			sessionId: string,
+			killOptions?: KubernetesKillSessionOptions,
+		): Promise<KubernetesSessionSummary> {
+			return await admitted(
+				'killSession',
+				async (handle) =>
+					await admittedTransport('killSession', handle).killSession(sessionId, killOptions ?? {}),
+			)
 		},
 
 		async openTcpConnection(

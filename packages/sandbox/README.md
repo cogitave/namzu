@@ -148,6 +148,33 @@ command that asked for retention is kept at all. The guest advertises
 `execution-attach` in `healthz` and a host that asks for a detachable command
 against an image without it is refused before the command is admitted.
 
+**Sessions: a terminal or a program that outlives the host process.** On the
+kubernetes workspace tier a terminal can be opened with a caller-chosen
+`sessionId` and `persistent: true`, and a program can be started with no
+terminal at all through the additive `start-detached` op. Both then belong to
+the guest's session registry rather than to the connection that started them:
+closing the connection DETACHES and sends no signal, `attach-session` replays
+from a byte offset and then follows live, `list-sessions` names what is
+running, and `kill-session` ends one. The registry holds the SAME retained-output
+primitive described above — one ring per session, one monotonic offset space,
+eviction reported as `droppedBytes` — rather than a second one, and output is
+read into it whether or not anybody is attached, so a program with no reader
+never blocks on a full PTY. At most one attachment exists per session: a second
+attach ends the first with a named `detached` frame, so two host processes
+cannot interleave keystrokes into one shell. The registry is in memory only,
+so a replaced pod comes back with none. **A teardown now reaches the whole
+session.** The agent's own comment claimed a process-group kill reached "the
+shell and every descendant"; it did not, because util-linux `script` starts the
+shell in a new session, so a job backgrounded with `&` survived every terminal
+teardown and ran until the pod stopped. Both `kill-session` and a
+non-persistent terminal's teardown now signal every process still in that
+kernel session, found through `/proc`. The cost is bounded per session
+(`NAMZU_AGENT_SESSION_LOG_BYTES`, 1 MiB) and by how many may exist
+(`NAMZU_AGENT_MAX_SESSIONS`, 16), with an exited session's record kept for
+`NAMZU_AGENT_SESSION_TERMINAL_TTL_MS` (10 min). The guest advertises `sessions`
+in `healthz` and a host asking for any of it against an image without the
+string is refused rather than served a connection-bound terminal.
+
 **The command timeout ceiling is configurable.** The guest agent reads its
 maximum `timeoutMs` from `NAMZU_SANDBOX_MAX_TIMEOUT_MS` — the same variable
 the container worker has always read for the same limit — defaulting to the

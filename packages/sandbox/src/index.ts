@@ -205,6 +205,38 @@ export {
 	KubernetesExecutionDetachedError,
 	KubernetesExecutionNotAttachableError,
 } from './backends/kubernetes/transport.js'
+// Guest sessions: a workspace terminal or background program that outlives
+// the connection — and the host process — that started it. The options that
+// name one, the rows `listSessions()` returns, the `BackgroundJobOutput`
+// shape `readSession()` answers in, and the three refusals a caller catches
+// BY CLASS: a guest image with no session registry, a session the guest
+// answered about and refused (past retention, or in a replaced pod), and an
+// attachment that ended while its program went on running.
+export type {
+	KubernetesAttachTerminalOptions,
+	KubernetesOpenTerminalOptions,
+	KubernetesReadSessionOptions,
+	KubernetesSessionOutput,
+	KubernetesSessionRefusal,
+	KubernetesSessionSummary,
+	KubernetesSessionTerminal,
+	KubernetesStartDetachedOptions,
+	KubernetesWorkspaceTerminal,
+} from './backends/kubernetes/transport.js'
+export {
+	KubernetesSessionRefusedError,
+	KubernetesSessionsUnsupportedError,
+} from './backends/kubernetes/transport.js'
+export { AgentSessionDetachedError } from './backends/firecracker/transport.js'
+// The `sessions` healthz feature string, and the session vocabulary its
+// frames use. Same reason as the two feature strings above: a host asserting
+// what an image can do should name the string rather than repeat the literal.
+export {
+	SESSIONS_FEATURE,
+	type SessionDetachReason,
+	type SessionKind,
+	type SessionState,
+} from './backends/firecracker/protocol.js'
 // The API-request bound and the error it raises. Exported because
 // "distinguishable from a caller abort and from every other failure, by
 // type" is only true for a host that can name the class — and because a
@@ -236,6 +268,7 @@ export { DEFAULT_STREAM_HEARTBEAT_MS } from './backends/kubernetes/index.js'
 // `@namzu/sandbox` rather than on the SDK's `Sandbox` — see
 // `backends/kubernetes/workspace.ts`.
 export type {
+	KubernetesKillSessionOptions,
 	KubernetesWorkspace,
 	KubernetesWorkspaceAgentState,
 	KubernetesWorkspaceCancellationNotice,
