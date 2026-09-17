@@ -254,6 +254,10 @@ import {
 	type KubernetesAttachExecutionOptions,
 	type KubernetesAttachTerminalOptions,
 	type KubernetesDetachedExecOptions,
+	type KubernetesFlushReport,
+	KubernetesFlushUnconfirmedError,
+	KubernetesFlushUnreachableError,
+	KubernetesFlushUnsupportedError,
 	type KubernetesOpenTerminalOptions,
 	type KubernetesQuiesceReport,
 	KubernetesQuiesceUnconfirmedError,
@@ -265,6 +269,7 @@ import {
 	type KubernetesSessionTerminal,
 	type KubernetesStartDetachedOptions,
 	type KubernetesWorkspaceTerminal,
+	flushUnsupportedError,
 	guestWhenReserved,
 } from './transport.js'
 
@@ -514,6 +519,29 @@ function assertNoQuiesceHere(
 }
 
 /**
+ * Refuse a `flush: true` asked of a verb that has no guest to ask.
+ *
+ * The same rule as {@link assertNoQuiesceHere} and one difference worth
+ * saying out loud: a flush is ON by default on the handle's `suspend()`, so
+ * the DEFAULT reaching {@link suspendKubernetesWorkspace} cannot be an
+ * error — it is what every caller of that verb has always passed. Only an
+ * EXPLICIT flush — `true`, or an object naming a `timeoutMs` — is refused,
+ * because only that caller believes the writes are being put on the device.
+ * `flush: false` is accepted and means what it says here: this verb never
+ * flushes, and its own documentation is where that is stated rather than
+ * hidden behind a thrown error nobody sees.
+ */
+function assertNoFlushHere(
+	flush: KubernetesWorkspaceFlushRequest | undefined,
+	where: string,
+): void {
+	if (flush === undefined || flush === false) return
+	throw new Error(
+		`kubernetes: ${where} cannot flush the guest: it reaches the workspace through the API server alone and never dials the agent, so there is no connection on which to ask for a syncfs. What the disk keeps is whatever the guest kernel had already written back. Open the workspace with createKubernetesWorkspace() and call suspend() on the handle, which flushes by default. The option is refused rather than ignored, because a caller that passed it is about to trust the disk.`,
+	)
+}
+
+/**
  * What a start that FAILED is allowed to do to the workspace it was starting
  * in.
  *
@@ -689,6 +717,62 @@ export interface KubernetesWorkspaceSuspendOptions extends KubernetesWorkspaceTr
 	 * joined — see `suspend()`.
 	 */
 	readonly quiesce?: KubernetesWorkspaceQuiesceRequest
+	/**
+	 * Ask the guest to put the workspace's writes on its device before the
+	 * `Suspended` patch goes out — see {@link KubernetesWorkspace.flush},
+	 * which this runs. **On by default**, which is the one behaviour this
+	 * option changes from what `suspend()` used to do.
+	 *
+	 * It is on by default because the alternative is the failure it exists
+	 * to fix: a stopped pod means only that nothing is writing any more, and
+	 * the page cache of a guest whose pod was taken away is not a thing
+	 * anything here can go back for. The cost is one round trip and one
+	 * `syncfs` per suspend.
+	 *
+	 * `false` sends the patch with no flush, which is exactly what every
+	 * release before this one did. Use it when the caller has already
+	 * flushed (a `flush()` of its own, or a `sync` it ran through `exec`),
+	 * or when the workspace is about to be deleted anyway.
+	 *
+	 * A guest whose image predates the op keeps the old behaviour: the
+	 * suspend proceeds and
+	 * {@link KubernetesWorkspaceOptions.onFlushUnsupported} is told. So does
+	 * a guest that cannot be REACHED to be asked — a crashed or OOM-killed
+	 * agent, a lost network, a fence — through
+	 * {@link KubernetesWorkspaceOptions.onFlushUnreachable}: leaving such a
+	 * workspace running flushes nothing and costs money, and this is the
+	 * verb that replaces its pod. A flush the guest ANSWERED and could not
+	 * confirm is the one that is different — the suspend rejects and sends
+	 * no patch, leaving the workspace running and the caller holding the
+	 * guest's own message, because a patch sent over unwritten pages is how
+	 * the data is lost.
+	 *
+	 * `{ timeoutMs }` raises what the GUEST may spend inside that `syncfs`,
+	 * for a workspace that leaves more dirty than the guest's 10000ms
+	 * default covers. It is the same number `flush({ timeoutMs })` takes.
+	 */
+	readonly flush?: KubernetesWorkspaceFlushRequest
+}
+
+/**
+ * `flush()`'s own options.
+ *
+ * `signal` is the `AbortSignal` that cancels the REQUEST, like every other
+ * verb on this handle. `timeoutMs` bounds what the GUEST spends inside the
+ * `syncfs`, which is a different clock: aborting the request leaves the
+ * guest's own syncfs running, and only the guest's timeout ends that.
+ */
+export interface KubernetesFlushOptions {
+	/**
+	 * How long the guest may spend flushing before it reports the flush
+	 * unconfirmed. The guest defaults to 10000ms
+	 * (`NAMZU_AGENT_FLUSH_TIMEOUT_MS`).
+	 *
+	 * It is NOT the pod's `terminationGracePeriodSeconds`, which has to
+	 * cover the flush a stopping pod performs AND the drain beside it.
+	 */
+	readonly timeoutMs?: number
+	readonly signal?: AbortSignal
 }
 
 /**
@@ -722,6 +806,21 @@ export interface KubernetesQuiesceOptions {
  * for the guest's own default window, or an object naming `graceMs`.
  */
 export type KubernetesWorkspaceQuiesceRequest = boolean | { readonly graceMs?: number }
+
+/**
+ * What `suspend({ flush })` and `destroy({ flush })` ask for: `true` (the
+ * default) for the guest's own flush timeout, `false` for no flush at all,
+ * or an object naming `timeoutMs`.
+ *
+ * The object shape exists for the workspace whose flush does not fit in the
+ * guest's default 10000ms (`NAMZU_AGENT_FLUSH_TIMEOUT_MS`). Without it such
+ * a workspace answers `flush_unconfirmed` — the one outcome that STOPS a
+ * suspend — and the only ways past it are `flush({ timeoutMs })` followed
+ * by `suspend({ flush: false })`, or rebuilding the image's environment.
+ * Mirrors {@link KubernetesWorkspaceQuiesceRequest}, which names the
+ * guest-side budget of its own op for the same reason.
+ */
+export type KubernetesWorkspaceFlushRequest = boolean | { readonly timeoutMs?: number }
 
 /**
  * `killSession()`'s two signals, which are different things and are named
@@ -769,6 +868,16 @@ export interface KubernetesWorkspaceDestroyOptions extends SandboxDestroyOptions
 	 * quiescing is about to be deleted along with everything on it.
 	 */
 	readonly quiesce?: KubernetesWorkspaceQuiesceRequest
+	/**
+	 * Put the workspace's writes on its device first — see
+	 * {@link KubernetesWorkspaceSuspendOptions.flush}, which this means
+	 * exactly the same thing as, default included.
+	 *
+	 * Read by the `destroy()` that SUSPENDS, which is the default one and
+	 * which keeps the disk. A `destroy({ deleteDisk: true })` ignores it for
+	 * the same reason it ignores `quiesce`: the disk is about to be deleted.
+	 */
+	readonly flush?: KubernetesWorkspaceFlushRequest
 }
 
 /**
@@ -1107,6 +1216,29 @@ export interface KubernetesWorkspace extends Sandbox {
 	 */
 	quiesce(options?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport>
 	/**
+	 * Put everything this workspace has written onto its disk, now.
+	 *
+	 * `syncfs(2)` over the workspace mount inside the guest: every dirty
+	 * page of every file on it, whichever process wrote it. That covers what
+	 * a COMMAND wrote, which is the half no per-file fsync can reach —
+	 * `writeFile` fsyncs its own bytes before it answers, and a compiler's
+	 * output belongs to nobody here.
+	 *
+	 * `suspend()` runs this by default, so a caller that only suspends never
+	 * needs it. It is a verb of its own for the moments that are not a
+	 * suspend: before a snapshot somebody else takes, before a node is
+	 * drained, or beside a {@link quiesce} when a host wants the disk both
+	 * still AND written back while the workspace keeps running.
+	 *
+	 * Admitted only while the workspace is running, and serialised with the
+	 * lifecycle transitions like `quiesce()` is. It rejects — changing
+	 * nothing on the cluster — with `KubernetesFlushUnconfirmedError` when
+	 * the guest answered and could not confirm, and with
+	 * `KubernetesFlushUnsupportedError` against an image whose agent
+	 * predates the op.
+	 */
+	flush(options?: KubernetesFlushOptions): Promise<KubernetesFlushReport>
+	/**
 	 * Give the compute back and keep the disk. Idempotent: suspending a
 	 * workspace whose suspend has been CONFIRMED sends nothing.
 	 *
@@ -1126,10 +1258,22 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * at the transport when the pod goes away, rather than with the named
 	 * suspended error, which only covers calls admitted from here on.
 	 *
+	 * It also runs {@link flush} before the patch unless
+	 * {@link KubernetesWorkspaceSuspendOptions.flush} says otherwise, so what
+	 * the workspace wrote is on the device before the pod is taken away
+	 * rather than left to whatever the guest kernel had written back. A flush
+	 * the guest ANSWERED and could not confirm rejects and sends NO patch —
+	 * the only flush outcome that stops a suspend. An image that cannot
+	 * flush at all, and a guest that cannot be reached to be asked, both
+	 * keep the old behaviour: the suspend goes ahead and the host is told
+	 * through `onFlushUnsupported` or `onFlushUnreachable`, because a
+	 * workspace nobody can reach is exactly the one an operator most needs
+	 * this verb for.
+	 *
 	 * `suspend({ quiesce: true })` runs {@link quiesce} first — after this
-	 * handle's own terminals are reaped and BEFORE the patch — so the disk is
-	 * still at the moment the pod is asked to stop rather than merely by the
-	 * time it has. A quiesce that cannot be confirmed rejects and sends NO
+	 * handle's own terminals are reaped and BEFORE the patch and before that
+	 * flush — so the disk is still at the moment the pod is asked to stop
+	 * rather than merely by the time it has. A quiesce that cannot be confirmed rejects and sends NO
 	 * patch: the workspace stays running and admits calls, which is the rule
 	 * this verb already keeps everywhere else — leave the state that is true.
 	 *
@@ -1270,6 +1414,57 @@ export interface KubernetesWorkspaceOptions {
 	 * a callback that throws changes nothing about the suspend.
 	 */
 	readonly onQuiesceNarrowed?: (report: KubernetesQuiesceReport) => void
+	/**
+	 * Told when a `suspend()` could not flush because the guest's image
+	 * predates the op, just before the suspend goes ahead without one.
+	 *
+	 * The exact sibling of {@link onQuiesceUnsupported}, and the one gap on
+	 * the flush path that must not be silent for the same reason: a flush is
+	 * ON by default here, so a deployment whose images are older than this
+	 * release gets a suspend that behaves exactly as it always did, and
+	 * nothing would say that the writes it thought were being put on the
+	 * device were not. Every other flush failure is reported by the call
+	 * itself — an explicit `flush()` refuses an image that cannot do it, and
+	 * a flush the guest answered and could not confirm rejects the suspend
+	 * before any patch is sent.
+	 *
+	 * In the style of `onLeaseRenewalError`: synchronous, never awaited, and
+	 * a callback that throws changes nothing about the suspend.
+	 */
+	readonly onFlushUnsupported?: (error: KubernetesFlushUnsupportedError) => void
+	/**
+	 * Told when a `suspend()` could not ASK for a flush — the guest could
+	 * not be reached, or refused to answer — just before the suspend goes
+	 * ahead without one.
+	 *
+	 * The sibling of {@link onFlushUnsupported}, and the reason `suspend()`
+	 * is still the verb it always was. A flush is ON by default, so without
+	 * this a workspace whose agent has crashed, been OOM-killed, lost its
+	 * network or fenced itself could no longer be suspended at all on the
+	 * default path: it would keep running, and keep costing, behind a raw
+	 * `ECONNREFUSED` that named neither the flush nor a way past it. A guest
+	 * nothing can reach does not become flushable by being left alone, and
+	 * `suspend()` then `resume()` is precisely what
+	 * `KubernetesAgentRetiringError` tells a caller to do about a fenced
+	 * one.
+	 *
+	 * So the suspend proceeds and the gap is REPORTED. What it means for the
+	 * disk is in the error's message: the writes that reached it are the
+	 * ones the guest kernel had already written back, plus whatever the
+	 * pod's `preStop` hook and the agent's own `SIGTERM` handler manage
+	 * while the pod stops. A caller that would rather stop can throw from
+	 * here — the callback's exception is swallowed like every other
+	 * callback's here, so the way to refuse is to suspend under
+	 * `{ flush: false }` only after a `flush()` of its own has succeeded.
+	 *
+	 * A guest that ANSWERS and cannot confirm is the other case and is not
+	 * this one: that rejects the suspend with
+	 * {@link KubernetesFlushUnconfirmedError} and sends no patch.
+	 *
+	 * In the style of `onLeaseRenewalError`: synchronous, never awaited, and
+	 * a callback that throws changes nothing about the suspend.
+	 */
+	readonly onFlushUnreachable?: (error: KubernetesFlushUnreachableError) => void
 	/**
 	 * The holder epoch this call opens the workspace under, and the one the
 	 * handle keeps — see {@link HOLDER_EPOCH_ANNOTATION_KEY}.
@@ -1837,6 +2032,12 @@ export async function createKubernetesWorkspace(
 			: {}),
 		...(options.onQuiesceNarrowed !== undefined
 			? { onQuiesceNarrowed: options.onQuiesceNarrowed }
+			: {}),
+		...(options.onFlushUnsupported !== undefined
+			? { onFlushUnsupported: options.onFlushUnsupported }
+			: {}),
+		...(options.onFlushUnreachable !== undefined
+			? { onFlushUnreachable: options.onFlushUnreachable }
 			: {}),
 		...(options.signal !== undefined ? { signal: options.signal } : {}),
 	})
@@ -2848,6 +3049,7 @@ export async function suspendKubernetesWorkspace(
 	const name = workspaceSandboxName(workspaceId)
 	const epoch = assertHolderEpoch(options?.epoch, 'suspendKubernetesWorkspace')
 	assertNoQuiesceHere(options?.quiesce, 'suspendKubernetesWorkspace')
+	assertNoFlushHere(options?.flush, 'suspendKubernetesWorkspace')
 	const readiness = resolveKubernetesReadiness(config)
 	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 	await writeOperatingMode(
@@ -2930,6 +3132,10 @@ interface WorkspaceHandleOptions {
 	readonly onQuiesceUnsupported?: (error: KubernetesQuiesceUnsupportedError) => void
 	/** See {@link KubernetesWorkspaceOptions.onQuiesceNarrowed}. */
 	readonly onQuiesceNarrowed?: (report: KubernetesQuiesceReport) => void
+	/** See {@link KubernetesWorkspaceOptions.onFlushUnsupported}. */
+	readonly onFlushUnsupported?: (error: KubernetesFlushUnsupportedError) => void
+	/** See {@link KubernetesWorkspaceOptions.onFlushUnreachable}. */
+	readonly onFlushUnreachable?: (error: KubernetesFlushUnreachableError) => void
 	readonly signal?: AbortSignal
 }
 
@@ -3374,6 +3580,17 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * over processes nobody stopped cannot keep it retroactively.
 	 */
 	let pendingSuspendQuiesces = false
+	/**
+	 * Whether the suspend in flight is flushing the guest's writes first.
+	 *
+	 * Beside {@link pendingSuspendQuiesces} and for its reason: a flush is a
+	 * promise about the DISK, and a suspend already patching cannot keep it
+	 * afterwards — once its state leaves `running` no call is admitted to
+	 * ask the guest for anything. The flag reads `true` for almost every
+	 * flight, because a flush is what `suspend()` does unless a caller turns
+	 * it off; it is `false` only behind a deliberate `flush: false`.
+	 */
+	let pendingSuspendFlushes = false
 	let pendingDelete: Promise<void> | undefined
 
 	const deleteSandbox = async (
@@ -4154,6 +4371,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		signal?: AbortSignal,
 		epoch?: number,
 		quiesceRequest?: KubernetesWorkspaceQuiesceRequest,
+		flushRequest?: KubernetesWorkspaceFlushRequest,
 	): Promise<void> => {
 		if (state === 'deleted') throw new KubernetesSandboxDestroyedError('suspend', name)
 		// `suspending` deliberately falls through: the patch is re-sent and
@@ -4190,6 +4408,20 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		if (quiesceRequest !== undefined && quiesceRequest !== false && state === 'running') {
 			await quiesceBeforeSuspend(quiesceRequest, signal)
 		}
+		// And then the disk, which is the thing this patch is about to take
+		// away the only means of reading. HERE for the same reason the
+		// quiesce is here — after the guest is quiet, so the flush covers
+		// what the processes just stopped had written, and before `state`
+		// moves, because nothing is admitted afterwards. A flush the guest
+		// answered and could not confirm throws from here, with no patch
+		// sent: the pod is still running and the caller can decide.
+		//
+		// A re-sent suspend does not re-flush, for the reason a re-sent
+		// suspend does not re-quiesce: its patch has already landed and
+		// there is no admitted call left to ask through.
+		if (flushRequest !== false && state === 'running') {
+			await flushBeforeSuspend(flushRequest ?? true, signal)
+		}
 		// From here on nothing new is admitted: the pod is going away, and a
 		// call let through would dial an address that still resolves — the
 		// Service outlives the pod — and hang on a connect timeout naming
@@ -4205,7 +4437,24 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// suspend() and destroy() would return on that mark without ever
 			// re-sending the patch, and the pod would run until somebody
 			// noticed the bill.
-			state = before
+			//
+			// Unless the SESSION went away while this call was still short of
+			// the patch, which is the one case where that premise is false.
+			// The quiesce and the flush above are admitted calls, and an
+			// admitted call that fails asks once whether somebody else has
+			// suspended this workspace; when the answer is yes,
+			// `noticeSuspendedElsewhere` records `suspending` and DROPS the
+			// session, and `flushBeforeSuspend` reports that rather than
+			// refusing — so the patch can be reached with no session behind
+			// it, and then be refused by the epoch the other holder bumped.
+			// Writing `running` back over that would leave a handle nothing
+			// can use and nothing can recover: `admit` refuses every call
+			// (there is no session), `status` reads 'destroyed' for the same
+			// reason, `suspended` reads FALSE because only `state` decides it,
+			// and `resume()` returns early on 'running' without starting one.
+			// What `noticeSuspendedElsewhere` wrote is what is true, so it
+			// stands.
+			state = session === undefined ? 'suspending' : before
 			throw err
 		}
 		// The patch landed, so this pod is the controller's to remove and the
@@ -4372,9 +4621,19 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		signal?: AbortSignal,
 		epoch?: number,
 		quiesceRequest?: KubernetesWorkspaceQuiesceRequest,
+		flushRequest?: KubernetesWorkspaceFlushRequest,
 	): Promise<void> => {
 		const wantsQuiesce = quiesceRequest !== undefined && quiesceRequest !== false
+		const wantsFlush = flushRequest !== false
 		if (pendingSuspend !== undefined) {
+			if (wantsFlush && !pendingSuspendFlushes) {
+				return Promise.reject(
+					new KubernetesFlushUnconfirmedError(
+						'suspend_already_in_flight',
+						`kubernetes: workspace '${workspaceId}' is already suspending under a call that asked for no flush ('flush: false'), and a flush cannot be added to a transition in flight — once that transition's state leaves 'running', no call is admitted to ask the guest for anything. Nothing was sent on this call's behalf: await the suspend in flight and treat the disk as one whose last writes may not have reached it, or flush() before the suspend next time. Refused rather than joined, because a caller that let the flush default on is about to trust the disk.`,
+					),
+				)
+			}
 			if (wantsQuiesce && !pendingSuspendQuiesces) {
 				return Promise.reject(
 					new KubernetesQuiesceUnconfirmedError(
@@ -4386,12 +4645,14 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			return pendingSuspend
 		}
 		pendingSuspendQuiesces = wantsQuiesce
+		pendingSuspendFlushes = wantsFlush
 		pendingSuspend = serialise(async () => {
 			try {
-				await suspendNow(signal, epoch, quiesceRequest)
+				await suspendNow(signal, epoch, quiesceRequest, flushRequest)
 			} finally {
 				pendingSuspend = undefined
 				pendingSuspendQuiesces = false
+				pendingSuspendFlushes = false
 			}
 		})
 		return pendingSuspend
@@ -4420,6 +4681,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		signal?: AbortSignal,
 		epoch?: number,
 		quiesceRequest?: KubernetesWorkspaceQuiesceRequest,
+		flushRequest?: KubernetesWorkspaceFlushRequest,
 	): Promise<void> => {
 		// Read through a call on both sides. `state` is assigned from other
 		// closures, which the checker cannot see, so it takes the first
@@ -4429,7 +4691,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		const gone = (): boolean => state === 'deleted'
 		if (gone()) return
 		try {
-			await suspendShared(signal, epoch, quiesceRequest)
+			await suspendShared(signal, epoch, quiesceRequest, flushRequest)
 		} catch (err) {
 			if (gone() && err instanceof KubernetesSandboxDestroyedError) return
 			throw err
@@ -4788,6 +5050,132 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 					quiesceOptions?.signal,
 				),
 		)
+
+	/**
+	 * Tell the host about a gap a suspend went ahead over.
+	 *
+	 * Synchronous, never awaited, and a callback that throws changes
+	 * nothing: these are reports about a transition that has already been
+	 * decided, and a host's diagnostic is not allowed to decide it again.
+	 */
+	const tellHost = <T>(callback: ((value: T) => void) | undefined, value: T): void => {
+		try {
+			callback?.(value)
+		} catch {
+			// A host's callback is not allowed to decide whether the suspend
+			// it was only being told about goes ahead.
+		}
+	}
+
+	/**
+	 * One flush, through the live session's transport.
+	 *
+	 * Through {@link admitted} like every other data-plane call, so a
+	 * workspace another process suspended underneath this handle is named as
+	 * suspended rather than reported as a flush that failed at the
+	 * transport. Not serialised here: both callers already hold the
+	 * transition queue — the public verb takes it, and `suspendNow` runs
+	 * inside it.
+	 */
+	const flushIfSupported = async (
+		flushOptions?: KubernetesFlushOptions,
+	): Promise<KubernetesFlushReport | undefined> =>
+		await admitted('flush', async (handle) => {
+			const transport = admittedTransport('flush', handle)
+			// Asked INSIDE the admitted call and answered with `undefined`
+			// rather than by throwing, because an unsupported feature is an
+			// answer from the guest and not a failure of the connection —
+			// and `admitted`'s failure path treats every error as one, which
+			// means an extra GET of the Sandbox and, on a workspace somebody
+			// else had already suspended, a `KubernetesWorkspaceSuspendedError`
+			// wrapping a refusal that has nothing to do with it.
+			if (!(await transport.supportsFlush(flushOptions?.signal))) return undefined
+			return await transport.flush(
+				flushOptions?.timeoutMs !== undefined ? { timeoutMs: flushOptions.timeoutMs } : {},
+				flushOptions?.signal,
+			)
+		})
+
+	const flushNow = async (
+		flushOptions?: KubernetesFlushOptions,
+	): Promise<KubernetesFlushReport> => {
+		const report = await flushIfSupported(flushOptions)
+		// The explicit verb refuses, where `suspend()` degrades: a caller
+		// that asked for a flush by name is told its image cannot do one.
+		if (report === undefined) throw flushUnsupportedError()
+		return report
+	}
+
+	/**
+	 * The flush `suspend()` performs by default, and the ONE failure that
+	 * stops the suspend.
+	 *
+	 * That one is a guest which ANSWERED and could not confirm: it is alive,
+	 * it tried, and its writes may never reach the device — so no patch goes
+	 * out, the pod keeps serving, and the caller holds the guest's own
+	 * message and can retry, read the data out, or suspend under
+	 * `{ flush: false }` deliberately.
+	 *
+	 * Everything else is REPORTED and the suspend goes ahead, because a
+	 * flush is on by DEFAULT and `suspend()` is the verb an operator reaches
+	 * for when a workspace has gone wrong. Two shapes reach here:
+	 *
+	 *  - An image that cannot flush: one whose agent predates the op, or one
+	 *    whose agent has the op and no `sync` to run it with and says so.
+	 *    Refusing over it would mean this release could not suspend any
+	 *    workspace built from such an image without the caller changing its
+	 *    own code. {@link KubernetesWorkspaceOptions.onFlushUnsupported} is
+	 *    told.
+	 *  - A guest that could not be REACHED — a refused dial, a connect
+	 *    timeout, a rejected token, an agent that has fenced itself, a
+	 *    workspace somebody else has already suspended. None of those become
+	 *    flushable by leaving the pod running, and refusing would take the
+	 *    lifecycle verb away from precisely the crashed, OOM-killed or
+	 *    fenced workspace it is needed for — which would leave it running,
+	 *    and billing, behind a raw `ECONNREFUSED` naming neither the flush
+	 *    nor a way past it. `suspend()` then `resume()` is also what
+	 *    `KubernetesAgentRetiringError` tells a caller to do about a fence.
+	 *    {@link KubernetesWorkspaceOptions.onFlushUnreachable} is told, with
+	 *    the transport's own error as its `cause`.
+	 *
+	 * The caller's own abort is not a flush verdict and travels untouched: a
+	 * caller that withdrew its suspend gets the abort, not a suspend that
+	 * went ahead without the flush it asked for.
+	 */
+	const flushBeforeSuspend = async (
+		request: KubernetesWorkspaceFlushRequest,
+		signal?: AbortSignal,
+	): Promise<void> => {
+		const timeoutMs = typeof request === 'object' ? request.timeoutMs : undefined
+		let report: KubernetesFlushReport | undefined
+		try {
+			report = await flushIfSupported({
+				...(timeoutMs !== undefined ? { timeoutMs } : {}),
+				...(signal !== undefined ? { signal } : {}),
+			})
+		} catch (err) {
+			if (err instanceof KubernetesFlushUnconfirmedError) throw err
+			if (signal?.aborted === true) throw err
+			// A guest that ANSWERED that it cannot flush — an advertised op
+			// its image has no program to run — is the unsupported gap under
+			// another name, not an unreachable guest, and the host hears it
+			// on the callback that means that.
+			if (err instanceof KubernetesFlushUnsupportedError) {
+				tellHost(options.onFlushUnsupported, err)
+				return
+			}
+			tellHost(
+				options.onFlushUnreachable,
+				new KubernetesFlushUnreachableError(
+					`kubernetes: workspace '${workspaceId}' could not be asked to flush before its pod stopped (${err instanceof Error ? err.message : String(err)}). The suspend went ahead rather than leaving a workspace nobody can reach running: a guest that answers nothing does not become flushable by keeping its pod, and this is the verb that replaces the pod. What is on the disk is what the guest kernel had already written back, plus whatever the pod's preStop hook and the agent's own SIGTERM handler manage while it stops. A caller that would rather stop should flush() first and pass 'flush: false' only once that has succeeded.`,
+					{ cause: err },
+				),
+			)
+			return
+		}
+		if (report !== undefined) return
+		tellHost(options.onFlushUnsupported, flushUnsupportedError())
+	}
 
 	/**
 	 * The quiesce `suspend({ quiesce })` performs, and the ONE failure it
@@ -5171,6 +5559,14 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			return await serialise(async () => await quiesceNow(quiesceOptions))
 		},
 
+		async flush(flushOptions?: KubernetesFlushOptions): Promise<KubernetesFlushReport> {
+			// Serialised for the reason `quiesce()` is: a flush racing the
+			// suspend that follows it would be flushing a pod the patch has
+			// already taken away, and one racing a resume would ask the old
+			// pod about the new one's disk.
+			return await serialise(async () => await flushNow(flushOptions))
+		},
+
 		async suspend(transitionOptions?: KubernetesWorkspaceSuspendOptions): Promise<void> {
 			// The single flight takes the FIRST caller's epoch, exactly as it
 			// takes the first caller's signal: a second caller arriving
@@ -5183,6 +5579,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				transitionOptions?.signal,
 				assertHolderEpoch(transitionOptions?.epoch, 'suspend') ?? heldEpoch,
 				transitionOptions?.quiesce,
+				transitionOptions?.flush,
 			)
 		},
 
@@ -5221,6 +5618,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 					destroyOptions?.signal,
 					destroyOptions?.epoch ?? heldEpoch,
 					destroyOptions?.quiesce,
+					destroyOptions?.flush,
 				)
 				return
 			}

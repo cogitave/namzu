@@ -32,7 +32,11 @@ const require_ = createRequire(import.meta.url)
 const AGENT_PATH = '../../../../agent/agent.cjs'
 
 interface AgentModule {
-	AGENT_FEATURES: string[]
+	/** What `healthz` may claim — see the agent's `advertisedFeatures`. On
+	 * an image with no `sync` it is one string shorter than
+	 * `AGENT_FEATURES`, so comparing against it keeps this case about the
+	 * reply's shape rather than about the machine's coreutils. */
+	advertisedFeatures: () => string[]
 	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
 	startListening(): Promise<Server>
@@ -103,7 +107,7 @@ describe('agent listen modes', () => {
 		expect(exchange.reply).toEqual({
 			ok: true,
 			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
-			features: agent.AGENT_FEATURES,
+			features: agent.advertisedFeatures(),
 		})
 		// Pinned, not read back: adding a listen mode is not a wire change,
 		// so no host and no golden image has to roll with it.

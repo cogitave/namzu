@@ -115,6 +115,20 @@ export interface ScriptedAgentOptions {
 	 */
 	readonly quiesceDelayMs?: number
 	/**
+	 * What `flush` answers with. Unset falls through to the server's own
+	 * `unknown_op`, which is what an image built before the op does — so a
+	 * guest that also omits `flush` from {@link ScriptedAgentOptions.features}
+	 * is an OLD image, and one that advertises it without a reply here is the
+	 * mismatch a host has to survive.
+	 */
+	readonly flushReply?: unknown
+	/**
+	 * Hold a `flush` open this long before replying. A flush that answered
+	 * instantly could not prove that the `Suspended` patch waits for it: both
+	 * would land in the same tick and the ordering would be unobservable.
+	 */
+	readonly flushDelayMs?: number
+	/**
 	 * The `guestBootId` every authenticated reply and every stream `ready`
 	 * frame carries.
 	 *
@@ -477,6 +491,16 @@ export async function startScriptedAgent(
 						socket.end()
 					}
 					if (options.quiesceDelayMs) setTimeout(answer, options.quiesceDelayMs).unref?.()
+					else answer()
+					continue
+				}
+				if (op === 'flush' && options.flushReply !== undefined) {
+					const answer = () => {
+						if (socket.destroyed) return
+						send(socket, options.flushReply)
+						socket.end()
+					}
+					if (options.flushDelayMs) setTimeout(answer, options.flushDelayMs).unref?.()
 					else answer()
 					continue
 				}

@@ -115,6 +115,10 @@ const net = require('node:net')
 const { spawn } = require('node:child_process')
 const { createHash, randomUUID, timingSafeEqual } = require('node:crypto')
 const fs = require('node:fs/promises')
+// Synchronous, and used for exactly one thing: looking for the program the
+// flush runs before `healthz` promises a host that this guest can flush.
+// See `canFlush`.
+const { accessSync, constants: fsConstants } = require('node:fs')
 const { constants: osConstants } = require('node:os')
 const path = require('node:path')
 
@@ -201,6 +205,15 @@ function guestIdentity() {
 //    running, including ones no registry owns, and leaves the agent
 //    serving `execute`, `read-file` and `write-file` so the host can still
 //    read the disk it has just made quiet. See `runQuiesce`.
+//  - `flush` — the `flush` op runs `syncfs(2)` over the workspace mount, so
+//    a host that is about to take the pod away can make the dirty pages of
+//    everything written through this guest — by `write-file` AND by a
+//    command it ran — reach the device first. It is also what the agent
+//    itself runs on `SIGTERM`, after it has stopped what it owns. See
+//    `runFlush` and `terminate`. It is the ONE entry here that a guest
+//    carrying this code may still not advertise: the flush runs a program,
+//    and an image without that program cannot perform one — see
+//    `advertisedFeatures`, which is what `healthz` actually answers.
 const AGENT_FEATURES = [
 	'write-file-parts',
 	'execution-attach',
@@ -208,6 +221,7 @@ const AGENT_FEATURES = [
 	'read-file-stream',
 	'sessions',
 	'quiesce',
+	'flush',
 	'guest-boot-id',
 ]
 
@@ -389,6 +403,42 @@ const QUIESCE_MAX_ROUNDS = positiveIntegerConfig('NAMZU_AGENT_QUIESCE_MAX_ROUNDS
 // bookkeeping: the processes are already gone when this starts, so running
 // out of it does not fail the call.
 const QUIESCE_SETTLE_MS = positiveIntegerConfig('NAMZU_AGENT_QUIESCE_SETTLE_MS', 1_000)
+
+// --- flush + termination budgets ------------------------------------------
+//
+// How long ONE flush may take before it is reported unconfirmed. A `syncfs`
+// over a workspace holding gigabytes of dirty pages is not instant, and the
+// number that matters is the pod's `terminationGracePeriodSeconds`, which
+// has to cover this twice over (see `k8s/manifests/sandboxtemplate-
+// workspace.yaml`): the hook's flush before the stop signal, and this one
+// after it. Reported rather than silently abandoned — a host that asked for
+// a flush is about to take the pod away.
+const FLUSH_TIMEOUT_MS = positiveIntegerConfig('NAMZU_AGENT_FLUSH_TIMEOUT_MS', 10_000)
+// The whole SIGTERM handler's bound, from the signal to `process.exit`. It
+// exists because every step inside it can block: a process in
+// uninterruptible IO outlives a SIGKILL, and a `syncfs` over a slow device
+// takes as long as the device takes. A handler with no bound would hold the
+// pod open until the kubelet's own SIGKILL landed, which is the failure
+// this agent's handler exists to avoid rather than one to reintroduce. It
+// must stay comfortably BELOW the pod's `terminationGracePeriodSeconds`,
+// because the two are measured from nearly the same moment and the one that
+// expires first decides how the container ends.
+const SHUTDOWN_DEADLINE_MS = positiveIntegerConfig('NAMZU_AGENT_SHUTDOWN_DEADLINE_MS', 15_000)
+// The command that flushes the workspace filesystem. `sync -f PATH` is
+// `syncfs(2)` on the filesystem holding PATH — every dirty page of every
+// file on that mount, whichever process wrote it — and it needs no
+// capability, which matters because the agent runs with an empty bounding
+// set (`k8s/entrypoint.sh`). A plain `sync` is deliberately NOT a fallback:
+// it flushes EVERY mounted filesystem, and on a runtime that shares the
+// host kernel that is the node's disks, not this workspace's. The preStop
+// hook in `k8s/entrypoint.sh` refuses it for the same reason and says so —
+// an image whose `sync` cannot do `-f` gets no flush from either of them,
+// which is a gap to report rather than a node's disks to spend.
+//
+// Overridable for tests via `NAMZU_AGENT_FLUSH_COMMAND` (run through
+// `/bin/sh -c`, the same shape as `NAMZU_AGENT_RESEED_HOOK`), which is how
+// a suite observes THAT the flush ran without a block device to watch.
+const FLUSH_COMMAND = process.env.NAMZU_AGENT_FLUSH_COMMAND
 const EXECUTION_ID_PATTERN =
 	/^exec_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -2058,6 +2108,131 @@ const writePartsInFlight = new Set()
  */
 const WRITE_PART_TEMP_NAME = /^\.namzu-write-[\s\S]+\.part$/
 
+/**
+ * The durability half of a write, and why it is here rather than left to
+ * the kernel's own writeback.
+ *
+ * `fs.writeFile` returning means the bytes are in the page cache, not that
+ * they are on the device. That was invisible for as long as nothing ever
+ * took the guest away deliberately — but a workspace's whole purpose is to
+ * be suspended and resumed, and `suspend()` stops the pod within a second
+ * or two of the reply this agent sends. A `write-file` that answered `ok`
+ * and then lost its bytes to a pod stop would be the quietest possible
+ * data loss: nothing fails, and the file is simply older than the caller
+ * was told.
+ *
+ * So the reply now means what a caller reads it as. The sequence is the
+ * standard one, and every step of it is load-bearing:
+ *
+ *  1. write a temp sibling — so an interrupted write leaves the TARGET
+ *     untouched rather than truncated-and-half-rewritten, which is what
+ *     `fs.writeFile` onto the target did;
+ *  2. `fsync` it — the file's own data reaches the device;
+ *  3. `rename` onto the target — atomic within one directory, so a reader
+ *     sees the old file or the new one and never a partial one;
+ *  4. `fsync` the DIRECTORY — the rename itself is metadata, and a crash
+ *     after step 3 but before the directory entry is written back would
+ *     leave the target pointing at the old inode with the new data already
+ *     safely on the device and unreachable.
+ *
+ * `handleWriteFilePart` already had steps 1 and 3 (#475's part protocol);
+ * this adds 2 and 4 to it and gives the single-frame path all four. Both
+ * paths also carry the mode of the file they replace onto the temp file
+ * before the rename — step 3 replaces the target whole, permissions
+ * included — through {@link replacementMode}, which is one helper rather
+ * than one rule per path.
+ */
+async function syncDirectoryEntry(file) {
+	// Opening a directory read-only and fsyncing the handle is how the
+	// directory's own metadata is written back. Windows has no equivalent
+	// (opening a directory as a file fails there), and no guest this agent
+	// ships in runs on it — the skip keeps the loopback suites runnable on a
+	// developer's machine rather than pretending the guarantee holds there.
+	if (process.platform === 'win32') return
+	let handle
+	try {
+		handle = await fs.open(path.dirname(file), 'r')
+		await handle.sync()
+	} finally {
+		if (handle) await handle.close().catch(() => {})
+	}
+}
+
+/** The temp sibling a durable single-frame write goes through. */
+function writeTempSibling(real) {
+	// Deliberately in the same `.namzu-write-*.part` family the part
+	// protocol uses: one recognisable name for "a write that was in
+	// flight", one `WRITE_PART_TEMP_NAME` pattern, and the existing
+	// `part.discard` verb can remove one a crash left behind.
+	return path.join(path.dirname(real), `.namzu-write-${path.basename(real)}.${randomUUID()}.part`)
+}
+
+/**
+ * The mode a replacement of `real` has to carry, or `undefined` when there
+ * is nothing to carry it from.
+ *
+ * A rename replaces the target with the temp file, mode included, so a file
+ * that was executable before a rewrite has to still be afterwards. An absent
+ * target keeps the old behaviour (`fs.writeFile`'s 0o666 through the umask);
+ * an existing one keeps its own bits. A `stat` that fails for any reason is
+ * read as "no target to carry anything from": the write itself is what
+ * decides whether the path is writable, and a mode this code could not read
+ * is not a reason to refuse a write the caller asked for.
+ *
+ * Shared by BOTH rename paths on purpose — `writeFileDurably` and
+ * `handleWriteFilePart`'s final part. They replace a file the same way, so
+ * they owe the caller the same answer, and a rule kept in one of them is a
+ * rule the other one loses.
+ */
+async function replacementMode(real) {
+	try {
+		return (await fs.stat(real)).mode & 0o7777
+	} catch {
+		return undefined
+	}
+}
+
+/**
+ * Write one whole body to `real` so that a reply of `ok` means the bytes
+ * are on the device. Answers how many bytes were written.
+ *
+ * The short-write check is the parts path's, for the parts path's reason:
+ * Linux reports a SHORT COUNT and no error when a write crosses the
+ * filesystem's free space, and renaming that onto the target would destroy
+ * the file this sequence exists to protect while reporting success.
+ */
+async function writeFileDurably(real, buf) {
+	const temp = writeTempSibling(real)
+	const mode = await replacementMode(real)
+	let handle
+	try {
+		handle = await fs.open(temp, 'wx')
+		if (mode !== undefined) await handle.chmod(mode)
+		const written = await handle.write(buf, 0, buf.length, 0)
+		const sizeBytes = (await handle.stat()).size
+		if (written.bytesWritten !== buf.length || sizeBytes !== buf.length) {
+			throw new Error(
+				`write_short_write: wrote ${written.bytesWritten} of ${buf.length} bytes, temp file is ${sizeBytes} bytes`,
+			)
+		}
+		await handle.sync()
+		await handle.close()
+		handle = undefined
+		await fs.rename(temp, real)
+		await syncDirectoryEntry(real)
+		return written.bytesWritten
+	} catch (err) {
+		// Nothing half-written is left inside the workspace for a later
+		// `listFiles` to show, and the target is exactly as it was.
+		if (handle) await handle.close().catch(() => {})
+		handle = undefined
+		await fs.rm(temp, { force: true }).catch(() => {})
+		throw err
+	} finally {
+		if (handle) await handle.close().catch(() => {})
+	}
+}
+
 function decodeWriteBody(body) {
 	return body.encoding === 'base64'
 		? Buffer.from(String(body.content), 'base64')
@@ -2225,6 +2400,36 @@ async function handleWriteFilePart(socket, body, part) {
 		// this check is here.
 		const written = await handle.write(buf, 0, buf.length, offset)
 		const sizeBytes = (await handle.stat()).size
+		if (final) {
+			// The target's own mode, onto the temp, BEFORE the rename two
+			// blocks below — the rename is what would otherwise install the
+			// 0o666-and-umask the temp was created with, silently stripping
+			// the executable bit off a script or widening a 0600 file. Same
+			// rule, same helper and the same reply as a whole-body write: see
+			// `replacementMode`. Read HERE rather than at part 0 because this
+			// is the part that renames, and applied before the `fsync` so the
+			// file's own writeback carries the mode back with the data.
+			//
+			// A `chmod` that fails throws out of this block before the rename,
+			// so the whole sequence is refused with `ok: false` and the target
+			// keeps both its bytes and its bits — exactly what
+			// `writeFileDurably` does with the same failure. Failing closed is
+			// deliberate: a write that cannot keep the target's mode is
+			// reported rather than quietly performed as a different file, and
+			// the caller has no way to discover a silent mode change. Nothing
+			// is lost by it — no rename ran, and the temp file is left for
+			// `part.discard` like any other abandoned sequence.
+			const mode = await replacementMode(realTarget)
+			if (mode !== undefined) await handle.chmod(mode)
+			// ONE fsync per sequence, on the last part, and it covers the whole
+			// file: `fsync` writes back every dirty page of the FILE, not of the
+			// descriptor, so the pages the earlier parts left in the cache go
+			// with it. Per-part fsyncs would multiply the cost of a large write
+			// by the number of frames it took and buy nothing — an abandoned
+			// sequence is thrown away rather than renamed, so an unflushed part
+			// file is not a durability question at all.
+			await handle.sync()
+		}
 		await handle.close()
 		handle = undefined
 		if (written.bytesWritten !== buf.length || sizeBytes !== offset + buf.length) {
@@ -2237,6 +2442,9 @@ async function handleWriteFilePart(socket, body, part) {
 			// this is a rename within one filesystem: atomic, and the only
 			// moment the target changes at all.
 			await fs.rename(real, realTarget)
+			// And then the directory entry that rename created — see
+			// `writeFileDurably` for why the file's own fsync is not enough.
+			await syncDirectoryEntry(realTarget)
 		}
 		writeFrame(socket, {
 			ok: true,
@@ -2279,8 +2487,13 @@ async function handleWriteFile(socket, body) {
 		await fs.mkdir(path.dirname(target), { recursive: true })
 		const real = await realpathWithinWorkspace(target, root)
 		const buf = decodeWriteBody(body)
-		await fs.writeFile(real, buf)
-		writeFrame(socket, { ok: true, ...guestIdentity(), bytesWritten: buf.length })
+		// Through the same temp-sibling-fsync-rename sequence the part
+		// protocol uses, rather than `fs.writeFile` onto the target: see
+		// `writeFileDurably`. The reply is sent only once the bytes are on
+		// the device, so a `suspend()` issued the moment it arrives cannot
+		// take the pod away over a write the caller was told had landed.
+		const bytesWritten = await writeFileDurably(real, buf)
+		writeFrame(socket, { ok: true, ...guestIdentity(), bytesWritten })
 	} catch (err) {
 		writeFrame(socket, { ok: false, error: err.message })
 	}
@@ -3212,6 +3425,11 @@ const QUIESCE_REFUSED_OPS = new Set([
 	'start-detached',
 	'kill-session',
 	'quiesce',
+	// `flush` spawns a `sync` child, and the very next round of a quiesce
+	// in flight would count it, signal it and report a flush that failed
+	// for no reason but the quiesce itself. A host flushes AFTER the guest
+	// is quiet anyway — that is the order `suspend()` uses.
+	'flush',
 ])
 const QUIESCE_REFUSED_STREAM_OPS = new Set([
 	'execute',
@@ -3391,9 +3609,17 @@ async function settleRegistries(deadlineAt) {
  * ends on a pass that finds nothing, which is also what makes a second
  * quiesce straight after the first answer with an empty list.
  */
-async function runQuiesce(graceMs) {
+async function runQuiesce(graceMs, budget = {}) {
 	const scope = quiesceScope()
-	const deadlineAt = Date.now() + QUIESCE_DEADLINE_MS
+	// The op's own deadline by default. A caller that is itself under a
+	// bound — the SIGTERM handler, which has to exit inside the pod's
+	// `terminationGracePeriodSeconds` whatever happens — passes its own
+	// remaining budget instead, and the name of the knob that set it, so a
+	// refusal names the bound that actually applied rather than one that
+	// did not.
+	const deadlineMs = budget.deadlineMs ?? QUIESCE_DEADLINE_MS
+	const deadlineSource = budget.deadlineSource ?? 'NAMZU_AGENT_QUIESCE_DEADLINE_MS'
+	const deadlineAt = Date.now() + deadlineMs
 	/**
 	 * Mark every execution the agent is running, so that nothing this loop
 	 * kills can fence the agent.
@@ -3435,7 +3661,7 @@ async function runQuiesce(graceMs) {
 		// round with no time to finish it.
 		if (Date.now() >= deadlineAt) {
 			throw new Error(
-				`quiesce did not settle within ${QUIESCE_DEADLINE_MS}ms (NAMZU_AGENT_QUIESCE_DEADLINE_MS); pid ${candidates[0].pid} (${candidates[0].command}) was still running`,
+				`quiesce did not settle within ${deadlineMs}ms (${deadlineSource}); pid ${candidates[0].pid} (${candidates[0].command}) was still running`,
 			)
 		}
 		rounds += 1
@@ -3475,7 +3701,7 @@ async function runQuiesce(graceMs) {
 			const description = `pid ${left[0]} (${commands.get(left[0]) ?? 'unknown'})`
 			throw new Error(
 				Date.now() >= deadlineAt
-					? `quiesce ran out of its ${QUIESCE_DEADLINE_MS}ms deadline (NAMZU_AGENT_QUIESCE_DEADLINE_MS) with ${description} still live after SIGKILL`
+					? `quiesce ran out of its ${deadlineMs}ms deadline (${deadlineSource}) with ${description} still live after SIGKILL`
 					: `quiesce could not stop ${description}; it is still live after SIGKILL`,
 			)
 		}
@@ -3516,7 +3742,222 @@ async function handleQuiesce(socket, body) {
 			message: error instanceof Error ? error.message : String(error),
 		})
 	} finally {
-		quiescing = false
+		// Unless this process is on its way out. `terminate()` raises the
+		// same gate and owns it from then on, so a quiesce that was already
+		// in flight when the stop signal arrived must not lower a gate it
+		// did not raise: `server.close()` has stopped new connections, but a
+		// connection that was already open would otherwise be handed the
+		// right to start a command in a guest that is going away.
+		if (!terminating) quiescing = false
+	}
+}
+
+// --- flush: getting what was written onto the device ----------------------
+
+/**
+ * Making the workspace's dirty pages reach the disk, on purpose and at a
+ * moment somebody chose.
+ *
+ * Until this op, nothing in this guest and nothing in the backend ever
+ * called `sync`, `syncfs` or `fsync`. A workspace's disk kept whatever the
+ * kernel had happened to write back, and the two moments that most need it
+ * to hold everything are exactly the two where nothing was asked of it:
+ * the suspend that takes the pod away, and the stop the cluster performs
+ * for its own reasons (an eviction, a drain, a node going down).
+ *
+ * `write-file` closes the smaller half of that itself — a body this agent
+ * accepted is fsynced and renamed before the reply says `ok`, see
+ * `handleWriteFilePart`. This is the other half: a command the host ran
+ * wrote through the page cache like any program does, and no per-file
+ * fsync can reach what `dd`, a compiler or a package manager left there.
+ * `syncfs(2)` can, for the whole mount at once, and it needs no capability
+ * — which is the property that makes it usable here at all, since the
+ * agent runs with an empty bounding set.
+ *
+ * Spawned rather than linked: Node exposes `fsync` and `fdatasync` and no
+ * binding for `syncfs`, so `sync -f PATH` is the one way to reach the call
+ * from this process without a native addon (and this package ships no
+ * runtime dependency).
+ */
+function flushCommand() {
+	if (FLUSH_COMMAND) return { file: '/bin/sh', args: ['-c', FLUSH_COMMAND] }
+	return { file: 'sync', args: ['-f', WORKSPACE_ROOT] }
+}
+
+/**
+ * Whether this guest can perform a flush at all — LOOKED FOR, not assumed.
+ *
+ * `AGENT_FEATURES` is a promise: a feature named in `healthz` is one the
+ * host will use, and the host uses this one BY DEFAULT on every `suspend()`
+ * and every `destroy()` that suspends. So a guest that advertised a flush
+ * it has no program to run would refuse every default suspend for the whole
+ * life of the pod, and nothing about that guest would ever change — the one
+ * failure the feature list exists to prevent, arrived at by the feature
+ * list itself.
+ *
+ * The image this repo ships has coreutils and `k8s/Dockerfile` says in so
+ * many words that a derived image which strips them is a real shape. So the
+ * claim is checked against the filesystem, once: a pod's PATH and its
+ * contents do not change under it, and `healthz` is answered on connections
+ * this must not stat for.
+ */
+let flushRunnable
+function canFlush() {
+	if (flushRunnable !== undefined) return flushRunnable
+	// Not advertised on the platform whose refusal `handleFlush` already
+	// answers, either: a host that cannot be told degrades instead.
+	flushRunnable = process.platform !== 'win32' && isExecutableFile(flushCommand().file)
+	return flushRunnable
+}
+
+/**
+ * Whether `file` names a program this guest could run, resolved the way
+ * `execvp` resolves one: a name carrying a separator stands for itself, a
+ * bare name is looked for in each PATH entry in order.
+ */
+function isExecutableFile(file) {
+	const candidates =
+		file.includes('/') || file.includes('\\')
+			? [file]
+			: (process.env.PATH || '')
+					.split(path.delimiter)
+					.filter(Boolean)
+					.map((dir) => path.join(dir, file))
+	for (const candidate of candidates) {
+		try {
+			accessSync(candidate, fsConstants.X_OK)
+			return true
+		} catch {
+			// The next PATH entry, exactly as a shell would.
+		}
+	}
+	return false
+}
+
+/**
+ * What `healthz` may claim, which is not always what this code implements.
+ *
+ * Read off {@link AGENT_FEATURES} on every call rather than computed once,
+ * so a suite that empties that list to stand in for an older agent still
+ * gets an older agent's reply.
+ */
+function advertisedFeatures() {
+	return AGENT_FEATURES.filter((feature) => feature !== 'flush' || canFlush())
+}
+
+/**
+ * Run one flush, bounded, and answer what it did.
+ *
+ * Rejects rather than resolving quietly on every failure, because a caller
+ * asks for this immediately before the pod stops: "the flush did not run"
+ * and "the flush ran" have to be distinguishable by the host, the way an
+ * unconfirmed quiesce is.
+ *
+ * `timeoutSource` names where `timeoutMs` came from, and is threaded for
+ * the reason {@link runQuiesce}'s `deadlineSource` is: the budget is not
+ * always `NAMZU_AGENT_FLUSH_TIMEOUT_MS`. A host can send one with the op,
+ * and {@link terminate} derives one from what is left of
+ * `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS`. A message that named the wrong knob
+ * would send whoever read it to raise a number that changes nothing.
+ */
+async function runFlush(timeoutMs, timeoutSource = 'NAMZU_AGENT_FLUSH_TIMEOUT_MS') {
+	const startedAt = Date.now()
+	const { file, args } = flushCommand()
+	return await new Promise((resolve, reject) => {
+		let child
+		try {
+			child = spawn(file, args, { stdio: ['ignore', 'ignore', 'pipe'] })
+		} catch (error) {
+			reject(new Error(`flush could not start '${file}': ${error?.message ?? String(error)}`))
+			return
+		}
+		let stderr = ''
+		let settled = false
+		const timer = setTimeout(() => {
+			if (settled) return
+			settled = true
+			// Killed, so nothing is left running in a guest that is about to
+			// be stopped — and reported, because the pages this was supposed
+			// to write back may not have reached the device.
+			try {
+				child.kill('SIGKILL')
+			} catch {}
+			reject(
+				new Error(
+					`flush did not finish within ${timeoutMs}ms (${timeoutSource}); the workspace filesystem may still hold unwritten pages`,
+				),
+			)
+		}, timeoutMs)
+		timer.unref?.()
+		child.stderr?.on('data', (chunk) => {
+			if (stderr.length < 4096) stderr += String(chunk)
+		})
+		child.on('error', (error) => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			reject(new Error(`flush could not run '${file}': ${error?.message ?? String(error)}`))
+		})
+		child.on('close', (code, signal) => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			if (code === 0) {
+				resolve({ durationMs: Date.now() - startedAt, workspace: WORKSPACE_ROOT })
+				return
+			}
+			const how = signal ? `was killed by ${signal}` : `exited ${code}`
+			reject(new Error(`flush command '${file}' ${how}${stderr ? `: ${stderr.trim()}` : ''}`))
+		})
+	})
+}
+
+/** The `flush` op: validate, run, and refuse rather than resolve. */
+async function handleFlush(socket, body) {
+	if (process.platform === 'win32') {
+		writeFrame(socket, { ok: false, error: 'flush_unsupported_platform' })
+		return
+	}
+	// The same fact `healthz` withholds, said to a caller that asked anyway:
+	// a refusal the host reads as "this image cannot flush" and degrades on,
+	// rather than as a flush that was attempted and failed. Without it an
+	// image with no `sync` answers `flush_unconfirmed` — the shape that
+	// means "the disk may be missing writes" — forever.
+	if (!canFlush()) {
+		writeFrame(socket, {
+			ok: false,
+			error: 'flush_unsupported',
+			message: `no '${flushCommand().file}' on this guest's PATH, so nothing here can run syncfs(2) over ${WORKSPACE_ROOT}; healthz does not advertise 'flush' for this image`,
+		})
+		return
+	}
+	const requested = body?.timeoutMs
+	let timeoutMs = FLUSH_TIMEOUT_MS
+	if (requested !== undefined) {
+		if (!Number.isSafeInteger(requested) || requested <= 0) {
+			writeFrame(socket, {
+				ok: false,
+				error: 'flush_invalid_timeout',
+				message: `timeoutMs must be a positive integer, got ${String(requested)}`,
+			})
+			return
+		}
+		timeoutMs = requested
+	}
+	try {
+		const report = await runFlush(
+			timeoutMs,
+			requested !== undefined
+				? "the flush request's own timeoutMs"
+				: 'NAMZU_AGENT_FLUSH_TIMEOUT_MS',
+		)
+		writeFrame(socket, { ok: true, ...report })
+	} catch (error) {
+		writeFrame(socket, {
+			ok: false,
+			error: 'flush_unconfirmed',
+			message: error instanceof Error ? error.message : String(error),
+		})
 	}
 }
 
@@ -4215,9 +4656,10 @@ function dispatch(socket, req) {
 			ok: !agentRetiring,
 			protocolVersion: FIRECRACKER_AGENT_PROTOCOL_VERSION,
 			// Additive and version-neutral: a host that has never heard of
-			// `features` reads exactly the reply it always read. See
-			// {@link AGENT_FEATURES}.
-			features: AGENT_FEATURES,
+			// `features` reads exactly the reply it always read. What is
+			// claimed is what this guest can actually do — see
+			// {@link advertisedFeatures} and {@link AGENT_FEATURES}.
+			features: advertisedFeatures(),
 			...(agentRetiring ? { retiring: true } : {}),
 		})
 		socket.end()
@@ -4312,6 +4754,16 @@ function dispatch(socket, req) {
 	// only sends it to one that said it has it.
 	if (op === 'quiesce') {
 		handleQuiesce(socket, req.body)
+			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
+			.finally(() => socket.end())
+		return
+	}
+	// Additive and advertised, exactly like `quiesce` above. A host sends it
+	// only to a guest whose `healthz` named it, because an agent that
+	// predates it answers `unknown_op: flush` and a host that read that as
+	// "the disk is flushed" would take the pod away over unwritten pages.
+	if (op === 'flush') {
+		handleFlush(socket, req.body)
 			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
 			.finally(() => socket.end())
 		return
@@ -4459,6 +4911,127 @@ function startListening() {
 	})
 }
 
+// --- termination: what a pod stop gets before the agent goes --------------
+
+let terminating = false
+
+/**
+ * The drain a stopping pod gets, and the one bound it cannot exceed.
+ *
+ * `k8s/entrypoint.sh` execs `setpriv` into `tini`, so `tini` is the
+ * container's PID 1 and this process is its child: the kubelet's stop
+ * signal reaches PID 1 and `tini` forwards it here. (The comment that used
+ * to sit on this handler said the opposite — that the entrypoint execs
+ * straight into the agent and this process is PID 1 — which stopped being
+ * true when `tini` was introduced, and the sentence about PID 1 needing its
+ * own handler stopped applying with it. The handler still matters, for a
+ * different reason: without one, the default disposition kills this process
+ * where the sequence below has to run instead.)
+ *
+ * The order is the whole design, and each step exists because the one
+ * before it is not enough:
+ *
+ *  1. **Stop accepting connections first.** Nothing new is admitted while
+ *     processes are being stopped, so the guest cannot be handed work by a
+ *     host that has not noticed the pod is going away.
+ *  2. **Stop what this guest is running, through the quiesce routine.** Not
+ *     a second implementation of it: `runQuiesce` marks every running
+ *     execution so a killed group leader cannot fence the agent, scans
+ *     `/proc` rather than the child list (an orphan is reparented away from
+ *     this process), and works in rounds. A stop that only closed the
+ *     listener would leave a compiler mid-write while the flush below ran.
+ *  3. **Flush.** `syncfs(2)` over the workspace mount — the point of the
+ *     whole handler, and the step nothing in this agent ever did before.
+ *  4. **Exit 0**, so the container ends `Completed` rather than being
+ *     SIGKILLed when the grace period runs out.
+ *
+ * And the bound, which is not optional: a process in uninterruptible IO
+ * survives SIGKILL and a `syncfs` takes as long as the device takes, so
+ * every step above can block. The bound is the WATCHDOG BELOW and nothing
+ * else — at `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` it exits whatever is still
+ * in flight, which is not a clean shutdown but is better than holding the
+ * pod open until the kubelet's own SIGKILL lands, the behaviour the old
+ * handler's absence of a drain was avoiding by doing nothing at all.
+ *
+ * A REPEAT stop signal does NOT shorten that bound, though it used to: it
+ * exited at once, read as a host or an operator saying "stop waiting". In
+ * the pod this runs in, a second SIGTERM is the ORDINARY sequence rather
+ * than anybody's instruction. `k8s/entrypoint.sh prestop` signals pid 1 and
+ * waits for it, and the kubelet sends its own stop signal the moment that
+ * hook returns — so exiting on the second one capped this handler at the
+ * hook's wait instead of its own deadline, on precisely the slow flush the
+ * handler exists for, and exited 0 over it so the truncation read as a
+ * clean stop. (The hook's wait is now derived from this deadline and
+ * outlives it, so in the ordinary case that second signal arrives after
+ * this process is already gone.) Anything that genuinely wants this process
+ * gone immediately still has SIGINT, SIGQUIT and SIGKILL, none of which
+ * this agent handles.
+ */
+async function terminate(signal) {
+	if (terminating) {
+		// Reported, because a second signal means something upstream expected
+		// this to be over already — and then ignored, because the deadline is
+		// the bound and it is already running.
+		console.error(
+			`[namzu-fc-agent] ${signal}: already stopping; the drain and flush go on until NAMZU_AGENT_SHUTDOWN_DEADLINE_MS (${SHUTDOWN_DEADLINE_MS}ms) expires`,
+		)
+		return
+	}
+	terminating = true
+	const deadlineAt = Date.now() + SHUTDOWN_DEADLINE_MS
+	const watchdog = setTimeout(() => {
+		console.error(
+			`[namzu-fc-agent] ${signal}: the drain and flush did not finish within ${SHUTDOWN_DEADLINE_MS}ms (NAMZU_AGENT_SHUTDOWN_DEADLINE_MS); exiting anyway`,
+		)
+		process.exit(0)
+	}, SHUTDOWN_DEADLINE_MS)
+	if (server) {
+		try {
+			server.close()
+		} catch {}
+	}
+	// The same refusal gate an explicit quiesce raises, and never lowered
+	// again: a connection that is already open must not be able to start a
+	// command in a guest that is being stopped.
+	quiescing = true
+	// The flush needs time of its own, so the drain cannot spend the whole
+	// budget. A third of it, capped by the flush's own timeout, is reserved
+	// before the quiesce is given what is left.
+	const flushReserveMs = Math.min(
+		FLUSH_TIMEOUT_MS,
+		Math.max(1, Math.floor(SHUTDOWN_DEADLINE_MS / 3)),
+	)
+	try {
+		await runQuiesce(QUIESCE_GRACE_MS, {
+			deadlineMs: Math.max(1, deadlineAt - flushReserveMs - Date.now()),
+			deadlineSource: 'NAMZU_AGENT_SHUTDOWN_DEADLINE_MS',
+		})
+	} catch (error) {
+		// Reported, never fatal, and never a reason to skip the flush: a
+		// process that would not stop is exactly the case where what it has
+		// already written most needs to reach the device.
+		console.error(`[namzu-fc-agent] ${signal}: ${error?.message ?? String(error)}`)
+	}
+	// Whichever of the two budgets is smaller bounds the flush, and the
+	// message says which one it was: a drain that overran leaves the flush
+	// with the tail of the shutdown deadline, and telling the reader to
+	// raise the flush timeout there would be telling them to change a number
+	// that is no longer the one binding.
+	const flushBudgetMs = Math.max(1, Math.min(FLUSH_TIMEOUT_MS, deadlineAt - Date.now()))
+	try {
+		await runFlush(
+			flushBudgetMs,
+			flushBudgetMs < FLUSH_TIMEOUT_MS
+				? 'NAMZU_AGENT_SHUTDOWN_DEADLINE_MS'
+				: 'NAMZU_AGENT_FLUSH_TIMEOUT_MS',
+		)
+	} catch (error) {
+		console.error(`[namzu-fc-agent] ${signal}: ${error?.message ?? String(error)}`)
+	}
+	clearTimeout(watchdog)
+	process.exit(0)
+}
+
 async function reListenOnResume() {
 	// Close current connections' listener and re-establish, AFTER reseed.
 	await reseedEntropy()
@@ -4479,18 +5052,13 @@ async function main() {
 			console.error('[namzu-fc-agent] re-listen on resume failed:', err?.message)
 		})
 	})
-	// Kubernetes tier only, but harmless everywhere: this process is PID 1
-	// inside a pod's own PID namespace (`k8s/entrypoint.sh` `exec`s straight
-	// into it, no init in between), and a signal whose default action is
-	// "terminate" is left un-applied by the kernel for PID 1 unless the
-	// process installs its own handler — with none registered, SIGTERM did
-	// nothing and the pod rode out the full `terminationGracePeriodSeconds`
-	// before SIGKILL. No drain: an in-flight exec or open terminal gets no
-	// grace window, the same "gone" a caller already has to handle from a
-	// pod the cluster removed out from under it.
+	// Kubernetes tier only, but harmless everywhere: `tini` is the
+	// container's PID 1 and forwards the kubelet's stop signal to this
+	// process, which stops accepting connections, stops what the guest is
+	// running and flushes the workspace before it exits. See
+	// {@link terminate} for the order and for the bound it cannot exceed.
 	process.on('SIGTERM', () => {
-		if (server) server.close()
-		process.exit(0)
+		void terminate('SIGTERM')
 	})
 }
 
@@ -4498,6 +5066,7 @@ async function main() {
 // agent in-process without spawning a separate node binary.
 module.exports = {
 	AGENT_FEATURES,
+	advertisedFeatures,
 	sessions,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
 	GUEST_BOOT_ID,

@@ -507,6 +507,53 @@ export interface QuiesceReply {
 }
 
 // ---------------------------------------------------------------------------
+// Flush — put the workspace's dirty pages on the device, on purpose
+// ---------------------------------------------------------------------------
+
+/**
+ * The `healthz` feature string an agent advertises when it implements the
+ * `flush` op: run `syncfs(2)` over the workspace mount and answer only once
+ * it has returned.
+ *
+ * Gated exactly like {@link QUIESCE_FEATURE}, and for a sharper reason than
+ * any other feature in this file: an agent that predates the op answers
+ * `unknown_op: flush`, and a host that read that as "the disk is flushed"
+ * would take the pod away over pages that never reached the device. So the
+ * op is sent only to a guest that named it, and a guest that did not is
+ * reported as one that cannot flush rather than one that had nothing to.
+ *
+ * An agent that HAS the op advertises it only when it can actually perform
+ * one: the flush runs a program, and an image that stripped it has the code
+ * and nothing to run. Such a guest also answers `flush_unsupported` to an op
+ * sent anyway, which a host reads exactly as the missing string — because
+ * the alternative, an unconfirmed flush, is the shape that means "the disk
+ * may be missing writes" and would refuse that image's every suspend
+ * forever.
+ */
+export const FLUSH_FEATURE = 'flush'
+
+/** Flush the workspace filesystem. */
+export interface FlushRequest {
+	/**
+	 * How long the guest may spend on the `syncfs` before it reports the
+	 * flush unconfirmed. The guest defaults to 10000ms
+	 * (`NAMZU_AGENT_FLUSH_TIMEOUT_MS`). It is NOT the pod's
+	 * `terminationGracePeriodSeconds`, which has to cover this and the
+	 * guest's own termination drain together.
+	 */
+	readonly timeoutMs?: number
+}
+
+/** What a successful `flush` answers with. */
+export interface FlushReply {
+	readonly ok: true
+	/** How long the `syncfs` itself took, as the guest measured it. */
+	readonly durationMs: number
+	/** The mount the guest flushed — its workspace root. */
+	readonly workspace: string
+}
+
+// ---------------------------------------------------------------------------
 // Loopback TCP — publish a service without moving it out of the sandbox
 // ---------------------------------------------------------------------------
 

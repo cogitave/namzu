@@ -17,6 +17,33 @@ spec:
             - name: agent
               containerPort: 1024
               protocol: TCP
+          # REPEATED here, not inherited from the base template: this patch
+          # gives `containers` in full (see the header), so everything the
+          # base's container carries that this pod still needs has to be
+          # stated again — and the preStop hook is one of those, not a
+          # deliberate omission. Without it a workspace pod on kind keeps only
+          # the agent's own SIGTERM handler and nothing flushes the workspace
+          # before the kubelet's stop signal, which is the half of #484 this
+          # overlay would then never exercise. Verbatim from
+          # ../sandboxtemplate-workspace.yaml, where the long explanation of
+          # what the verb does and what it checks before it signals lives.
+          # What is NOT repeated is a SCALAR key this patch leaves alone:
+          # `terminationGracePeriodSeconds: 30` is not an array, so the base's
+          # value stands and the hook's wait still fits inside it.
+          #
+          # `env` IS an array, so the list below REPLACES the base's wholesale
+          # and inherits nothing through it either — the same rule as
+          # `containers`, one level down, which is why its sibling
+          # patch-task-no-runtimeclass.yaml states that rule outright rather
+          # than leaving it to this header. What the entries omitted here fall
+          # back to is the AGENT's own defaults, and those are the values the
+          # base template shows: it lists them at their defaults deliberately,
+          # so the number the hook above derives its 17s wait from is the same
+          # 15000 whether this overlay is applied or not.
+          lifecycle:
+            preStop:
+              exec:
+                command: ['/entrypoint.sh', 'prestop']
           securityContext:
             # This overlay's PVC is Filesystem-mode, mounted ready by
             # kubelet through the volumeMounts entry below — it sets no

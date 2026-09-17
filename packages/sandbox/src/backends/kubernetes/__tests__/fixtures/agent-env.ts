@@ -44,6 +44,16 @@ export const AGENT_ENV_KEYS = [
 	'NAMZU_AGENT_SESSION_LOG_BYTES',
 	'NAMZU_AGENT_SESSION_TERMINAL_TTL_MS',
 	'NAMZU_AGENT_SESSION_KILL_CONFIRM_TIMEOUT_MS',
+	// How wide the quiesce scan is allowed to claim to be.
+	'NAMZU_AGENT_QUIESCE_SCOPE',
+	// The flush, and the bound on the whole SIGTERM handler that runs one.
+	// `NAMZU_AGENT_FLUSH_COMMAND` is the test seam for the flush itself, in
+	// the same shape as `NAMZU_AGENT_RESEED_HOOK` above — a value left
+	// exported by one case would make the next case's flush run a command
+	// it never asked for.
+	'NAMZU_AGENT_FLUSH_TIMEOUT_MS',
+	'NAMZU_AGENT_SHUTDOWN_DEADLINE_MS',
+	'NAMZU_AGENT_FLUSH_COMMAND',
 	// The ceiling on a caller-requested command timeout.
 	'NAMZU_SANDBOX_MAX_TIMEOUT_MS',
 	// What one ranged read may ask for, and what one streamed `data` frame

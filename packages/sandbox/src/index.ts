@@ -308,6 +308,28 @@ export {
 	type QuiesceScope,
 	type QuiescedProcess,
 } from './backends/firecracker/protocol.js'
+// Flush: put a workspace's writes on its device on purpose, rather than
+// leaving them to whatever the guest kernel had written back when the pod
+// stopped. `suspend()` runs it by default; the verb, its options, the report
+// and the three named outcomes are exported for the hosts that flush at a
+// moment of their own — before a snapshot, before a drain — and for the
+// `flush` string itself, for the same reason as the feature strings above.
+// Only ONE of the three is ever thrown at a caller by a suspend
+// (`KubernetesFlushUnconfirmedError`, a guest that answered and could not
+// confirm); the other two are what `onFlushUnsupported` and
+// `onFlushUnreachable` are handed when the suspend goes ahead anyway, and a
+// host that wants to act on either has to be able to name the class.
+export type {
+	KubernetesFlushOptions,
+	KubernetesWorkspaceFlushRequest,
+} from './backends/kubernetes/workspace.js'
+export type { KubernetesFlushReport } from './backends/kubernetes/transport.js'
+export {
+	KubernetesFlushUnconfirmedError,
+	KubernetesFlushUnreachableError,
+	KubernetesFlushUnsupportedError,
+} from './backends/kubernetes/transport.js'
+export { FLUSH_FEATURE } from './backends/firecracker/protocol.js'
 // The API-request bound and the error it raises. Exported because
 // "distinguishable from a caller abort and from every other failure, by
 // type" is only true for a host that can name the class — and because a

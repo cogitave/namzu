@@ -40,8 +40,15 @@
 #      agent itself) is a real subreaper: it reaps an orphan reparented to
 #      pid 1 — which the agent's own `child_process` never would, since it
 #      only `waitpid()`s processes it spawned directly — and forwards
-#      `SIGTERM` to the agent, which still handles it exactly as it always
-#      has (`agent-sigterm.test.ts`).
+#      `SIGTERM` to the agent, which stops accepting connections, stops
+#      every process it is running and flushes the workspace filesystem
+#      before it exits (`agent-sigterm.test.ts`).
+#
+# This script has ONE other job, and it is the tail of the same one: run
+# with the single argument `prestop` it is the workspace pod's `preStop`
+# hook rather than its entrypoint — see the "termination" section below. A
+# pod that stops without its disk flushed keeps whatever the guest kernel
+# happened to write back, which is the defect #484 exists to close.
 #
 # Before either exec, both branches export a writable HOME (plus USER,
 # LOGNAME and the XDG cache/config vars) for the agent uid — `setpriv`
@@ -72,6 +79,158 @@ set -eu
 WORKSPACE_ROOT="${NAMZU_WORKSPACE_ROOT:-/workspace}"
 AGENT_UID="${NAMZU_AGENT_UID:-1001}"
 AGENT_GID="${NAMZU_AGENT_GID:-1001}"
+
+# =============================================================================
+# TERMINATION: the flush a stopping pod's disk depends on.
+#
+# `sandboxtemplate-workspace.yaml` names this as the container's `preStop`
+# hook, which the kubelet runs BEFORE it sends the stop signal and waits for
+# — the one moment in a pod's teardown that is not a race. Three steps, in
+# this order and for these reasons:
+#
+#   1. `sync -f` the workspace mount. `syncfs(2)` on the filesystem holding
+#      that path: every dirty page of every file on it, whichever process
+#      wrote it. It runs FIRST because it needs nothing of the agent — an
+#      image whose agent predates this, a wedged agent, an agent already
+#      gone — and it is the bulk of the work. A plain `sync` is NOT a
+#      fallback, here or in the agent (`agent/agent.cjs`, `flushCommand`):
+#      it flushes every mounted filesystem, and on a runtime that shares
+#      the host kernel that is the node's disks and every other pod's
+#      writes on them, spent by whichever pod happened to stop. An image
+#      whose `sync` cannot do `-f` (a busybox coreutils) gets no flush from
+#      this hook and none from the agent, and `healthz` stops advertising
+#      `flush` so the host is told rather than left to assume — a gap to
+#      report, not a node's IO to spend.
+#   2. Signal the init (pid 1, `tini`), which forwards it to the agent. The
+#      agent stops every process the guest is running and syncs again — the
+#      delta the first sync could not cover, because those processes were
+#      still writing when it ran. Measured in #484: on the VM runtime
+#      tested, a stop signal from the kubelet did not get the handler run
+#      before the container was killed, while this same signal from INSIDE
+#      the guest ended it cleanly.
+#
+#      IT IS CHECKED BEFORE IT IS SENT. The only process this hook ever
+#      signals is the init THIS image starts, and `/proc/<pid>/comm` has to
+#      say so first. `kill` is a POSIX shell BUILTIN — no PATH shim can
+#      stand in front of it — so this is the only place the check can live,
+#      and the default pid it guards is 1: outside the container's own PID
+#      namespace (a developer's machine, a suite running as root inside an
+#      ordinary container) pid 1 is THAT machine's init, and an unguarded
+#      `kill -TERM 1` there ends the machine rather than the pod. /proc is
+#      already a hard requirement of this image — the agent walks it to
+#      quiesce — so the check costs nothing and adds no dependency. A pid
+#      whose name cannot be read, or that names something else, is NOT
+#      signalled: the hook says so on stderr and returns, leaving the sync
+#      above and the agent's own SIGTERM handler as the flush. Failing
+#      closed costs a drain the kubelet's own stop signal asks for a moment
+#      later; failing open costs whatever that pid happened to be.
+#   3. Wait for the init to go, for LONGER than the agent's own shutdown
+#      deadline. A hook that signalled and returned would race the kill
+#      that follows it, which is the whole failure this replaces — and a
+#      hook that waited for LESS than the agent's deadline would be a
+#      quieter version of the same bug. The kubelet's teardown is: run
+#      this hook, wait for it to return, then send its own stop signal to
+#      pid 1. So a short wait ends the hook while the agent is still
+#      draining, and the agent then has to survive a signal the kubelet
+#      sent only because this gave up. The wait is therefore DERIVED from
+#      NAMZU_AGENT_SHUTDOWN_DEADLINE_MS (rounded up to seconds, plus two)
+#      rather than fixed, and raising that raises this with it. It is
+#      still bounded: when it expires the hook returns anyway, because the
+#      pod's `terminationGracePeriodSeconds` is the real bound and nothing
+#      here may outlive it.
+#
+# EXPECT A `FailedPreStopHook` EVENT ON A STOP THAT WORKED. This hook runs
+# inside the container's own pid namespace and step 2 ends pid 1 of that
+# namespace; when pid 1 exits the kernel SIGKILLs everything left in it,
+# this hook included, so the `exit 0` below is reached only on the paths
+# where the init did NOT go — the bounded wait expiring, or a signal that
+# never landed. The kubelet records the hook's death as a warning. It is
+# the hook working, not failing: the flush and the drain both completed
+# before pid 1 could exit. Returning before pid 1 is gone is the only way
+# to avoid the event, and it would reintroduce exactly the race step 3
+# exists to close.
+#
+# Neither mechanism is trusted alone. Whether a kubelet runs a preStop hook
+# under a VM runtime class was never measured, so the agent's own SIGTERM
+# handler performs the same drain and the same flush independently; and the
+# host asks the guest to flush over the wire before it patches a workspace
+# to Suspended. Three paths to the same guarantee, because each of them can
+# be the one that does not fire.
+#
+# `NAMZU_PRESTOP_INIT_PID` and `NAMZU_PRESTOP_WAIT_SECONDS` exist so this
+# can be driven by a test harness that has no PID namespace of its own — a
+# test must never signal a process it did not start — and so an operator can
+# override the wait outright. Neither is set by any manifest here, and
+# NAMZU_PRESTOP_WAIT_SECONDS is deliberately not: pinning it to a literal
+# would freeze the derivation above, so that raising the agent's deadline
+# left the hook giving up early again. Setting it TAKES OVER from the
+# derivation, so an operator who sets it owns the relationship between the
+# two and should keep it above ceil(NAMZU_AGENT_SHUTDOWN_DEADLINE_MS/1000).
+#
+# `NAMZU_PRESTOP_INIT_PID` is not a licence to signal, and never was: the
+# name check above applies to whatever pid it names, so pointing it at an
+# arbitrary process still signals nothing. `NAMZU_PRESTOP_INIT_NAME` is the
+# other half of the same knob — the name that check expects, defaulting to
+# the `tini` this script execs at its tail. A derived image that boots a
+# different init (dumb-init, s6) sets it; one that does not gets the stderr
+# line and the agent's own handler, which is the safe half of the trade.
+# =============================================================================
+if [ "${1:-}" = "prestop" ]; then
+	PRESTOP_INIT_PID="${NAMZU_PRESTOP_INIT_PID:-1}"
+	case "$PRESTOP_INIT_PID" in
+	'' | *[!0-9]*) PRESTOP_INIT_PID=1 ;;
+	esac
+	# The name `/proc/<pid>/comm` has to answer with before anything is
+	# signalled — the basename of the init this script execs at its tail.
+	PRESTOP_INIT_NAME="${NAMZU_PRESTOP_INIT_NAME:-tini}"
+	# The agent's own bound, read from the same container environment the
+	# agent reads it from, and defaulted to the same number the agent
+	# defaults to. Read defensively both times: a pod is STOPPING here, and
+	# aborting the flush over a mistyped environment variable would spend a
+	# disk to enforce a validation rule.
+	PRESTOP_DEADLINE_MS="${NAMZU_AGENT_SHUTDOWN_DEADLINE_MS:-15000}"
+	case "$PRESTOP_DEADLINE_MS" in
+	'' | *[!0-9]*) PRESTOP_DEADLINE_MS=15000 ;;
+	esac
+	PRESTOP_DERIVED_WAIT=$(((PRESTOP_DEADLINE_MS + 999) / 1000 + 2))
+	PRESTOP_WAIT_SECONDS="${NAMZU_PRESTOP_WAIT_SECONDS:-$PRESTOP_DERIVED_WAIT}"
+	case "$PRESTOP_WAIT_SECONDS" in
+	'' | *[!0-9]*) PRESTOP_WAIT_SECONDS="$PRESTOP_DERIVED_WAIT" ;;
+	esac
+	sync -f "$WORKSPACE_ROOT" 2>/dev/null || true
+	# What that pid actually IS, read with the shell's own `read` rather
+	# than `cat` so no PATH has to supply anything. Unreadable (no such
+	# process, no /proc) leaves it empty, which matches no expected name.
+	PRESTOP_SEEN_NAME=''
+	if [ -r "/proc/$PRESTOP_INIT_PID/comm" ]; then
+		read -r PRESTOP_SEEN_NAME <"/proc/$PRESTOP_INIT_PID/comm" ||
+			PRESTOP_SEEN_NAME=''
+	fi
+	if [ "$PRESTOP_SEEN_NAME" != "$PRESTOP_INIT_NAME" ]; then
+		echo "entrypoint.sh: prestop: pid $PRESTOP_INIT_PID is '${PRESTOP_SEEN_NAME:-unreadable}', not the '$PRESTOP_INIT_NAME' this image starts — not signalling it; the workspace was synced and the agent's own SIGTERM handler is the drain" >&2
+		exit 0
+	fi
+	kill -TERM "$PRESTOP_INIT_PID" 2>/dev/null || true
+	# A fractional `sleep` is not POSIX, so which one this shell has is
+	# settled ONCE, here, and the tick count is settled with it. Counting
+	# tenths and then sleeping a whole second per tick when the fraction is
+	# refused would make NAMZU_PRESTOP_WAIT_SECONDS mean ten times what it
+	# says — 100 seconds at the default, past every grace period this
+	# repo ships. The probe's own sleep is part of the wait either way.
+	if sleep 0.1 2>/dev/null; then
+		PRESTOP_SLEEP=0.1
+		PRESTOP_TICKS=$((PRESTOP_WAIT_SECONDS * 10))
+	else
+		PRESTOP_SLEEP=1
+		PRESTOP_TICKS="$PRESTOP_WAIT_SECONDS"
+	fi
+	while [ "$PRESTOP_TICKS" -gt 0 ]; do
+		kill -0 "$PRESTOP_INIT_PID" 2>/dev/null || break
+		sleep "$PRESTOP_SLEEP" || true
+		PRESTOP_TICKS=$((PRESTOP_TICKS - 1))
+	done
+	exit 0
+fi
 
 # `setpriv` is needed on every pod, device or not — it is the very last
 # command this script runs (see the exec at the tail). Checked up front,

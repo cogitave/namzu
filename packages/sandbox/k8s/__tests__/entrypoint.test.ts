@@ -31,15 +31,26 @@
  */
 
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+	chmodSync,
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { afterEach, describe, expect, it } from 'vitest'
+import { parseAllDocuments } from 'yaml'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const ENTRYPOINT_PATH = join(HERE, '../entrypoint.sh')
+const WORKSPACE_TEMPLATE_PATH = join(HERE, '../manifests/sandboxtemplate-workspace.yaml')
 const ENTRYPOINT_SOURCE = readFileSync(ENTRYPOINT_PATH, 'utf8')
 
 // An absolute path, not a bare command name: `runEntrypoint` lets a case
@@ -51,6 +62,43 @@ const ENTRYPOINT_SOURCE = readFileSync(ENTRYPOINT_PATH, 'utf8')
 // concerns (what launches the script vs. what the script itself can find)
 // independent.
 const SH_BIN = existsSync('/bin/sh') ? '/bin/sh' : '/usr/bin/sh'
+
+/**
+ * The real `sleep` this machine has, resolved once through the real
+ * environment. Every `prestop` case's stand-in init is this program under
+ * another name — see `standInInitBin` — so cases never depend on a process
+ * they did not start.
+ */
+const SLEEP_BIN = (() => {
+	const found = spawnSync('sh', ['-c', 'command -v sleep'], { encoding: 'utf8' })
+	const resolved = (found.stdout ?? '').trim()
+	if (!resolved.startsWith('/')) throw new Error('no absolute `sleep` on PATH to build a stand-in from')
+	return resolved
+})()
+
+/**
+ * The name entrypoint.sh's `prestop` verb requires of a process before it
+ * will signal it, read out of the script rather than written here twice:
+ * the check's whole point is that it names the init THIS image starts, and
+ * a literal in this file would let the two drift apart silently.
+ */
+const PRESTOP_DEFAULT_INIT_NAME = (() => {
+	const match = /NAMZU_PRESTOP_INIT_NAME:-([A-Za-z0-9._-]+)/.exec(ENTRYPOINT_SOURCE)
+	if (match?.[1] === undefined) throw new Error('entrypoint.sh no longer defaults NAMZU_PRESTOP_INIT_NAME')
+	return match[1]
+})()
+
+/**
+ * A path whose BASENAME is the init's name and whose target is a real
+ * `sleep`: exec'ing it gives a process whose `/proc/<pid>/comm` is that
+ * name, which is what the hook checks. A symlink, so nothing is copied and
+ * the stand-in is the machine's own binary.
+ */
+function standInInitBin(): string {
+	const link = join(mktempWorkDir(), PRESTOP_DEFAULT_INIT_NAME)
+	symlinkSync(SLEEP_BIN, link)
+	return link
+}
 
 function hasCommand(name: string): boolean {
 	const result = spawnSync('sh', ['-c', `command -v ${name}`])
@@ -111,6 +159,13 @@ exit 0
 	chown: `#!/bin/sh
 echo "chown $*" >> "$NAMZU_TEST_LOG"
 exit 0
+`,
+	// The flush the `prestop` verb runs. Faked rather than real for the
+	// obvious reason: a test must not ask this machine's kernel to write
+	// back every dirty page on the filesystem holding its temp directory.
+	sync: `#!/bin/sh
+echo "sync $*" >> "$NAMZU_TEST_LOG"
+exit "\${FAKE_SYNC_EXIT:-0}"
 `,
 	// Real `mkdir`/`chmod`, delegated to by absolute path rather than left
 	// to resolve through `basePath` like the other never-shimmed tools
@@ -183,6 +238,19 @@ exit 0
 `,
 }
 
+/**
+ * A `sleep` that takes whole seconds only — which is all POSIX promises —
+ * and that sleeps for none of them, so a case counting the `prestop` hook's
+ * ticks measures the script's arithmetic and costs no wall clock at all.
+ */
+const WHOLE_SECOND_SLEEP = `#!/bin/sh
+echo "sleep $*" >> "$NAMZU_TEST_LOG"
+case "$1" in
+  *.*) exit 1 ;;
+esac
+exit 0
+`
+
 interface RunResult {
 	readonly status: number | null
 	readonly log: string[]
@@ -203,6 +271,10 @@ interface RunOptions {
 	 * since the default would otherwise let the test runner's OWN real
 	 * `blkid` (etc.) answer once a fake is left out. */
 	basePath?: string
+	/** Arguments to the script itself. Empty is the ENTRYPOINT shape; the
+	 * only other one is `['prestop']`, the workspace pod's preStop hook —
+	 * see entrypoint.sh's "TERMINATION" section. */
+	args?: readonly string[]
 }
 
 /** `id`'s fake, layered on top of `FAKE_TOOLS` by cases that need a specific
@@ -275,7 +347,7 @@ function uniqueAgentUid(): string {
 }
 
 function runEntrypoint(env: Record<string, string | undefined>, options: RunOptions = {}): RunResult {
-	const { fakes = FAKE_TOOLS, basePath = process.env.PATH ?? '' } = options
+	const { fakes = FAKE_TOOLS, basePath = process.env.PATH ?? '', args = [] } = options
 	const workDir = mktempWorkDir()
 	// Only queued when this call actually set one: a case that leaves
 	// NAMZU_AGENT_UID unset either never reaches the fallback (its passwd
@@ -296,7 +368,7 @@ function runEntrypoint(env: Record<string, string | undefined>, options: RunOpti
 		const logPath = join(workDir, 'log.txt')
 		writeFileSync(logPath, '')
 
-		const result = spawnSync(SH_BIN, [ENTRYPOINT_PATH], {
+		const result = spawnSync(SH_BIN, [ENTRYPOINT_PATH, ...args], {
 			env: {
 				// The shim directory resolves first; `basePath` (real PATH by
 				// default) supplies `mkdir`, `[`, `printf` etc. — never
@@ -758,6 +830,512 @@ describe('HOME for the guest agent and its children', () => {
 		expect(env?.HOME).toBe(resolved)
 		expect(env?.USER).toBe('custom-agent')
 		expect(env?.LOGNAME).toBe('custom-agent')
+	})
+})
+
+describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
+	/**
+	 * Spawn one stand-in process and return its pid, having queued it for
+	 * the sweep below.
+	 *
+	 * An ORPHAN, not a child of this test process: a process this runner
+	 * spawned stays a zombie until Node reaps it, Node reaps on the event
+	 * loop, and `runEntrypoint` is a `spawnSync` that blocks that loop for
+	 * the whole of the hook's wait. The hook would then watch a zombie for
+	 * its entire budget and this case would measure the test harness rather
+	 * than the script. Backgrounded from a shell that exits immediately,
+	 * the stand-in is reparented to this machine's init and reaped by it
+	 * the moment it dies — and detached from this runner's own group, so
+	 * killing it cannot reach the runner.
+	 *
+	 * `script` is run by `sh` with `NAMZU_TEST_INIT_BIN` naming the program
+	 * to become, rather than interpolated into the command text, so the two
+	 * layers of shell quoting the unsignallable variant needs stay
+	 * readable.
+	 */
+	function spawnStandIn(script: string, bin: string): number {
+		const started = spawnSync('sh', ['-c', script], {
+			encoding: 'utf8',
+			env: { ...process.env, NAMZU_TEST_INIT_BIN: bin },
+		})
+		const pid = Number(started.stdout.trim())
+		if (!Number.isInteger(pid) || pid <= 1) throw new Error('could not spawn a stand-in init')
+		// The identity of the process that has this number NOW, recorded
+		// while it is certainly the one this call started — see
+		// {@link startTimeOf} and the sweep.
+		dummyInits.push({ pid, startedAt: startTimeOf(pid) })
+		return pid
+	}
+
+	/**
+	 * A process for the hook to signal and wait for, standing in for the
+	 * container's init.
+	 *
+	 * The hook signals pid 1 in production; a test that did that would
+	 * signal this machine's init, so `NAMZU_PRESTOP_INIT_PID` names a
+	 * process this case owns instead — and, since the script now checks
+	 * `/proc/<pid>/comm` before it signals anything at all, that process
+	 * has to BE named like the init: a `sleep` exec'd through a symlink
+	 * called `tini`, which is what the kernel records in `comm`. Nothing
+	 * else about it is special, and nothing about the check is bypassed —
+	 * this is the accept path, running against the shipped default name.
+	 */
+	function spawnDummyInit(): number {
+		return spawnStandIn('"$NAMZU_TEST_INIT_BIN" 30 >/dev/null 2>&1 & echo $!', standInInitBin())
+	}
+
+	/**
+	 * A stand-in init that CANNOT be signalled away: the shape the hook's
+	 * bound exists for.
+	 *
+	 * An ignored SIGTERM disposition survives `exec`, so what this ends up
+	 * as is a `tini`-named `sleep` that the hook's `kill -TERM` cannot
+	 * touch. The obvious stand-in for "will not go" — this machine's real
+	 * pid 1 — is not one: signalling a process this suite did not start is
+	 * the thing neither this file nor the script it drives may ever do.
+	 * Orphaned for the same reason {@link spawnDummyInit} orphans its own.
+	 */
+	function spawnUnsignallableInit(): number {
+		return spawnStandIn(
+			`sh -c 'trap "" TERM; exec "$NAMZU_TEST_INIT_BIN" 30' >/dev/null 2>&1 & echo $!`,
+			standInInitBin(),
+		)
+	}
+
+	/**
+	 * A live process of this suite's own that is NOT named like the init —
+	 * a plain `sleep`. The hook must leave it alone, and a case can prove
+	 * that by finding it still alive afterwards, which is the only
+	 * observation that distinguishes "the guard held" from "the signal was
+	 * sent and refused".
+	 */
+	function spawnForeignProcess(): number {
+		return spawnStandIn('"$NAMZU_TEST_INIT_BIN" 30 >/dev/null 2>&1 & echo $!', SLEEP_BIN)
+	}
+
+	/**
+	 * How many whole-second ticks the hook's wait spends, against an init
+	 * that cannot be signalled away — so the loop runs to its bound rather
+	 * than breaking early — and a `sleep` that refuses fractions and sleeps
+	 * for none of them. The count IS the script's arithmetic.
+	 */
+	function prestopTicks(env: Record<string, string>): number {
+		const initPid = spawnUnsignallableInit()
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
+				NAMZU_PRESTOP_INIT_PID: String(initPid),
+				...env,
+			},
+			{ args: ['prestop'], fakes: { ...FAKE_TOOLS, sleep: WHOLE_SECOND_SLEEP } },
+		)
+		expect(result.status).toBe(0)
+		return result.log.filter((line) => line === 'sleep 1').length
+	}
+
+	/** The shipped workspace template's pod spec — the gate below reads the
+	 * agent's shutdown deadline and the grace period straight out of it, so
+	 * the two numbers cannot drift apart in their two separate files. */
+	function workspacePodSpec(): Record<string, unknown> {
+		const docs = parseAllDocuments(readFileSync(WORKSPACE_TEMPLATE_PATH, 'utf8')).map((doc) =>
+			doc.toJS(),
+		)
+		const spec = (docs[0] as Record<string, unknown>).spec as Record<string, unknown>
+		const podTemplate = spec.podTemplate as Record<string, unknown>
+		return podTemplate.spec as Record<string, unknown>
+	}
+
+	/** One container `env` entry's literal value, or `undefined` when no
+	 * container sets that name to a literal (a `valueFrom` entry included). */
+	function envValue(podSpec: Record<string, unknown>, name: string): string | undefined {
+		const containers = (podSpec.containers as Record<string, unknown>[] | undefined) ?? []
+		for (const container of containers) {
+			const entries =
+				(container.env as { name?: string; value?: string }[] | undefined) ?? []
+			const hit = entries.find((entry) => entry.name === name)
+			if (hit?.value !== undefined) return hit.value
+		}
+		return undefined
+	}
+
+	/** Whether a pid is a live process — no zombie can answer this, see above. */
+	function alive(pid: number): boolean {
+		try {
+			process.kill(pid, 0)
+			return true
+		} catch {
+			return false
+		}
+	}
+
+	/**
+	 * Field 22 of `/proc/<pid>/stat` — `starttime`, in clock ticks since
+	 * boot — or `''` when there is no such process to read.
+	 *
+	 * Read from after the LAST `')'`: field 2 is `comm`, the one field that
+	 * can itself contain spaces and parentheses, and every field after it is
+	 * whitespace-separated. Field 3 (`state`) is then index 0, so field 22
+	 * is index 19.
+	 */
+	function startTimeOf(pid: number): string {
+		try {
+			const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+			const afterComm = stat.slice(stat.lastIndexOf(')') + 1).trim().split(/\s+/)
+			return afterComm[19] ?? ''
+		} catch {
+			return ''
+		}
+	}
+
+	/**
+	 * The stand-ins this suite started, each with the identity the process
+	 * holding that number had WHEN IT WAS SPAWNED.
+	 *
+	 * A pid is a slot in a process table, not an identity — and three cases
+	 * below deliberately leave their stand-in dead and reaped before this
+	 * sweep runs, at which point the kernel is free to hand the number to
+	 * something else entirely. A raw `kill` of that number would then be
+	 * precisely the mis-aimed signal this whole file exists to argue
+	 * against, sent by the suite rather than by the script. `starttime` is
+	 * the cheap identity a pid alone cannot give: fixed for the life of a
+	 * process (`exec` preserves it), and a number recycled to a new process
+	 * carries a later one. A number whose start time no longer matches, or
+	 * that cannot be read at all, is left alone.
+	 */
+	const dummyInits: { pid: number; startedAt: string }[] = []
+
+	/** {@link dummyInits}' sweep, named so a case can run it in the open —
+	 * see the case that proves it kills rather than skips. */
+	function sweepDummyInits(): void {
+		for (const { pid, startedAt } of dummyInits.splice(0)) {
+			if (startedAt === '' || startTimeOf(pid) !== startedAt) continue
+			try {
+				process.kill(pid, 'SIGKILL')
+			} catch {
+				// Already gone, which is what every case here expects.
+			}
+		}
+	}
+
+	afterEach(sweepDummyInits)
+
+	it('kills a live stand-in in its sweep rather than skipping it', () => {
+		// THE SWEEP IS A GUARD TOO, and this is the only case that can see it
+		// work. It decides which numbers it may signal, and the direction it
+		// can break in is the quiet one: a `startTimeOf` that read nothing —
+		// a `stat` read that always threw, a path assembled wrong — records
+		// `''` as a stand-in's identity, the sweep then SKIPS every one of
+		// them, and every case below leaks its own `sleep 30` stand-in with
+		// nothing failing anywhere. So this case does the sweep's job in the
+		// open, against a process THIS suite started (`spawnDummyInit`
+		// queues it exactly as the other cases do), and watches it die the
+		// way the `refuses a pid that is gone` case watches its own: an
+		// orphan is reparented and reaped, so the number stops answering a
+		// moment after the SIGKILL rather than instantly.
+		//
+		// What this does NOT catch is a field index that is wrong but
+		// CONSISTENT: the sweep compares one read of `starttime` against
+		// another from the same reader, so a value taken from the wrong
+		// column still matches itself and the kill still happens. The
+		// non-empty assertion below is what pins the reader to having read
+		// something at all, which is the half of this that can be observed.
+		const pid = spawnDummyInit()
+		// The identity the sweep will compare against, read while this case
+		// certainly owns the number — an EMPTY one is exactly what the sweep
+		// skips on, so it is asserted here rather than left to hide inside
+		// the sweep's own guard.
+		expect(startTimeOf(pid)).not.toBe('')
+		expect(alive(pid)).toBe(true)
+		sweepDummyInits()
+		const deadline = Date.now() + 2_000
+		while (alive(pid) && Date.now() < deadline) spawnSync(SLEEP_BIN, ['0.05'])
+		expect(alive(pid)).toBe(false)
+	})
+
+	it('syncs the workspace mount, signals the init and waits for it to go', () => {
+		const workspaceRoot = mktempWorkDir()
+		const initPid = spawnDummyInit()
+		expect(alive(initPid)).toBe(true)
+
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: workspaceRoot,
+				NAMZU_PRESTOP_INIT_PID: String(initPid),
+				NAMZU_PRESTOP_WAIT_SECONDS: '10',
+			},
+			{ args: ['prestop'] },
+		)
+
+		expect(result.status).toBe(0)
+		// `sync -f PATH` is syncfs(2) on the filesystem holding PATH. A bare
+		// `sync` would be every mounted filesystem on the node, which is why
+		// it is not a fallback here at all — see the case below that proves
+		// the hook runs no second, wider `sync` when this one is refused.
+		expect(result.log).toContain(`sync -f ${workspaceRoot}`)
+		// The signal reached the stand-in init AND the hook had already
+		// waited for it when it returned — this is read after `spawnSync`
+		// came back, with no polling of its own. A hook that signalled and
+		// returned would race the kill that follows it, which is the failure
+		// this whole verb replaces.
+		expect(alive(initPid)).toBe(false)
+	})
+
+	it('returns rather than hanging when the init does not go', () => {
+		const workspaceRoot = mktempWorkDir()
+		const initPid = spawnUnsignallableInit()
+		const startedAt = Date.now()
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: workspaceRoot,
+				NAMZU_PRESTOP_INIT_PID: String(initPid),
+				NAMZU_PRESTOP_WAIT_SECONDS: '1',
+			},
+			{ args: ['prestop'] },
+		)
+		const elapsedMs = Date.now() - startedAt
+
+		// The pod's terminationGracePeriodSeconds is the real bound and the
+		// hook must not be what spends it: it gives up and lets the
+		// kubelet's own stop signal follow.
+		expect(result.status).toBe(0)
+		expect(result.log).toContain(`sync -f ${workspaceRoot}`)
+		expect(alive(initPid)).toBe(true)
+		// The whole wait it was given, and not ten times it — see the tick
+		// arithmetic below — with room for the probe and process startup.
+		expect(elapsedMs).toBeGreaterThanOrEqual(900)
+		expect(elapsedMs).toBeLessThan(6_000)
+	})
+
+	it('counts its wait in seconds even where `sleep` refuses a fraction', () => {
+		const workspaceRoot = mktempWorkDir()
+		const initPid = spawnUnsignallableInit()
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: workspaceRoot,
+				NAMZU_PRESTOP_INIT_PID: String(initPid),
+				NAMZU_PRESTOP_WAIT_SECONDS: '3',
+			},
+			{
+				args: ['prestop'],
+				fakes: { ...FAKE_TOOLS, sleep: WHOLE_SECOND_SLEEP },
+			},
+		)
+
+		expect(result.status).toBe(0)
+		// One probe, refused, and then ONE tick per second asked for. The
+		// bug this guards: counting tenths and sleeping a whole second per
+		// tick, which spends ten times the stated wait — 100 seconds at the
+		// default, past every grace period this repo ships.
+		expect(result.log.filter((line) => line.startsWith('sleep '))).toEqual([
+			'sleep 0.1',
+			'sleep 1',
+			'sleep 1',
+			'sleep 1',
+		])
+	})
+
+	it('never falls back to a whole-machine sync, and drains anyway', () => {
+		const workspaceRoot = mktempWorkDir()
+		const initPid = spawnDummyInit()
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: workspaceRoot,
+				NAMZU_PRESTOP_INIT_PID: String(initPid),
+				NAMZU_PRESTOP_WAIT_SECONDS: '5',
+				// A `sync` that refuses `-f`: the shape a slimmed derived
+				// image with a busybox coreutils would have.
+				FAKE_SYNC_EXIT: '1',
+			},
+			{ args: ['prestop'] },
+		)
+
+		expect(result.status).toBe(0)
+		// The narrow call, and NOTHING else. A bare `sync` flushes every
+		// mounted filesystem, and on a runtime that shares the host kernel
+		// that is the node's disks — every other pod's writes, spent by
+		// whichever pod happened to stop. `agent/agent.cjs` refuses it for
+		// the same reason; an image that cannot do `-f` gets no flush from
+		// either of them and says so through `healthz` instead.
+		expect(result.log.filter((line) => line.startsWith('sync'))).toEqual([
+			`sync -f ${workspaceRoot}`,
+		])
+		// And the rest of the hook still ran: a flush that could not happen
+		// is not a reason to skip the drain, which is the half that stops
+		// the processes still writing.
+		expect(alive(initPid)).toBe(false)
+	})
+
+	it('derives its wait from the agent’s own shutdown deadline', () => {
+		// ceil(deadline / 1000) + 2 seconds, so the hook outlives the drain
+		// it is waiting for rather than ending in the middle of it.
+		expect(prestopTicks({ NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '3000' })).toBe(5)
+		expect(prestopTicks({ NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '15000' })).toBe(17)
+		// Rounded UP, never down: a deadline that is not a whole number of
+		// seconds must not be waited out one tick short of itself.
+		expect(prestopTicks({ NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '15001' })).toBe(18)
+		// A value that is not a number at all falls back to the agent's own
+		// default rather than aborting. This is a pod STOPPING: refusing to
+		// flush a disk to enforce a validation rule would spend the very
+		// thing the hook exists to save.
+		expect(prestopTicks({ NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: 'soon' })).toBe(17)
+		// And an explicit wait takes over the derivation, which is what the
+		// knob is for.
+		expect(
+			prestopTicks({
+				NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '15000',
+				NAMZU_PRESTOP_WAIT_SECONDS: '2',
+			}),
+		).toBe(2)
+	})
+
+	it('waits longer than the shutdown deadline the shipped template sets (#484)', () => {
+		// THE GATE, and the one that was missing. Kubernetes' teardown order
+		// is: run this hook, wait for it to return, THEN send the stop
+		// signal to pid 1. A hook whose wait is shorter than the agent's
+		// NAMZU_AGENT_SHUTDOWN_DEADLINE_MS therefore ends while the agent is
+		// still draining and flushing, and the kubelet's own signal lands
+		// inside the agent's budget — capping the drain at the hook's
+		// number rather than the one the manifest advertises, on exactly the
+		// slow flush both exist for. The two numbers live in two different
+		// files, which is how they drifted apart, so the relationship is
+		// asserted against the SHIPPED manifest and not against a literal.
+		const podSpec = workspacePodSpec()
+		const deadlineMs = Number(envValue(podSpec, 'NAMZU_AGENT_SHUTDOWN_DEADLINE_MS'))
+		expect(Number.isFinite(deadlineMs)).toBe(true)
+		// And the manifest deliberately pins no wait of its own: a literal
+		// there would freeze the derivation, so that raising the deadline
+		// alone silently brought the old, too-short wait back.
+		expect(envValue(podSpec, 'NAMZU_PRESTOP_WAIT_SECONDS')).toBeUndefined()
+
+		const ticks = prestopTicks({ NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: String(deadlineMs) })
+		expect(ticks * 1000).toBeGreaterThanOrEqual(deadlineMs)
+		// Both still have to fit inside the pod's grace period, which is the
+		// only bound the kubelet itself enforces.
+		expect(ticks).toBeLessThan(Number(podSpec.terminationGracePeriodSeconds))
+	})
+
+	it('never reaches the privilege drop: a hook is not a pod start', () => {
+		// The pid is this case's OWN stand-in, like every other case in this
+		// block. It used to be the literal `1`, which made the script run a
+		// real `kill -TERM 1` against the machine running the suite: `kill`
+		// is a POSIX shell builtin, so no PATH shim here could intercept it,
+		// and an unprivileged runner survived only because the kernel
+		// refused the signal with EPERM. As root in a container it would
+		// have ended the container.
+		const initPid = spawnUnsignallableInit()
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
+				NAMZU_PRESTOP_INIT_PID: String(initPid),
+				NAMZU_PRESTOP_WAIT_SECONDS: '1',
+			},
+			{ args: ['prestop'] },
+		)
+
+		// Nothing after the verb runs — no HOME resolution, no branch on the
+		// uid, and above all no second agent started inside a container that
+		// is stopping.
+		expect(result.log.some((line) => line.startsWith('setpriv '))).toBe(false)
+		expect(result.log.some((line) => line.startsWith('getent '))).toBe(false)
+	})
+
+	it('signals nothing whose name is not the init this image starts', () => {
+		// THE SAFETY GATE. `kill` is a shell builtin, so the script is the
+		// only place this check can live: nothing on PATH can stand in
+		// front of it, and the pid it defaults to is 1 — which outside the
+		// container's own PID namespace is the machine's init. So the hook
+		// reads `/proc/<pid>/comm` and signals only the init it expects.
+		//
+		// Proved against a process this case started and can watch: a plain
+		// `sleep`, alive before and alive after. "Still running" is the one
+		// observation that separates a signal the guard STOPPED from a
+		// signal that was sent and refused — which is exactly how the bug
+		// this closes stayed invisible on an unprivileged CI runner.
+		const workspaceRoot = mktempWorkDir()
+		const foreignPid = spawnForeignProcess()
+		expect(alive(foreignPid)).toBe(true)
+
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: workspaceRoot,
+				NAMZU_PRESTOP_INIT_PID: String(foreignPid),
+				NAMZU_PRESTOP_WAIT_SECONDS: '5',
+			},
+			{ args: ['prestop'], fakes: { ...FAKE_TOOLS, sleep: WHOLE_SECOND_SLEEP } },
+		)
+
+		expect(result.status).toBe(0)
+		expect(alive(foreignPid)).toBe(true)
+		// It said so, rather than going quiet: the kubelet surfaces a hook's
+		// stderr, and an operator whose derived image boots a different init
+		// has to be able to see why the drain stopped happening.
+		expect(result.stderr).toContain(`not the '${PRESTOP_DEFAULT_INIT_NAME}' this image starts`)
+		// The sync still ran — it needs nothing of the agent, which is why
+		// it is first — and the wait did not, because nothing was signalled
+		// to wait for. Burning the grace period watching a process the hook
+		// deliberately left alone would be the worst of both.
+		expect(result.log).toContain(`sync -f ${workspaceRoot}`)
+		expect(result.log.filter((line) => line.startsWith('sleep '))).toEqual([])
+	})
+
+	it('refuses the default pid 1 when pid 1 is not that init', () => {
+		// The production default, driven the only way a test may drive it:
+		// with an expected name that NO process can have. `comm` is capped
+		// at 15 characters by the kernel, so a longer one can never match,
+		// and this case therefore cannot signal pid 1 even if it ran inside
+		// the very image this script boots — where pid 1 really is `tini`.
+		// What it proves is the branch, not the machine it ran on: pid 1
+		// with the wrong name is refused, and the refusal names the pid.
+		const workspaceRoot = mktempWorkDir()
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: workspaceRoot,
+				NAMZU_PRESTOP_INIT_NAME: 'an-init-no-process-on-this-machine-can-be-called',
+				NAMZU_PRESTOP_WAIT_SECONDS: '5',
+			},
+			{ args: ['prestop'], fakes: { ...FAKE_TOOLS, sleep: WHOLE_SECOND_SLEEP } },
+		)
+
+		expect(result.status).toBe(0)
+		expect(result.stderr).toContain('prestop: pid 1 is')
+		expect(result.log).toContain(`sync -f ${workspaceRoot}`)
+		expect(result.log.filter((line) => line.startsWith('sleep '))).toEqual([])
+	})
+
+	it('refuses a pid that is gone rather than treating it as the init', () => {
+		// The unreadable branch: `/proc/<pid>/comm` that cannot be opened is
+		// "cannot tell", never "close enough". Pids are recycled, and a hook
+		// that signalled a name it could not read would eventually signal
+		// whatever landed on that number.
+		const gonePid = spawnForeignProcess()
+		process.kill(gonePid, 'SIGKILL')
+		const deadline = Date.now() + 2_000
+		while (alive(gonePid) && Date.now() < deadline) spawnSync(SLEEP_BIN, ['0.05'])
+		expect(alive(gonePid)).toBe(false)
+
+		const result = runEntrypoint(
+			{
+				NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
+				NAMZU_PRESTOP_INIT_PID: String(gonePid),
+				NAMZU_PRESTOP_WAIT_SECONDS: '5',
+			},
+			{ args: ['prestop'], fakes: { ...FAKE_TOOLS, sleep: WHOLE_SECOND_SLEEP } },
+		)
+
+		expect(result.status).toBe(0)
+		expect(result.stderr).toContain('unreadable')
+		expect(result.log.filter((line) => line.startsWith('sleep '))).toEqual([])
+	})
+
+	it('expects the very init the script execs at its tail', () => {
+		// Two literals in one file that must agree: the name the guard
+		// checks for, and the program the entrypoint actually becomes. A
+		// typo in either would make the hook refuse to signal a healthy
+		// pod's init on every stop, silently, with only a stderr line in a
+		// kubelet log to say so.
+		const execLine = /exec\s+setpriv[\s\S]*?--\s+(\S+)\s+--/.exec(ENTRYPOINT_SOURCE)
+		expect(execLine?.[1]).toBeDefined()
+		expect(basename(execLine?.[1] ?? '')).toBe(PRESTOP_DEFAULT_INIT_NAME)
 	})
 })
 

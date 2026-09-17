@@ -32,7 +32,40 @@ spec:
         sandbox.namzu.ai/template: namzu-workspace
     spec:
       runtimeClassName: kata-qemu
-      terminationGracePeriodSeconds: 5
+      # How long the kubelet gives this pod to stop before it SIGKILLs it —
+      # and therefore the whole budget the disk's last writes have to reach
+      # the device in. It covers BOTH halves of that, one after the other:
+      # the `preStop` hook below (a `syncfs` over the workspace, then the
+      # signal to PID 1 and a wait for it), and the agent's own termination
+      # drain afterwards (stop every process it is running, `syncfs` again,
+      # exit 0 — bounded by NAMZU_AGENT_SHUTDOWN_DEADLINE_MS below).
+      #
+      # 30 IS NOT A MEASURED NUMBER. It is a budget: 15s for the agent's
+      # bounded drain and flush, and the rest for the hook's own flush and
+      # for the kubelet's overhead. Nothing in this repo can measure the
+      # right value — it depends on the runtime class, the storage class and
+      # how much a workload leaves dirty — so measure it on YOUR cluster,
+      # the way #484 measured the old one: delete a pod and compare its
+      # `deletionTimestamp` with the container's `finishedAt` and exit code.
+      #
+      # What it costs, and the two bounds it sits between:
+      #   - On a VM runtime the pod stop was measured to last the WHOLE grace
+      #     period even when the container was gone within a second, so this
+      #     value is roughly what every `suspend()` will take there. The old
+      #     value was 5.
+      #   - It must stay well below the host's `readyTimeoutMs` (default
+      #     60000ms), which bounds how long `suspend()` waits for the pod to
+      #     be gone. A grace period at or above it turns every suspend into a
+      #     `KubernetesWorkspaceSuspendTimeoutError`.
+      #   - A longer drain also widens the window in which a host restarting
+      #     against this workspace adopts a pod that is still draining.
+      #   - The hook's own `syncfs` is INSIDE this budget and is not
+      #     bounded (there is no POSIX-portable way to bound it), so the
+      #     relationship is `sync-time + the agent's drain <= this`. Time a
+      #     `sync -f` over a loaded workspace mount and add
+      #     NAMZU_AGENT_SHUTDOWN_DEADLINE_MS to it; that sum, not 30, is
+      #     what this has to clear.
+      terminationGracePeriodSeconds: 30
       containers:
         - name: agent
           image: REPLACE_WITH_YOUR_REGISTRY/namzu-sandbox-agent:TAG
@@ -40,6 +73,58 @@ spec:
             - name: agent
               containerPort: 1024
               protocol: TCP
+          # The flush that happens BEFORE the stop signal, which is the
+          # only mechanism that does not depend on the signal being
+          # delivered and handled in time. `entrypoint.sh prestop` (the same
+          # script this image's ENTRYPOINT runs, given a verb) syncs the
+          # workspace filesystem, then signals PID 1 and waits for it, so
+          # the agent's own drain runs inside this hook rather than racing
+          # the kill that follows it.
+          #
+          # HOW LONG IT WAITS IS DERIVED, NOT SET HERE. The kubelet runs
+          # this hook, waits for it to return, and only THEN sends its own
+          # stop signal to PID 1 — so a hook whose wait is shorter than
+          # NAMZU_AGENT_SHUTDOWN_DEADLINE_MS below would end while the agent
+          # is still draining and hand it a signal the kubelet sent only
+          # because the hook gave up. The script therefore waits
+          # ceil(NAMZU_AGENT_SHUTDOWN_DEADLINE_MS / 1000) + 2 seconds — 17
+          # at the value below — and raising that deadline raises this with
+          # it. NAMZU_PRESTOP_WAIT_SECONDS overrides the derivation and is
+          # deliberately NOT set here: pinning it to a literal would freeze
+          # the relationship, so an operator who raises the deadline alone
+          # would silently get the old, too-short wait back.
+          #
+          # WHAT IT SIGNALS IS CHECKED FIRST. `kill` is a POSIX shell
+          # builtin, so the script is the only place that check can live,
+          # and the pid it defaults to is 1 — the machine's own init
+          # anywhere but inside this container's pid namespace. The hook
+          # reads /proc/<pid>/comm and signals only a process named like
+          # the init this image starts (`tini`). A derived image booting a
+          # different init sets NAMZU_PRESTOP_INIT_NAME; one that does not
+          # gets a line on the hook's stderr and no signal, keeping the
+          # `syncfs` above and the agent's own handler as the flush.
+          #
+          # Measured on a VM runtime in #484: the container was killed with
+          # exit 137 about a second into a stop whose grace period was 5s,
+          # while `kill -TERM 1` from INSIDE the guest ended it cleanly with
+          # exit 0 in about a second. Whether the kubelet runs a preStop
+          # hook at all under that runtime class was NOT measured, which is
+          # exactly why the agent's own SIGTERM handler performs the same
+          # drain and flush independently: neither mechanism is trusted to
+          # be the one that works.
+          #
+          # EXPECT A `FailedPreStopHook` WARNING ON EVERY STOP THAT WORKED.
+          # The hook runs inside the container's pid namespace and ends PID
+          # 1 of it; the kernel then SIGKILLs everything left in that
+          # namespace, the hook included, so a hook that did its job is one
+          # the kubelet records as having died. It is the success path, not
+          # a defect: the flush and the drain both finished before PID 1
+          # could exit. The alternative — returning before PID 1 is gone —
+          # is the race the hook exists to close.
+          lifecycle:
+            preStop:
+              exec:
+                command: ['/entrypoint.sh', 'prestop']
           securityContext:
             # Load-bearing here, unlike on the task template: this pod DOES
             # mount a device (NAMZU_WORKSPACE_DEVICE below), so
@@ -102,6 +187,29 @@ spec:
             # its tail and its exit status.
             - name: NAMZU_AGENT_SESSION_TERMINAL_TTL_MS
               value: '600000'
+            # Termination, the other half of terminationGracePeriodSeconds
+            # above. Both are shown at their DEFAULTS: deleting them changes
+            # nothing, and they are here so an operator changing the grace
+            # period can see the two budgets that have to fit inside it.
+            #
+            # NAMZU_AGENT_SHUTDOWN_DEADLINE_MS bounds the WHOLE SIGTERM
+            # handler — stop accepting connections, stop every process the
+            # guest is running, flush, exit. The agent exits when it expires
+            # whatever is still in flight, because a handler that waited
+            # forever would hold the pod open until the kubelet's SIGKILL.
+            # It is also the ONLY bound: a repeat stop signal is logged and
+            # ignored rather than cutting the drain short, since in a
+            # stopping pod the second one is the kubelet's own and not
+            # anybody asking for a shorter wait. And it is what the preStop
+            # hook's wait above is derived from, so raising it raises both.
+            - name: NAMZU_AGENT_SHUTDOWN_DEADLINE_MS
+              value: '15000'
+            # And how long ONE flush (`sync -f` on the workspace mount) may
+            # take before it is reported unconfirmed — both the one the
+            # handler runs and the one `suspend()` asks for over the wire.
+            # Raise it for a workspace that leaves gigabytes dirty.
+            - name: NAMZU_AGENT_FLUSH_TIMEOUT_MS
+              value: '10000'
             - name: NAMZU_AGENT_BIND_TOKEN
               # Same rule as the task template: the pod's own uid, never a
               # value this manifest invents or shares across instances. A

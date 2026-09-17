@@ -43,6 +43,12 @@ const OTHER_UID = 'c1d2e3f4-5a6b-4c7d-8e9f-0a1b2c3d4e5f'
 
 interface AgentModule {
 	AGENT_FEATURES: string[]
+	/** What `healthz` may claim, which on an image with no `sync` is one
+	 * string shorter than `AGENT_FEATURES` — see the agent's own
+	 * `advertisedFeatures`. Compared against rather than the full list so
+	 * these cases assert the reply's shape on every machine, not the
+	 * coreutils of the one they run on. */
+	advertisedFeatures: () => string[]
 	FIRECRACKER_AGENT_PROTOCOL_VERSION: number
 	handleConnection(socket: Socket): void
 }
@@ -328,13 +334,43 @@ describe('preset per-instance token', () => {
 		expect(health.reply).toEqual({
 			ok: true,
 			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
-			features: agent.AGENT_FEATURES,
+			features: agent.advertisedFeatures(),
 		})
 		// `features` is the only thing beside the version a probe learns:
 		// capabilities the version does not announce, so a host can ask
 		// before it relies on one. Still nothing about the credential.
 		expect(Object.keys(health.reply)).toEqual(['ok', 'protocolVersion', 'features'])
 		expect(health.frames.join('')).not.toContain(POD_UID)
+	})
+
+	it('claims exactly the features this wire has been given, and no others', () => {
+		// The assertion above compares the reply with the agent's own answer
+		// — it has to, because `flush` is dropped on an image with no `sync`
+		// and the list is therefore machine-dependent. That comparison alone
+		// would pass just as happily if a string vanished from both sides at
+		// once, so the set itself is PINNED here, once, in the file that
+		// owns the unauthenticated probe.
+		//
+		// A string in this list is a promise to every host that ever read
+		// it: the protocol version does not change when the agent grows a
+		// capability, so removing or renaming one of these is the breaking
+		// change nothing else would catch. Adding one belongs in the same
+		// commit that teaches a host to ask for it.
+		expect(agent.AGENT_FEATURES).toEqual([
+			'write-file-parts',
+			'execution-attach',
+			'stream-heartbeat',
+			'read-file-stream',
+			'sessions',
+			'quiesce',
+			'flush',
+			'guest-boot-id',
+		])
+		// And what `healthz` may claim is a subset of it, never a superset:
+		// `advertisedFeatures` only ever filters.
+		for (const feature of agent.advertisedFeatures()) {
+			expect(agent.AGENT_FEATURES).toContain(feature)
+		}
 	})
 
 	it('keeps the token out of the environment of an execute child', async () => {
@@ -460,7 +496,7 @@ describe('trust-on-first-use fallback', () => {
 		expect(after.reply).toEqual({
 			ok: true,
 			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
-			features: agent.AGENT_FEATURES,
+			features: agent.advertisedFeatures(),
 		})
 	})
 })
@@ -497,7 +533,7 @@ describe('neither variable set (the Firecracker vsock and unix path)', () => {
 		expect(health.reply).toEqual({
 			ok: true,
 			protocolVersion: 2,
-			features: agent.AGENT_FEATURES,
+			features: agent.advertisedFeatures(),
 		})
 	})
 })
@@ -751,7 +787,7 @@ describe('bounds on an unauthenticated connection', () => {
 		expect(health.reply).toEqual({
 			ok: true,
 			protocolVersion: agent.FIRECRACKER_AGENT_PROTOCOL_VERSION,
-			features: agent.AGENT_FEATURES,
+			features: agent.advertisedFeatures(),
 		})
 		expect(await eviction).toEqual({
 			ok: false,

@@ -201,6 +201,25 @@ registries own and reports `scope: "owned-sessions"` rather than being silently
 weaker. The guest advertises `quiesce` in `healthz` and a host asking an image
 without it is refused by name.
 
+**A workspace's writes reach its disk on purpose.** Nothing in the agent ever
+called `sync`, `syncfs` or `fsync`: a `write-file` answered `ok` as soon as the
+bytes were in the page cache, and a `suspend()` took the pod away as soon as it
+had stopped — which says nothing is writing any more, not that what was written
+arrived. Both halves are closed. A `write-file` now goes through a temp
+sibling, an `fsync`, a rename and a directory `fsync` before it answers, so the
+reply means the bytes are on the device and a write that fails leaves the
+previous contents rather than a truncated file; one `fsync` per part sequence,
+on the last part, covers the whole file. And the additive `flush` op runs
+`syncfs(2)` over the workspace mount, which is the only thing that can reach
+what a COMMAND wrote — the Kubernetes backend sends it and waits for the reply
+before it patches a workspace to `Suspended`, and the agent runs it itself on
+`SIGTERM`, after stopping every process it owns through the same routine
+`quiesce` uses and before exiting 0. The guest advertises `flush` in `healthz`
+**only if it can run one** — the flush runs `sync -f`, and an image that
+strips coreutils has this code and no `sync` — so a host that does not see the
+string is told the image cannot flush rather than being left to read an
+`unknown_op`, or a refusal it can never get past, as a flush that happened.
+
 **The command timeout ceiling is configurable.** The guest agent reads its
 maximum `timeoutMs` from `NAMZU_SANDBOX_MAX_TIMEOUT_MS` — the same variable
 the container worker has always read for the same limit — defaulting to the
@@ -267,8 +286,9 @@ Neither the framed wire nor its version changes when the agent grows a
 capability. `healthz` carries a `features` list instead, and a host uses an op
 or a field only when it sees the string there: `write-file-parts` for a body
 written to a temporary sibling in parts and finished with an atomic rename,
-`stream-heartbeat` for the per-stream liveness frame, and `guest-boot-id` for
-the agent process's own identity.
+`flush` for the `syncfs` over the workspace mount, `stream-heartbeat` for the
+per-stream liveness frame, and `guest-boot-id` for the agent process's own
+identity.
 
 `guest-boot-id` is a field rather than an op. The agent mints one opaque id at
 startup and stamps it on every reply a caller has already authenticated —
@@ -319,6 +339,13 @@ The `quiesce` op has four bounds and one scope of its own, on every listen mode:
 | `NAMZU_AGENT_QUIESCE_MAX_ROUNDS` | 8 | Scan-and-signal passes before the call reports failure. Rounds exist because a process can be forked while a pass is in flight; a workload forking faster than it can be killed is a failure to report, not a loop to run out the deadline. |
 | `NAMZU_AGENT_QUIESCE_SETTLE_MS` | 1000 | How long the op waits, after everything is gone, for a killed child's `close` event to move its session to `exited` and settle its execution. Bookkeeping only — the processes are already gone, so running out of it does not fail the call. |
 | `NAMZU_AGENT_QUIESCE_SCOPE` | derived | `owned-sessions` narrows the scan to the kernel sessions the agent's own registries own. The only accepted value: the general PID-namespace scan is derived from whether this agent is the init of its own PID namespace or was started by it, and there is deliberately no way to force it on. |
+
+Termination and the flush have two more, on every listen mode:
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `NAMZU_AGENT_FLUSH_TIMEOUT_MS` | 10000 | One `sync -f` over the workspace mount, whether a host asked for it or the `SIGTERM` handler is running it. Reported unconfirmed rather than abandoned quietly when it expires, because a caller that asked for a flush is usually about to take the pod away. |
+| `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` | 15000 | The WHOLE `SIGTERM` handler: stop accepting connections, stop every process the guest is running, flush, exit. The agent exits when it expires whatever is still in flight — a process in uninterruptible IO outlives a `SIGKILL` and a `syncfs` takes as long as the device takes, and a handler with no bound would hold the pod open until the kubelet's own `SIGKILL`. Keep it well below the pod's `terminationGracePeriodSeconds`. It is the only bound: a repeat `SIGTERM` is logged and ignored, because in a stopping pod the second one is the kubelet's own (sent as soon as the `preStop` hook returns) rather than anybody asking for a shorter wait. The hook's wait is derived from this number so it outlives it. |
 
 So the most an unauthenticated peer can make the agent hold is
 `NAMZU_AGENT_MAX_PREAUTH_BUFFER_BYTES`, spread over at most
@@ -445,12 +472,13 @@ measurement.
 { "op": "read-file-stream", "token": "…", "body": { "path": "out/report.bin" } }
 ```
 
-The guest opts into both together: `healthz` answers `features:
-["write-file-parts", "read-file-stream"]`. One string for the two read shapes,
-because they ship in the same file and no guest can have one without the
-other. A host that does not see it keeps to the single whole-file reply and
-sends neither — an agent that predates them would ignore `offset`/`length` and
-answer with the whole file, which the caller would read as its slice, so the
+The guest opts into both together: `healthz`'s `features` list carries both
+strings, `write-file-parts` and `read-file-stream` — one entry for the two
+read shapes, because they ship in the same file and no guest can have one
+without the other. A host that does not see it keeps to the single whole-file
+reply and sends neither — an agent that predates them would ignore
+`offset`/`length` and answer with the whole file, which the caller would read
+as its slice, so the
 host throws `AgentReadFileStreamUnsupportedError` instead. Both new shapes go
 through the same workspace jail the old op used.
 

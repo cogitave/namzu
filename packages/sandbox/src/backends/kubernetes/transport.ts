@@ -42,6 +42,7 @@ import {
 	EXECUTION_ATTACH_FEATURE,
 	type ExecRequest,
 	ExecResultAccumulator,
+	FLUSH_FEATURE,
 	type GuestReplyIdentity,
 	QUIESCE_FEATURE,
 	type QuiesceScope,
@@ -1343,6 +1344,105 @@ function quiesceReport(reply: Record<string, unknown>): KubernetesQuiesceReport 
 	}
 }
 
+// --- flush (#484) ---------------------------------------------------------
+
+/**
+ * Thrown when a flush was asked of a guest that cannot perform one: either
+ * its `healthz` does not advertise {@link FLUSH_FEATURE}, or it answered
+ * `unknown_op: flush`.
+ *
+ * Refused rather than treated as "the disk is already flushed", for the
+ * same reason {@link KubernetesQuiesceUnsupportedError} is not treated as
+ * "nothing was running". The one caller that does NOT pass this on is
+ * `suspend()`, which goes ahead and tells the host through
+ * `onFlushUnsupported`: an image built before this op is a deployment that
+ * has to be able to suspend its workspaces, not one that has to be stopped.
+ */
+export class KubernetesFlushUnsupportedError extends Error {
+	override readonly name = 'KubernetesFlushUnsupportedError'
+
+	constructor(
+		readonly feature: string,
+		message: string,
+	) {
+		super(message)
+	}
+}
+
+/**
+ * Thrown when nothing can promise the workspace's writes are on the device.
+ *
+ * The guest ANSWERED and said so — the `syncfs` failed, or ran past its own
+ * timeout — and its message says which. Its own class for the reason every
+ * other answered refusal here has one: this is a fact about the disk, not a
+ * transport failure, and a caller holding it decides whether to retry,
+ * suspend anyway, or leave the workspace running.
+ */
+export class KubernetesFlushUnconfirmedError extends Error {
+	override readonly name = 'KubernetesFlushUnconfirmedError'
+
+	constructor(
+		readonly reason: string,
+		message: string,
+	) {
+		super(message)
+	}
+}
+
+/**
+ * Carried to {@link KubernetesWorkspaceOptions.onFlushUnreachable} when a
+ * `suspend()` could not ASK for a flush at all — the dial failed, the
+ * connection timed out, the token was refused, or the agent has fenced
+ * itself — and the suspend went ahead without one.
+ *
+ * Never thrown at a caller. The difference between this and
+ * {@link KubernetesFlushUnconfirmedError} is the difference between a guest
+ * that could not be reached and a guest that answered: a guest that
+ * answered is alive, and stopping the suspend gives its caller something to
+ * do about it, while a guest nothing can reach will not become flushable by
+ * leaving its pod running — and refusing to suspend over it would take away
+ * the one verb an operator reaches for when a workspace is wedged, the verb
+ * {@link KubernetesAgentRetiringError} itself names as the way out.
+ *
+ * So the suspend proceeds, the host is told, and the message says what the
+ * disk is resting on instead: whatever the guest kernel had already written
+ * back, plus the pod's own `preStop` hook and the agent's `SIGTERM` handler
+ * if either of them still runs.
+ */
+export class KubernetesFlushUnreachableError extends Error {
+	override readonly name = 'KubernetesFlushUnreachableError'
+}
+
+/** What a flush did, as the guest measured it. */
+export interface KubernetesFlushReport {
+	/** How long the `syncfs` took inside the guest. */
+	readonly durationMs: number
+	/** The mount the guest flushed — its workspace root. */
+	readonly workspace: string
+}
+
+/**
+ * The refusal a guest that cannot flush earns, built in one place.
+ *
+ * Exported because the WORKSPACE has to be able to hand this exact error to
+ * `onFlushUnsupported` on the one path that does not throw it — a
+ * `suspend()` against an older image — and a second copy of the message
+ * would be a second thing to keep true.
+ */
+export function flushUnsupportedError(): KubernetesFlushUnsupportedError {
+	return new KubernetesFlushUnsupportedError(
+		FLUSH_FEATURE,
+		`kubernetes: this workspace's guest agent does not advertise the '${FLUSH_FEATURE}' healthz feature, so nothing here can make its writes reach the disk before the pod stops — what survives is whatever the guest kernel had already written back. The request is refused rather than answered as a flush that happened. Rebuild the workspace image from this Namzu release.`,
+	)
+}
+
+function flushReport(reply: Record<string, unknown>): KubernetesFlushReport {
+	return {
+		durationMs: typeof reply.durationMs === 'number' ? reply.durationMs : 0,
+		workspace: typeof reply.workspace === 'string' ? reply.workspace : '',
+	}
+}
+
 export class KubernetesAgentTransport {
 	/**
 	 * Mutable: the handle follows a replaced pod — see {@link rebind}.
@@ -2084,6 +2184,78 @@ export class KubernetesAgentTransport {
 			refusal,
 			`kubernetes: the guest could not confirm that every process it is running has stopped (${refusal})${detail}. Nothing on the cluster was changed and the pod is still serving; a capture taken now may not be consistent.`,
 		)
+	}
+
+	/**
+	 * Put everything this workspace has written onto its device.
+	 *
+	 * The disk a workspace keeps is whatever the guest kernel happened to
+	 * write back. Nothing in this backend ever asked for more than that: a
+	 * `suspend()` patched the pod away and waited for it to stop, and a
+	 * stopped pod means only that nothing is writing any more — not that
+	 * what was written arrived. This is the call that closes the difference,
+	 * and it is `syncfs(2)` over the whole workspace mount, so it covers
+	 * what a COMMAND wrote as well as what `writeFile` did (`writeFile`
+	 * fsyncs its own bytes before it answers; a compiler's output is nobody's
+	 * to fsync).
+	 *
+	 * Rejecting with {@link KubernetesFlushUnconfirmedError} is the honest
+	 * failure, exactly as an unconfirmed quiesce is: the caller is usually
+	 * about to take the pod away, and "the flush did not run" has to be
+	 * distinguishable from "the flush ran".
+	 */
+	async flush(
+		options: { readonly timeoutMs?: number } = {},
+		signal?: AbortSignal,
+	): Promise<KubernetesFlushReport> {
+		await this.assertFlushSupported(signal)
+		const reply = (await this.withRebind(
+			async () =>
+				await requestChecked(
+					this.wire,
+					{
+						op: 'flush',
+						body: { ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}) },
+					},
+					signal,
+				),
+			signal,
+		)) as Record<string, unknown>
+		if (reply.ok === true) return flushReport(reply)
+		const refusal = typeof reply.error === 'string' ? reply.error : 'no reason given'
+		// Advertised and then not known: one image, not two — the same
+		// reading {@link quiesce} gives that answer. `flush_unsupported` and
+		// `flush_unsupported_platform` join it because they say the same
+		// thing in the guest's own words: this image cannot perform a flush,
+		// now or ever. Read as an unconfirmed flush instead, they would stop
+		// every default `suspend()` against such an image permanently, which
+		// is exactly what the feature advertisement exists to avoid.
+		if (refusal.startsWith('unknown_op') || refusal.startsWith('flush_unsupported')) {
+			throw this.flushUnsupported()
+		}
+		const detail = typeof reply.message === 'string' ? `: ${reply.message}` : ''
+		throw new KubernetesFlushUnconfirmedError(
+			refusal,
+			`kubernetes: the guest could not confirm that the workspace's writes reached its disk (${refusal})${detail}. Nothing on the cluster was changed and the pod is still serving; suspending or deleting the pod now may lose whatever had not been written back.`,
+		)
+	}
+
+	/**
+	 * Whether this guest can flush at all — asked, rather than assumed,
+	 * because a `suspend()` against an older image keeps today's behaviour
+	 * and reports the gap instead of refusing to suspend.
+	 */
+	async supportsFlush(signal?: AbortSignal): Promise<boolean> {
+		return (await this.wire.guestFeatures(signal)).includes(FLUSH_FEATURE)
+	}
+
+	private async assertFlushSupported(signal?: AbortSignal): Promise<void> {
+		if (await this.supportsFlush(signal)) return
+		throw this.flushUnsupported()
+	}
+
+	private flushUnsupported(): KubernetesFlushUnsupportedError {
+		return flushUnsupportedError()
 	}
 
 	/**

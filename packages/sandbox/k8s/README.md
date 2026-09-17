@@ -196,6 +196,62 @@ kubectl apply -f manifests/networkpolicy.yaml
 kubectl apply -f manifests/sandboxwarmpool.yaml
 ```
 
+**`sandboxtemplate-workspace.yaml`'s `terminationGracePeriodSeconds` is a
+budget nobody has measured.** It is 30 seconds, and it covers two things in
+sequence: the pod's `preStop` hook (`/entrypoint.sh prestop` — `sync -f` on
+the workspace, then a signal to pid 1 and a wait for it) and the agent's own
+termination drain afterwards, bounded by `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS`
+(15 seconds, shown in that manifest at its default). The hook's own wait is
+DERIVED from that deadline — `ceil(NAMZU_AGENT_SHUTDOWN_DEADLINE_MS / 1000)
++ 2` seconds, 17 as shipped — because the kubelet runs the hook, waits for
+it, and only then signals pid 1: a hook that gave up first would cap the
+agent's drain at its own number instead of the advertised one. Raise the
+deadline and the hook's wait follows; both still have to fit inside the grace
+period. Measure the right value
+on THIS cluster — delete a workspace pod and compare its `deletionTimestamp`
+with the container's `finishedAt` and exit code — because it depends on the
+runtime class, the storage class and how much a workload leaves dirty. On a
+VM runtime the stop was measured to last the whole grace period even when the
+container was gone within a second, so this number is roughly what every
+`suspend()` will cost; keep it well below the host's `readyTimeoutMs`
+(60 seconds by default), which bounds how long a suspend waits for the pod to
+be gone. Re-applying the template does NOT change an existing workspace: a
+`Sandbox` carries its own copy of `spec.podTemplate`, so this reaches
+workspaces created afterwards, or one resumed with `refreshPodTemplate`.
+
+**The task template carries the same pair at a smaller scale, and no hook.**
+`sandboxtemplate-task.yaml` keeps its 5 second
+`terminationGracePeriodSeconds` and now sets
+`NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` to 3000 inside it, so the agent's own
+bound expires 2 seconds before the kubelet's `SIGKILL` rather than 10
+seconds after it — which is what the agent's 15000 ms default did to a task
+pod that had anything still running at stop time. It ships no `preStop`
+hook, and cannot at this grace period: the wait a hook derives from a
+3000 ms deadline is `ceil(3000 / 1000) + 2` = 5 seconds, the whole of it,
+leaving the kubelet no room after the drain. A diskless task pod has
+nothing for a hook's `sync -f` to flush in any case — what its 3 seconds
+bounds is a graceful stop of the guest's own processes.
+
+**The hook signals only the init this image starts.** `kill` is a POSIX
+shell builtin, so nothing on `PATH` can stand in front of it, and the pid the
+hook defaults to is 1 — the machine's own init anywhere but inside the
+container's pid namespace. So `entrypoint.sh prestop` reads
+`/proc/<pid>/comm` and signals only a process named `tini`. A derived image
+that boots a different init sets `NAMZU_PRESTOP_INIT_NAME`; one that does not
+gets a line on the hook's stderr and keeps the `sync -f` plus the agent's own
+`SIGTERM` handler, which is the safe half of the trade.
+
+**Expect a `FailedPreStopHook` warning on every workspace stop that worked.**
+The hook signals pid 1 of the container's own pid namespace and waits for it;
+when pid 1 exits the kernel SIGKILLs everything left in that namespace, the
+hook included, so the kubelet records the hook as having died. That is the
+success path — the flush and the drain both finished before pid 1 could go —
+and returning earlier would reintroduce the race with the kill that the wait
+exists to close. A hook that gives up instead (its derived wait expiring
+because the init would not go, or `NAMZU_PRESTOP_WAIT_SECONDS` set to
+override it) exits 0 and is not recorded at all, which is the case worth
+looking into.
+
 **`networkpolicy.yaml` is not optional.** The backend LISTS this namespace's
 policies before every create and refuses — by default, with a named error —
 unless one of them enforces ingress on the pod's own labels and none of them
@@ -292,9 +348,14 @@ node scripts/acquire-p50.mjs \
   --namespace namzu-sandboxes --template namzu-task --pool namzu-task-pool \
   --count 50 --in-cluster
 
-# Criterion 3: a workspace's disk survives suspend/resume.
+# Criterion 3: a workspace's disk survives suspend/resume — including a
+# 5 MiB writeFile and a 100 MiB command-written file issued immediately
+# before the suspend, with no sync of the script's own anywhere. It prints
+# the suspend's own duration, which is what says whether this template's
+# terminationGracePeriodSeconds is the right number (see below).
 node scripts/suspend-resume.mjs \
-  --namespace namzu-sandboxes --template namzu-workspace --in-cluster
+  --namespace namzu-sandboxes --template namzu-workspace --in-cluster \
+  [--write-mib 5] [--exec-mib 100]
 
 # Criterion 4: small-file IO on the block PVC vs. host ext4, within 1.5x.
 node scripts/io-compare.mjs \

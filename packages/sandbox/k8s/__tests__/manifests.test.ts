@@ -14,7 +14,7 @@
  * that a schema has no opinion about at all.
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -27,6 +27,24 @@ const MANIFESTS_DIR = join(HERE, '../manifests')
 function loadYaml(fileName: string): unknown[] {
 	const text = readFileSync(join(MANIFESTS_DIR, fileName), 'utf8')
 	return parseAllDocuments(text).map((doc) => doc.toJS())
+}
+
+/**
+ * Every YAML manifest under `manifests/`, at any depth, named relative to
+ * it. BOTH extensions, because `kubectl` and Kustomize accept `.yml` as
+ * readily as `.yaml` and this scan is only as wide as what it walks: a
+ * single-extension scan would put a future `patch-….yml` overlay outside
+ * every case that reads this list, silently, which is the failure mode the
+ * preStop scan below exists to catch.
+ */
+function manifestFiles(dir: string = MANIFESTS_DIR, prefix = ''): string[] {
+	const out: string[] = []
+	for (const entry of readdirSync(dir, { withFileTypes: true })) {
+		const relative = prefix === '' ? entry.name : `${prefix}/${entry.name}`
+		if (entry.isDirectory()) out.push(...manifestFiles(join(dir, entry.name), relative))
+		else if (/\.ya?ml$/.test(entry.name)) out.push(relative)
+	}
+	return out
 }
 
 function loadOne(fileName: string): Record<string, unknown> {
@@ -211,6 +229,39 @@ describe('sandboxtemplate-workspace.yaml', () => {
 		expect(mounts.some((m) => m.name === vctName)).toBe(false)
 	})
 
+	it('runs the entrypoint\'s prestop verb as a preStop hook (#484)', () => {
+		const containers = podSpec.containers as Record<string, unknown>[]
+		const lifecycle = containers[0]?.lifecycle as Record<string, unknown> | undefined
+		const exec = (lifecycle?.preStop as Record<string, unknown> | undefined)?.exec as
+			| Record<string, unknown>
+			| undefined
+		// The hook is the one flush that happens BEFORE the stop signal, so
+		// it is the only one that does not depend on the signal being
+		// delivered and handled in time — measured in #484 as the thing that
+		// did not happen on a VM runtime class.
+		expect(exec?.command).toEqual(['/entrypoint.sh', 'prestop'])
+	})
+
+	it('gives the flush a grace period, and keeps it under the host\'s ready timeout (#484)', () => {
+		const grace = podSpec.terminationGracePeriodSeconds
+		expect(typeof grace).toBe('number')
+		// It has to cover the preStop hook's flush AND the agent's own
+		// bounded drain-and-flush after the signal, so it cannot be the 5s
+		// it was; and it has to stay well under the host's readyTimeoutMs
+		// (60s by default), which bounds how long suspend() waits for the
+		// pod to be gone — a grace period at or above that turns every
+		// suspend into a timeout error.
+		expect(grace as number).toBeGreaterThanOrEqual(20)
+		expect(grace as number).toBeLessThanOrEqual(45)
+		const shutdown = collectEnvEntries(podSpec).find(
+			(e) => e.name === 'NAMZU_AGENT_SHUTDOWN_DEADLINE_MS',
+		)
+		// And the agent's own bound has to fit inside it, with room for the
+		// hook: a handler still running when the kubelet's SIGKILL lands has
+		// not flushed anything.
+		expect(Number(shutdown?.value)).toBeLessThan((grace as number) * 1000)
+	})
+
 	it('the device env var points at the same path the volumeDevices entry mounts it at', () => {
 		const containers = podSpec.containers as Record<string, unknown>[]
 		const device = collectEnvEntries(podSpec).find((e) => e.name === 'NAMZU_WORKSPACE_DEVICE')
@@ -219,6 +270,220 @@ describe('sandboxtemplate-workspace.yaml', () => {
 			(c) => (c.volumeDevices as Record<string, unknown>[] | undefined) ?? [],
 		).map((d) => d.devicePath)
 		expect(devicePaths).toContain(device?.value)
+	})
+})
+
+describe('every workspace template that states `containers` in full carries the preStop hook (#484)', () => {
+	/**
+	 * A `containers` array in a patch REPLACES the base template's entire
+	 * array under a JSON merge patch, so a manifest that names the container
+	 * has to repeat every field of it the pod still needs — there is no
+	 * inheritance inside an array. `kind-overlay/
+	 * patch-workspace-filesystem-pvc.yaml` dropped `lifecycle` exactly that
+	 * way, which is the failure this case exists to make impossible to
+	 * repeat: a workspace pod on kind still had the agent's own SIGTERM
+	 * handler and no hook at all, so the one flush that happens BEFORE the
+	 * kubelet's stop signal was missing from everything tested on kind.
+	 *
+	 * The scan is over every `SandboxTemplate` named `namzu-workspace`
+	 * anywhere under `manifests/` that gives its containers, rather than a
+	 * list of files, so a new overlay is covered the moment it exists.
+	 * `sandboxtemplate-task.yaml` and its overlay state their containers in
+	 * full too and deliberately carry NO hook: a task sandbox has no disk to
+	 * flush (no `volumeClaimTemplates`, no `NAMZU_WORKSPACE_DEVICE`), its
+	 * `terminationGracePeriodSeconds` is 5, and the wait the hook would
+	 * derive from the shutdown deadline that template now SETS is
+	 * `ceil(3000 / 1000) + 2` = 5 — the whole of that grace period, so the
+	 * kubelet would have no room left after it. The task template is
+	 * therefore out of scope by NAME here, and the count below is what keeps
+	 * that from silently becoming "no templates at all". What pins ITS pair
+	 * of numbers is the separate scan below, which is about the deadline and
+	 * the grace period rather than about the hook.
+	 */
+	function workspaceTemplatesWithContainers(): {
+		file: string
+		containers: Record<string, unknown>[]
+	}[] {
+		const found: { file: string; containers: Record<string, unknown>[] }[] = []
+		for (const file of manifestFiles()) {
+			for (const doc of loadYaml(file)) {
+				const record = doc as Record<string, unknown>
+				if (record.kind !== 'SandboxTemplate') continue
+				const metadata = record.metadata as Record<string, unknown> | undefined
+				if (metadata?.name !== 'namzu-workspace') continue
+				const spec = record.spec as Record<string, unknown> | undefined
+				const podTemplate = spec?.podTemplate as Record<string, unknown> | undefined
+				const podSpec = podTemplate?.spec as Record<string, unknown> | undefined
+				const containers = podSpec?.containers
+				if (Array.isArray(containers)) {
+					found.push({ file, containers: containers as Record<string, unknown>[] })
+				}
+			}
+		}
+		return found
+	}
+
+	it('finds the base template and every overlay that gives its containers, not nothing', () => {
+		const files = workspaceTemplatesWithContainers().map((t) => t.file)
+		expect(files).toEqual(
+			expect.arrayContaining([
+				'sandboxtemplate-workspace.yaml',
+				'kind-overlay/patch-workspace-filesystem-pvc.yaml',
+			]),
+		)
+	})
+
+	it('carries `/entrypoint.sh prestop` as the preStop command on every one of them', () => {
+		const templates = workspaceTemplatesWithContainers()
+		expect(templates.length).toBeGreaterThan(0)
+		for (const { file, containers } of templates) {
+			const agent = containers.find((c) => c.name === 'agent')
+			expect(agent, `${file} has no container named agent`).toBeDefined()
+			const lifecycle = agent?.lifecycle as Record<string, unknown> | undefined
+			const exec = (lifecycle?.preStop as Record<string, unknown> | undefined)?.exec as
+				| Record<string, unknown>
+				| undefined
+			// The command, not just the presence of a hook: `sync -f` and the
+			// guarded signal are both in the verb this names, and a hook that
+			// ran anything else would be a different promise wearing the same
+			// key. An overlay that replaced `containers` without repeating
+			// this block is exactly what fails here.
+			expect(exec?.command, `${file} drops the preStop hook`).toEqual([
+				'/entrypoint.sh',
+				'prestop',
+			])
+		}
+	})
+})
+
+describe('every template that bounds the agent\'s drain fits that bound inside its own grace period (#484)', () => {
+	/**
+	 * THE PAIR. `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` bounds the WHOLE `SIGTERM`
+	 * handler — close the listener, quiesce every process the guest is
+	 * running, flush, `exit 0` — and it is that handler's only bound.
+	 * `terminationGracePeriodSeconds` is when the kubelet SIGKILLs the
+	 * container. So a deadline at or above the grace period is a bound that
+	 * can never be reached on its own terms: the kill lands first and the
+	 * drain it bounds is truncated instead of finished, which is the very
+	 * outcome the bound exists to replace, arrived at by setting it too
+	 * high. That is not hypothetical — `sandboxtemplate-task.yaml` shipped a
+	 * 5s grace period and no deadline at all, so its pods ran on the agent's
+	 * 15000ms default and were killed mid-drain.
+	 *
+	 * A `preStop` hook tightens the pair one more notch, and the reason is
+	 * the kubelet's teardown order: it runs the hook, waits for the hook to
+	 * return, and only THEN sends its own stop signal to pid 1. The hook's
+	 * wait is derived from the deadline as `ceil(deadline / 1000) + 2`
+	 * seconds, so a hook whose derived wait does not fit inside the grace
+	 * period ends while the agent is still draining and hands it a signal
+	 * the kubelet sent only because the hook gave up. Both rules are
+	 * asserted against the SHIPPED manifests rather than against literals,
+	 * because these numbers live in different files and that is how they
+	 * drift apart.
+	 *
+	 * WHAT IS SKIPPED, AND WHY SKIPPING IS NOT VACUOUS. The scan is keyed on
+	 * a container that sets the deadline to a literal value, so the two
+	 * `kind-overlay/` patches — which state `containers` in full and
+	 * deliberately omit it, because `env` is an array and a patch replaces
+	 * one wholesale — are out of scope by construction. Their pods run on
+	 * the agent's 15000ms default, and asserting that default against a grace
+	 * period the patch INHERITS from the base is the base template's own case
+	 * asserted a second time, not a fact about the overlay. Equally, a
+	 * template that ships no hook has no derived wait to check; the rule it
+	 * does have to satisfy is the deadline rule, and the case below says so
+	 * rather than computing something it cannot fail on. The two counts are
+	 * what keep "nothing in scope" from passing silently.
+	 */
+	function templatesThatBoundTheDrain(): {
+		file: string
+		graceSeconds: number
+		deadlineMs: number
+		hookWaitSeconds: number
+		hasHook: boolean
+	}[] {
+		const found: {
+			file: string
+			graceSeconds: number
+			deadlineMs: number
+			hookWaitSeconds: number
+			hasHook: boolean
+		}[] = []
+		for (const file of manifestFiles()) {
+			for (const doc of loadYaml(file)) {
+				const record = doc as Record<string, unknown>
+				if (record.kind !== 'SandboxTemplate') continue
+				const spec = record.spec as Record<string, unknown> | undefined
+				const podTemplate = spec?.podTemplate as Record<string, unknown> | undefined
+				const podSpec = podTemplate?.spec as Record<string, unknown> | undefined
+				const graceSeconds = podSpec?.terminationGracePeriodSeconds
+				if (typeof graceSeconds !== 'number') continue
+				const containers = (podSpec?.containers as Record<string, unknown>[] | undefined) ?? []
+				for (const container of containers) {
+					const entry = ((container.env as Record<string, unknown>[] | undefined) ?? []).find(
+						(e) => e.name === 'NAMZU_AGENT_SHUTDOWN_DEADLINE_MS',
+					)
+					if (entry === undefined) continue
+					const lifecycle = container.lifecycle as Record<string, unknown> | undefined
+					const exec = (lifecycle?.preStop as Record<string, unknown> | undefined)?.exec as
+						| Record<string, unknown>
+						| undefined
+					found.push({
+						file,
+						graceSeconds,
+						deadlineMs: Number(entry.value),
+						// The derivation `entrypoint.sh prestop` performs, in the
+						// whole seconds its wait is counted in. `entrypoint.test.ts`
+						// drives that script directly to prove the formula is this
+						// one; what is checked here is the manifests' own numbers.
+						hookWaitSeconds: Math.ceil(Number(entry.value) / 1000) + 2,
+						hasHook: exec?.command !== undefined,
+					})
+				}
+			}
+		}
+		return found
+	}
+
+	it('finds the templates that ship the pair, not nothing', () => {
+		const files = templatesThatBoundTheDrain().map((t) => t.file)
+		expect(files).toEqual(
+			expect.arrayContaining(['sandboxtemplate-task.yaml', 'sandboxtemplate-workspace.yaml']),
+		)
+	})
+
+	it('keeps the agent\'s own bound inside the grace period on every one of them', () => {
+		const templates = templatesThatBoundTheDrain()
+		expect(templates.length).toBeGreaterThan(0)
+		for (const { file, graceSeconds, deadlineMs } of templates) {
+			expect(Number.isFinite(deadlineMs), `${file} sets no numeric agent shutdown deadline`).toBe(true)
+			expect(deadlineMs, `${file} sets a non-positive agent shutdown deadline`).toBeGreaterThan(0)
+			// Strictly inside, not merely not-after: the kubelet still has to
+			// deliver the signal through the container's init and tear the
+			// container down once the handler exits, and a deadline that
+			// spends the whole countdown leaves none of that any room.
+			expect(
+				deadlineMs,
+				`${file}'s agent bound outlives its ${graceSeconds}s grace period, so the drain can only be truncated`,
+			).toBeLessThan(graceSeconds * 1000)
+		}
+	})
+
+	it('keeps the preStop hook\'s derived wait inside the grace period wherever a hook is shipped', () => {
+		const withHook = templatesThatBoundTheDrain().filter((t) => t.hasHook)
+		// A template that ships NO hook is not judged by this rule and is not
+		// made to pass it vacuously either: it has no wait of its own to
+		// derive, and the rule it does have to satisfy is the deadline one
+		// above. `sandboxtemplate-task.yaml` is that template — its derived
+		// wait is `ceil(3000 / 1000) + 2` = 5, the whole of its 5s grace
+		// period, and that is the reason its own comment gives for carrying no
+		// hook rather than a defect this case could catch.
+		expect(withHook.length).toBeGreaterThan(0)
+		for (const { file, graceSeconds, hookWaitSeconds } of withHook) {
+			expect(
+				hookWaitSeconds,
+				`${file}'s hook wait ends with its ${graceSeconds}s grace period instead of inside it`,
+			).toBeLessThan(graceSeconds)
+		}
 	})
 })
 

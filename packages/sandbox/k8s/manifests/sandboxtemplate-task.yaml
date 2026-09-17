@@ -40,13 +40,51 @@ spec:
       # runtimeclass.yaml. A wrong name here fails pod admission, not
       # `kubectl apply`.
       runtimeClassName: kata-qemu
-      # Short: the guest agent (packages/sandbox/agent/agent.cjs) now exits
-      # promptly on SIGTERM (closes its listener and calls `process.exit(0)`
-      # itself — see the module's SIGTERM handler) instead of riding out the
-      # default grace period, which used to be the only thing standing
-      # between a delete and a clean pod removal. Kept non-zero rather than
-      # 0 so an exec genuinely still in flight gets a moment rather than an
-      # immediate SIGKILL.
+      # Short, and HALF OF A PAIR with NAMZU_AGENT_SHUTDOWN_DEADLINE_MS in
+      # the env block below — the two numbers have to be read together, and
+      # the workspace template carries the same pair at its own scale.
+      #
+      # WHAT THE SIGNAL STARTS, because this comment used to describe a
+      # handler this repo no longer ships: the guest agent's SIGTERM handler
+      # (packages/sandbox/agent/agent.cjs's `terminate()`) closes its
+      # listener, QUIESCES every process the guest is running through the
+      # routine `quiesce` already uses — there is one implementation of that,
+      # not two — flushes the workspace, and exits 0. It is NOT the prompt
+      # `process.exit(0)`-on-signal it replaced, so the shortness of this
+      # grace period cannot be justified by an exit that costs nothing.
+      #
+      # THE ARITHMETIC, which is why this value had to change with it. The
+      # handler is bounded by NAMZU_AGENT_SHUTDOWN_DEADLINE_MS and by
+      # nothing else, and that bound runs INSIDE this countdown: the kubelet
+      # sends its stop signal to pid 1, the handler drains, and the kubelet
+      # SIGKILLs whatever is left when the countdown reaches zero. Until
+      # round-3 review of #484 this template set no deadline at all, so the
+      # agent's 15000ms default applied — three times this grace period —
+      # and a task pod with anything still running at stop time was killed
+      # mid-drain instead of ending on the `exit 0` the handler's own bound
+      # was supposed to reach. The deadline below is therefore 3000ms, 3s of
+      # these 5: the other 2s is the kubelet's — the time between the
+      # countdown starting and `tini` forwarding the signal, plus the
+      # container teardown once the handler exits. A diskless task pod (no
+      # `volumeClaimTemplates`, no NAMZU_WORKSPACE_DEVICE) has nothing
+      # persistent to flush, so what those 3s buy is a graceful stop of the
+      # guest's own processes rather than a durability wait. Kept non-zero
+      # rather than 0 so an exec genuinely still in flight gets a moment
+      # rather than an immediate SIGKILL.
+      #
+      # RAISING EITHER NUMBER ALONE BREAKS THE PAIR. A deadline at or above
+      # this grace period puts the handler's bound past the kubelet's kill,
+      # so the drain can only ever be truncated, and a grace period at or
+      # below the deadline does the same thing sooner.
+      #
+      # AND WHY THERE IS NO preStop HOOK HERE, which is the same arithmetic
+      # read the other way. The workspace template's hook derives its wait
+      # from the deadline as `ceil(deadline / 1000) + 2` seconds — for the
+      # 3000 below that is 5, the WHOLE of this grace period — so a hook on
+      # this template would spend the entire budget waiting for the drain
+      # and leave the kubelet no room after it. A template that wants the
+      # hook has to raise this grace period first, and a task sandbox has
+      # nothing for the hook's `sync -f` to flush in any case.
       terminationGracePeriodSeconds: 5
       containers:
         - name: agent
@@ -98,6 +136,16 @@ spec:
               value: '1024'
             - name: NAMZU_WORKSPACE_ROOT
               value: /workspace
+            # The other half of the pair above — see that comment for the
+            # arithmetic. It bounds the WHOLE SIGTERM handler: close the
+            # listener, quiesce every process the guest is running, flush,
+            # exit 0. It is set here rather than left at the agent's 15000
+            # default because that default outlives this pod's 5s grace
+            # period three times over, which makes the kubelet's SIGKILL —
+            # not the guest's own bound — the thing that decides when the
+            # drain ends.
+            - name: NAMZU_AGENT_SHUTDOWN_DEADLINE_MS
+              value: '3000'
             - name: NAMZU_AGENT_BIND_TOKEN
               # The pod's OWN uid, read off the downward API — NEVER a
               # value this manifest invents, and NEVER shared across pooled
@@ -120,7 +168,7 @@ spec:
               memory: 256Mi
             limits:
               memory: 512Mi
-      # No env beyond the four keys above is ever injected by a
+      # No env beyond the keys above is ever injected by a
       # SandboxClaim — that would force a cold start (see
       # envVarsInjectionPolicy's default `Disallowed`, unchanged here on
       # purpose) and defeats the sub-second warm-acquire this template's

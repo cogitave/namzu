@@ -79,6 +79,7 @@ import {
 	type AttachSessionRequest,
 	type ExecRequest,
 	ExecResultAccumulator,
+	type FlushRequest,
 	type GuestReplyIdentity,
 	type KillSessionRequest,
 	MIN_STREAM_HEARTBEAT_MS,
@@ -238,6 +239,9 @@ export type AgentRequest = (
 	| { readonly op: 'kill-session'; readonly body: KillSessionRequest }
 	| { readonly op: 'tcp-connect'; readonly body: TcpConnectRequest }
 	| { readonly op: 'quiesce'; readonly body: QuiesceRequest }
+	// Additive in exactly the way `quiesce` is, and sent only to a guest
+	// whose `healthz` named {@link FLUSH_FEATURE}.
+	| { readonly op: 'flush'; readonly body: FlushRequest }
 	| { readonly op: 'healthz' }
 ) &
 	// Intersected, not repeated per arm: the credential is orthogonal to

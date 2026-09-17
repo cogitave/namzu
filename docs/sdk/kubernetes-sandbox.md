@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Kubernetes sandboxes
-description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, persistent block-disk workspaces with suspend and resume, quiescing a guest before a capture, egress policy translation and verify-not-trust across every policy that selects the sandbox pods (including the no-network and public-internet kinds), and the default-on ingress check that refuses a sandbox whose agent port no applied policy closes.
+description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, persistent block-disk workspaces with suspend and resume, quiescing a guest before a capture, flushing its writes to the disk before its pod stops, egress policy translation and verify-not-trust across every policy that selects the sandbox pods (including the no-network and public-internet kinds), and the default-on ingress check that refuses a sandbox whose agent port no applied policy closes.
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
@@ -719,11 +719,65 @@ caller seeding a repository archive into a workspace needs:
 - **Parts go out sequentially, on fresh connections.** That is what the
   offset check assumes, and it keeps the guest's pre-auth connection pool
   holding one of this caller's sockets at a time.
+- **A reply of `ok` means the bytes are on the device.** The guest `fsync`s
+  the temp file and then the directory the rename wrote into, before it
+  answers. Without that, `ok` meant "the bytes are in the guest's page
+  cache", and a [`suspend()`](#resume-changes-the-address-and-the-token)
+  issued the moment it arrived could take the pod away over a write the
+  caller had been told had landed. One `fsync` per sequence, on the last
+  part, and it covers the whole file — `fsync` writes back the file, not the
+  descriptor, so the pages the earlier parts left dirty go with it.
 
-**The guest opts in.** `agent.cjs` advertises `features:
-['write-file-parts']` in its `healthz` reply, and the host sends a part only
-to a guest that did. An agent that predates the part protocol would ignore
-the `part` field and read that part's content as a whole file, so it is
+**A single-frame write takes the same path.** A body that fits one frame is
+no longer written over the target with `fs.writeFile`: it goes through a temp
+sibling, an `fsync`, a rename and a directory `fsync` exactly as a part
+sequence does. So every `writeFile`, of any size, is atomic at the target and
+durable when it answers — and a write that fails leaves the previous contents
+in place rather than a truncated file. The target's mode is carried onto the
+replacement, so rewriting an executable script leaves it executable. Both
+paths carry it: each reads the target's own bits and applies them to its temp
+file before the rename — a whole-body write on the one frame that is the
+whole write, a part sequence on its final part. A mode that cannot be applied
+**fails the write** (`ok: false`, nothing renamed) rather than replacing a
+file with one whose permissions differ from the file it replaced.
+
+**What replacing rather than overwriting changes.** A rename swaps a new
+inode in, so five things differ from the old in-place write. Four of them —
+hard links, ownership, a writable containing directory, and a temp sibling a
+concurrent walk can see — were already true of a part sequence, which a body
+above about 5.9 MiB of raw content gets and nothing smaller does (that is
+where one frame stops holding it; 8 MiB is the frame ceiling, not the body),
+and now reach writes of every size. The fifth is the single-frame path's
+alone:
+
+- **Hard links to the target are broken.** The other name keeps the old
+  inode and the old contents; only the path written to sees the new bytes.
+- **The replacement is owned by the agent's uid**, whatever the previous
+  file's owner was. Inside a workspace whose tree the entrypoint already
+  chowns to that uid this is a distinction without a difference; on a mount
+  brought in from elsewhere it is not.
+- **A very long basename can now fail with `ENAMETOOLONG`.** The temp
+  sibling's name is the target's plus 55 bytes, against a 255-byte limit on
+  ext4, so a basename over about 200 characters has nowhere to write the
+  temp file. Directory path length is unaffected. Only a single-frame body
+  is exposed to this one, before or after: a part sequence's temp file is
+  named by the HOST, which truncates the target's basename to 96 characters
+  before adding its own, so a long target name was never its problem.
+- **The CONTAINING DIRECTORY must be writable.** Overwriting an existing
+  writable file inside a directory the agent's uid cannot write to used to
+  succeed; creating a temp sibling there cannot, and the write now fails
+  when the temp file is opened. Write the file through `exec` if a mount
+  really has that shape.
+- **A temp sibling is briefly visible to a concurrent walk.** A
+  `.namzu-write-….part` entry exists beside the target for the duration of
+  the write, so a `listFiles` or `walkFiles` racing a `writeFile` can see
+  one. Only a part sequence behaved this way before — a body above about
+  5.9 MiB of raw content, the point at which a frame stops holding one.
+
+**The guest opts in.** `agent.cjs` advertises `write-file-parts` in its
+`healthz` `features` list, and the host sends a part only to a guest that
+did. An agent that predates the part protocol would ignore the `part` field
+and read that part's content as a whole file, so it is
 never sent one: an oversized body against such a guest still throws
 `AgentPreauthFrameTooLargeError` (exported from `@namzu/sandbox`) before
 dialing, and the message now names the missing feature as the reason. The
@@ -1486,17 +1540,17 @@ abandoned one, which is the trade: the leak is deliberate and named.
 
 ### Resume changes the address and the token
 
-`suspend()` merge-PATCHes `spec.operatingMode: Suspended` — that, and the
+`suspend()` asks the guest to [flush](#flushing-a-workspaces-writes-before-its-pod-stops)
+and then merge-PATCHes `spec.operatingMode: Suspended` — that, and the
 `sandbox.namzu.ai/operating-mode-changed-at` annotation the
 [inventory](#managing-workspaces-without-waking-them) reads, and nothing else
 — and resolves only once the pod has actually stopped, not
 once the patch is accepted. The controller deletes only the Pod and reconciles
 PVCs unconditionally on every pass, so the disk survives with the same UID. A
-guest whose PID 1 ignores `SIGTERM` rides out its
-`terminationGracePeriodSeconds` first, which is most of how long a suspend
-takes; the wait is bounded by `readyTimeoutMs`, and a pod that outlives it
-rejects with `KubernetesWorkspaceSuspendTimeoutError`, naming both that knob
-and the image behaviour.
+guest that takes its whole termination grace period to stop is most of how
+long a suspend takes; the wait is bounded by `readyTimeoutMs`, and a pod that
+outlives it rejects with `KubernetesWorkspaceSuspendTimeoutError`, naming both
+that knob and the image behaviour.
 
 Both of those failures leave the workspace in the state that is TRUE rather
 than the one that was asked for — see [a state is recorded when the cluster
@@ -1509,15 +1563,20 @@ confirms it](#a-state-is-recorded-when-the-cluster-confirms-it):
   workspace admitting no call — the pod is going away and a dial would hang —
   but does not record the suspend as finished. `suspended` reads `true`,
   `resume()` still works, and the next `suspend()` patches and waits again
-  rather than returning on a wait this one lost. A suspend is a promise that
-  the disk is quiesced, and a handle that made it on a draining guest would
-  let the next caller resume, or delete, a workspace mid-write.
+  rather than returning on a wait this one lost. A suspend is a promise about
+  the disk, and a handle that made it on a draining guest would let the next
+  caller resume, or delete, a workspace mid-write.
 
-A suspend is still the only thing that makes the disk quiet **after** the pod
-is gone, but it is no longer the only way to make it quiet at all:
-[`quiesce()`](#quiescing-the-guest-before-a-capture) stops every process in the
-guest while the agent is still there to read through, and
-`suspend({ quiesce: true })` does that before it patches.
+**The pod being gone is not the disk being written back.** It says only that
+nothing is writing any more; whether the guest's dirty pages reached the
+device depends on how the runtime tore the guest down, which nothing here
+controls or observes. Two verbs close that gap and they are different
+promises: [`quiesce()`](#quiescing-the-guest-before-a-capture) stops every
+process in the guest while the agent is still there to read through, and
+[`flush()`](#flushing-a-workspaces-writes-before-its-pod-stops) puts what has
+been written onto the device. `suspend()` runs the flush by default and the
+quiesce when asked (`suspend({ quiesce: true })`), in that order — quiesce
+first, so the flush covers what the processes it just stopped had written.
 
 **The pod is the only thing that wait believes.** Not the Sandbox's own
 `Suspended` condition — upstream's `sandbox_types.go` says the controller
@@ -1525,8 +1584,10 @@ guest while the agent is still there to read through, and
 stale Suspended condition may linger", which would make every suspend after
 the first return instantly on last time's answer. And not a `deletionTimestamp`
 either: that appears the moment the DELETE is accepted, while the guest is
-still running and still writing. Gone, or in a terminal phase — those are the
-two states that mean the disk is quiesced.
+still running and still writing. Gone, or in a terminal phase, is what ends
+this wait — and it is a fact about the pod, not about the disk: the writes are
+on the device because of the `flush` the suspend sent before the patch, never
+because the pod is gone.
 
 A call already in flight when `suspend()` is called is not cancelled: it fails
 at the transport when its pod goes away, rather than with the named suspended
@@ -2275,10 +2336,10 @@ the same variable the container worker has always read for the same limit, and
 the refusal names it. The default is unchanged, so an unconfigured deployment
 refuses exactly what it always refused.
 
-**The guest has to advertise it.** `healthz` answers with
-`features: ["write-file-parts", "execution-attach"]`, and a host that asks for
-a detachable command against an image without the second string is refused
-with `KubernetesExecutionAttachUnsupportedError` **before** the command is
+**The guest has to advertise it.** `healthz` answers a `features` list, and
+`write-file-parts` and `execution-attach` are two strings in it: a host that
+asks for a detachable command against an image without the second string is
+refused with `KubernetesExecutionAttachUnsupportedError` **before** the command is
 admitted — rather than running one whose output nothing keeps. The guest wire
 protocol version is unchanged: the caller-chosen `executionId`, the
 `retainOutput` flag and the `attach-execution` op are all additive, so no host
@@ -2440,9 +2501,13 @@ block at their defaults.
 | `NAMZU_AGENT_SESSION_LOG_BYTES` | `1048576` (1 MiB) | Retained output per session. The oldest bytes go first and the loss is reported as `droppedBytes`. |
 | `NAMZU_AGENT_SESSION_TERMINAL_TTL_MS` | `600000` (10 min) | How long an exited session's record and output outlive its program, so a redeployed host can still read the tail and the exit status. Expiry is checked when the next session op arrives rather than on a timer, so a record can outlast its window in a pod nobody is talking to — `NAMZU_AGENT_MAX_SESSIONS` is what bounds that. |
 
-**The guest has to advertise it.** `healthz` answers with `features: ["write-file-parts",
-"execution-attach", "stream-heartbeat", "read-file-stream", "sessions", "quiesce"]`, and a host asking for any
-session verb against an image without the last string is refused with
+**The guest has to advertise it.** `healthz` answers with a `features` list,
+whose full vocabulary is `["write-file-parts", "execution-attach",
+"stream-heartbeat", "read-file-stream", "sessions", "quiesce", "flush",
+"guest-boot-id"]` — and a given reply may carry fewer than these, because the
+list is what that guest can actually do: an image with no `sync` to run drops
+`flush` rather than advertising one it cannot perform. A host asking for any
+session verb against an image whose list has no `sessions` is refused with
 `KubernetesSessionsUnsupportedError` — **never** downgraded to a
 connection-bound terminal, which would look like it worked until the rollout it
 exists for. The guest wire protocol version is unchanged: `sessionId`,
@@ -2457,9 +2522,12 @@ other backend — the Firecracker tier included — is exactly what it was.
 ### Quiescing the guest before a capture
 
 `suspend()` is a promise that [the disk is quiesced](#the-disk-is-fixed-at-creation-and-must-be-block),
-and until this release that promise was only ever kept **after** the pod had
-stopped — by which time there is no agent left to read the disk through. A
-host that wanted a capture it could trust had nowhere to stand:
+and the pod stopping is not that promise being kept: [a pod being gone says
+only that nothing is writing any more](#resume-changes-the-address-and-the-token),
+never that the guest's dirty pages reached the device. What the wait never
+gave a caller was a moment at which nothing was writing **and** an agent was
+still there to read the disk through. A host that wanted a capture it could
+trust had nowhere to stand:
 
 - `suspend()` kills the terminals **this handle** returned and then patches. A
   terminal another host process opened, and an `exec` already running, are not
@@ -2634,6 +2702,262 @@ no cluster — but on a host that forbids unprivileged user namespaces those
 cases do not run at all, and the narrowed-scope cases that do run prove
 something weaker. Nothing here has been measured under Kata, where the guest
 kernel is the microVM's rather than the node's.
+
+### Flushing a workspace's writes before its pod stops
+
+A workspace's disk keeps whatever the guest kernel happened to write back.
+Until this release nothing in the agent or the backend ever called `sync`,
+`syncfs` or `fsync`, and the two moments that most need one are exactly the
+two where nothing was asked for:
+
+- **`suspend()`** patched the pod away and waited for it to stop. That wait
+  says nothing is writing any more; it does not say what was written arrived.
+- **A stop the cluster performs for its own reasons** — an eviction, a node
+  drain, a pod the controller replaces — gets no wait at all.
+
+Measured on a cluster with a VM runtime class (#484): the container was
+killed with exit 137 about a second into a stop whose grace period was five
+seconds, while `kill -TERM 1` from INSIDE the guest ended it cleanly with
+exit 0 in about a second. So the fix is deliberately **three independent
+paths to the same guarantee**, because any one of them can be the one that
+does not fire on a given runtime:
+
+1. **The host asks before it patches.** `suspend()` sends the guest a `flush`
+   op — `syncfs(2)` over the workspace mount — and waits for the reply before
+   the `Suspended` patch goes out. This is the only path that does not depend
+   on a signal being delivered and handled in time, and it is the one this
+   repo can test end to end.
+2. **The pod's `preStop` hook.** `sandboxtemplate-workspace.yaml` runs
+   `/entrypoint.sh prestop`, which the kubelet runs BEFORE the stop signal
+   and waits for: it `sync -f`s the workspace, signals pid 1, and waits for
+   it to go. A hook that only signalled and returned would race the kill.
+   **Its wait is derived from the agent's own bound**, not fixed:
+   `ceil(NAMZU_AGENT_SHUTDOWN_DEADLINE_MS / 1000) + 2` seconds, 17 as
+   shipped. The kubelet's order is run-the-hook, wait for it, then signal
+   pid 1 — so a hook that gave up first would hand the draining agent a
+   stop signal the kubelet only sent because the hook stopped waiting, and
+   would cap the drain at the hook's number rather than the one the manifest
+   advertises. Raising `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` raises the hook's
+   wait with it; `NAMZU_PRESTOP_WAIT_SECONDS` overrides the derivation
+   outright and no shipped manifest sets it.
+   **It checks what it is about to signal.** `kill` is a POSIX shell
+   builtin, so the script is the only place that check can live, and the pid
+   it defaults to is 1 — which outside the container's own pid namespace is
+   the machine's init. So the hook reads `/proc/<pid>/comm` first and
+   signals only a process named like the init this image starts (`tini`;
+   `NAMZU_PRESTOP_INIT_NAME` renames it for a derived image that boots a
+   different one). A pid it cannot read, or that names something else, is
+   left alone: the hook writes a line to stderr, skips the wait, and the
+   flush falls to the `sync -f` it already ran and to the agent's own
+   handler.
+   **Expect a `FailedPreStopHook` warning on every stop that worked**: the
+   hook ends pid 1 of the container's own pid namespace, and the kernel then
+   SIGKILLs everything left in that namespace, the hook included. The event
+   records the success path.
+3. **The agent's own `SIGTERM` handler.** It stops accepting connections,
+   stops every process the guest is running (the same routine
+   [`quiesce()`](#quiescing-the-guest-before-a-capture) uses — there is one
+   implementation of that, not two), runs `sync -f` over the workspace and
+   exits 0. Bounded by `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` (15000ms), because
+   a handler that waited forever would hold the pod open until the kubelet's
+   own `SIGKILL` — the failure it exists to replace. That deadline is the
+   ONLY bound: a second `SIGTERM` is logged and ignored rather than exiting
+   at once, because in a stopping pod a second stop signal is the ordinary
+   sequence (the kubelet's own, once the hook returns) and not an operator
+   asking for a shorter wait. A caller that wants the process gone
+   immediately has `SIGINT`, `SIGQUIT` and `SIGKILL`, none of which this
+   agent handles.
+
+**The guest advertises `flush` only if it can perform one.** The flush runs a
+program (`sync -f <workspace>`, which is `syncfs(2)` on the mount holding that
+path and needs no capability), and a derived image that strips coreutils has
+this code and no `sync`. Such a guest leaves `flush` out of its `healthz`
+features and answers `flush_unsupported` to an op sent anyway, so a host
+degrades through `onFlushUnsupported` instead of meeting a refusal it can
+never get past. A bare `sync` is **not** a fallback, in the agent or in the
+`preStop` hook: it flushes every mounted filesystem, and on a runtime that
+shares the host kernel that is the node's disks and every other pod's writes
+on them.
+
+```ts
+import {
+  type KubernetesFlushUnreachableError,
+  type KubernetesFlushUnsupportedError,
+  createKubernetesWorkspace,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+const workspace = await createKubernetesWorkspace(cluster, {
+  workspaceId: 'build-cache',
+  workingDirectory: '/workspace',
+  // Told when the guest's image cannot flush, just before the suspend goes
+  // ahead without one. The one gap that must not be silent.
+  onFlushUnsupported: (error: KubernetesFlushUnsupportedError) =>
+    console.warn('workspace suspended unflushed', error.message),
+  // And when the guest could not be ASKED — crashed, fenced, unreachable.
+  // The suspend still goes ahead: nothing will ever flush that guest.
+  onFlushUnreachable: (error: KubernetesFlushUnreachableError) =>
+    console.warn('workspace suspended without reaching its guest', error.message),
+})
+
+await workspace.exec('/bin/sh', ['-c', 'npm ci'])
+
+// A verb of its own, for the moments that are not a suspend: before a
+// snapshot somebody else takes, before a node is drained.
+const report = await workspace.flush({ timeoutMs: 20_000 })
+console.log(report.durationMs, report.workspace)
+
+// And what suspend() does by default. `flush: false` is the old behaviour.
+await workspace.suspend()
+```
+
+**What `writeFile` guarantees now.** A reply of `ok` means the bytes are on
+the device: the guest writes a temp sibling, `fsync`s it, renames it onto the
+target and `fsync`s the directory — see [writing a file larger than one
+frame](#writing-a-file-larger-than-one-frame). That covers what a caller
+wrote. It cannot cover what a COMMAND wrote: a compiler's output belongs to
+nobody here and no per-file `fsync` can reach it, which is what `flush()` —
+one `syncfs` over the whole mount — is for.
+
+**What a failed flush does.** One outcome stops a suspend, and it is a guest
+that ANSWERED and could not confirm (the `syncfs` failed, or ran past
+`NAMZU_AGENT_FLUSH_TIMEOUT_MS`): that rejects with
+`KubernetesFlushUnconfirmedError` and **no patch is sent**, so the pod is
+still running, the handle still serves calls, and the caller decides with the
+guest's own message in hand. Everything else is reported and the suspend goes
+ahead, because a flush is on by default and `suspend()` is the verb an
+operator reaches for when a workspace has gone wrong:
+
+- **An image that cannot flush** — one whose agent predates the op, or one
+  whose agent has the op and no `sync` to run it with. Refusing there would
+  make this release unable to suspend any workspace built from such an image.
+  `KubernetesWorkspaceOptions.onFlushUnsupported` is told.
+- **A guest that cannot be reached to be asked** — a crashed or OOM-killed
+  agent, a lost network, a rejected token, or an agent that has fenced
+  itself (`KubernetesAgentRetiringError`). None of those
+  become flushable by leaving the pod running, and refusing would take the
+  lifecycle verb away from exactly the wedged workspace it is needed for,
+  leaving it running and billing behind a bare `ECONNREFUSED`; `suspend()`
+  then `resume()` is also what a fenced agent's own error tells a caller to
+  do. `KubernetesWorkspaceOptions.onFlushUnreachable` is told, carrying the
+  transport's error as its `cause`. It is not free: the dial is retried for
+  the transport's connect-retry budget (30s) before the suspend goes on, so a
+  suspend against an unreachable guest takes that much longer than it used
+  to. A caller that would rather stop should `flush()` first and pass
+  `flush: false` only once that has succeeded.
+- **A guest already draining** answers `quiesce_in_progress`, which arrives
+  as `KubernetesFlushUnconfirmedError` and therefore STOPS the suspend. It
+  is the right class — that guest is running a flush of its own whose
+  outcome this call cannot see — but it means an eviction or a node drain
+  racing a `suspend()` can reject the suspend over a pod that is going away
+  anyway. Await the pod, or suspend under `flush: false`, which is what that
+  guest's own handler is already doing.
+
+**When the guest's default 10000ms is not enough**, `suspend({ flush: {
+timeoutMs } })` and `destroy({ flush: { timeoutMs } })` raise what the guest
+may spend inside the `syncfs`, exactly as `flush({ timeoutMs })` does. It is
+the same shape `quiesce` takes for `graceMs`, and without it a workspace
+holding gigabytes of dirty pages answers `flush_unconfirmed` on every default
+suspend with nothing to change but the image's environment.
+
+**One shape of `destroy()` can now reject that never used to.** A `destroy()`
+that joins a `suspend({ flush: false })` already in flight is refused with
+`KubernetesFlushUnconfirmedError('suspend_already_in_flight')` rather than
+joined, because a flush cannot be added to a transition that has already left
+`running` — the same rule `quiesce` has. It is the one case where a plain
+`destroy()` in a `finally` block is not a no-op, and `destroy({ flush: false
+})` is the way to join such a transition deliberately.
+
+As with `quiesce`,
+the standalone
+[`suspendKubernetesWorkspace`](#managing-workspaces-without-waking-them)
+never dials a guest, so it cannot flush at all: it refuses an explicit
+`flush: true` rather than ignoring it, and its own suspend promises nothing
+about unwritten pages.
+
+**The grace period, and the number that is not measured.** The hook and the
+handler both run inside the pod's `terminationGracePeriodSeconds`, which this
+release raises from **5 to 30** in `sandboxtemplate-workspace.yaml`. **That
+30 is a budget, not a measurement** — 15s for the agent's bounded drain and
+flush, the rest for the hook's own flush and the kubelet's overhead — and
+nothing in this repo can measure the right value, because it depends on the
+runtime class, the storage class and how much a workload leaves dirty.
+Measure it on your own cluster the way #484 measured the old one: delete a
+pod and compare its `deletionTimestamp` with the container's `finishedAt` and
+exit code. Two bounds hold it in place:
+
+- it must stay well below `readyTimeoutMs` (60000ms by default), which bounds
+  how long `suspend()` waits for the pod to be gone — a grace period at or
+  above that turns every suspend into
+  `KubernetesWorkspaceSuspendTimeoutError`;
+- on the runtime measured in #484 the stop lasted the WHOLE grace period even
+  though the container was gone within a second, so this value is roughly
+  what every `suspend()` will cost there, and a longer drain also widens the
+  window in which a restarting host [adopts a draining
+  pod](#a-resume-can-bring-the-current-pod-template-with-it).
+
+**The hook's own `sync -f` is inside that budget and is not bounded.** The
+grace-period countdown includes the preStop hook, and the hook syncs before
+it signals anything — deliberately, because that sync needs nothing of the
+agent and is the bulk of the work. So the real relationship is
+`sync-time + the agent's drain ≤ terminationGracePeriodSeconds`, and there
+is no POSIX-portable way to put a bound on the sync: `timeout(1)` is not
+POSIX and a backgrounded sync would defeat the point. A workspace that
+leaves gigabytes dirty can therefore spend the whole 30 s inside the hook
+and never reach the agent's 15 s drain before the kubelet's `SIGKILL`.
+**Measure the sync, not only the stop**, when you measure the grace period
+on your own cluster: time `sync -f` over a loaded workspace mount and add
+`NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` to it. That sum, not 30, is the number
+`terminationGracePeriodSeconds` has to clear.
+
+**The task template carries the same pair at a smaller scale, and no hook.**
+`sandboxtemplate-task.yaml` keeps its 5 s grace period and now sets
+`NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: 3000` inside it, so the agent's own bound
+expires 2 s before the kubelet's `SIGKILL` rather than 10 s after it. That
+was the defect the pair exists to make impossible: the handler is a bounded
+DRAIN (`terminate()` — close the listener, quiesce what is running, flush,
+`exit 0`), not the prompt `exit 0`-on-signal an earlier agent had, and a task
+pod with anything running at stop time was killed mid-drain on the agent's
+15000 ms default. Its 3 s bounds a graceful stop of the guest's own
+processes, not a durability wait — a diskless task pod has nothing
+persistent to flush. It carries no `preStop` hook, deliberately: the wait a
+hook derives from a 3000 ms deadline is `ceil(3000 / 1000) + 2` = 5 s, the
+entire grace period, which would leave the kubelet no room after the drain.
+Raise that grace period first if a task template ever needs one.
+
+An existing workspace does not pick the new value up: a `Sandbox` carries its
+own copy of `spec.podTemplate`, so this reaches workspaces created after the
+manifest is re-applied, or one resumed with
+[`refreshPodTemplate`](#a-resume-can-bring-the-current-pod-template-with-it).
+
+**What no test here can prove.** Three things, and they are the reason the
+mechanism is triplicated rather than chosen:
+
+- **The device.** `fsync` and `syncfs` returning is the strongest promise
+  userspace has. What a VM runtime does to a guest's page cache while tearing
+  the guest down is the runtime's business, and row 3 of the [acceptance
+  table](#acceptance-numbers) is where that gets measured.
+- **The `preStop` hook.** Whether a kubelet runs one at all under the runtime
+  class the shipped manifests name was never measured — the issue says so
+  itself. Its shell is tested (`k8s/__tests__/entrypoint.test.ts` drives the
+  `prestop` verb against a stand-in init with a shimmed `sync`); that it
+  fires in a stopping pod is not.
+- **The pathology itself.** The container killed a second into its grace
+  period was measured on a cluster this repo has no access to, under a
+  runtime class the shipped manifests do not even name. What IS proved here,
+  against the real agent: the handler drains and flushes before it exits and
+  exits at its bound regardless (`agent-sigterm.test.ts`), the guest fsyncs
+  the file and the directory before it answers `ok`
+  (`write-file-durability.test.ts`), and a 5 MiB `writeFile` followed
+  immediately by `suspend()`, the agent process then `SIGKILL`ed, survives a
+  `resume()` byte for byte (`workspace-flush.test.ts`).
 
 ### Egress covers a workspace too
 
@@ -3721,13 +4045,17 @@ read off `kubectl get runtimeclass`, never trusted from a file in this repo.
 
 To be gathered on a Kata cluster. Every row below is currently unfilled;
 the script named is what fills it in, and `k8s/README.md` says how to run
-each one.
+each one. Row 3 carries the measurement the
+[flush](#flushing-a-workspaces-writes-before-its-pod-stops) work needs and
+does not have: the shipped `terminationGracePeriodSeconds` is a budget
+nobody has measured, and this row's suspend duration is what says whether it
+is the right one.
 
 | Criterion | Script | Target | Measured | Date | Cluster |
 |---|---|---|---|---|---|
 | 1. The Sandbox contract passes against a live sandbox | `k8s/scripts/contract-suite.mjs` | every case passes | — | — | — |
 | 2. Warm-pool acquire latency | `k8s/scripts/acquire-p50.mjs` | p50 < 1s | — | — | — |
-| 3. A workspace's disk survives suspend/resume | `k8s/scripts/suspend-resume.mjs` | pass | — | — | — |
+| 3. A workspace's disk survives suspend/resume, including a 5 MiB `writeFile` and a 100 MiB command-written file issued immediately before it, with the suspend's own duration | `k8s/scripts/suspend-resume.mjs` | pass, and a suspend duration to compare with `terminationGracePeriodSeconds` | — | — | — |
 | 4. Small-file IO on the block PVC vs. host ext4 | `k8s/scripts/io-compare.mjs` | ≤ 1.5x | — | — | — |
 | 5. The guest is genuinely deprivileged | `k8s/scripts/capability-check.mjs` | pass | — | — | — |
 | 6. The agent port is shut to a pod that is not the host | `k8s/scripts/ingress-check.mjs` | the probe fails to connect | — | — | — |
