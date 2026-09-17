@@ -323,12 +323,17 @@ export interface FirecrackerTransportTiming {
 	 */
 	readonly terminatorMs?: number
 	/**
-	 * Terminator seen → the peer's socket close. The host resolves an exec
-	 * only on that close, so time a relay in front of the guest spends
-	 * holding the FIN — buffering it, or waiting for its own idle timer —
-	 * lands here and nowhere else in this object. See
-	 * {@link POST_RESPONSE_CLOSE_TIMEOUT_MS} for what happens when the close
-	 * never comes at all.
+	 * Terminator seen → the peer's socket close — the peer's OWN close, and
+	 * never one this transport caused itself. Time a relay in front of the
+	 * guest spends holding the FIN (buffering it, or waiting for its own idle
+	 * timer) lands here and nowhere else in this object, for as long as it
+	 * lands UNDER {@link POST_RESPONSE_CLOSE_TIMEOUT_MS}.
+	 *
+	 * A hold at or past that bound does not appear here at all, and the field
+	 * is ABSENT from the report: the call rejects on the guard, and a constant
+	 * this transport chose is not a duration the peer took. A host diagnosing
+	 * a slow close therefore reads this field when the call resolved, and the
+	 * named rejection when it did not.
 	 */
 	readonly peerCloseMs?: number
 }
@@ -537,18 +542,22 @@ const DEFAULT_EXECUTION_TIMEOUT_MS = 5 * 60_000
 // terminating command can still deliver its terminal frame and output tail.
 const EXECUTION_TRANSPORT_GRACE_MS = 10_000
 /**
- * How long a reply that has already TERMINATED (an exec's zero-length
- * terminator frame, or a control reply) waits for the peer's own close
- * before this transport gives up on it.
+ * How long a reply that has already TERMINATED waits for the peer's own close
+ * before this transport gives up on it. Three callers, all of them read-reply
+ * loops that resolve on that close: {@link VsockAgentTransport.request} (one
+ * control or file reply), {@link VsockAgentTransport.executeRaw} (an exec's
+ * zero-length terminator frame) and `streamFramedRequest` (a
+ * `read-file-stream`'s end frame).
  *
  * **A reject-only guard, and deliberately not a budget to spend.** It can
  * only turn a socket whose peer never closes into a named failure
- * (`exec peer did not close after terminator`); it can never resolve a call,
- * because every resolution path in this file requires the peer's `close`
- * event. Raising it therefore buys no slow success — it delays a diagnosis —
- * and lowering it fails a peer that was merely slow to close. It is not a
- * wait any caller is expected to pay: an exec that resolves has paid a real
- * close, and how long the peer took to deliver it is reported as
+ * (`exec peer did not close after terminator`, or the `stream`/`control`
+ * wordings); it can never resolve a call, because every resolution path in
+ * this file requires the peer's `close` event. Raising it therefore buys no
+ * slow success — it delays a diagnosis — and lowering it fails a peer that
+ * was merely slow to close. It is not a wait any caller is expected to pay:
+ * a call that resolves has paid a real close, and how long the peer took to
+ * deliver it is reported as
  * {@link FirecrackerTransportTiming.peerCloseMs}.
  *
  * **The contract this states for a host-owned relay.** After writing the
@@ -556,12 +565,12 @@ const EXECUTION_TRANSPORT_GRACE_MS = 10_000
  * transport resolves the call on the resulting `close`. A relay between the
  * guest and this process that forwards the payload but holds the FIN (its
  * own idle timer, a full-duplex buffering policy, a proxy that waits for the
- * guest process to exit) transfers that wait onto every exec, and it lands in
- * `peerCloseMs`. A relay that forwards the FIN promptly costs the guest's
- * RTT and nothing else. A deployment whose execs pay a near-constant
- * sub-second cost with no phase in this breakdown to show for it is spending
- * it OUTSIDE this package — in that relay, or in the network between it and
- * the guest — and this breakdown is what says so.
+ * guest process to exit) transfers that wait onto every call: under this
+ * bound it is reported as `peerCloseMs`, and at or past it the call REJECTS
+ * by name, with no `peerCloseMs` in the report — the number a host would
+ * otherwise be reading is one this transport chose, and it does not supply
+ * it. A relay that forwards the FIN promptly costs the guest's RTT and
+ * nothing else.
  */
 const POST_RESPONSE_CLOSE_TIMEOUT_MS = 1_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -1520,6 +1529,18 @@ export class VsockAgentTransport {
 			})
 			socket.once('error', (err) => finish(err))
 			socket.once('close', () => {
+				// A close that arrives with this call ALREADY settled is one
+				// this transport caused itself: `finish` is the only writer of
+				// `settled` and its next statement is `socket.destroy()`, so
+				// the guard timer, the observation timer and the caller's abort
+				// each destroy the socket and then react to the `close` that
+				// destroy emits. Crediting the peer for it would report
+				// {@link POST_RESPONSE_CLOSE_TIMEOUT_MS} — a constant this
+				// transport chose — as a duration the peer took, in exactly the
+				// case a host is reading the field to diagnose. The same rule
+				// `readFileFrames` applies in the same position: an end this
+				// side already reached is not news.
+				if (settled) return
 				if (terminated && terminalResult) {
 					if (ledger !== undefined && terminatorAt > 0) {
 						ledger.peerCloseMs = Date.now() - terminatorAt

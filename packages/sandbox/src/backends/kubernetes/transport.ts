@@ -530,6 +530,13 @@ export interface KubernetesTransportOptions
 	 * Fires once per completed `exec()` call (success or failure) with
 	 * the four phase durations above. The payload is exactly those four
 	 * numbers — never the token, never a command, argv, or output.
+	 *
+	 * THIS is the timing hook for this tier. The base options also carry
+	 * `VsockTransportOptions.onExecTiming`, which is inherited here and is
+	 * INERT: it belongs to the firecracker tier, whose `exec()` reports into
+	 * it, while this transport drives the shared wire through
+	 * `executeStreamed` and never calls that `exec()`. Setting it on a
+	 * Kubernetes transport starts nothing.
 	 */
 	readonly onTiming?: (timing: KubernetesTransportTiming) => void
 	/**

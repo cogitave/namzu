@@ -19,9 +19,11 @@ filled it.
 The hook reports one `exec()`'s wall clock as named phases — `dialMs`,
 `reserveMs`, `executeMs` and `drainMs`, the four the Kubernetes tier's
 `onTiming` already reports, plus `firstFrameMs`, `terminatorMs` and
-`peerCloseMs` for the intervals inside the execute round trip. A phase that was
-never reached is absent rather than zero. The payload is durations only: never
-the agent token, a command, its arguments, or any output.
+`peerCloseMs` for the intervals inside the execute round trip. The three
+sub-phases are absent, rather than zero, when their phase was never reached; the
+four base phases are always present and use `0` for "this never happened" (a
+call that failed at the dial reports `executeMs: 0`). The payload is durations
+only: never the agent token, a command, its arguments, or any output.
 
 One behaviour change worth naming, because it is the reason the hook is useful:
 the transport's execution adapter and its `RemoteExecutionController` are now
@@ -34,5 +36,12 @@ tier's own transport has been arranged this way since it was written.
 `POST_RESPONSE_CLOSE_TIMEOUT_MS` (1 s) is unchanged and its behaviour is
 unchanged; it is now documented as what it always was — a reject-only guard
 that fails a socket whose peer never closes, never a wait a successful call
-pays. If your host puts a relay between this process and the guest, the new
-`peerCloseMs` is the number that tells you whether that relay holds the FIN.
+pays. If your host puts a relay between this process and the guest, `peerCloseMs`
+is the number that tells you whether that relay holds the FIN: a hold **under**
+a second is reported there on a call that resolved, and a hold **at or past**
+a second fails the call with `vsock transport: exec peer did not close after
+terminator`, reporting no `peerCloseMs` at all — the close in that case is the
+one this transport causes itself when the guard fires, and its own constant is
+not published as an elapsed time. So a resolved exec's fixed cost cannot be
+hiding in that window: whichever way the window goes, it is either reported or
+it is a rejection, and never a silent second.

@@ -96,14 +96,17 @@ const provider = createSandboxProvider({
 
 The four base phases — `dialMs`, `reserveMs`, `executeMs`, `drainMs` — carry
 the same names and the same meanings they carry on the Kubernetes tier, whose
-`onTiming` reports them for a transport built on this one. `firstFrameMs`,
-`terminatorMs` and `peerCloseMs` are this tier's own, because only this tier
-owns the socket that carries the execute round trip; they are intervals inside
-`executeMs`, all measured from the moment the request was written. A phase that
-was never reached is **absent** rather than zero: a call that failed at the
-dial reports four numbers, not seven, and a dial that never connected
-contributes nothing to `dialMs` either — `onDialAttempt` paired with `onDial`
-is what says a connection was never made.
+`onTiming` reports them for a transport built on this one. (The two hooks are
+not interchangeable: a Kubernetes transport inherits `onExecTiming` from the
+shared options and never fires it, because it drives that shared transport
+through `executeStreamed` rather than through `exec()`. Set `onTiming` there.)
+`firstFrameMs`, `terminatorMs` and `peerCloseMs` are this tier's own, because
+only this tier owns the socket that carries the execute round trip; they are
+intervals inside `executeMs`, all measured from the moment the request was
+written. A phase that was never reached is **absent** rather than zero: a call
+that failed at the dial reports four numbers, not seven, and a dial that never
+connected contributes nothing to `dialMs` either — `onDialAttempt` paired with
+`onDial` is what says a connection was never made.
 
 Three things the breakdown is careful about, all of them stated on the type:
 
@@ -139,17 +142,33 @@ a healthy path — so the remaining places a fixed wait can live are the guest
 (inside `firstFrameMs`, if it waits before spawning), the network, and a
 **relay between the guest and this process**.
 
-That last one is the case worth naming, because it is the one a host owns.
-After writing the terminator frame the guest half-closes; this transport
-resolves the call on that close. A relay that forwards payload but holds the
-FIN — its own idle timer, a full-duplex buffering policy, a proxy waiting for
-the guest process to exit — transfers that wait onto every exec, where
-`peerCloseMs` reports it. A relay that forwards the FIN promptly costs the
-guest's round trip and nothing else. When the close never comes at all the
-transport fails the call after one second with `vsock transport: exec peer did
-not close after terminator`: that timer is a reject-only guard, not a budget a
-slow success can spend, and it is deliberately not a knob. Raising it delays a
-diagnosis rather than buying a result.
+The relay is the case worth naming, because it is the one a host owns. After
+writing the terminator frame the guest half-closes; this transport resolves the
+call on that close. A relay that forwards payload but holds the FIN — its own
+idle timer, a full-duplex buffering policy, a proxy waiting for the guest
+process to exit — transfers that wait onto every exec, and a hold **under** one
+second is reported as `peerCloseMs`, which is the field's whole purpose.
+
+**A hold at or past one second is not a candidate for a cost this size, and the
+arithmetic that excludes it is worth following.** The close phase is bounded by
+`POST_RESPONSE_CLOSE_TIMEOUT_MS`: a hold of a second or more does not make an
+exec slow, it makes it **fail**, with `vsock transport: exec peer did not close
+after terminator`. So a deployment whose execs RESOLVE has already proved that
+window was under a second, and a fixed cost of ~1 s cannot be hiding in it — an
+exec that pays the guard does not return a result to pay it from. And when that
+window is reached, no number is reported at all: the field is absent rather
+than a `peerCloseMs` of ~1000, because the close that arrives there is the one
+this transport causes when the guard fires, and reporting its own constant as
+an elapsed time would be the fabrication the field exists to prevent. The
+instrumentation therefore supports the same conclusion the issue reached by
+reading the code: a resolved exec's ~1 s is spent somewhere this transport does
+not time, and the phases it does report are what rule out the places it does.
+
+Two things follow for a host. Instrument both sides of `provider.create()` —
+acquire is not an exec. And read the pair, not the number: a `peerCloseMs` near
+zero on a resolved call says the relay is not the problem, and a named
+`did not close after terminator` rejection says the relay is holding the FIN
+past the guard, not that the guest was slow.
 
 ## What this tier does not have
 

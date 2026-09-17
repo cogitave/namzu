@@ -668,6 +668,47 @@ describe.skipIf(IS_WINDOWS)('per-phase exec timing', () => {
 		expect(timing.dialMs).toBe(0)
 	})
 
+	it('rejects a peer that holds the FIN past the guard, reporting no close phase', async () => {
+		// The peer answers a complete exec — terminal result, then terminator —
+		// and never closes. This is the case the breakdown exists to diagnose,
+		// and the one where crediting the socket's `close` event is a lie: the
+		// close that eventually arrives is the one THIS transport causes when
+		// its own guard fires, so a `peerCloseMs` of ~1000 would report a
+		// constant the transport chose as a duration the peer took. The host
+		// reading that number would conclude its relay closed after a second,
+		// when the relay never closed at all.
+		server = await startExecutionPeer((socket) => {
+			socket.write(
+				Buffer.concat([
+					__framing.frame(
+						JSON.stringify({ type: 'result', exitCode: 0, timedOut: false, durationMs: 1 }),
+					),
+					__framing.frame(''),
+				]),
+			)
+		})
+		const timings: FirecrackerTransportTiming[] = []
+		const transport = new VsockAgentTransport(
+			{ kind: 'unix', path: sockPath },
+			{ onExecTiming: (timing) => timings.push(timing) },
+		)
+
+		await expect(transport.exec('/bin/true')).rejects.toThrow(/did not close after terminator/)
+
+		expect(timings).toHaveLength(1)
+		const timing = timings[0] as FirecrackerTransportTiming
+		// The terminator WAS reached, so its phases are reported; the close was
+		// NOT, so `peerCloseMs` is absent — the key list is the assertion.
+		expect(Object.keys(timing).sort()).toEqual([
+			'dialMs',
+			'drainMs',
+			'executeMs',
+			'firstFrameMs',
+			'reserveMs',
+			'terminatorMs',
+		])
+	})
+
 	it('reports each of two concurrent execs separately and completely', async () => {
 		server = await startAgentServer(agent.handleConnection)
 		const timings: FirecrackerTransportTiming[] = []
@@ -683,12 +724,13 @@ describe.skipIf(IS_WINDOWS)('per-phase exec timing', () => {
 		expect(first.stdout).toBe('first')
 		expect(second.stdout).toBe('second')
 
-		// What is observable from here: one complete, internally consistent
-		// report per call, for a pair in flight at the same time. The
-		// isolation itself — a ledger per call rather than a field on the
-		// transport — is not falsifiable from outside; the code states why it
-		// is arranged that way, and the two execs have to be served
-		// concurrently at all for this to pass.
+		// What this can say: two execs are served concurrently at all, and
+		// each produces one complete, internally consistent report. What it
+		// cannot say is that the two reports are kept apart — their commands
+		// are not recoverable from the numbers, so a swap would go unnoticed,
+		// and an implementation that serialized the two calls would pass this
+		// test while sharing one accumulator. The isolation is a property of
+		// the arrangement, which the code states and this test cannot falsify.
 		expect(timings).toHaveLength(2)
 		for (const timing of timings) {
 			expect(Object.keys(timing).sort()).toEqual([
