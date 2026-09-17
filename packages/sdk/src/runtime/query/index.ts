@@ -146,6 +146,7 @@ import {
 	planCrashResume,
 	planPendingResume,
 	recoverCompletedCalls,
+	supersededByRecovery,
 } from './resume-pending.js'
 import {
 	acquireSandbox,
@@ -2889,18 +2890,31 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			// resuming IS its decision being carried out (`answeredParkId`, set
 			// on the restore path). Resolving only the first left a finished run
 			// reporting `awaiting-decision` forever.
+			//
+			// What is RECORDED depends on which of the two produced the plan. A
+			// recovery plan means the batch was answered by the crash path
+			// rather than by the decision — the calls the human was asked about
+			// were closed with explicitly unknown outcomes — so the human's
+			// answer must not be written down as what ended the park. The park is
+			// still resolved: the question is moot, and leaving it outstanding
+			// would have `findPendingCheckpoint` serve it as the newest
+			// outstanding park, so a host resuming it would rewind this run to
+			// the checkpoint the crash happened on and re-execute a batch the run
+			// has long since moved past.
 			const resolvedCheckpointId = pendingResume?.checkpointId ?? answeredParkId
-			if (params.pendingDecision && resolvedCheckpointId) {
-				await checkpointMgr
-					.unpark(resolvedCheckpointId, params.pendingDecision)
-					.catch((err: unknown) => {
-						ctx.log.error('Applied a pending decision but failed to clear the park', {
-							[NAMZU.RUN_ID]: ctx.runId,
-							'namzu.checkpoint.id': resolvedCheckpointId,
-							'exception.message': err instanceof Error ? err.message : String(err),
-						})
-						return null
+			const recordedDecision =
+				pendingResume?.source === 'recovery' && params.pendingDecision
+					? supersededByRecovery(params.pendingDecision)
+					: params.pendingDecision
+			if (recordedDecision && resolvedCheckpointId) {
+				await checkpointMgr.unpark(resolvedCheckpointId, recordedDecision).catch((err: unknown) => {
+					ctx.log.error('Applied a pending decision but failed to clear the park', {
+						[NAMZU.RUN_ID]: ctx.runId,
+						'namzu.checkpoint.id': resolvedCheckpointId,
+						'exception.message': err instanceof Error ? err.message : String(err),
 					})
+					return null
+				})
 			}
 
 			yield* iterationOrchestrator.runLoop()

@@ -32,6 +32,19 @@ import { isPauseForCall } from './tool-pause.js'
  */
 export interface PendingResumePlan {
 	/**
+	 * What produced this plan, and therefore whether it carries the human's
+	 * decision out or stands in for it.
+	 *
+	 * `'decision'` — the answer, applied to the calls the park was about.
+	 * `'recovery'` — the checkpoint's recorded and explicitly unknown outcomes,
+	 * replayed so that nothing runs twice. The caller resolves the park in both
+	 * cases — recovery answering the batch is what makes the question moot —
+	 * but only the first may write the human's decision down as what ended it.
+	 * Recording a decision recovery stood in for says the run carried out
+	 * something it did not.
+	 */
+	readonly source: 'decision' | 'recovery'
+	/**
 	 * The checkpoint the park was recorded on, so the caller can clear it
 	 * once the decision has actually been applied. Leaving it outstanding
 	 * makes an approval queue re-serve a destructive call that already ran.
@@ -122,12 +135,38 @@ export function planPendingResume(
 	if (!denials) return null
 
 	return {
+		source: 'decision',
 		checkpointId: checkpoint.id,
 		assistant,
 		response: synthesizeResponse(assistant),
 		denials,
 		reviewedCalls: pending.request.toolCalls,
 		modifiedCallIds: modifiedCallIds(decision),
+	}
+}
+
+/**
+ * What to record on a park whose batch crash recovery answered instead of the
+ * decision.
+ *
+ * Neither half of the obvious record is honest. Writing the human's decision
+ * down would say the run carried it out, when the calls it named were answered
+ * with an explicitly UNKNOWN outcome and nothing they asked for happened —
+ * `planPendingResume` refused that decision in the first place, which is why
+ * recovery spoke at all. Writing nothing would lose the fact that somebody
+ * answered, and leave `pending.decision` meaning two different things.
+ *
+ * The vocabulary already has one shape for "this park ended and no decision
+ * was carried out": `CheckpointManager.expire` records a `pause` carrying the
+ * reason, and says why it is not an `abort` ("that would read as somebody
+ * having refused it"). This is that shape, with a reason naming what actually
+ * ended the park — and which decision it superseded, so the answer a human
+ * gave is still on the record.
+ */
+export function supersededByRecovery(decision: HITLResumeDecision): HITLResumeDecision {
+	return {
+		action: 'pause',
+		reason: `Crash recovery answered the tool batch this park asked about, so the decision that was given (${decision.action}) was not applied.`,
 	}
 }
 
@@ -216,6 +255,7 @@ function planQuestionResume(
 	}
 
 	return {
+		source: 'decision',
 		checkpointId: checkpoint.id,
 		assistant,
 		response: synthesizeResponse(assistant),
@@ -261,6 +301,10 @@ export function planCrashResume(
 	})
 
 	return {
+		// Not the human's decision — recovery's own reading of the batch. The
+		// caller resolves the park either way and must not write the decision
+		// down as what ended it; see {@link supersededByRecovery}.
+		source: 'recovery',
 		checkpointId: checkpoint.id,
 		assistant,
 		response: synthesizeResponse(assistant),

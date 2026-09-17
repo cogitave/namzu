@@ -82,3 +82,44 @@ runs, while passing every time on its own. It now runs under a fake clock
 advanced exactly once, by exactly the deadline, and reads the resolver's
 aborted signal before it waits on anything. The assertions are the same
 ones, and none of them rests on a wall clock.
+
+**Two more park defects, fixed on the same branch the same day, so this
+changeset covers SIX fixes and all six are `patch` for the same reasons.**
+The four above are the ones the branch opened with; these are the two the
+tests that pinned them reported.
+
+**An answered park is now resolved when the answer arrives across a
+restart.** A run that paused at an iteration checkpoint, was resumed with
+`{action: 'continue'}` and then COMPLETED kept the park outstanding on the
+record forever: `planPendingResume` applies a decision only to a
+`tool_review` or `user_question` park — an `iteration_checkpoint` park leaves
+no unanswered tool call for a decision to reach — so the unpark never ran for
+it. That was observable through two exports. `findPendingCheckpoint` (and
+`CheckpointManager.findPending()`) kept returning a question nobody was
+waiting on, and a second `resumeRun` of the finished run was refused with
+`reason: 'awaiting-decision'` for a decision already taken. With
+`runConfig.pruneKeepLast` set there was a third consequence, and it was the
+worst one: `prune` skips an unresolved park, so the row could no longer be
+collected by anything. Such a park is now resolved the way every other arm
+resolves one — the record stays, the request stays on it, and only its
+`pending` state ends. A `pause` is still not an answer: it holds the park, so
+a resume that answers `pause` leaves it standing, exactly as the live path
+does.
+
+**A park whose batch crash recovery answered no longer records the human's
+decision as its answer.** When the parked call's outcome could not be
+established, recovery answered the batch with explicitly unknown outcomes and
+the park was still written down as decided by whatever the human had said —
+`{action: 'continue'}` on a park whose calls were never executed and never
+approved. It is resolved either way, because leaving it outstanding would let
+`findPendingCheckpoint` serve it as the newest park and a resume would then
+rewind the run to the checkpoint the crash happened on. What changed is what
+the record SAYS: it now carries `{action: 'pause'}` with a reason naming what
+ended it, which is the shape `CheckpointManager.expire` already uses for "this
+park ended and no decision was carried out" — `abort` was rejected there for
+reading as somebody having refused it, and the same holds here. A consumer
+that reads `pending.decision` as the audit of who approved what sees the
+difference, so it is stated: a `pause` with a reason about crash recovery
+means the answer you gave was recorded on the park but not applied by it. The
+action the human took is still named in that reason. No export was added or
+removed, no union widened or narrowed, no default changed.
