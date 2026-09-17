@@ -132,6 +132,39 @@ export function planPendingResume(
 }
 
 /**
+ * Whether the ordinary continue path carries `decision` out for a park that
+ * has no batch of tool calls to apply it to.
+ *
+ * {@link planPendingResume} covers the two arms whose decision has to REACH
+ * something: the calls a `tool_review` park is about, and the tool a
+ * `user_question` park is inside. An `iteration_checkpoint` park has neither,
+ * so it produces no plan — and "no plan" must not be read as "nothing
+ * happened". For this arm the decision IS the run's next move, and the loop
+ * that resumes carries it out by continuing; the park it answered therefore
+ * has to be resolved exactly as the other arms' are.
+ *
+ * The set is `handleHITLDecision`'s continue arm, deliberately: these are the
+ * decisions a resumed run carries out by going on. `pause` is not among them
+ * — it is "hold this, I am not answering now", which the live path leaves the
+ * park standing for, and a resumed run does not honour it either. Neither are
+ * `abort` and `reject_plan`: nothing on the resume path acts on them, so
+ * recording one as the park's answer would say the run carried out something
+ * it did not.
+ */
+export function isCarriedOutByContinue(decision: HITLResumeDecision): boolean {
+	switch (decision.action) {
+		case 'continue':
+		case 'approve_tools':
+		case 'modify_tools':
+		case 'reject_tools':
+		case 'answer_question':
+			return true
+		default:
+			return false
+	}
+}
+
+/**
  * Resume a batch that parked inside a tool asking the user a question.
  *
  * The re-entry contract, stated plainly: the batch is re-executed, the

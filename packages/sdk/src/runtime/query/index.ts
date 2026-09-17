@@ -142,6 +142,7 @@ import {
 	type PendingResumePlan,
 	applyPendingResume,
 	interruptedToolCalls,
+	isCarriedOutByContinue,
 	planCrashResume,
 	planPendingResume,
 	recoverCompletedCalls,
@@ -2258,6 +2259,11 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		// Decided during checkpoint restore, executed after the sandbox
 		// exists — the approved tools may well need it.
 		let pendingResume: PendingResumePlan | null = null
+		/**
+		 * The cadence park this resume answered, when the decision is one the
+		 * ordinary continue path carries out. See the restore path below.
+		 */
+		let answeredParkId: CheckpointId | undefined
 		/** Tool results recovered from the transcript; see the restore path. */
 		let recoveredResults: ReadonlyMap<string, { result: string; isError: boolean }> = new Map()
 		let emergencyManager: EmergencySaveManager | undefined
@@ -2412,6 +2418,38 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 					params.pendingDecision && projectedCheckpoint.pending
 						? planPendingResume(projectedCheckpoint, params.pendingDecision, ctx.log)
 						: null
+
+				// The park this resume ANSWERS even though there is no plan to
+				// carry the decision out through.
+				//
+				// `planPendingResume` covers the two arms whose decision has to
+				// reach something — the calls a `tool_review` park is about, the
+				// tool a `user_question` park is inside. An `iteration_checkpoint`
+				// park has neither, so it returns no plan, and the unpark further
+				// down — which ran only when there was one — never fired for it.
+				// A run that parked on the cadence, was resumed with
+				// `{action: 'continue'}` and went on to finish its work therefore
+				// kept reporting an OUTSTANDING park to `findPendingCheckpoint`,
+				// so a second resume of the finished run was refused with
+				// `awaiting-decision` for a decision already taken, and because
+				// `prune` skips an unresolved park the row could no longer be
+				// collected by anything.
+				//
+				// The decision IS carried out here — continuing is exactly what
+				// the loop below does — so the park is resolved at the same point
+				// and with the same meaning "resolved" carries everywhere else:
+				// the record stays, and only its pending state ends. A `pause`
+				// is deliberately not resolved: it holds the park rather than
+				// answering it, which is how the live path treats it too.
+				const parked = projectedCheckpoint.pending
+				answeredParkId =
+					params.pendingDecision &&
+					isCarriedOutByContinue(params.pendingDecision) &&
+					parked !== undefined &&
+					parked.resolvedAt === undefined &&
+					parked.request.type === 'iteration_checkpoint'
+						? projectedCheckpoint.id
+						: undefined
 
 				// Recover completed observations and explicitly unknown outcomes.
 				// A recorded start is not proof that its external effect failed.
@@ -2836,25 +2874,33 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 				await applyPendingResume(pendingResume, ctx.runMgr, toolExecutor, recoveredResults)
 				yield* eventTranslator.drainPending()
+			}
 
-				// The decision has now actually been carried out, so the park
-				// is no longer outstanding. Without this the checkpoint keeps
-				// reporting `pending` with no `resolvedAt`, and an approval
-				// queue re-serves a destructive call that already ran — which
-				// defeats the entire point of recording the park.
-				const resolvedCheckpointId = pendingResume.checkpointId
-				if (params.pendingDecision) {
-					await checkpointMgr
-						.unpark(resolvedCheckpointId, params.pendingDecision)
-						.catch((err: unknown) => {
-							ctx.log.error('Applied a pending decision but failed to clear the park', {
-								[NAMZU.RUN_ID]: ctx.runId,
-								'namzu.checkpoint.id': resolvedCheckpointId,
-								'exception.message': err instanceof Error ? err.message : String(err),
-							})
-							return null
+			// The decision has now actually been carried out, so the park it
+			// answered is no longer outstanding. Without this the checkpoint
+			// keeps reporting `pending` with no `resolvedAt`, and an approval
+			// queue re-serves a call that already ran — or a question already
+			// answered — which defeats the entire point of recording the park.
+			//
+			// Two arms reach this point, and being outside `if (pendingResume)`
+			// is what the second one needs. One is a plan whose decision was
+			// applied to a batch above. The other is the cadence arm, for which
+			// `planPendingResume` rightly produces no plan because the loop
+			// resuming IS its decision being carried out (`answeredParkId`, set
+			// on the restore path). Resolving only the first left a finished run
+			// reporting `awaiting-decision` forever.
+			const resolvedCheckpointId = pendingResume?.checkpointId ?? answeredParkId
+			if (params.pendingDecision && resolvedCheckpointId) {
+				await checkpointMgr
+					.unpark(resolvedCheckpointId, params.pendingDecision)
+					.catch((err: unknown) => {
+						ctx.log.error('Applied a pending decision but failed to clear the park', {
+							[NAMZU.RUN_ID]: ctx.runId,
+							'namzu.checkpoint.id': resolvedCheckpointId,
+							'exception.message': err instanceof Error ? err.message : String(err),
 						})
-				}
+						return null
+					})
 			}
 
 			yield* iterationOrchestrator.runLoop()
