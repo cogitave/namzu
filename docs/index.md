@@ -10,3 +10,7 @@ This directory is an [OKF v0.2](https://github.com/GoogleCloudPlatform/knowledge
 
 * [cli](cli/) - The operator application.
 * [sdk](sdk/) - The kernel.
+
+# Pages
+
+* [Namzu Project Security Report](security-report.md) - Source-based security assessment at f58a086f, its sixteen findings, and a status delta re-verified against a later main.
