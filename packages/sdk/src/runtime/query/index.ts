@@ -6,14 +6,9 @@ import {
 	TriggerEvaluator,
 	assertBudgetEnforceable,
 } from '../../advisory/index.js'
-import { drainQueuedMessages } from '../../agents/handle.js'
 import { AuthorizationGate } from '../../authorization/gate.js'
 import { consolidationEntry } from '../../compaction/consolidation.js'
-import {
-	type ToolHistoryRepairReport,
-	repairToolMessageHistory,
-	toolHistoryRepairChanged,
-} from '../../compaction/dangling.js'
+import { repairToolMessageHistory, toolHistoryRepairChanged } from '../../compaction/dangling.js'
 import { extractFromUserMessage } from '../../compaction/extractor.js'
 import { WorkingStateManager } from '../../compaction/manager.js'
 import type { ContextReducer } from '../../compaction/reducer.js'
@@ -23,21 +18,14 @@ import { type CompactionConfig, CompactionConfigSchema } from '../../config/runt
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
-import { resolveModelPricing } from '../../pricing/index.js'
 import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
-import { isCallerAbortError } from '../../provider/errors.js'
-import {
-	type ProviderChainMember,
-	type ServingMember,
-	withProviderFallback,
-} from '../../provider/fallback.js'
-import { resolveStreamIdleTimeoutMs, withStreamIdleTimeout } from '../../provider/idle-timeout.js'
-import { type ProviderRetryConfig, withProviderRetry } from '../../provider/retry.js'
+import type { ProviderChainMember } from '../../provider/fallback.js'
+import { withStreamIdleTimeout } from '../../provider/idle-timeout.js'
+import type { ProviderRetryConfig } from '../../provider/retry.js'
 import { withTokenBudget } from '../../provider/token-budget.js'
 import type { TokenBudget } from '../../run/token-budget.js'
 import type { PathBuilder } from '../../session/workspace/path-builder.js'
-import { resolveAttachments } from '../../store/attachment/index.js'
 import {
 	GENAI,
 	NAMZU,
@@ -45,7 +33,6 @@ import {
 	parentContext,
 	serializeSpan,
 } from '../../telemetry/attributes.js'
-import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { recordRunDuration } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
@@ -68,20 +55,18 @@ import {
 	type ResumeHandler,
 	autoApproveHandler,
 } from '../../types/hitl/index.js'
-import type { CheckpointId, PlanId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
+import type { CheckpointId, RunId, SessionId, TenantId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import type { MemoryStore } from '../../types/memory/index.js'
 import {
 	type AssistantMessage,
 	type Message,
-	type UserMessage,
 	createSystemMessage,
 } from '../../types/message/index.js'
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { ReviewAnswer } from '../../types/run/answer-review.js'
-import { cancelCauseOf } from '../../types/run/cancel-cause.js'
 import type { CheckpointStore, FencingToken } from '../../types/run/checkpoint-store.js'
 import type { RunEventCursor, RunEventReplay } from '../../types/run/event-cursor.js'
 import { resolveRunEventReplay } from '../../types/run/event-cursor.js'
@@ -97,7 +82,6 @@ import type {
 } from '../../types/run/index.js'
 import type { PromoteMemory } from '../../types/run/memory-promotion.js'
 import { memoryCandidateFor } from '../../types/run/memory-promotion.js'
-import type { RunState } from '../../types/run/state.js'
 import type { RunStore } from '../../types/run/store.js'
 import type { TokenBudgetStore } from '../../types/run/token-budget-store.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
@@ -110,15 +94,10 @@ import type { RepairToolCall } from '../../types/tool/repair.js'
 import type { BackoffPolicy } from '../../utils/backoff.js'
 import type { ModelPricing } from '../../utils/cost.js'
 import { toErrorMessage } from '../../utils/error.js'
-import { generateCheckpointId, generateRunId } from '../../utils/id.js'
 import { errorAttributes } from '../../utils/log/exception.js'
-import type { Logger } from '../../utils/logger.js'
 import { AwaitedJobs } from '../jobs/awaited-jobs.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
-import { AUTO_APPROVE_POLICY_NAME, createRunApprovalPolicy } from './approval-policy.js'
 import { CheckpointManager } from './checkpoint.js'
-import { RunContextFactory } from './context.js'
-import { EventTranslator } from './events.js'
 import { GuardCoordinator } from './guard.js'
 import { runInputGuardrails, runOutputGuardrails } from './guardrails.js'
 import { IterationOrchestrator } from './iteration/index.js'
@@ -126,17 +105,18 @@ import { isCompactionMessage } from './iteration/phases/compaction.js'
 import { isWorkingMemoryMessage } from './iteration/phases/working-memory.js'
 import { applyLifecycleHookResults } from './plugin-hooks.js'
 import {
-	type ProjectInstructionContext,
-	awaitProjectInstructionCallback,
-	collapseProjectInstructionSnapshots,
-	replaceProjectInstructionSnapshot,
-} from './project-instructions.js'
+	type SelectedResumeState,
+	prepareRun,
+	projectStateBearingHistory,
+	resolveProviderContextWindow,
+	selectedResumeStates,
+} from './prepare-run.js'
+import type { ProjectInstructionContext } from './project-instructions.js'
 import type { PromptCache } from './prompt-cache.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { PendingAnswers, QuestionParkBinding } from './question-park.js'
 import { RepeatCallTracker } from './repeat-call.js'
-import { resolveMaxRequestRichContentBytes } from './request-rich-content.js'
 import { ResultAssembler } from './result.js'
 import {
 	type PendingResumePlan,
@@ -148,14 +128,8 @@ import {
 	recoverCompletedCalls,
 	supersededByRecovery,
 } from './resume-pending.js'
-import {
-	acquireSandbox,
-	resolveSandboxTeardownTimeoutMs,
-	teardownSandbox,
-} from './sandbox-lifecycle.js'
+import { acquireSandbox, teardownSandbox } from './sandbox-lifecycle.js'
 import { SteeringBinding, type SteeringChannel, isOperatorUserMessage } from './steering.js'
-import { resolveQueryBudget } from './token-budget.js'
-import { assertMaxToolCalls } from './tool-call-budget.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
 import { ToolingBootstrap } from './tooling.js'
@@ -835,196 +809,6 @@ export interface QueryParams {
 	strictCapabilities?: boolean
 }
 
-type SelectedResumeState = RunState & {
-	readonly checkpointId: CheckpointId
-	readonly traceContext?: SerializedSpanContext
-}
-const selectedResumeStates = new WeakMap<QueryParams, SelectedResumeState>()
-
-/**
- * Refuse to price a run whose tokens two differently-priced members may produce.
- *
- * `RunPersistence` holds ONE {@link ModelPricing} table and applies it to every
- * accumulation regardless of which model produced the tokens. Across a swap that
- * makes `costInfo.totalCost` wrong by an unbounded margin, and silently — the
- * number keeps the shape of an answer. `CostInfo` cannot express the truth
- * either: it carries `inputCostPer1M` / `outputCostPer1M`, and there is no
- * honest value for those once a total spans two rate cards.
- *
- * So the total is refused rather than blended. Naming what that costs is part
- * of the refusal, because the caller loses `costLimitUsd` with it: the guard
- * enforces that limit from this same accumulated total, and a limit enforced
- * with the wrong rate card stops a run early or late by the same unbounded
- * margin. A budget that is quietly wrong is worse than a budget that is
- * declined.
- *
- * Reachable, not decorative: a host that passes `pricing` and declares a chain
- * hits it on the first call. It costs `@namzu/cli` nothing, which passes no
- * pricing at all — its `/cost` already reports that the provider gave no price.
- *
- * The way out is per-member pricing, which needs a `CostInfo` that can sum over
- * heterogeneous rates. That is a public-type change and it is not this one.
- */
-function assertCostIsAttributable(
-	chain: readonly ProviderChainMember[],
-	pricing: ModelPricing | undefined,
-): void {
-	if (pricing === undefined || chain.length < 2) return
-	throw new NamzuError({
-		code: 'invalid_config',
-		message:
-			`A provider chain of ${chain.length} members was declared together with a single pricing table. ` +
-			'One table cannot price two members, so the run would report a total that is wrong by an unbounded ' +
-			'margin — and `runConfig.costLimitUsd` would be enforced against that same wrong total. ' +
-			'Either drop `pricing` (usage is still reported per model in the run) or declare one member.',
-		details: { chainLength: chain.length },
-	})
-}
-
-/**
- * Refuse a budget that cannot be measured.
- *
- * `runConfig.costLimitUsd` is enforced against `costInfo.totalCost`, and that
- * total only moves for tokens something has a rate for. A model no rate card
- * covers therefore produced a limit that could never trip — a host that set a
- * cost cap had no cost cap, and nothing said so. That was every run before the
- * price catalogue existed, which is how it went unnoticed.
- *
- * Refusing at the front is the cheap half of the answer: it costs the caller
- * nothing, fires before any spend, and names both ways out. The other half is
- * the `cost_unmeasurable` stop, for the models this cannot see — a step naming
- * its own, or a chain member declaring one.
- *
- * This is the same shape `advisory/budget.ts` already applies to
- * `AdvisoryBudget.maxCostPerRun`, one layer down, and for the same reason. The
- * run path simply never had it.
- */
-function assertBudgetIsMeasurable(params: QueryParams): void {
-	const limit = params.runConfig.costLimitUsd
-	if (limit === undefined || limit <= 0) return
-	// A host-supplied table prices whatever it is pointed at, so a caller who
-	// brought one has answered the question themselves.
-	if (params.pricing !== undefined) return
-	const model = params.runConfig.model
-	if (resolveModelPricing(params.provider.id, model) !== undefined) return
-
-	throw new NamzuError({
-		code: 'invalid_config',
-		message:
-			`runConfig.costLimitUsd is set to ${limit}, but no rate is known for model "${model}" on ` +
-			`provider "${params.provider.id}". The limit is enforced against the run's accumulated ` +
-			'cost, and tokens with no rate never reach that total — so the budget would read as ' +
-			'satisfied for the whole run and stop nothing. Either pass `pricing` to declare the rate ' +
-			'yourself, add the model to packages/sdk/src/pricing/rates.source.json, or drop ' +
-			'`costLimitUsd` and bound the run with `tokenBudget`, which is measurable here.',
-		details: { model, providerId: params.provider.id, costLimitUsd: limit },
-	})
-}
-
-/**
- * Ask the driver what this model's window is, and never let the answer
- * cost the run.
- *
- * Three outcomes collapse to two here on purpose. No member and a resolved
- * `undefined` both mean "no answer" — the distinction matters to a driver
- * author, not to a caller about to fall through to the table. A rejection
- * is the third, and it is logged rather than propagated: a run that would
- * have worked on the table must not fail because a listing endpoint was
- * down.
- */
-async function resolveProviderContextWindow(
-	provider: LLMProvider,
-	model: string | undefined,
-	signal: AbortSignal | undefined,
-	timeoutMs: number,
-	log: Logger,
-): Promise<number | undefined> {
-	if (!provider.resolveContextWindow || !model) return undefined
-	if (signal?.aborted) return undefined
-
-	// The resolver is an optional optimisation that runs before RunContext
-	// owns its child controller. Give it a private deadline signal and fuse
-	// caller cancellation into that transport in the safe direction: neither
-	// outcome aborts the caller's controller. Passing a signal is necessary
-	// but not sufficient, because a third-party driver can accept it and still
-	// leave its promise pending; the race below makes fallback independent of
-	// driver cooperation. Promise.race keeps the losing provider promise
-	// observed, so a later rejection cannot become unhandled.
-	const deadline = new AbortController()
-	const resolverSignal = signal ? AbortSignal.any([signal, deadline.signal]) : deadline.signal
-	const interrupted = Symbol('provider-context-window-interrupted')
-	let onAbort: (() => void) | undefined
-	const interruption = new Promise<typeof interrupted>((resolve) => {
-		onAbort = () => resolve(interrupted)
-		resolverSignal.addEventListener('abort', onAbort, { once: true })
-	})
-	// Direct QueryParams callers can supply a large run deadline. The clamp
-	// avoids Node's >2^31-1 one-millisecond timer coercion during metadata lookup.
-	// Metadata discovery remains optional and bounded even without a run deadline.
-	const deadlineMs = timeoutMs === 0 ? 5_000 : Math.min(Math.max(0, timeoutMs), 2_147_483_647)
-	const timer = setTimeout(() => {
-		deadline.abort(new Error(`Provider context-window lookup exceeded ${deadlineMs}ms`))
-	}, deadlineMs)
-
-	try {
-		const resolution = provider.resolveContextWindow(model, resolverSignal)
-		const reported = await Promise.race([resolution, interruption])
-		if (reported === interrupted) {
-			if (deadline.signal.aborted) {
-				log.debug('Provider context-window lookup timed out; using the table', {
-					'namzu.model.id': model,
-					'namzu.runtime.timeout_ms': deadlineMs,
-				})
-			}
-			return undefined
-		}
-		return typeof reported === 'number' && reported > 0 ? reported : undefined
-	} catch (err) {
-		log.debug('Provider could not report a context window; using the table', {
-			'namzu.model.id': model,
-			'namzu.error.message': toErrorMessage(err),
-		})
-		return undefined
-	} finally {
-		clearTimeout(timer)
-		if (onAbort) resolverSignal.removeEventListener('abort', onAbort)
-	}
-}
-
-interface PendingHistoryRepairEvent {
-	readonly source: 'fresh-history' | 'abandoned-checkpoint'
-	readonly report: ToolHistoryRepairReport
-}
-
-/**
- * Project historical system messages exactly as a new run will persist them.
- *
- * Arbitrary historical prompt floors are rebuilt for this run and therefore
- * never reach its provider-bound conversation. Repair must happen AFTER that
- * removal: treating a soon-to-be-dropped system message as a tool-result
- * boundary can replace an exact real result with an invented unknown outcome.
- * The two state-bearing system forms survive; fresh inherited compaction is
- * pinned until this run can prove it reconstructed equivalent state.
- */
-function projectStateBearingHistory(
-	messages: readonly Message[],
-	options: { readonly pinCompaction: boolean },
-): Message[] {
-	const projected: Message[] = []
-	for (const message of messages) {
-		if (message.role !== 'system') {
-			projected.push(message)
-			continue
-		}
-		if (isCompactionMessage(message.content)) {
-			projected.push(options.pinCompaction ? { ...message, retain: true } : message)
-		} else if (isWorkingMemoryMessage(message.content)) {
-			projected.push(message)
-		}
-	}
-	return collapseProjectInstructionSnapshots(projected)
-}
-
 /**
  * Remove the incomplete turn still owned by a durable resume plan.
  *
@@ -1103,416 +887,29 @@ function withOwnedResumeOutcomes(
 }
 
 export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run> {
-	assertMaxToolCalls(params.maxToolCalls)
-	// Required types do not protect JavaScript callers. Reject missing scope
-	// before opening a budget or persisting a run without its owning identity.
-	const missingFields = (['sessionId', 'topicId', 'projectId', 'tenantId'] as const).filter(
-		(field) => !params[field],
-	)
-	if (missingFields.length > 0) {
-		throw new NamzuError({
-			code: 'invalid_config',
-			message: `query requires sessionId, topicId, projectId, and tenantId; missing: ${missingFields.join(', ')}.`,
-			details: { missingFields },
-		})
-	}
-	const selectedResumeState = selectedResumeStates.get(params)
-	selectedResumeStates.delete(params)
-	// Resolved at the DOOR, before a run id exists or a logger is built.
-	// A caller who set both spellings of a renamed field has a config bug,
-	// and refusing it here costs them nothing; refusing it at the read site
-	// deep in the loop turns the same bug into a mid-run failure, after a
-	// provider call has been paid for and a partial transcript written.
-	const promptCache = params.promptCache
-	const taskScheduler = params.taskScheduler
-	const streamIdleTimeoutMs = resolveStreamIdleTimeoutMs(params.runConfig.streamIdleTimeoutMs)
-	const maxRequestRichContentBytes = resolveMaxRequestRichContentBytes(
-		params.runConfig.maxRequestRichContentBytes,
-	)
-	const sandboxTeardownTimeoutMs = resolveSandboxTeardownTimeoutMs(params.sandboxTeardownTimeoutMs)
-	// Persist the EFFECTIVE value, not only an override. A run replayed after a
-	// later release must be able to explain which liveness policy settled it;
-	// an absent field whose meaning follows the currently-installed default
-	// would rewrite that evidence at read time.
-	const runConfig: AgentRunConfig = {
-		...params.runConfig,
-		streamIdleTimeoutMs,
-		maxRequestRichContentBytes,
-	}
-
-	// The run's one correlated logger, built before anything below needs
-	// one — the migration check, the retry/fallback wrappers and `ctx`
-	// itself all read this SAME object, so a retry warning and the run
-	// record it retried for carry the identical `namzu.run.id` instead of
-	// three separate `getRootLogger()` reads that happened to agree by
-	// accident. `runId` is resolved here, once, rather than left to
-	// `build`'s own `config.runId ?? generateRunId()` fallback —
-	// generating it twice would silently hand the log and the run two
-	// different ids.
-	const runId = params.runId ?? generateRunId()
-	const budget = await resolveQueryBudget(params, runId, selectedResumeState)
-	const log = RunContextFactory.buildLogger({
-		agentName: params.agentName,
+	const prepared = await prepareRun(params)
+	const {
 		runConfig,
-		runId,
-		parentRunId: params.parentRunId,
-		sessionId: params.sessionId,
-		topicId: params.topicId,
-		projectId: params.projectId,
-		tenantId: params.tenantId,
-	})
-
-	// Every model call in the run — the loop's turns, the forced-final
-	// summary, advisory and compaction side calls — goes through this one
-	// wrapped provider, so the retry policy cannot be bypassed by a code
-	// path that happens to hold the raw driver.
-	// The logger is passed on purpose: `withProviderRetry` guards every one
-	// of its warns behind `options.log`, and this is its only production
-	// call site — so without it the "failed, retrying" and "failed, giving
-	// up" lines were dead code and a backoff left no trace anywhere.
-	//
-	// With a chain declared, the same sentence holds two levels out. The idle
-	// watchdog is applied to each raw member, retry wraps that, and fallback
-	// wraps the members: `fallback(retry(idle(m0)), retry(idle(m1)), …)`. The
-	// idle layer cannot sit outside retry, because its timer would then count a
-	// legitimate backoff as provider silence. This order is not a
-	// preference. Assembled the other way round — which is what a host gets if
-	// it wraps its own chain and hands the result in, because this function
-	// would then wrap THAT in retry — an exhausted chain gets restarted from
-	// the head by the outer loop and a throttle on the last member is counted
-	// by two budgets. Building it here is what makes the order unspellable
-	// wrong.
-	const chain: readonly ProviderChainMember[] = [
-		{ provider: params.provider },
-		...(params.fallbackProviders ?? []),
-	]
-	assertCostIsAttributable(chain, params.pricing)
-	assertBudgetIsMeasurable(params)
-	const withRecovery = (provider: LLMProvider): LLMProvider => {
-		const withIdleBound = withStreamIdleTimeout(provider, {
-			idleTimeoutMs: streamIdleTimeoutMs,
-			log,
-		})
-		const metered = withTokenBudget(withIdleBound, budget)
-		return params.retry === false
-			? metered
-			: withProviderRetry(metered, {
-					config: params.retry,
-					log,
-					canRetry: () => budget.remaining > 0,
-				})
-	}
-	// Who is serving right now, for the run RECORD rather than for the request.
-	//
-	// It starts at the head and moves only when the chain does, which is the
-	// whole of the truth because the cursor never rewinds. The run cannot read
-	// this off `resilientProvider`: that wrapper reports the head's `id` on
-	// purpose, so asking it produces the declaration back — the defect this
-	// record exists to fix.
-	const serving: { current: ServingMember } = {
-		current: { index: 0, providerId: params.provider.id },
-	}
-	const resilientProvider = withProviderFallback(
-		chain.map((member) => ({
-			...member,
-			provider: withRecovery(member.provider),
-		})),
-		{
-			log,
-			canFallback: () => budget.remaining > 0,
-			onSwap: (to) => {
-				serving.current = to
-				// `ctx` is declared below and is initialized before anything can
-				// call the provider: this fires from inside a `chatStream`, and
-				// the first one is issued by the loop that `ctx` is built for.
-				ctx.runMgr.setServingProvider(to.providerId)
-			},
-		},
-	)
-
-	// Asked ONCE, here, before the loop exists. Both readers are synchronous
-	// and hot, so this can never move inside the iteration — and a driver
-	// that rejects, or one that hangs until the run is cancelled, must not
-	// take down a run the table could have served perfectly well. That is
-	// why the failure path is a swallow with a log rather than a throw: the
-	// window is an optimisation over a working default, not a prerequisite.
-	const providerContextWindow = await resolveProviderContextWindow(
-		resilientProvider,
-		runConfig.model,
-		params.signal,
-		runConfig.timeoutMs,
-		log,
-	)
-	const modelContextWindows = new Map<string, number | undefined>()
-	if (runConfig.model) modelContextWindows.set(runConfig.model, providerContextWindow)
-
-	// The mode this conversation was left in, when the run config names none.
-	// Read once, before the loop exists, for the same reason the context
-	// window is: the executor's resolver is synchronous and hot.
-	//
-	// A store that throws is not a run failure — the run falls back to the
-	// config's answer, which is exactly what it did before this existed.
-	const topicState = params.topicStateStore
-		? await params.topicStateStore
-				.getState(params.topicId, params.tenantId)
-				.catch((err: unknown) => {
-					log.debug('Could not read the topic state; using the run config', {
-						'namzu.topic.id': params.topicId,
-						'namzu.error.message': toErrorMessage(err),
-					})
-					return null
-				})
-		: null
-
-	// Whatever a host left for "the next run", taken and cleared in one
-	// compare-and-set write. Prepended to the messages this run starts from,
-	// so it is in the FIRST request rather than arriving a turn late.
-	//
-	// Cleared as it is read: a queue read and cleared separately re-delivers
-	// on a crash between the two, and "start with this" arriving twice is a
-	// different instruction from the one that was left.
-	const queuedForThisRun: readonly Message[] = params.topicStateStore
-		? await drainQueuedMessages(params.topicStateStore, params.topicId, params.tenantId).catch(
-				(err: unknown) => {
-					log.debug('Could not drain the topic queue; starting without it', {
-						'namzu.topic.id': params.topicId,
-						'namzu.error.message': toErrorMessage(err),
-					})
-					return []
-				},
-			)
-		: []
-
-	// One effective list, used everywhere the run is seeded from. Three
-	// branches below push from it, and computing it at each would be three
-	// places to forget the queue.
-	//
-	// Stored attachments are resolved HERE, once, before the messages reach
-	// the run record. Resolving later — at the provider boundary — would put
-	// refs in the durable transcript and in every checkpoint, and a run
-	// resumed against a store that had since forgotten a ref would fail
-	// replaying its own history rather than at the moment somebody asked for
-	// the bytes. Every failure refuses: a message that silently lost its
-	// image is a model answering about a picture it never saw.
-	const seeded: Message[] =
-		queuedForThisRun.length > 0 ? [...queuedForThisRun, ...params.messages] : params.messages
-	let resolvedInitialMessages: Message[]
-	let attachmentResolutionCancelled = false
-	try {
-		resolvedInitialMessages = [
-			...(await resolveAttachments(seeded, params.attachmentStore, {
-				signal: params.signal,
-				timeoutMs: params.attachmentResolveTimeoutMs,
-			})),
-		]
-		params.signal?.throwIfAborted()
-	} catch (error) {
-		// Attachment materialization precedes RunContext construction so stored
-		// bytes never enter a live run's checkpoints. Cancellation still belongs
-		// to that run: preserve the exact input refs, build the context below, and
-		// let its normal terminal path classify/persist a cancelled Run. Every
-		// other store failure remains a pre-run refusal.
-		if (!params.signal?.aborted || error !== params.signal.reason) throw error
-		resolvedInitialMessages = [...seeded]
-		attachmentResolutionCancelled = true
-	}
-	if (!attachmentResolutionCancelled && params.projectInstructionContext?.prepareInitialSnapshot) {
-		const preparationSignal = params.signal ?? new AbortController().signal
-		let snapshot: UserMessage | null | undefined
-		try {
-			const prepared = await awaitProjectInstructionCallback(preparationSignal, () =>
-				params.projectInstructionContext?.prepareInitialSnapshot?.({
-					messages: [...resolvedInitialMessages],
-					signal: preparationSignal,
-				}),
-			)
-			// The callback promise can settle, remove its listener, and queue this
-			// continuation immediately before a queued abort. Publication is a
-			// separate authority boundary, so fence it too.
-			preparationSignal.throwIfAborted()
-			snapshot = prepared
-		} catch (error) {
-			// This callback runs before RunContext owns its child controller. A
-			// caller cancellation here still belongs to the run: publish no late
-			// snapshot and let the context below settle the normal cancelled Run.
-			// Compare the exact reason: a callback failure that won first must not
-			// be erased merely because cancellation arrived before this catch ran.
-			if (!preparationSignal.aborted || error !== preparationSignal.reason) throw error
-		}
-		if (snapshot !== undefined) {
-			resolvedInitialMessages = replaceProjectInstructionSnapshot(
-				resolvedInitialMessages,
-				snapshot,
-				'before-latest-user',
-			)
-		}
-	}
-	const pendingHistoryRepairs: PendingHistoryRepairEvent[] = []
-	const projectedInitialMessages = collapseProjectInstructionSnapshots(
-		params.resumeFromCheckpoint || params.continuationMode
-			? resolvedInitialMessages
-			: projectStateBearingHistory(resolvedInitialMessages, {
-					pinCompaction: true,
-				}),
-	)
-	const initialRepair = params.resumeFromCheckpoint
-		? { messages: projectedInitialMessages, report: undefined }
-		: repairToolMessageHistory(projectedInitialMessages)
-	const initialMessages = initialRepair.messages
-	if (initialRepair.report && toolHistoryRepairChanged(initialRepair.report)) {
-		pendingHistoryRepairs.push({
-			source: 'fresh-history',
-			report: initialRepair.report,
-		})
-		log.warn('Repaired provider-invalid tool history before starting the run', {
-			[NAMZU.RUN_ID]: runId,
-			'namzu.history.source': 'fresh-history',
-			'namzu.history.duplicate_tool_results_removed':
-				initialRepair.report.duplicateToolResultsRemoved,
-			'namzu.history.orphaned_tool_results_removed':
-				initialRepair.report.orphanedToolResultsRemoved,
-			'namzu.history.synthetic_tool_results_inserted':
-				initialRepair.report.syntheticToolResultsInserted,
-		})
-	}
-
-	const ctx = RunContextFactory.build({
 		budget,
-		...(topicState ? { topicPermissionMode: topicState.permissionMode } : {}),
-		...(params.permissionModeRef ? { permissionModeRef: params.permissionModeRef } : {}),
-		agentId: params.agentId,
-		agentName: params.agentName,
-		runConfig,
-		provider: resilientProvider,
-		workingDirectory: params.workingDirectory,
-		pricing: params.pricing,
-		enableActivityTracking: params.enableActivityTracking,
-		messages: initialMessages,
-		signal: params.signal,
-		sessionId: params.sessionId,
-		topicId: params.topicId,
-		projectId: params.projectId,
-		tenantId: params.tenantId,
-		pathBuilder: params.pathBuilder,
-		checkpointStore: params.checkpointStore,
-		runStore: params.runStore,
-		runId,
-		parentRunId: params.parentRunId,
-		depth: params.depth,
 		log,
-	})
-
-	// Built here because the plan-approval closure below captures it, and
-	// its `emit` resolves `eventTranslator` at CALL time — the translator is
-	// a `const` some lines further down.
-	//
-	// The HANDOUT is therefore deliberately NOT here. A host given the box
-	// at this point can call `set` synchronously, `emit` reaches
-	// `eventTranslator` inside its temporal dead zone, and the run dies
-	// before it starts. That is not hypothetical: it is what the first
-	// version of this did, and the test that hands out the box and
-	// immediately swaps the policy is the one that found it.
-	const approvalPolicy = createRunApprovalPolicy({
-		runId: ctx.runId,
-		initial: {
-			// By identity against the default, not by presence. `resumeHandler`
-			// is REQUIRED on `QueryParams` — `drainQuery` substitutes
-			// `autoApproveHandler` before calling here — so "is it set" is
-			// always yes and would name every run `host`, including the ones
-			// approving everything unattended. Identity is what actually
-			// separates the two.
-			name:
-				params.approvalPolicyName ??
-				(params.resumeHandler === autoApproveHandler ? AUTO_APPROVE_POLICY_NAME : 'host'),
-			handler: params.resumeHandler,
-		},
-		emit: (event) => eventTranslator.emitEvent(event),
-	})
-
-	const planApprovalIds = new Map<PlanId, CheckpointId>()
-	ctx.planManager.setApprovalHandler(async (request) => {
-		let checkpointId = planApprovalIds.get(request.planId)
-		if (!checkpointId) {
-			checkpointId = generateCheckpointId()
-			planApprovalIds.set(request.planId, checkpointId)
-		}
-		// `.current.handler`, never a captured `params.resumeHandler`. That
-		// capture is what made changing the policy mean ending the run.
-		const decision = await approvalPolicy.current.handler({
-			type: 'plan_approval',
-			runId: ctx.runId,
-			checkpointId,
-			plan: {
-				planId: request.planId,
-				title: request.title,
-				steps: request.steps.map((s, i) => ({
-					id: s.id,
-					description: s.description,
-					toolName: s.toolName,
-					agentId: s.agentId,
-					dependsOn: s.dependsOn,
-					order: s.order ?? i + 1,
-				})),
-				summary: request.summary,
-			},
-		})
-
-		if (decision.action === 'approve_plan') {
-			// Optional approve-with-edits channel: the host may attach
-			// feedback to an approval. `PlanApprovalResponse.feedback`
-			// already exists on the type; threading it through lets the
-			// coordinator's approve_plan tool surface the user's edits in
-			// the same tool_result that unblocks the park. Bare approvals
-			// stay byte-identical (`{ approved: true }`).
-			return decision.feedback
-				? { approved: true, feedback: decision.feedback }
-				: { approved: true }
-		}
-		if (decision.action === 'reject_plan') {
-			return { approved: false, feedback: decision.feedback }
-		}
-
-		return { approved: false, feedback: `Action: ${decision.action}` }
-	})
-
-	const eventTranslator = new EventTranslator(ctx.runMgr, undefined, ctx.log)
-	eventTranslator.wireActivityStore(ctx.activityStore, ctx.runId)
-	eventTranslator.wirePlanManager(ctx.planManager, ctx.runId)
-	eventTranslator.setGeneration(params.claimFence)
-	let interruptHooksStarted = false
-	const executeUserInterruptHooks = async (terminalError: unknown): Promise<void> => {
-		if (
-			interruptHooksStarted ||
-			!params.pluginManager ||
-			!isCallerAbortError(terminalError, ctx.abortController.signal) ||
-			params.parentRunId !== undefined ||
-			(params.depth ?? 0) !== 0 ||
-			cancelCauseOf(ctx.abortController.signal.reason) !== 'user'
-		) {
-			return
-		}
-
-		interruptHooksStarted = true
-		try {
-			// Deliberately omit the already-aborted run signal. The lifecycle
-			// manager still supplies each handler its own deadline signal, while
-			// `run_interrupt`'s observational fan-out prevents one result from
-			// suppressing the cleanup hooks that follow it.
-			await params.pluginManager.executeHooks(
-				'run_interrupt',
-				{ runId: ctx.runId, cancelCause: 'user' },
-				eventTranslator.emitEvent,
-			)
-		} catch (error) {
-			// Cancellation is the terminal authority. A hook event sink or an
-			// unexpected manager failure is reported, but cannot turn Stop into a
-			// failed run or prevent the durable cancellation verdict.
-			ctx.log.error('Run interrupt hooks did not settle cleanly', {
-				[NAMZU.RUN_ID]: ctx.runId,
-				...errorAttributes(error),
-			})
-		}
-	}
+		ctx,
+		resilientProvider,
+		serving,
+		providerContextWindow,
+		modelContextWindows,
+		approvalPolicy,
+		eventTranslator,
+		executeUserInterruptHooks,
+		pendingHistoryRepairs,
+		initialMessages,
+		queuedForThisRun,
+		selectedResumeState,
+		attachmentResolutionCancelled,
+		streamIdleTimeoutMs,
+		sandboxTeardownTimeoutMs,
+		promptCache,
+		taskScheduler,
+	} = prepared
 
 	if (attachmentResolutionCancelled) {
 		// Attachment materialization happens before RunContext exists. Once it
