@@ -8,7 +8,11 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import type { RunPersistence } from '../../../manager/run/persistence.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import type { CheckpointId, IterationCheckpoint } from '../../../types/hitl/index.js'
+import type {
+	CheckpointId,
+	HITLDecisionRequest,
+	IterationCheckpoint,
+} from '../../../types/hitl/index.js'
 import type { RunId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { CheckpointRunScope, CheckpointStore } from '../../../types/run/checkpoint-store.js'
@@ -283,5 +287,150 @@ describe('query() with an injected checkpointStore', () => {
 		expect(scope?.projectId).toBe('b2e4b0a3-6a77-4b00-82d6-9125bf4abc4e')
 		expect(scope?.sessionId).toBe('e30ed68d-7637-45a7-80ee-90a3ec4cb97d')
 		expect(scope?.runId).toBe(run.id)
+	})
+})
+
+// ─── prune() against an outstanding park ─────────────────────────────────────
+
+/**
+ * `prune` collects oldest-first by `createdAt` and asked nothing about
+ * `pending`. `findPendingCheckpoint` and `listExpiredParks` in the same file
+ * treat a checkpoint with an unresolved park as the thing a host is waiting
+ * on, and both cannot be right: the row an approval queue is about to serve
+ * must not be collected as growth control.
+ */
+
+/** `createdAt` is `Date.now()`, so prune's order would tie at ms resolution. */
+function monotonicallyStamped(store: InMemoryCheckpointStore): InMemoryCheckpointStore {
+	let tick = 0
+	const originalWrite = store.writeCheckpoint.bind(store)
+	store.writeCheckpoint = async (scope, checkpoint) => {
+		const existing = await store.readCheckpoint(scope, checkpoint.id)
+		if (existing) {
+			// A rewrite — a park, an unpark, an expiry — keeps the checkpoint's
+			// own creation instant, which is what the real stores do: only
+			// `pending` changes. Stamping it here would make an expiry look
+			// like a fresh checkpoint and reorder the prune.
+			await originalWrite(scope, { ...checkpoint, createdAt: existing.createdAt })
+			return
+		}
+		tick += 1
+		await originalWrite(scope, { ...checkpoint, createdAt: tick })
+	}
+	return store
+}
+
+function parkRequest(checkpointId: CheckpointId): HITLDecisionRequest {
+	return { type: 'tool_review', runId: SCOPE.runId, checkpointId, toolCalls: [] }
+}
+
+describe('prune() and an outstanding park', () => {
+	let workdirs: string[] = []
+
+	afterEach(async () => {
+		await removeTempDirs(workdirs)
+		workdirs = []
+	})
+
+	it('keeps the checkpoint a host is still waiting on', async () => {
+		const store = monotonicallyStamped(new InMemoryCheckpointStore())
+		const mgr = new CheckpointManager(store, SCOPE)
+
+		const parked = await mgr.create(makeRunMgrStub(), 1)
+		await mgr.park(parked, parkRequest(parked.id))
+		const newer = await mgr.create(makeRunMgrStub(), 2)
+
+		// keepLast 1: the parked checkpoint is the oldest, so it is the first
+		// thing an unconditional oldest-first prune collects.
+		await mgr.prune(1)
+
+		expect((await mgr.list()).map((cp) => cp.id)).toEqual([parked.id, newer.id])
+		expect((await mgr.findPending())?.id).toBe(parked.id)
+	})
+
+	it('collects that same checkpoint once the park is resolved', async () => {
+		const store = monotonicallyStamped(new InMemoryCheckpointStore())
+		const mgr = new CheckpointManager(store, SCOPE)
+
+		const parked = await mgr.create(makeRunMgrStub(), 1)
+		await mgr.park(parked, parkRequest(parked.id))
+		await mgr.unpark(parked.id, { action: 'approve_tools' })
+		const newer = await mgr.create(makeRunMgrStub(), 2)
+
+		await mgr.prune(1)
+
+		// Skipping a park is not a licence to keep every checkpoint forever:
+		// once nobody is waiting on it, it ages out like any other.
+		expect((await mgr.list()).map((cp) => cp.id)).toEqual([newer.id])
+	})
+
+	it('collects it after an expiry sweep resolved it', async () => {
+		const store = monotonicallyStamped(new InMemoryCheckpointStore())
+		const mgr = new CheckpointManager(store, SCOPE)
+
+		const parked = await mgr.create(makeRunMgrStub(), 1)
+		// A deadline in the past: the park is expired the moment it is written.
+		await mgr.park(parked, parkRequest(parked.id), { ttlMs: 1 })
+		const newer = await mgr.create(makeRunMgrStub(), 2)
+
+		// An expired park is not one a queue serves, and a host sweeps it with
+		// `expire` rather than by pruning. Until it does, the row stands.
+		await mgr.prune(1)
+		expect((await mgr.list()).map((cp) => cp.id)).toContain(parked.id)
+
+		await mgr.expire(parked.id)
+		await mgr.prune(1)
+		expect((await mgr.list()).map((cp) => cp.id)).toEqual([newer.id])
+	})
+
+	it('does not collect one a run pruned over', async () => {
+		// The reachable shape: a checkpoint parked for a human, left
+		// outstanding by a session that ended, and a run resumed under the
+		// same id that prunes as it goes. There is no `pendingDecision`, so
+		// nothing unparks it — `query` only clears a park it applies.
+		const store = monotonicallyStamped(new InMemoryCheckpointStore())
+		const mgr = new CheckpointManager(store, SCOPE)
+		const planted = await mgr.create(makeRunMgrStub(), 1)
+		await mgr.park(planted, parkRequest(planted.id))
+
+		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-checkpoint-park-'))
+		workdirs.push(workingDirectory)
+
+		const tools = new ToolRegistry()
+		tools.register({
+			name: 'echo',
+			description: 'echo the text back',
+			inputSchema: z.object({ text: z.string() }),
+			execute: async () => ({ success: true, output: 'hi' }),
+		})
+
+		await drainQuery({
+			provider: new MockLLMProvider({
+				turns: [{ toolCalls: [{ name: 'echo', args: { text: 'hi' } }] }, { text: 'done' }],
+			}),
+			tools,
+			checkpointStore: store,
+			runId: SCOPE.runId,
+			runConfig: {
+				model: 'mock-model',
+				timeoutMs: 5_000,
+				tokenBudget: 100_000,
+				maxIterations: 3,
+				pruneKeepLast: 1,
+			},
+			agentId: 'agent_test',
+			agentName: 'Test Agent',
+			messages: [createUserMessage('use the echo tool')],
+			workingDirectory,
+			sessionId: SCOPE.sessionId,
+			topicId: '76a408c2-931a-47a2-b87a-f842af1fe66b' as TopicId,
+			projectId: SCOPE.projectId,
+			tenantId: SCOPE.tenantId,
+		})
+
+		// The run pruned — it wrote checkpoints and asked for keepLast 1, so
+		// the planted row was a deletion candidate on `createdAt` alone.
+		expect(store.seenScopes.some((scope) => scope.runId === SCOPE.runId)).toBe(true)
+		expect((await mgr.findPending())?.id).toBe(planted.id)
 	})
 })
