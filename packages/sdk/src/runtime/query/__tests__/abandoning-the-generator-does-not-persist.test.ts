@@ -210,6 +210,12 @@ describe('a host that walks away from the generator', () => {
 			if (event.type === 'run_started') break
 		}
 		expect(seen.some((event) => event.type === 'run_started')).toBe(true)
+		// And it was the FIRST event of the run, so this host walked away after
+		// exactly one pull. That is what makes the assertions below assertions
+		// about abandonment: the `finally` released a run that had not yet
+		// reached its first iteration, and the record it left behind is the one
+		// `init()` wrote for a run that never started.
+		expect(pulled).toBe(1)
 
 		// ---- the `finally` ran ----
 		// The root span was closed, and closed ONCE.
