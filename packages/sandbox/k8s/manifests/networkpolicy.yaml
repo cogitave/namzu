@@ -71,6 +71,32 @@ spec:
   egress:
     # DNS. Every sandbox needs to resolve names for anything it is allowed
     # to reach at all.
+    #
+    # DELETE THIS RULE if config.egress.engine is 'cilium' AND
+    # config.egress.ciliumNarrowing.dnsNames is set (see
+    # packages/sandbox/src/backends/kubernetes/egress-policy.ts and
+    # docs/sdk/kubernetes-sandbox.md's egress section). The narrowed
+    # `CiliumNetworkPolicy` this backend then computes carries its OWN L7
+    # DNS rule restricting which names the sandbox may resolve — but Cilium's
+    # own precedence rule says "when an L4 rule and a similar L4 rule with L7
+    # rules are both specified, the L7 portions of the latter rule will have
+    # no effect", and this rule is exactly that plain L4-only kube-dns
+    # allowance, selecting the same pods on the same port. Left in place, it
+    # cancels the narrowing: every name resolves again regardless of the
+    # configured allowlist. Leave it as it is for `engine: 'core'` or a
+    # cilium deployment that never sets `ciliumNarrowing.dnsNames` — neither
+    # has an L7 DNS rule here for this one to cancel, and every sandbox
+    # still needs SOME rule granting cluster DNS.
+    #
+    # This is now enforced, not only documented: with `egress.verify` at its
+    # default `'union'`, the backend reads THIS object too, on every create,
+    # and refuses with `KubernetesEgressPolicyUnionError`
+    # ('policy-widens-egress', naming this policy) rather than silently
+    # letting `ciliumNarrowing.dnsNames` do nothing — see
+    # `EgressAllowance.dnsNarrowedTo` / `reachesResolverAtDnsPort` in
+    # egress-policy.ts. `egress.verify: 'named-object-only'` does not run
+    # that check, so a deployment on that setting still has to delete this
+    # rule by hand.
     - to:
         - namespaceSelector:
             matchLabels:

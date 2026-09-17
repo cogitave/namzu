@@ -165,6 +165,20 @@ spec:
           - protocol: TCP
             port: 1024
     egress:
+      # DNS only — see sandboxtemplate-task.yaml's matching block for the
+      # full explanation of why this list is not additive to a baseline.
+      #
+      # DELETE the rule below if config.egress.engine is 'cilium' AND
+      # config.egress.ciliumNarrowing.dnsNames is set — it cancels the
+      # narrowed CiliumNetworkPolicy's own L7 DNS restriction under Cilium's
+      # rule precedence (see networkpolicy.yaml's matching comment). Leave it
+      # for `engine: 'core'` or a cilium deployment with no DNS-name
+      # narrowing on.
+      #
+      # Left in place with DNS-name narrowing on, the union check now
+      # refuses the create rather than silently doing nothing (default
+      # `egress.verify: 'union'`; `'named-object-only'` still needs this
+      # rule deleted by hand — see networkpolicy.yaml's matching comment).
       - to:
           - namespaceSelector:
               matchLabels:

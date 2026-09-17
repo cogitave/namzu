@@ -1524,7 +1524,11 @@ export async function createKubernetesWorkspace(
 	// further down, where the pod's labels are known.
 	const egressBoundary = buildEgressBoundary(client, config, templateName)
 	if (config.egress) {
-		assertEgressPolicyIsEnforceable(config.egress.policy, config.egress.engine ?? 'core')
+		assertEgressPolicyIsEnforceable(
+			config.egress.policy,
+			config.egress.engine ?? 'core',
+			config.egress.ciliumNarrowing,
+		)
 		await egressBoundary?.verifyNamedObject(options.signal)
 	}
 

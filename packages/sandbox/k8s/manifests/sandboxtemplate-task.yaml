@@ -179,6 +179,19 @@ spec:
       # networkpolicy.yaml's egress list AND keeps them inside whatever
       # `config.egress.policy` names, or sets
       # `egress.verify: 'named-object-only'` and says so out loud.
+      #
+      # DELETE the DNS rule below if config.egress.engine is 'cilium' AND
+      # config.egress.ciliumNarrowing.dnsNames is set — see
+      # networkpolicy.yaml's matching comment for why: this plain L4-only
+      # kube-dns rule cancels the narrowed CiliumNetworkPolicy's own L7 DNS
+      # restriction under Cilium's rule precedence, undoing the narrowing.
+      # Leave it for `engine: 'core'` or a cilium deployment with no
+      # DNS-name narrowing on.
+      #
+      # Left in place with DNS-name narrowing on, the union check (above)
+      # now refuses the create rather than silently doing nothing — under
+      # the default `egress.verify: 'union'` only; `'named-object-only'`
+      # still needs this rule deleted by hand.
       - to:
           - namespaceSelector:
               matchLabels:

@@ -23,7 +23,9 @@ import type { EgressPolicy } from '../../../index.js'
 import {
 	type EgressPolicyTarget,
 	type EgressUnionDecision,
+	type KubernetesCiliumEgressNarrowing,
 	type KubernetesEgressEngine,
+	KubernetesEgressNarrowingUnsupportedError,
 	type KubernetesEgressPolicy,
 	KubernetesEgressPolicyConfigError,
 	KubernetesEgressPolicyMismatchError,
@@ -49,6 +51,29 @@ const TARGET: EgressPolicyTarget = {
 }
 
 const EXPECTED_SELECTOR = { matchLabels: { [SANDBOX_TEMPLATE_LABEL_KEY]: 'namzu-task' } }
+
+/**
+ * The module's own (unexported) `CILIUM_DNS_VISIBILITY_RULE`, reproduced
+ * here rather than imported — this file already inlines every other
+ * expected manifest shape rather than importing the source's private
+ * constants, e.g. `CLUSTER_DNS_EGRESS_RULE` above.
+ */
+const CILIUM_DNS_VISIBILITY_RULE_FOR_TESTS = {
+	toEndpoints: [
+		{
+			matchLabels: {
+				'k8s:io.kubernetes.pod.namespace': 'kube-system',
+				'k8s:k8s-app': 'kube-dns',
+			},
+		},
+	],
+	toPorts: [
+		{
+			ports: [{ port: '53', protocol: 'ANY' }],
+			rules: { dns: [{ matchPattern: '*' }] },
+		},
+	],
+}
 
 /**
  * The compatibility gate for this whole file: what `deny-all` and `allow-all`
@@ -371,6 +396,818 @@ describe('static and resolver, under the cilium engine', () => {
 		expect(manifest.spec.egress[0]).toHaveProperty('toEndpoints')
 		expect(manifest.spec.egress[0]).toHaveProperty('toPorts')
 		expect(manifest.spec.egress[1]).toHaveProperty('toFQDNs')
+	})
+})
+
+/**
+ * `#490` — narrowing a `static`/`resolver` allowlist by port, DNS name and
+ * TLS server name. `ciliumNarrowing` unset (or every one of its fields
+ * unset) is covered above and pinned byte-for-byte; this section covers
+ * every combination of options being ON.
+ */
+describe('cilium narrowing — refused where it does not apply', () => {
+	const narrowing: KubernetesCiliumEgressNarrowing = { ports: [443] }
+
+	it('is a no-op — no refusal, no change in output — when every field is unset', async () => {
+		const unnarrowed = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example'] },
+			'cilium',
+			TARGET,
+		)
+		const explicitlyEmpty = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example'] },
+			'cilium',
+			TARGET,
+			{},
+		)
+		expect(explicitlyEmpty.manifest).toStrictEqual(unnarrowed.manifest)
+		expect(() => assertEgressPolicyIsEnforceable({ kind: 'deny-all' }, 'core', {})).not.toThrow()
+	})
+
+	/**
+	 * The plan's own TESTS note: today's tests (the `toHaveProperty`/
+	 * `toMatchObject` assertions in "static and resolver, under the cilium
+	 * engine" above, unmodified) only check the `toFQDNs` contents and that the
+	 * DNS rule has the expected properties — they would not catch an
+	 * accidental change to the rest of the default output. This pins the WHOLE
+	 * manifest, the same way the deny-all/allow-all pins at the top of this
+	 * file do, so the unnarrowed cilium static translation cannot silently
+	 * drift either.
+	 */
+	it('the unnarrowed static translation is pinned byte-for-byte, the same way deny-all and allow-all are', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example', 'b.example'] },
+			'cilium',
+			TARGET,
+		)
+		expect(translated.manifest).toStrictEqual({
+			apiVersion: 'cilium.io/v2',
+			kind: 'CiliumNetworkPolicy',
+			metadata: { name: 'namzu-task-egress', namespace: 'namzu-sandboxes' },
+			spec: {
+				endpointSelector: EXPECTED_SELECTOR,
+				egress: [
+					CILIUM_DNS_VISIBILITY_RULE_FOR_TESTS,
+					{ toFQDNs: [{ matchName: 'a.example' }, { matchName: 'b.example' }] },
+				],
+			},
+		})
+	})
+
+	it.each([
+		['deny-all under cilium', { kind: 'deny-all' } as const, 'cilium' as const],
+		['no-network under cilium', { kind: 'no-network' } as const, 'cilium' as const],
+		['allow-all under cilium', { kind: 'allow-all' } as const, 'cilium' as const],
+		['public-internet under cilium', { kind: 'public-internet' } as const, 'cilium' as const],
+	])('refuses synchronously for %s', (_name, policy, engine) => {
+		expect(() => assertEgressPolicyIsEnforceable(policy, engine, narrowing)).toThrow(
+			KubernetesEgressNarrowingUnsupportedError,
+		)
+	})
+
+	it('refuses from translateEgressPolicy too, before any await', async () => {
+		await expect(
+			translateEgressPolicy({ kind: 'deny-all' }, 'core', TARGET, narrowing),
+		).rejects.toThrow(KubernetesEgressNarrowingUnsupportedError)
+	})
+
+	it('a static/resolver policy under engine core is still refused for lacking an FQDN-capable engine at all — narrowing does not change that error', () => {
+		// `KubernetesUnenforceableEgressPolicyError` fires first here: the
+		// engine cannot express a hostname allowlist AT ALL under `core`, which
+		// is the more fundamental problem, so ciliumNarrowing being set on top
+		// does not change which named error a caller sees.
+		expect(() =>
+			assertEgressPolicyIsEnforceable(
+				{ kind: 'static', allowedHosts: ['a.example'] },
+				'core',
+				narrowing,
+			),
+		).toThrow(KubernetesUnenforceableEgressPolicyError)
+	})
+
+	it('does not call resolve() when refusing a resolver policy under core engine', async () => {
+		const resolve = vi.fn(async () => ['a.example'])
+		await expect(
+			translateEgressPolicy({ kind: 'resolver', resolve }, 'core', TARGET, narrowing),
+		).rejects.toThrow(KubernetesUnenforceableEgressPolicyError)
+		expect(resolve).not.toHaveBeenCalled()
+	})
+
+	it('accepts static and resolver under cilium — the only combination it applies to', async () => {
+		await expect(
+			translateEgressPolicy(
+				{ kind: 'static', allowedHosts: ['a.example'] },
+				'cilium',
+				TARGET,
+				narrowing,
+			),
+		).resolves.toBeDefined()
+		await expect(
+			translateEgressPolicy(
+				{ kind: 'resolver', resolve: async () => ['a.example'] },
+				'cilium',
+				TARGET,
+				narrowing,
+			),
+		).resolves.toBeDefined()
+	})
+})
+
+describe('cilium narrowing — config validation', () => {
+	it.each([
+		['ports', { ports: [70000] }],
+		['ports', { ports: [0] }],
+		['ports', { ports: [1.5] }],
+		['hostPorts', { hostPorts: { 'a.example': [-1] } }],
+		['tlsPorts', { tlsServerNames: true, tlsPorts: [99999] }],
+	])('refuses an unusable %s entry at construction', (_field, narrowing) => {
+		expect(() =>
+			assertEgressPolicyIsEnforceable(
+				{ kind: 'static', allowedHosts: ['a.example'] },
+				'cilium',
+				narrowing,
+			),
+		).toThrow(KubernetesEgressPolicyConfigError)
+	})
+
+	it.each([
+		['ports', { ports: [] }],
+		['hostPorts[host]', { hostPorts: { 'a.example': [] } }],
+		['tlsPorts', { tlsServerNames: true, tlsPorts: [] }],
+	])('refuses an explicitly empty %s array at construction', (_field, narrowing) => {
+		// An empty array is neither "no restriction" (that is what omitting the
+		// field means) nor a usable one: `narrowedHostFqdnRule` would emit
+		// `toPorts: [{ ports: [] }]`, a shape the API server rejects on apply.
+		expect(() =>
+			assertEgressPolicyIsEnforceable(
+				{ kind: 'static', allowedHosts: ['a.example'] },
+				'cilium',
+				narrowing,
+			),
+		).toThrow(KubernetesEgressPolicyConfigError)
+		expect(() =>
+			assertEgressPolicyIsEnforceable(
+				{ kind: 'static', allowedHosts: ['a.example'] },
+				'cilium',
+				narrowing,
+			),
+		).toThrow(/must not be an empty array/)
+	})
+
+	it('refuses an empty clusterDomain', () => {
+		expect(() =>
+			assertEgressPolicyIsEnforceable({ kind: 'static', allowedHosts: ['a.example'] }, 'cilium', {
+				dnsNames: { clusterDomain: '  ' },
+			}),
+		).toThrow(KubernetesEgressPolicyConfigError)
+	})
+
+	it('refuses a blank search suffix', () => {
+		expect(() =>
+			assertEgressPolicyIsEnforceable({ kind: 'static', allowedHosts: ['a.example'] }, 'cilium', {
+				dnsNames: { searchSuffixes: [''] },
+			}),
+		).toThrow(KubernetesEgressPolicyConfigError)
+	})
+
+	it('accepts valid ports at the boundaries (1 and 65535)', () => {
+		expect(() =>
+			assertEgressPolicyIsEnforceable({ kind: 'static', allowedHosts: ['a.example'] }, 'cilium', {
+				ports: [1, 65535],
+			}),
+		).not.toThrow()
+	})
+})
+
+describe('cilium narrowing — ports', () => {
+	it('emits one toFQDNs rule per host, each with the default ports', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example', 'b.example'] },
+			'cilium',
+			TARGET,
+			{ ports: [443] },
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		// The DNS-visibility rule is untouched — only DNS-NAME narrowing
+		// changes it — so it stays first and stays `matchPattern: '*'`.
+		expect(manifest.spec.egress[0]).toStrictEqual(CILIUM_DNS_VISIBILITY_RULE_FOR_TESTS)
+		expect(manifest.spec.egress.slice(1)).toStrictEqual([
+			{
+				toFQDNs: [{ matchName: 'a.example' }],
+				toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
+			},
+			{
+				toFQDNs: [{ matchName: 'b.example' }],
+				toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
+			},
+		])
+	})
+
+	it('a per-host override replaces the default list for that host only', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example', 'b.example'] },
+			'cilium',
+			TARGET,
+			{ ports: [443], hostPorts: { 'b.example': [22] } },
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		expect(manifest.spec.egress[1]).toMatchObject({
+			toFQDNs: [{ matchName: 'a.example' }],
+			toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
+		})
+		expect(manifest.spec.egress[2]).toMatchObject({
+			toFQDNs: [{ matchName: 'b.example' }],
+			toPorts: [{ ports: [{ port: '22', protocol: 'TCP' }] }],
+		})
+	})
+
+	it('a host missing from hostPorts with no default set gets no port restriction', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example'] },
+			'cilium',
+			TARGET,
+			{ hostPorts: { 'other.example': [22] } },
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		expect(manifest.spec.egress[1]).toStrictEqual({ toFQDNs: [{ matchName: 'a.example' }] })
+	})
+})
+
+describe('cilium narrowing — DNS names', () => {
+	it('replaces matchPattern with an exact name per host and per search suffix', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			{ dnsNames: true },
+		)
+		const manifest = translated.manifest as {
+			spec: { egress: { toPorts?: { rules?: { dns?: { matchName: string }[] } }[] }[] }
+		}
+		const dnsRule = manifest.spec.egress[0]
+		expect(dnsRule?.toPorts?.[0]?.rules?.dns).toStrictEqual([
+			{ matchName: 'github.com' },
+			{ matchName: 'github.com.namzu-sandboxes.svc.cluster.local' },
+			{ matchName: 'github.com.svc.cluster.local' },
+			{ matchName: 'github.com.cluster.local' },
+		])
+		// The rest of the DNS-visibility rule (endpoints, port 53) is unchanged.
+		expect(dnsRule).toMatchObject({ toEndpoints: CILIUM_DNS_VISIBILITY_RULE_FOR_TESTS.toEndpoints })
+	})
+
+	it('appends configured search suffixes after the three built-in ones', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			{ dnsNames: { searchSuffixes: ['corp.internal'] } },
+		)
+		const manifest = translated.manifest as {
+			spec: { egress: { toPorts?: { rules?: { dns?: { matchName: string }[] } }[] }[] }
+		}
+		expect(manifest.spec.egress[0]?.toPorts?.[0]?.rules?.dns).toStrictEqual([
+			{ matchName: 'github.com' },
+			{ matchName: 'github.com.namzu-sandboxes.svc.cluster.local' },
+			{ matchName: 'github.com.svc.cluster.local' },
+			{ matchName: 'github.com.cluster.local' },
+			{ matchName: 'github.com.corp.internal' },
+		])
+	})
+
+	it('honours a configured namespace and clusterDomain override', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example'] },
+			'cilium',
+			TARGET,
+			{ dnsNames: { namespace: 'other-ns', clusterDomain: 'corp.local' } },
+		)
+		const manifest = translated.manifest as {
+			spec: { egress: { toPorts?: { rules?: { dns?: { matchName: string }[] } }[] }[] }
+		}
+		expect(manifest.spec.egress[0]?.toPorts?.[0]?.rules?.dns).toStrictEqual([
+			{ matchName: 'a.example' },
+			{ matchName: 'a.example.other-ns.svc.corp.local' },
+			{ matchName: 'a.example.svc.corp.local' },
+			{ matchName: 'a.example.corp.local' },
+		])
+	})
+
+	it('narrows DNS names without touching toFQDNs ports when no port option is set', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example'] },
+			'cilium',
+			TARGET,
+			{ dnsNames: true },
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		expect(manifest.spec.egress[1]).toStrictEqual({ toFQDNs: [{ matchName: 'a.example' }] })
+	})
+})
+
+describe('cilium narrowing — TLS server names', () => {
+	it('the worked example from #490: a host with two ports, one TLS', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			{ hostPorts: { 'github.com': [443, 22] }, tlsServerNames: true },
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		expect(manifest.spec.egress[1]).toStrictEqual({
+			toFQDNs: [{ matchName: 'github.com' }],
+			toPorts: [
+				{ ports: [{ port: '443', protocol: 'TCP' }], serverNames: ['github.com'] },
+				{ ports: [{ port: '22', protocol: 'TCP' }] },
+			],
+		})
+	})
+
+	it('limits a host to the default TLS ports when no port option is set', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example'] },
+			'cilium',
+			TARGET,
+			{ tlsServerNames: true },
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		expect(manifest.spec.egress[1]).toStrictEqual({
+			toFQDNs: [{ matchName: 'a.example' }],
+			toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }], serverNames: ['a.example'] }],
+		})
+	})
+
+	it('honours a configured tlsPorts list instead of the 443 default', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['a.example'] },
+			'cilium',
+			TARGET,
+			{ hostPorts: { 'a.example': [8443, 80] }, tlsServerNames: true, tlsPorts: [8443] },
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		expect(manifest.spec.egress[1]).toStrictEqual({
+			toFQDNs: [{ matchName: 'a.example' }],
+			toPorts: [
+				{ ports: [{ port: '8443', protocol: 'TCP' }], serverNames: ['a.example'] },
+				{ ports: [{ port: '80', protocol: 'TCP' }] },
+			],
+		})
+	})
+
+	it('every option together: ports, DNS names and TLS server names', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			{ hostPorts: { 'github.com': [443, 22] }, tlsServerNames: true, dnsNames: true },
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		expect(manifest.spec.egress).toHaveLength(2)
+		expect(
+			(manifest.spec.egress[0] as { toPorts: { rules: { dns: unknown[] } }[] }).toPorts[0]?.rules
+				.dns,
+		).toHaveLength(4)
+		expect(manifest.spec.egress[1]).toStrictEqual({
+			toFQDNs: [{ matchName: 'github.com' }],
+			toPorts: [
+				{ ports: [{ port: '443', protocol: 'TCP' }], serverNames: ['github.com'] },
+				{ ports: [{ port: '22', protocol: 'TCP' }] },
+			],
+		})
+	})
+
+	it('resolver: narrowing applies to what resolve() returned, not to allowedHosts', async () => {
+		const resolve = vi.fn(async () => ['tenant.example'])
+		const translated = await translateEgressPolicy(
+			{ kind: 'resolver', resolve },
+			'cilium',
+			TARGET,
+			{
+				ports: [443],
+			},
+		)
+		const manifest = translated.manifest as { spec: { egress: Record<string, unknown>[] } }
+		expect(manifest.spec.egress[1]).toStrictEqual({
+			toFQDNs: [{ matchName: 'tenant.example' }],
+			toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
+		})
+	})
+})
+
+describe('cilium narrowing — verifyEgressPolicyApplied catches every new field', () => {
+	function fakeClient(reply: (path: string) => unknown): KubernetesClient {
+		return {
+			request: (async (_method: string, path: string) => {
+				const body = reply(path)
+				if (body === undefined) throw new KubernetesAlreadyGoneError('GET', path, 404)
+				return body
+			}) as KubernetesClient['request'],
+			namespace: () => TARGET.namespace,
+		}
+	}
+
+	it('passes when the applied object matches the narrowed translation exactly', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			{ hostPorts: { 'github.com': [443, 22] }, tlsServerNames: true, dnsNames: true },
+		)
+		const client = fakeClient(() => ({ spec: (translated.manifest as { spec: unknown }).spec }))
+		await expect(verifyEgressPolicyApplied(client, translated)).resolves.toBeUndefined()
+	})
+
+	it('fails when the applied object is missing a configured toPorts entry', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			{ ports: [443] },
+		)
+		const expectedSpec = (translated.manifest as { spec: { egress: Record<string, unknown>[] } })
+			.spec
+		const droppedPorts = {
+			...expectedSpec,
+			egress: expectedSpec.egress.map((rule) =>
+				'toFQDNs' in rule ? { toFQDNs: rule.toFQDNs } : rule,
+			),
+		}
+		const client = fakeClient(() => ({ spec: droppedPorts }))
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(
+			KubernetesEgressPolicyMismatchError,
+		)
+	})
+
+	it('fails when the applied object is missing the narrowed DNS names', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			{ dnsNames: true },
+		)
+		const expectedSpec = (translated.manifest as { spec: unknown }).spec
+		const client = fakeClient(() => ({
+			spec: {
+				...(expectedSpec as Record<string, unknown>),
+				egress: [CILIUM_DNS_VISIBILITY_RULE_FOR_TESTS],
+			},
+		}))
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(
+			KubernetesEgressPolicyMismatchError,
+		)
+	})
+
+	it('fails when the applied object is missing a configured serverNames entry', async () => {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			{ tlsServerNames: true },
+		)
+		const expectedSpec = (translated.manifest as { spec: { egress: Record<string, unknown>[] } })
+			.spec
+		const droppedServerNames = {
+			...expectedSpec,
+			egress: expectedSpec.egress.map((rule) => {
+				if (!('toFQDNs' in rule)) return rule
+				const toPorts = rule.toPorts as Record<string, unknown>[]
+				return { ...rule, toPorts: toPorts.map(({ serverNames: _serverNames, ...rest }) => rest) }
+			}),
+		}
+		const client = fakeClient(() => ({ spec: droppedServerNames }))
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(
+			KubernetesEgressPolicyMismatchError,
+		)
+	})
+})
+
+describe('cilium narrowing — the union check reads per-host ports on toFQDNs', () => {
+	const narrowedTargetPodLabels = { 'sandbox.namzu.ai/template': 'namzu-task', app: 'namzu' }
+
+	async function decideCiliumNarrowed(
+		policy: KubernetesEgressPolicy,
+		narrowing: KubernetesCiliumEgressNarrowing,
+		ciliumItems: readonly unknown[],
+	): Promise<EgressUnionDecision> {
+		const translated = await translateEgressPolicy(policy, 'cilium', TARGET, narrowing)
+		const allowance = egressAllowance(translated)
+		const target = {
+			namespace: 'namzu-sandboxes',
+			podLabels: narrowedTargetPodLabels,
+			engine: 'cilium' as const,
+			subject: 'to create Sandbox namzu-task-1 in namespace namzu-sandboxes',
+		}
+		return decideEgressUnion(readCiliumEgressPolicies(ciliumItems, target, allowance), allowance)
+	}
+
+	it('accepts a second policy naming the same host on an allowed port', async () => {
+		const decision = await decideCiliumNarrowed(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			{ ports: [443] },
+			[
+				{
+					metadata: { name: 'extra' },
+					spec: {
+						endpointSelector: { matchLabels: { 'k8s:sandbox.namzu.ai/template': 'namzu-task' } },
+						egress: [
+							{
+								toFQDNs: [{ matchName: 'github.com' }],
+								toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
+							},
+						],
+					},
+				},
+			],
+		)
+		expect(decision.refusal).toBeUndefined()
+	})
+
+	it('refuses a second policy naming the same host on a port the narrowed translation does not allow', async () => {
+		const decision = await decideCiliumNarrowed(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			{ ports: [443] },
+			[
+				{
+					metadata: { name: 'ssh-hole' },
+					spec: {
+						endpointSelector: { matchLabels: { 'k8s:sandbox.namzu.ai/template': 'namzu-task' } },
+						egress: [
+							{
+								toFQDNs: [{ matchName: 'github.com' }],
+								toPorts: [{ ports: [{ port: '22', protocol: 'TCP' }] }],
+							},
+						],
+					},
+				},
+			],
+		)
+		expect(decision.refusal?.kind).toBe('policy-widens-egress')
+		expect(decision.refusal?.summary).toContain('CiliumNetworkPolicy/ssh-hole')
+	})
+
+	it('refuses a second policy naming the same host with no port restriction at all', async () => {
+		const decision = await decideCiliumNarrowed(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			{ ports: [443] },
+			[
+				{
+					metadata: { name: 'wide-open' },
+					spec: {
+						endpointSelector: { matchLabels: { 'k8s:sandbox.namzu.ai/template': 'namzu-task' } },
+						egress: [{ toFQDNs: [{ matchName: 'github.com' }] }],
+					},
+				},
+			],
+		)
+		expect(decision.refusal?.kind).toBe('policy-widens-egress')
+	})
+})
+
+/**
+ * `#490`'s manifest decision, closed by refusal rather than by trusting an
+ * operator noticed a comment: `packages/sandbox/k8s/manifests/*.yaml` ship a
+ * plain, L4-only kube-dns rule with no `rules.dns` restriction. Reachability
+ * alone (`destinationIsAllowed`) cannot tell that rule apart from a narrowed
+ * one — both reach the same peer on the same port — so this is the check that
+ * actually distinguishes them: `EgressAllowance.dnsNarrowedTo`, read by
+ * `reachesResolverAtDnsPort` inside `coreEgressRuleVerdict` and
+ * `ciliumEgressRuleVerdict` before either falls back to the ordinary
+ * peer/port comparison.
+ */
+describe('cilium narrowing — a co-existing kube-dns rule can widen a narrowed DNS allowance', () => {
+	const dnsWideningTargetPodLabels = { 'sandbox.namzu.ai/template': 'namzu-task', app: 'namzu' }
+
+	async function decideAgainstNarrowedDns(
+		narrowing: KubernetesCiliumEgressNarrowing,
+		coreItems: readonly unknown[],
+		ciliumItems: readonly unknown[] = [],
+	): Promise<EgressUnionDecision> {
+		const translated = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['github.com'] },
+			'cilium',
+			TARGET,
+			narrowing,
+		)
+		const allowance = egressAllowance(translated)
+		const target = {
+			namespace: 'namzu-sandboxes',
+			podLabels: dnsWideningTargetPodLabels,
+			engine: 'cilium' as const,
+			subject: 'to create Sandbox namzu-task-1 in namespace namzu-sandboxes',
+		}
+		return decideEgressUnion(
+			[
+				...readCoreEgressPolicies(coreItems, target, allowance),
+				...readCiliumEgressPolicies(ciliumItems, target, allowance),
+			],
+			allowance,
+		)
+	}
+
+	// `packages/sandbox/k8s/manifests/networkpolicy.yaml`'s own DNS rule,
+	// reproduced exactly (see this file's `BASELINE_DNS_RULE`, defined below).
+	const SHIPPED_BASELINE_DNS_RULE = {
+		to: [
+			{
+				namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
+				podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
+			},
+		],
+		ports: [
+			{ protocol: 'UDP', port: 53 },
+			{ protocol: 'TCP', port: 53 },
+		],
+	}
+
+	it('a plain NetworkPolicy granting unrestricted kube-dns:53 widens a DNS-narrowed translation', async () => {
+		const decision = await decideAgainstNarrowedDns({ dnsNames: true }, [
+			{
+				metadata: { name: 'namzu-sandbox-baseline' },
+				spec: {
+					podSelector: { matchLabels: { 'sandbox.namzu.ai/template': 'namzu-task' } },
+					policyTypes: ['Egress'],
+					egress: [SHIPPED_BASELINE_DNS_RULE],
+				},
+			},
+		])
+		expect(decision.refusal?.kind).toBe('policy-widens-egress')
+		expect(decision.refusal?.summary).toContain('namzu-sandbox-baseline')
+		expect(decision.refusal?.summary).toMatch(/no DNS-name restriction/)
+	})
+
+	it('the same plain NetworkPolicy does NOT widen an unnarrowed (or non-DNS-narrowed) translation', async () => {
+		const decision = await decideAgainstNarrowedDns({ ports: [443] }, [
+			{
+				metadata: { name: 'namzu-sandbox-baseline' },
+				spec: {
+					podSelector: { matchLabels: { 'sandbox.namzu.ai/template': 'namzu-task' } },
+					policyTypes: ['Egress'],
+					egress: [SHIPPED_BASELINE_DNS_RULE],
+				},
+			},
+		])
+		expect(decision.refusal).toBeUndefined()
+	})
+
+	it('a second CiliumNetworkPolicy with no rules.dns restriction also widens it', async () => {
+		const decision = await decideAgainstNarrowedDns(
+			{ dnsNames: true },
+			[],
+			[
+				{
+					metadata: { name: 'unrestricted-dns' },
+					spec: {
+						endpointSelector: { matchLabels: { 'k8s:sandbox.namzu.ai/template': 'namzu-task' } },
+						egress: [
+							{
+								toEndpoints: [
+									{
+										matchLabels: {
+											'k8s:io.kubernetes.pod.namespace': 'kube-system',
+											'k8s:k8s-app': 'kube-dns',
+										},
+									},
+								],
+								toPorts: [{ ports: [{ port: '53', protocol: 'ANY' }] }],
+							},
+						],
+					},
+				},
+			],
+		)
+		expect(decision.refusal?.kind).toBe('policy-widens-egress')
+	})
+
+	it('a second CiliumNetworkPolicy with a matchPattern DNS rule also widens it — a wildcard is read as unrestricted', async () => {
+		const decision = await decideAgainstNarrowedDns(
+			{ dnsNames: true },
+			[],
+			[
+				{
+					metadata: { name: 'wildcard-dns' },
+					spec: {
+						endpointSelector: { matchLabels: { 'k8s:sandbox.namzu.ai/template': 'namzu-task' } },
+						egress: [
+							{
+								toEndpoints: [
+									{
+										matchLabels: {
+											'k8s:io.kubernetes.pod.namespace': 'kube-system',
+											'k8s:k8s-app': 'kube-dns',
+										},
+									},
+								],
+								toPorts: [
+									{
+										ports: [{ port: '53', protocol: 'ANY' }],
+										rules: { dns: [{ matchPattern: '*' }] },
+									},
+								],
+							},
+						],
+					},
+				},
+			],
+		)
+		expect(decision.refusal?.kind).toBe('policy-widens-egress')
+	})
+
+	it('a second CiliumNetworkPolicy narrowed to the same (or a subset of the) names does NOT widen it', async () => {
+		const decision = await decideAgainstNarrowedDns(
+			{ dnsNames: true },
+			[],
+			[
+				{
+					metadata: { name: 'same-names' },
+					spec: {
+						endpointSelector: { matchLabels: { 'k8s:sandbox.namzu.ai/template': 'namzu-task' } },
+						egress: [
+							{
+								toEndpoints: [
+									{
+										matchLabels: {
+											'k8s:io.kubernetes.pod.namespace': 'kube-system',
+											'k8s:k8s-app': 'kube-dns',
+										},
+									},
+								],
+								toPorts: [
+									{
+										ports: [{ port: '53', protocol: 'ANY' }],
+										rules: { dns: [{ matchName: 'github.com' }] },
+									},
+								],
+							},
+						],
+					},
+				},
+			],
+		)
+		expect(decision.refusal).toBeUndefined()
+	})
+
+	it('a second CiliumNetworkPolicy naming an extra name beyond our own narrowed set still widens it', async () => {
+		const decision = await decideAgainstNarrowedDns(
+			{ dnsNames: true },
+			[],
+			[
+				{
+					metadata: { name: 'extra-name' },
+					spec: {
+						endpointSelector: { matchLabels: { 'k8s:sandbox.namzu.ai/template': 'namzu-task' } },
+						egress: [
+							{
+								toEndpoints: [
+									{
+										matchLabels: {
+											'k8s:io.kubernetes.pod.namespace': 'kube-system',
+											'k8s:k8s-app': 'kube-dns',
+										},
+									},
+								],
+								toPorts: [
+									{
+										ports: [{ port: '53', protocol: 'ANY' }],
+										rules: {
+											dns: [{ matchName: 'github.com' }, { matchName: 'evil.example' }],
+										},
+									},
+								],
+							},
+						],
+					},
+				},
+			],
+		)
+		expect(decision.refusal?.kind).toBe('policy-widens-egress')
+	})
+
+	it('a plain NetworkPolicy reaching the WHOLE kube-system namespace (broader than kube-dns alone) still widens a DNS-narrowed translation', async () => {
+		// This is `CLUSTER_DNS_EGRESS_RULE` — `deny-all`'s own DNS rule — applied
+		// under `engine: 'cilium'` beside a DNS-narrowed `static` policy. Wider
+		// reachability does not change the finding: a plain rule still cannot
+		// express the L7 restriction, so it still resolves every name.
+		const decision = await decideAgainstNarrowedDns({ dnsNames: true }, [
+			{
+				metadata: { name: 'namespace-wide-dns' },
+				spec: {
+					podSelector: { matchLabels: { 'sandbox.namzu.ai/template': 'namzu-task' } },
+					policyTypes: ['Egress'],
+					egress: [
+						{
+							to: [
+								{
+									namespaceSelector: {
+										matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' },
+									},
+								},
+							],
+							ports: [{ protocol: 'UDP', port: 53 }],
+						},
+					],
+				},
+			},
+		])
+		expect(decision.refusal?.kind).toBe('policy-widens-egress')
 	})
 })
 

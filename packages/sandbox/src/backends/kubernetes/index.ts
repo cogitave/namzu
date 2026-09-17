@@ -549,7 +549,11 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 	// `config.egress.policy.kind` alone, with no API call, so it is refused
 	// here, synchronously, the same moment the two checks above are.
 	if (config.egress) {
-		assertEgressPolicyIsEnforceable(config.egress.policy, config.egress.engine ?? 'core')
+		assertEgressPolicyIsEnforceable(
+			config.egress.policy,
+			config.egress.engine ?? 'core',
+			config.egress.ciliumNarrowing,
+		)
 	}
 	// Resolved here as well as at each session, so a configuration this
 	// backend will never honour is refused while `buildKubernetesBackend` is
@@ -679,7 +683,12 @@ export function buildEgressBoundary(
 	// would compare each against a different translation.
 	let translation: Promise<KubernetesTranslatedEgressPolicy> | undefined
 	const translate = (): Promise<KubernetesTranslatedEgressPolicy> => {
-		translation ??= translateEgressPolicy(egress.policy, engine, target).catch((err: unknown) => {
+		translation ??= translateEgressPolicy(
+			egress.policy,
+			engine,
+			target,
+			egress.ciliumNarrowing,
+		).catch((err: unknown) => {
 			translation = undefined
 			throw err
 		})

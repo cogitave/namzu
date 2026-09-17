@@ -2825,6 +2825,130 @@ variables are advisory — a process that ignores them is not bounded by
 them — and the container tier's still-open gap in that shape is not repeated
 here behind a Kubernetes-looking manifest.
 
+### Narrowing a `static`/`resolver` allowlist: ports, DNS names, TLS server names
+
+Unnarrowed, a `static`/`resolver` allowlist under `engine: 'cilium'` allows
+**addresses, not hostnames**: `toFQDNs` allows whatever a name resolved to,
+which can be one address shared by many unrelated sites (a CDN); it allows
+**any port** on that address, because the translation sets no `toPorts`; and
+it allows **any name to resolve** at all, because the DNS-visibility rule
+carries `rules.dns: [{ matchPattern: '*' }]` — DNS itself is an open channel
+out. `KubernetesEgressConfig.ciliumNarrowing` closes each of those, opt-in and
+independently:
+
+```ts
+import type { KubernetesEgressConfig } from '@namzu/sandbox'
+
+const narrowed: KubernetesEgressConfig = {
+  engine: 'cilium',
+  policy: { kind: 'static', allowedHosts: ['github.com'] },
+  ciliumNarrowing: {
+    // Ports: a default list plus a per-host override, emitted as `toPorts`
+    // on each host's OWN `toFQDNs` rule (unnarrowed, every host shares one
+    // rule with no ports at all; any option here switches to one rule per
+    // host).
+    hostPorts: { 'github.com': [443, 22] },
+    // TLS server names: `serverNames: [<host>]` on the host's TLS ports
+    // (default `[443]`, override with `tlsPorts`) — needs Cilium's L7 proxy.
+    // A host with no `ports`/`hostPorts` entry is limited to its TLS ports
+    // rather than left open, because `serverNames` needs a port to attach to.
+    tlsServerNames: true,
+    // DNS names: an exact `matchName` per host, plus the host under every
+    // search suffix, replacing `matchPattern: '*'`. `true` uses the defaults
+    // below; pass an object to override `namespace`/`clusterDomain` or add
+    // more suffixes (kubelet appends the node's own, which this backend
+    // cannot see).
+    dnsNames: true,
+  },
+}
+```
+
+emits, for `github.com` in namespace `namzu-sandboxes`:
+
+```yaml
+egress:
+  - toEndpoints:
+      - matchLabels: { "k8s:io.kubernetes.pod.namespace": kube-system, "k8s:k8s-app": kube-dns }
+    toPorts:
+      - ports: [{ port: "53", protocol: ANY }]
+        rules:
+          dns:
+            - matchName: github.com
+            - matchName: github.com.namzu-sandboxes.svc.cluster.local
+            - matchName: github.com.svc.cluster.local
+            - matchName: github.com.cluster.local
+  - toFQDNs: [{ matchName: github.com }]
+    toPorts:
+      - ports: [{ port: "443", protocol: TCP }]
+        serverNames: [github.com]
+      - ports: [{ port: "22", protocol: TCP }]
+```
+
+**Unset (every field), the translation is byte-for-byte what it always was** —
+a test pins that with a deep-equality comparison — so an already-applied
+policy keeps verifying after upgrading to a release carrying this option.
+Setting `ciliumNarrowing` on a `deny-all`/`no-network`/`allow-all`/
+`public-internet` policy, or under `engine: 'core'`, throws
+`KubernetesEgressNarrowingUnsupportedError` synchronously, both from
+`buildKubernetesBackend` and from `createKubernetesWorkspace`, before any
+request — narrowing options only mean something next to a hostname allowlist
+enforced by Cilium. `ports`/`hostPorts`/`tlsPorts` entries outside `1-65535`,
+and an empty `dnsNames.clusterDomain` or search suffix, are refused the same
+way with `KubernetesEgressPolicyConfigError` rather than emitted into a
+manifest the API server would reject on apply.
+
+**Verification needs no separate statement of these fields**: `spec.egress` is
+compared to the translation exactly, the same deep-equal check described
+below, so a `toPorts`, `serverNames` or narrowed DNS entry the applied object
+is missing throws `KubernetesEgressPolicyMismatchError` naming it. The union
+check (below) is extended the same way it always compares ports on every
+other peer kind: a second `CiliumNetworkPolicy` naming an allowed host with a
+wider port set, or with no `toPorts` at all, is read as `widens-egress` even
+though the host name itself is on the allowlist.
+
+**Delete the shipped kube-dns rule when DNS-name narrowing is on — and the
+union check now refuses the create if you don't.** Cilium's own precedence
+rule says that when an L4 rule and a similar L4 rule carrying L7 rules both
+select a pod, the L7 portion of the LATTER has no effect. The narrowed
+`CiliumNetworkPolicy`'s DNS-visibility rule carries an L7 restriction (the
+exact `matchName` list above); `packages/sandbox/k8s/manifests/
+networkpolicy.yaml` and both `sandboxtemplate-*.yaml` templates' managed
+`networkPolicy` ship a plain, L4-only kube-dns rule selecting the same pods on
+the same port. Left in place, that plain rule cancels the narrowing: every
+name resolves again regardless of the configured allowlist. Both shipped
+files say so, at the rule itself, and name exactly what to delete — see
+`packages/sandbox/k8s/README.md`'s egress section. Port and TLS-server-name
+narrowing have no such interaction and need no manifest edit.
+
+That plain rule reaches the exact same peer and port the narrowed
+`CiliumNetworkPolicy` itself allows for DNS, so reachability alone cannot
+tell the two apart — `EgressAllowance.dnsNarrowedTo` is the field that can:
+under the default `egress.verify: 'union'`, `coreEgressRuleVerdict` and
+`ciliumEgressRuleVerdict` both check, before their ordinary peer/port
+comparison, whether a rule reaching the cluster resolver on the DNS port
+narrows WHICH names it resolves to a set at least as small as
+`ciliumNarrowing.dnsNames`'s own — a plain `NetworkPolicy` never can (core has
+no L7 concept at all), and a second `CiliumNetworkPolicy` only counts if its
+own `toPorts[].rules.dns` names a subset of the same list. Either way, a rule
+that fails that test is `policy-widens-egress`, named in the refusal, and
+`createKubernetesWorkspace`/the provider's `create()` fails rather than
+creating a sandbox whose DNS-name allowlist a leftover manifest rule quietly
+defeats. `egress.verify: 'named-object-only'` skips this check along with the
+rest of the union read — that deployment still has to delete the rule by
+hand, and gets no refusal if it forgets.
+
+**What this narrows and what it does not.** `serverNames` matches the TLS
+Client Hello's SNI value, which is visible before the handshake completes —
+it does not see the HTTP `Host` header inside an established TLS connection,
+and it enforces nothing on a non-TLS port (`22` in the example above is
+filtered by address and port only, exactly like the unnarrowed translation).
+DNS-name narrowing bounds what the sandbox's OWN lookups through the cluster
+resolver may ask for; it does not stop a workload that already knows an IP
+address from dialing it directly if that address is otherwise reachable
+(`toFQDNs` still gates the connection itself). None of the three options is
+probed by any script this repository ships — see "What no egress test here
+can prove" below.
+
 ### The label every translated policy selects by
 
 Every Sandbox this backend creates carries the label
@@ -2941,9 +3065,15 @@ pod's own agent port on loopback, which no policy governs, and a resolution of
 fails, so a broken prober can never read as a perfect boundary. On a
 non-enforcing cluster it reports FAIL, which is the intended outcome.
 
-**The `static`/`resolver` hostname allowlist is not probed by anything.** It is
-enforced at L7 by one CNI's own agent; nothing in this repo has measured that,
-and this page does not claim it.
+**The `static`/`resolver` hostname allowlist is not probed by anything, narrowed
+or not.** It is enforced at L7 by one CNI's own agent; nothing in this repo has
+measured that a narrowed `toPorts`, `serverNames` or DNS-name restriction is
+actually enforced by a real Cilium data plane, and this page does not claim
+it. Confirming that needs a real Cilium cluster and a positive control (a name
+that IS on the allowlist still resolving and connecting) alongside the
+negative one — a `cilium policy trace` or BPF policy dump showing the narrowed
+rule is the one in force is the strongest evidence, because a probe that
+merely reports "blocked" cannot tell a working narrowing from a broken guest.
 
 ## Ingress
 

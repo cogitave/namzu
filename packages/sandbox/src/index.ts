@@ -159,6 +159,8 @@ export type {
 // and what the two Kubernetes-only kinds (`no-network`, `public-internet`)
 // mean that the shared `EgressPolicy` union has no word for.
 export type {
+	KubernetesCiliumDnsNarrowing,
+	KubernetesCiliumEgressNarrowing,
 	KubernetesEgressConfig,
 	KubernetesEgressEngine,
 	KubernetesEgressPolicy,
@@ -176,6 +178,7 @@ export type {
 	ExaminedEgressPolicy,
 } from './backends/kubernetes/egress-policy.js'
 export {
+	KubernetesEgressNarrowingUnsupportedError,
 	KubernetesEgressPolicyConfigError,
 	KubernetesEgressPolicyUnionError,
 } from './backends/kubernetes/egress-policy.js'

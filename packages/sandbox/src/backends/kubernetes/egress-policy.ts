@@ -184,6 +184,82 @@ export type KubernetesEgressPolicy = EgressPolicy | KubernetesOnlyEgressPolicy
 export type KubernetesEgressVerification = 'union' | 'named-object-only'
 
 /**
+ * How {@link KubernetesCiliumEgressNarrowing.dnsNames} narrows the kube-dns
+ * L7 rule. `true` uses every default below; an object customises them.
+ *
+ * The exact-name list a narrowed policy emits is, for each allowed host,
+ * the bare name plus the host under `<namespace>.svc.<clusterDomain>`,
+ * `svc.<clusterDomain>` and `<clusterDomain>` — because Cilium's `matchName`
+ * is an EXACT name and does not match across a `.` the way `matchPattern`
+ * does, and a search-list query for `github.com.svc.cluster.local` is a
+ * DIFFERENT name than `github.com`. `searchSuffixes` adds more: kubelet
+ * appends the node's own search domains, which this backend cannot see, so a
+ * deployment whose nodes carry extra search domains lists them here or a
+ * search-list query for one of them is refused by the DNS proxy — and, per
+ * Cilium's own docs, some images (musl/Alpine) stop trying the search list
+ * entirely the first time that happens, breaking the bare name lookup too.
+ */
+export interface KubernetesCiliumDnsNarrowing {
+	/** Defaults to the egress target's own namespace (where the sandbox pods run). */
+	readonly namespace?: string
+	/** Defaults to `'cluster.local'`. */
+	readonly clusterDomain?: string
+	/** Appended after the three built-in suffixes, not replacing them. */
+	readonly searchSuffixes?: readonly string[]
+}
+
+/**
+ * Opt-in narrowing of a `static`/`resolver` hostname allowlist under
+ * `engine: 'cilium'` — see the module doc and `#490`. Every field here is
+ * OFF unless set, and setting none of them leaves the translation
+ * byte-for-byte what it always emitted: that is the compatibility guarantee
+ * a deployment with an already-applied policy relies on.
+ *
+ * Setting any field switches the translation from one shared `toFQDNs` rule
+ * naming every host to one `toFQDNs` rule PER HOST, so ports and server
+ * names can differ host by host. Refused synchronously (alongside
+ * {@link assertEgressPolicyIsEnforceable}'s existing refusals) unless
+ * `engine` is `'cilium'` and `policy.kind` is `'static'` or `'resolver'`.
+ */
+export interface KubernetesCiliumEgressNarrowing {
+	/**
+	 * TCP ports allowed to every host that has no entry in `hostPorts`, e.g.
+	 * `[443]`. Leaving both this and `hostPorts` unset — with `dnsNames` and
+	 * `tlsServerNames` also unset — means no port narrowing: a host's
+	 * `toFQDNs` rule carries no `toPorts` at all, exactly as the
+	 * unnarrowed translation emits today (every port reachable).
+	 */
+	readonly ports?: readonly number[]
+	/**
+	 * Per-host TCP port overrides, keyed by the host exactly as it appears in
+	 * `allowedHosts` or a `resolver`'s result. A host with no entry here
+	 * falls back to `ports`.
+	 */
+	readonly hostPorts?: Readonly<Record<string, readonly number[]>>
+	/**
+	 * Narrow the kube-dns L7 rule from `rules.dns: [{ matchPattern: '*' }]`
+	 * to an exact `matchName` per allowed host, and per host-plus-suffix. See
+	 * {@link KubernetesCiliumDnsNarrowing}.
+	 */
+	readonly dnsNames?: boolean | KubernetesCiliumDnsNarrowing
+	/**
+	 * Add `serverNames: [<host>]` to each host's TLS ports (SNI enforcement,
+	 * which needs Cilium's L7 proxy — see the module doc). A host with no
+	 * port configured in `ports`/`hostPorts` is limited to `tlsPorts` rather
+	 * than left with no port restriction at all, because a `serverNames`
+	 * rule needs a port to attach to.
+	 */
+	readonly tlsServerNames?: boolean
+	/**
+	 * Which of a host's configured ports are TLS ports, for
+	 * `tlsServerNames`: those get `serverNames` on their own `toPorts`
+	 * entry, the rest (if any) get a separate entry with none. Defaults to
+	 * `[443]`. Meaningless unless `tlsServerNames` is set.
+	 */
+	readonly tlsPorts?: readonly number[]
+}
+
+/**
  * The config-level egress hook on {@link KubernetesBackendConfig}.
  *
  * Deliberately CONFIG-level, not per-`create()`: the enforcement point is a
@@ -207,6 +283,13 @@ export interface KubernetesEgressConfig {
 	readonly engine?: KubernetesEgressEngine
 	/** Default `'union'`. See {@link KubernetesEgressVerification}. */
 	readonly verify?: KubernetesEgressVerification
+	/**
+	 * Opt-in port/DNS-name/TLS-server-name narrowing for a `static`/
+	 * `resolver` allowlist under `engine: 'cilium'`. Unset (the default)
+	 * emits exactly what every release before this one did. See
+	 * {@link KubernetesCiliumEgressNarrowing}.
+	 */
+	readonly ciliumNarrowing?: KubernetesCiliumEgressNarrowing
 }
 
 /** `true` unless the deployment asked for the single-object check by name. */
@@ -294,16 +377,125 @@ export class KubernetesEgressPolicyConfigError extends Error {
 }
 
 /**
+ * Named refusal for `config.egress.ciliumNarrowing` set on a policy/engine
+ * combination it does not apply to. Thrown SYNCHRONOUSLY from
+ * {@link assertEgressPolicyIsEnforceable}, beside
+ * {@link KubernetesUnenforceableEgressPolicyError}, so a narrowing option
+ * that would silently do nothing is refused at host-wiring time rather than
+ * accepted and ignored.
+ */
+export class KubernetesEgressNarrowingUnsupportedError extends Error {
+	override readonly name = 'KubernetesEgressNarrowingUnsupportedError'
+
+	constructor(
+		readonly policyKind: KubernetesEgressPolicy['kind'],
+		readonly engine: KubernetesEgressEngine,
+	) {
+		super(
+			`kubernetes: config.egress.ciliumNarrowing is set, but config.egress.policy is '${policyKind}' under engine ${JSON.stringify(engine)}. Port, DNS-name and TLS-server-name narrowing only apply to a 'static' or 'resolver' hostname allowlist under engine: 'cilium' — set engine: 'cilium' with one of those policy kinds, or remove ciliumNarrowing. Refusing rather than silently ignoring an option that would never be applied.`,
+		)
+	}
+}
+
+/**
+ * Every entry in `narrowing.ports`, `narrowing.hostPorts` and
+ * `narrowing.tlsPorts` is a port the API server will actually accept, none of
+ * those three is an explicitly empty array, and every DNS suffix
+ * `narrowing.dnsNames` names is a non-empty string — checked here,
+ * synchronously, for the same reason {@link assertEgressPolicyIsEnforceable}
+ * checks `exceptCidrs`: a value the API server rejects on apply would leave a
+ * policy that never verifies.
+ */
+function assertNarrowingIsUsable(narrowing: KubernetesCiliumEgressNarrowing): void {
+	const assertValidPort = (port: unknown, field: string): void => {
+		if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
+			throw new KubernetesEgressPolicyConfigError(
+				field,
+				`${JSON.stringify(port)} is not a TCP port a NetworkPolicy/CiliumNetworkPolicy can carry (an integer 1-65535)`,
+			)
+		}
+	}
+	// `undefined` means "no restriction on this list" and is fine; `[]` is
+	// neither that nor a usable restriction — `narrowedHostFqdnRule` would
+	// emit `toPorts: [{ ports: [] }]` for it, a shape the API server rejects
+	// on apply. Refuse it here rather than let a typo (`ports: []` where
+	// `ports` was meant to be omitted) reach the cluster as a policy that
+	// never verifies.
+	const assertNotEmptyPortList = (ports: readonly number[] | undefined, field: string): void => {
+		if (ports !== undefined && ports.length === 0) {
+			throw new KubernetesEgressPolicyConfigError(
+				field,
+				'must not be an empty array — omit the field entirely for no port restriction, or list at least one port',
+			)
+		}
+	}
+	assertNotEmptyPortList(narrowing.ports, 'ciliumNarrowing.ports')
+	for (const port of narrowing.ports ?? []) assertValidPort(port, 'ciliumNarrowing.ports')
+	for (const [host, ports] of Object.entries(narrowing.hostPorts ?? {})) {
+		assertNotEmptyPortList(ports, `ciliumNarrowing.hostPorts[${JSON.stringify(host)}]`)
+		for (const port of ports) {
+			assertValidPort(port, `ciliumNarrowing.hostPorts[${JSON.stringify(host)}]`)
+		}
+	}
+	assertNotEmptyPortList(narrowing.tlsPorts, 'ciliumNarrowing.tlsPorts')
+	for (const port of narrowing.tlsPorts ?? []) assertValidPort(port, 'ciliumNarrowing.tlsPorts')
+	if (typeof narrowing.dnsNames === 'object') {
+		const { clusterDomain, searchSuffixes } = narrowing.dnsNames
+		if (clusterDomain !== undefined && clusterDomain.trim() === '') {
+			throw new KubernetesEgressPolicyConfigError(
+				'ciliumNarrowing.dnsNames.clusterDomain',
+				'must not be an empty string',
+			)
+		}
+		for (const suffix of searchSuffixes ?? []) {
+			if (typeof suffix !== 'string' || suffix.trim() === '') {
+				throw new KubernetesEgressPolicyConfigError(
+					'ciliumNarrowing.dnsNames.searchSuffixes',
+					`${JSON.stringify(suffix)} is not a usable DNS suffix`,
+				)
+			}
+		}
+	}
+}
+
+/** Does `narrowing` actually ask for anything, or is every field off/absent. */
+function ciliumNarrowingIsActive(
+	narrowing: KubernetesCiliumEgressNarrowing | undefined,
+): narrowing is KubernetesCiliumEgressNarrowing {
+	if (narrowing === undefined) return false
+	if (narrowing.ports !== undefined) return true
+	if (narrowing.hostPorts !== undefined && Object.keys(narrowing.hostPorts).length > 0) return true
+	if (dnsNarrowingIsActive(narrowing.dnsNames)) return true
+	if (narrowing.tlsServerNames === true) return true
+	return false
+}
+
+function dnsNarrowingIsActive(dnsNames: KubernetesCiliumEgressNarrowing['dnsNames']): boolean {
+	return activeDnsNarrowing(dnsNames) !== undefined
+}
+
+/** `dnsNames` reduced to the config it names, or `undefined` when it is off. `true` reduces to every default. */
+function activeDnsNarrowing(
+	dnsNames: KubernetesCiliumEgressNarrowing['dnsNames'],
+): KubernetesCiliumDnsNarrowing | undefined {
+	if (dnsNames === true) return {}
+	if (typeof dnsNames === 'object' && dnsNames !== null) return dnsNames
+	return undefined
+}
+
+/**
  * Synchronous, no-I/O precondition: can `policy.kind` be enforced under
- * `engine` at all. Deliberately decided from the KIND alone — a `resolver`
- * policy's `resolve()` is never invoked here, both because calling it just to
- * prove a refusal would be wasted work (and possibly a side effect the host
- * did not expect yet) and because this has to stay callable synchronously
- * from `buildKubernetesBackend`, which contacts nothing.
+ * `engine` at all, and — if `narrowing` is set — does it apply to this
+ * policy/engine combination. Deliberately decided from the KIND alone — a
+ * `resolver` policy's `resolve()` is never invoked here, both because calling
+ * it just to prove a refusal would be wasted work (and possibly a side effect
+ * the host did not expect yet) and because this has to stay callable
+ * synchronously from `buildKubernetesBackend`, which contacts nothing.
  */
 export function assertEgressPolicyIsEnforceable(
 	policy: KubernetesEgressPolicy,
 	engine: KubernetesEgressEngine,
+	narrowing?: KubernetesCiliumEgressNarrowing,
 ): void {
 	if ((policy.kind === 'static' || policy.kind === 'resolver') && engine !== 'cilium') {
 		throw new KubernetesUnenforceableEgressPolicyError(policy.kind)
@@ -317,6 +509,12 @@ export function assertEgressPolicyIsEnforceable(
 				)
 			}
 		}
+	}
+	if (ciliumNarrowingIsActive(narrowing)) {
+		if (engine !== 'cilium' || (policy.kind !== 'static' && policy.kind !== 'resolver')) {
+			throw new KubernetesEgressNarrowingUnsupportedError(policy.kind, engine)
+		}
+		assertNarrowingIsUsable(narrowing)
 	}
 }
 
@@ -511,11 +709,117 @@ function buildCoreNetworkPolicy(
 	}
 }
 
+/** `[443]` — the TLS-port default for both `tlsServerNames` and `tlsPorts`. */
+const DEFAULT_TLS_PORTS = [443] as const
+
+/** `{ port: '443', protocol: 'TCP' }` — Cilium's port shape, ports spelled as strings. */
+function ciliumPortEntry(port: number): Readonly<Record<string, unknown>> {
+	return { port: String(port), protocol: 'TCP' }
+}
+
+/**
+ * The port list a narrowed translation applies to `host`, before splitting
+ * out the TLS subset — see {@link KubernetesCiliumEgressNarrowing.ports}.
+ * `undefined` means no port restriction: the host's `toFQDNs` rule carries
+ * no `toPorts` at all.
+ */
+function narrowedHostPorts(
+	host: string,
+	narrowing: KubernetesCiliumEgressNarrowing,
+): readonly number[] | undefined {
+	const explicit = narrowing.hostPorts?.[host] ?? narrowing.ports
+	if (explicit !== undefined) return explicit
+	// `serverNames` needs a port to attach to — leaving this host with no
+	// port at all would mean either no `serverNames` rule (silently dropping
+	// the option) or one with no `toPorts`, which Cilium rejects on apply.
+	if (narrowing.tlsServerNames === true) return narrowing.tlsPorts ?? DEFAULT_TLS_PORTS
+	return undefined
+}
+
+/**
+ * One host's `toFQDNs` rule under narrowing: the bare allowlist entry, plus
+ * `toPorts` split into a `serverNames`-bearing entry for the host's TLS
+ * ports and a plain entry for whatever is left, when `tlsServerNames` is on.
+ */
+function narrowedHostFqdnRule(
+	host: string,
+	narrowing: KubernetesCiliumEgressNarrowing,
+): Readonly<Record<string, unknown>> {
+	const ports = narrowedHostPorts(host, narrowing)
+	if (ports === undefined) return { toFQDNs: [{ matchName: host }] }
+	if (narrowing.tlsServerNames !== true) {
+		return { toFQDNs: [{ matchName: host }], toPorts: [{ ports: ports.map(ciliumPortEntry) }] }
+	}
+	const tlsPorts = narrowing.tlsPorts ?? DEFAULT_TLS_PORTS
+	const tlsSubset = ports.filter((port) => tlsPorts.includes(port))
+	const rest = ports.filter((port) => !tlsPorts.includes(port))
+	const toPorts: Record<string, unknown>[] = []
+	if (tlsSubset.length > 0) {
+		toPorts.push({ ports: tlsSubset.map(ciliumPortEntry), serverNames: [host] })
+	}
+	if (rest.length > 0) toPorts.push({ ports: rest.map(ciliumPortEntry) })
+	return {
+		toFQDNs: [{ matchName: host }],
+		...(toPorts.length > 0 ? { toPorts } : {}),
+	}
+}
+
+/**
+ * The DNS-visibility rule narrowed to an exact `matchName` per allowed host
+ * plus the host under every search suffix, replacing
+ * {@link CILIUM_DNS_VISIBILITY_RULE}'s `matchPattern: '*'`. See
+ * {@link KubernetesCiliumDnsNarrowing}.
+ */
+function narrowedDnsVisibilityRule(
+	allowedHosts: readonly string[],
+	fallbackNamespace: string,
+	dnsNames: KubernetesCiliumDnsNarrowing,
+): Readonly<Record<string, unknown>> {
+	const namespace = dnsNames.namespace ?? fallbackNamespace
+	const clusterDomain = dnsNames.clusterDomain ?? 'cluster.local'
+	const suffixes = [
+		`${namespace}.svc.${clusterDomain}`,
+		`svc.${clusterDomain}`,
+		clusterDomain,
+		...(dnsNames.searchSuffixes ?? []),
+	]
+	const matchNames: { matchName: string }[] = []
+	for (const host of allowedHosts) {
+		matchNames.push({ matchName: host })
+		for (const suffix of suffixes) matchNames.push({ matchName: `${host}.${suffix}` })
+	}
+	return {
+		toEndpoints: CILIUM_DNS_VISIBILITY_RULE.toEndpoints,
+		toPorts: [
+			{
+				ports: [{ port: '53', protocol: 'ANY' }],
+				rules: { dns: matchNames },
+			},
+		],
+	}
+}
+
 function buildCiliumNetworkPolicy(
 	target: EgressPolicyTarget,
 	policyKind: KubernetesEgressPolicy['kind'],
 	allowedHosts: readonly string[],
+	narrowing: KubernetesCiliumEgressNarrowing | undefined,
 ): KubernetesTranslatedEgressPolicy {
+	// Unnarrowed is the exact shape every release before #490 emitted — kept
+	// as its own branch, untouched, rather than folded into the narrowed one
+	// with every option defaulted off, so the byte-identical guarantee does
+	// not depend on the narrowed code path happening to reduce to it.
+	const activeDns = ciliumNarrowingIsActive(narrowing)
+		? activeDnsNarrowing(narrowing.dnsNames)
+		: undefined
+	const dnsRule =
+		activeDns !== undefined
+			? narrowedDnsVisibilityRule(allowedHosts, target.namespace, activeDns)
+			: CILIUM_DNS_VISIBILITY_RULE
+	const hostRules = ciliumNarrowingIsActive(narrowing)
+		? allowedHosts.map((host) => narrowedHostFqdnRule(host, narrowing))
+		: [{ toFQDNs: allowedHosts.map((host) => ({ matchName: host })) }]
+
 	return {
 		kind: 'CiliumNetworkPolicy',
 		policyKind,
@@ -529,10 +833,7 @@ function buildCiliumNetworkPolicy(
 				endpointSelector: {
 					matchLabels: sandboxTemplateLabel(target.sandboxTemplateName),
 				},
-				egress: [
-					CILIUM_DNS_VISIBILITY_RULE,
-					{ toFQDNs: allowedHosts.map((host) => ({ matchName: host })) },
-				],
+				egress: [dnsRule, ...hostRules],
 			},
 		},
 	}
@@ -559,8 +860,9 @@ export async function translateEgressPolicy(
 	policy: KubernetesEgressPolicy,
 	engine: KubernetesEgressEngine,
 	target: EgressPolicyTarget,
+	ciliumNarrowing?: KubernetesCiliumEgressNarrowing,
 ): Promise<KubernetesTranslatedEgressPolicy> {
-	assertEgressPolicyIsEnforceable(policy, engine)
+	assertEgressPolicyIsEnforceable(policy, engine, ciliumNarrowing)
 
 	switch (policy.kind) {
 		case 'deny-all':
@@ -584,10 +886,10 @@ export async function translateEgressPolicy(
 		case 'static':
 			// `assertEgressPolicyIsEnforceable` already threw above unless
 			// `engine === 'cilium'`, so reaching here means it did not.
-			return buildCiliumNetworkPolicy(target, 'static', policy.allowedHosts)
+			return buildCiliumNetworkPolicy(target, 'static', policy.allowedHosts, ciliumNarrowing)
 		case 'resolver': {
 			const allowedHosts = await policy.resolve()
-			return buildCiliumNetworkPolicy(target, 'resolver', allowedHosts)
+			return buildCiliumNetworkPolicy(target, 'resolver', allowedHosts, ciliumNarrowing)
 		}
 		default: {
 			const exhaustive: never = policy
@@ -850,6 +1152,28 @@ interface AllowedDestination {
 	readonly ports: 'all' | readonly PortRange[]
 }
 
+/** One `toFQDNs` entry the translation allows, with the ports it allows it on. */
+interface AllowedFqdn {
+	readonly host: string
+	readonly ports: 'all' | readonly PortRange[]
+}
+
+/**
+ * The cluster resolver's identity as a `PolicyPeer` — shared by
+ * {@link egressAllowance} (reading a Cilium DNS-visibility rule into its
+ * core-shaped equivalent) and {@link reachesResolverAtDnsPort} (deciding
+ * whether some OTHER policy's rule reaches it), so there is one definition of
+ * "this peer is the cluster resolver" rather than two that could drift apart.
+ */
+const RESOLVER_PEER: PolicyPeer = {
+	kind: 'selector',
+	namespaceSelector: {
+		matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' },
+	},
+	podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
+	text: 'the cluster resolver',
+}
+
 /**
  * Everything the configured translation lets out, in the one shape the union
  * check compares against.
@@ -866,8 +1190,32 @@ interface AllowedDestination {
  */
 export interface EgressAllowance {
 	readonly destinations: readonly AllowedDestination[]
-	/** `toFQDNs` names a `static`/`resolver` translation allows. Empty for every core kind. */
-	readonly fqdns: readonly string[]
+	/**
+	 * `toFQDNs` names a `static`/`resolver` translation allows, each with the
+	 * ports it allows that name on (`'all'` for the unnarrowed shape, which
+	 * puts no `toPorts` on its `toFQDNs` rule at all). Empty for every core
+	 * kind. A name can appear more than once — one entry per `toFQDNs` rule
+	 * naming it — and it is allowed on a port if ANY entry covers that port,
+	 * the same "any matching destination" rule {@link destinationIsAllowed}
+	 * applies to CIDR and selector peers.
+	 */
+	readonly fqdns: readonly AllowedFqdn[]
+	/**
+	 * The exact DNS names a `static`/`resolver` translation's kube-dns rule
+	 * restricts LOOKUPS to when `ciliumNarrowing.dnsNames` is set — the
+	 * `matchName` list {@link narrowedDnsVisibilityRule} builds. `'all'` for
+	 * every translation that does not narrow DNS: every core kind (which
+	 * cannot express an L7 DNS restriction at all) and an unnarrowed
+	 * `static`/`resolver` (`rules.dns: [{ matchPattern: '*' }]`).
+	 *
+	 * `destinations` alone cannot carry this: reachability to the resolver's
+	 * peer and port is the same whether or not DNS is narrowed, so a peer/port
+	 * check reports a plain kube-dns rule as `within` a narrowed translation
+	 * exactly as it would an unnarrowed one. {@link reachesResolverAtDnsPort}
+	 * is the check that actually reads this field, in both
+	 * {@link coreEgressRuleVerdict} and {@link ciliumEgressRuleVerdict}.
+	 */
+	readonly dnsNarrowedTo: 'all' | readonly string[]
 	readonly permitsEverything: boolean
 	readonly permitsNothing: boolean
 	/** The configured kind, for the refusal message. */
@@ -955,13 +1303,44 @@ export function egressAllowance(translated: KubernetesTranslatedEgressPolicy): E
 	const emitted = readList(spec.egress)
 	const rules = emitted === undefined || emitted === 'unreadable' ? [] : emitted
 	if (translated.kind === 'CiliumNetworkPolicy') {
-		const fqdns: string[] = []
+		const fqdns: AllowedFqdn[] = []
+		// The DNS-visibility rule is the one entry among `rules` whose
+		// `toEndpoints` names the cluster resolver — narrowed or not, it always
+		// reuses `CILIUM_DNS_VISIBILITY_RULE.toEndpoints` verbatim (see
+		// `narrowedDnsVisibilityRule` and `buildCiliumNetworkPolicy`), so a deep
+		// equality check finds it regardless of which branch built this rule.
+		const dnsVisibilityRule = rules.find(
+			(rule): rule is Readonly<Record<string, unknown>> =>
+				isRecord(rule) &&
+				isDeepStrictEqual(rule.toEndpoints, CILIUM_DNS_VISIBILITY_RULE.toEndpoints),
+		)
 		for (const rule of rules) {
 			if (!isRecord(rule)) continue
-			for (const entry of readList(rule.toFQDNs) ?? []) {
-				if (isRecord(entry) && typeof entry.matchName === 'string') fqdns.push(entry.matchName)
+			const hostNames = readList(rule.toFQDNs)
+			if (hostNames === undefined || hostNames === 'unreadable') continue
+			// This module built `rule` a few lines above (see the comment at the
+			// top of this function), so its `toPorts` is always in the shape
+			// `readCiliumRulePorts` reads — 'unreadable' cannot happen for a
+			// manifest this file emitted, and 'all' is the safe fallback if it
+			// somehow did, since that is what an absent `toPorts` also means.
+			const portsRead = readCiliumRulePorts(rule)
+			const ports = portsRead.ok ? portsRead.ports : 'all'
+			for (const entry of hostNames) {
+				if (isRecord(entry) && typeof entry.matchName === 'string') {
+					fqdns.push({ host: entry.matchName, ports })
+				}
 			}
 		}
+		// This module built `dnsVisibilityRule` above (when it exists at all —
+		// every Cilium translation this function reads carries one), so
+		// `readCiliumRuleDnsNames` failing to read it, or reading a wildcard,
+		// cannot mean anything other than "not narrowed": 'all' is the safe
+		// fallback, the same reasoning `readCiliumRulePorts`'s own fallback above
+		// already relies on.
+		const dnsNamesRead =
+			dnsVisibilityRule === undefined ? undefined : readCiliumRuleDnsNames(dnsVisibilityRule)
+		const dnsNarrowedTo: 'all' | readonly string[] =
+			dnsNamesRead?.ok === true && dnsNamesRead.names !== 'all' ? dnsNamesRead.names : 'all'
 		return {
 			// The core-shaped reading of CILIUM_DNS_VISIBILITY_RULE — the one
 			// place in this module where one resource's rule is restated in the
@@ -969,20 +1348,9 @@ export function egressAllowance(translated: KubernetesTranslatedEgressPolicy): E
 			// DNS is not reported as widening a translation that already allows
 			// it. Nothing else about a Cilium translation is restated: an
 			// allowlist of names has no core spelling at all.
-			destinations: [
-				{
-					peer: {
-						kind: 'selector',
-						namespaceSelector: {
-							matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' },
-						},
-						podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
-						text: 'the cluster resolver',
-					},
-					ports: [{ start: 53 }],
-				},
-			],
+			destinations: [{ peer: RESOLVER_PEER, ports: [{ start: 53 }] }],
 			fqdns,
+			dnsNarrowedTo,
 			permitsEverything: false,
 			permitsNothing: false,
 			policyKind: translated.policyKind,
@@ -1009,6 +1377,11 @@ export function egressAllowance(translated: KubernetesTranslatedEgressPolicy): E
 	return {
 		destinations,
 		fqdns: [],
+		// A core `NetworkPolicy` translation never narrows DNS — it has no L7
+		// concept to narrow with — so the DNS-widening check in
+		// `coreEgressRuleVerdict`/`ciliumEgressRuleVerdict` never fires against
+		// this allowance.
+		dnsNarrowedTo: 'all',
 		permitsEverything,
 		permitsNothing: rules.length === 0,
 		policyKind: translated.policyKind,
@@ -1112,6 +1485,40 @@ function destinationIsAllowed(
 	)
 }
 
+/** Is every port `wanted` reaches on `host` also allowed by some `fqdns` entry naming it. */
+function fqdnIsAllowed(
+	allowance: EgressAllowance,
+	host: string,
+	ports: 'all' | readonly PortRange[],
+): boolean {
+	const wanted: readonly PortRange[] = ports === 'all' ? [{}] : ports
+	return wanted.every((range) =>
+		allowance.fqdns.some((entry) => entry.host === host && portsCover(entry.ports, range)),
+	)
+}
+
+/** Does `ports` (as a CANDIDATE rule's own port list) reach TCP or UDP 53 at all. */
+function coversDnsPort(ports: 'all' | readonly PortRange[]): boolean {
+	if (ports === 'all') return true
+	return ports.some((range) => {
+		if (range.protocol !== undefined && range.protocol !== 'UDP' && range.protocol !== 'TCP') {
+			return false
+		}
+		if (range.start === undefined) return true
+		return range.start <= 53 && (range.end ?? range.start) >= 53
+	})
+}
+
+/**
+ * Does a candidate rule's `peer`+`ports` reach the cluster resolver on the DNS
+ * port at all — the precondition for the DNS-widening check both
+ * {@link coreEgressRuleVerdict} and {@link ciliumEgressRuleVerdict} apply
+ * before falling back to the ordinary peer/port `destinationIsAllowed` check.
+ */
+function reachesResolverAtDnsPort(peer: PolicyPeer, ports: 'all' | readonly PortRange[]): boolean {
+	return peerIsWithin(peer, RESOLVER_PEER) && coversDnsPort(ports)
+}
+
 /** One egress rule, judged against the translation. */
 export interface EgressRuleVerdict {
 	readonly beyond: boolean | 'unknown'
@@ -1177,6 +1584,21 @@ function coreEgressRuleVerdict(rule: unknown, allowance: EgressAllowance): Egres
 				detail: `a 'to' peer this check cannot read (${JSON.stringify(peer)})`,
 			}
 		}
+		// A plain `NetworkPolicy` has no L7 concept, so it cannot express the DNS
+		// restriction `ciliumNarrowing.dnsNames` narrows to — a core rule
+		// reaching the resolver on the DNS port always resolves every name, and
+		// that is wider than a narrowed translation whatever its own peer/port
+		// shape says. This has to be decided BEFORE `destinationIsAllowed`
+		// below: that check only reasons about reachability, and our own
+		// translation's `destinations` entry for the resolver is peer/port-only
+		// too, so a plain kube-dns rule would otherwise read as `within` a
+		// translation it actually resolves every name for.
+		if (allowance.dnsNarrowedTo !== 'all' && reachesResolverAtDnsPort(read, ports)) {
+			return {
+				beyond: true,
+				detail: `a 'to' peer ${describePeer(read)} on ${describePorts(ports)} reaching the cluster resolver's DNS port with no DNS-name restriction — a plain NetworkPolicy cannot narrow lookups the way the configured translation's ciliumNarrowing.dnsNames does, so this rule resolves every name the narrowed policy does not`,
+			}
+		}
 		if (!destinationIsAllowed(allowance, read, ports)) {
 			const wideOpen = corePeerIsWideOpen(peer) === true
 			return {
@@ -1238,6 +1660,92 @@ function ciliumEndpointPeer(selector: unknown): PolicyPeer | undefined {
 	}
 }
 
+/**
+ * A Cilium rule's `toPorts`, read into the same {@link PortSet} core rules
+ * use. Shared by {@link ciliumEgressRuleVerdict} (a CANDIDATE rule read off
+ * the cluster) and {@link egressAllowance} (OUR OWN translated rule) so
+ * there is one reading of "what ports does this Cilium rule reach", not two
+ * that could silently disagree.
+ */
+type CiliumRulePorts =
+	| { readonly ok: true; readonly ports: 'all' | readonly PortRange[] }
+	| { readonly ok: false; readonly detail: string }
+
+function readCiliumRulePorts(rule: Readonly<Record<string, unknown>>): CiliumRulePorts {
+	// A Cilium rule carries its ports one level deeper, and a port entry with
+	// no protocol means ANY rather than TCP.
+	const toPorts = readList(rule.toPorts)
+	if (toPorts === 'unreadable') {
+		return { ok: false, detail: 'a toPorts that is not a list' }
+	}
+	const portEntries: unknown[] = []
+	for (const entry of toPorts ?? []) {
+		if (!isRecord(entry)) {
+			return { ok: false, detail: 'a toPorts entry that is not an object' }
+		}
+		const list = readList(entry.ports)
+		if (list === 'unreadable') {
+			return { ok: false, detail: 'a toPorts ports field that is not a list' }
+		}
+		// An entry with no `ports` at all bounds nothing, so the rule reaches
+		// every port — exactly what an absent `toPorts` means.
+		if (list === undefined || list.length === 0) {
+			portEntries.length = 0
+			break
+		}
+		portEntries.push(...list)
+	}
+	const ports = readPortRanges(portEntries, undefined)
+	if (ports === 'unreadable') {
+		return { ok: false, detail: 'a toPorts entry this check cannot read' }
+	}
+	return { ok: true, ports }
+}
+
+/**
+ * A Cilium rule's `toPorts[].rules.dns`, read into the exact-name list it
+ * restricts lookups to, or `'all'` when the rule does not restrict DNS at
+ * all. Shared by {@link egressAllowance} (reading OUR OWN narrowed
+ * DNS-visibility rule into {@link EgressAllowance.dnsNarrowedTo}) and
+ * {@link ciliumEgressRuleVerdict} (deciding whether a CANDIDATE rule's own
+ * restriction is narrow enough to not widen it) — one reading of "what names
+ * does this Cilium rule let resolve", not two that could disagree.
+ *
+ * A `toPorts` entry with no `rules` at all, or a `rules.dns` entry carrying
+ * `matchPattern` rather than `matchName`, both read as `'all'`: an absent L7
+ * restriction resolves every name by definition, and this check does not
+ * attempt to decide whether some wildcard pattern is a subset of an exact
+ * name list — `'all'` is the conservative (never under-counts a widening)
+ * answer for a shape it cannot reduce further.
+ */
+function readCiliumRuleDnsNames(
+	rule: Readonly<Record<string, unknown>>,
+): { readonly ok: true; readonly names: 'all' | readonly string[] } | { readonly ok: false } {
+	const toPorts = readList(rule.toPorts)
+	if (toPorts === 'unreadable') return { ok: false }
+	const names: string[] = []
+	for (const entry of toPorts ?? []) {
+		if (!isRecord(entry)) return { ok: false }
+		if (entry.rules === undefined) return { ok: true, names: 'all' }
+		if (!isRecord(entry.rules)) return { ok: false }
+		const dns = readList(entry.rules.dns)
+		if (dns === 'unreadable') return { ok: false }
+		if (dns === undefined) return { ok: true, names: 'all' }
+		for (const item of dns) {
+			if (!isRecord(item)) return { ok: false }
+			if (typeof item.matchName === 'string') {
+				names.push(item.matchName)
+				continue
+			}
+			// `matchPattern` (Cilium's glob syntax) or anything else this reading
+			// does not recognise — both are read as unrestricted rather than
+			// guessed at, per the doc comment above.
+			return { ok: true, names: 'all' }
+		}
+	}
+	return { ok: true, names }
+}
+
 function ciliumEgressRuleVerdict(rule: unknown, allowance: EgressAllowance): EgressRuleVerdict {
 	if (allowance.permitsNothing) {
 		return {
@@ -1250,33 +1758,11 @@ function ciliumEgressRuleVerdict(rule: unknown, allowance: EgressAllowance): Egr
 			beyond: 'unknown',
 			detail: 'an egress rule that is not an object',
 		}
-	// A Cilium rule carries its ports one level deeper, and a port entry with
-	// no protocol means ANY rather than TCP.
-	const toPorts = readList(rule.toPorts)
-	if (toPorts === 'unreadable') {
-		return { beyond: 'unknown', detail: 'a toPorts that is not a list' }
+	const portsRead = readCiliumRulePorts(rule)
+	if (!portsRead.ok) {
+		return { beyond: 'unknown', detail: portsRead.detail }
 	}
-	const portEntries: unknown[] = []
-	for (const entry of toPorts ?? []) {
-		if (!isRecord(entry)) {
-			return { beyond: 'unknown', detail: 'a toPorts entry that is not an object' }
-		}
-		const list = readList(entry.ports)
-		if (list === 'unreadable') {
-			return { beyond: 'unknown', detail: 'a toPorts ports field that is not a list' }
-		}
-		// An entry with no `ports` at all bounds nothing, so the rule reaches
-		// every port — exactly what an absent `toPorts` means.
-		if (list === undefined || list.length === 0) {
-			portEntries.length = 0
-			break
-		}
-		portEntries.push(...list)
-	}
-	const ports = readPortRanges(portEntries, undefined)
-	if (ports === 'unreadable') {
-		return { beyond: 'unknown', detail: 'a toPorts entry this check cannot read' }
-	}
+	const ports = portsRead.ports
 	const fields = new Map<(typeof CILIUM_DESTINATION_FIELDS)[number], readonly unknown[]>()
 	for (const field of CILIUM_DESTINATION_FIELDS) {
 		const list = readList(rule[field])
@@ -1342,10 +1828,10 @@ function ciliumEgressRuleVerdict(rule: unknown, allowance: EgressAllowance): Egr
 			}
 		}
 		const matchName = entry.matchName
-		if (typeof matchName !== 'string' || !allowance.fqdns.includes(matchName)) {
+		if (typeof matchName !== 'string' || !fqdnIsAllowed(allowance, matchName, ports)) {
 			return {
 				beyond: true,
-				detail: `toFQDNs ${JSON.stringify(entry)}, which a '${allowance.policyKind}' translation does not allow`,
+				detail: `toFQDNs ${JSON.stringify(entry)} on ${describePorts(ports)}, which a '${allowance.policyKind}' translation does not allow`,
 			}
 		}
 	}
@@ -1356,6 +1842,27 @@ function ciliumEgressRuleVerdict(rule: unknown, allowance: EgressAllowance): Egr
 				beyond: 'unknown',
 				detail: 'a toEndpoints entry this check cannot read as a selector',
 			}
+		}
+		// See the matching comment in `coreEgressRuleVerdict`: reachability alone
+		// cannot tell a plain kube-dns rule from a narrowed one, so this has to
+		// run before `destinationIsAllowed` below. Unlike a core rule, a Cilium
+		// one CAN narrow DNS on its own `toPorts.rules.dns` — read it and accept
+		// the rule only when what it names is a subset of what our own
+		// translation narrows to.
+		if (allowance.dnsNarrowedTo !== 'all' && reachesResolverAtDnsPort(peer, ports)) {
+			const narrowedTo = allowance.dnsNarrowedTo
+			const candidate = readCiliumRuleDnsNames(rule)
+			const isSubset =
+				candidate.ok &&
+				candidate.names !== 'all' &&
+				candidate.names.every((n) => narrowedTo.includes(n))
+			if (!isSubset) {
+				return {
+					beyond: true,
+					detail: `toEndpoints ${describePeer(peer)} on ${describePorts(ports)} reaching the cluster resolver's DNS port with ${candidate.ok && candidate.names !== 'all' ? 'a rules.dns list this check cannot confirm is a subset of' : 'no rules.dns restriction at least as narrow as'} the configured translation's ciliumNarrowing.dnsNames`,
+				}
+			}
+			continue
 		}
 		if (!destinationIsAllowed(allowance, peer, ports)) {
 			return {

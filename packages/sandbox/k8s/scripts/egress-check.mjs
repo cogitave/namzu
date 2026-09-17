@@ -42,10 +42,11 @@
  * but a cluster whose CNI enforces policy.
  *
  * A hostname allowlist (`static`/`resolver` under `engine: 'cilium'`) is NOT
- * probed by this script at all. That translation is enforced at L7 by one
- * CNI's own agent; nothing in this repo has ever measured it, and a probe
- * written against an unmeasured mechanism would report the mechanism's
- * absence as a policy success.
+ * probed by this script at all, `config.egress.ciliumNarrowing`'s port,
+ * DNS-name and TLS-server-name options included. That translation — narrowed
+ * or not — is enforced at L7 by one CNI's own agent; nothing in this repo has
+ * ever measured it, and a probe written against an unmeasured mechanism would
+ * report the mechanism's absence as a policy success.
  *
  * Runs against the BUILT package (`pnpm -r build` first — see ../README.md).
  *

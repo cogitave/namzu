@@ -134,6 +134,39 @@ matches that rule, so there is nothing to remove. The same rule also grants
 `ingress: { engine: 'cilium' }`; declaring that engine on a cluster with no
 such CRD is refused by name rather than read as "no policies".
 
+**Narrowing a `static`/`resolver` allowlist by port, DNS name and TLS server
+name** (`config.egress.ciliumNarrowing`, `engine: 'cilium'` only) is opt-in
+and, unset, changes nothing — every already-applied `CiliumNetworkPolicy`
+still verifies. Turning any option on DOES require an edit here: **delete
+the plain kube-dns rule from `manifests/networkpolicy.yaml` and from
+whichever `sandboxtemplate-*.yaml` block is in play** the moment
+`ciliumNarrowing.dnsNames` is set — both files say so at the rule itself. The
+reason is Cilium's own precedence rule: an L4-only rule (which is all core
+`NetworkPolicy` can express) selecting the same pods on the same port as a
+rule that ALSO carries an L7 restriction cancels that L7 restriction, so the
+plain kube-dns-on-53 rule these files ship makes every DNS name resolve again
+regardless of the narrower allowlist the translated `CiliumNetworkPolicy`
+computes — the translated object grants the cluster resolver access on its
+own once DNS-name narrowing is on, so nothing else needs to.
+
+**This is enforced, not merely documented.** With `egress.verify` at its
+default `'union'`, the same check that reads every OTHER policy selecting the
+sandbox pods (see "Setting `config.egress`" above) also reads THIS one, and
+compares what it grants against `ciliumNarrowing.dnsNames`'s own restriction —
+not only reachability, since a plain rule and a DNS-narrowed one reach the
+identical peer and port. Leave the rule in place with DNS-name narrowing on
+and the next `create()` refuses with `KubernetesEgressPolicyUnionError`
+(`policy-widens-egress`, naming this policy) rather than silently letting the
+narrowing do nothing. `egress.verify: 'named-object-only'` does not run that
+check — a deployment on that setting still has to delete the rule by hand and
+gets no refusal if it forgets. Port and TLS-server-name narrowing
+(`ciliumNarrowing.ports`/`hostPorts`/`tlsServerNames`) have no such
+interaction and need no manifest edit — they only change the
+`toFQDNs`/`toPorts` shape of the ONE `CiliumNetworkPolicy` this backend
+computes and verifies, which `egress-check.mjs` still does not probe (see
+below): the mechanism enforcing any of these three options is a single CNI's
+own L7 proxy, and nothing in this repo has measured it.
+
 If a workspace's disk needs a `storageClassName` other than one that
 provisions `volumeMode: Block`, fix that in
 `manifests/sandboxtemplate-workspace.yaml` too — the default StorageClass on
@@ -278,8 +311,8 @@ report anything if either fails — without that, `--policy no-network`, where
 every real probe is SUPPOSED to come back closed, would pass on a guest with
 no working runtime at all. It creates task sandboxes rather than a workspace,
 so it leaves no disk behind. It does not probe the `static`/`resolver`
-hostname allowlist: that translation is enforced at L7 by one CNI's own agent
-and nothing in this repo has measured it.
+hostname allowlist, narrowed or not: that translation is enforced at L7 by
+one CNI's own agent and nothing in this repo has measured it.
 
 Record the printed numbers, with the date and the cluster's shape
 (node type, storage backend, Kata version), in
