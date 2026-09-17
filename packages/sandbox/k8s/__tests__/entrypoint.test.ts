@@ -33,7 +33,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -216,27 +216,75 @@ echo "${uid}"
 `
 }
 
+// Every directory a case creates directly — every `mktempWorkDir()` call
+// (a case's own NAMZU_WORKSPACE_ROOT, a FAKE_GETENT_HOME target, ...) — is
+// queued here by `mktempWorkDir` itself and swept in one `afterEach`, so
+// nothing this file creates outlives the test that created it.
+//
 // `mkdir`/`chmod` genuinely delegate to this machine's real tools (only
 // `chown`/`stat` are fully faked, above), so a run that takes the
 // HOME-resolution fallback path really does create `/tmp/namzu-home-<uid>`
-// on this machine — at the fixed path entrypoint.sh itself uses, never
-// under a per-call `workDir` — and entrypoint.sh does not clean up after
-// itself. Every uid a case ran with is queued here and swept in one
-// `afterEach`, rather than by `runEntrypoint` itself: a case that wants to
-// assert the directory really exists needs it to still be there once
-// `runEntrypoint` has returned.
+// on this machine — at whatever path entrypoint.sh's own
+// `/tmp/namzu-home-$NAMZU_AGENT_UID` construction resolves to for the uid
+// THIS call passed it, a path `mktempWorkDir` never sees — and entrypoint.sh
+// does not clean up after itself. Every uid a case ran with (only when it
+// actually supplied one; see `uniqueAgentUid` below) is queued in the
+// second array below for the same sweep.
+const tempDirsToClean: string[] = []
 const fallbackHomesToClean: string[] = []
 
 afterEach(() => {
-	for (const dir of fallbackHomesToClean.splice(0)) {
+	for (const dir of [...tempDirsToClean.splice(0), ...fallbackHomesToClean.splice(0)]) {
 		rmSync(dir, { recursive: true, force: true })
 	}
 })
 
+/**
+ * entrypoint.sh's HOME resolution runs unconditionally, before the
+ * root/non-root branch split (see its own "HOME for the guest agent"
+ * comment) — so EVERY case below that gets past the `setpriv`-presence
+ * check reaches it, whether or not the case cares about HOME at all. Its
+ * fallback hardcodes `/tmp/namzu-home-$NAMZU_AGENT_UID`: production never
+ * collides there (one pod, one mount namespace, one uid), but two
+ * concurrent runs of THIS FILE (two vitest workers, two worktrees, two CI
+ * matrix legs) that both left `NAMZU_AGENT_UID` unset — falling through to
+ * entrypoint.sh's own default of 1001 — or that both happened to reuse the
+ * same literal test value (this file itself used to reuse 1234/2001/3001/
+ * 4001 across cases, safe within one process but not across two) raced on
+ * that one shared path.
+ *
+ * The fix asks nothing of entrypoint.sh: it already reads
+ * `NAMZU_AGENT_UID` to build that path, so every case below now passes an
+ * id that is unique to this process AND this call instead of a fixed
+ * literal or entrypoint.sh's own default — routing the SAME existing
+ * override through a value nothing else on the machine can be using.
+ * `mkdtempSync` is the stdlib's own answer to "a name nothing else on this
+ * machine holds right now"; it is used here purely to source that
+ * collision-free suffix (immediately removed — the directory this test
+ * actually wants is the one entrypoint.sh itself creates at
+ * `/tmp/namzu-home-<suffix>`, not the mkdtemp path).
+ *
+ * Nothing downstream needs this value to look like a real uid: `chown`,
+ * `stat` and `id` are all faked in this file (see `FAKE_TOOLS` above), so
+ * neither entrypoint.sh nor its faked tools ever validate it as numeric.
+ */
+function uniqueAgentUid(): string {
+	const probe = mkdtempSync(join(tmpdir(), 'namzu-agentuid-'))
+	rmSync(probe, { recursive: true, force: true })
+	return basename(probe).slice('namzu-agentuid-'.length)
+}
+
 function runEntrypoint(env: Record<string, string | undefined>, options: RunOptions = {}): RunResult {
 	const { fakes = FAKE_TOOLS, basePath = process.env.PATH ?? '' } = options
 	const workDir = mktempWorkDir()
-	fallbackHomesToClean.push(`/tmp/namzu-home-${env.NAMZU_AGENT_UID ?? '1001'}`)
+	// Only queued when this call actually set one: a case that leaves
+	// NAMZU_AGENT_UID unset either never reaches the fallback (its passwd
+	// path resolves) or — nothing in this file does this any more — would
+	// fall through to entrypoint.sh's own shared default, which must never
+	// be swept here (another concurrent process may legitimately own it).
+	if (env.NAMZU_AGENT_UID !== undefined) {
+		fallbackHomesToClean.push(`/tmp/namzu-home-${env.NAMZU_AGENT_UID}`)
+	}
 	try {
 		const binDir = join(workDir, 'bin')
 		mkdirSync(binDir)
@@ -271,7 +319,9 @@ function runEntrypoint(env: Record<string, string | undefined>, options: RunOpti
 }
 
 function mktempWorkDir(): string {
-	return mkdtempSync(join(tmpdir(), 'k8s-entrypoint-'))
+	const dir = mkdtempSync(join(tmpdir(), 'k8s-entrypoint-'))
+	tempDirsToClean.push(dir)
+	return dir
 }
 
 /** The `env HOME=... USER=... ...` line `setpriv`'s fake dumps, parsed into
@@ -316,15 +366,16 @@ describe('entrypoint.sh always execs into setpriv last', () => {
 	})
 
 	it('the setpriv invocation carries every hardening flag the privilege probe checks for', () => {
+		const uid = uniqueAgentUid()
 		const result = runEntrypoint({
-			NAMZU_AGENT_UID: '1234',
-			NAMZU_AGENT_GID: '1234',
+			NAMZU_AGENT_UID: uid,
+			NAMZU_AGENT_GID: uid,
 			NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
 		})
 		const setprivLine = result.log.find((line) => line.startsWith('setpriv '))
 		expect(setprivLine).toBeDefined()
-		expect(setprivLine).toContain('--reuid=1234')
-		expect(setprivLine).toContain('--regid=1234')
+		expect(setprivLine).toContain(`--reuid=${uid}`)
+		expect(setprivLine).toContain(`--regid=${uid}`)
 		expect(setprivLine).toContain('--clear-groups')
 		expect(setprivLine).toContain('--inh-caps=-all')
 		expect(setprivLine).toContain('--bounding-set=-all')
@@ -344,6 +395,7 @@ describe('no device configured (a task pod)', () => {
 		const root = mktempWorkDir()
 		const result = runEntrypoint({
 			NAMZU_WORKSPACE_ROOT: root,
+			NAMZU_AGENT_UID: uniqueAgentUid(),
 			// Explicitly absent/empty — the task-pod case.
 			NAMZU_WORKSPACE_DEVICE: '',
 		})
@@ -366,6 +418,7 @@ describe('running as a non-root uid (sandboxtemplate-task.yaml\'s pod)', () => {
 			{
 				NAMZU_WORKSPACE_ROOT: root,
 				NAMZU_WORKSPACE_DEVICE: '',
+				NAMZU_AGENT_UID: uniqueAgentUid(),
 			},
 			{ fakes: { ...FAKE_TOOLS, id: fakeId(1001) } },
 		)
@@ -404,6 +457,7 @@ describe('running as a non-root uid (sandboxtemplate-task.yaml\'s pod)', () => {
 				// the misconfiguration this branch exists to refuse rather
 				// than silently skip.
 				NAMZU_WORKSPACE_DEVICE: '/dev/namzu-workspace',
+				NAMZU_AGENT_UID: uniqueAgentUid(),
 			},
 			{ fakes: { ...FAKE_TOOLS, id: fakeId(1001) } },
 		)
@@ -420,11 +474,12 @@ describe('running as a non-root uid (sandboxtemplate-task.yaml\'s pod)', () => {
 describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', () => {
 	it('formats an unformatted device (blkid reports nothing) before mounting it', () => {
 		const root = mktempWorkDir()
+		const uid = uniqueAgentUid()
 		const result = runEntrypoint({
 			NAMZU_WORKSPACE_DEVICE: LOOP_DEVICE,
 			NAMZU_WORKSPACE_ROOT: root,
-			NAMZU_AGENT_UID: '2001',
-			NAMZU_AGENT_GID: '2001',
+			NAMZU_AGENT_UID: uid,
+			NAMZU_AGENT_GID: uid,
 			// No FAKE_BLKID_TYPE: the fake exits 2 and prints nothing, exactly
 			// like real blkid against a device with no recognized filesystem.
 		})
@@ -434,7 +489,7 @@ describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', (
 		const mkfsLine = result.log.find((l) => l.startsWith('mkfs.ext4 '))
 		const mountLine = result.log.find((l) => l.startsWith('mount '))
 		// `.find`, not `.some` — HOME resolution's own fallback also chowns
-		// (to the same `2001:2001`, but a different, non-workspace path),
+		// (to the same `<uid>:<uid>`, but a different, non-workspace path),
 		// so the WORKSPACE chown is picked out by the directory it targets.
 		const chownLine = result.log.find((l) => l.startsWith('chown ') && l.includes(root))
 
@@ -447,7 +502,7 @@ describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', (
 		expect(mountLine).toContain('nosuid')
 		expect(mountLine).toContain(LOOP_DEVICE as string)
 		expect(mountLine).toContain(root)
-		expect(chownLine).toContain('2001:2001')
+		expect(chownLine).toContain(`${uid}:${uid}`)
 		expect(chownLine).toContain(root)
 
 		// Order matters: mkfs only after blkid answers, mount only after
@@ -469,6 +524,7 @@ describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', (
 		const result = runEntrypoint({
 			NAMZU_WORKSPACE_DEVICE: LOOP_DEVICE,
 			NAMZU_WORKSPACE_ROOT: root,
+			NAMZU_AGENT_UID: uniqueAgentUid(),
 			FAKE_BLKID_TYPE: 'ext4',
 		})
 		expect(result.status).toBe(0)
@@ -486,6 +542,7 @@ describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', (
 			const result = runEntrypoint({
 				NAMZU_WORKSPACE_DEVICE: LOOP_DEVICE,
 				NAMZU_WORKSPACE_ROOT: root,
+				NAMZU_AGENT_UID: uniqueAgentUid(),
 				FAKE_BLKID_EXIT: String(exitCode),
 			})
 			expect(result.status).not.toBe(0)
@@ -502,6 +559,7 @@ describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', (
 			{
 				NAMZU_WORKSPACE_DEVICE: LOOP_DEVICE,
 				NAMZU_WORKSPACE_ROOT: root,
+				NAMZU_AGENT_UID: uniqueAgentUid(),
 			},
 			{
 				fakes: fakesWithoutBlkid,
@@ -525,6 +583,7 @@ describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', (
 		const result = runEntrypoint({
 			NAMZU_WORKSPACE_DEVICE: LOOP_DEVICE,
 			NAMZU_WORKSPACE_ROOT: root,
+			NAMZU_AGENT_UID: uniqueAgentUid(),
 			// FAKE_BLKID_EXIT unset: the fake's default (2, "nothing found").
 			FAKE_DD_EXIT: '1',
 		})
@@ -541,6 +600,7 @@ describe.skipIf(LOOP_DEVICE === undefined)('a workspace device is configured', (
 		const result = runEntrypoint({
 			NAMZU_WORKSPACE_DEVICE: notADevice,
 			NAMZU_WORKSPACE_ROOT: root,
+			NAMZU_AGENT_UID: uniqueAgentUid(),
 		})
 		expect(result.status).toBe(0)
 		expect(result.log.some((line) => line.startsWith('blkid '))).toBe(false)
@@ -563,8 +623,9 @@ describe('NAMZU_SANDBOX_WORKSPACE follows NAMZU_WORKSPACE_ROOT', () => {
 describe('HOME for the guest agent and its children', () => {
 	it('getent unreachable on PATH at all: the fallback home is exported and really created', () => {
 		const { getent: _getentFake, ...fakesWithoutGetent } = FAKE_TOOLS
+		const uid = uniqueAgentUid()
 		const result = runEntrypoint(
-			{ NAMZU_WORKSPACE_ROOT: mktempWorkDir(), NAMZU_WORKSPACE_DEVICE: '' },
+			{ NAMZU_WORKSPACE_ROOT: mktempWorkDir(), NAMZU_WORKSPACE_DEVICE: '', NAMZU_AGENT_UID: uid },
 			// `basePath: ''`, exactly like the "blkid missing from PATH
 			// entirely" case above: this shim directory (every fake except
 			// getent) is ALL that is searched, so this proves getent is
@@ -574,8 +635,8 @@ describe('HOME for the guest agent and its children', () => {
 			{ fakes: fakesWithoutGetent, basePath: '' },
 		)
 		expect(result.status).toBe(0)
-		expect(exportedEnv(result)?.HOME).toBe('/tmp/namzu-home-1001')
-		expect(existsSync('/tmp/namzu-home-1001')).toBe(true)
+		expect(exportedEnv(result)?.HOME).toBe(`/tmp/namzu-home-${uid}`)
+		expect(existsSync(`/tmp/namzu-home-${uid}`)).toBe(true)
 	})
 
 	it('getent naming a directory that does not exist yet: created, chowned and adopted as HOME', () => {
@@ -596,9 +657,11 @@ describe('HOME for the guest agent and its children', () => {
 	it('getent naming a directory this uid cannot be made to own: falls back, never exports the unwritable path', () => {
 		const unusable = join(mktempWorkDir(), 'someone-elses-home')
 		mkdirSync(unusable)
+		const uid = uniqueAgentUid()
 		const result = runEntrypoint({
 			NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
 			NAMZU_WORKSPACE_DEVICE: '',
+			NAMZU_AGENT_UID: uid,
 			FAKE_GETENT_HOME: unusable,
 			// The real chown here is faked to always "succeed" (like every
 			// other fake in this file) — this is what actually stands in for
@@ -609,44 +672,47 @@ describe('HOME for the guest agent and its children', () => {
 		})
 		expect(result.status).toBe(0)
 		const home = exportedEnv(result)?.HOME
-		expect(home).toBe('/tmp/namzu-home-1001')
+		expect(home).toBe(`/tmp/namzu-home-${uid}`)
 		expect(home).not.toBe(unusable)
 	})
 
 	it('never resolves a HOME under $WORKSPACE_ROOT, even when getent names one there', () => {
 		const root = mktempWorkDir()
 		const insideWorkspace = join(root, 'fake-home')
+		const uid = uniqueAgentUid()
 		const result = runEntrypoint({
 			NAMZU_WORKSPACE_ROOT: root,
 			NAMZU_WORKSPACE_DEVICE: '',
+			NAMZU_AGENT_UID: uid,
 			FAKE_GETENT_HOME: insideWorkspace,
 		})
 		expect(result.status).toBe(0)
 		const home = exportedEnv(result)?.HOME
 		expect(home).toBeDefined()
 		expect((home as string).startsWith(root)).toBe(false)
-		expect(home).toBe('/tmp/namzu-home-1001')
+		expect(home).toBe(`/tmp/namzu-home-${uid}`)
 	})
 
 	it('resolves to the SAME HOME on the non-root branch as on the root branch, given the same inputs', () => {
+		const uid = uniqueAgentUid()
 		const rootRun = runEntrypoint({
 			NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
 			NAMZU_WORKSPACE_DEVICE: '',
-			NAMZU_AGENT_UID: '3001',
-			NAMZU_AGENT_GID: '3001',
+			NAMZU_AGENT_UID: uid,
+			NAMZU_AGENT_GID: uid,
 		})
 		const nonRootRun = runEntrypoint(
 			{
 				NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
 				NAMZU_WORKSPACE_DEVICE: '',
-				NAMZU_AGENT_UID: '3001',
-				NAMZU_AGENT_GID: '3001',
+				NAMZU_AGENT_UID: uid,
+				NAMZU_AGENT_GID: uid,
 			},
 			{ fakes: { ...FAKE_TOOLS, id: fakeId(3001) } },
 		)
 		expect(rootRun.status).toBe(0)
 		expect(nonRootRun.status).toBe(0)
-		expect(exportedEnv(nonRootRun)?.HOME).toBe('/tmp/namzu-home-3001')
+		expect(exportedEnv(nonRootRun)?.HOME).toBe(`/tmp/namzu-home-${uid}`)
 		expect(exportedEnv(nonRootRun)?.HOME).toBe(exportedEnv(rootRun)?.HOME)
 
 		const setprivLine = nonRootRun.log.find((line) => line.startsWith('setpriv '))
@@ -655,11 +721,12 @@ describe('HOME for the guest agent and its children', () => {
 	})
 
 	it('the root branch exports HOME (and USER/LOGNAME/XDG_*) before its multi-flag setpriv', () => {
+		const uid = uniqueAgentUid()
 		const result = runEntrypoint({
 			NAMZU_WORKSPACE_ROOT: mktempWorkDir(),
 			NAMZU_WORKSPACE_DEVICE: '',
-			NAMZU_AGENT_UID: '4001',
-			NAMZU_AGENT_GID: '4001',
+			NAMZU_AGENT_UID: uid,
+			NAMZU_AGENT_GID: uid,
 		})
 		expect(result.status).toBe(0)
 		// The only way a fake that never really execs can show what it was
@@ -667,15 +734,15 @@ describe('HOME for the guest agent and its children', () => {
 		// (fake) invocation dumps it, which is only possible if the export
 		// ran before the exec — exactly the ordering this test is for.
 		const env = exportedEnv(result)
-		expect(env?.HOME).toBe('/tmp/namzu-home-4001')
+		expect(env?.HOME).toBe(`/tmp/namzu-home-${uid}`)
 		expect(env?.USER).toBe('namzu')
 		expect(env?.LOGNAME).toBe('namzu')
-		expect(env?.XDG_CACHE_HOME).toBe('/tmp/namzu-home-4001/.cache')
-		expect(env?.XDG_CONFIG_HOME).toBe('/tmp/namzu-home-4001/.config')
+		expect(env?.XDG_CACHE_HOME).toBe(`/tmp/namzu-home-${uid}/.cache`)
+		expect(env?.XDG_CONFIG_HOME).toBe(`/tmp/namzu-home-${uid}/.config`)
 
 		const setprivLine = result.log.find((line) => line.startsWith('setpriv '))
-		expect(setprivLine).toContain('--reuid=4001')
-		expect(setprivLine).toContain('--regid=4001')
+		expect(setprivLine).toContain(`--reuid=${uid}`)
+		expect(setprivLine).toContain(`--regid=${uid}`)
 	})
 
 	it('a resolvable passwd home exports USER/LOGNAME from the passwd entry, not the fallback default', () => {
