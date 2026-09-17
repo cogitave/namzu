@@ -87,6 +87,7 @@ import {
 	type KubernetesTranslatedEgressPolicy,
 	PER_SANDBOX_NARROWING_REFUSAL,
 	assertHostsFitNarrowing,
+	assertUsableHost,
 	buildCiliumEgressManifest,
 	perSandboxEgressLabelKey,
 	verifyEgressPolicyApplied,
@@ -214,17 +215,14 @@ export class KubernetesAdmissionFenceMissingError extends Error {
  * Raised for an `allowedHosts` entry this backend will not translate —
  * re-exported rather than defined here.
  *
- * It lives in `egress-policy.ts` beside {@link assertHostsFitNarrowing},
- * because the config-level `ciliumNarrowing` translation raises the same
- * class for the same entry, and this module imports that one: defining it
- * here would make the two modules import each other. The identifier is
- * re-exported so every existing import path — including the package index —
- * keeps resolving.
+ * It lives in `egress-policy.ts` beside {@link assertHostsFitNarrowing} and
+ * {@link assertUsableHost}, because the config-level translation raises the
+ * same class for the same entry and this module imports both checks from
+ * there: defining it here would make the two modules import each other. The
+ * identifier is re-exported so every existing import path — including the
+ * package index — keeps resolving.
  */
 export { KubernetesNetworkPolicyHostError }
-
-/** A DNS name, lowercase, no scheme, no port, no wildcard. */
-const DNS_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/
 
 /**
  * One `allowedHosts` entry, validated and canonicalised to the bytes a
@@ -235,6 +233,13 @@ const DNS_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?
  * `matchName` is compared against what the DNS proxy saw — lowercase. The
  * docker backend accepts either case, and a list that worked there and threw
  * here would be a portability trap with no boundary behind it.
+ *
+ * The grammar itself is {@link assertUsableHost}'s, in `egress-policy.ts`
+ * beside the error it throws, because it is no longer only this writer's: the
+ * shared translation calls it too, so a config-level allowlist is refused the
+ * same entries this path refuses. What is HERE is the part that is this
+ * writer's alone — the canonicalisation, applied before the fence is read and
+ * before anything is queued behind a previous call.
  */
 function normalizeHost(entry: string): string {
 	if (typeof entry !== 'string') {
@@ -243,55 +248,6 @@ function normalizeHost(entry: string): string {
 	const canonical = entry.toLowerCase()
 	assertUsableHost(canonical)
 	return canonical
-}
-
-function assertUsableHost(entry: string): void {
-	if (typeof entry !== 'string' || entry === '') {
-		throw new KubernetesNetworkPolicyHostError(String(entry), 'is empty')
-	}
-	const bare = entry.startsWith('.') ? entry.slice(1) : entry
-	if (bare === '') {
-		throw new KubernetesNetworkPolicyHostError(entry, 'names no domain after its leading dot')
-	}
-	if (entry.includes('*')) {
-		throw new KubernetesNetworkPolicyHostError(
-			entry,
-			"contains a glob; a domain and its subdomains are written with a leading dot ('.example.com'), which becomes matchName plus matchPattern",
-		)
-	}
-	if (!DNS_NAME.test(bare)) {
-		throw new KubernetesNetworkPolicyHostError(
-			entry,
-			'is not a DNS name (a scheme, a path, a port suffix and an IP address all land here; letter case is canonicalised before this check, so it is never the cause)',
-		)
-	}
-	if (bare.length > 253) {
-		throw new KubernetesNetworkPolicyHostError(entry, 'is longer than a DNS name may be')
-	}
-	// A leading-dot entry becomes `matchPattern: '*.<domain>'`, and a
-	// single-label domain there is a whole public suffix — `.com`, `.org`.
-	// That is not an allowlist entry, and the shipped admission fence refuses
-	// the pattern it would produce, so refusing it HERE is what turns an
-	// opaque 403 from the API server into an error naming the entry.
-	if (entry.startsWith('.') && !bare.includes('.')) {
-		throw new KubernetesNetworkPolicyHostError(
-			entry,
-			"names a whole top-level domain ('.com' means every name under it); a domain entry needs at least two labels, as in '.example.com', and the shipped admission policy refuses the '*.com' pattern this would emit",
-		)
-	}
-	// An IPv4 literal passes the grammar above — every label is digits, and
-	// digits are legal in a DNS label. It is still not a hostname: a DNS
-	// top-level label is never all-numeric, and Cilium's `matchName` is
-	// compared against names the DNS proxy SAW, which an address never is. A
-	// policy carrying one is admitted and matches nothing, which reads from
-	// outside exactly like a policy that is working.
-	const lastLabel = bare.slice(bare.lastIndexOf('.') + 1)
-	if (/^[0-9]+$/.test(lastLabel)) {
-		throw new KubernetesNetworkPolicyHostError(
-			entry,
-			'ends in an all-numeric label, so it is an address rather than a hostname; toFQDNs matches names a DNS lookup returned, and an address is never one of them (use config.egress.policy for address-based egress)',
-		)
-	}
 }
 
 /**
@@ -434,7 +390,7 @@ export function buildPerSandboxPolicySetter(
 			policyKind: 'static',
 			...(perSandbox.narrowing !== undefined ? { narrowing: perSandbox.narrowing } : {}),
 			ownerReferences: [perSandboxPolicyOwnerReference(owner)],
-			expandDomains: true,
+			refusalContext: PER_SANDBOX_NARROWING_REFUSAL,
 		})
 
 	const write = async (translated: KubernetesTranslatedEgressPolicy): Promise<void> => {
@@ -497,13 +453,12 @@ export function buildPerSandboxPolicySetter(
 			perSandbox.narrowing,
 			// The per-sandbox context, from `egress-policy.ts` rather than
 			// rebuilt here: it is the SAME value `buildCiliumEgressManifest`
-			// refuses by on this path (`expandDomains: true`), so the earlier
-			// check and the translation's own cannot name different fields —
-			// and the sentence it carries is the true one here, where the entry
-			// really does become a name plus a `*.domain` pattern. The
-			// config-level wording, where nothing is expanded, would be a lie
-			// on this path: leaving the option off here does allow the domain
-			// and its subdomains.
+			// refuses by on this path (`refusalContext`), so the earlier check
+			// and the translation's own cannot name different fields — and the
+			// sentence it carries is the true one here, where the entry really
+			// does become a name plus a `*.domain` pattern. Sending this caller
+			// to `config.egress.ciliumNarrowing` would name a field a
+			// `perSandbox` host never set.
 			PER_SANDBOX_NARROWING_REFUSAL,
 		)
 		// A previous call's failure belongs to that caller; this one still runs,

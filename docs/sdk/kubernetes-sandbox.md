@@ -3408,7 +3408,11 @@ egress:
 
 **Unset (every field), the translation is byte-for-byte what it always was** —
 a test pins that with a deep-equality comparison — so an already-applied
-policy keeps verifying after upgrading to a release carrying this option.
+policy keeps verifying after upgrading to a release carrying this option. One
+entry is the exception, and it is not this option's: a `.domain` allowlist
+entry, which every release before this one emitted verbatim and which is now
+expanded — see [the entry's own grammar](#narrowing-a-staticresolver-allowlist-ports-dns-names-tls-server-names)
+below. Re-apply the policy if your allowlist contains one.
 Setting `ciliumNarrowing` on a `deny-all`/`no-network`/`allow-all`/
 `public-internet` policy, or under `engine: 'core'`, throws
 `KubernetesEgressNarrowingUnsupportedError` synchronously, both from
@@ -3419,48 +3423,91 @@ and an empty `dnsNames.clusterDomain` or search suffix, are refused the same
 way with `KubernetesEgressPolicyConfigError` rather than emitted into a
 manifest the API server would reject on apply.
 
+**A `.domain` entry means the domain and its subdomains on BOTH
+translations.** `config.egress.policy` and `perSandbox` emit the same thing
+for one entry: `.example.com` becomes `matchName: example.com` **plus**
+`matchPattern: '*.example.com'`, because a Cilium `matchName` is an exact name
+and does not match across a `.`, and `*.example.com` alone would admit
+`a.example.com` and not `example.com` itself. That is
+`SandboxNetworkPolicy.allowedHosts`'s own grammar, and the docker backend's
+proxy implements exactly it.
+
+An earlier release emitted a config-level `.domain` entry **verbatim** —
+`toFQDNs: [{ matchName: '.example.com' }]`. No DNS answer carries a name with
+a leading dot, so that object matched nothing: it was admitted, read back
+deep-equal to what was sent, `create()` reported success, and the domain and
+every subdomain it was asked to allow were DENIED. With
+`ciliumNarrowing.dnsNames` on it was worse than useless, because the DNS proxy
+was restricted to the same unmatched names — it refused the lookup the
+`toFQDNs` half needed before that half could ever see an address. Both halves
+are fixed: the entry is expanded, and the DNS-visibility rule carries the
+names the expansion admits, patterns and search suffixes included.
+
+**An entry that is not a hostname is refused on THIS path too.** The grammar
+the per-sandbox writer applies — a hostname, or a leading dot and a domain
+with at least two labels — now runs in the translation both paths share, so a
+`config.egress.policy` allowlist is refused the same entries, with
+`KubernetesNetworkPolicyHostError`, nothing emitted, and each entry's own
+reason: a URL, a path, a port suffix (`example.com:443`) and a second leading
+dot (`..example.com`) are **not a DNS name**; `*` and `*.example.com` **contain
+a glob**, which the leading dot already spells; `1.2.3.4` is an **address**,
+because its last label is all-numeric and `toFQDNs` matches names a lookup
+returned; `.com` names a **whole top-level domain**, which would put every name
+under a public suffix in scope; and `.` names no domain after its leading dot
+at all. It used to pass every one of them straight into the emitted `toFQDNs`:
+before the expansion above they became a `matchName` that no DNS answer
+carries, inert rather than dangerous, and with it `.com` would instead have
+emitted `matchPattern: '*.com'` and granted every name under a public suffix —
+silently, on a path the [shipped admission
+fence](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox) does not cover.
+
+Letter case is the one thing the two paths still differ on: the per-sandbox
+writer canonicalises to lowercase, and this translation does not, so
+`API.example.com` is accepted here and emitted exactly as written, as every
+release before this one emitted it. **Whether an uppercase `matchName` matches
+anything is not asserted by this repository** — no test here has a Cilium data
+plane to ask, and DNS names are case-insensitive by specification, so the
+expectation is that `API.Example.COM` is admitted exactly as `api.example.com`
+is; what is pinned is only that the bytes the caller wrote are the bytes in the
+object. A host that needs one case to be certain of should write lowercase, as
+the per-sandbox path does for it.
+
 **A `.domain` entry and `tlsServerNames` are refused together**, with
 `KubernetesNetworkPolicyHostError`. A server name is one exact SNI value a
 handshake presents, while a `.example.com` entry means that domain **plus
 every subdomain of it**, so no single value means both: `serverNames:
 ['example.com']` denies every subdomain the same rule's `toFQDNs` half
 admits, and `'.example.com'` is not a name any handshake presents at all.
-Either way the object is admitted by the fence, reads back deep-equal to what
-was sent, and denies the domain it claims to allow — so it is refused while
-the manifest is being built, before anything is emitted, from
+Either way the object would go through with nothing objecting to it — the
+fence admits it on the per-sandbox path, and does not match an operator's
+apply on this one — and would read back deep-equal to what was sent, denying
+the domain it claims to allow. So it is refused while the manifest is being
+built, before anything is emitted, from
 `translateEgressPolicy` for this allowlist and from `setNetworkPolicy` for
 the per-sandbox one, which refuses even earlier, before it reads the fence.
 
-The refusal says which of the two callers it is, because the entry is a
-different thing on each path. On the per-sandbox path the entry really is
-expanded to `example.com` plus `*.example.com`, and the message says so —
-list the exact hosts, or leave `tlsServerNames` off for a domain list, which
-there really does allow the domain and its subdomains. On THIS path
-`ciliumNarrowing` expands nothing, so the entry reaches the object as the
-literal `matchName: '.example.com'`, a name no DNS answer carries: it admits
-nothing with the option on or off, and `serverNames` on top of it is a
-second, independent denial. Leaving `tlsServerNames` off is therefore **not**
-a repair here, and the message says so instead of offering it. (That
-unexpanded emission — a `.domain` entry matching no answer — is a
-pre-existing defect of this translation, unchanged by this release and left
-to its own change.)
+The refusal's message names the field the caller actually set —
+`config.egress.ciliumNarrowing` here, `config.egress.perSandbox.narrowing` on
+the per-sandbox path — and says one thing about the entry, because one entry
+means one thing: it becomes a name **plus** a `*.domain` pattern, and no
+single SNI value means both. Leaving `tlsServerNames` off **is** a repair on
+both paths, and the message offers it.
 
-**On the per-sandbox path, an expanded `.domain` entry carries search-suffix
-patterns of its own.** An entry that admits subdomains needs the
-DNS-visibility rule to see their lookups: a guest resolving `a.example.com`
-tries the cluster's search suffixes FIRST under the default `ndots: 5`, and a
-lookup the DNS proxy refuses is not an `NXDOMAIN` the resolver walks past —
-it can fail the whole resolution. The exact-host branch has always answered
-that by emitting `<host>.<suffix>`, so the suffixes are not news; what an
-expanded entry adds is the PATTERN under each of them. So `.example.com`
-under `perSandbox.narrowing.dnsNames` emits `matchPattern: '*.example.com'`
-beside `matchName: example.com`, and
-`matchPattern: '*.example.com.<suffix>'` beside `example.com.<suffix>` for
-each search suffix, or the first lookup of a subdomain the rule admits is
-refused by the rule that admits it. **Both halves are new**: the exact-host
-branch emits `matchName`s and never a pattern, so `matchPattern` at a search
-suffix is not a shape this translation had at all. Config-level
-`ciliumNarrowing` emits none of it, because it expands nothing.
+**An expanded `.domain` entry carries search-suffix patterns of its own**, on
+both translations. An entry that admits subdomains needs the DNS-visibility
+rule to see their lookups: a guest resolving `a.example.com` tries the
+cluster's search suffixes FIRST under the default `ndots: 5`, and a lookup the
+DNS proxy refuses is not an `NXDOMAIN` the resolver walks past — it can fail
+the whole resolution. The exact-host branch has always answered that by
+emitting `<host>.<suffix>`, so the suffixes are not news; what an expanded
+entry adds is the PATTERN under each of them. So `.example.com` with
+`dnsNames` narrowing on emits `matchPattern: '*.example.com'` beside
+`matchName: example.com`, and `matchPattern: '*.example.com.<suffix>'` beside
+`example.com.<suffix>` for each search suffix, or the first lookup of a
+subdomain the rule admits is refused by the rule that admits it. The
+exact-host branch emits `matchName`s and never a pattern — a host admits no
+subdomains, so none is advertised to the proxy — and that is the difference
+between the two branches, on either translation.
 
 **Verification needs no separate statement of these fields**: `spec.egress` is
 compared to the translation exactly, the same deep-equal check described
@@ -3746,9 +3793,9 @@ design rather than by accident:**
   `matchPattern: '*.example.com'`, because a Cilium `matchName` is an exact
   name and does not match across a `.`. `perSandbox.narrowing` carries the
   same [port, DNS-name and TLS-server-name options](#narrowing-a-staticresolver-allowlist-ports-dns-names-tls-server-names)
-  the config-level allowlist has — and, unlike the config-level translation,
-  it expands the domain form, so `dnsNames` additionally emits the
-  `matchPattern` form of an expanded entry under each cluster search suffix.
+  the config-level allowlist has, and the entry expands the same way on both:
+  `dnsNames` additionally emits the `matchPattern` form of an expanded entry
+  under each cluster search suffix, here and at the config level.
 
 **The call resolves only after a read-back deep-equals what it sent**,
 through the same comparator the named-object check uses — a policy the API
@@ -3796,14 +3843,11 @@ so the `serverNames` the option would attach means something the entry does
 not — the policy would be admitted, read back deep-equal, and deny the domain
 it claims to allow. The refusal is the combination's, not the entry's or the
 option's: exact hosts under `tlsServerNames`, and a domain list with the
-option off, both translate as usual — here the entry really is expanded, so
-the refusal's own remedy ("leave `tlsServerNames` off for a domain list") is
-a repair, and its message says so. See
+option off, both translate as usual — the entry is expanded, so the refusal's
+own remedy ("leave `tlsServerNames` off for a domain list") is a repair, and
+its message says so, here and under `ciliumNarrowing` alike. See
 [narrowing](#narrowing-a-staticresolver-allowlist-ports-dns-names-tls-server-names)
-for why both other spellings are guesses rather than translations, and for
-the CONFIG-level `ciliumNarrowing` case, which is refused by the same check
-with the other wording: that translation expands nothing, so leaving the
-option off there is not a repair.
+for why both other spellings are guesses rather than translations.
 
 **What the fence actually bounds.** The shipped policy matches on the host's
 own ServiceAccount identity — an operator applying the baseline is unaffected
@@ -3883,16 +3927,21 @@ and asserts its `podSelector` / `endpointSelector`, `policyTypes` and `egress`
 rules match the translation **exactly**. A missing object fails with
 `KubernetesEgressPolicyNotAppliedError`, a drifted one with
 `KubernetesEgressPolicyMismatchError` naming the field, and no sandbox is
-claimed. It runs once per backend, not once per `create()`; a failed attempt is
-not cached, so fixing the cluster and calling `create()` again retries it.
+claimed. An object carrying a **`specs` list** is a mismatch too: that is a
+`CiliumNetworkPolicy`'s other spelling of the same policy, a rule in either one
+enforces, and this check reads `spec` and nothing else — so a `specs` entry is
+enforcement it would never compare, and half a comparison reported as a match
+is the one answer it must not give. The translation never emits one. It runs
+once per backend, not once per `create()`; a failed attempt is not cached, so
+fixing the cluster and calling `create()` again retries it.
 
-**Two: every policy that selects the pod.** A name proves an object exists. It
-does not prove that object is the only thing deciding what leaves the pod — and
-the API server **unions** every policy selecting a pod, so traffic leaves if
-*any* of them allows it. So the check also `LIST`s the namespace's
-`NetworkPolicy` objects (and, under `engine: 'cilium'`, that CNI's policy CRD
-too), evaluates each selector against the pod's **real labels**, and refuses
-with `KubernetesEgressPolicyUnionError` when:
+**Two: every OTHER policy that selects the pod.** A name proves an object
+exists. It does not prove that object is the only thing deciding what leaves
+the pod — and the API server **unions** every policy selecting a pod, so
+traffic leaves if *any* of them allows it. So the check also `LIST`s the
+namespace's `NetworkPolicy` objects (and, under `engine: 'cilium'`, that CNI's
+policy CRD too), evaluates each selector against the pod's **real labels**,
+and refuses with `KubernetesEgressPolicyUnionError` when:
 
 - any selecting policy allows a destination the translation does not — under
   `no-network`, that is *any* egress rule at all (`refusal:
@@ -3911,6 +3960,37 @@ saying it did not select these labels. A pass is cached per label set for **at
 most five minutes** — not for the backend's lifetime, so a widening policy
 applied at 10:00 is noticed without restarting the host — and a failure is
 never cached.
+
+**The named object is enumerated but its RULES are not judged.** The one policy
+this check does not read for widening is the object `networkPolicyName` names —
+and, precisely, the document built from its `spec`, because that is the object,
+field for field, check ONE compared to the translation on this same create
+path. It is not an optimisation: a `.domain` allowlist entry [expands to
+`matchName` plus
+`matchPattern`](#narrowing-a-staticresolver-allowlist-ports-dns-names-tls-server-names),
+the allowance this check builds records a `toFQDNs` entry by its `matchName`
+alone, so the translation's own pattern half read as a widening and the check
+refused the object it had told the operator to apply — on every `create()`,
+however many times the manifest was re-applied. The named object still counts
+for the one thing the exact comparison cannot answer: whether it selects this
+pod and puts it in egress default-deny. A deployment whose only applied policy
+is that object therefore creates, and a second policy that allows more is still
+refused by name.
+
+**What check ONE reads, since the exemption is only as wide as it is.** It
+compares `spec.podSelector` (`spec.endpointSelector` for a
+`CiliumNetworkPolicy`), `spec.policyTypes` on a core policy and `spec.egress`,
+plus any `metadata.ownerReferences` the translation carries — and it REFUSES a
+live object carrying a `specs` list outright, because a `CiliumNetworkPolicy`
+carries EITHER one `spec` or a `specs` list, a rule in either one enforces,
+and no check there reads a `specs` entry. That refusal is what makes this
+exemption sound rather than merely narrower: an object whose `spec` matches the
+translation and whose `specs` entry allows more is refused before the union
+check runs at all. A `specs` entry is therefore **not** exempt here — it is
+read as an ordinary policy's rules and refused by name when it widens, exactly
+as it would be under any other object. [The shipped admission
+fence](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox) refuses a
+`specs` list for the same reason.
 
 **The template-managed policy counts like any other.** A `SandboxTemplate` that
 sets `networkPolicy` has it translated by the agent-sandbox controller into a

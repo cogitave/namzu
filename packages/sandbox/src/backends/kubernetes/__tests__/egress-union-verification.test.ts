@@ -24,7 +24,11 @@
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 
-import { KubernetesEgressPolicyUnionError } from '../egress-policy.js'
+import {
+	KubernetesEgressPolicyMismatchError,
+	KubernetesEgressPolicyUnionError,
+	translateEgressPolicy,
+} from '../egress-policy.js'
 import { EGRESS_UNION_CACHE_TTL_MS, buildEgressBoundary, buildKubernetesBackend } from '../index.js'
 import { createKubernetesClient } from '../k8s-client.js'
 import {
@@ -481,5 +485,233 @@ describe('the union cache', () => {
 		// Fixing the cluster and calling again must retry, so the second call
 		// reads the collection again rather than replaying the rejection.
 		expect(enumerations()).toBe(2)
+	})
+})
+
+/**
+ * The config-level translation of a `.domain` allowlist emits a rule the
+ * translation's own allowance cannot express — see
+ * `EgressPolicyDocument.namedObject` — so the union check used to list the
+ * template's own policy, the one `verifyEgressPolicyApplied` had just
+ * deep-equalled to the translation, and refuse the create with
+ * `policy-widens-egress`. Permanently, and on every create.
+ *
+ * This is that deployment, end to end: a `.domain` allowlist under the
+ * DEFAULT `egress.verify`, with the manifest an operator applied and this
+ * repo's shipped baseline listed in the collection. The create has to pass.
+ */
+describe('a .domain allowlist under the default verify setting', () => {
+	const WITH_DOMAIN_ENTRY = {
+		engine: 'cilium',
+		policy: { kind: 'static', allowedHosts: ['.example.com'] },
+	}
+
+	/** `packages/sandbox/k8s/manifests/networkpolicy.yaml`'s own DNS rule. */
+	const BASELINE = {
+		metadata: { name: 'namzu-sandbox-baseline', namespace: NAMESPACE },
+		spec: {
+			podSelector: { matchLabels: TEMPLATE_LABEL },
+			policyTypes: ['Ingress', 'Egress'],
+			egress: [
+				{
+					to: [
+						{
+							namespaceSelector: {
+								matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' },
+							},
+							podSelector: { matchLabels: { 'k8s-app': 'kube-dns' } },
+						},
+					],
+					ports: [
+						{ protocol: 'UDP', port: 53 },
+						{ protocol: 'TCP', port: 53 },
+					],
+				},
+			],
+		},
+	}
+
+	/** The manifest this backend computes, exactly as an operator applies it. */
+	function appliedTranslation(): Promise<Record<string, unknown>> {
+		return translateEgressPolicy({ kind: 'static', allowedHosts: ['.example.com'] }, 'cilium', {
+			namespace: NAMESPACE,
+			name: 'namzu-task-egress',
+			sandboxTemplateName: 'namzu-task',
+		}).then((translated) => translated.manifest as Record<string, unknown>)
+	}
+
+	/**
+	 * A cluster serving the cilium CRD: the named object by GET, both
+	 * collections, and the pool's own acquire traffic. The shipped baseline is
+	 * a CORE `NetworkPolicy`, so it is listed in the core collection — where
+	 * an operator's `kubectl apply` of it puts it.
+	 */
+	function ciliumCluster(
+		ciliumItems: readonly Record<string, unknown>[],
+		coreItems: readonly Record<string, unknown>[] = [],
+		named: Promise<Record<string, unknown>> = appliedTranslation(),
+	): Promise<FakeApiServer> {
+		return startFakeApiServer(async (req) => {
+			if (req.method === 'GET' && req.path.includes('/ciliumnetworkpolicies/')) {
+				return { status: 200, body: await named }
+			}
+			if (req.method === 'GET' && req.path.endsWith('/ciliumnetworkpolicies')) {
+				return { status: 200, body: { items: ciliumItems } }
+			}
+			if (req.method === 'GET' && req.path.endsWith('/networkpolicies')) {
+				return { status: 200, body: { items: coreItems } }
+			}
+			return handleWarmAcquire(req) ?? { status: 404, body: {} }
+		})
+	}
+
+	/** The manifest as an operator who hand-edited it would have applied it. */
+	async function appliedTranslationPlusSpecs(): Promise<Record<string, unknown>> {
+		const applied = await appliedTranslation()
+		const spec = applied.spec as {
+			readonly endpointSelector: unknown
+			readonly egress: readonly unknown[]
+		}
+		return {
+			...applied,
+			specs: [
+				// The CRD's other spelling: a rule in a `specs` entry enforces
+				// exactly as one in `spec` does.
+				{
+					endpointSelector: spec.endpointSelector,
+					egress: [{ toFQDNs: [{ matchName: 'elsewhere.example.net' }] }],
+				},
+			],
+		}
+	}
+
+	/** The union check the create path runs, over this test's fake server. */
+	function unionBoundary(): NonNullable<ReturnType<typeof buildEgressBoundary>> {
+		if (!server) throw new Error('fixtures not started')
+		const client = createKubernetesClient({
+			server: server.url,
+			namespace: NAMESPACE,
+			getToken: async () => 'sa-token',
+		})
+		const boundary = buildEgressBoundary(
+			client,
+			{
+				access: { server: server.url, getToken: async () => 'sa-token' },
+				namespace: NAMESPACE,
+				sandboxTemplateName: 'namzu-task',
+				// The literal, not the shared const: this one is contextually
+				// typed, so `kind` narrows exactly as it does on the create path.
+				egress: { engine: 'cilium', policy: { kind: 'static', allowedHosts: ['.example.com'] } },
+			},
+			'namzu-task',
+		)
+		if (boundary === undefined) throw new Error('no boundary')
+		return boundary
+	}
+
+	it('creates a sandbox once the operator has re-applied the manifest', async () => {
+		server = await ciliumCluster([await appliedTranslation()], [BASELINE])
+
+		const sandbox = await backend(WITH_DOMAIN_ENTRY).create({ workingDirectory: '/workspace' })
+		// Both halves ran, against the cilium CRD: the named object read back by
+		// name, and the collection enumerated.
+		expect(server.matching('GET', '/ciliumnetworkpolicies/namzu-task-egress')).toHaveLength(1)
+		expect(
+			server.requests.filter(
+				(r) => r.method === 'GET' && r.path.endsWith('/ciliumnetworkpolicies'),
+			),
+		).toHaveLength(1)
+		await sandbox.destroy()
+	})
+
+	it('still refuses, by name, when a second policy widens the same allowlist', async () => {
+		// The control: exempting the named object from the rule scan must not
+		// blind the check to anyone else — and on this path the widening shape
+		// is the one the translation itself emits, `*.example.com`'s sibling.
+		server = await ciliumCluster([
+			await appliedTranslation(),
+			{
+				metadata: { name: 'a-wider-allowlist', namespace: NAMESPACE },
+				spec: {
+					endpointSelector: {
+						matchLabels: { 'k8s:sandbox.namzu.ai/template': 'namzu-task' },
+					},
+					egress: [{ toFQDNs: [{ matchPattern: '*.com' }] }],
+				},
+			},
+		])
+
+		const failure = await backend(WITH_DOMAIN_ENTRY)
+			.create({ workingDirectory: '/workspace' })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesEgressPolicyUnionError)
+		const union = failure as KubernetesEgressPolicyUnionError
+		expect(union.refusal).toBe('policy-widens-egress')
+		// The named object is still reported, with its verdict: it is exempt
+		// from the rule scan, not from the enumeration.
+		expect(union.message).toContain('CiliumNetworkPolicy/namzu-task-egress: within')
+		expect(union.message).toContain('CiliumNetworkPolicy/a-wider-allowlist: widens-egress')
+		// Nothing was handed back: the claim this create POSTed is deleted
+		// through the acquire path's own cleanup.
+		expect(server.matching('DELETE', '/sandboxclaims/')).toHaveLength(1)
+	})
+
+	/**
+	 * The named object itself, carrying the CRD's OTHER spelling of the same
+	 * policy: its `spec` is the translation byte for byte, and a `specs` entry
+	 * beside it allows a host the translation does not. A rule in a `specs`
+	 * entry enforces exactly as one in `spec` does, so this object lets out
+	 * more than `config.egress` says while the half this backend compares
+	 * matches perfectly.
+	 *
+	 * It used to create: marking the named object exempt from the union rule's
+	 * scan put the marker on EVERY document read from that object, `spec`- and
+	 * `specs`-derived alike, so the widening half rode in behind the matching
+	 * one. Now the marker goes only onto the document built from `item.spec`,
+	 * and `verifyEgressPolicyApplied` refuses an object carrying a `specs` list
+	 * at all — so the create is refused on this same path, twice over.
+	 */
+	it('refuses the named object itself when a specs entry beside its exact spec widens it', async () => {
+		const widened = await appliedTranslationPlusSpecs()
+		server = await ciliumCluster([widened], [BASELINE], Promise.resolve(widened))
+
+		// The union entry point first, called on its own: the `specs` entry is
+		// judged like any other object's rules, and the object is named.
+		const unionFailure = await unionBoundary()
+			.verifyUnion(TEMPLATE_LABEL, 'a create over a widened named object')
+			.catch((err: unknown) => err)
+		expect(unionFailure).toBeInstanceOf(KubernetesEgressPolicyUnionError)
+		const union = unionFailure as KubernetesEgressPolicyUnionError
+		expect(union.refusal).toBe('policy-widens-egress')
+		expect(union.message).toContain('CiliumNetworkPolicy/namzu-task-egress: widens-egress')
+
+		// And the create path, where the named comparison runs first: refused
+		// there, by the check that reads the object it is about to compare.
+		const failure = await backend(WITH_DOMAIN_ENTRY)
+			.create({ workingDirectory: '/workspace' })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesEgressPolicyMismatchError)
+		expect((failure as Error).message).toContain('specs')
+		// Before the acquire, so nothing was created and nothing has to be
+		// cleaned up: the named check is the first thing `create()` does.
+		expect(server.matching('POST', '/sandboxclaims')).toHaveLength(0)
+		expect(server.matching('POST', '/sandboxes')).toHaveLength(0)
+	})
+
+	it('still refuses, as no-enforcing-policy, when nothing bounds the pod at all', async () => {
+		// The named object verifies and is listed by neither collection: the
+		// document stays in the enumeration for the one thing the exempting
+		// comparison cannot answer, so a deployment nothing bounds still says so
+		// rather than passing on the strength of the object this backend names.
+		server = await ciliumCluster([], [])
+
+		const failure = await backend(WITH_DOMAIN_ENTRY)
+			.create({ workingDirectory: '/workspace' })
+			.catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesEgressPolicyUnionError)
+		expect((failure as KubernetesEgressPolicyUnionError).refusal).toBe('no-enforcing-policy')
 	})
 })

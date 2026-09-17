@@ -170,12 +170,16 @@ export type KubernetesEgressPolicy = EgressPolicy | KubernetesOnlyEgressPolicy
  *
  *  - `'union'` (the default) reads the NAMED object exactly as before AND
  *    enumerates every `NetworkPolicy` — and, under `engine: 'cilium'`, every
- *    `CiliumNetworkPolicy` — in the namespace, refusing when any policy that
- *    selects the pod allows egress the configured translation does not. That
- *    is not belt-and-braces: the API server UNIONS every policy selecting a
- *    pod, so a second policy widens egress however exactly the named one
- *    matches, and a `SandboxTemplate`'s own `networkPolicy` block becomes
- *    exactly such a policy.
+ *    `CiliumNetworkPolicy` — in the namespace, refusing when any OTHER policy
+ *    that selects the pod allows egress the configured translation does not.
+ *    The named object is left to the exact comparison, which is stronger than
+ *    anything this rule could conclude about it — see
+ *    {@link EgressPolicyDocument.namedObject} — and still counts as the policy
+ *    that default-denies, so it is the enumeration's subject rather than an
+ *    exception to it. That is not belt-and-braces: the API server UNIONS every
+ *    policy selecting a pod, so a second policy widens egress however exactly
+ *    the named one matches, and a `SandboxTemplate`'s own `networkPolicy`
+ *    block becomes exactly such a policy.
  *  - `'named-object-only'` is the documented opt-out, and restores the
  *    previous behaviour exactly: one GET of the named object, memoized for
  *    the backend's lifetime, and no enumeration. For a deployment whose
@@ -1111,9 +1115,9 @@ export class KubernetesEgressNarrowingUnsupportedError extends Error {
 }
 
 /**
- * The grammar a host refusal normally closes with: what an `allowedHosts`
- * entry is. Stated only where the translation actually implements it — see
- * `stateHostnameGrammar` on {@link KubernetesNetworkPolicyHostError}.
+ * The grammar a host refusal closes with: what an `allowedHosts` entry is.
+ * Every translation in this module implements it, which is why nothing turns
+ * it off — see {@link KubernetesNetworkPolicyHostError}.
  */
 const HOSTNAME_GRAMMAR_SENTENCE =
 	"Entries are hostnames: 'api.example.com' for one host, '.example.com' for that domain and its subdomains."
@@ -1130,16 +1134,6 @@ const HOSTNAME_GRAMMAR_SENTENCE =
  * `CiliumNetworkPolicy` carrying one is an object the API server rejects on
  * apply — or, worse, accepts as a name that resolves to nothing, which reads
  * from the outside exactly like a policy that is working.
- *
- * `stateHostnameGrammar` is the one part of the message a caller can turn
- * off, because NOT every refusal can make that claim. It is false for the
- * config-level refusal of a leading-dot entry under `tlsServerNames`, whose
- * body has just said that the entry reaches the object as a literal
- * `matchName` admitting nothing with the option on or off: closing that
- * message with "'.example.com' for that domain and its subdomains" would
- * re-assert, as implemented, the very grammar whose absence is why the entry
- * is refused. Every other refusal keeps the sentence, the expanding branch of
- * the same one included.
  */
 export class KubernetesNetworkPolicyHostError extends Error {
 	override readonly name = 'KubernetesNetworkPolicyHostError'
@@ -1147,12 +1141,111 @@ export class KubernetesNetworkPolicyHostError extends Error {
 	constructor(
 		readonly host: string,
 		reason: string,
-		options: { readonly stateHostnameGrammar?: boolean } = {},
 	) {
-		const grammar = options.stateHostnameGrammar === false ? '' : ` ${HOSTNAME_GRAMMAR_SENTENCE}`
 		super(
-			`kubernetes: the allowedHosts entry ${JSON.stringify(host)} is refused: it ${reason}.${grammar} Nothing was written.`,
+			`kubernetes: the allowedHosts entry ${JSON.stringify(host)} is refused: it ${reason}. ${HOSTNAME_GRAMMAR_SENTENCE} Nothing was written.`,
 		)
+	}
+}
+
+/** A DNS name, lowercase, no scheme, no port, no wildcard. */
+const DNS_NAME = /^[a-z0-9]([-a-z0-9]*[a-z0-9])?(\.[a-z0-9]([-a-z0-9]*[a-z0-9])?)*$/
+
+/**
+ * The one grammar an `allowedHosts` entry has to satisfy, on EVERY path that
+ * emits one.
+ *
+ * It lives here, beside the class it throws, rather than in the per-sandbox
+ * module that first needed it: it is called from {@link
+ * buildCiliumEgressManifest} — the single builder both translations go
+ * through — so the config-level allowlist and a `setNetworkPolicy` list are
+ * refused the SAME entries, by name, with nothing emitted. That is the
+ * contract {@link KubernetesNetworkPolicyHostError} already states — it
+ * names entries rather than a config field, for exactly this reason — and a
+ * grammar only ONE of the two translations enforces is not one the other has:
+ * that is how the config-level translation came to pass `'.com'`, `'.'`,
+ * `'..example.com'`, `'*'` and an IP literal straight into the emitted
+ * `toFQDNs`, where the per-sandbox path refused every one of them.
+ *
+ * The per-sandbox writer still calls it too — {@link normalizeHost}, which
+ * lowercases and then calls this — because there it also CANONICALISES the
+ * bytes, before the fence is read and before anything is queued.
+ */
+export function assertUsableHost(entry: string): void {
+	// The two reasons the per-sandbox writer's own type check used to give
+	// first, kept apart here so an untyped caller meets the same sentence
+	// whichever path reached this — see the note on lowercasing below.
+	if (typeof entry !== 'string') {
+		throw new KubernetesNetworkPolicyHostError(String(entry), 'is not a string')
+	}
+	if (entry === '') {
+		throw new KubernetesNetworkPolicyHostError(entry, 'is empty')
+	}
+	const bare = entry.startsWith('.') ? entry.slice(1) : entry
+	if (bare === '') {
+		throw new KubernetesNetworkPolicyHostError(entry, 'names no domain after its leading dot')
+	}
+	if (entry.includes('*')) {
+		throw new KubernetesNetworkPolicyHostError(
+			entry,
+			"contains a glob; a domain and its subdomains are written with a leading dot ('.example.com'), which becomes matchName plus matchPattern",
+		)
+	}
+	if (!DNS_NAME.test(bare)) {
+		throw new KubernetesNetworkPolicyHostError(
+			entry,
+			'is not a DNS name (a scheme, a path, a port suffix and an IP address all land here; letter case is canonicalised before this check, so it is never the cause)',
+		)
+	}
+	if (bare.length > 253) {
+		throw new KubernetesNetworkPolicyHostError(entry, 'is longer than a DNS name may be')
+	}
+	// A leading-dot entry becomes `matchPattern: '*.<domain>'`, and a
+	// single-label domain there is a whole public suffix — `.com`, `.org`.
+	// That is not an allowlist entry: it admits every name under a registry
+	// the caller does not control. Cilium would match it if it were applied,
+	// which is why this is a refusal rather than a lenient pass, and the
+	// shipped admission fence refuses the same pattern for the per-sandbox
+	// writes it binds (its `matchConditions` scope it to the sandbox host's
+	// ServiceAccount, so an operator applying the config-level object is not
+	// covered by it — one more reason the refusal has to come from here).
+	if (entry.startsWith('.') && !bare.includes('.')) {
+		throw new KubernetesNetworkPolicyHostError(
+			entry,
+			"names a whole top-level domain ('.com' means every name under it); a domain entry needs at least two labels, as in '.example.com', and the '*.com' pattern this would emit is one the shipped admission policy refuses for the per-sandbox writes it binds",
+		)
+	}
+	// An IPv4 literal passes the grammar above — every label is digits, and
+	// digits are legal in a DNS label. It is still not a hostname: a DNS
+	// top-level label is never all-numeric, and Cilium's `matchName` is
+	// compared against names the DNS proxy SAW, which an address never is. A
+	// policy carrying one is admitted and matches nothing, which reads from
+	// outside exactly like a policy that is working.
+	const lastLabel = bare.slice(bare.lastIndexOf('.') + 1)
+	if (/^[0-9]+$/.test(lastLabel)) {
+		throw new KubernetesNetworkPolicyHostError(
+			entry,
+			'ends in an all-numeric label, so it is an address rather than a hostname; toFQDNs matches names a DNS lookup returned, and an address is never one of them (use config.egress.policy for address-based egress)',
+		)
+	}
+}
+
+/**
+ * Every entry of one allowlist, judged by {@link assertUsableHost} — called
+ * from {@link buildCiliumEgressManifest} before anything is emitted, so BOTH
+ * translations refuse the same entries.
+ *
+ * The entry is lowercased for the DECISION and not for the bytes. The
+ * per-sandbox writer canonicalises before it validates (`normalizeHost`), so
+ * judging the lowercased form is what makes the two paths agree on WHICH
+ * entries are refused — while the emitted `matchName` stays the string the
+ * caller wrote, exactly as every release before this one emitted it. This
+ * call refuses what no translation can express, not what one of them would
+ * spell differently.
+ */
+function assertHostsAreUsable(allowedHosts: readonly string[]): void {
+	for (const host of allowedHosts) {
+		assertUsableHost(typeof host === 'string' ? host.toLowerCase() : host)
 	}
 }
 
@@ -1491,17 +1584,23 @@ function ciliumPortEntry(port: number): Readonly<Record<string, unknown>> {
 }
 
 /**
- * Which translation a host refusal is being spelled for, as ONE value.
+ * Which field a host refusal sends the reader to — the ONE thing about a
+ * refusal that is still a fact about the caller rather than about the entry.
  *
- * The refusal has two halves that have to agree — the sentence, which follows
- * from whether the translation expands a leading-dot entry, and the field
- * path, which follows from which field the caller set — and both are facts
- * about the SAME thing: the translation the caller is on. Passed as two
- * arguments they are decided from two inputs, and an expanding caller was
- * told to repair `config.egress.ciliumNarrowing` with the remedy that belongs
- * to `config.egress.perSandbox.narrowing` — a message sending a reader to a
- * field the entry never came from. Neither half means anything without the
- * other, so they travel together.
+ * It was two facts while the two translations differed in what they emitted:
+ * the sentence, which followed from whether the translation expanded a
+ * leading-dot entry, and the field path, which followed from which field the
+ * caller set. The config-level translation used to expand nothing, so it was
+ * both a different sentence and a different field; it now expands exactly as
+ * the per-sandbox one does, one entry no longer means two things, and the
+ * sentence is the same one on every path — so the field path is all that is
+ * left to get right, which is why it is the only field here.
+ *
+ * It still travels as one value rather than as a loose string argument,
+ * because there are exactly two legal ones and both are named below: a refusal
+ * is raised from the translation AND, earlier still, from the per-sandbox
+ * writer before it reads the fence, and the two have to name the same field
+ * for one entry however the earlier check is reached or skipped.
  */
 export interface HostsFitNarrowingContext {
 	/**
@@ -1509,19 +1608,11 @@ export interface HostsFitNarrowingContext {
 	 * — the full path, as every other refusal in this module spells one.
 	 */
 	readonly fieldPath: string
-	/**
-	 * Whether this translation turns a leading-dot entry into a `matchName`
-	 * plus a `matchPattern` — {@link ciliumFqdnEntries}. `true` for the
-	 * per-sandbox translation, `false` for the config-level one, whose emitted
-	 * bytes are pinned. Decides the refusal's sentence and its closing grammar
-	 * as well as the bytes, and all three are the same fact about one entry.
-	 */
-	readonly expandsDottedEntries: boolean
 }
 
 /**
- * The refusal context of the PER-SANDBOX translation — the one that expands,
- * and so the one `expandDomains: true` builds.
+ * The refusal context of the PER-SANDBOX translation — `egress.perSandbox`,
+ * whose allowlist comes from a host's own `setNetworkPolicy` call.
  *
  * Shared deliberately: the per-sandbox writer refuses a host by this context
  * before it reads the fence, and {@link buildCiliumEgressManifest} refuses the
@@ -1531,16 +1622,14 @@ export interface HostsFitNarrowingContext {
  */
 export const PER_SANDBOX_NARROWING_REFUSAL: HostsFitNarrowingContext = {
 	fieldPath: 'config.egress.perSandbox.narrowing',
-	expandsDottedEntries: true,
 }
 
 /**
  * The refusal context of the config-level translation — `config.egress.policy`
- * and its `config.egress.ciliumNarrowing`, which expands nothing.
+ * and its `config.egress.ciliumNarrowing`.
  */
 export const CONFIG_LEVEL_NARROWING_REFUSAL: HostsFitNarrowingContext = {
 	fieldPath: 'config.egress.ciliumNarrowing',
-	expandsDottedEntries: false,
 }
 
 /**
@@ -1549,42 +1638,32 @@ export const CONFIG_LEVEL_NARROWING_REFUSAL: HostsFitNarrowingContext = {
  * `tlsServerNames` puts the entry on the rule as a TLS server name — one
  * exact SNI value a handshake presents — and a `.domain` entry is a set of
  * names no single SNI value means. Either way the emitted object would be
- * admitted by the shipped fence, read back deep-equal to what was sent, and
- * deny what the caller asked to allow — the failure every other refusal in
- * this module exists to prevent. Refused rather than translated another way,
+ * applied without complaint — nothing refuses an operator's apply: the
+ * shipped admission fence's `matchConditions` scope it to the sandbox host's
+ * ServiceAccount, so the config-level object is not matched by it — read back
+ * deep-equal to what was sent, and deny what the caller asked to allow — the
+ * failure every other refusal in this module exists to prevent. Refused
+ * rather than translated another way,
  * because both other ways are guesses: dropping the subdomains silently
  * narrows what the caller asked for, and a wildcard SNI value is not
  * something the Cilium versions these manifests are written against are
  * known here to match — an SNI that matches nothing denies just as
  * completely, and more quietly.
  *
- * The entry is refused for a DIFFERENT reason on each of the two paths, and
- * the message says which one the caller is on, because the same sentence
- * cannot be true of both:
+ * One sentence, because one entry now means one thing: both translations turn
+ * `.domain` into `matchName: domain` PLUS `matchPattern: '*.domain'` — see
+ * {@link ciliumFqdnEntries} — and no single SNI value means that pair.
+ * `domain` alone denies every subdomain the pattern admits, and the entry as
+ * written is not a name any handshake presents at all.
  *
- *  - `expandDomains` — the per-sandbox writer's translation, which turns
- *    `.domain` into `matchName: domain` PLUS `matchPattern: '*.domain'`. No
- *    single SNI value means that pair: `domain` alone denies every subdomain
- *    the pattern admits, and the entry as written is not a name any handshake
- *    presents at all.
- *  - unexpanded — the config-level translation, which expands nothing. There
- *    the entry reaches the object as the literal `matchName: '.domain'`,
- *    which no DNS answer carries, so it already admits nothing; `serverNames`
- *    on top of it is a second, independent denial. Telling this caller to
- *    "leave tlsServerNames off for a domain list" would name a repair that is
- *    not one — the config-level `.domain` entry denies the domain and every
- *    subdomain with or without the option (a pre-existing defect of this
- *    translation, deferred to its own change) — so it is not offered here.
- *
- * `context` is WHICH translation the refusal is being spelled for, as one
- * value — see {@link HostsFitNarrowingContext}. A reader has to be sent to
- * the field they actually set, and the sentence they are sent by has to be
- * true of the translation they are on, and both follow from that one fact:
- * passed separately, an expanding caller gets the per-sandbox remedy attached
- * to the config-level field name, a message whose only repair is a field the
- * entry never came from. Called from BOTH — the translation itself, so every
- * caller is covered, and the per-sandbox writer, which refuses earlier still,
- * before it reads the fence.
+ * `context` is the field the refusal sends the reader to — see
+ * {@link HostsFitNarrowingContext}. A reader has to be sent to the field they
+ * actually set: passed as a loose string, an expanding caller was told to
+ * repair `config.egress.ciliumNarrowing` with the remedy that belongs to
+ * `config.egress.perSandbox.narrowing`, a message whose only repair is a field
+ * the entry never came from. Called from BOTH — the translation itself, so
+ * every caller is covered, and the per-sandbox writer, which refuses earlier
+ * still, before it reads the fence.
  */
 export function assertHostsFitNarrowing(
 	allowedHosts: readonly string[],
@@ -1596,16 +1675,7 @@ export function assertHostsFitNarrowing(
 		if (!host.startsWith('.')) continue
 		throw new KubernetesNetworkPolicyHostError(
 			host,
-			context.expandsDottedEntries
-				? `names a domain and its subdomains while ${context.fieldPath}.tlsServerNames is on; a TLS server name is one exact SNI value a handshake presents, and this entry becomes a name plus a '*.domain' pattern, which no single value means — list the exact hosts, or leave tlsServerNames off for a domain list`
-				: `names a domain and its subdomains while ${context.fieldPath}.tlsServerNames is on; a TLS server name is one exact SNI value a handshake presents, and this translation does not expand a leading-dot entry — it reaches the object as the literal matchName ${JSON.stringify(host)}, which no DNS answer carries — so the entry admits nothing as written, and serverNames on top of it is a second, independent denial. List the exact hosts this policy should allow; leaving tlsServerNames off does not repair the entry here`,
-			// The closing grammar rides the same input as the sentence, and for
-			// the same reason: the unexpanded body has just said this entry
-			// admits nothing as written, so a tail asserting that
-			// `.example.com` means the domain and its subdomains would state,
-			// as implemented, the grammar the refusal exists because this
-			// translation does not apply to it.
-			{ stateHostnameGrammar: context.expandsDottedEntries },
+			`names a domain and its subdomains while ${context.fieldPath}.tlsServerNames is on; a TLS server name is one exact SNI value a handshake presents, and this entry becomes a name plus a '*.domain' pattern, which no single value means — list the exact hosts, or leave tlsServerNames off for a domain list`,
 		)
 	}
 }
@@ -1635,21 +1705,28 @@ function narrowedHostPorts(
  * host's TLS ports and a plain entry for whatever is left, when
  * `tlsServerNames` is on.
  *
- * `serverNames` carries the allowlist ENTRY as written, which is the same
- * string as the `toFQDNs` entry only while nothing expanded it. A TLS server
- * name is one exact SNI value a handshake presents, and a `.example.com`
- * entry — whose `toFQDNs` half is `example.com` PLUS `*.example.com` — has no
- * single SNI value meaning that set: `example.com` would deny every subdomain
- * the pattern admits, and `.example.com` is not a name any handshake ever
- * presents. So {@link assertHostsFitNarrowing} refuses that one combination
- * before this rule is built, from `buildCiliumEgressManifest` for every
- * caller and from the per-sandbox writer before it reads the fence — which is
- * why this function can take `host` and the entry as one string.
+ * `fqdns` is {@link ciliumFqdnEntries} of the host's allowlist entry, passed
+ * in rather than derived here because the entry and the host are not always
+ * the same string: `.example.com` becomes `example.com` plus
+ * `*.example.com`. It is REQUIRED, with no `[{ matchName: host }]` default —
+ * a caller that omitted it would emit the entry unexpanded, which is the
+ * exact object this translation stopped producing.
+ *
+ * `serverNames` carries the allowlist ENTRY as written while the `toFQDNs`
+ * half carries the expansion of it. A TLS server name is one exact SNI value
+ * a handshake presents, and a `.example.com` entry — whose `toFQDNs` half is
+ * `example.com` PLUS `*.example.com` — has no single SNI value meaning that
+ * set: `example.com` would deny every subdomain the pattern admits, and
+ * `.example.com` is not a name any handshake ever presents. So
+ * {@link assertHostsFitNarrowing} refuses that one combination before this
+ * rule is built, from `buildCiliumEgressManifest` for every caller and from
+ * the per-sandbox writer before it reads the fence — which is why this
+ * function can still take `host` and the entry as one string.
  */
 function narrowedHostFqdnRule(
 	host: string,
 	narrowing: KubernetesCiliumEgressNarrowing,
-	fqdns: readonly Readonly<Record<string, string>>[] = [{ matchName: host }],
+	fqdns: readonly Readonly<Record<string, string>>[],
 ): Readonly<Record<string, unknown>> {
 	const ports = narrowedHostPorts(host, narrowing)
 	if (ports === undefined) return { toFQDNs: fqdns }
@@ -1673,18 +1750,20 @@ function narrowedHostFqdnRule(
 /**
  * One allowlist entry, expanded to the `toFQDNs` entries it means.
  *
- * `SandboxNetworkPolicy.allowedHosts`'s own grammar, which the SDK states and
- * the docker backend implements: `api.example.com` is that host, and
- * `.example.com` is the domain AND its subdomains. Cilium's `matchName` is an
- * exact name and does not match across a `.`, so the domain form needs the
- * name plus a `matchPattern` — `*.example.com` alone would admit
- * `a.example.com` and not `example.com` itself.
+ * `SandboxNetworkPolicy.allowedHosts`'s own grammar, which the SDK states —
+ * `packages/sdk/src/types/sandbox/index.ts`'s `allowedHosts` — and which
+ * `src/egress/allowlist.ts` implements for the docker backend: `api.example.com`
+ * is that host, and `.example.com` is the domain AND its subdomains. Cilium's
+ * `matchName` is an exact name and does not match across a `.`, so the domain
+ * form needs the name plus a `matchPattern` — `*.example.com` alone would
+ * admit `a.example.com` and not `example.com` itself.
  *
- * Used by the PER-SANDBOX policy only. The config-level translation
- * (`config.egress.policy`) deliberately does not expand anything: what it
- * emits for a given config is pinned byte-for-byte, because verification of
- * the named object is an exact match and a changed translation fails every
- * `create()` on every deployment that already applied a policy.
+ * Used by BOTH translations. The config-level one used to emit a leading-dot
+ * entry verbatim instead, which no DNS answer carries and so denied the
+ * domain and every subdomain it was asked to allow, after a create that
+ * reported success — but "the config-level bytes are pinned" was never a
+ * contract the pinned bytes honoured, and one entry has to mean one thing on
+ * every backend.
  */
 export function ciliumFqdnEntries(entry: string): readonly Readonly<Record<string, string>>[] {
 	if (!entry.startsWith('.')) return [{ matchName: entry }]
@@ -1693,16 +1772,21 @@ export function ciliumFqdnEntries(entry: string): readonly Readonly<Record<strin
 }
 
 /**
- * The DNS-visibility rule narrowed to an exact `matchName` per allowed host
- * plus the host under every search suffix, replacing
+ * The DNS-visibility rule narrowed to the names an allowlist entry admits:
+ * an exact `matchName` per allowed host plus the host under every search
+ * suffix, and — for an entry that admits subdomains — the `matchPattern` that
+ * admits them, under the bare name and under every suffix as well. Replaces
  * {@link CILIUM_DNS_VISIBILITY_RULE}'s `matchPattern: '*'`. See
  * {@link KubernetesCiliumDnsNarrowing}.
+ *
+ * Both halves follow from {@link ciliumFqdnEntries}: the DNS proxy has to see
+ * exactly what the `toFQDNs` rule admits, or the half that learns addresses
+ * from a lookup never sees one the other half allows.
  */
 function narrowedDnsVisibilityRule(
 	allowedHosts: readonly string[],
 	fallbackNamespace: string,
 	dnsNames: KubernetesCiliumDnsNarrowing,
-	expandDomains = false,
 ): Readonly<Record<string, unknown>> {
 	const namespace = dnsNames.namespace ?? fallbackNamespace
 	const clusterDomain = dnsNames.clusterDomain ?? 'cluster.local'
@@ -1716,11 +1800,8 @@ function narrowedDnsVisibilityRule(
 	for (const entry of allowedHosts) {
 		// A `.domain` entry resolves through its subdomains as well, so the
 		// DNS proxy has to be allowed to SEE those lookups or `toFQDNs` never
-		// learns the addresses they resolve to. Off for the config-level
-		// translation, whose emitted bytes are pinned: `expandDomains` is
-		// false there and `host === entry`, so this loop is what it always
-		// was.
-		const wildcard = expandDomains && entry.startsWith('.')
+		// learns the addresses they resolve to.
+		const wildcard = entry.startsWith('.')
 		const host = wildcard ? entry.slice(1) : entry
 		matchNames.push({ matchName: host })
 		if (wildcard) matchNames.push({ matchPattern: `*.${host}` })
@@ -1730,9 +1811,9 @@ function narrowedDnsVisibilityRule(
 			// with fewer dots than the cluster's `ndots` tries the search
 			// suffixes FIRST, and a lookup the DNS proxy refuses is not an
 			// NXDOMAIN the resolver walks past — it can fail the whole
-			// resolution. An EXPANDED entry admits subdomains, so its
-			// subdomains need the same treatment, or `a.example.com` fails on
-			// its first search-suffix attempt under a rule that allows it.
+			// resolution. An entry that admits subdomains needs the pattern
+			// under each suffix too, or `a.example.com` fails on its first
+			// search-suffix attempt under a rule that allows it.
 			if (wildcard) matchNames.push({ matchPattern: `*.${host}.${suffix}` })
 		}
 	}
@@ -1751,13 +1832,18 @@ function narrowedDnsVisibilityRule(
  * Everything a `CiliumNetworkPolicy` for a hostname allowlist is built from.
  *
  * ONE builder, two callers: the config-level translation below, whose
- * selector is the template (and profile) label and whose emitted bytes are
- * pinned, and the per-sandbox policy in `per-sandbox-policy.ts`, whose
- * selector is one per-sandbox label and which additionally carries an
- * `ownerReferences` entry so the cluster garbage-collects it. A second
- * builder would be a second answer to what a namzu egress policy looks like,
- * and the read-back comparator would then be verifying one of them against
- * the other's shape.
+ * selector is the template (and profile) label, and the per-sandbox policy in
+ * `per-sandbox-policy.ts`, whose selector is one per-sandbox label and which
+ * additionally carries an `ownerReferences` entry so the cluster
+ * garbage-collects it. A second builder would be a second answer to what a
+ * namzu egress policy looks like, and the read-back comparator would then be
+ * verifying one of them against the other's shape.
+ *
+ * The two callers now differ in nothing this interface cannot spell out: the
+ * same entries become the same bytes and a refusal uses the same sentence on
+ * both, so what is left of "which caller this is" is
+ * {@link CiliumEgressManifestOptions.refusalContext} — the field a refusal
+ * names.
  */
 export interface CiliumEgressManifestOptions {
 	readonly namespace: string
@@ -1771,49 +1857,56 @@ export interface CiliumEgressManifestOptions {
 	/** `metadata.ownerReferences`. Absent ⇒ the metadata is what it always was. */
 	readonly ownerReferences?: readonly KubernetesOwnerReference[]
 	/**
-	 * Expand a leading-dot entry into `matchName` plus `matchPattern` — see
-	 * {@link ciliumFqdnEntries}. Off by default, because the config-level
-	 * translation's emitted bytes are pinned.
+	 * The field a refusal for one of these hosts sends its reader to — see
+	 * {@link HostsFitNarrowingContext}. REQUIRED, not defaulted: there is no
+	 * way to tell from inside this function which config the caller's hosts
+	 * came from, and a refusal that names a field the caller never set is a
+	 * remedy that does not exist for them.
 	 *
-	 * This option IS the translation, not a formatting flag on it: it selects
-	 * the emitted bytes, the sentence a refusal carries and the field that
-	 * refusal names, all from one value — see
-	 * {@link HostsFitNarrowingContext}. There is no way to ask for one without
-	 * the others, and none should be added.
+	 * The bytes are not this option's business any more, and neither is the
+	 * sentence a refusal uses: there is one translation of an allowlist entry,
+	 * so both are the same for every caller whatever this says.
 	 */
-	readonly expandDomains?: boolean
+	readonly refusalContext: HostsFitNarrowingContext
 }
 
 export function buildCiliumEgressManifest(
 	options: CiliumEgressManifestOptions,
 ): KubernetesTranslatedEgressPolicy {
-	const { narrowing, allowedHosts, expandDomains = false } = options
-	// Before anything is emitted. A leading-dot entry under `tlsServerNames`
+	const { narrowing, allowedHosts, refusalContext } = options
+	// Before anything is emitted, and for EVERY caller — which is the point:
+	// an entry this backend will not translate is one whose object would be
+	// either rejected on apply or, worse, accepted as a name that matches
+	// nothing while the create reports success. The config-level allowlist
+	// used to reach this builder unvalidated, so `['.com']`, `['.']`,
+	// `['..example.com']`, `['*']` and an address were each emitted into
+	// `toFQDNs` — the first three as a `matchPattern` no fence covers on that
+	// path (the shipped one is scoped to the sandbox host's ServiceAccount),
+	// which turned a fail-closed no-op into a silent grant of every name under
+	// a public suffix. See {@link assertHostsAreUsable}.
+	assertHostsAreUsable(allowedHosts)
+	// A leading-dot entry under `tlsServerNames`
 	// would become `serverNames: ['.domain']` — not a name any handshake
 	// presents — and `['domain']` would deny every subdomain the `toFQDNs`
-	// half of the same rule admits; the object is admitted by the shipped
-	// fence and reads back deep-equal to what was sent, so nothing downstream
-	// would ever report it.
+	// half of the same rule admits; the object goes through with nothing
+	// objecting to it, and reads back deep-equal to what was sent, so nothing
+	// downstream would ever report it. (On the config-level path nothing
+	// objects to it at all: the shipped fence is scoped to the sandbox host's
+	// ServiceAccount and an operator's apply is not matched by it.)
 	//
 	// What this call guarantees, per caller shape: the per-sandbox writer
 	// refuses the same hosts earlier still, by name and by the same context
 	// (`per-sandbox-policy.ts`), and this call covers them again if that check
 	// is ever reached later or skipped; the config-level translation has no
 	// earlier check of its own and relies on this one entirely; and a direct
-	// call to this function is covered here too, whatever its `expandDomains`.
+	// call to this function is covered here too, whatever context it passes.
 	//
-	// ONE input decides all of it. `expandDomains` is not a formatting flag —
-	// it is which translation this is, and so which field a refused caller
-	// actually set, which sentence is true of the entry on that path, and
-	// whether the translation applies the hostname grammar at all. Deriving
-	// the field path from anything else is how an expanding caller came to be
-	// sent to the config-level field for a repair that only exists under
-	// `perSandbox.narrowing`.
-	assertHostsFitNarrowing(
-		allowedHosts,
-		narrowing,
-		expandDomains ? PER_SANDBOX_NARROWING_REFUSAL : CONFIG_LEVEL_NARROWING_REFUSAL,
-	)
+	// The context decides ONE thing, because one thing is left to decide —
+	// which field the refusal names. It is required rather than derived, since
+	// nothing here can see the caller's config, and derived from the bytes is
+	// exactly how an expanding caller came to be sent to the config-level
+	// field for a repair that only exists under `perSandbox.narrowing`.
+	assertHostsFitNarrowing(allowedHosts, narrowing, refusalContext)
 	// Unnarrowed is the exact shape every release before #490 emitted — kept
 	// as its own branch, untouched, rather than folded into the narrowed one
 	// with every option defaulted off, so the byte-identical guarantee does
@@ -1822,13 +1915,11 @@ export function buildCiliumEgressManifest(
 	const activeDns = narrowed ? activeDnsNarrowing(narrowing.dnsNames) : undefined
 	const dnsRule =
 		activeDns !== undefined
-			? narrowedDnsVisibilityRule(allowedHosts, options.namespace, activeDns, expandDomains)
+			? narrowedDnsVisibilityRule(allowedHosts, options.namespace, activeDns)
 			: CILIUM_DNS_VISIBILITY_RULE
-	const entriesFor = (entry: string): readonly Readonly<Record<string, string>>[] =>
-		expandDomains ? ciliumFqdnEntries(entry) : [{ matchName: entry }]
 	const hostRules = narrowed
-		? allowedHosts.map((host) => narrowedHostFqdnRule(host, narrowing, entriesFor(host)))
-		: [{ toFQDNs: allowedHosts.flatMap(entriesFor) }]
+		? allowedHosts.map((host) => narrowedHostFqdnRule(host, narrowing, ciliumFqdnEntries(host)))
+		: [{ toFQDNs: allowedHosts.flatMap(ciliumFqdnEntries) }]
 
 	return {
 		kind: 'CiliumNetworkPolicy',
@@ -1868,6 +1959,7 @@ function buildCiliumNetworkPolicy(
 		allowedHosts,
 		policyKind,
 		...(narrowing !== undefined ? { narrowing } : {}),
+		refusalContext: CONFIG_LEVEL_NARROWING_REFUSAL,
 	})
 }
 
@@ -1974,8 +2066,16 @@ export class KubernetesEgressPolicyMismatchError extends Error {
  * `../docker/index.ts`'s `assertNetworkCarriesThePolicy`, which inspects the
  * daemon's own `{{.Internal}}` flag instead of trusting a network's name.
  *
- * Checks exactly three things, each named separately in a mismatch so an
- * operator sees which one to fix:
+ * Checks four things, each named separately in a mismatch so an operator sees
+ * which one to fix:
+ *  - the object carries NO `specs` list. A `CiliumNetworkPolicy` carries
+ *    EITHER one `spec` or a `specs` list and a rule in either one enforces,
+ *    while every check below reads `spec` alone — so an object carrying both
+ *    would be compared on half of what it enforces. This is refused and not
+ *    read, because a comparison that accepts rules it never looked at is the
+ *    one answer this function must not give; the shipped admission fence
+ *    refuses a `specs` list for the same reason. The translation never emits
+ *    one, so its presence is drift and not an alternative spelling;
  *  - the selector (`podSelector` for `NetworkPolicy`, `endpointSelector` for
  *    `CiliumNetworkPolicy`) carries the expected template label:
  *  - `NetworkPolicy` additionally declares `policyTypes` including
@@ -2004,6 +2104,7 @@ export async function verifyEgressPolicyApplied(
 	let resource:
 		| {
 				readonly spec?: Readonly<Record<string, unknown>>
+				readonly specs?: unknown
 				readonly metadata?: Readonly<Record<string, unknown>>
 		  }
 		| undefined
@@ -2019,6 +2120,33 @@ export async function verifyEgressPolicyApplied(
 	const expectedSpec = (translated.manifest as { readonly spec: Record<string, unknown> }).spec
 	const actualSpec = resource?.spec ?? {}
 	const selectorKey = translated.kind === 'CiliumNetworkPolicy' ? 'endpointSelector' : 'podSelector'
+
+	// First, and before anything is compared: an object carrying a `specs`
+	// list is refused rather than read. Everything below reads `spec`, and a
+	// `CiliumNetworkPolicy` rule in a `specs` entry enforces exactly as one in
+	// `spec` does — so comparing `spec` and reporting a match would be
+	// accepting rules this function never looked at, which is the one answer it
+	// must not give. `readCiliumEgressPolicies` reads both spellings and
+	// `decideEgressUnion` refuses a `specs` entry that widens; this is the
+	// other half of the same rule, for the callers that run this check ALONE —
+	// `verify: 'named-object-only'`, and the per-sandbox read-back — and it is
+	// what makes the named-object exemption in `decideEgressUnion` sound rather
+	// than merely narrower. The translation never emits a `specs` list, and the
+	// shipped admission fence refuses one for the same reason.
+	const actualSpecs = resource?.specs
+	if (actualSpecs !== undefined && actualSpecs !== null) {
+		throw new KubernetesEgressPolicyMismatchError(
+			translated.kind,
+			path,
+			`specs is ${JSON.stringify(actualSpecs)}, and the translation never emits one — ${
+				translated.kind === 'CiliumNetworkPolicy'
+					? 'a CiliumNetworkPolicy carries EITHER one spec or a specs list, and a rule in either one enforces'
+					: 'a NetworkPolicy has no specs field at all'
+			}, while this check reads spec.${selectorKey}${
+				translated.kind === 'NetworkPolicy' ? ', spec.policyTypes' : ''
+			} and spec.egress and nothing else — so anything a specs list enforces is egress this comparison never read`,
+		)
+	}
 
 	if (!isDeepStrictEqual(actualSpec[selectorKey], expectedSpec[selectorKey])) {
 		throw new KubernetesEgressPolicyMismatchError(
@@ -2284,6 +2412,23 @@ export interface EgressAllowance {
 	readonly permitsNothing: boolean
 	/** The configured kind, for the refusal message. */
 	readonly policyKind: KubernetesEgressPolicy['kind']
+	/**
+	 * The object this allowance is the allowance OF — `translated.kind` and
+	 * `translated.name`, the object `config.egress` translates to and an
+	 * operator applies.
+	 *
+	 * The union rule reads every OTHER policy in the namespace against this
+	 * allowance, and this pair is what says which of the listed objects is the
+	 * named one, so {@link decideEgressUnion} can leave that object's `spec`
+	 * document to {@link verifyEgressPolicyApplied} instead of judging it here.
+	 * See {@link EgressPolicyDocument.namedObject} for what that comparison
+	 * reads, which documents it covers, and why the exemption is not an
+	 * optimisation.
+	 */
+	readonly namedObject: {
+		readonly kind: 'NetworkPolicy' | 'CiliumNetworkPolicy'
+		readonly name: string
+	}
 }
 
 function readPortRanges(ports: unknown, defaultProtocol: string | undefined): PortSet {
@@ -2418,6 +2563,7 @@ export function egressAllowance(translated: KubernetesTranslatedEgressPolicy): E
 			permitsEverything: false,
 			permitsNothing: false,
 			policyKind: translated.policyKind,
+			namedObject: { kind: translated.kind, name: translated.name },
 		}
 	}
 	const destinations: AllowedDestination[] = []
@@ -2449,6 +2595,7 @@ export function egressAllowance(translated: KubernetesTranslatedEgressPolicy): E
 		permitsEverything,
 		permitsNothing: rules.length === 0,
 		policyKind: translated.policyKind,
+		namedObject: { kind: translated.kind, name: translated.name },
 	}
 }
 
@@ -3023,6 +3170,50 @@ export interface EgressPolicyDocument {
 	readonly rules: readonly EgressRuleVerdict[]
 	/** Set when the OBJECT could not be read. It decides alone. */
 	readonly unreadable?: string
+	/**
+	 * This document is the one {@link verifyEgressPolicyApplied} compared to
+	 * the translation on this same create path, before this check runs: the
+	 * document built from the named object's `spec`, and nothing else.
+	 *
+	 * Marked so {@link decideEgressUnion} does not judge its RULES, because
+	 * the translation's own allowance cannot express one of them.
+	 * `egressAllowance` records a `toFQDNs` entry by its `matchName`, while a
+	 * `.domain` entry the translation emits is a `matchName` PLUS a
+	 * `matchPattern` — so the pattern half read as widening and the check
+	 * refused the very object it had just told the operator to apply,
+	 * permanently and on every `create()`.
+	 *
+	 * What the exempting comparison actually reads, because this marking is
+	 * only as sound as it is: `spec.podSelector`/`spec.endpointSelector`,
+	 * `spec.policyTypes` (core), `spec.egress`, and any `metadata.ownerReferences`
+	 * the translation carries. It is NOT a comparison of the whole object, so
+	 * the marking is scoped to what it covers:
+	 *
+	 *  - Only the document built from `item.spec` is marked. A document built
+	 *    from an `item.specs` entry is judged by {@link decideEgressUnion} like
+	 *    any other object's — a rule in either spelling enforces, so a `specs`
+	 *    entry that allows more than the translation is refused by name.
+	 *  - {@link verifyEgressPolicyApplied} REFUSES a live object carrying a
+	 *    `specs` list at all, which is what makes the first point airtight
+	 *    rather than merely narrower: the translation never emits one, and half
+	 *    of what such an object enforces would be rules that comparison never
+	 *    read.
+	 *
+	 * What is NOT redundant, and the reason the document stays in the
+	 * enumeration at all, is whether it puts this pod in egress default-deny:
+	 * dropping it would report a deployment whose only applied policy is the
+	 * named one as having no boundary at all, which is a deployment that
+	 * verifies today.
+	 *
+	 * The cost is stated rather than hidden: the named check is memoized on
+	 * success for the boundary's lifetime, so a named object that drifts WIDER
+	 * after its own check has passed is no longer caught by this one — it is
+	 * caught by the named comparison at the next construction. Before this
+	 * exemption there was a second net under a five-minute cache; the
+	 * alternative is a check that refuses the object it has just told an
+	 * operator to apply.
+	 */
+	readonly namedObject?: boolean
 }
 
 function unreadableEgressPolicy(
@@ -3038,6 +3229,36 @@ function unreadableEgressPolicy(
 		rules: [],
 		unreadable: detail,
 	}
+}
+
+/**
+ * Is this the object `config.egress` named — see
+ * {@link EgressPolicyDocument.namedObject}.
+ *
+ * Read off the allowance rather than passed in, so every caller of
+ * {@link readCoreEgressPolicies}/{@link readCiliumEgressPolicies} that built
+ * its allowance with {@link egressAllowance} gets the marking without having
+ * to remember a second argument, and the readers stay a function of "(items,
+ * this pod, what the translation allows)".
+ *
+ * For a core `NetworkPolicy` the name is the whole answer. For a
+ * `CiliumNetworkPolicy` it is not: the CRD carries EITHER one `spec` or a
+ * `specs` list, `verifyEgressPolicyApplied` reads the former and refuses an
+ * object carrying the latter, so the reader marks only the document built
+ * from `item.spec` and lets a `specs` entry be judged by the union rule like
+ * any other object's rules — see {@link EgressPolicyDocument.namedObject}.
+ *
+ * Deliberately NOT applied to an unreadable document: an object at the named
+ * name that could not be read keeps its `not-evaluable` verdict, which refuses
+ * — a fail-closed answer for a shape whose exact comparison already refused it
+ * earlier on the create path.
+ */
+function isNamedObject(
+	allowance: EgressAllowance,
+	kind: EgressPolicyDocument['kind'],
+	name: string,
+): boolean {
+	return allowance.namedObject.kind === kind && allowance.namedObject.name === name
 }
 
 /** Every core `NetworkPolicy` in the list, reduced to {@link EgressPolicyDocument}. */
@@ -3080,6 +3301,7 @@ export function readCoreEgressPolicies(
 		return {
 			kind: 'NetworkPolicy',
 			name,
+			...(isNamedObject(allowance, 'NetworkPolicy', name) ? { namedObject: true } : {}),
 			selects: matchesLabelSelector(spec.podSelector, target.podLabels),
 			enforcesEgress,
 			// An `egress` block under a `policyTypes` that leaves Egress out is
@@ -3113,8 +3335,18 @@ export function readCiliumEgressPolicies(
 		}
 		// The CRD carries EITHER one `spec` or a `specs` list, and a rule in
 		// either enforces. Reading only `spec` would miss a whole policy.
-		const specs: unknown[] = []
-		if (item.spec !== undefined && item.spec !== null) specs.push(item.spec)
+		//
+		// The two spellings are NOT equal where the named-object exemption is
+		// concerned — see {@link EgressPolicyDocument.namedObject}. The exact
+		// comparison the exemption leans on reads `spec` and refuses an object
+		// carrying a `specs` list, so `spec` is the one document that earns the
+		// marking; a `specs` entry is read as an ordinary policy's rules and is
+		// judged by the union rule, which is what refuses one that widens.
+		const named = isNamedObject(allowance, 'CiliumNetworkPolicy', name)
+		const specDocuments: Array<{ readonly spec: unknown; readonly isTheSpec: boolean }> = []
+		if (item.spec !== undefined && item.spec !== null) {
+			specDocuments.push({ spec: item.spec, isTheSpec: true })
+		}
 		const more = readList(item.specs)
 		if (more === 'unreadable') {
 			documents.push(
@@ -3126,27 +3358,36 @@ export function readCiliumEgressPolicies(
 			)
 			continue
 		}
-		for (const spec of more ?? []) specs.push(spec)
-		if (specs.length === 0) {
+		for (const spec of more ?? []) specDocuments.push({ spec, isTheSpec: false })
+		if (specDocuments.length === 0) {
 			documents.push(
 				unreadableEgressPolicy('CiliumNetworkPolicy', name, 'neither a spec nor a specs list'),
 			)
 			continue
 		}
-		for (const spec of specs) {
-			const document = readCiliumEgressRuleSpec(spec, name, identity, allowance)
+		for (const { spec, isTheSpec } of specDocuments) {
+			const document = readCiliumEgressRuleSpec(spec, name, identity, allowance, named && isTheSpec)
 			if (document !== undefined) documents.push(document)
 		}
 	}
 	return documents
 }
 
-/** One `spec`/`specs` entry. `undefined` when it is node-scoped — see below. */
+/**
+ * One `spec`/`specs` entry. `undefined` when it is node-scoped — see below.
+ *
+ * `isTheNamedSpec` is true only for the document built from the named
+ * object's own `spec` — the one {@link verifyEgressPolicyApplied} compared to
+ * the translation. A `specs` entry never is; see
+ * {@link EgressPolicyDocument.namedObject} for why that distinction is
+ * load-bearing rather than bookkeeping.
+ */
 function readCiliumEgressRuleSpec(
 	spec: unknown,
 	name: string,
 	identity: Readonly<Record<string, string>>,
 	allowance: EgressAllowance,
+	isTheNamedSpec: boolean,
 ): EgressPolicyDocument | undefined {
 	const unreadable = (detail: string) => unreadableEgressPolicy('CiliumNetworkPolicy', name, detail)
 	if (!isRecord(spec)) return unreadable('a rule spec that is not an object')
@@ -3171,6 +3412,7 @@ function readCiliumEgressRuleSpec(
 	return {
 		kind: 'CiliumNetworkPolicy',
 		name,
+		...(isTheNamedSpec ? { namedObject: true } : {}),
 		selects: matchesLabelSelector(spec.endpointSelector, identity, ciliumSelectorKey),
 		enforcesEgress,
 		// `egressDeny` rules are not read: a deny rule can only narrow what
@@ -3203,6 +3445,15 @@ export interface EgressUnionDecision {
  * translation is the finding however many narrower ones sit beside it, and a
  * pod no policy default-denies has no egress boundary at all whatever the
  * named object says.
+ *
+ * The named object's `spec` is the one document whose rules are not judged
+ * here — see {@link EgressPolicyDocument.namedObject} — and it was compared to
+ * the translation by {@link verifyEgressPolicyApplied} on the same create path
+ * just before. Its SELECTOR and its egress-scoping still decide, which is what
+ * keeps "nothing bounds this pod" answerable for a deployment whose only
+ * policy is that one; and a document built from a `specs` entry is judged here
+ * like any other object's, because the exempting comparison refuses an object
+ * carrying a `specs` list rather than reading one.
  */
 export function decideEgressUnion(
 	documents: readonly EgressPolicyDocument[],
@@ -3239,27 +3490,39 @@ export function decideEgressUnion(
 			undecided ??= entry
 			continue
 		}
-		const beyondRule = document.rules.find((rule) => rule.beyond === true)
-		if (beyondRule !== undefined) {
-			const entry: ExaminedEgressPolicy = {
-				...base,
-				verdict: 'widens-egress',
-				...(beyondRule.detail !== undefined ? { detail: beyondRule.detail } : {}),
+		// The named object's `spec` rules were just compared to the translation
+		// by `verifyEgressPolicyApplied`, field by field, which is the one
+		// judgement about them that a `toFQDNs`-by-`matchName` allowance cannot
+		// reproduce — see {@link EgressPolicyDocument.namedObject}. So the union
+		// rule does not judge them; judging them here is what made the check
+		// refuse the object it had just told an operator to apply. Everything
+		// below still applies, which is how a pod whose only policy is the named
+		// one is still known to be in egress default-deny. Only that `spec`
+		// document carries the marking: a `specs` entry is judged here like any
+		// other rules.
+		if (document.namedObject !== true) {
+			const beyondRule = document.rules.find((rule) => rule.beyond === true)
+			if (beyondRule !== undefined) {
+				const entry: ExaminedEgressPolicy = {
+					...base,
+					verdict: 'widens-egress',
+					...(beyondRule.detail !== undefined ? { detail: beyondRule.detail } : {}),
+				}
+				examined.push(entry)
+				widening ??= entry
+				continue
 			}
-			examined.push(entry)
-			widening ??= entry
-			continue
-		}
-		const unknownRule = document.rules.find((rule) => rule.beyond === 'unknown')
-		if (unknownRule !== undefined) {
-			const entry: ExaminedEgressPolicy = {
-				...base,
-				verdict: 'not-evaluable',
-				...(unknownRule.detail !== undefined ? { detail: unknownRule.detail } : {}),
+			const unknownRule = document.rules.find((rule) => rule.beyond === 'unknown')
+			if (unknownRule !== undefined) {
+				const entry: ExaminedEgressPolicy = {
+					...base,
+					verdict: 'not-evaluable',
+					...(unknownRule.detail !== undefined ? { detail: unknownRule.detail } : {}),
+				}
+				examined.push(entry)
+				undecided ??= entry
+				continue
 			}
-			examined.push(entry)
-			undecided ??= entry
-			continue
 		}
 		if (!document.enforcesEgress) {
 			examined.push({
@@ -3379,7 +3642,12 @@ function formatEgressRemedy(
  * Verify-not-trust, widened from one object to the union: list the
  * namespace's policies, evaluate every one that selects this pod against the
  * configured translation, and refuse unless nothing lets out more than
- * `config.egress` says.
+ * `config.egress` says. The named object's `spec` document is the one
+ * exception, and it was compared to the translation by
+ * {@link verifyEgressPolicyApplied} on this same create path just before this
+ * one — see {@link EgressPolicyDocument.namedObject}: a Cilium object that
+ * carries a `specs` list is refused there outright, so a `specs` entry is
+ * judged HERE, like any other object's rules.
  *
  * Runs beside the ingress check on every create path — before the POST for a
  * directly created Sandbox, where the labels are known and a refusal leaves

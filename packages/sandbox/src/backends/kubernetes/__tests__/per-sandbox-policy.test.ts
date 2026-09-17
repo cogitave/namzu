@@ -58,6 +58,7 @@ import {
 	DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY,
 	KubernetesPerSandboxEgressConfigError,
 	KubernetesWorkspacePerSandboxEgressConfigError,
+	PER_SANDBOX_NARROWING_REFUSAL,
 	buildCiliumEgressManifest,
 	composeAdditionalPodLabels,
 } from '../egress-policy.js'
@@ -530,7 +531,7 @@ describe('what a write puts on the cluster', () => {
 				ownerReferences: [
 					perSandboxPolicyOwnerReference({ kind: 'SandboxClaim', name: claimName, uid }),
 				],
-				expandDomains: true,
+				refusalContext: PER_SANDBOX_NARROWING_REFUSAL,
 			}).manifest,
 		)
 		await sandbox.destroy()
@@ -824,6 +825,12 @@ describe('what the method refuses before it sends anything', () => {
 		server = started.server
 		const sandbox = await acquire()
 
+		// The same list the config-level translation refuses — see
+		// `egress-policy.test.ts`'s `an unusable allowlist entry is refused on
+		// the config-level translation too`, which pins these entries and the
+		// reasons from the other side. One grammar, called from the one builder
+		// both translations go through, so a caller meets the same refusal
+		// whichever config field their list came from.
 		for (const entry of [
 			'https://example.com',
 			'*.example.com',
@@ -834,6 +841,12 @@ describe('what the method refuses before it sends anything', () => {
 			// what the shipped fence refuses, so it is refused HERE, by name,
 			// rather than as an opaque 403 from the API server.
 			'.com',
+			// The same entry written without its leading name: a bare dot, and
+			// a dot before a name that already carries one.
+			'..example.com',
+			// A glob is not a hostname, and this translation never emits one:
+			// `.domain` is how an allowlist says "and its subdomains".
+			'*',
 			// An address, not a name. It passes a DNS grammar (digits are
 			// legal labels) and matches nothing at all in `toFQDNs`, which
 			// reads from outside exactly like a policy that is working.
@@ -943,37 +956,30 @@ describe('per-sandbox narrowing', () => {
 		// nothing written.
 		expect(failure).toBeInstanceOf(KubernetesNetworkPolicyHostError)
 		expect((failure as Error).message).toContain('tlsServerNames')
-		// The field path, asserted as its own half: this caller set
-		// `egress.perSandbox.narrowing` and has no `ciliumNarrowing` in its
-		// config at all, so the remedy the message offers only exists if the
-		// message names that field. Pinned separately from the wording below,
-		// so a change pairing this sentence with the config-level field fails
-		// here rather than reading as a correct refusal. The same halves for
-		// the config-level caller are pinned in `egress-policy.test.ts`, and
-		// the translation's own derivation from `expandDomains` — the coupling
-		// that makes the two callers agree — is pinned there too.
+		// The field path is the whole of what a refusal still takes from its
+		// caller: this caller set `egress.perSandbox.narrowing` and has no
+		// `ciliumNarrowing` in its config at all, so the remedy the message
+		// offers only exists if the message names that field. Pinned separately
+		// from the wording below, so a change pairing this sentence with the
+		// config-level field fails here rather than reading as a correct
+		// refusal. The config-level caller's field is pinned in
+		// `egress-policy.test.ts`.
 		expect((failure as Error).message).toContain('config.egress.perSandbox.narrowing')
 		expect((failure as Error).message).not.toContain('config.egress.ciliumNarrowing')
-		// The refusal is PATH-AWARE, and this is the expanded path: the entry
-		// here really is a name plus a `*.domain` pattern, so the message may
-		// say so and may offer the repair that follows from it. The
-		// unexpanded wording — "this translation does not expand a leading-dot
-		// entry … leaving tlsServerNames off does not repair the entry here" —
-		// belongs to the config-level translation and is pinned in
-		// `egress-policy.test.ts`; this writer must never carry it, because
-		// leaving the option off here really does allow the domain and its
-		// subdomains.
+		// ONE sentence, because one entry means one thing: wherever this
+		// translation emits the entry it is a name plus a `*.domain` pattern,
+		// so the message says so and offers the repair that follows from it.
+		// The config-level caller is told the same thing — the same assertion
+		// on the same sentence is pinned in `egress-policy.test.ts`.
 		expect((failure as Error).message).toContain(
 			"this entry becomes a name plus a '*.domain' pattern",
 		)
 		expect((failure as Error).message).toContain(
 			'list the exact hosts, or leave tlsServerNames off for a domain list',
 		)
-		expect((failure as Error).message).not.toContain('does not expand a leading-dot entry')
-		// The closing grammar follows the same input, and on this path the
-		// translation DOES apply it: the entry really does mean the domain and
-		// its subdomains once expanded. Suppressed on the config-level path
-		// only, where the body has just said the entry admits nothing.
+		// The closing grammar is on every refusal, because every translation
+		// implements it: `.example.com` really does mean the domain and its
+		// subdomains once expanded.
 		expect((failure as Error).message).toContain('Entries are hostnames')
 		expect(policyWrites(server)).toHaveLength(0)
 		// Refused BEFORE the fence read, not merely before the write: the
@@ -1002,7 +1008,7 @@ describe('per-sandbox narrowing', () => {
 			allowedHosts: ['.example.com'],
 			policyKind: 'static',
 			narrowing: { dnsNames: true },
-			expandDomains: true,
+			refusalContext: PER_SANDBOX_NARROWING_REFUSAL,
 		}).manifest as {
 			spec: { egress: { toPorts: { rules: { dns: Record<string, string>[] } }[] }[] }
 		}
