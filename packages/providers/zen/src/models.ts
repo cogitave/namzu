@@ -27,27 +27,53 @@ export interface ZenModel {
 }
 
 /*
- * Snapshot: 2026-09-07. Routes and prices come from Zen's own docs:
- * https://github.com/anomalyco/opencode/blob/ecbc6ccac85b3e8087b6445e584318419b9e2b34/packages/web/src/content/docs/zen.mdx
- * https://github.com/anomalyco/opencode/blob/ecbc6ccac85b3e8087b6445e584318419b9e2b34/packages/web/src/content/docs/go.mdx
- * Limits, tool support, modalities and effort options come from the matching
- * provider entries (including their base_model inheritance) in models.dev:
- * https://github.com/anomalyco/models.dev/tree/1a84fdd72ad6c7f507af96aafbcc59a2f818f9fd/providers/opencode
- * https://github.com/anomalyco/models.dev/tree/1a84fdd72ad6c7f507af96aafbcc59a2f818f9fd/providers/opencode-go
+ * GENERATED FILE — do not edit. Regenerate with:
+ *
+ *   node scripts/generate-zen-models.mjs
+ *
+ * A curation decision is an edit to src/models.review.json, and how a field is
+ * derived is an edit to the script. Both survive regeneration; a hand edit here
+ * does not, and the CI gate "Zen catalogue matches its source" fails on one.
+ *
+ * Refreshed: 2026-09-18
+ *
+ * Routes come from each service's own documentation page, as the pair
+ * (endpoint, AI SDK package) that page states per model; both halves must agree
+ * or the run stops. Prices come from that page's per-1M-token table at the base
+ * tier, and a model with no price row there must be named in the page's
+ * free-model list and is then zero. Limits, tool support, modalities and effort
+ * options come from the matching provider entry in models.dev, where the
+ * upstream project keeps them. models.dev states an npm package for both
+ * services — one per provider, and one per model for some of its entries.
+ * Neither is used as a route: the provider-level one names a single
+ * Chat-Completions package for both, which would send the Go Qwen rows —
+ * documented on `/messages` — to Chat Completions, and the per-model one is
+ * stated for fewer than half the documented models, so it cannot route the
+ * rest.
+ *
+ * Not every model either service serves is carried here. A model that is
+ * documented and not carried is omitted by name, with a reason, in
+ * src/models.review.json — and the CI gate fails on any documented model that
+ * is neither carried nor omitted, so a new upstream model is a decision someone
+ * makes rather than a row that arrives by itself. The gate also reads what the
+ * two services' own `/models` answers say they serve: an id served and
+ * documented nowhere has no derivable wire, so it is reported as a decision
+ * too, rather than dropped by the driver in silence.
  *
  * Prices are estimates, not invoices: context tiers, cache, Go peak/off-peak
  * rates, subscription allowances and promotions can change the effective cost.
- * Go DeepSeek entries use off-peak prices. GPT 5.6 Sol includes the documented
- * 50% promotion through 2026-09-18. PDF input is the SDK's document modality;
- * audio/video are omitted because the SDK does not expose those input kinds.
+ * The table is read at its base tier, so Go DeepSeek entries are off-peak. PDF
+ * input is the SDK's document modality; audio/video are omitted because the SDK
+ * does not expose those input kinds.
  *
  * Promotional free models with documented routes and complete metadata are
  * included at their advertised zero price; the service enforces access limits.
- * Anonymous admission is explicit rather than inferred from price. OpenCode's
- * own loader uses the public sentinel when credentials are absent:
+ * Anonymous admission is explicit rather than inferred from price, and comes
+ * from the free-model list on the page. OpenCode's own loader uses the public
+ * sentinel when credentials are absent:
  * https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts#L185
- * Deprecated models are omitted. Unknown IDs have no inferred protocol or limits.
- * MiniMax and Qwen demonstrate why routes must be recorded per service/model.
+ * Unknown IDs have no inferred protocol or limits. MiniMax and Qwen demonstrate
+ * why routes must be recorded per service/model.
  */
 function freezeModels(models: ZenModel[]): readonly ZenModel[] {
 	for (const model of models) {
@@ -763,6 +789,20 @@ const ZEN_MODELS = freezeModels([
 		effortLevels: [],
 	},
 	{
+		id: 'union-alpha',
+		supportsAnonymousAccess: true,
+		name: 'Union Alpha Free',
+		protocol: 'messages',
+		contextWindow: 262144,
+		maxOutputTokens: 131072,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0,
+		outputPrice: 0,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: [],
+	},
+	{
 		id: 'mimo-v2.5-free',
 		supportsAnonymousAccess: true,
 		name: 'MiMo-V2.5 Free',
@@ -966,6 +1006,19 @@ const GO_MODELS = freezeModels([
 		effortLevels: [],
 	},
 	{
+		id: 'deepseek-v4.1-flash',
+		name: 'DeepSeek V4.1 Flash',
+		protocol: 'chat',
+		contextWindow: 1000000,
+		maxOutputTokens: 384000,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0.15,
+		outputPrice: 0.6,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'high', 'max'],
+	},
+	{
 		id: 'deepseek-v4-pro',
 		name: 'DeepSeek V4 Pro',
 		protocol: 'chat',
@@ -985,8 +1038,8 @@ const GO_MODELS = freezeModels([
 		contextWindow: 1000000,
 		maxOutputTokens: 384000,
 		inputModalities: ['text'],
-		inputPrice: 0.22,
-		outputPrice: 0.66,
+		inputPrice: 0.15,
+		outputPrice: 0.6,
 		supportsToolUse: true,
 		supportsStreaming: true,
 		effortLevels: ['low', 'high', 'max'],
@@ -998,8 +1051,8 @@ const GO_MODELS = freezeModels([
 		contextWindow: 1000000,
 		maxOutputTokens: 384000,
 		inputModalities: ['text', 'image'],
-		inputPrice: 0.22,
-		outputPrice: 0.66,
+		inputPrice: 0.15,
+		outputPrice: 0.6,
 		supportsToolUse: true,
 		supportsStreaming: true,
 		effortLevels: ['low', 'high', 'max'],
@@ -1174,17 +1227,17 @@ const GO_MODELS = freezeModels([
 		effortLevels: ['none', 'low', 'high'],
 	},
 	{
-		id: 'omen-alpha',
-		name: 'Omen Alpha',
-		protocol: 'chat',
-		contextWindow: 500000,
-		maxOutputTokens: 128000,
+		id: 'union-alpha',
+		name: 'Union Alpha Free',
+		protocol: 'messages',
+		contextWindow: 262144,
+		maxOutputTokens: 131072,
 		inputModalities: ['text', 'image'],
-		inputPrice: 0.2,
-		outputPrice: 0.66,
+		inputPrice: 0,
+		outputPrice: 0,
 		supportsToolUse: true,
 		supportsStreaming: true,
-		effortLevels: ['low', 'high'],
+		effortLevels: [],
 	},
 ])
 

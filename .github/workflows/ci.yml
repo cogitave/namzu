@@ -231,6 +231,36 @@ jobs:
       - name: Model price catalogue matches its source
         run: node scripts/generate-model-prices.mjs --check
 
+      # The Zen catalogue is the other generated module checked in, and it is
+      # the opposite kind of thing to the price table above — which is why this
+      # gate fetches where that one deliberately does not. A rate is a
+      # commercial fact and a reviewed copy in the tree is the whole point. A
+      # model ROSTER's defect is going stale: Zen adds and reprices models on
+      # its own schedule, and a gate that cannot see upstream can only ever
+      # report that a file equals itself. So this re-derives the roster from
+      # the two live documents and diffs.
+      #
+      # A network gate can be red for a reason that is not the diff, so the two
+      # are reported apart and neither is a skip: exit 1 means a documented
+      # model is carried neither way and a person has to decide, exit 2 means a
+      # source was unreachable or changed shape. The skip that would turn
+      # "I cannot establish this" into "this is satisfied" is not available,
+      # for the reason the price gate's comment gives.
+      #
+      # Gated to one leg: two runs of the same fetch are two chances to be red
+      # for the weather, and the second adds nothing the first did not.
+      #
+      # What it does NOT prove, stated because a green run gets taken as an
+      # answer: that the documents are right. It proves the roster is what Zen
+      # and models.dev say today, not that a wire Zen just moved a model to is
+      # the wire the driver implements — a route change is still a review, and
+      # the routing decision is why the roster is generated rather than probed.
+      - name: Zen catalogue matches its source
+        if: matrix.gates
+        run: |
+          node --import tsx --test scripts/__tests__/generate-zen-models.test.ts
+          node scripts/generate-zen-models.mjs --check
+
       # The installer is the one path with no fallback: it runs before namzu
       # exists, on whatever shell the machine has, and a syntax error in it is
       # discovered by the person who has nothing installed yet. Both shells

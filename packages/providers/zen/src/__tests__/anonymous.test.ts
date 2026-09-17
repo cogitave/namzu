@@ -1,12 +1,13 @@
 import { collectChatCompletion } from '@namzu/sdk'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ZenGoProvider, ZenProvider } from '../client.js'
-import { type ZenProtocol, getZenModels } from '../models.js'
+import { type ZenProtocol, findZenModel, getZenModels } from '../models.js'
 import type { ZenGoConfig, ZenGoProviderConfig } from '../types.js'
 
 const freeMuse = 'muse-spark-1.3-contributor-free'
 const anonymousIds = [
 	'big-pickle',
+	'union-alpha',
 	'mimo-v2.5-free',
 	'ling-3.0-flash-fin-free',
 	'nemotron-3-ultra-free',
@@ -14,6 +15,18 @@ const anonymousIds = [
 	freeMuse,
 ]
 const params = { model: '', messages: [{ role: 'user' as const, content: 'Hello' }] }
+
+/** The endpoint the roster routes a model to. */
+function wirePath(model: string): string {
+	switch (findZenModel('zen', model)?.protocol) {
+		case 'responses':
+			return 'responses'
+		case 'messages':
+			return 'messages'
+		default:
+			return 'chat/completions'
+	}
+}
 
 function nativeResponse(url: string, model: string): Response {
 	const frames = url.endsWith('/responses')
@@ -35,15 +48,40 @@ function nativeResponse(url: string, model: string): Response {
 					response: { usage: { input_tokens: 1, output_tokens: 1, total_tokens: 2 } },
 				},
 			]
-		: [
-				{
-					id: 'anonymous-chat',
-					choices: [
-						{ index: 0, delta: { role: 'assistant', content: 'Ready.' }, finish_reason: 'stop' },
-					],
-					usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
-				},
-			]
+		: url.endsWith('/messages')
+			? [
+					{
+						type: 'message_start',
+						message: {
+							id: 'anonymous-message',
+							type: 'message',
+							role: 'assistant',
+							model,
+							content: [],
+							stop_reason: null,
+							stop_sequence: null,
+							usage: { input_tokens: 1, output_tokens: 0 },
+						},
+					},
+					{ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
+					{ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Ready.' } },
+					{ type: 'content_block_stop', index: 0 },
+					{
+						type: 'message_delta',
+						delta: { stop_reason: 'end_turn', stop_sequence: null },
+						usage: { output_tokens: 1 },
+					},
+					{ type: 'message_stop' },
+				]
+			: [
+					{
+						id: 'anonymous-chat',
+						choices: [
+							{ index: 0, delta: { role: 'assistant', content: 'Ready.' }, finish_reason: 'stop' },
+						],
+						usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+					},
+				]
 	return new Response(frames.map((frame) => `data: ${JSON.stringify(frame)}\n\n`).join(''), {
 		headers: { 'content-type': 'text/event-stream' },
 	})
@@ -93,12 +131,18 @@ describe('anonymous Zen access', () => {
 			await collectChatCompletion(provider.chatStream(params))
 			const request = transport.mock.calls[0]
 			if (!request) throw new Error('Expected a model request')
-			expect(request[0]).toBe(
-				`https://proxy.example/zen/v1/${model === freeMuse ? 'responses' : 'chat/completions'}`,
-			)
+			// The path is read from the roster rather than assumed: the anonymous
+			// models do not share a wire, and "free" is a price and not a route.
+			expect(request[0]).toBe(`https://proxy.example/zen/v1/${wirePath(model)}`)
 			expect(JSON.parse(String(request[1]?.body)).model).toBe(model)
 			const headers = new Headers(request[1]?.headers)
-			expect(headers.get('authorization')).toBe('Bearer public')
+			// The sentinel travels in the header its wire uses: the Anthropic
+			// adapter authenticates with x-api-key, the other two with a bearer.
+			if (wirePath(model) === 'messages') {
+				expect(headers.get('x-api-key')).toBe('public')
+			} else {
+				expect(headers.get('authorization')).toBe('Bearer public')
+			}
 			expect(headers.get('x-opencode-session')).toBe('public-conversation')
 		},
 	)

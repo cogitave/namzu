@@ -129,12 +129,30 @@ Anonymous access is restricted to these explicit bundled model IDs:
 
 - `muse-spark-1.3-contributor-free`
 - `big-pickle`
+- `union-alpha`
 - `mimo-v2.5-free`
 - `ling-3.0-flash-fin-free`
 - `nemotron-3-ultra-free`
 - `nemotron-3.5-lightning-free`
 
 This is current public access, subject to upstream availability and limits.
+It is what the service documents, not a promise that the service will serve
+it: on 2026-09-18 every one of these models, including the previously
+verified `muse-spark-1.3-contributor-free`, answered HTTP 403
+`FreeTierError` — "OpenCode's free tier can only be used from within
+OpenCode" — over both `/responses` and `/messages`, with the public
+sentinel in the header that wire uses. That is an upstream change to
+admission rather than a defect in this driver, and the catalogue still
+records the free-model list the pages publish.
+
+The service serves more than the pages document, and the difference is
+recorded rather than ignored. Its own `/models` answer advertises two further
+free ids on Zen — `deepseek-v4-flash-free` and `muse-spark-1.2-contributor-free`
+— which appear on no page, so no wire is stated for either and neither can be
+routed. They are not bundled, `src/models.review.json` records that decision by
+name, and the gate fails if a served id is neither carried nor omitted, so this
+stays a decision rather than a gap nobody noticed.
+
 The driver does not infer public admission from an arbitrary model name or
 zero price: the bundled `ZenModel.supportsAnonymousAccess` flag must be
 explicitly `true`. Paid and unknown models require a real key, even when a caller
@@ -171,6 +189,47 @@ requests the selected service's `/models` endpoint and intersects its IDs
 with that metadata. A live model without a supported local entry is not
 advertised as ready to use. Anonymous discovery additionally restricts the
 result to the explicit public model set above.
+
+That intersection is why the catalogue has to keep up: the service's own
+`/models` answer carries `id`, `object`, `created` and `owned_by` and nothing
+else — no wire, no limits, no price — so live discovery can confirm that a
+model EXISTS and nothing about how to call it. A model whose route is unknown
+cannot be routed, and a wrong route is a request to the wrong endpoint rather
+than a clean failure. `src/models.ts` is therefore generated, and refreshed by
+one command:
+
+```bash
+node scripts/generate-zen-models.mjs
+```
+
+Routes and prices come from Zen's and Go's own documentation pages; limits,
+tool support, modalities and effort options come from `models.dev`; and the two
+services' own `/models` answers say which ids are actually served. Each answers
+a question the others cannot: a page is the only place a wire is stated, and the
+service's own answer is the only place a model that no page documents appears at
+all.
+
+A model the pages document must be either carried in the catalogue or omitted
+with a reason in `src/models.review.json`, so a new upstream model is a decision
+somebody makes rather than a row that arrives by itself. An id the service
+serves and no page documents is in the same position for a different reason:
+there is no wire to derive, so it cannot be carried, and it is reported rather
+than dropped in silence. The CI gate **Zen catalogue matches its source** runs
+the same script with `--check` and fails, naming every model, on either. Exit 1
+means the catalogue disagrees with upstream or a curation decision is
+outstanding; exit 2 means a source was unreachable, no longer has the shape the
+script parses, or the formatter the module is rendered through is not installed.
+Neither is a skip.
+
+Keeping it fresh is one command, or the scheduled refresh workflow
+(`.github/workflows/zen-catalogue-refresh.yml`), which re-derives the catalogue
+daily and opens a pull request when upstream has moved — carrying the
+generator's own added, removed and changed report and the served-but-uncurried
+list, so a reviewer sees what upstream did without running anything. The commit
+carries the changeset that releases it, its bump read mechanically from that
+report: a removal is `major`, because a carried id stops resolving, and an
+addition or a repricing is `minor`. The catalogue does not update itself: the
+job proposes and a person merges.
 
 Catalogue-only consumers can import `getZenModels`, `findZenModel` and the
 model types from `@namzu/zen/models`. This lightweight subpath avoids loading
@@ -256,14 +315,21 @@ response text. Retry and fallback remain kernel policy.
 ## Evidence and source snapshot
 
 The implementation uses Namzu's own conversion, replay and lifecycle code
-around the official provider adapters. Protocol routes and prices were
-checked against OpenCode revision
-[`ecbc6ccac85b3e8087b6445e584318419b9e2b34`](https://github.com/anomalyco/opencode/tree/ecbc6ccac85b3e8087b6445e584318419b9e2b34),
-including its [Zen documentation](https://github.com/anomalyco/opencode/blob/ecbc6ccac85b3e8087b6445e584318419b9e2b34/packages/web/src/content/docs/zen.mdx),
-[Go documentation](https://github.com/anomalyco/opencode/blob/ecbc6ccac85b3e8087b6445e584318419b9e2b34/packages/web/src/content/docs/go.mdx)
-and [provider integration](https://github.com/anomalyco/opencode/blob/ecbc6ccac85b3e8087b6445e584318419b9e2b34/packages/opencode/src/provider/provider.ts).
-Limits, modalities, tool support and effort options use models.dev revision
-[`1a84fdd72ad6c7f507af96aafbcc59a2f818f9fd`](https://github.com/anomalyco/models.dev/tree/1a84fdd72ad6c7f507af96aafbcc59a2f818f9fd).
+around the official provider adapters. The catalogue is no longer a pinned
+snapshot checked against a fixed revision: `src/models.ts` is generated from
+[the Zen page](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/zen.mdx)
+and [the Go page](https://github.com/anomalyco/opencode/blob/dev/packages/web/src/content/docs/go.mdx)
+on OpenCode's default branch, from `https://models.dev/api.json`, and from the
+two services' own `/models` answers on `https://opencode.ai`, by
+`scripts/generate-zen-models.mjs`. The page it leaves behind names the day the
+roster last moved; the gate is what establishes whether it is still true, and
+the refresh workflow is what makes it move without anybody remembering.
+`NAMZU_ZEN_DOCS_REF` selects another branch for the two pages and
+`NAMZU_ZEN_MODELS_BASE` another host for the served rosters, for a run that has
+to read elsewhere.
+OpenCode's [provider
+integration](https://github.com/anomalyco/opencode/blob/16747470f976aca3d362ad730bcd3fe82ecc2c9a/packages/opencode/src/provider/provider.ts)
+is the source for the public sentinel convention.
 
 Automated tests exercise the actual installed adapters with local HTTP/SSE
 fixtures: native request bodies, tool continuations, signed metadata replay,

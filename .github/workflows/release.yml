@@ -85,6 +85,15 @@ jobs:
       - name: Model price catalogue matches its source
         run: node scripts/generate-model-prices.mjs --check
 
+      # Re-derives the Zen roster from the live documents. Exit 1 is a model
+      # documented upstream that the catalogue carries neither way; exit 2 is a
+      # source unreachable or changed shape. Publishing a roster that is behind
+      # upstream ships the defect this gate exists to catch.
+      - name: Zen catalogue matches its source
+        run: |
+          node --import tsx --test scripts/__tests__/generate-zen-models.test.ts
+          node scripts/generate-zen-models.mjs --check
+
       - name: Installer parses as POSIX sh
         run: sh -n install.sh && dash -n install.sh
 

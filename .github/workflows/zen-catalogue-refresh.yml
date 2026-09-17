@@ -1,0 +1,219 @@
+name: Zen catalogue refresh
+
+# The Zen roster is derived from upstream (`scripts/generate-zen-models.mjs`), and
+# a derived file goes stale on somebody else's schedule. Until now nothing RAN
+# that command: the CI gate made staleness detectable and the refresh was one
+# command, and both of those still need a person to remember — which is exactly
+# the complaint this whole workstream started from ("new free models keep
+# arriving"). This workflow is that person. Once a day it re-derives the
+# catalogue, and when upstream moved it opens a pull request carrying the
+# generator's own report, so the diff is reviewable without anyone running
+# anything.
+#
+# Why daily, and why :17. The two documentation pages are edited by hand, a few
+# times a week at most, so the useful resolution is "a day or less" — an hourly
+# poll would spend a matrix of minutes on runs that can only report that nothing
+# changed. The odd minute is deliberate: every cron in a busy organisation wants
+# the top of the hour.
+#
+# What it does NOT do: write to `main`, or curate anything. A route is a routing
+# fact and the wrong one is a request to the wrong endpoint rather than a clean
+# failure, so the regenerated module is reviewed like any other change. An id the
+# service serves and no page documents cannot be carried at all — there is no
+# wire to derive — so the run prints that list into the pull request and the
+# decision stays with a person.
+#
+# This job is NOT a fourth path onto `main`, so `check-workflow-gate-parity.mjs`
+# does not see it: that check compares the steps of `ci.yml` against the inline
+# validation in `release.yml`, which are the two paths a commit can take. Nothing
+# is added to `ci.yml` here and nothing in `release.yml` is needed by this job.
+# The gate it complements (`--check`) already runs on both paths, and it already
+# reads what the service serves.
+
+on:
+  schedule:
+    - cron: '17 4 * * *'
+  # So an operator can refresh without waiting for the timer.
+  workflow_dispatch:
+
+concurrency:
+  group: zen-refresh
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    name: Refresh
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The scoped PAT, exactly as `release.yml` uses it for the Changesets
+          # action: org policy forbids the default Actions token from creating
+          # pull requests, and creating one is what this job is for. It is here
+          # as well as in GH_TOKEN below because the push has to be
+          # authenticated with it too.
+          token: ${{ secrets.CHANGESETS_TOKEN || secrets.GITHUB_TOKEN }}
+
+      - uses: pnpm/action-setup@v5
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # The generator fetches the two documentation pages, models.dev and the two
+      # `/models` answers, and renders the module through the repository's own
+      # formatter — so the install above is load-bearing rather than setup, and a
+      # tree without it stops as a source failure (exit 2).
+      #
+      # Exit 2 is "an upstream source could not be read": unreachable, reshaped,
+      # or the formatter missing. That fails this job, loudly, because a
+      # scheduled run that reports success over a source it never saw is worse
+      # than no run at all. Exit 1 is "somebody has to decide, or the module
+      # disagrees with upstream"; with a diff it is the pull request below, and
+      # without one there is nothing to review and this job says so.
+      - name: Regenerate the catalogue
+        id: generate
+        run: |
+          set +e
+          node scripts/generate-zen-models.mjs > "$RUNNER_TEMP/zen-refresh.txt" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/zen-refresh.txt"
+          if [ "$status" -eq 2 ]; then
+            echo "::error::the Zen catalogue could not be derived — an upstream source was unreachable or changed shape. See the report above."
+            exit 1
+          fi
+          if git diff --quiet -- packages/providers/zen/src/models.ts; then
+            if [ "$status" -ne 0 ]; then
+              echo "::error::the catalogue is unchanged and the generator still needs a decision — an id the service serves that nothing curates, most likely. See the report above."
+              exit 1
+            fi
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          # The module is the ONE path the generator can write — `writeFileSync`
+          # appears once in it, against `OUTPUT_PATH`, and the formatter it pipes
+          # through is given `--stdin-file-path` and writes nothing. The pull
+          # request below stages that path and the changeset, so a second path
+          # appearing upstream would make the pull request quietly incomplete:
+          # half a refresh is worse than none, and only `git status` can see the
+          # difference, because a file nobody stages leaves no trace in a diff.
+          touched=$(git status --porcelain | cut -c4-)
+          unexpected=$(printf '%s\n' "$touched" | grep -v '^packages/providers/zen/src/models.ts$' || true)
+          if [ -n "$unexpected" ]; then
+            echo "::error::this refresh wrote a path the workflow does not stage. Extend it, and say which path in the same commit:"
+            printf '%s\n' "$unexpected"
+            exit 1
+          fi
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Open a pull request with the regenerated catalogue
+        if: steps.generate.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.CHANGESETS_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          # The bump is read MECHANICALLY out of the generator's own report, and
+          # it has to be: this job is the one place a change to a publishable
+          # package can be merged with no human ever choosing a release, and a
+          # refresh merged without a changeset is a consumer-visible change that
+          # never ships — silently, because nothing here enforces the rule.
+          #
+          # The rule, and why it needs no judgement:
+          #
+          #   * a report carrying a removal — `describeChanges` prints
+          #     `<service> REMOVED: <id>`, and no other line in the script prints
+          #     that word — is `major`. A carried id stops resolving, which is
+          #     exactly the argument `.changeset/zen-catalogue-matches-its-source.md`
+          #     makes for `omen-alpha`.
+          #   * otherwise it is `minor`: everything else the derivation can do to
+          #     a carried model is an addition or a repricing, both of which keep
+          #     a caller's code working.
+          #
+          # Both anchors are checked rather than assumed. A report showing neither
+          # a removal nor the refresh confirmation is one whose vocabulary this
+          # workflow no longer knows, and every guess is wrong in one direction:
+          # `minor` would let a breaking change ship unreleased, `major` would put
+          # a spurious major on the release train. Neither is worth the guessing,
+          # so it fails here and says why.
+          if grep -qE '^[[:space:]]*(zen|go) REMOVED: ' "$RUNNER_TEMP/zen-refresh.txt"; then
+            bump=major
+          elif grep -q '^models.ts written: ' "$RUNNER_TEMP/zen-refresh.txt"; then
+            bump=minor
+          else
+            echo "::error::the report is neither a removal nor the refresh confirmation, so the bump cannot be derived from it. See the report above."
+            exit 1
+          fi
+          # Dated so a later refresh opens its own changeset rather than editing
+          # one a reviewer may already be reading.
+          slug="zen-catalogue-refresh-$(date -u +%Y-%m-%d)"
+          {
+            echo '---'
+            echo "\"@namzu/zen\": $bump"
+            echo '---'
+            echo
+            echo "The pinned Zen catalogue was refreshed from its sources. The generator's"
+            echo "own report follows; a removal is why the bump above is \`major\`, and"
+            echo "additions and repricing are \`minor\`."
+            echo
+            echo '````'
+            cat "$RUNNER_TEMP/zen-refresh.txt"
+            echo '````'
+          } > ".changeset/$slug.md"
+          branch="zen/refresh-$(date -u +%Y-%m-%d)"
+          {
+            echo "The Zen catalogue is behind its sources. This pull request is the"
+            echo "regenerated module; the report below is the generator's own output, not"
+            echo "a summary of it."
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/zen-refresh.txt"
+            echo '```'
+            echo
+            echo "It names every model added, removed and changed, and every id the service"
+            echo "serves that the catalogue neither carries nor omits. An id in that second"
+            echo "list cannot be carried here: the wire a model is served on is stated on a"
+            echo "documentation page, and the \`/models\` answer states none. So if the report"
+            echo "has one, CI on this pull request is red until somebody records the"
+            echo "decision in \`packages/providers/zen/src/models.review.json\` — either omit"
+            echo "the id there with a reason, or have upstream document its route."
+            echo
+            echo "The commit carries \`.changeset/$slug.md\` at \`$bump\`, derived from that"
+            echo "report: a removal is a carried id that stops resolving and is \`major\`, and"
+            echo "an addition or a repricing is \`minor\`. Merging it without that file would"
+            echo "ship the change to nobody, which is the one thing this pull request must"
+            echo "not do."
+            echo
+            echo "Review the diff rather than trusting it: a route is a routing fact, and"
+            echo "the wrong one is a request to the wrong endpoint rather than a clean"
+            echo "failure."
+          } > "$RUNNER_TEMP/zen-pr-body.md"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          # No AI co-author trailer: this commit is the workflow's, and the
+          # repository's convention for its own automation is the bot identity
+          # above.
+          git switch -c "$branch"
+          # Both paths, explicitly: the module the generator wrote and the
+          # changeset that releases it. `git add -A` would sweep up whatever else
+          # a future generator change leaves behind, which is the opposite of
+          # what this job wants — the guard above is what makes the short list
+          # safe rather than lucky.
+          git add packages/providers/zen/src/models.ts ".changeset/$slug.md"
+          git commit -m 'chore(zen): refresh the model catalogue from upstream'
+          # The branch is named for the day, so a second run on the same day fails
+          # HERE rather than force-pushing over a pull request somebody may
+          # already be reading. The remedy is to review or close the open one.
+          git push -u origin "$branch"
+          gh pr create \
+            --base main \
+            --head "$branch" \
+            --title 'chore(zen): refresh the model catalogue from upstream' \
+            --body-file "$RUNNER_TEMP/zen-pr-body.md"

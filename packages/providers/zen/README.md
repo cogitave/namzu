@@ -123,9 +123,14 @@ for configuration and refusal details.
 
 `listModels(signal?)` intersects the live service catalogue with supported
 bundled models and restricts anonymous results to the explicit public set.
-Static limits and USD-per-million-token prices are a pinned
-snapshot, not an invoice: context tiers, caches, Go peak/off-peak rates,
-subscription allowances and promotions can change the effective charge.
+Static limits and USD-per-million-token prices are generated from the
+services' own documentation pages by `scripts/generate-zen-models.mjs`, and
+are estimates rather than invoices: context tiers, caches, Go peak/off-peak
+rates, subscription allowances and promotions can change the effective
+charge. Refresh the catalogue with that script; the CI gate fails when a
+service documents OR SERVES a model the catalogue neither carries nor omits,
+naming it, and the scheduled refresh workflow opens a pull request when
+upstream has moved.
 
 Tests use the real provider adapters with local HTTP/SSE fixtures, including
 tool continuations, signatures, cancellation and error classification.
