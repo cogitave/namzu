@@ -283,7 +283,12 @@ describe('rbac.yaml', () => {
 				byResource.set(resource, verbs)
 			}
 		}
-		expect(byResource.get('sandboxclaims')).toEqual(new Set(['create', 'get', 'patch', 'delete']))
+		// `list` is releaseKubernetesTaskSandboxes's and readKubernetesTaskCapacity's:
+		// crash recovery has to find a predecessor's claims by label, and a
+		// capacity read counts every claim bound to the configured pool.
+		expect(byResource.get('sandboxclaims')).toEqual(
+			new Set(['create', 'get', 'list', 'patch', 'delete']),
+		)
 		// `list` is listKubernetesWorkspaces's, and only its: a workspace
 		// inventory has to read the collection, while every other read in the
 		// backend is a GET by a name it already knows.

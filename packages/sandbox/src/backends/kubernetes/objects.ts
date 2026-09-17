@@ -157,6 +157,35 @@ export interface SandboxClaimResource {
 }
 
 /**
+ * A `GET` of the claims COLLECTION. Read by `readKubernetesTaskCapacity` (a
+ * count) and `releaseKubernetesTaskSandboxes` (the names to `DELETE`) — both
+ * in `index.ts`. Same "no watch, no `continue`" shape as
+ * {@link SandboxListResource}, for the same reason: this backend does no
+ * watch at all.
+ */
+export interface SandboxClaimListResource {
+	readonly items?: readonly SandboxClaimResource[]
+}
+
+/**
+ * `SandboxWarmPool.spec`/`.status`, read by `readKubernetesTaskCapacity`
+ * alone — the first place in this backend that reads a `SandboxWarmPool`
+ * rather than only naming one in a claim's `warmPoolRef`. Partial in the
+ * same way every other shape here is: `replicas` and `readyReplicas` are the
+ * two fields a capacity read needs, off the exact same object
+ * `k8s/scripts/acquire-p50.mjs` already polls by hand.
+ */
+export interface SandboxWarmPoolResource {
+	readonly metadata?: KubernetesObjectMeta
+	readonly spec?: {
+		readonly replicas?: number
+	}
+	readonly status?: {
+		readonly readyReplicas?: number
+	}
+}
+
+/**
  * `podTemplate` on a Sandbox or a SandboxTemplate. `spec` is a core `PodSpec`,
  * carried opaquely: this backend copies one from a template into a Sandbox and
  * overlays at most `runtimeClassName`.
@@ -635,6 +664,15 @@ export function claimPath(namespace: string, name: string): string {
 	return `${claimCollectionPath(namespace)}/${segment(name)}`
 }
 
+/** The claims collection, narrowed to a `labelSelector` — same shape as {@link podListPath}. */
+export function claimListPath(namespace: string, labelSelector: string): string {
+	return `${claimCollectionPath(namespace)}?labelSelector=${encodeURIComponent(labelSelector)}`
+}
+
+export function warmPoolPath(namespace: string, name: string): string {
+	return `/apis/${SANDBOX_EXTENSIONS_API_GROUP}/${SANDBOX_API_VERSION}/namespaces/${segment(namespace)}/sandboxwarmpools/${segment(name)}`
+}
+
 export function sandboxCollectionPath(namespace: string): string {
 	return `/apis/${SANDBOX_API_GROUP}/${SANDBOX_API_VERSION}/namespaces/${segment(namespace)}/sandboxes`
 }
@@ -649,6 +687,11 @@ export function sandboxTemplatePath(namespace: string, name: string): string {
 
 export function podPath(namespace: string, name: string): string {
 	return `/api/v1/namespaces/${segment(namespace)}/pods/${segment(name)}`
+}
+
+/** The whole pods collection, unfiltered. Read by `readKubernetesTaskCapacity` alone. */
+export function podCollectionPath(namespace: string): string {
+	return `/api/v1/namespaces/${segment(namespace)}/pods`
 }
 
 export function podListPath(namespace: string, labelSelector: string): string {

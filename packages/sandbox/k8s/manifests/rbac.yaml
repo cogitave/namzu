@@ -8,8 +8,11 @@
 # this repo's own minimal grant, read off two places:
 #   - The backend's own call sites (packages/sandbox/src/backends/
 #     kubernetes/{index,workspace,egress-policy,ingress-policy}.ts via
-#     k8s-client.ts): sandboxclaims create/get/patch/delete, sandboxes
-#     create/get/list/patch/delete, sandboxtemplates get, pods get/list,
+#     k8s-client.ts): sandboxclaims create/get/list/patch/delete (`list` is
+#     releaseKubernetesTaskSandboxes' crash-recovery read and
+#     readKubernetesTaskCapacity's pool-membership read), sandboxes
+#     create/get/list/patch/delete, sandboxtemplates get, sandboxwarmpools
+#     get (readKubernetesTaskCapacity's headroom read), pods get/list,
 #     networkpolicies list (the ingress check, on by default, before every
 #     create — and the egress UNION check, on by default whenever
 #     `config.egress` is set) plus networkpolicies get (the egress
@@ -19,11 +22,10 @@
 #     CRDs installed simply never matches that rule.
 #   - ../scripts/acquire-p50.mjs's own diagnostic: it reads the
 #     SandboxWarmPool's `status.readyReplicas` before timing so a cold,
-#     still-warming pool cannot masquerade as a fast acquire. That read goes
-#     directly to the API server (the CRD's status subresource is not part
-#     of `@namzu/sandbox`'s own public surface), which is the ONLY reason
-#     `sandboxwarmpools: get` is granted here — the shipped backend code
-#     itself never reads a SandboxWarmPool object.
+#     still-warming pool cannot masquerade as a fast acquire — the same
+#     object the backend itself now reads for the same reason, so
+#     `sandboxwarmpools: get` has two callers rather than being the
+#     script's alone.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -36,9 +38,15 @@ metadata:
   name: namzu-sandbox-host
   namespace: namzu-sandboxes
 rules:
+  # `list` is the crash-recovery verb: releaseKubernetesTaskSandboxes finds
+  # a crashed predecessor's claims by label before deleting them, and
+  # readKubernetesTaskCapacity counts every claim bound to the configured
+  # pool. Neither reachable without it — a claim's own name is
+  # client-generated per acquire, so nothing else in the backend needs to
+  # list the collection to find one it already knows the name of.
   - apiGroups: [extensions.agents.x-k8s.io]
     resources: [sandboxclaims]
-    verbs: [create, get, patch, delete]
+    verbs: [create, get, list, patch, delete]
   # `list` is the workspace inventory's alone: listKubernetesWorkspaces
   # reads the sandboxes collection so a retention pass can see every
   # workspace without resuming one. Nothing else in the backend lists
@@ -49,8 +57,11 @@ rules:
   - apiGroups: [extensions.agents.x-k8s.io]
     resources: [sandboxtemplates]
     verbs: [get]
-  # See the header comment: granted for ../scripts/acquire-p50.mjs's
-  # readiness check, not for the shipped backend.
+  # A backend need, not a script's: readKubernetesTaskCapacity reads the
+  # configured pool's `status.readyReplicas`/`spec.replicas` before
+  # admitting more work. ../scripts/acquire-p50.mjs's own readiness check
+  # reads the same object for the same reason — it just predates this verb
+  # having a home in the shipped backend.
   - apiGroups: [extensions.agents.x-k8s.io]
     resources: [sandboxwarmpools]
     verbs: [get]

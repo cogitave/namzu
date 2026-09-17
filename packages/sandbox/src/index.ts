@@ -49,7 +49,12 @@ import {
 	type KubernetesAgentAddressMode,
 	type KubernetesBackendInternalConfig,
 	type KubernetesClusterAccess,
+	type KubernetesReadTaskCapacityOptions,
+	type KubernetesReleaseTaskSandboxesOptions,
+	type KubernetesTaskCapacity,
 	buildKubernetesBackend,
+	readKubernetesTaskCapacity as readTaskCapacityOnCluster,
+	releaseKubernetesTaskSandboxes as releaseTaskSandboxesOnCluster,
 } from './backends/kubernetes/index.js'
 import type { KubernetesIngressConfig } from './backends/kubernetes/ingress-policy.js'
 import {
@@ -281,6 +286,16 @@ export {
 } from './backends/kubernetes/k8s-client.js'
 /** Default `KubernetesBackendConfig.streamHeartbeatMs` — see there. */
 export { DEFAULT_STREAM_HEARTBEAT_MS } from './backends/kubernetes/index.js'
+// Crash recovery and headroom for the task path: label a claim with a
+// host-supplied identity (`KubernetesBackendConfig.claimLabels`), find and
+// release a predecessor's claims by that label, and read pool headroom
+// before admitting more work. All three are additive — a host that sets no
+// `claimLabels` and calls neither function sees no change at all.
+export type {
+	KubernetesReadTaskCapacityOptions,
+	KubernetesReleaseTaskSandboxesOptions,
+	KubernetesTaskCapacity,
+} from './backends/kubernetes/index.js'
 // The persistent workspace: a `Sandbox` that keeps a block disk across a
 // suspend, the union naming how a handle came by its object, plus the four
 // errors its lifecycle can refuse with — a template that cannot carry a disk,
@@ -785,6 +800,19 @@ export interface KubernetesBackendConfig {
 	 * it did — so an older guest image behaves exactly as it does today.
 	 */
 	readonly streamHeartbeatMs?: number
+	/**
+	 * Extra labels written onto every `SandboxClaim` this backend POSTs —
+	 * `metadata.labels` only, never the pod's own labels. Unset means no
+	 * labels beyond what the controller itself writes, and every claim body
+	 * is byte-for-byte what it was before this option existed.
+	 *
+	 * The intended use is a host-instance identity, so a restarted host can
+	 * find and {@link releaseKubernetesTaskSandboxes} a crashed predecessor's
+	 * claims well before `claimTtlSeconds` reaps them on its own — see
+	 * {@link readKubernetesTaskCapacity} for reading pool headroom
+	 * alongside it.
+	 */
+	readonly claimLabels?: Record<string, string>
 }
 
 /**
@@ -1151,6 +1179,7 @@ function kubernetesInternalConfig(
 		...(backend.streamHeartbeatMs !== undefined
 			? { streamHeartbeatMs: backend.streamHeartbeatMs }
 			: {}),
+		...(backend.claimLabels !== undefined ? { claimLabels: backend.claimLabels } : {}),
 	}
 }
 
@@ -1243,6 +1272,44 @@ export async function suspendKubernetesWorkspace(
 	options?: KubernetesWorkspaceTransitionOptions,
 ): Promise<void> {
 	await suspendWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
+}
+
+/**
+ * Recover a crashed host's task-path claims: LIST every `SandboxClaim`
+ * carrying `options.labelSelector`, `DELETE` each, and report what was
+ * removed.
+ *
+ * Deletes claims only — the controller's own ownerReferences take the bound
+ * Sandbox, its Pod and its Service down behind each one; nothing here reads
+ * or touches those objects directly. `labelSelector` is REQUIRED and refused
+ * before any request goes out if it is empty: falling back to matching every
+ * claim would delete a live fleet's work.
+ *
+ * Pairs with `config.claimLabels`: a host stamps its own identity onto every
+ * claim it creates, and a restarted instance passes that same selector here
+ * to reclaim its predecessor's warm-pool capacity well before
+ * `claimTtlSeconds` would reap it on its own.
+ */
+export async function releaseKubernetesTaskSandboxes(
+	config: KubernetesBackendConfig,
+	options: KubernetesReleaseTaskSandboxesOptions,
+): Promise<{ readonly deleted: number; readonly names: readonly string[] }> {
+	return await releaseTaskSandboxesOnCluster(kubernetesInternalConfig(config), options)
+}
+
+/**
+ * Read task-pool headroom before admitting more work: three GETs
+ * (`SandboxWarmPool`, the claims collection, the pods collection), no
+ * writes.
+ *
+ * Requires `config.warmPoolName` — a pool-less backend (every create is a
+ * direct Sandbox) has no `SandboxWarmPool` to report on.
+ */
+export async function readKubernetesTaskCapacity(
+	config: KubernetesBackendConfig,
+	options?: KubernetesReadTaskCapacityOptions,
+): Promise<KubernetesTaskCapacity> {
+	return await readTaskCapacityOnCluster(kubernetesInternalConfig(config), options)
 }
 
 /**

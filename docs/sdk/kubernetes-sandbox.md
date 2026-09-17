@@ -347,7 +347,12 @@ upstream instead of adopting a pool sandbox — it still works, it just stops
 being fast, so nothing fails and only the latency shows it. The POSTed body is
 asserted on the wire in
 `backends/kubernetes/__tests__/acquire-warm-and-cold.test.ts` to contain
-exactly `warmPoolRef` and `lifecycle` and nothing else.
+exactly `warmPoolRef` and `lifecycle` and nothing else — plus, when
+[`claimLabels`](#a-crashed-hosts-claims-labels-release-and-capacity) is
+configured, `metadata.labels`. That is the only field a caller can add to
+this body at all, and it never reaches `additionalPodMetadata`: a claim's own
+labels and a Sandbox's pod labels are different objects, and this backend
+keeps them that way.
 
 ### The bound sandbox is not named after the claim
 
@@ -370,6 +375,82 @@ On top of that, every failure on the create path — a readiness deadline, an
 API error mid-poll, caller cancellation — deletes the object it created on a
 separate short budget before the create promise rejects. A cleanup that reports
 the object already gone is treated as success.
+
+`shutdownTime`/`claimTtlSeconds` is the **backstop**, not the recovery
+mechanism: it bounds a leak by the wall clock, on a timer measured in an hour
+by default, which is a long time to hold warm-pool capacity a crashed host
+will never come back for. [`releaseKubernetesTaskSandboxes`](#a-crashed-hosts-claims-labels-release-and-capacity)
+below is the mechanism — a restarted host can reclaim its predecessor's
+claims within seconds of coming up, rather than waiting out the backstop.
+
+### A crashed host's claims: labels, release, and capacity
+
+A claim's own name is client-generated per acquire (`generateSandboxId()`),
+so nothing about a `SandboxClaim` says which host process created it. A host
+process killed by a deploy, an OOM or a lost node leaves every claim it holds
+running until `claimTtlSeconds` reaps it — the backstop above — and its
+replacement has no way to find, let alone release, its predecessor's claims
+before then. `claimLabels`, `releaseKubernetesTaskSandboxes` and
+`readKubernetesTaskCapacity` are additive surface for exactly that gap; a host
+that sets none of it sees no change at all.
+
+```ts
+import {
+  createSandboxProvider,
+  readKubernetesTaskCapacity,
+  releaseKubernetesTaskSandboxes,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-task',
+  warmPoolName: 'namzu-task-pool',
+} as const
+
+// On startup, before admitting new work: find and release whatever a
+// crashed predecessor left behind, by this host's own instance id.
+const previousHostId = process.env.NAMZU_PREVIOUS_HOST_INSTANCE_ID
+if (previousHostId !== undefined) {
+  const { deleted } = await releaseKubernetesTaskSandboxes(cluster, {
+    labelSelector: `sandbox.namzu.ai/host-instance=${previousHostId}`,
+  })
+  if (deleted > 0) console.log(`released ${deleted} claim(s) a crashed predecessor left running`)
+}
+
+// Every claim this process creates from here on carries its own identity.
+const hostId = process.env.NAMZU_HOST_INSTANCE_ID ?? 'unknown'
+const provider = createSandboxProvider({
+  backend: { ...cluster, claimLabels: { 'sandbox.namzu.ai/host-instance': hostId } },
+})
+
+// Before admitting more work than the pool can currently back.
+const capacity = await readKubernetesTaskCapacity(cluster)
+if (capacity.activeClaims >= capacity.warmPool.desired) {
+  console.log('pool is fully claimed; new work will cold-start')
+}
+```
+
+| Surface | What it does | What it never does |
+|---|---|---|
+| `claimLabels?: Record<string, string>` (backend config) | Written onto every `SandboxClaim` this backend POSTs, `metadata.labels` only | Never reaches `additionalPodMetadata` — a running Sandbox's pod labels, and any `NetworkPolicy` selecting by them, are unaffected |
+| `releaseKubernetesTaskSandboxes(config, { labelSelector, signal })` | `LIST`s claims by `labelSelector`, `DELETE`s each, returns `{ deleted, names }` | Deletes claims only — the controller's own ownerReferences take the bound Sandbox, Pod and Service down behind each one |
+| `readKubernetesTaskCapacity(config, { signal })` | Three `GET`s — the named `SandboxWarmPool`, the claims collection, the pods collection — into `{ warmPool: { ready, desired }, activeClaims, pendingPods }` | No writes; requires `warmPoolName` (there is no pool to report on for a pool-less backend) |
+
+`labelSelector` is **required** on `releaseKubernetesTaskSandboxes`, and
+refused — before a single request goes out — if it is absent or empty. A
+release that fell back to matching every claim, or every claim of the
+template, would delete a live fleet's work the moment a caller passed one by
+mistake. There is no default selector, and none is planned.
+
+`activeClaims` counts every `SandboxClaim` in the namespace whose
+`spec.warmPoolRef.name` matches the configured pool — a field the API itself
+guarantees, rather than a label a caller might not have set. `pendingPods` is
+every `Pod` in the namespace currently in phase `Pending`, across both the
+warm and pool-less paths — a coarse signal of in-flight scale-up the
+ready-replica count alone does not carry.
 
 ## The agent credential
 
@@ -2633,23 +2714,23 @@ outcome rather than a defect.
 ## RBAC
 
 The ServiceAccount the host runs as needs, in the sandbox namespace:
-`create`/`get`/`patch`/`delete` on `sandboxclaims`,
+`create`/`get`/`list`/`patch`/`delete` on `sandboxclaims`,
 `create`/`get`/`list`/`patch`/`delete` on `sandboxes`, `get` on
-`sandboxtemplates`, `get`/`list` on `pods`, `list` on `networkpolicies`
-(`networking.k8s.io`) — which the default-on [ingress check](#ingress) issues
-before every create, and which the [egress union check](#verify-never-trust)
-issues too whenever `config.egress` is set — and `get` on the same resource,
-for the egress named-object check, also only when `config.egress` is set. Under
-`engine: 'cilium'` on either check, the same two verbs on
-`ciliumnetworkpolicies` (`cilium.io`). `list` rather than `get` is what both
-enumerating checks need, because each has to read every policy in the namespace
-and evaluate its selector; a `get` by name would prove an object exists and not
-that it selects these pods. Without `list`, a deployment that sets
-`config.egress` fails every create with a `not-evaluable` refusal naming the
-missing grant — `egress.verify: 'named-object-only'` is the supported answer
-for a host that cannot be granted it. No consumer role is published upstream. A
-`403` surfaces as an error naming the verb and the resource and never the
-token.
+`sandboxtemplates`, `get` on `sandboxwarmpools`, `get`/`list` on `pods`,
+`list` on `networkpolicies` (`networking.k8s.io`) — which the default-on
+[ingress check](#ingress) issues before every create, and which the [egress
+union check](#verify-never-trust) issues too whenever `config.egress` is set —
+and `get` on the same resource, for the egress named-object check, also only
+when `config.egress` is set. Under `engine: 'cilium'` on either check, the
+same two verbs on `ciliumnetworkpolicies` (`cilium.io`). `list` rather than
+`get` is what both enumerating checks need, because each has to read every
+policy in the namespace and evaluate its selector; a `get` by name would prove
+an object exists and not that it selects these pods. Without `list`, a
+deployment that sets `config.egress` fails every create with a
+`not-evaluable` refusal naming the missing grant — `egress.verify:
+'named-object-only'` is the supported answer for a host that cannot be
+granted it. No consumer role is published upstream. A `403` surfaces as an
+error naming the verb and the resource and never the token.
 [Workspaces](#persistent-workspaces) add exactly one verb to that list:
 `list` on `sandboxes`, which
 [`listKubernetesWorkspaces`](#managing-workspaces-without-waking-them) needs
@@ -2657,6 +2738,16 @@ to read the collection. Every other read in this backend is a `GET` by a name
 it already knows, and the rest of what a workspace uses —
 `create`/`get`/`patch`/`delete` on `sandboxes`, `get` on `sandboxtemplates`,
 `get`/`list` on `pods` — the task path already required.
+
+`list` on `sandboxclaims` is the task path's own crash-recovery verb:
+[`releaseKubernetesTaskSandboxes`](#a-crashed-hosts-claims-labels-release-and-capacity)
+has to find a predecessor's claims by label before it can delete them, and
+`readKubernetesTaskCapacity` counts every claim bound to the configured pool.
+A deployment that does not re-apply `k8s/manifests/rbac.yaml` after taking
+this change gets a `403` the first time either function runs — never from
+`create()`, which never lists the collection. `get` on `sandboxwarmpools` is,
+as of this change, a backend need rather than only a diagnostic script's: it
+is what `readKubernetesTaskCapacity` reads for `warmPool.ready`/`.desired`.
 
 ## Deployment
 

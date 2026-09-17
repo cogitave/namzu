@@ -145,15 +145,19 @@ import {
 	SANDBOX_API_GROUP,
 	SANDBOX_API_VERSION,
 	SANDBOX_EXTENSIONS_API_GROUP,
+	type SandboxClaimListResource,
 	type SandboxClaimResource,
 	type SandboxPodTemplate,
 	type SandboxResource,
 	type SandboxTemplateResource,
 	type SandboxVolumeClaimTemplate,
+	type SandboxWarmPoolResource,
 	claimCollectionPath,
+	claimListPath,
 	claimPath,
 	isConditionTrue,
 	isPodLive,
+	podCollectionPath,
 	podListPath,
 	podPath,
 	readPodIP,
@@ -161,6 +165,7 @@ import {
 	sandboxPath,
 	sandboxTemplateLabel,
 	sandboxTemplatePath,
+	warmPoolPath,
 } from './objects.js'
 import { privilegeProbeTimedOut, runPrivilegeProbe } from './privilege-probe.js'
 import { buildKubernetesSandbox } from './sandbox.js'
@@ -269,6 +274,21 @@ export interface KubernetesBackendInternalConfig {
 	 * pre-heartbeat behaviour exactly. See {@link resolveStreamHeartbeatMs}.
 	 */
 	readonly streamHeartbeatMs?: number
+	/**
+	 * Extra labels written onto every `SandboxClaim` this backend POSTs —
+	 * `metadata.labels`, and nowhere else. Never merged into
+	 * `additionalPodMetadata`: those are POD labels a running Sandbox and its
+	 * `NetworkPolicy` selectors read, and a host's own recovery bookkeeping
+	 * has no business changing what a pod is selected by. Absent means no
+	 * labels beyond what the controller itself writes, and every claim body
+	 * this backend sends is byte-for-byte what it always was.
+	 *
+	 * The intended use is a host-instance identity — e.g.
+	 * `{ 'sandbox.namzu.ai/host-instance': hostId }` — so a restarted host
+	 * can find and {@link releaseKubernetesTaskSandboxes} its predecessor's
+	 * claims well before `claimTtlSeconds` would reap them on its own.
+	 */
+	readonly claimLabels?: Record<string, string>
 }
 
 /**
@@ -842,7 +862,13 @@ export async function acquireKubernetesSandbox(
 			: sandboxCollectionPath(namespace)
 	let createBody: Record<string, unknown>
 	if (config.warmPoolName !== undefined) {
-		createBody = buildClaimBody(namespace, objectName, config.warmPoolName, shutdownTime)
+		createBody = buildClaimBody(
+			namespace,
+			objectName,
+			config.warmPoolName,
+			shutdownTime,
+			config.claimLabels,
+		)
 	} else {
 		const template = await deadline.run((signal) =>
 			readSandboxTemplate(client, namespace, config.sandboxTemplateName, signal),
@@ -975,21 +1001,182 @@ export async function acquireKubernetesSandbox(
  * mid-acquire costs the cluster one TTL rather than one leaked sandbox
  * forever. `ttlSecondsAfterFinished` deliberately does NOT appear — its timer
  * starts from the Finished condition, which a crashed host never reaches.
+ *
+ * `labels` (from {@link KubernetesBackendInternalConfig.claimLabels}) is the
+ * one caller-supplied thing this body carries, and it goes ONLY onto
+ * `metadata.labels` — never into `additionalPodMetadata`, which does not
+ * appear here at all. Absent or empty, the body is exactly what it was before
+ * `claimLabels` existed.
  */
 function buildClaimBody(
 	namespace: string,
 	name: string,
 	warmPoolName: string,
 	shutdownTime: string,
+	labels?: Record<string, string>,
 ): Record<string, unknown> {
 	return {
 		apiVersion: `${SANDBOX_EXTENSIONS_API_GROUP}/${SANDBOX_API_VERSION}`,
 		kind: 'SandboxClaim',
-		metadata: { name, namespace },
+		metadata: {
+			name,
+			namespace,
+			...(labels !== undefined && Object.keys(labels).length > 0 ? { labels } : {}),
+		},
 		spec: {
 			warmPoolRef: { name: warmPoolName },
 			lifecycle: { shutdownTime, shutdownPolicy: 'Delete' },
 		},
+	}
+}
+
+/**
+ * Options for {@link releaseKubernetesTaskSandboxes}.
+ */
+export interface KubernetesReleaseTaskSandboxesOptions {
+	/**
+	 * Required, and refused if empty — see {@link releaseKubernetesTaskSandboxes}.
+	 * The same selector syntax a `kubectl get --selector` takes, e.g.
+	 * `sandbox.namzu.ai/host-instance=host-a`.
+	 */
+	readonly labelSelector: string
+	readonly signal?: AbortSignal
+}
+
+/**
+ * Recover a crashed host's claims: LIST every `SandboxClaim` carrying
+ * `labelSelector`, `DELETE` each, and report what was removed.
+ *
+ * This deletes CLAIMS only. The controller's own garbage collection —
+ * ownerReferences from claim to the Sandbox it bound, and from Sandbox to
+ * Pod and Service — takes the rest down behind it; nothing here reads or
+ * touches a Sandbox or a Pod directly. A claim already gone (raced by the
+ * controller's own TTL reaper, or a second release call) counts as removed
+ * rather than a failure, the same convention every other DELETE in this
+ * backend follows.
+ *
+ * `labelSelector` is REQUIRED and refused, synchronously, before a single
+ * request goes out, if it is absent or empty: a release that could fall back
+ * to matching every claim (or every claim of the template) would delete a
+ * live fleet's work the first time a caller passed one by mistake. There is
+ * no default selector for exactly this reason.
+ */
+export async function releaseKubernetesTaskSandboxes(
+	config: KubernetesBackendInternalConfig,
+	options: KubernetesReleaseTaskSandboxesOptions,
+): Promise<{ readonly deleted: number; readonly names: readonly string[] }> {
+	if (options.labelSelector === '') {
+		throw new Error(
+			'kubernetes: releaseKubernetesTaskSandboxes requires a non-empty labelSelector — a release with no selector would delete every SandboxClaim in the namespace, including ones a live host still owns. Pass the selector that names only the claims you mean to recover.',
+		)
+	}
+	options.signal?.throwIfAborted()
+	const namespace = config.namespace
+	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
+	const list = await client.request<SandboxClaimListResource>(
+		'GET',
+		claimListPath(namespace, options.labelSelector),
+		undefined,
+		options.signal,
+	)
+	const names = (list?.items ?? [])
+		.map((claim) => claim.metadata?.name)
+		.filter((name): name is string => typeof name === 'string' && name !== '')
+	// Concurrent, not one at a time: a crash-recovery release can carry a
+	// whole host's worth of claims, and nothing here needs the ordering a
+	// sequential loop would impose — each DELETE is independent and
+	// idempotent (an already-gone claim is tolerated below). A non-tolerated
+	// failure still rejects the whole call, exactly as a sequential loop
+	// would have on its first such failure.
+	await Promise.all(
+		names.map(async (name) => {
+			try {
+				await client.request('DELETE', claimPath(namespace, name), undefined, options.signal)
+			} catch (err) {
+				if (!(err instanceof KubernetesAlreadyGoneError)) throw err
+			}
+		}),
+	)
+	return { deleted: names.length, names }
+}
+
+/** Result of {@link readKubernetesTaskCapacity}. */
+export interface KubernetesTaskCapacity {
+	/** `config.warmPoolName`'s own replica counts, straight off its `status`/`spec`. */
+	readonly warmPool: {
+		/** `status.readyReplicas`. `0` when the field is absent (a brand-new or empty pool). */
+		readonly ready: number
+		/** `spec.replicas`. `0` when the field is absent. */
+		readonly desired: number
+	}
+	/** Every `SandboxClaim` in the namespace bound to `config.warmPoolName`, whatever its state. */
+	readonly activeClaims: number
+	/** Every Pod in the namespace currently in phase `Pending`. */
+	readonly pendingPods: number
+}
+
+/** Options for {@link readKubernetesTaskCapacity}. */
+export interface KubernetesReadTaskCapacityOptions {
+	readonly signal?: AbortSignal
+}
+
+/**
+ * Read task-pool headroom before admitting more work: three GETs, no writes.
+ *
+ * `config.warmPoolName` is required — this reads the exact object a claim's
+ * `warmPoolRef` names, so a pool-less backend (every create is a direct
+ * Sandbox) has no pool to report on. `activeClaims` is every claim in the
+ * namespace whose `spec.warmPoolRef.name` matches this pool, counted rather
+ * than trusted from a label, because a claim's `warmPoolRef` is the one
+ * field the API itself guarantees. `pendingPods` is every Pod in the
+ * namespace still in phase `Pending` — a coarse but honest signal of
+ * in-flight scale-up the ready-replica count alone does not carry, on
+ * either the warm or the pool-less path.
+ */
+export async function readKubernetesTaskCapacity(
+	config: KubernetesBackendInternalConfig,
+	options?: KubernetesReadTaskCapacityOptions,
+): Promise<KubernetesTaskCapacity> {
+	options?.signal?.throwIfAborted()
+	if (config.warmPoolName === undefined) {
+		throw new Error(
+			'kubernetes: readKubernetesTaskCapacity requires config.warmPoolName — there is no SandboxWarmPool to report on for a backend that creates every sandbox directly.',
+		)
+	}
+	const namespace = config.namespace
+	const warmPoolName = config.warmPoolName
+	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
+	const [pool, claims, pods] = await Promise.all([
+		client.request<SandboxWarmPoolResource>(
+			'GET',
+			warmPoolPath(namespace, warmPoolName),
+			undefined,
+			options?.signal,
+		),
+		client.request<SandboxClaimListResource>(
+			'GET',
+			claimCollectionPath(namespace),
+			undefined,
+			options?.signal,
+		),
+		client.request<PodListResource>(
+			'GET',
+			podCollectionPath(namespace),
+			undefined,
+			options?.signal,
+		),
+	])
+	const activeClaims = (claims?.items ?? []).filter(
+		(claim) => claim.spec?.warmPoolRef?.name === warmPoolName,
+	).length
+	const pendingPods = (pods?.items ?? []).filter((pod) => pod.status?.phase === 'Pending').length
+	return {
+		warmPool: {
+			ready: pool?.status?.readyReplicas ?? 0,
+			desired: pool?.spec?.replicas ?? 0,
+		},
+		activeClaims,
+		pendingPods,
 	}
 }
 
