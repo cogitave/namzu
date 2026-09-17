@@ -81,6 +81,7 @@ import {
 	ExecResultAccumulator,
 	type KillSessionRequest,
 	MIN_STREAM_HEARTBEAT_MS,
+	type QuiesceRequest,
 	READ_FILE_STREAM_FEATURE,
 	type ReadFileRequest,
 	type ReadFileResponse,
@@ -235,6 +236,7 @@ export type AgentRequest = (
 	| { readonly op: 'list-sessions' }
 	| { readonly op: 'kill-session'; readonly body: KillSessionRequest }
 	| { readonly op: 'tcp-connect'; readonly body: TcpConnectRequest }
+	| { readonly op: 'quiesce'; readonly body: QuiesceRequest }
 	| { readonly op: 'healthz' }
 ) &
 	// Intersected, not repeated per arm: the credential is orthogonal to

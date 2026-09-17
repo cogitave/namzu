@@ -411,6 +411,70 @@ export interface KillSessionRequest {
 }
 
 // ---------------------------------------------------------------------------
+// Quiesce — stop everything the guest is running, and keep serving
+// ---------------------------------------------------------------------------
+
+/**
+ * The `healthz` feature string an agent advertises when it implements the
+ * `quiesce` op: stop every process this guest is running — including ones
+ * no session and no execution owns — and go on serving `execute`,
+ * `read-file` and `write-file` afterwards.
+ *
+ * Gated exactly like {@link SESSIONS_FEATURE}: a host sends the op only to
+ * a guest that advertised it, because an agent that predates it answers
+ * `unknown_op: quiesce` and a host that read that as "nothing was running"
+ * would take its capture over a disk somebody is still writing to.
+ */
+export const QUIESCE_FEATURE = 'quiesce'
+
+/** Stop everything. `graceMs` bounds ONE round's SIGTERM window. */
+export interface QuiesceRequest {
+	/**
+	 * How long a round waits after `SIGTERM` before it escalates to
+	 * `SIGKILL`. The guest refuses a value at or above its own
+	 * cancel-confirmation timeout (5000ms by default) and defaults to
+	 * 1000ms. It is NOT the pod's `terminationGracePeriodSeconds`.
+	 */
+	readonly graceMs?: number
+}
+
+/**
+ * How wide the guest's scan was allowed to be — reported, so a narrowed
+ * scan is never silently weaker than the one the host asked for.
+ *
+ *  - `pid-namespace` — every process in the guest's PID namespace but its
+ *    init and the agent. What a shipped pod does.
+ *  - `owned-sessions` — only the kernel sessions the guest's own registries
+ *    own, which an agent that is not the init of its own PID namespace
+ *    narrows itself to. It can miss a program that moved into a session of
+ *    its own.
+ */
+export type QuiesceScope = 'pid-namespace' | 'owned-sessions'
+
+/** One process a quiesce stopped, and the signal that stopped it. */
+export interface QuiescedProcess {
+	readonly pid: number
+	/**
+	 * The kernel's short name for the executable (`/proc/<pid>/stat`), not
+	 * the command line: this travels to the host, and a command line
+	 * carries the workload's own arguments.
+	 */
+	readonly command: string
+	readonly signal: 'SIGTERM' | 'SIGKILL'
+}
+
+/** What a successful `quiesce` answers with. */
+export interface QuiesceReply {
+	readonly ok: true
+	readonly stopped: readonly QuiescedProcess[]
+	readonly scope: QuiesceScope
+	/** The window each round actually used, after the guest's own clamp. */
+	readonly graceMs: number
+	/** Scan-and-signal passes performed. `0` means nothing was running. */
+	readonly rounds: number
+}
+
+// ---------------------------------------------------------------------------
 // Loopback TCP — publish a service without moving it out of the sandbox
 // ---------------------------------------------------------------------------
 

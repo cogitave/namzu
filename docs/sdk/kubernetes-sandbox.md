@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Kubernetes sandboxes
-description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, persistent block-disk workspaces with suspend and resume, egress policy translation and verify-not-trust across every policy that selects the sandbox pods (including the no-network and public-internet kinds), and the default-on ingress check that refuses a sandbox whose agent port no applied policy closes.
+description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, persistent block-disk workspaces with suspend and resume, quiescing a guest before a capture, egress policy translation and verify-not-trust across every policy that selects the sandbox pods (including the no-network and public-internet kinds), and the default-on ingress check that refuses a sandbox whose agent port no applied policy closes.
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
@@ -1478,6 +1478,12 @@ confirms it](#a-state-is-recorded-when-the-cluster-confirms-it):
   the disk is quiesced, and a handle that made it on a draining guest would
   let the next caller resume, or delete, a workspace mid-write.
 
+A suspend is still the only thing that makes the disk quiet **after** the pod
+is gone, but it is no longer the only way to make it quiet at all:
+[`quiesce()`](#quiescing-the-guest-before-a-capture) stops every process in the
+guest while the agent is still there to read through, and
+`suspend({ quiesce: true })` does that before it patches.
+
 **The pod is the only thing that wait believes.** Not the Sandbox's own
 `Suspended` condition — upstream's `sandbox_types.go` says the controller
 "does not currently remove this condition when the Sandbox is resumed, so a
@@ -2226,8 +2232,9 @@ await successor.killSession('preview')
 ```
 
 **A closed connection is a detach, and sends no signal of any kind.** A
-persistent session ends when its program exits, when `killSession` ends it, or
-when the pod stops — and nothing else. On such a terminal `exited` **rejects**
+persistent session ends when its program exits, when `killSession` ends it,
+when a [`quiesce()`](#quiescing-the-guest-before-a-capture) stops everything in
+the guest, or when the pod stops — and nothing else. On such a terminal `exited` **rejects**
 with `AgentSessionDetachedError` when the attachment ends and the program does
 not, because resolving it would report an exit that never happened; the error
 carries the byte offset to come back at. A plain `openTerminal` — no
@@ -2299,7 +2306,7 @@ block at their defaults.
 | `NAMZU_AGENT_SESSION_TERMINAL_TTL_MS` | `600000` (10 min) | How long an exited session's record and output outlive its program, so a redeployed host can still read the tail and the exit status. Expiry is checked when the next session op arrives rather than on a timer, so a record can outlast its window in a pod nobody is talking to — `NAMZU_AGENT_MAX_SESSIONS` is what bounds that. |
 
 **The guest has to advertise it.** `healthz` answers with `features: ["write-file-parts",
-"execution-attach", "stream-heartbeat", "sessions"]`, and a host asking for any
+"execution-attach", "stream-heartbeat", "read-file-stream", "sessions", "quiesce"]`, and a host asking for any
 session verb against an image without the last string is refused with
 `KubernetesSessionsUnsupportedError` — **never** downgraded to a
 connection-bound terminal, which would look like it worked until the rollout it
@@ -2311,6 +2318,187 @@ to roll together with this release.
 **Where it lives.** All of it is on `KubernetesWorkspace`, not on the SDK's
 `Sandbox`. `OpenTerminalOptions` and `TerminalSession` are untouched, so every
 other backend — the Firecracker tier included — is exactly what it was.
+
+### Quiescing the guest before a capture
+
+`suspend()` is a promise that [the disk is quiesced](#the-disk-is-fixed-at-creation-and-must-be-block),
+and until this release that promise was only ever kept **after** the pod had
+stopped — by which time there is no agent left to read the disk through. A
+host that wanted a capture it could trust had nowhere to stand:
+
+- `suspend()` kills the terminals **this handle** returned and then patches. A
+  terminal another host process opened, and an `exec` already running, are not
+  its to kill and both survived into the drain.
+- In the guest, a terminal teardown signals what that terminal owns and an
+  `exec` cancel signals that execution's own group. A program that moved into a
+  session of its own — `setsid`, a daemon that double-forks, anything a shell
+  left behind — is in neither, and was reachable by **no op at all**.
+- When the pod stops, `tini` forwards `SIGTERM` to the agent and the agent
+  exits. Nothing signals the rest of the container first.
+
+`quiesce()` is that place to stand. It stops every process the guest is
+running and **leaves the agent up**, so the very next call reads a filesystem
+nobody is writing to.
+
+```ts
+import { createKubernetesWorkspace } from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+const workspace = await createKubernetesWorkspace(cluster, {
+  workspaceId: 'acme-checkout-7',
+  workingDirectory: '/workspace',
+})
+
+// Everything stops. The agent does not.
+const report = await workspace.quiesce({ graceMs: 2_000 })
+for (const stopped of report.stopped) {
+  console.log(stopped.pid, stopped.command, stopped.signal)
+}
+
+// So this reads a disk nobody is writing under.
+const capture = await workspace.readFile('out/state.db')
+console.log(capture.byteLength, report.scope, report.rounds)
+
+// Or ask the suspend to do it: the patch goes out only once the guest is quiet.
+await workspace.suspend({ quiesce: true })
+```
+
+**What the guest does, in the order it does it.**
+
+1. **Every running execution is marked before anything is signalled.** This is
+   the whole subtlety. An execution's close handler waits for its process group
+   only when the execution carries a termination cause; without one, a group
+   leader that dies before the rest of its group makes the handler give up and
+   **fence the agent** — after which every op but `healthz` and
+   `cancel-execution` is refused and the capture the quiesce was performed for
+   can no longer run. Marking first is what stops a quiesce from defeating
+   itself.
+2. **It scans `/proc`, not its own children.** An orphan is reparented to PID 1
+   and is no longer the agent's child, so the agent's own bookkeeping cannot
+   see it.
+3. **PID 1 and the agent are skipped**, and so is anything else in the agent's
+   own kernel session — in a pod that is `tini` and the agent, and nothing else
+   ever joins it. A zombie counts as stopped: it has closed its files.
+4. **It signals in rounds**: `SIGTERM`, wait `graceMs`, `SIGKILL` whatever is
+   left, then scan again. The loop ends on a pass that finds nothing, which is
+   what catches a process forked while a pass was in flight — and what makes a
+   second `quiesce()` straight after the first answer with an empty list.
+5. **A process still present after `SIGKILL` fails the call** with
+   `KubernetesQuiesceUnconfirmedError`, naming its pid. It never resolves
+   optimistically: a host about to take a capture has to be able to tell
+   "everything stopped" from "something would not stop".
+
+**While it runs, work that would start a process is refused** —
+`reserve-execution`, `execute`, `terminal`, `attach-execution`,
+`attach-session`, `start-detached` and `kill-session` all answer
+`quiesce_in_progress` until it settles, and so does a second `quiesce`. `healthz`, `cancel-execution`,
+`list-sessions`, `read-file`, `read-file-stream`, `write-file` and
+`tcp-connect` are **not** refused: being able to read is the point.
+
+**What it costs.** Everything running. An open terminal receives its exit, a
+running `exec` resolves with the signal in its result (it does **not** reject),
+and a session in the registry is reported `exited` with its signal rather than
+detached — so `listSessions()` after a quiesce does not claim a program that no
+longer exists is still running. An interactive shell ignores `SIGTERM`, so a
+terminal is always ended by the escalation: every quiesce with one open spends
+a full `graceMs` round before it can finish, and that pause is the design
+rather than a hang.
+
+**`graceMs` is not `terminationGracePeriodSeconds`.** They are different
+clocks with different budgets. `graceMs` bounds one round's `SIGTERM` window
+inside an op the host called **while the pod is still running and still
+serving**; the pod's grace period bounds how long the kubelet waits after the
+pod has been asked to stop. `graceMs` defaults to 1000ms and is refused at or
+above the guest's own cancel-confirmation timeout
+(`NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS`, 5000ms), because a marked
+execution's close handler stops waiting at that bound and an escalation
+landing after it would fence the agent.
+
+**How wide the scan is allowed to be, and why the report says which.** The general
+scan covers the guest's whole PID namespace, which in a pod as this repo ships
+it is the container and nothing else — a pod that turns on
+`shareProcessNamespace`, or that somebody has attached an ephemeral debug
+container to, puts its other containers' processes in that same namespace, and
+a quiesce there stops those too. The agent performs it only when it is the init of that
+namespace or was started by it — the shape `k8s/entrypoint.sh` gives it, where
+`tini` is PID 1 and starts the agent. An agent that is neither (embedded in
+another process, or loaded into a test runner, where `/proc` is a whole
+machine's) narrows itself to the kernel sessions its own registries own and
+**says so**: `report.scope` is `'owned-sessions'` instead of
+`'pid-namespace'`, and that scope can miss exactly the process this op exists
+for. `NAMZU_AGENT_QUIESCE_SCOPE=owned-sessions` narrows it deliberately; there
+is no value that forces the general scan on, because the deployment where that
+would be wrong is the one where somebody would be tempted to set it.
+
+`quiesce()` hands its caller the report, so that caller can read the scope.
+`suspend({ quiesce: true })` answers `void`, so it is told instead:
+`KubernetesWorkspaceOptions.onQuiesceNarrowed` receives the report whenever the
+guest narrowed itself, just before the patch goes out. The sibling of
+`onQuiesceUnsupported`, for the same reason — the one path that cannot read the
+report must not be the one that silently under-delivers.
+
+**A suspend already in flight cannot be joined into a quiesce.** Concurrent
+`suspend()` calls share one transition: the second caller awaits the first
+rather than patching again, under the first caller's `signal` and `epoch`.
+`quiesce` is the one request that is not shared that way, because it is a
+promise about the guest rather than an authority to write — and a transition
+on its way to patching cannot be sent back to stop anything, since nothing is
+admitted once its state leaves `running`. So a
+`suspend({ quiesce: true })` arriving while a suspend WITHOUT one is in flight
+is **rejected** with `KubernetesQuiesceUnconfirmedError`
+(`reason: 'suspend_already_in_flight'`), having sent nothing and stopped
+nothing, instead of being handed a resolved suspend it would trust a capture
+on. A caller whose request the transition in flight already satisfies — a plain
+`suspend()`, or another `suspend({ quiesce })` while one is running — joins it
+as before, and one quiesce is performed between them.
+
+**`suspend({ quiesce: true })` and `destroy({ quiesce: true })`** run it
+[after this handle's terminals are reaped and before the `Suspended` patch](#a-state-is-recorded-when-the-cluster-confirms-it).
+It cannot run any later: the moment the state leaves `running`, no call is
+admitted and there is no pod to ask through. A quiesce that **cannot be
+confirmed rejects and sends no patch** — the workspace stays running, admits
+calls and keeps the state that is true — which is the same rule this verb
+keeps everywhere else. `destroy({ deleteDisk: true })` ignores the option: the
+disk it would be quiescing is about to be deleted with everything on it. The
+standalone [`suspendKubernetesWorkspace`](#managing-workspaces-without-waking-them)
+**refuses** it instead of ignoring it — that verb reaches the workspace through
+the API server alone and never dials the agent, so there is nothing there to
+stop a process with, and a caller that passed the flag is about to trust a
+capture.
+
+The option lives on `KubernetesWorkspaceSuspendOptions` (what `suspend()` and
+the standalone verb take) and on `KubernetesWorkspaceDestroyOptions`, not on
+the shared `KubernetesWorkspaceTransitionOptions`: `resume()`, `refresh()`,
+`listKubernetesWorkspaces` and `deleteKubernetesWorkspace` send no patch a
+quiesce could precede, so they do not accept the flag rather than accepting it
+and dropping it.
+
+**An image whose agent predates the op.** `healthz` advertises `quiesce`, and
+a host only ever sends the op to a guest that did. An explicit `quiesce()`
+against an image without it is refused with
+`KubernetesQuiesceUnsupportedError` rather than answered with an empty list,
+which would read exactly like a guest that had nothing to stop. A
+`suspend({ quiesce: true })` against that same image is the one place that
+degrades instead: refusing would make the option unusable against every pod
+built before this release, so the suspend goes ahead as it always did and
+`KubernetesWorkspaceOptions.onQuiesceUnsupported` is told — this package owns
+no logger, so the diagnostic goes to the host that has one. The gap is
+reported, never hidden.
+
+**What no test here can prove.** The scan and the signalling are proved
+against the real `agent/agent.cjs` running in a PID namespace of its own
+(`unshare --user --pid --fork --mount-proc`), which is Linux-generic and needs
+no cluster — but on a host that forbids unprivileged user namespaces those
+cases do not run at all, and the narrowed-scope cases that do run prove
+something weaker. Nothing here has been measured under Kata, where the guest
+kernel is the microVM's rather than the node's.
 
 ### Egress covers a workspace too
 

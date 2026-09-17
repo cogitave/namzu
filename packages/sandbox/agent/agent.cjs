@@ -161,12 +161,17 @@ const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
 //    the `attach-session`, `start-detached`, `list-sessions` and
 //    `kill-session` ops name, read, start and end a program that outlives
 //    the connection that started it. See `sessions`.
+//  - `quiesce` — the `quiesce` op stops every process this guest is
+//    running, including ones no registry owns, and leaves the agent
+//    serving `execute`, `read-file` and `write-file` so the host can still
+//    read the disk it has just made quiet. See `runQuiesce`.
 const AGENT_FEATURES = [
 	'write-file-parts',
 	'execution-attach',
 	'stream-heartbeat',
 	'read-file-stream',
 	'sessions',
+	'quiesce',
 ]
 
 // --- config (mirrors worker/server.js env contract) -----------------------
@@ -305,6 +310,48 @@ const CANCEL_CONFIRM_TIMEOUT_MS = positiveIntegerConfig(
 	'NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS',
 	5_000,
 )
+// How long `quiesce` gives a round of processes to go down on SIGTERM
+// before it escalates to SIGKILL, and the ceiling a caller-supplied
+// `graceMs` is refused above.
+//
+// The ceiling is `CANCEL_CONFIRM_TIMEOUT_MS`, and it is not a taste: a
+// running execution is MARKED before it is signalled (see `runQuiesce`),
+// and a marked execution's close handler waits exactly that long for the
+// rest of its process group before it gives up and FENCES the agent. A
+// grace window at or above that bound would let the escalation land after
+// the handler had already stopped waiting — so the agent would retire
+// itself in the middle of the quiesce, and refuse the capture the quiesce
+// was performed for. The default is clamped for the same reason, because
+// `NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS` is itself configurable.
+//
+// It is NOT the pod's `terminationGracePeriodSeconds`. That one bounds how
+// long the kubelet waits after it has asked the pod to stop; this one
+// bounds one round of one op the host called while the pod is still
+// running and still serving. Different clocks, different budgets.
+const QUIESCE_MAX_GRACE_MS = Math.max(1, CANCEL_CONFIRM_TIMEOUT_MS - 1)
+const QUIESCE_GRACE_MS = Math.min(
+	positiveIntegerConfig('NAMZU_AGENT_QUIESCE_GRACE_MS', 1_000),
+	QUIESCE_MAX_GRACE_MS,
+)
+// The whole op's bound, across every round. Comfortably below the host
+// transport's 60s read-idle timeout, because nothing is written on the wire
+// while a quiesce runs: a guest that spent longer than that would be torn
+// down as unresponsive by a host that was only waiting for it. That is also
+// the ceiling an operator raising this has to respect — past the host's
+// read-idle timeout, a quiesce that is working is torn down anyway, and the
+// host cannot know it worked.
+const QUIESCE_DEADLINE_MS = positiveIntegerConfig('NAMZU_AGENT_QUIESCE_DEADLINE_MS', 20_000)
+// How many scan-and-signal rounds one quiesce performs before it reports
+// failure. Rounds exist because a process can be forked while a pass is in
+// flight; a workload forking faster than it can be killed is a failure to
+// report, not a loop to run until the deadline.
+const QUIESCE_MAX_ROUNDS = positiveIntegerConfig('NAMZU_AGENT_QUIESCE_MAX_ROUNDS', 8)
+// How long the op waits, after everything is gone, for the registries to
+// record what it did — a killed child's `close` event is what moves a
+// session to `exited` and settles an execution's result. Purely
+// bookkeeping: the processes are already gone when this starts, so running
+// out of it does not fail the call.
+const QUIESCE_SETTLE_MS = positiveIntegerConfig('NAMZU_AGENT_QUIESCE_SETTLE_MS', 1_000)
 const EXECUTION_ID_PATTERN =
 	/^exec_[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -1557,7 +1604,15 @@ async function handleExecute(socket, body) {
 		if (trackedExecution) {
 			rememberTerminal(
 				trackedExecution,
-				execution.terminationCause === 'cancelled' ? 'cancelled' : error ? 'failed' : 'completed',
+				// A quiesce is a host-initiated stop, so it reports the outcome a
+				// host-initiated stop reports. Anything else would tell a later
+				// `attach-execution` that a command the host killed ran to
+				// completion.
+				execution.terminationCause === 'cancelled' || execution.terminationCause === 'quiesced'
+					? 'cancelled'
+					: error
+						? 'failed'
+						: 'completed',
 				result,
 				error?.message,
 			)
@@ -2391,6 +2446,22 @@ const sessions = new Map()
 /** The agent's own kernel session, so nothing here can ever signal it. */
 let ownUnixSessionId
 
+/**
+ * That session, read once and remembered.
+ *
+ * A session id never changes for the life of a process unless the process
+ * calls `setsid` itself, and this one does not, so one read is the whole of
+ * it. `0` when `/proc` could not answer — a value no session has, which
+ * leaves the pid-level exclusions (PID 1, and this process) standing on
+ * their own rather than excluding something arbitrary.
+ */
+async function ownSessionId() {
+	if (ownUnixSessionId === undefined) {
+		ownUnixSessionId = (await readUnixSessionId(process.pid)) ?? 0
+	}
+	return ownUnixSessionId
+}
+
 function validateSessionId(sessionId) {
 	return typeof sessionId === 'string' && SESSION_ID_PATTERN.test(sessionId)
 }
@@ -2423,23 +2494,47 @@ function makeRoomForSession() {
 }
 
 /**
+ * One process's `/proc/<pid>/stat`, as much of it as anything here needs:
+ * its name, its run state and its kernel session id.
+ *
+ * Parsed from the last `)` rather than by splitting on spaces: field 2 is
+ * the executable's own name, in parentheses, and it may contain spaces and
+ * parentheses of its own. `undefined` means the process is gone — which is
+ * the answer a caller wants, not an error to handle.
+ */
+async function readProcessStat(pid) {
+	try {
+		const raw = await fs.readFile(`/proc/${pid}/stat`, 'utf8')
+		const open = raw.indexOf('(')
+		const close = raw.lastIndexOf(')')
+		if (open < 0 || close < open) return undefined
+		// state, ppid, pgrp, session — the four fields after the name.
+		const fields = raw.slice(close + 2).split(' ')
+		const sessionId = Number(fields[3])
+		return {
+			pid,
+			// The kernel's short name for the executable, and deliberately not
+			// `/proc/<pid>/cmdline`: a quiesce reports what it stopped to the
+			// HOST, and a command line carries the workload's own arguments.
+			command: raw.slice(open + 1, close),
+			state: fields[0] ?? '',
+			sessionId: Number.isInteger(sessionId) && sessionId > 0 ? sessionId : undefined,
+		}
+	} catch {
+		return undefined
+	}
+}
+
+/**
  * The kernel session id (`/proc/<pid>/stat` field 6) of one process.
  *
  * Parsed from the last `)` rather than by splitting on spaces: field 2 is
  * the executable's own name, in parentheses, and it may contain spaces and
- * parentheses of its own.
+ * parentheses of its own. See {@link readProcessStat}, which is the one
+ * place in this file that parses that line.
  */
 async function readUnixSessionId(pid) {
-	try {
-		const raw = await fs.readFile(`/proc/${pid}/stat`, 'utf8')
-		const close = raw.lastIndexOf(')')
-		if (close < 0) return undefined
-		// state, ppid, pgrp, session — the four fields after the name.
-		const sessionId = Number(raw.slice(close + 2).split(' ')[3])
-		return Number.isInteger(sessionId) && sessionId > 0 ? sessionId : undefined
-	} catch {
-		return undefined
-	}
+	return (await readProcessStat(pid))?.sessionId
 }
 
 /**
@@ -2462,12 +2557,10 @@ async function readUnixSessionId(pid) {
  * init the image runs, or the test runner that loaded this module.
  */
 async function processesInSessions(wanted) {
-	if (ownUnixSessionId === undefined) {
-		ownUnixSessionId = (await readUnixSessionId(process.pid)) ?? 0
-	}
+	const own = await ownSessionId()
 	const targets = new Set(
 		[...wanted].filter(
-			(sessionId) => Number.isInteger(sessionId) && sessionId > 1 && sessionId !== ownUnixSessionId,
+			(sessionId) => Number.isInteger(sessionId) && sessionId > 1 && sessionId !== own,
 		),
 	)
 	if (targets.size === 0) return []
@@ -3007,6 +3100,368 @@ function handleAttachSession(socket, body) {
 			? { heartbeatMs: normalizeHeartbeatMs(body.heartbeatMs) }
 			: {}),
 	})
+}
+
+// --- quiesce: stopping every process this guest is running ----------------
+
+/**
+ * Stopping everything, so a host can take a capture it can trust.
+ *
+ * `suspend()` on a workspace used to reach exactly two kinds of process:
+ * the terminals THAT handle returned, and an execution somebody explicitly
+ * cancelled. Everything else — a terminal opened through another host
+ * process's handle, an `exec` already running, and above all a program that
+ * moved into a session of its own with `setsid` and was then reparented
+ * away from the agent — kept running and kept writing until the pod
+ * stopped. And once the pod has stopped there is no agent left to read the
+ * disk through, so a host that wanted the disk QUIET WHILE IT COULD STILL
+ * READ IT had nowhere to stand.
+ *
+ * This op is that place to stand, and the four things it must get right:
+ *
+ *  - **Mark before signalling.** A running execution's close handler waits
+ *    for its whole process group only when the execution carries a
+ *    `terminationCause`; without one, a group leader that dies before the
+ *    rest of its group makes the handler throw and `retireAgent` FENCE the
+ *    agent — after which every op but `healthz` and `cancel-execution` is
+ *    refused and the capture this was performed for can no longer run. So
+ *    every running execution is marked first, before a single signal goes
+ *    out. `terminateAndConfirm` cannot be reused for this: it throws in
+ *    exactly the case a quiesce creates on purpose.
+ *  - **Scan, do not walk the child list.** An orphan is reparented to PID 1
+ *    and is no longer this process's child, so the agent's own bookkeeping
+ *    cannot see it. `/proc` can.
+ *  - **Rounds, not one pass.** A process forked while a pass is in flight
+ *    would otherwise survive the pass that was supposed to include it.
+ *  - **Report failure rather than resolving.** A process still present
+ *    after `SIGKILL` fails the call and names its pid, the way
+ *    `terminateAndConfirm` already refuses. A quiesce that resolved
+ *    optimistically would be worse than no quiesce at all: the host would
+ *    take its capture believing the disk was still.
+ */
+let quiescing = false
+
+/**
+ * Ops refused while a quiesce runs, by the shape of their refusal.
+ *
+ * Everything that starts work, resumes work, or would change what the loop
+ * is counting. `healthz`, `cancel-execution`, `list-sessions`, `read-file`,
+ * `read-file-stream`, `write-file` and `tcp-connect` are deliberately NOT
+ * here: the whole point of quiescing a guest rather than stopping its pod
+ * is that the host can still read and write the disk afterwards, and a
+ * refusal that covered those would take the capture away again.
+ */
+const QUIESCE_REFUSED_OPS = new Set([
+	'reserve-execution',
+	'start-detached',
+	'kill-session',
+	'quiesce',
+])
+const QUIESCE_REFUSED_STREAM_OPS = new Set([
+	'execute',
+	'terminal',
+	'attach-execution',
+	'attach-session',
+])
+
+/**
+ * How wide this agent is allowed to look for processes to stop.
+ *
+ *  - `pid-namespace` — every process in the PID namespace but PID 1 and
+ *    this one. The shipped image's shape, and the only scope that reaches a
+ *    program which `setsid` moved out of every session the agent knows
+ *    about.
+ *  - `owned-sessions` — only the kernel sessions the execution and session
+ *    registries own. Narrower, and it can miss exactly the process this op
+ *    exists for.
+ *
+ * The scope is DERIVED, from the one fact that decides whether a general
+ * scan is safe: whether this agent is the init of its own PID namespace or
+ * was started by it. `k8s/entrypoint.sh` execs `tini` as PID 1 and `tini`
+ * starts this process, so a shipped pod is `pid-namespace` and every pid in
+ * `/proc` there belongs to this container and to nothing else. An agent
+ * loaded into some other process — a test runner, an embedded host — is
+ * not that, and a general scan there would signal processes that have
+ * nothing to do with any sandbox. The reply carries the scope it used, so a
+ * narrowed one is reported rather than silently weaker.
+ *
+ * `NAMZU_AGENT_QUIESCE_SCOPE=owned-sessions` narrows it further and is the
+ * only value accepted: there is deliberately no way to force the general
+ * scan on, because the environment where that would be wrong is exactly the
+ * environment where somebody would be tempted to set it.
+ */
+function quiesceScope() {
+	if (process.env.NAMZU_AGENT_QUIESCE_SCOPE === 'owned-sessions') return 'owned-sessions'
+	return process.pid === 1 || process.ppid === 1 ? 'pid-namespace' : 'owned-sessions'
+}
+
+/**
+ * Every kernel session the two registries own, which is what
+ * `owned-sessions` scope is allowed to reach.
+ *
+ * Read off the registries rather than kept as a third list of its own: an
+ * `execute` child and a `start-detached` child are both spawned `detached`,
+ * so each is a session leader and its process-group id is its session id,
+ * and a terminal records the shell's session as `script` creates it.
+ */
+function ownedKernelSessions() {
+	const owned = new Set()
+	for (const execution of executions.values()) {
+		if (execution.processGroupId) owned.add(execution.processGroupId)
+	}
+	for (const record of sessions.values()) {
+		for (const sessionId of record.unixSessionIds ?? []) owned.add(sessionId)
+		if (record.processGroupId) owned.add(record.processGroupId)
+	}
+	return owned
+}
+
+/**
+ * The processes this quiesce may signal, as `/proc` has them right now.
+ *
+ * PID 1 is skipped because it is the container's init and stopping it would
+ * stop the pod — the thing this op exists to avoid. This process is skipped
+ * for the obvious reason, and so is every other process in this process's
+ * own kernel session: in a pod that is PID 1 and the agent, and nothing
+ * else ever joins it, because every child the agent spawns is spawned
+ * `detached` into a session of its own. A ZOMBIE counts as stopped — it has
+ * closed its files and released its memory and is waiting to be reaped,
+ * which is all a capture needs — and signalling one would achieve nothing
+ * anyway. The uid check is the last fence: every workload process runs
+ * under the uid `entrypoint.sh` drops to, so a process that does not is not
+ * one of them.
+ */
+async function quiesceCandidates(scope) {
+	const own = await ownSessionId()
+	const ownUid = process.getuid?.()
+	const owned = scope === 'owned-sessions' ? ownedKernelSessions() : undefined
+	let entries
+	try {
+		entries = await fs.readdir('/proc')
+	} catch (error) {
+		throw new Error(`quiesce could not read /proc: ${error?.message ?? String(error)}`)
+	}
+	const candidates = []
+	for (const entry of entries) {
+		const pid = Number(entry)
+		if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue
+		const stat = await readProcessStat(pid)
+		if (stat === undefined || stat.state === 'Z') continue
+		if (stat.sessionId !== undefined && stat.sessionId === own) continue
+		if (owned !== undefined && (stat.sessionId === undefined || !owned.has(stat.sessionId)))
+			continue
+		if (ownUid !== undefined) {
+			// `/proc/<pid>` is owned by the process's REAL uid, so one stat
+			// answers this without opening a second file and without reading
+			// anything the process itself put there.
+			let procUid
+			try {
+				procUid = (await fs.stat(`/proc/${pid}`)).uid
+			} catch {
+				continue
+			}
+			if (procUid !== ownUid) continue
+		}
+		candidates.push({ pid, command: stat.command })
+	}
+	return candidates
+}
+
+/** Send one signal to one pid. Answers whether the kernel took it. */
+function signalPid(pid, signal) {
+	try {
+		process.kill(pid, signal)
+		return true
+	} catch {
+		return false
+	}
+}
+
+/** Whether a pid is a process that still holds anything. A zombie does not. */
+async function processIsLive(pid) {
+	const stat = await readProcessStat(pid)
+	return stat !== undefined && stat.state !== 'Z'
+}
+
+/** The pids of `pids` still live at `deadlineAt`, polled until then. */
+async function waitForPidsGone(pids, deadlineAt) {
+	let remainingPids = [...pids]
+	for (;;) {
+		const left = []
+		for (const pid of remainingPids) {
+			if (await processIsLive(pid)) left.push(pid)
+		}
+		if (left.length === 0) return []
+		const remaining = deadlineAt - Date.now()
+		if (remaining <= 0) return left
+		await delay(Math.min(25, remaining))
+		remainingPids = left
+	}
+}
+
+/**
+ * Let the registries catch up with what the signals did.
+ *
+ * The processes are already gone when this runs; what is not yet true is
+ * the BOOKKEEPING — a killed child's `close` event is what settles an
+ * execution's result and what moves a session to `exited`. Without this
+ * wait, `list-sessions` could answer a host that had just quiesced the
+ * guest with a session still marked `running`, which would be a lie about a
+ * process that no longer exists. Bounded, and never fatal: the promise this
+ * op makes is about processes, and that one has already been kept.
+ */
+async function settleRegistries(deadlineAt) {
+	const pending = []
+	for (const execution of executions.values()) {
+		if (execution.done) pending.push(execution.done)
+	}
+	for (const record of sessions.values()) {
+		if (record.state !== 'exited' && record.done) pending.push(record.done)
+	}
+	if (pending.length === 0) return
+	await Promise.race([
+		Promise.allSettled(pending),
+		delay(Math.max(0, Math.min(QUIESCE_SETTLE_MS, deadlineAt - Date.now()))),
+	])
+}
+
+/**
+ * Stop everything, in rounds, under one deadline.
+ *
+ * Marking comes first and covers every running execution at once, before a
+ * single signal goes out — see `quiescing` above for what a naive ordering
+ * costs. After that each round scans, signals what it found with SIGTERM,
+ * gives it `graceMs`, SIGKILLs whatever is left, and scans again; the loop
+ * ends on a pass that finds nothing, which is also what makes a second
+ * quiesce straight after the first answer with an empty list.
+ */
+async function runQuiesce(graceMs) {
+	const scope = quiesceScope()
+	const deadlineAt = Date.now() + QUIESCE_DEADLINE_MS
+	/**
+	 * Mark every execution the agent is running, so that nothing this loop
+	 * kills can fence the agent.
+	 *
+	 * Called once per ROUND, between that round's scan and its first signal,
+	 * and the placement is the whole of its correctness. Every pid the round
+	 * is about to signal was in `/proc` when the scan ran, and a child's pid
+	 * exists only once `spawn` has returned — after which `handleExecute`
+	 * moves its record to `running` in the same tick. So a mark taken after
+	 * the scan covers every execution whose process this round can reach,
+	 * including one admitted a moment before the refusal gate went up and
+	 * started while the scan was in flight. A mark taken BEFORE the scan
+	 * would not: an execution still `starting` then is marked in vain,
+	 * because `handleExecute` resets `terminationCause` to `undefined` as
+	 * it goes `running`.
+	 *
+	 * What no placement covers is an execution whose child appears after the
+	 * final scan found nothing. The refusal gate is what keeps that window
+	 * to the executions already admitted when the quiesce began, and a
+	 * command that survives it is reported by no round.
+	 */
+	const markRunningExecutions = () => {
+		for (const execution of executions.values()) {
+			if (execution.state === 'running' && execution.terminationCause === undefined) {
+				execution.terminationCause = 'quiesced'
+			}
+		}
+	}
+	/** pid -> what it was and the last signal it was actually sent. */
+	const stopped = new Map()
+	let rounds = 0
+	for (;;) {
+		const candidates = await quiesceCandidates(scope)
+		if (candidates.length === 0) break
+		// Asked here rather than at the end of a round, because a round that
+		// stopped everything exactly as the deadline arrived has done the job
+		// the call was made for: the scan above is what says so, and it has
+		// already said it. What the deadline refuses is starting ANOTHER
+		// round with no time to finish it.
+		if (Date.now() >= deadlineAt) {
+			throw new Error(
+				`quiesce did not settle within ${QUIESCE_DEADLINE_MS}ms (NAMZU_AGENT_QUIESCE_DEADLINE_MS); pid ${candidates[0].pid} (${candidates[0].command}) was still running`,
+			)
+		}
+		rounds += 1
+		if (rounds > QUIESCE_MAX_ROUNDS) {
+			throw new Error(
+				`quiesce did not settle in ${QUIESCE_MAX_ROUNDS} rounds; pid ${candidates[0].pid} (${candidates[0].command}) was still starting processes`,
+			)
+		}
+		const commands = new Map(candidates.map(({ pid, command }) => [pid, command]))
+		markRunningExecutions()
+		for (const { pid, command } of candidates) {
+			if (signalPid(pid, 'SIGTERM')) stopped.set(pid, { pid, command, signal: 'SIGTERM' })
+		}
+		// Every wait is capped by the WHOLE op's deadline as well as by its
+		// own window, so the rounds cannot compound into a call that outlives
+		// the host's read-idle timeout: eight rounds of a caller's maximum
+		// `graceMs`, twice each, would otherwise reach eighty seconds and the
+		// host would tear down a connection it was only waiting on.
+		const roundEnd = () => Math.min(deadlineAt, Date.now() + graceMs)
+		let left = await waitForPidsGone([...commands.keys()], roundEnd())
+		if (left.length > 0) {
+			for (const pid of left) {
+				if (signalPid(pid, 'SIGKILL')) {
+					stopped.set(pid, { pid, command: commands.get(pid) ?? '', signal: 'SIGKILL' })
+				}
+			}
+			left = await waitForPidsGone(left, roundEnd())
+		}
+		if (left.length > 0) {
+			// Two different facts, and the message says which. A pid still
+			// live after SIGKILL when there was time to watch it is a process
+			// the kernel would not kill — uninterruptible IO, most likely.
+			// The same pid when the deadline had already passed was never
+			// waited for at all, because `roundEnd()` had nothing left to
+			// give. Both refuse the call; only one of them is about the
+			// process.
+			const description = `pid ${left[0]} (${commands.get(left[0]) ?? 'unknown'})`
+			throw new Error(
+				Date.now() >= deadlineAt
+					? `quiesce ran out of its ${QUIESCE_DEADLINE_MS}ms deadline (NAMZU_AGENT_QUIESCE_DEADLINE_MS) with ${description} still live after SIGKILL`
+					: `quiesce could not stop ${description}; it is still live after SIGKILL`,
+			)
+		}
+	}
+	await settleRegistries(deadlineAt)
+	return { ok: true, scope, graceMs, rounds, stopped: [...stopped.values()] }
+}
+
+/** The `quiesce` op: validate, run, and refuse rather than resolve. */
+async function handleQuiesce(socket, body) {
+	if (process.platform === 'win32') {
+		writeFrame(socket, { ok: false, error: 'quiesce_unsupported_platform' })
+		return
+	}
+	const requested = body?.graceMs
+	let graceMs = QUIESCE_GRACE_MS
+	if (requested !== undefined) {
+		if (!Number.isSafeInteger(requested) || requested <= 0 || requested > QUIESCE_MAX_GRACE_MS) {
+			writeFrame(socket, {
+				ok: false,
+				error: 'quiesce_invalid_grace',
+				message: `graceMs must be a positive integer of at most ${QUIESCE_MAX_GRACE_MS}ms (NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS minus one), got ${String(requested)}`,
+			})
+			return
+		}
+		graceMs = requested
+	}
+	quiescing = true
+	try {
+		writeFrame(socket, await runQuiesce(graceMs))
+	} catch (error) {
+		// Named, and never a resolved call with a shorter list: a host that
+		// is about to capture a disk has to be able to tell "everything is
+		// stopped" from "something would not stop".
+		writeFrame(socket, {
+			ok: false,
+			error: 'quiesce_unconfirmed',
+			message: error instanceof Error ? error.message : String(error),
+		})
+	} finally {
+		quiescing = false
+	}
 }
 
 /**
@@ -3734,6 +4189,23 @@ function dispatch(socket, req) {
 		socket.end()
 		return
 	}
+	// A quiesce is counting processes and killing what it counts, so
+	// anything that would start one more is refused until it settles — in
+	// the shape its caller is reading, the way the fence above answers an
+	// attach in the stream's own grammar rather than in a reply's. This is a
+	// window of a second or two, not a state: it clears when the op answers,
+	// however it answers. See `quiescing`.
+	if (quiescing && QUIESCE_REFUSED_STREAM_OPS.has(op)) {
+		writeFrame(socket, { type: 'error', error: 'quiesce_in_progress' })
+		writeTerminator(socket)
+		socket.end()
+		return
+	}
+	if (quiescing && QUIESCE_REFUSED_OPS.has(op)) {
+		writeFrame(socket, { ok: false, error: 'quiesce_in_progress' })
+		socket.end()
+		return
+	}
 	if (op === 'reserve-execution') {
 		handleReserveExecution(socket, req.body)
 		return
@@ -3770,6 +4242,16 @@ function dispatch(socket, req) {
 	}
 	if (op === 'kill-session') {
 		handleKillSession(socket, req.body)
+			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
+			.finally(() => socket.end())
+		return
+	}
+	// Additive, and advertised in {@link AGENT_FEATURES} rather than fenced
+	// behind a protocol version, exactly like every other op added since 2:
+	// an agent that predates it answers `unknown_op: quiesce`, and a host
+	// only sends it to one that said it has it.
+	if (op === 'quiesce') {
+		handleQuiesce(socket, req.body)
 			.catch((error) => writeFrame(socket, { ok: false, error: error.message }))
 			.finally(() => socket.end())
 		return

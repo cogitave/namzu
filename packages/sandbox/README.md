@@ -175,6 +175,32 @@ kernel session, found through `/proc`. The cost is bounded per session
 in `healthz` and a host asking for any of it against an image without the
 string is refused rather than served a connection-bound terminal.
 
+**Quiesce: stop everything the guest is running, and keep serving.** A
+workspace host that takes a final capture of the disk could not make it exact.
+`suspend()` reaches the terminals THAT handle returned and an execution
+somebody cancelled by id; a terminal another host process opened, a command
+already in flight, and above all a program that moved into a session of its own
+with `setsid` and was then reparented away from the agent all kept running, and
+kept writing, until the pod stopped — and once the pod has stopped there is no
+agent left to read the disk through. The additive `quiesce` op is where a host
+stands instead: it marks every running execution BEFORE it signals anything
+(without that mark, a group leader dying before the rest of its group makes an
+execution's close handler fence the agent, and a fenced agent refuses the
+capture the quiesce was performed for), scans `/proc` rather than its own
+children, skips PID 1, itself and its own kernel session, then signals in
+rounds — `SIGTERM`, `graceMs`, `SIGKILL` on what is left — until a pass finds
+nothing. A process still present after `SIGKILL` FAILS the call and names its
+pid; it never resolves optimistically. Afterwards `execute`, `read-file` and
+`write-file` all still work, which is the whole point. While it runs, every op
+that would start a process answers `quiesce_in_progress`; the reads do not. The
+general scan covers the guest's PID namespace, which in a pod is the container
+and nothing else, and the agent performs it only when it is the init of that
+namespace or was started by it (`k8s/entrypoint.sh` makes `tini` PID 1 and the
+agent its child); anywhere else it narrows itself to the kernel sessions its own
+registries own and reports `scope: "owned-sessions"` rather than being silently
+weaker. The guest advertises `quiesce` in `healthz` and a host asking an image
+without it is refused by name.
+
 **The command timeout ceiling is configurable.** The guest agent reads its
 maximum `timeoutMs` from `NAMZU_SANDBOX_MAX_TIMEOUT_MS` — the same variable
 the container worker has always read for the same limit — defaulting to the
@@ -269,6 +295,16 @@ in that window is bounded rather than trusted, and in the token modes only:
 | `NAMZU_AGENT_PREAUTH_IDLE_TIMEOUT_MS` | 10000 | How long a connection may stay unauthenticated while **quiet**. Every byte received resets it, so it retires the connection that says nothing, not the one that says too little. Token modes only, cleared the moment a connection authenticates. |
 | `NAMZU_AGENT_PREAUTH_DEADLINE_MS` | 10000 | How long a connection may stay unauthenticated **at all**, measured from accept and reset by nothing. Token modes only, cleared the moment a connection authenticates, so no long-lived terminal, `tcp-connect` or streaming `execute` is ever measured against it. |
 | `NAMZU_AGENT_REFUSAL_FLUSH_GRACE_MS` | 1000 | How long a refusal frame may take to reach the wire before the socket is destroyed anyway. Every listen mode. A backstop against a peer that has stopped reading, not a budget anything normally spends. |
+
+The `quiesce` op has four bounds and one scope of its own, on every listen mode:
+
+| Variable | Default | What it bounds |
+|---|---|---|
+| `NAMZU_AGENT_QUIESCE_GRACE_MS` | 1000 | How long one round waits after `SIGTERM` before escalating to `SIGKILL`. Clamped below `NAMZU_AGENT_CANCEL_CONFIRM_TIMEOUT_MS`, and a caller-supplied `graceMs` at or above that bound is refused: a marked execution's close handler stops waiting there, so a later escalation would fence the agent mid-quiesce. Not the pod's `terminationGracePeriodSeconds`. |
+| `NAMZU_AGENT_QUIESCE_DEADLINE_MS` | 20000 | The whole op, across every round. Kept well under the host transport's 60s read-idle timeout, because nothing is written on the wire while a quiesce runs — so raise it only up to that timeout (itself configurable on the host), never past it: beyond it the host tears down a quiesce that is working and cannot learn that it did. |
+| `NAMZU_AGENT_QUIESCE_MAX_ROUNDS` | 8 | Scan-and-signal passes before the call reports failure. Rounds exist because a process can be forked while a pass is in flight; a workload forking faster than it can be killed is a failure to report, not a loop to run out the deadline. |
+| `NAMZU_AGENT_QUIESCE_SETTLE_MS` | 1000 | How long the op waits, after everything is gone, for a killed child's `close` event to move its session to `exited` and settle its execution. Bookkeeping only — the processes are already gone, so running out of it does not fail the call. |
+| `NAMZU_AGENT_QUIESCE_SCOPE` | derived | `owned-sessions` narrows the scan to the kernel sessions the agent's own registries own. The only accepted value: the general PID-namespace scan is derived from whether this agent is the init of its own PID namespace or was started by it, and there is deliberately no way to force it on. |
 
 So the most an unauthenticated peer can make the agent hold is
 `NAMZU_AGENT_MAX_PREAUTH_BUFFER_BYTES`, spread over at most

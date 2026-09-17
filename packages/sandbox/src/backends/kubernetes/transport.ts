@@ -42,6 +42,9 @@ import {
 	EXECUTION_ATTACH_FEATURE,
 	type ExecRequest,
 	ExecResultAccumulator,
+	QUIESCE_FEATURE,
+	type QuiesceScope,
+	type QuiescedProcess,
 	SESSIONS_FEATURE,
 	type SessionKind,
 	type SessionState,
@@ -1118,6 +1121,94 @@ function sessionStreamFailure(sessionId: string, operation: string, error: unkno
  * remote backend gets, while every network operation is delegated to
  * {@link VsockAgentTransport} for the actual dial/frame/token work.
  */
+// --- quiesce (#485) -------------------------------------------------------
+
+/**
+ * Thrown when a quiesce was asked of a guest that cannot perform one:
+ * either its `healthz` does not advertise {@link QUIESCE_FEATURE}, or it
+ * answered `unknown_op: quiesce`.
+ *
+ * Refused rather than treated as "nothing was running". A caller asks for a
+ * quiesce because it is about to read the disk and needs it still; an image
+ * that cannot stop its processes has to say so, not resolve with an empty
+ * list that reads exactly like a guest which had nothing to stop.
+ */
+export class KubernetesQuiesceUnsupportedError extends Error {
+	override readonly name = 'KubernetesQuiesceUnsupportedError'
+
+	constructor(
+		readonly feature: string,
+		message: string,
+	) {
+		super(message)
+	}
+}
+
+/**
+ * Thrown when nothing can promise the guest is quiet.
+ *
+ * Usually because the guest ANSWERED and said so — a process survived
+ * `SIGKILL`, the scan could not be performed, or the op ran out of its own
+ * deadline — and then the guest's own message names the pid. The workspace
+ * handle raises the same class for the one case that never reaches a guest:
+ * a `suspend({ quiesce: true })` arriving while a suspend WITHOUT a quiesce
+ * is already in flight, whose patch has gone over processes nobody stopped
+ * (`reason: 'suspend_already_in_flight'`). Both mean the one thing a caller
+ * has to act on: do not trust a capture taken now.
+ *
+ * Its own class for the same reason {@link KubernetesSessionRefusedError}
+ * is: this is an answer, not a transport failure, and retrying it is a
+ * decision the caller makes with the pid in hand rather than one a wrapper
+ * makes on its behalf.
+ */
+export class KubernetesQuiesceUnconfirmedError extends Error {
+	override readonly name = 'KubernetesQuiesceUnconfirmedError'
+
+	constructor(
+		readonly reason: string,
+		message: string,
+	) {
+		super(message)
+	}
+}
+
+/** What the guest stopped, and how widely it was allowed to look. */
+export interface KubernetesQuiesceReport {
+	/** Every process signalled, with the last signal it was actually sent. */
+	readonly stopped: readonly QuiescedProcess[]
+	/** See {@link QuiesceScope}. `owned-sessions` is the narrowed one. */
+	readonly scope: QuiesceScope
+	/** The per-round SIGTERM window the guest used, after its own clamp. */
+	readonly graceMs: number
+	/** Scan-and-signal passes. `0` means nothing was running. */
+	readonly rounds: number
+}
+
+function quiesceReport(reply: Record<string, unknown>): KubernetesQuiesceReport {
+	const stopped = Array.isArray(reply.stopped) ? reply.stopped : []
+	return {
+		stopped: stopped.flatMap((entry): QuiescedProcess[] => {
+			if (!entry || typeof entry !== 'object') return []
+			const row = entry as Record<string, unknown>
+			if (typeof row.pid !== 'number') return []
+			return [
+				{
+					pid: row.pid,
+					command: typeof row.command === 'string' ? row.command : '',
+					signal: row.signal === 'SIGKILL' ? 'SIGKILL' : 'SIGTERM',
+				},
+			]
+		}),
+		// The WIDER claim has to be said in so many words. A reply carrying
+		// a scope this host does not recognise reads as the narrow one,
+		// because the only wrong answer here is telling a caller its guest
+		// was swept completely when nothing says so.
+		scope: reply.scope === 'pid-namespace' ? 'pid-namespace' : 'owned-sessions',
+		graceMs: typeof reply.graceMs === 'number' ? reply.graceMs : 0,
+		rounds: typeof reply.rounds === 'number' ? reply.rounds : 0,
+	}
+}
+
 export class KubernetesAgentTransport {
 	/**
 	 * Mutable, and the ONLY mutable state on this class: a `pod-ip` handle
@@ -1673,6 +1764,72 @@ export class KubernetesAgentTransport {
 			status: sessionStatus({ state, ...(exitSignal !== undefined ? { signal: exitSignal } : {}) }),
 			...(exitCode !== undefined ? { exitCode } : {}),
 		}
+	}
+
+	/**
+	 * Stop every process this pod's guest is running, and keep the agent.
+	 *
+	 * The point is the pair. Stopping the POD stops its processes too, but
+	 * leaves nothing to read the disk through, so a host that wants a capture
+	 * it can trust has to wake the workspace again and check. After this the
+	 * guest is quiet and still serving: `exec`, `readFile` and `writeFile`
+	 * all work, and what they see is a filesystem nobody is writing to.
+	 *
+	 * Open terminals and running commands end as a side effect and report it
+	 * through their own exit and result paths — a terminal receives its exit,
+	 * an `exec` resolves with a signal in its result. Rejecting with
+	 * {@link KubernetesQuiesceUnconfirmedError} is the honest failure: a
+	 * process would not stop, and the reply names its pid.
+	 */
+	async quiesce(
+		options: { readonly graceMs?: number } = {},
+		signal?: AbortSignal,
+	): Promise<KubernetesQuiesceReport> {
+		await this.assertQuiesceSupported(signal)
+		const reply = (await this.withRebind(
+			async () =>
+				await requestChecked(
+					this.wire,
+					{
+						op: 'quiesce',
+						body: { ...(options.graceMs !== undefined ? { graceMs: options.graceMs } : {}) },
+					},
+					signal,
+				),
+			signal,
+		)) as Record<string, unknown>
+		if (reply.ok === true) return quiesceReport(reply)
+		const refusal = typeof reply.error === 'string' ? reply.error : 'no reason given'
+		// The guest advertised the feature and then did not know the op. That
+		// is one image, not two, so it is the unsupported error rather than a
+		// second name for the same fact — see {@link assertQuiesceSupported}.
+		if (refusal.startsWith('unknown_op')) throw this.quiesceUnsupported()
+		const detail = typeof reply.message === 'string' ? `: ${reply.message}` : ''
+		throw new KubernetesQuiesceUnconfirmedError(
+			refusal,
+			`kubernetes: the guest could not confirm that every process it is running has stopped (${refusal})${detail}. Nothing on the cluster was changed and the pod is still serving; a capture taken now may not be consistent.`,
+		)
+	}
+
+	/**
+	 * Whether this guest can quiesce at all — asked, rather than assumed,
+	 * because `suspend({ quiesce: true })` against an older image keeps
+	 * today's behaviour and reports the gap instead of refusing to suspend.
+	 */
+	async supportsQuiesce(signal?: AbortSignal): Promise<boolean> {
+		return (await this.wire.guestFeatures(signal)).includes(QUIESCE_FEATURE)
+	}
+
+	private async assertQuiesceSupported(signal?: AbortSignal): Promise<void> {
+		if (await this.supportsQuiesce(signal)) return
+		throw this.quiesceUnsupported()
+	}
+
+	private quiesceUnsupported(): KubernetesQuiesceUnsupportedError {
+		return new KubernetesQuiesceUnsupportedError(
+			QUIESCE_FEATURE,
+			`kubernetes: this workspace's guest agent does not advertise the '${QUIESCE_FEATURE}' healthz feature, so nothing here can stop the processes it is running — a terminal another handle opened, a command already in flight, or a program that moved into a session of its own all keep writing. The request is refused rather than answered with an empty list, which would read as a guest that had nothing to stop. Rebuild the workspace image from this Namzu release.`,
+		)
 	}
 
 	/**

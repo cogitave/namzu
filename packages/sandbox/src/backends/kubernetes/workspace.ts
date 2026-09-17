@@ -241,6 +241,9 @@ import {
 	type KubernetesAttachTerminalOptions,
 	type KubernetesDetachedExecOptions,
 	type KubernetesOpenTerminalOptions,
+	type KubernetesQuiesceReport,
+	KubernetesQuiesceUnconfirmedError,
+	KubernetesQuiesceUnsupportedError,
 	type KubernetesReadSessionOptions,
 	type KubernetesSessionOutput,
 	type KubernetesSessionSummary,
@@ -463,6 +466,26 @@ function assertHolderEpoch(epoch: number | undefined, where: string): number | u
 }
 
 /**
+ * Refuse a `quiesce` asked of a verb that has no guest to ask.
+ *
+ * {@link suspendKubernetesWorkspace} reaches a workspace WITHOUT opening one:
+ * it sends a patch and waits for the pod, and never dials the agent. So there
+ * is nothing there that could stop a process, and silently ignoring the flag
+ * would hand a caller a suspend it believes was preceded by a quiesce —
+ * exactly the belief this whole feature exists to make true. The handle's
+ * `suspend()` is the verb that can do it, and the message says so.
+ */
+function assertNoQuiesceHere(
+	quiesce: KubernetesWorkspaceQuiesceRequest | undefined,
+	where: string,
+): void {
+	if (quiesce === undefined || quiesce === false) return
+	throw new Error(
+		`kubernetes: ${where} cannot quiesce the guest: it reaches the workspace through the API server alone and never dials the agent, so there is no connection on which to stop anything. Open the workspace with createKubernetesWorkspace() and call suspend({ quiesce: true }) on the handle, or quiesce() and then this. The option is refused rather than ignored, because a caller that passed it is about to trust a capture.`,
+	)
+}
+
+/**
  * What a start that FAILED is allowed to do to the workspace it was starting
  * in.
  *
@@ -589,6 +612,75 @@ export interface KubernetesWorkspaceTransitionOptions {
 }
 
 /**
+ * What a SUSPEND takes, which is every transition option plus the one thing
+ * only a suspend can do with it.
+ *
+ * `quiesce` lives here rather than on
+ * {@link KubernetesWorkspaceTransitionOptions} so that the verbs which
+ * cannot honour it — `resume()`, `refresh()`, {@link listKubernetesWorkspaces}
+ * and {@link deleteKubernetesWorkspace}, none of which sends a patch a
+ * quiesce could precede — do not accept it and then ignore it. A caller who
+ * passed it is about to trust a capture, and a silently dropped flag is the
+ * one way this feature could lie.
+ */
+export interface KubernetesWorkspaceSuspendOptions extends KubernetesWorkspaceTransitionOptions {
+	/**
+	 * Stop every process in the guest BEFORE the `Suspended` patch goes out —
+	 * see {@link KubernetesWorkspace.quiesce}, which this runs.
+	 *
+	 * Honoured by the handle's `suspend()` and by the `destroy()` that
+	 * suspends. The standalone {@link suspendKubernetesWorkspace} takes this
+	 * same shape and REFUSES the flag rather than ignoring it: it reaches the
+	 * workspace through the API server alone and never dials the agent, so
+	 * there is no connection on which it could stop anything. Off by default,
+	 * so a `suspend()` that does not name it is byte-for-byte the suspend it
+	 * always was.
+	 *
+	 * A guest whose image predates the op keeps today's behaviour: the
+	 * suspend proceeds and
+	 * {@link KubernetesWorkspaceOptions.onQuiesceUnsupported} is told. A
+	 * quiesce the guest ANSWERED and could not confirm is different — the
+	 * suspend rejects and sends no patch, leaving the workspace running,
+	 * because the state that is true is the one this handle records. And a
+	 * suspend ALREADY IN FLIGHT without a quiesce is refused rather than
+	 * joined — see `suspend()`.
+	 */
+	readonly quiesce?: KubernetesWorkspaceQuiesceRequest
+}
+
+/**
+ * `quiesce()`'s own options.
+ *
+ * `signal` is the `AbortSignal` that cancels the REQUEST, as it is on every
+ * other verb on this handle. There is deliberately no POSIX-signal field to
+ * go with it: the escalation is the guest's and is fixed — `SIGTERM`, then
+ * `SIGKILL` on whatever is left — because a caller-chosen signal that a
+ * process ignores would turn a quiesce into a call that resolves having
+ * stopped nothing.
+ */
+export interface KubernetesQuiesceOptions {
+	/**
+	 * How long the guest waits after `SIGTERM` before escalating to
+	 * `SIGKILL`, per round. The guest refuses a value at or above its own
+	 * cancel-confirmation timeout (5000ms by default) and defaults to
+	 * 1000ms.
+	 *
+	 * It is NOT the pod's `terminationGracePeriodSeconds`, which bounds how
+	 * long the kubelet waits after the pod has been asked to stop. This one
+	 * bounds a round of an op the host called while the pod is still running
+	 * and still serving.
+	 */
+	readonly graceMs?: number
+	readonly signal?: AbortSignal
+}
+
+/**
+ * What `suspend({ quiesce })` and `destroy({ quiesce })` ask for: `true`
+ * for the guest's own default window, or an object naming `graceMs`.
+ */
+export type KubernetesWorkspaceQuiesceRequest = boolean | { readonly graceMs?: number }
+
+/**
  * `killSession()`'s two signals, which are different things and are named
  * apart for that reason: `signal` is the POSIX signal the guest sends to the
  * session, and `abort` is the `AbortSignal` that cancels the REQUEST.
@@ -624,6 +716,16 @@ export interface KubernetesWorkspaceDestroyOptions extends SandboxDestroyOptions
 	 * disk.
 	 */
 	readonly epoch?: number
+	/**
+	 * Stop every process in the guest first — see
+	 * {@link KubernetesWorkspaceSuspendOptions.quiesce}, which this means
+	 * exactly the same thing as.
+	 *
+	 * It is read by the `destroy()` that SUSPENDS, which is the default one.
+	 * A `destroy({ deleteDisk: true })` ignores it: the disk it would be
+	 * quiescing is about to be deleted along with everything on it.
+	 */
+	readonly quiesce?: KubernetesWorkspaceQuiesceRequest
 }
 
 /**
@@ -871,6 +973,39 @@ export interface KubernetesWorkspace extends Sandbox {
 	 */
 	refresh(options?: KubernetesWorkspaceTransitionOptions): Promise<void>
 	/**
+	 * Stop every process this workspace's pod is running, and go on serving.
+	 *
+	 * `suspend()` on its own reaches two kinds of process: the terminals THIS
+	 * handle returned, and a command somebody cancelled by id. A terminal
+	 * another host process opened, a command already in flight, and above all
+	 * a program that moved into a session of its own with `setsid` and was
+	 * then reparented away from the agent all keep running — and keep writing
+	 * to the disk — until the pod stops. By then there is no agent left to
+	 * read that disk through.
+	 *
+	 * So this is the verb for a host that wants the disk still WHILE IT CAN
+	 * STILL READ IT: afterwards the guest is quiet and the agent is up, so
+	 * `exec`, `readFile`, `readFileStream` and `writeFile` all work and what
+	 * they see is a filesystem nobody is writing to. A capture taken here can
+	 * be trusted; `destroy({ deleteDisk: true })` or
+	 * {@link deleteKubernetesWorkspace} can then run against a workspace
+	 * nobody has to wake again to check.
+	 *
+	 * What it costs is everything running: an open terminal receives its
+	 * exit, a running `exec` resolves with a signal in its result, and a
+	 * session in the registry is reported `exited` rather than detached. A
+	 * second call straight after the first stops nothing and says so, with an
+	 * empty list.
+	 *
+	 * Admitted only while the workspace is running, and serialised with the
+	 * lifecycle transitions, so it cannot interleave with a suspend or a
+	 * resume. It rejects — changing nothing on the cluster — with
+	 * `KubernetesQuiesceUnconfirmedError` when a process would not stop (the
+	 * message names its pid), and with `KubernetesQuiesceUnsupportedError`
+	 * against an image whose agent predates the op.
+	 */
+	quiesce(options?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport>
+	/**
 	 * Give the compute back and keep the disk. Idempotent: suspending a
 	 * workspace whose suspend has been CONFIRMED sends nothing.
 	 *
@@ -889,8 +1024,26 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * A call already in flight when this is called is not cancelled: it fails
 	 * at the transport when the pod goes away, rather than with the named
 	 * suspended error, which only covers calls admitted from here on.
+	 *
+	 * `suspend({ quiesce: true })` runs {@link quiesce} first — after this
+	 * handle's own terminals are reaped and BEFORE the patch — so the disk is
+	 * still at the moment the pod is asked to stop rather than merely by the
+	 * time it has. A quiesce that cannot be confirmed rejects and sends NO
+	 * patch: the workspace stays running and admits calls, which is the rule
+	 * this verb already keeps everywhere else — leave the state that is true.
+	 *
+	 * Sharing a transition has ONE exception, and it is this option. A call
+	 * arriving mid-suspend joins the transition in flight rather than
+	 * starting one of its own, under the first caller's signal and epoch —
+	 * but a `quiesce` the transition in flight is not performing cannot be
+	 * joined into: that transition is on its way to patching over a guest
+	 * nothing has stopped, and once its state leaves `running` no call is
+	 * admitted to stop anything. Such a caller is REJECTED with
+	 * {@link KubernetesQuiesceUnconfirmedError} instead of being handed a
+	 * resolved suspend it would trust a capture on. A caller whose request
+	 * the flight already satisfies still joins it.
 	 */
-	suspend(options?: KubernetesWorkspaceTransitionOptions): Promise<void>
+	suspend(options?: KubernetesWorkspaceSuspendOptions): Promise<void>
 	/**
 	 * Take a new pod, on a new address, with a new agent token, and prove it
 	 * is deprivileged before handing it back. Idempotent: resuming a running
@@ -976,6 +1129,46 @@ export interface KubernetesWorkspaceOptions {
 	 * receives.
 	 */
 	readonly onCancellationUnconfirmed?: (notice: KubernetesWorkspaceCancellationNotice) => void
+	/**
+	 * Told when a `suspend({ quiesce: true })` could not quiesce because the
+	 * guest's image predates the op, just before the suspend goes ahead
+	 * without one.
+	 *
+	 * This is the one gap that must not be silent. Everything else about a
+	 * quiesce is reported by the call that asked for it — `quiesce()` itself
+	 * refuses an image that cannot perform one, and a quiesce the guest
+	 * answered and could not confirm rejects the suspend — but a host that
+	 * passes `quiesce: true` and gets a suspend anyway would otherwise have
+	 * no way to learn that its capture was taken over a guest nothing had
+	 * stopped. `@namzu/sandbox` owns no logger and reads none from module
+	 * scope, so the diagnostic goes to the host that has one.
+	 *
+	 * In the style of `onLeaseRenewalError`: synchronous, never awaited, and
+	 * a callback that throws changes nothing about the suspend.
+	 */
+	readonly onQuiesceUnsupported?: (error: KubernetesQuiesceUnsupportedError) => void
+	/**
+	 * Told when a `suspend({ quiesce: true })` DID quiesce, and the guest
+	 * narrowed the scan to the kernel sessions its own registries own —
+	 * `report.scope === 'owned-sessions'` — just before the patch goes out.
+	 *
+	 * The sibling of `onQuiesceUnsupported`, and it exists for the same
+	 * reason: `quiesce()` hands its caller the report and that caller can
+	 * read the scope, but a `suspend({ quiesce: true })` returns `void`, so
+	 * the one path that cannot read the report would otherwise be the one
+	 * that silently under-delivers. A narrowed scan can miss exactly the
+	 * process this feature exists for — a program `setsid` moved out of
+	 * every session either registry holds — so a capture taken after one is
+	 * weaker than a capture taken after a `pid-namespace` scan.
+	 *
+	 * A pod built from this repo's image never narrows: `k8s/entrypoint.sh`
+	 * makes `tini` PID 1 and the agent its child. A derived image that wraps
+	 * the agent in something else, or an embedded agent, can.
+	 *
+	 * In the style of `onLeaseRenewalError`: synchronous, never awaited, and
+	 * a callback that throws changes nothing about the suspend.
+	 */
+	readonly onQuiesceNarrowed?: (report: KubernetesQuiesceReport) => void
 	/**
 	 * The holder epoch this call opens the workspace under, and the one the
 	 * handle keeps — see {@link HOLDER_EPOCH_ANNOTATION_KEY}.
@@ -1450,6 +1643,12 @@ export async function createKubernetesWorkspace(
 		...(options.onStartFailure !== undefined ? { onStartFailure: options.onStartFailure } : {}),
 		...(options.onCancellationUnconfirmed !== undefined
 			? { onCancellationUnconfirmed: options.onCancellationUnconfirmed }
+			: {}),
+		...(options.onQuiesceUnsupported !== undefined
+			? { onQuiesceUnsupported: options.onQuiesceUnsupported }
+			: {}),
+		...(options.onQuiesceNarrowed !== undefined
+			? { onQuiesceNarrowed: options.onQuiesceNarrowed }
 			: {}),
 		...(options.signal !== undefined ? { signal: options.signal } : {}),
 	})
@@ -2429,12 +2628,13 @@ export async function deleteKubernetesWorkspace(
 export async function suspendKubernetesWorkspace(
 	config: KubernetesBackendInternalConfig,
 	workspaceId: string,
-	options?: KubernetesWorkspaceTransitionOptions,
+	options?: KubernetesWorkspaceSuspendOptions,
 ): Promise<void> {
 	options?.signal?.throwIfAborted()
 	const namespace = config.namespace
 	const name = workspaceSandboxName(workspaceId)
 	const epoch = assertHolderEpoch(options?.epoch, 'suspendKubernetesWorkspace')
+	assertNoQuiesceHere(options?.quiesce, 'suspendKubernetesWorkspace')
 	const readiness = resolveKubernetesReadiness(config)
 	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 	await writeOperatingMode(
@@ -2502,6 +2702,10 @@ interface WorkspaceHandleOptions {
 	readonly onStartFailure?: KubernetesWorkspaceStartFailurePolicy
 	/** See {@link KubernetesWorkspaceOptions.onCancellationUnconfirmed}. */
 	readonly onCancellationUnconfirmed?: (notice: KubernetesWorkspaceCancellationNotice) => void
+	/** See {@link KubernetesWorkspaceOptions.onQuiesceUnsupported}. */
+	readonly onQuiesceUnsupported?: (error: KubernetesQuiesceUnsupportedError) => void
+	/** See {@link KubernetesWorkspaceOptions.onQuiesceNarrowed}. */
+	readonly onQuiesceNarrowed?: (report: KubernetesQuiesceReport) => void
 	readonly signal?: AbortSignal
 }
 
@@ -2685,6 +2889,17 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * a second caller's is not consulted, which is what sharing means.
 	 */
 	let pendingSuspend: Promise<void> | undefined
+	/**
+	 * Whether the suspend in flight is quiescing the guest first.
+	 *
+	 * Kept beside the promise because it is the ONE part of a caller's
+	 * request that a joining caller cannot inherit. `signal` and `epoch` are
+	 * authority and lifetime — the first caller's to give, and a second
+	 * caller joining a transition under them is what sharing means. A
+	 * `quiesce` is a promise about the guest, and a suspend already patching
+	 * over processes nobody stopped cannot keep it retroactively.
+	 */
+	let pendingSuspendQuiesces = false
 	let pendingDelete: Promise<void> | undefined
 
 	const deleteSandbox = async (
@@ -3166,7 +3381,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * them with the transition still unfinished. Neither can be returned from
 	 * by a later `suspend()` as though it had worked.
 	 */
-	const suspendNow = async (signal?: AbortSignal, epoch?: number): Promise<void> => {
+	const suspendNow = async (
+		signal?: AbortSignal,
+		epoch?: number,
+		quiesceRequest?: KubernetesWorkspaceQuiesceRequest,
+	): Promise<void> => {
 		if (state === 'deleted') throw new KubernetesSandboxDestroyedError('suspend', name)
 		// `suspending` deliberately falls through: the patch is re-sent and
 		// the pod waited for again. Only a CONFIRMED suspend returns here.
@@ -3186,6 +3405,22 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// using this workspace; killing the sessions that say otherwise is the
 		// point of it rather than a cost of it.
 		await reapTerminals()
+		// And then, if the caller asked for it, everything else in the guest:
+		// the terminals another handle opened, the commands already running,
+		// and the programs that left every session this handle knows about.
+		// HERE and nowhere later — `admit` refuses every call the moment the
+		// state leaves `running` below, so a quiesce after that point could not
+		// reach the pod it is quiescing. A quiesce that cannot be confirmed
+		// throws from here, before `state` has moved and before any patch has
+		// been sent: the pod is still running, this handle can still serve it,
+		// and the caller is told which pid would not stop.
+		//
+		// A re-sent suspend (`state === 'suspending'`, the fall-through above)
+		// does NOT re-quiesce: its patch has already landed, its session was
+		// dropped with it, and there is no admitted call left to ask through.
+		if (quiesceRequest !== undefined && quiesceRequest !== false && state === 'running') {
+			await quiesceBeforeSuspend(quiesceRequest, signal)
+		}
 		// From here on nothing new is admitted: the pod is going away, and a
 		// call let through would dial an address that still resolves — the
 		// Service outlives the pod — and hang on a connect timeout naming
@@ -3351,13 +3586,42 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * instead of patching and waiting all over again once it finishes. It is
 	 * released inside the run, before the promise handed to callers settles,
 	 * so a caller that awaits and then suspends again gets a fresh attempt.
+	 *
+	 * Joining is only honest while the transition in flight does everything
+	 * the joining caller asked for. It carries the first caller's signal and
+	 * epoch, and that is what sharing means — but a caller that asked for a
+	 * `quiesce` is about to trust a capture, and a suspend already in flight
+	 * WITHOUT one is on its way to patching over a guest nothing stopped. A
+	 * quiesce cannot be added to it afterwards either: `admit` refuses every
+	 * call the moment that transition's state leaves `running`. So such a
+	 * caller is refused, by the same class an unconfirmable quiesce rejects
+	 * with and for the same reason — everything this feature cannot deliver,
+	 * it says out loud.
 	 */
-	const suspendShared = (signal?: AbortSignal, epoch?: number): Promise<void> => {
-		pendingSuspend ??= serialise(async () => {
+	const suspendShared = (
+		signal?: AbortSignal,
+		epoch?: number,
+		quiesceRequest?: KubernetesWorkspaceQuiesceRequest,
+	): Promise<void> => {
+		const wantsQuiesce = quiesceRequest !== undefined && quiesceRequest !== false
+		if (pendingSuspend !== undefined) {
+			if (wantsQuiesce && !pendingSuspendQuiesces) {
+				return Promise.reject(
+					new KubernetesQuiesceUnconfirmedError(
+						'suspend_already_in_flight',
+						`kubernetes: workspace '${workspaceId}' is already suspending under a call that did not ask for a quiesce, and a quiesce cannot be added to a transition in flight — once that transition's state leaves 'running', no call is admitted to stop anything in the guest. Nothing was sent and nothing was stopped on this call's behalf: await the suspend in flight and treat the disk as one that was written to, or call quiesce() before the suspend next time. Refused rather than joined, because a caller that passed 'quiesce' is about to trust a capture.`,
+					),
+				)
+			}
+			return pendingSuspend
+		}
+		pendingSuspendQuiesces = wantsQuiesce
+		pendingSuspend = serialise(async () => {
 			try {
-				await suspendNow(signal, epoch)
+				await suspendNow(signal, epoch, quiesceRequest)
 			} finally {
 				pendingSuspend = undefined
+				pendingSuspendQuiesces = false
 			}
 		})
 		return pendingSuspend
@@ -3382,7 +3646,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * deleteDisk: true })` the queue admitted first must be a no-op in that
 	 * order too, which is the order it is most likely to be written in.
 	 */
-	const destroyBySuspending = async (signal?: AbortSignal, epoch?: number): Promise<void> => {
+	const destroyBySuspending = async (
+		signal?: AbortSignal,
+		epoch?: number,
+		quiesceRequest?: KubernetesWorkspaceQuiesceRequest,
+	): Promise<void> => {
 		// Read through a call on both sides. `state` is assigned from other
 		// closures, which the checker cannot see, so it takes the first
 		// comparison as narrowing the second out of existence — and the second
@@ -3391,7 +3659,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		const gone = (): boolean => state === 'deleted'
 		if (gone()) return
 		try {
-			await suspendShared(signal, epoch)
+			await suspendShared(signal, epoch, quiesceRequest)
 		} catch (err) {
 			if (gone() && err instanceof KubernetesSandboxDestroyedError) return
 			throw err
@@ -3684,6 +3952,77 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				})
 			}
 		})()
+	}
+
+	/**
+	 * One quiesce, through the live session's transport.
+	 *
+	 * It goes through {@link admitted} like every other data-plane call, so a
+	 * workspace another process suspended underneath this handle is named as
+	 * suspended rather than reported as a quiesce that failed at the
+	 * transport. It is NOT serialised here: both callers are already holding
+	 * the transition queue — the public verb takes it, and `suspendNow` runs
+	 * inside it.
+	 */
+	const quiesceNow = async (
+		quiesceOptions?: KubernetesQuiesceOptions,
+	): Promise<KubernetesQuiesceReport> =>
+		await admitted(
+			'quiesce',
+			async (handle) =>
+				await admittedTransport('quiesce', handle).quiesce(
+					quiesceOptions?.graceMs !== undefined ? { graceMs: quiesceOptions.graceMs } : {},
+					quiesceOptions?.signal,
+				),
+		)
+
+	/**
+	 * The quiesce `suspend({ quiesce })` performs, and the ONE failure it
+	 * does not pass on.
+	 *
+	 * An image whose agent predates the op cannot be asked, and refusing to
+	 * suspend over that would make the option unusable against every pod
+	 * built before this release — a caller could not even suspend such a
+	 * workspace without changing its own code. So the suspend goes ahead, as
+	 * it always did, and the host is TOLD through
+	 * {@link KubernetesWorkspaceOptions.onQuiesceUnsupported}; the gap is
+	 * reported rather than either hidden or turned into a refusal.
+	 *
+	 * Every other failure travels: a guest that answered and could not
+	 * confirm has processes still writing to the disk, and a suspend that
+	 * patched anyway would take the pod away while they did.
+	 */
+	const quiesceBeforeSuspend = async (
+		request: KubernetesWorkspaceQuiesceRequest,
+		signal?: AbortSignal,
+	): Promise<void> => {
+		const graceMs = typeof request === 'object' ? request.graceMs : undefined
+		try {
+			const report = await quiesceNow({
+				...(graceMs !== undefined ? { graceMs } : {}),
+				...(signal !== undefined ? { signal } : {}),
+			})
+			// This call answers `void`, so the scope in the report would go
+			// nowhere — and a narrowed scan can miss exactly the process the
+			// quiesce was asked for. Told, for the same reason the
+			// unsupported gap is.
+			if (report.scope !== 'pid-namespace') {
+				try {
+					options.onQuiesceNarrowed?.(report)
+				} catch {
+					// A host's callback is not allowed to decide whether the
+					// suspend it was only being told about goes ahead.
+				}
+			}
+		} catch (err) {
+			if (!(err instanceof KubernetesQuiesceUnsupportedError)) throw err
+			try {
+				options.onQuiesceUnsupported?.(err)
+			} catch {
+				// A host's callback is not allowed to decide whether the suspend
+				// it was only being told about goes ahead.
+			}
+		}
 	}
 
 	/**
@@ -4002,15 +4341,26 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			})
 		},
 
-		async suspend(transitionOptions?: KubernetesWorkspaceTransitionOptions): Promise<void> {
+		async quiesce(quiesceOptions?: KubernetesQuiesceOptions): Promise<KubernetesQuiesceReport> {
+			// Serialised, like the transitions it is meant to precede: a quiesce
+			// racing the suspend that follows it would be a quiesce of a pod the
+			// patch has already taken away, and one racing a resume would ask
+			// the old pod to stop the new one's processes.
+			return await serialise(async () => await quiesceNow(quiesceOptions))
+		},
+
+		async suspend(transitionOptions?: KubernetesWorkspaceSuspendOptions): Promise<void> {
 			// The single flight takes the FIRST caller's epoch, exactly as it
 			// takes the first caller's signal: a second caller arriving
 			// mid-suspend is joining that transition rather than starting one
 			// of its own, and one transition can only be written under one
-			// authority.
+			// authority. Its `quiesce` is the exception `suspendShared`
+			// explains — a guarantee about the guest, not an authority, and
+			// one a transition already patching cannot be given.
 			await suspendShared(
 				transitionOptions?.signal,
 				assertHolderEpoch(transitionOptions?.epoch, 'suspend') ?? heldEpoch,
+				transitionOptions?.quiesce,
 			)
 		},
 
@@ -4045,7 +4395,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				// single flight, so `destroy()` racing `suspend()` is one
 				// transition rather than two — and it stays idempotent over a
 				// workspace already deleted, where `suspend()` itself refuses.
-				await destroyBySuspending(destroyOptions?.signal, destroyOptions?.epoch ?? heldEpoch)
+				await destroyBySuspending(
+					destroyOptions?.signal,
+					destroyOptions?.epoch ?? heldEpoch,
+					destroyOptions?.quiesce,
+				)
 				return
 			}
 			await deleteShared(destroyOptions)

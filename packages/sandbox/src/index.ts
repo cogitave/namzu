@@ -61,6 +61,7 @@ import {
 	type KubernetesWorkspace,
 	type KubernetesWorkspaceOptions,
 	type KubernetesWorkspaceSummary,
+	type KubernetesWorkspaceSuspendOptions,
 	type KubernetesWorkspaceTransitionOptions,
 	createKubernetesWorkspace as buildKubernetesWorkspace,
 	deleteKubernetesWorkspace as deleteWorkspaceOnCluster,
@@ -263,6 +264,25 @@ export {
 	type SessionKind,
 	type SessionState,
 } from './backends/firecracker/protocol.js'
+// Quiesce: stop every process a workspace's guest is running, while the
+// agent goes on serving, so a capture taken next is one nobody is writing
+// under. The report a host reads, the two refusals it catches by class, and
+// — for the same reason as the feature strings above — the `quiesce` string
+// itself and the scope vocabulary its report is written in.
+export type {
+	KubernetesQuiesceOptions,
+	KubernetesWorkspaceQuiesceRequest,
+} from './backends/kubernetes/workspace.js'
+export type { KubernetesQuiesceReport } from './backends/kubernetes/transport.js'
+export {
+	KubernetesQuiesceUnconfirmedError,
+	KubernetesQuiesceUnsupportedError,
+} from './backends/kubernetes/transport.js'
+export {
+	QUIESCE_FEATURE,
+	type QuiesceScope,
+	type QuiescedProcess,
+} from './backends/firecracker/protocol.js'
 // The API-request bound and the error it raises. Exported because
 // "distinguishable from a caller abort and from every other failure, by
 // type" is only true for a host that can name the class — and because a
@@ -359,6 +379,7 @@ export type {
 	KubernetesWorkspaceOrigin,
 	KubernetesWorkspaceStartFailurePolicy,
 	KubernetesWorkspaceSummary,
+	KubernetesWorkspaceSuspendOptions,
 	KubernetesWorkspaceSuspensionNotice,
 	KubernetesWorkspaceTransitionOptions,
 } from './backends/kubernetes/workspace.js'
@@ -1311,11 +1332,17 @@ export async function deleteKubernetesWorkspace(
  * call — which fails at the transport and is re-read into a
  * `KubernetesWorkspaceSuspendedError` — or when that process calls
  * `refresh()`.
+ *
+ * It takes the suspend options shape and REFUSES `quiesce` rather than
+ * accepting the flag and dropping it: this verb never dials the agent, so
+ * there is no connection here on which anything could be stopped. Quiescing
+ * needs a handle — `createKubernetesWorkspace()`, then
+ * `suspend({ quiesce: true })`.
  */
 export async function suspendKubernetesWorkspace(
 	config: KubernetesBackendConfig,
 	workspaceId: string,
-	options?: KubernetesWorkspaceTransitionOptions,
+	options?: KubernetesWorkspaceSuspendOptions,
 ): Promise<void> {
 	await suspendWorkspaceOnCluster(kubernetesInternalConfig(config), workspaceId, options)
 }

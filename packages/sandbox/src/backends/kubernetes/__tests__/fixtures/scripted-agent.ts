@@ -99,6 +99,21 @@ export interface ScriptedAgentOptions {
 	/** Hold an `execute` open this long before replying, so a case can
 	 * cancel one that is genuinely in flight. */
 	readonly executeDelayMs?: number
+	/**
+	 * What `quiesce` answers with. Unset falls through to the server's own
+	 * `unknown_op`, which is what an image built before the op does — so a
+	 * guest that also omits `quiesce` from {@link ScriptedAgentOptions.features}
+	 * is an OLD image, and one that advertises it without a reply here is the
+	 * mismatch a host has to survive.
+	 */
+	readonly quiesceReply?: unknown
+	/**
+	 * Hold a `quiesce` open this long before replying. A quiesce that
+	 * answered instantly could not prove that the `Suspended` patch waits for
+	 * it: both would land in the same tick and the ordering would be
+	 * unobservable.
+	 */
+	readonly quiesceDelayMs?: number
 }
 
 /** One accepted connection: where the client aimed it. */
@@ -355,6 +370,16 @@ export async function startScriptedAgent(
 					} else {
 						reply()
 					}
+					continue
+				}
+				if (op === 'quiesce' && options.quiesceReply !== undefined) {
+					const answer = () => {
+						if (socket.destroyed) return
+						send(socket, options.quiesceReply)
+						socket.end()
+					}
+					if (options.quiesceDelayMs) setTimeout(answer, options.quiesceDelayMs).unref?.()
+					else answer()
 					continue
 				}
 				if (op === 'write-file') {
