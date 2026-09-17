@@ -1,5 +1,182 @@
 # Changelog
 
+## 41.0.0
+
+### Major Changes
+
+- d0227e2: `MCPClient.connect()` now negotiates across four legacy MCP protocol revisions — `2025-11-25`, `2025-06-18`, `2025-03-26`, `2024-11-05` — instead of only `2024-11-05`. It offers `2025-11-25` (the newest) in a single `initialize` request and accepts whatever the server answers with, as long as the answer is one of the four; a server negotiating to anything else is refused, naming the version offered, the version answered, and the full supported list. This is one round trip, never a per-version retry loop.
+
+  **This is the changed default that makes the release major:** the version this client advertises in `initialize` moves from `2024-11-05` to `2025-11-25`. A server that tailors its response to the client's claimed version — richer content blocks, a different capability set — now sees a different value on the wire, and (for a server negotiating to `2025-06-18` or `2025-11-25`) now also receives an `MCP-Protocol-Version` header on every request after `initialize`, which it did not receive before. There is no per-call way to pin the old advertised version or suppress the new header: a caller that needs the previous behavior stays on the previous major version of `@namzu/sdk`.
+
+  New on the public surface, both additive: the `McpEra` type (`{ kind: 'modern'; version } | { kind: 'legacy'; version }` — only `legacy` is reachable today) and `MCPClient.getEra()`, which returns the era the last `connect()` negotiated, or `undefined` before one has. `MCPTransportSendOptions` gains an optional `headers` field.
+
+  See [MCP protocol eras](../docs/sdk/mcp-protocol-eras.md) for the full model, why there is no waterfall, and what this workstream deliberately does not build yet (the 2026-07-28 "modern" era).
+
+- 5663108: `MCPClient.connect()` no longer opens with `initialize`. It opens with a `server/discover` probe at MCP `2026-07-28` and offers the legacy handshake only when that probe says the peer does not speak it. The first request a server sees from this client is therefore a method that did not exist before 2026-07-28 — that is the breaking change, and there is no opt out.
+
+  **What an operator observes.** One extra round trip on first contact with a given HTTP origin or stdio command, then nothing: the resolved era is cached per origin (or per resolved command and arguments) and a remembered legacy peer skips the probe entirely. Against a server that answers an unknown method with an error the probe costs a round trip's latency; against one that ignores unknown methods it costs `MCPClientConfig.eraProbeTimeoutMs`, new here and defaulting to `2000` (clamped to `requestTimeoutMs`). The CLI's 10s `connectTimeoutMs` default accommodates that, measured against a real child process rather than assumed.
+
+  **What a modern connection does differently.** No `initialize`, no `notifications/initialized`, no `Mcp-Session-Id` sent or captured even if the origin offers one, no `GET`, no `DELETE`, no `Last-Event-ID` — and no `notifications/cancelled` POST on Streamable HTTP, where closing the SSE response stream is itself the cancellation signal. stdio still sends the cancellation notification, in every era. Every modern request instead carries `_meta` (`protocolVersion` and `clientCapabilities` required, `clientInfo` a SHOULD) mirrored into `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` headers. Those three header names now belong to the protocol rather than to the caller: an `MCPRequestOptions.headers` entry colliding with one of them, matched case-insensitively, is refused and warn-logged instead of winning the merge, in both eras. A caller that was setting `MCP-Protocol-Version` by hand no longer can — a server rejects a header that disagrees with the body it mirrors, so the value the client negotiated is the only one it will send. Every other per-request header behaves exactly as before. `connect()` still returns an `MCPInitializeResult` of the same shape, synthesised from the `DiscoverResult`, so no caller branches on the era.
+
+  **A caller that needs the previous behaviour — the legacy handshake and nothing before it — pins the previous major.**
+
+  Additive alongside it: `MCPClientConfig.eraCache` and `eraProbeTimeoutMs`; the `MCPEraCache` and `MCPDiscoverResult` types; `resolveMcpEra`, `createMcpEraCache`, `defaultMcpEraCache`, `mcpEraCacheKey`, `isRecognizedModernError`, `classifyModernHttpFailure`, `buildEnvelope` and `encodeMcpHeaderValue`; and `MCPHttpStatusError`, which carries the status and the response body a failed HTTP send used to discard — the body is what tells a modern origin's `404` apart from a legacy one's.
+
+  See [MCP protocol eras](../docs/sdk/mcp-protocol-eras.md#resolving-the-era-two-probes-never-a-waterfall) for the state machine, the cache and its invalidation, and the `-32022` rule.
+
+- 6283f8d: `MCPClient.listTools()` can now return fewer tools than the server published. A tool whose `inputSchema` carries an invalid `x-mcp-header` annotation is excluded from the listing, with the tool name and the reason logged at `warn` (`namzu.mcp.tool`, `namzu.mcp.reason`). That is the breaking part: a tool a host used to receive, and a model used to be offered, can now be absent. Only tools carrying that annotation can be affected, and only on the Streamable HTTP transport — stdio and HTTP+SSE ignore the annotation entirely and exclude nothing.
+
+  **What the annotation is.** A server may ask that a tool parameter's value be mirrored into an `Mcp-Param-{name}` HTTP request header, so a load balancer or policy proxy can route and authorise a call without parsing JSON-RPC. A client on Streamable HTTP must support it, and must refuse a definition whose annotation breaks any of six constraints: non-empty; RFC 9110 `1*tchar` field-name syntax; no control characters, CR and LF in particular; case-insensitively unique across the whole `inputSchema`; applied only to a `string`, `boolean` or `integer` parameter, never a `number`; and statically reachable from the schema root through a chain of `properties` keys alone — never through `items`, `oneOf`/`anyOf`/`allOf`/`not`, `if`/`then`/`else` or `$ref`.
+
+  **What a call sends now.** On a modern (2026-07-28) Streamable HTTP connection, `callTool()` writes one `Mcp-Param-*` header per annotated parameter present in its arguments, read out of the same `params` object the request body carries. Values are written as the string, lowercase `true`/`false`, or a decimal integer, then wrapped in the `=?base64?…?=` sentinel when they cannot go into a field verbatim. The header is omitted — never sent empty — for an argument that is absent or `null`, for a value whose runtime type contradicts the schema, and for an integer outside ±(2^53−1). A legacy-era connection sends none of these, and neither does a call made before any `listTools()`.
+
+  **What a server can now make happen twice.** A `-32020` (`HeaderMismatch`) answer to a tool call triggers exactly one `tools/list` re-read and one retry of the same call, so a tool whose schema changed between the listing and the call recovers instead of failing. A second `-32020` surfaces to the caller. A tool call is therefore issued twice in that one case; a caller for whom a repeated call is unsafe should treat `-32020` as it would any other retried request.
+
+  **There is no opt out.** The exclusion is the spec's requirement, not a policy this client chooses, and a host that needs the previous behaviour — every published tool exposed regardless of its annotations — pins the previous major.
+
+  Additive alongside it: `validateMcpHeaderAnnotations`, which answers the same question about a schema a host holds, with the `McpHeaderAnnotationVerdict` and `McpParamHeaderBinding` types; and `McpEnvelopeInput.paramHeaders`, optional, so every existing `buildEnvelope` call is unchanged.
+
+  See [MCP protocol eras](../docs/sdk/mcp-protocol-eras.md#mirroring-tool-parameters-into-headers-x-mcp-header) for the constraints, the encoding table and the recovery.
+
+### Minor Changes
+
+- bd32216: Delegation display labels now ride the `agent_pending` event. `RunEvent`'s `agent_pending` variant, `CreateTaskOptions` and `SendMessageOptions` each gain optional `workflow`, `phase`, `phaseDetail` and `phaseOrder`, and the SSE bridge carries them on `agent.pending` as `workflow`, `phase`, `phase_detail` and `phase_order`.
+
+  **These are display annotations only; they do not create dependencies, barriers, or serial execution.** Nothing in the kernel reads them back: admission, capacity, ordering and concurrency are decided by the scheduler, and two children naming the same phase are not thereby sequenced, synchronised or joined. `planId`/`planStepId` remain the delegation fields that carry correlation a host may act on. A reader who infers execution structure from a label here has inferred it from a caption.
+
+  What they buy is reach. A label that stays in the delegating process's memory is visible to that process and to nothing else; on the event it reaches every listener the delegation was given, and through `mapRunToStreamEvent` the SSE wire, so a consumer watching from elsewhere rebuilds the same grouping instead of seeing an undifferentiated list of children.
+
+  **Reach is not durability, and this does not add persistence.** Delegation lifecycle events are handed straight to a host's listener without passing through the run's event translator, so `agent_pending` enters no run's log — which is what the absent `seq` on these variants has always meant. A label supplied here is written nowhere by the kernel and does not survive a restart; a host that wants the grouping to outlive its process records it from the listener, into whatever store it already keeps.
+
+  Minor, and nothing to do on the upgrade: every field is optional and absent unless a host supplies one, no export was removed or renamed, no union narrowed, no default changed. A host that supplies none sees byte-identical events and wire payloads. The A2A bridge continues to emit nothing for delegation events — deliberately, and now said so in its comment: a peer models one task lifecycle and has no screen of ours to caption.
+
+  The CLI change is behaviour-preserving (`patch`): the `Agent` tool sends the labels it already collected down onto the delegation, and its activity monitor reads them off the event with the launch-time values kept as the seed, so a child that fails before `agent_pending` still groups where it was launched. For a run supplying the same labels on both paths — which is every CLI run — the grouping is byte-identical to before.
+
+- c272993: `MCPContentBlock` gains `audio` (`{ type: 'audio', data, mimeType }`, part of the schema since 2025-03-26) and `resource_link` (`{ type: 'resource_link', uri, name, description?, mimeType? }`, since 2025-06-18), and the existing `resource` variant gains optional `blob?` (a binary embedded resource) and `annotations?` (a new `MCPContentAnnotations` type: `audience`, `priority`, `lastModified`). `mcpToolResultToToolResult` now renders all of it instead of silently dropping it: an admitted `audio` clip is named by its media type in the tool result's `output`; a malformed audio batch is withheld with a notice, atomically, the same as the existing image-admission behavior (new `audio-admission.ts`, supporting `audio/wav`, `audio/ogg` and `audio/mpeg`); a `resource_link` is rendered as a named pointer (`[MCP resource link: <name> (<uri>)]`) since it carries no content to show; a `resource` with `blob` and no `text` no longer risks mishandling — it is left out of model-visible content without throwing, consistent with how a URI-only resource has always been handled; `annotations` pass through untouched into `ToolResult.data`.
+
+  Minor by the letter of the rule — every change here is additive — but read this if your code pattern-matches `MCPContentBlock` exhaustively (a `switch` with a `default: assertNever(block)` or equivalent): it will fail to compile until you add cases for `audio` and `resource_link`. Add a case (or a catch-all) for each before taking this upgrade if you switch over this union anywhere.
+
+  This is meant to ship in the same release as the MCP protocol-era negotiation work: namzu now reaches servers that negotiate past 2024-11-05, and those servers are the ones that actually send these block types.
+
+- c99f088: `MCPClient` now protects `MCP-Protocol-Version`, `Mcp-Method` and `Mcp-Name` from a caller-supplied per-request header on **every** connection, including a 2024-11-05 or 2025-03-26 legacy session — the two eras that send none of their own headers, where the protection previously derived its refused set from the era's own header keys and so refused nothing. `Mcp-Method` and `Mcp-Name` are modern-only headers this client never writes on any legacy connection, so this closes the gap on every legacy era, not only the two oldest. A caller relying on setting one of these three by hand on a legacy connection will now have it silently dropped and warn-logged, matching the modern-era behavior this package already documented as universal.
+
+  New `isResourceNotFoundError(error)`, alongside the existing `isHeaderMismatchError`/`isUnsupportedProtocolVersionError`/`isMissingRequiredClientCapabilityError`, recognizing the two JSON-RPC codes a server may use for "that resource, prompt or tool does not exist" (`-32002`, current spec; `-32602`, an older server's application-defined equivalent) — the codes `RESOURCE_NOT_FOUND_CODES` already listed but nothing had consumed.
+
+  No wire-format or default-behavior change beyond the header fix above; both changes are exports/behavior a consumer only gains.
+
+- 359b27f: Legacy (2025-03-26 through 2025-11-25) Streamable HTTP connections now match three things those revisions specify and namzu did not do: a session that the server has forgotten answers `404`, and the client re-initializes once before retrying; `close()` sends a best-effort `DELETE` to tell a cooperative server the session is done; and an SSE event's `id:` field is captured and offered back as `Last-Event-ID` on the request after a reconnect, so a server that supports resumption can replay whatever this client may have missed.
+
+  All three are additive behavior on legacy connections only. A modern (2026-07-28) connection never establishes a session in the first place — it has nothing to re-initialize, nothing to `DELETE`, and nothing to resume — so it is unaffected structurally, not by an opt-out. The zero-config request shape for every existing caller is unchanged.
+
+  New on the public surface: `StreamableHttpTransport.resetSession()` and `.hasSession()`. `parseSseMessages`/`MCPSseParseResult` are also now exported from `connector/mcp/streamable-http.ts` for direct testing, but that module has no subpath in the package's `exports` map, so this is not reachable from outside the package and is not a public-surface change.
+
+- 165fd64: Both MCP HTTP transports (`StreamableHttpTransport`, `HttpSseTransport`) now accept an optional `fetch?: MCPFetchLike` in their config, used in place of the ambient global `fetch` for every HTTP call the transport makes. `MCPFetchLike` (`{ok, status, headers, body, json(), text()}` via a real `Response`) is a new exported type — the same injectable, socket-free idea as `FetchLike` in the A2A bridge, re-declared here because both MCP transports read `.headers` and one reads a streamed `.body`.
+
+  `MCPRequestOptions` — already accepted by `listTools()`, `callTool()`, `readResource()`, `getPrompt()` and the rest — gains two more optional fields: `headers?: Record<string, string>`, merged over the transport's static config headers for that one request, and `bearerToken?: string`, sent as `Authorization: Bearer <token>` and applied after the merge so it overrides a configured `Authorization` header without touching a differently-named one such as a static `X-API-Key`. A per-request credential is refused at the same redirect boundary as a static one — `refuseMcpHttpRedirect` is untouched.
+
+  Everything here is additive and optional: a call that supplies none of the new fields sends the exact request it sent before this release. `HttpSseTransport`'s message POST is also fixed in passing to read `MCPTransportSendOptions.headers` at all — previously a per-send header (including the `MCP-Protocol-Version` header from the last release) silently never reached that transport's wire.
+
+  See [MCP protocol eras](../docs/sdk/mcp-protocol-eras.md#per-request-authority-injectable-fetch-bearer-token-headers) for the full model.
+
+- 93f8d1e: `MCPClient` now understands MRTR's `resultType` envelope on a `tools/call` result: absent or `"complete"` is unchanged from before, `"input_required"` is read as `{ inputRequests?, requestState? }`, and any other value is refused (the spec's own "MUST be considered invalid") through the new `MCPInvalidResultTypeError` rather than being passed through as an ordinary result.
+
+  **Automatic recovery, once.** A `requestState`-only `InputRequiredResult` — the only shape a conforming server can send, since `namzu` declares `clientCapabilities: {}` and MRTR rule 7 forbids asking for anything else — is retried immediately, echoing `requestState` byte-for-byte under a fresh JSON-RPC id. `requestState` itself is opaque: never parsed, inspected or logged in full.
+
+  **A typed, catchable outcome for everything else.** An `InputRequiredResult` carrying `inputRequests` this client cannot satisfy, a second `input_required` after the one retry, or a `-32021 MissingRequiredClientCapability` error — the failure a no-capability host is actually likely to see — no longer reach a tool call's caller as an unexplained rejection. `mcpToolToToolDefinition`'s `execute` catches all three and returns a `ToolResult` with `success: false` and a `data.code` of `mcp_tool_input_required` (naming the requested method(s) in `data.requested`) or `mcp_tool_missing_client_capability` (naming `data.requiredCapabilities`), both `retrySafety: 'safe'`. Both still pass through the existing untrusted-content framing before reaching a model.
+
+  New on the public surface: `decodeResult`, `MCPDecodedResult`, `MCPInputRequest`, `MCPInputRequiredError`, `MCPInvalidResultTypeError`. Nothing existing changes shape — a legacy result with no `resultType`, which is every result a pre-MRTR server has ever sent, decodes exactly as it always has, and `MCPClient.callTool`'s own throw behaviour for an ordinary transport or protocol error is untouched.
+
+  See [MCP protocol eras](../docs/sdk/mcp-protocol-eras.md#mrtr-resulttype-and-a-typed-input_required-outcome) for the full design and why a conforming server can only ever ask for a retry, never for input this client has no way to give it.
+
+- 7694a82: An MCP tool or connection failure that came back as a JSON-RPC error reply now rejects with a new exported `MCPProtocolError` (a subclass of `Error`) carrying the reply's numeric `code` and its `data` payload untouched, instead of only a formatted string. Three narrow predicates — `isUnsupportedProtocolVersionError`, `isMissingRequiredClientCapabilityError`, `isHeaderMismatchError` — let a caller react to a specific MCP error code without comparing magic numbers itself. A new `RESOURCE_NOT_FOUND_CODES` constant lists the JSON-RPC codes a server may use for "that resource doesn't exist."
+
+  Additive only: `error.message` still reads exactly `MCP error {code}: {message}` as before, so an existing `catch` block or a test matching on that string is unaffected, and `MCPProtocolError` is a subclass of `Error`, never a replacement for it. A malformed error reply (a missing or non-integer `code`) still rejects, with a distinctly-named local error that none of the three predicates match.
+
+- 449642e: Add `/orchestrate`, a session mode layered above reasoning effort rather than inside it.
+
+  `@namzu/cli`: `/orchestrate [on|off]` (no argument toggles) turns the mode on or off for the current session. It is deliberately not a `ReasoningEffort` value — typing `/effort orchestrate` still reports "unavailable for this model", exactly as `ultracode` does today. When the `/effort` picker can open, the mode also appears there as its own row below a rule, apart from the model's own levels. Turning the mode on pins reasoning effort to the model's highest published level and strengthens delegation guidance for future turns toward delegating by default; when the model publishes no exact effort menu the mode still turns on and still strengthens guidance, but pins nothing and says so. Like effort, the mode is in-memory and per-session — nothing is written to preferences. A model switch still resets an explicit effort override to the new model's default, but while the mode is on it re-pins to the new model's highest level instead. The status line shows the level and the mode together (`effort high · orchestrate`), or the mode alone when nothing is pinned — never a fabricated effort value.
+
+  `@namzu/sdk`: `codingAgentDoctrineContribution` gains an optional `orchestrate` field on `CodingAgentDoctrineOptions`, and a new exported `CODING_AGENT_ORCHESTRATE_DOCTRINE` constant. Passing `orchestrate: true` (and leaving `delegation` at its default) appends that text after the existing delegation doctrine. Leaving the new field unset — the only behavior any existing caller can observe — renders byte-identical output to before this field existed. No default changed and no export was renamed or removed, so this is additive for every current consumer.
+
+- 3e6980d: Open a finished delegated child from the evidence it already writes to disk.
+
+  **`@namzu/sdk`** gains one static method and the type it returns:
+  `RunDiskStore.listChildren(baseDir, parentRunId)` and `DelegatedChildRun`. It
+  walks `<baseDir>/<parentRunId>/children/`, reads each child's `run.json`, and
+  reports the run id, its directory, and whatever the file recorded of the agent,
+  the model, the status, the timings and the token total. Every field from the
+  file is optional: `run.json` is written on a run's terminal path, so a child
+  killed before it got there leaves a transcript worth reading and no recorded
+  ending, and absent means "the file did not say" rather than zero.
+
+  Additive. Nothing existing changed, and in particular **`listRuns` is
+  unchanged** — do not read this as a fix to the index. `addToIndex` still
+  returns early for any run with a `parentRunId`, so a delegated child still
+  never appears in the browsable catalogue, which is what keeps it out of a
+  host's conversation listing. `listChildren` is the separate read for a caller
+  that wants the evidence anyway. It performs no writes: binding a `RunDiskStore`
+  to a run creates that run's directory, which is why discovery is a static walk
+  and not a bound method.
+
+  **`@namzu/cli`** can now open a delegated child that is no longer live — evicted
+  by the activity monitor's eighty-agent bound, or left behind by a process that
+  has since exited. The agent cockpit lists it from disk and drills into its saved
+  transcript, rebuilt through the same projection a live child renders through, so
+  the past and the present look alike.
+
+  It cannot be continued, and the screen says so: a replayed row is marked `saved`,
+  its transcript is headed `Replayed from saved evidence. This child cannot be
+continued.`, it never appears in the live panel above the composer, and there is
+  no message or cancel affordance on it. Resume has never restarted delegated
+  tasks or reconnected their processes, and opening one does not either. Replay is
+  read-only — no file is written, moved or pruned by looking at a past run — and a
+  torn transcript opens with the records that could be read plus a row saying it is
+  partial; one that cannot be read at all opens with that row alone, beside what
+  `run.json` recorded, rather than dropping the child from the list.
+
+  Two limits worth knowing before relying on it. Streaming deltas never enter a
+  run's durable log, so a replayed transcript carries tool calls, their results and
+  any failure text but not the assistant prose that streamed between them; the
+  child's `report.md` holds its answer. Delegation lifecycle events enter no log
+  either, so a replayed child's `workflow` and `phase` labels are not recovered:
+  saved children are grouped by the parent run they belonged to and carry the
+  unlabelled default workflow, as a live child launched without labels does.
+
+  Child run directories accumulate and nothing prunes them. That predates this
+  change — the directories were always written — but this is what makes the growth
+  visible. Reclaiming the space today means deleting `children/` directories by
+  hand; a prune command is follow-up work.
+
+- feaeaba: `Sandbox.readFile` takes an optional options parameter, and `Sandbox` gains an
+  optional `readFileStream`.
+
+  `readFile(path, options?: SandboxReadFileOptions)` accepts `offset`, `length`
+  and `signal`. It is source-compatible in both directions: callers may go on
+  writing `readFile(path)`, and a backend may go on declaring the one-parameter
+  form and still satisfy the widened signature — no implementation has to change.
+  A backend that accepts the parameter and then ignores `offset`/`length` does
+  not satisfy it: returning the whole file where a slice was asked for is a wrong
+  answer, not a degraded one, so such a backend must reject instead.
+
+  `readFileStream?(path, options?): AsyncIterable<Buffer>` is optional in the
+  same way `openTerminal?` is. A backend that cannot read a file incrementally
+  omits it rather than implementing it by reading the file whole and chopping the
+  result up, so a caller that needs bounded memory refuses an absent method
+  instead of silently getting the behaviour it was trying to avoid.
+
+  The SDK's own local provider serves the range rather than refusing it: a slice
+  of a file on a local filesystem is one positional read, and a range that runs
+  past the end returns the bytes that exist. `signal` is honoured on both shapes
+  — handed to the whole-file read, and checked on either side of the positional
+  one, which takes no signal of its own.
+
+  What this changes for a caller of the agent-backed backends in
+  `@namzu/sandbox`: a `readFile` of a file around 384 MiB or larger used to fail
+  with `Cannot create a string longer than 0x1fffffe8 characters`, because the
+  guest base64-encoded the whole file into one string. It now succeeds. Hosts
+  that drain agent-produced output files before `destroy()` are the case this is
+  for.
+
 ## 40.0.0
 
 ### Major Changes

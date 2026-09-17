@@ -1,5 +1,843 @@
 # @namzu/sandbox
 
+## 15.0.0
+
+### Major Changes
+
+- a5c19bf: A Kubernetes API request that the API server accepts and never answers now fails after 30 seconds instead of hanging forever.
+
+  **What changes for you.** Every request `createKubernetesClient` sends carries its own bound — `apiRequestTimeoutMs`, default `30000` — on top of whatever `AbortSignal` the caller passed. It covers `getToken()`, the connection and reading the body, on both the `fetch` and the `node:https` path. Expiry rejects with the new `KubernetesApiTimeoutError`, which carries the verb, the resource path and the bound that expired, and never the bearer token; it is deliberately not folded into the generic `kubernetes … failed:` error, so a caller can tell a timeout from a refusal. A caller's own abort behaves exactly as it did. **To keep something closer to the old behaviour on a genuinely slow cluster, raise the number** — `apiRequestTimeoutMs: 120000`, say. There is no value that disables the bound: `0` and anything below the `1000` floor are refused at construction.
+
+  **Why a signal was never enough, and why this is worth a major.** `signal` is optional on every one of these calls, and several of them are single-flight promises that run under whichever caller arrived first and never consult a later one's. A workspace `suspend()` is one: a plain `destroy()` joins it, a `resume()` queues behind it, and while it is in flight the handle's state is `suspending`, so every data-plane call is already refused. One signal-less call against an unanswering API server therefore pinned the entire handle, and a host calling `destroy()` during shutdown hung until it was killed. The same shape applies to the task backend's shared egress verification and to a joined teardown. Putting the bound in the client covers those, the standalone workspace verbs and any verb added later, with no wiring at each call site.
+
+  A timeout cannot tell whether the request was applied, and nothing pretends otherwise: `suspend()` restores the state it saw and re-sends its idempotent patch, a create `POST` that timed out but did land is adopted through the 409 path, and a `DELETE` that had already applied counts as done.
+
+  **Also in this release, and opt-in rather than a changed default: stream liveness.** Once `openTerminal` or `openTcpConnection` reported ready, the transport cleared its read-idle timer — correctly, since a quiet shell is healthy — and nothing replaced it, so a peer that vanished without a FIN or an RST left `exited`/`closed` unresolved on the host and the shell's process group alive in the guest until the pod stopped. Streams now trade a `{ type: 'heartbeat' }` frame every `streamHeartbeatMs` (new on the Kubernetes backend config, default `15000`, `0` sends none). Three consecutive intervals with nothing at all arriving end the stream: the host resolves `exited` with `exitCode: -1`, exactly as a closed socket already produces, and resolves `closed`; the guest runs the same cleanup a closed socket runs. Both sides count bytes rather than whole frames, so a large frame still on its way proves the peer is there; silence while a side has paused reading for backpressure is not counted, in either direction; and each side polls at a quarter of the interval, so a dead stream is noticed within three intervals plus at most one more tick — 45 seconds plus up to 3.75 more at the default. TCP keepalive is enabled on both ends of the routed connection as well.
+
+  The heartbeat is **negotiated per stream and off unless both peers asked**, so no existing stream's behaviour changes: the open request carries the interval, an agent that implements it echoes the interval it will use in its `ready` event and only then starts sending, and the host only starts once that echo arrived. The echo is a number from the pod and the host times its own watchdog with it, so the host honours it only between `100` ms and four times what it asked for; this agent clamps to the same floor before echoing, so an honest echo is never altered. An agent built before this change ignores the unknown field and echoes nothing; an older host never asks and is therefore never sent a frame type it would treat as a protocol error. The guest advertises `stream-heartbeat` in its `healthz` `features` and the guest wire protocol version is unchanged, so no host and no golden image has to roll with this release.
+
+  **The Firecracker tier is untouched.** `VsockTransportOptions.heartbeatMs` is new and undefined by default; only the Kubernetes backend opts in. A default on the shared transport would have force-closed an existing consumer's quiet-but-alive terminal after 45 seconds, which is a changed default for a tier this change does not claim. Keepalive is set on the routed `tcp` arm only.
+
+  New on `KubernetesBackendConfig`: `apiRequestTimeoutMs` and `streamHeartbeatMs`. Newly exported from `@namzu/sandbox`, all additive: `KubernetesApiTimeoutError` and the type of its `verb`, `KubernetesHttpMethod`; `DEFAULT_API_REQUEST_TIMEOUT_MS` and `MIN_API_REQUEST_TIMEOUT_MS`; `DEFAULT_STREAM_HEARTBEAT_MS`; and, for a host writing its own guest or asserting what this one advertises, `STREAM_HEARTBEAT_FEATURE`, `STREAM_HEARTBEAT_MISS_LIMIT`, `MIN_STREAM_HEARTBEAT_MS`, `STREAM_HEARTBEAT_MAX_ECHO_FACTOR` and the type `StreamHeartbeat`. `createKubernetesClient` takes an optional second `KubernetesClientOptions` argument. Nothing on the SDK's `Sandbox` changes, so no `@namzu/sdk` changeset accompanies this.
+
+- 3a6651c: A Kubernetes acquire that fails now says why, in a field. `create()` rejects with `KubernetesAcquireError` rather than a plain `Error` or a bare `ReadinessPollTimeout`, and a transient API failure during readiness is retried inside the readiness budget instead of ending the acquire on sight.
+
+  **What breaks.** Two things, and both are about what a caller catches or how long it waits.
+
+  1. **The thrown type changed.** A `create()` that ran out of readiness budget used to reject with `ReadinessPollTimeout`; it now rejects with `KubernetesAcquireError` carrying `reason: 'not-ready'`, with the `ReadinessPollTimeout` as its `cause`. A host doing `catch (e) { if (e instanceof ReadinessPollTimeout) … }` around `create()` must look at `e.cause`, or — better — switch to `e.reason`. A host matching message text does not survive at all: the message for a diagnosed refusal is new. `KubernetesWorkspace` is unaffected — the workspace lifecycle does not go through acquire and still raises `ReadinessPollTimeout` directly.
+
+  2. **A doomed `create()` can now take the full `readyTimeoutMs` where it used to fail in milliseconds.** A readiness `GET` that fails with a connect error, an `apiRequestTimeoutMs` expiry, a 429 or a 5xx is repeated inside the existing readiness deadline, honouring the server's `Retry-After` (which may only slow the poll down, never speed it past `readyPollIntervalMs`). One clock, so a retry spends the budget rather than extending it and `create()` still cannot outlive the timeout its caller chose — but with the default 60 s budget, an acquire against an API server that is down now rejects after 60 s instead of after one round trip. A host with its own outer timeout will notice. To keep the old latency, lower `readyTimeoutMs`. The create `POST` is never retried: it is not idempotent, and a POST whose answer never arrived may already have committed.
+
+  **What you get for it.** `KubernetesAcquireError.reason` is one of `api-unreachable`, `api-timeout`, `forbidden`, `claim-rejected`, `capacity`, `image-pull` or `not-ready`, with a `retryable` flag and the original failure as `cause`. A burst past node capacity and an API outage were previously the same plain `Error`, separable only by matching message text any release is free to reword.
+
+  And a claim the controller has already **refused** no longer waits out the clock. Four `status.conditions[Ready]` reasons mean decided rather than not-yet — `WarmPoolNotFound`, `TemplateNotFound`, `InvalidMetadata`, `EnvVarsInjectionRejected` — and meeting one ends the acquire on the first read, carrying the controller's own reason and message on `controllerReason`/`controllerMessage`. Measured against agent-sandbox v1.0.2 on Kubernetes v1.37.0: a claim naming a warm pool that does not exist is refused in 233 ms against a 60 000 ms budget, with the claim deleted behind it. Those four strings were read off a live controller rather than copied from a changelog, and any other reason still falls through to the deadline — an unrecognised one is never guessed at.
+
+  `capacity` (`PodScheduled=False`/`Unschedulable`) and `image-pull` come from a single pod `GET` made only after the budget has already gone, and before the cleanup `DELETE`. When a pod condition and a retried API failure both describe one refusal — the ordinary state of a saturated cluster — the pod condition decides, because it is what the cluster published about this pod; and a failure the poll recovered from is forgotten rather than carried to the end, so it can neither rename a diagnosed refusal nor be quoted by a poll that simply ran out of time. Nothing on the successful path reads anything it did not read before: a clean acquire issues exactly the requests it issued in the previous release, pinned by a request-log test.
+
+  **Newly exported from the package root**, because catching by class is not possible from outside otherwise: `KubernetesAcquireError` and its `KubernetesAcquireFailureReason`, `TERMINAL_CLAIM_REASONS`, `ReadinessPollTimeout`, `KubernetesApiError` (new — it carries the verb, path, `status`, the `Retry-After` the server sent, and whether the failure was a connect or a status), `KubernetesApiFailureTransport`, `KubernetesCredentialError`, `KubernetesAlreadyGoneError`, `KubernetesConflictError`, and the three egress refusals `KubernetesUnenforceableEgressPolicyError`, `KubernetesEgressPolicyNotAppliedError` and `KubernetesEgressPolicyMismatchError`. Nothing was renamed or removed, and `@namzu/sdk` is untouched.
+
+  **A refusal this taxonomy cannot honestly diagnose is not filed under the least wrong reason** — a malformed template, a 400 from an admission webhook, a controller that reported `Ready` and named no sandbox all travel out as themselves. That is deliberate: a `reason` that meant "something else" would be worth nothing to the host reading it.
+
+- ff6134f: The Kubernetes backend now refuses to create a sandbox when ANY policy selecting its pods lets out more than `config.egress` says — not just when the one object it GETs by name has drifted. A deployment with a second `NetworkPolicy` over those pods, including the controller-managed one a `SandboxTemplate`'s own `networkPolicy` block becomes, used to work and now fails with `KubernetesEgressPolicyUnionError`; `egress: { policy, verify: 'named-object-only' }` restores the previous single-object check exactly. This is the SECOND default-on refusal in this release — the other is `KubernetesIngressPolicyError`, which is about the agent port being reachable INBOUND. They are distinct classes, and each message opens by naming what it refused.
+
+  What was open before: verification GETted one object, compared it to the translation exactly, and memoized the pass for the whole life of the backend. The API server UNIONS every policy selecting a pod — traffic leaves if any of them allows it — so that check could only ever prove one policy was not the problem. In agent-sandbox v1.0.2 a `SandboxTemplate` that sets `networkPolicy` has its egress translated verbatim into a managed policy, and a template that omits the block gets a controller default allowing `0.0.0.0/0` minus RFC 1918 and `169.254.0.0/16` INSTEAD — not underneath. So deleting a `networkPolicy` block opened the internet (and left `100.64.0.0/10`, `127.0.0.0/8` and `168.63.129.16/32` reachable) while `namzu-task-egress` still verified perfectly. The shipped `sandboxtemplate-task.yaml` said that managed baseline "still applies underneath"; it does not, and that comment is corrected here.
+
+  Two new Kubernetes-only kinds on `KubernetesEgressConfig.policy`. `{ kind: 'no-network' }` emits `policyTypes: ['Egress']` with no rule at all: nothing leaves the pod, the cluster's own resolver included, which is what `deny-all` never meant — `deny-all` allows UDP/TCP 53 to `kube-system`, and a cluster resolver forwards outside names upstream. A `no-network` sandbox resolves nothing; the agent needs no resolver because the host dials in, but a workload that resolves anything fails, which is the point. `{ kind: 'public-internet', exceptCidrs? }` emits DNS to the resolver's own pods plus `0.0.0.0/0` except `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `169.254.0.0/16`, `127.0.0.0/8` and `168.63.129.16/32`, and `::/0` except `fc00::/7`, `fe80::/10` and `::1/128` — out, but not sideways to the node, the service network, the API server, instance metadata or another sandbox pod. `exceptCidrs` adds to that list and is routed to the block of its own address family; an entry that is not a CIDR is refused at construction with the new `KubernetesEgressPolicyConfigError`.
+
+  **`deny-all` and `allow-all` emit byte-for-byte what they always have.** Nothing about them changed, deliberately: verification of the named object is an exact match, so tightening either translation would stop every already-applied policy from verifying and fail every `create()` until an operator re-applied it. A test pins both manifests by deep equality. The tier-wide `EgressPolicy` union is untouched, so nothing changes for the process, container, Firecracker or ACI tiers and `@namzu/sdk` is not affected.
+
+  What runs now, by default, wherever `config.egress` is set: the named-object check exactly as before, and then, at the same two points the ingress check already runs — before the POST for a directly created Sandbox, after the bind for a claimed one, and before any resume patch on `createKubernetesWorkspace` — a LIST of the namespace's `NetworkPolicy` objects (and, under `engine: 'cilium'`, that CNI's CRD), evaluated against the pod's real labels. It refuses when a selecting policy allows a destination the translation does not (`refusal: 'policy-widens-egress'`; under `no-network`, any egress rule at all), when nothing selecting the pod puts it in egress default-deny so the translation bounds nothing (`'no-enforcing-policy'`, skipped under `allow-all`), or when a policy, peer, port or collection cannot be read (`'not-evaluable'`). The refusal carries the pod's labels and every policy examined with a verdict each. A pass is cached per label set for at most five minutes — not for the backend's lifetime — and a failure is never cached. Subset is decided conservatively: a second policy passes only when the check can show it is inside the translation, and anything it cannot place inside refuses.
+
+  To take this upgrade: run one `create()` against each namespace and read the refusal if there is one — it names every policy it examined, so the fix is the line that says `widens-egress`. In practice that means removing or narrowing the placeholder rule in `k8s/manifests/networkpolicy.yaml`, and keeping a template's inline `networkPolicy` egress inside whatever `config.egress.policy` names. `k8s/manifests/rbac.yaml` already grants `list` on `networkpolicies` (and on `ciliumnetworkpolicies`) for the ingress check; without it this check refuses with `not-evaluable` naming the missing verb. A host that cannot be granted it, or that accepts the union it has, sets `egress.verify: 'named-object-only'` and says so on purpose.
+
+  Also new on the public surface: `KubernetesOnlyEgressPolicy`, `KubernetesEgressPolicy`, `KubernetesEgressVerification`, `KubernetesEgressPolicyUnionError`, `KubernetesEgressPolicyConfigError` and the `EgressPolicyRefusal` / `EgressPolicyVerdict` / `ExaminedEgressPolicy` reporting types; `UnreadIngressPolicySource` is renamed `UnreadPolicySource` because both checks now report it, with the old name kept as a `@deprecated` alias. What no test proves: enforcement. `kind` accepts every `NetworkPolicy` and enforces none and runs no Cilium data plane, so every "it was blocked" probe there passes for the wrong reason — `k8s/scripts/egress-check.mjs` is the live check and runs two positive controls before it reads any result. Nothing about the guest wire protocol, the bind token, the privilege probe, ingress verification, suspend, resume or deletion changed.
+
+- 984d966: A Kubernetes workspace's writes are now put on its disk before its pod stops, and `suspend()` asks for that by default.
+
+  **What was wrong.** Nothing in the guest agent or the Kubernetes backend ever called `sync`, `syncfs` or `fsync`. A `write-file` answered `ok` as soon as the bytes were in the guest's page cache, and `suspend()` patched the pod away and waited for it to stop — a wait both the code and the docs treated as the point the disk was quiesced. It is not: a stopped pod means only that nothing is writing any more, and whether the guest's dirty pages reached the device depends on how the runtime tore the guest down. Measured on a cluster with a VM runtime class: the container was killed with exit 137 about a second into a five-second stop, while `kill -TERM 1` from inside the guest ended it cleanly in about a second.
+
+  **Three operator-visible changes, in the order they will be noticed.**
+
+  1. **`sandboxtemplate-workspace.yaml`'s `terminationGracePeriodSeconds` moves from 5 to 30, and the container gains a `preStop` hook** (`/entrypoint.sh prestop`: `sync -f` the workspace, signal pid 1, wait for it). **The 30 is a budget, not a measurement** — 15 s of it is the agent's own `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS`, the rest is for the hook and the kubelet — and it must be measured on your runtime, because it depends on the runtime class, the storage class and how much a workload leaves dirty. On the runtime measured above the stop lasted the whole grace period even though the container was gone in a second, so **this is roughly what every `suspend()` will cost there**, up from about 7 s. To keep the old behaviour, set `terminationGracePeriodSeconds: 5` in your own copy of the template and drop the `lifecycle` block; re-applying the manifest does not change an existing workspace, which carries its own copy of `spec.podTemplate`. Expect a `FailedPreStopHook` warning on every stop that worked: the hook ends pid 1 of the container's pid namespace and the kernel then SIGKILLs the hook with it, so the event records the success path rather than a defect. The hook's own wait is derived from the agent's bound rather than fixed — `ceil(NAMZU_AGENT_SHUTDOWN_DEADLINE_MS / 1000) + 2` seconds, 17 as shipped — because the kubelet runs the hook, waits for it, and only then signals pid 1: a shorter wait would end the hook mid-drain and hand the agent a stop signal sent only because the hook gave up. Raise `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` and the hook's wait follows; `NAMZU_PRESTOP_WAIT_SECONDS` overrides the derivation for an operator who wants to own the relationship. The hook signals pid 1 only after `/proc/1/comm` says pid 1 is the `tini` this image starts — a derived image that boots a different init sets `NAMZU_PRESTOP_INIT_NAME` or gets no signal (and a line on stderr) instead of an arbitrary process being killed. Note also that the grace-period countdown includes the hook's own unbounded `sync -f`, so the number to clear is `sync-time + NAMZU_AGENT_SHUTDOWN_DEADLINE_MS`, not 15 s alone. **`sandboxtemplate-task.yaml` keeps its own 5 s grace period and now sets `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: 3000` inside it** — the same pair read the other way. The agent's `SIGTERM` handler is a bounded drain rather than the prompt exit it used to be, and with that variable unset its 15000 ms default outlived a task pod's 5 s grace period three times over: a task pod with anything still running at stop time was SIGKILLed mid-drain instead of exiting 0 on its own bound. The task template deliberately carries no `preStop` hook, and cannot at this grace period — the wait a hook derives from a 3000 ms deadline, `ceil(3000 / 1000) + 2` = 5 s, is the whole of it, leaving the kubelet no room after the drain — and a diskless task pod has nothing persistent for the hook's `sync -f` to flush in any case. What its 3 s bounds is a graceful stop of the guest's own processes: close the listener, quiesce what is running, exit 0.
+  2. **`suspend()` and the `destroy()` that suspends now send the guest a `flush` op and wait for the reply before the `Suspended` patch.** Exactly ONE outcome stops the suspend: a guest that ANSWERED and could not confirm rejects with the new `KubernetesFlushUnconfirmedError` and **sends no patch at all** — the workspace stays running and serving, and the caller holds the guest's own message. That is a new way for `suspend()` to fail, and `suspend({ flush: false })` is byte-for-byte the suspend of every previous release. Everything else is reported and the suspend goes ahead, because `suspend()` is the verb an operator reaches for when a workspace has gone wrong: an image that cannot flush (an agent predating the op, or one with no `sync` to run) tells the host through the new `KubernetesWorkspaceOptions.onFlushUnsupported`, and a guest that cannot be REACHED to be asked — crashed, OOM-killed, off the network, or fenced with `agent_retiring` — through the new `onFlushUnreachable`, carrying the transport's error as its `cause`. Reaching an unreachable guest costs the transport's connect-retry budget (30 s) before the suspend goes on, so suspending a wedged workspace is slower than it was, but it still works: refusing there would leave exactly that workspace running and billing. A suspend already in flight that asked for no flush refuses a joining caller that wants one, the way an in-flight suspend already refuses a joining `quiesce` — which includes a plain `destroy()`, so that is the one shape in which `destroy()` in a `finally` block is not a no-op; `destroy({ flush: false })` joins such a transition deliberately. `suspend({ flush: { timeoutMs } })` and `destroy({ flush: { timeoutMs } })` raise what the GUEST may spend inside the `syncfs`, for a workspace that leaves more dirty than its 10000 ms default covers; the option is `boolean | { timeoutMs }`, the shape `quiesce` already had for `graceMs`, and the new `KubernetesWorkspaceFlushRequest` type is exported for it.
+  3. **`writeFile` resolves later, and replaces rather than overwrites.** A reply of `ok` now means the bytes are on the device: the guest writes a temp sibling, `fsync`s it, renames it onto the target and `fsync`s the directory. Every write of any size is therefore atomic at the target — a write that fails leaves the previous contents rather than a truncated file — and the target's mode is carried onto the replacement, on a whole-body write and on a sequence's final part alike (a mode the guest cannot carry over fails the write rather than renaming a file that has a different one). The cost is one `fsync` per write (one per part sequence for a chunked body, on the last part, which covers the whole file). Four consequences of the rename now reach writes of every size, where before they reached only a part sequence — a body above about 5.9 MiB of raw content, the point at which one frame stops holding it, since 8 MiB is the frame's ceiling and not the body's: hard links to the target are broken (the other name keeps the old inode), the replacement is owned by the agent's uid whatever the previous file's owner was, the CONTAINING DIRECTORY must now be writable (overwriting a writable file inside a directory the agent's uid cannot write to used to succeed and now fails when the temp sibling is opened), and a `.namzu-write-….part` sibling is briefly visible to a `listFiles` or `walkFiles` racing the write. A fifth is the single-frame path's alone, and is one a part sequence never had: a basename over about 200 characters fails with `ENAMETOOLONG`, because the temp sibling's name is the target's plus 55 bytes — the host names a part sequence's temp file itself, with the target's basename truncated to 96 characters, so those never carried this one either before or after.
+
+  **Also new, and additive:** `KubernetesWorkspace.flush(options?)` for the moments that are not a suspend (before a snapshot, before a drain), with `KubernetesFlushOptions`, `KubernetesFlushReport`, `KubernetesFlushUnsupportedError`, `KubernetesFlushUnreachableError` and the `FLUSH_FEATURE` string exported alongside it. The standalone `suspendKubernetesWorkspace` never dials a guest, so it cannot flush: it refuses an explicit `flush: true` rather than ignoring it. The agent's `SIGTERM` handler now stops accepting connections, stops every process the guest is running (the routine `quiesce` already used — there is one implementation of that, not two), flushes and exits 0, all bounded by `NAMZU_AGENT_SHUTDOWN_DEADLINE_MS` (15000 ms) with `NAMZU_AGENT_FLUSH_TIMEOUT_MS` (10000 ms) bounding one flush. That deadline is the only bound: a repeat `SIGTERM` is logged and ignored rather than exiting at once, because in a stopping pod the second signal is the kubelet's own — sent the moment the `preStop` hook returns — and not anybody asking for a shorter wait. `SIGINT`, `SIGQUIT` and `SIGKILL` are unhandled and still end the process immediately. The guest wire protocol version is unchanged: `flush` is an additive op advertised in the `healthz` `features` list, so no host and no image has to roll together with this release — and a guest advertises it only if it can perform one, since the flush runs `sync -f` and a derived image that strips coreutils has the code and no `sync`. A bare `sync` is deliberately not a fallback anywhere here, in the agent or in the hook: it flushes every mounted filesystem, and on a runtime sharing the host kernel that is the node's disks.
+
+  **What is not proven.** That a kubelet runs a `preStop` hook under the runtime class the shipped manifests name was never measured — the three mechanisms above are deliberately independent for that reason — and no test can prove the device wrote what the kernel handed it. `k8s/scripts/suspend-resume.mjs` now covers a 5 MiB `writeFile` and a 100 MiB command-written file issued immediately before the suspend, and prints the suspend's own duration; that is the measurement to run on a real cluster before trusting the grace period this ships with.
+
+- 87c5337: The Kubernetes-backend guest entrypoint (`packages/sandbox/k8s/entrypoint.sh`) now resolves and exports a writable `HOME`, `USER`, `LOGNAME`, `XDG_CACHE_HOME` and `XDG_CONFIG_HOME` before starting the guest agent, on both the root and non-root exec paths.
+
+  **Before:** `setpriv --reuid=/--regid=` (the exec every pod ends with) changes only the running process's credentials, never the environment, so `HOME` stayed whatever it was before the drop — `/root` on every pod, since nothing in the container ever ran as anyone else first. `/root` is not readable or writable by the de-privileged agent uid (verified in #469), and `agent.cjs`'s `childEnvironment` copies every non-`NAMZU_AGENT_`/`NAMZU_SANDBOX_` environment variable into every `execute` and terminal child, so the broken value reached every process a task ever started: LibreOffice without `-env:UserInstallation`, `pip install --user`, npm's cache, and the fontconfig/matplotlib caches all failed against it.
+
+  **After:** `entrypoint.sh` resolves a home once, before either exec site. It first tries `getent passwd "$AGENT_UID"` field 6 — the shipped image's own `useradd --create-home` already creates this directory (`/home/namzu` as built) owned by the agent uid, so this is the common case, and `USER`/`LOGNAME` come from that same passwd entry. If `getent` is missing, the uid has no entry, the entry names a directory under the workspace root, or the directory still cannot be made to belong to the agent uid, it falls back to `/tmp/namzu-home-$AGENT_UID` (created fresh, mode `0700`, owned by the agent uid, `USER`/`LOGNAME` set to `namzu`) — never under the workspace root, so it can never appear in `listFiles`, `walkFiles` or an archive. Only if both fail does the pod refuse to start. `agent.cjs` itself is unchanged: the propagation mechanism this relies on (`childEnvironment`) already carried `HOME` correctly — it just never had a correct value to carry.
+
+  **Major, not patch:** this changes the guest's exported environment on the NORMAL path, for every task and workspace pod, not only in an error configuration. A derived image that depended on `HOME=/root` inside the guest — the only thing running as root before the privilege drop could have relied on — must now set `HOME` (and `USER`/`LOGNAME`/`XDG_*`, if it depends on those too) itself, after its own `FROM`, since this resolution runs unconditionally on every boot and always wins over whatever the base image set. A derived image that changes `AGENT_UID` needs no changes: it either already ships a passwd entry for that uid naming a directory it owns, or falls back to `/tmp` automatically.
+
+  `k8s/scripts/capability-check.mjs` now also prints `$HOME`, whether it exists, and whether a probe write succeeded, informationally — like its existing `Seccomp` and set-id lines, this never fails the check itself.
+
+- 29c510d: The Kubernetes-backend task `SandboxTemplate` (`packages/sandbox/k8s/manifests/sandboxtemplate-task.yaml`, and the kind overlay's `patch-task-no-runtimeclass.yaml`/`patch-workspace-filesystem-pvc.yaml`) no longer runs its container `privileged`. It now runs as `runAsUser: 1001`, `runAsGroup: 1001`, `runAsNonRoot: true`, `allowPrivilegeEscalation: false`, `capabilities: { drop: [ALL] }` and `seccompProfile: { type: RuntimeDefault }` — the container-level shape of the Pod Security Standards `restricted` profile.
+
+  **Before:** every task sandbox pod started as root with the full capability bounding set and no seccomp filter possible (Kubernetes runs a `privileged` container unconfined regardless of any `seccompProfile` named alongside it). The guest agent itself was still deprivileged by `entrypoint.sh`'s `setpriv` before it ever ran — the acquire-time privilege probe (`src/backends/kubernetes/privilege-probe.ts`) verified that on every acquire, and still does — but anything else that ran in the pod (most concretely, a `kubectl exec` shell, since the image sets no `USER`) got uid 0 and every capability the pod granted, for no runtime reason: the task template mounts no block device, so `entrypoint.sh`'s only root-requiring step never ran for it.
+
+  **After:** a task pod never has root or a capability at any point in its life. `entrypoint.sh` now branches on its own `id -u`: non-root, it execs `setpriv --no-new-privs -- tini -- node agent.cjs` directly (skipping the `--reuid`/`--regid`/`--clear-groups`/`--inh-caps`/`--bounding-set` flags a non-root process cannot run anyway), and refuses outright, naming the uid, if a device is set on a non-root pod — a misconfiguration that used to look like a silently-skipped format. `sandboxtemplate-workspace.yaml` is unaffected: it keeps `privileged: true`, because its device branch genuinely needs `CAP_SYS_ADMIN` to `blkid`/`mkfs.ext4`/`mount` a raw block device before dropping every capability itself.
+
+  `k8s/Dockerfile` also strips every setuid/setgid bit its own packages carry (`util-linux`/`e2fsprogs` on `node:22-bookworm-slim` ship `su`, `mount`, `umount`, `passwd`, `chsh`, `chfn`, `gpasswd`, `newgrp`, `chage`, `expiry` and `/usr/sbin/unix_chkpwd` set-id) — defence in depth for a process that ever runs non-root without `--no-new-privs` set some other way, not something the entrypoint or the probe depend on. A task image `FROM`ing this one and layering its own packages on top must repeat that `find`/`chmod` step after its own installs.
+
+  **Major, not patch:** a task pod's default runtime capabilities changed. A task workload that relied on root or an ambient Linux capability inside a task sandbox — mounting something itself, binding a privileged port, `CAP_NET_RAW`, writing to a path only root owns, invoking a setuid binary the image used to ship — worked before this change and fails now. To keep the old behaviour, fork `sandboxtemplate-task.yaml` (or patch it after applying) back to `privileged: true`, understanding that this also re-opens the capability surface the acquire-time privilege probe never covered (a `kubectl exec` shell, or anything else that bypasses the guest agent's own `setpriv`). The guest agent's own process tree is unaffected either way — it was already fully deprivileged by `entrypoint.sh` before this change, and the privilege probe's admission rule (all four capability masks zero, `NoNewPrivs` 1) is unchanged.
+
+  No code on the published npm package's surface changed — `packages/sandbox`'s `files` array packs only `dist` and `src`, and none of `k8s/` is in it. The major bump is for the shipped Kubernetes deployment artifacts a consumer applies directly to their own cluster, which this repository documents and versions as part of `@namzu/sandbox`.
+
+- edf1d79: The Kubernetes backend now refuses to create a sandbox whose agent port no applied policy closes. A deployment that never applied `packages/sandbox/k8s/manifests/networkpolicy.yaml` used to work, insecurely, and now fails with `KubernetesIngressPolicyError`; `ingress: 'unverified'` on the backend config restores the old behaviour for a deployment whose boundary lives somewhere a namespaced `Role` cannot read.
+
+  What was open before: every `Sandbox` this backend POSTs directly — that is every persistent workspace and every task sandbox created with `warmPoolName` unset — carried no ingress policy at all unless an operator had applied that one manifest, and nothing checked. The templates' inline `networkPolicy` block looked like coverage and was not: the controller translates it into a policy selecting `agents.x-k8s.io/sandbox-template-ref-hash`, a label it writes only onto a Sandbox adopted out of a `SandboxWarmPool`. Measured on a managed cluster running a policy-capable CNI, pods created that way had enforcement on egress only, and TCP 1024 answered — with zero policy drops — from a pod in another namespace, a pod on another node, an unlabelled pod in the sandbox namespace, and host-network pods on both nodes. The guest agent's own source calls the network rule in front of that port the boundary; the bind token was the only thing actually in the way.
+
+  What runs now, by default: before the POST for a directly created Sandbox (so a refusal leaves no Sandbox and no PVC behind), after the bind for a claimed one (where a refusal releases the claim), and before the POST on every `createKubernetesWorkspace` — including the adopt path, so a workspace whose port stopped being covered is refused asleep rather than woken up to be refused. The check LISTS the namespace's policies and evaluates their selectors against the pod's real labels, never a policy name, and passes only when at least one ingress-enforcing policy selects the pod and none of them admits a wide-open peer on the agent port. Policies union, so one open rule fails the check however many closed ones sit beside it. The refusal carries the pod's labels, the port and every policy examined with a verdict each, plus `unread` — the collections it could not enumerate, so a refused (403) or unserved (404) list is reported as such instead of as a namespace that holds no policy, and the action it names is granting the missing verb rather than applying a policy the check never got to look for. Every wire field is read defensively in one direction: one that arrives as something the schema does not declare (a `spec.ingress` that is not a list of rules, a `podSelector` that is not a selector, a Cilium `fromCIDR` that is a string) refuses rather than being read as its empty value, and a `CiliumNetworkPolicy` carrying `enableDefaultDeny: { ingress: false }` cannot count as coverage — it allows without isolating the endpoint — though what it admits is still read as an opening.
+
+  To take this upgrade: apply `k8s/manifests/networkpolicy.yaml` (it is in the README's apply order already and in the kind overlay), and add `list` on `networkpolicies` to the host's `Role` — `k8s/manifests/rbac.yaml` now grants it, next to the `get` the egress check uses. Under `ingress: { engine: 'cilium' }` the same two verbs are needed on `ciliumnetworkpolicies`. A cluster that closes the port through a cluster-scoped policy, a service mesh or a cloud security group sets `ingress: 'unverified'`, which reads no policy and issues no request; that is a supported configuration, stated on purpose rather than inherited.
+
+  Also new on the public surface: `KubernetesIngressConfig`, `KubernetesIngressEngine`, `KubernetesIngressPolicyError` and its `IngressPolicyRefusal` / `IngressPolicyVerdict` / `ExaminedIngressPolicy` / `UnreadIngressPolicySource` reporting types, plus `KubernetesBackendConfig.ingress`. This refusal is distinct by class from every other one a create can raise, so an open agent port is never confused with an unenforceable egress policy or a slow API server. Nothing about the guest wire protocol, the bind token, the privilege probe, egress translation, suspend, resume or deletion changed.
+
+- f6bfb7d: Kubernetes workspace failure paths no longer suspend a workspace that is in use. Two observable defaults change, and a suspend on this backend deletes the pod — every terminal, dev server and running command in it, for every process holding the workspace.
+
+  **A start that fails no longer always suspends.** `createKubernetesWorkspace` and `KubernetesWorkspace.resume()` used to send `operatingMode: Suspended` on any error while bringing a session up. The errors that reach that path include a caller's `AbortSignal` firing during readiness, a single 5xx or 429 on a Sandbox or pod `GET` (the client does not retry), and a privilege probe that overran its deadline — none of which is a fault of the workspace, and all of which a _second_ process meets while the _first_ is executing in the pod. A workspace id is a name and not a lock, so that second process is the ordinary case: a restart, or a second revision during a rollout.
+
+  A failed start now patches only when the call itself moved the mode — it `POST`ed the object, or its `Running` patch took the object out of `Suspended`. An adopt of an already-running workspace, and a `resume()` that finds another process has already woken it, write nothing and rethrow. `resume()` reads `spec.operatingMode` before patching instead of patching blind, so it no longer claims authorship of a wake it did not perform (and no longer restamps `sandbox.namzu.ai/operating-mode-changed-at` for a mode that did not change).
+
+  _To keep the old behaviour there is nothing to do for the case it was right about_: a workspace this call woke and then failed to start is still suspended, because leaving it `Running` with a pod nobody is using burns a node. If you want **no** patch on any start failure — you keep your own holder record and sweep idle workspaces yourself — pass `onStartFailure: 'leave'`, on `KubernetesWorkspaceOptions` for the handle or on `KubernetesWorkspaceTransitionOptions` for one `resume()`. The old blanket behaviour (suspend on every start failure, including another process's workspace) is deliberately not offered.
+
+  One thing a failed start still does, unchanged, is leave the handle without a session: after a `resume()` that rejected without writing anything, `workspace.suspended` reads `true` although the cluster is `Running`. It is the handle's own state, not a claim about the object, and another `resume()` is the way back — `refresh()` reports only a suspension somebody else performed.
+
+  **An unconfirmed cancellation no longer retires a workspace or sends a patch.** When an execution's cancellation could not be confirmed within the shared controller's eight-second window, the handle retired itself — which on a workspace meant the same `Suspended` patch. Eight seconds of network loss under one `exec()`, or a pod evicted under an in-flight command, therefore stopped the pod for everyone. Nothing is written now:
+
+  - `exec()` still rejects with `RemoteCancellationUnknownError`;
+  - it carries `retirement: { accepted: false, reason: 'workspace-kept' }` instead of `{ accepted: true }`. `reason` is a new optional field on `SandboxRetirementObservation`; `error` is absent, because nothing was attempted. **Code that reads `retirement.accepted` to mean "the pod was stopped" must read `reason` as well**;
+  - the handle is not retired — `suspended` stays `false` and the next call is admitted;
+  - one bounded `healthz` over a fresh connection reports through the new `onCancellationUnconfirmed({ error, agent })` on `KubernetesWorkspaceOptions`, where `agent` is `'ok'`, `'retiring'` (the guest fenced itself and only a new pod clears it) or `'unreachable'`.
+
+  _To restore the old behaviour, call `suspend()` from `onCancellationUnconfirmed`._ Calling it only when `agent === 'retiring'` restores it for the case it was actually diagnosing.
+
+  **A fenced agent is named.** A reservation refused with `agent_retiring` on this backend now rejects with the new `KubernetesAgentRetiringError` instead of `RemoteProtocolError: remote sandbox returned an invalid execution reservation`. Unlike the Firecracker tier's mapping of the same refusal it does not retire the handle: that mapping is `RemoteCancellationUnknownError`, which would take the workspace's pod away. Not retiring the handle is a statement about _this side_ — nothing was patched and the workspace is still `Running`; the guest's fence gates every op but `healthz` and `cancel-execution`, so reads, writes, terminals and tcp connections meet it too until the pod is replaced, and the message names the verbs that replace it on each tier (`suspend()` then `resume()` on a workspace, `destroy()` and a new sandbox on the task path).
+
+  Nothing here adds a `DELETE`. `destroy({ deleteDisk: true })` and `deleteKubernetesWorkspace` remain the only paths that remove a disk.
+
+  Also new on the public surface: `KubernetesWorkspaceStartFailurePolicy`, `KubernetesWorkspaceAgentState`, `KubernetesWorkspaceCancellationNotice`.
+
+- 1d46ef4: A Kubernetes workspace call that used to fail with `unauthorized` after its pod was replaced now succeeds — against a **different guest**, where every process the caller started is gone. That is the changed default, and a host that keeps per-workspace state must subscribe to the new `KubernetesWorkspace.onGuestRestart(listener)` rather than assume continuity.
+
+  Why the handle rebinds at all: the agent's bind token is the bound pod's `metadata.uid`, read once per session, and under the default `agentAddress: 'service'` the Service FQDN outlives the pod. So after an eviction, a node drain, or a `suspend()`/`resume()` another process performed, the dial kept succeeding against the replacement pod and its agent refused every call. Nothing recovered from that, and the refusal arrived in two unrelated shapes: `KubernetesAgentUnauthorizedError` for `exec` and `listFiles`, a bare `Error('unauthorized')` for `writeFile`, `readFile`, `openTerminal` and `openTcpConnection`.
+
+  **What changed.** A refused call re-reads the `Sandbox` once and, when it finds the same `sandboxUid` and a live pod with a different uid, takes the new address and token and retries the call **once** — safe because the guest checks the token before dispatch, so a refused request ran nothing at all. The same pod uid leaves the original error standing. A **different** `sandboxUid`, or no `Sandbox` at all, now raises the new `KubernetesWorkspaceReplacedError` and never rebinds: the workspace name is deterministic, so that is a different object with an empty disk. Every operation that cannot be rebound now rejects with `KubernetesAgentUnauthorizedError`, so the bare-`Error` shapes are gone — code matching `error.message === 'unauthorized'` on those four calls must catch the class instead.
+
+  **What is additive.** `KubernetesWorkspace.identity` (`{ sandboxUid, volumeClaimUids, podUid, guestBootId }`); `onGuestRestart`, which fires `pod-replaced` and `container-restarted` events and does not fire across the caller's own `suspend()`/`resume()` (the one exception being a pod somebody else replaced during that resume, where both halves of the payload still name their pod — `previous` the one the resume had bound, `current` the one it rebound to); `KubernetesWorkspaceReplacedError` and `KubernetesWorkspaceGuestGoneError`; and three fields on the `onCancellationUnconfirmed` notice (`guest`, `previous`, `current`). An unconfirmed cancellation whose guest is demonstrably gone now rejects with `KubernetesWorkspaceGuestGoneError`, which **extends** `RemoteCancellationUnknownError` — every existing `instanceof` and every read of `retirement` keeps working, and the rule is unchanged: the outcome is unknown and the command must not be retried automatically. The diagnosis is per command, and so is the identity it carries: `previous` is the guest the COMMAND reserved on — the pod its `reserve-execution` was accepted by and the agent process inside it — so neither a restart the handle survived earlier nor a pod another call has already rebound to is blamed on it, and `current` names an agent process only when that process belongs to the pod it names. A workspace somebody else suspended still rejects with `KubernetesWorkspaceSuspendedError`, not this class, so the handle adopts the suspension and `resume()` works. Nothing on this path patches the cluster, exactly as before.
+
+  **Guest and cluster.** The agent stamps an optional `guestBootId` on `reserve-execution`, `cancel-execution` (including `unknown_execution`), `read-file`, `write-file`, and the terminal and TCP `ready` frames, advertised as `guest-boot-id` in `healthz` features. The wire protocol version is unchanged, so an older guest image reports nothing and a newer host keeps working against it — it simply loses the container-restart signal. The shipped `k8s/manifests/rbac.yaml` gains `get` on `persistentvolumeclaims`, used only to report `volumeClaimUids`; re-applying it is optional, since a Role without it leaves that map empty and changes nothing else.
+
+  **To keep the old behaviour** — a refused call staying refused rather than rebinding — there is no flag: subscribe to `onGuestRestart` and drop your handle from the listener when `reason` is `pod-replaced`.
+
+- b3db254: **Closing a terminal now kills everything the terminal started.** That is the
+  one change here you did not ask for, and it is why this is a major. Before it,
+  tearing a terminal down sent `SIGKILL` to the process group of util-linux
+  `script` — and `script` starts the shell in a **new session**, so the kill
+  reached `script` alone. `script`, the shell and the foreground job then died of
+  the PTY hanging up, but a job backgrounded with `&` was never signalled: it
+  kept running with no terminal, holding its port, reachable by no op, until the
+  pod stopped. The agent's own comment claimed that kill reached "the shell and
+  every descendant". It now does: both a session kill and a plain terminal's
+  teardown signal every process still in the kernel session the shell was
+  started in, found through `/proc`. **If you were relying on that leak** —
+  starting a dev server with `&` inside a terminal and expecting it to survive
+  the terminal — move it to `startDetached` below, which is the verb for a
+  program meant to outlive its caller. Nothing else about a plain `openTerminal`
+  changed, down to the wire request it sends.
+
+  **What is new: a workspace terminal or program can outlive the host process.**
+  A workspace is built to outlive the host — it carries no lease for exactly
+  that reason — but the processes inside it were not. A terminal belonged to one
+  connection, so a deploy, a crash or an OOM kill tore down every terminal the
+  host had open. Replay was buffered in the host process, so its successor had
+  neither the output nor a way to name the terminal. And nothing could run
+  outside a terminal at all: `exec` caps at thirty minutes and kills the process
+  group when the cap fires.
+
+  All of it is on `KubernetesWorkspace`. `@namzu/sdk` is unchanged, and so is
+  every other backend, the Firecracker tier included.
+
+  - `openTerminal({ ...options, sessionId, persistent: true })` hands the PTY to
+    the guest's session registry. Closing the connection then DETACHES and sends
+    no signal of any kind; the session ends when its program exits, on
+    `killSession`, or when the pod stops.
+  - `attachTerminal(sessionId, { fromOffset, size })` rejoins it from any
+    process, replaying what it missed and then following live, with input and
+    resize working after the attach. At most one attachment exists at a time: a
+    second attach ends the first by name, so two host processes cannot
+    interleave keystrokes into one shell.
+  - `startDetached({ sessionId, command, args, cwd, env })` starts a program with
+    no PTY, stdin closed, in its own kernel session. `readSession(sessionId, {
+fromOffset })` answers in the SDK's `BackgroundJobOutput` shape (`chunk`,
+    `nextOffset`, `droppedBytes`, `status`, `exitCode`) — and a read is not an
+    attachment: it displaces nobody and signals nothing, so polling a shell's
+    tail leaves the terminal reading it alone. `listSessions()` names what is
+    running, and `killSession(sessionId, { signal })` ends one and everything
+    still in it; `signal` is one of `SIGTERM`, `SIGKILL`, `SIGINT` or `SIGHUP`
+    and anything else is coerced to `SIGTERM`, the same on every connection.
+  - Exported: `KubernetesSessionsUnsupportedError`,
+    `KubernetesSessionRefusedError`, `AgentSessionDetachedError`,
+    `SESSIONS_FEATURE`, plus the option and row types
+    (`KubernetesOpenTerminalOptions`, `KubernetesAttachTerminalOptions`,
+    `KubernetesStartDetachedOptions`, `KubernetesReadSessionOptions`,
+    `KubernetesKillSessionOptions`, `KubernetesSessionSummary`,
+    `KubernetesSessionOutput`, `KubernetesWorkspaceTerminal`,
+    `KubernetesSessionTerminal`, `KubernetesSessionRefusal`, `SessionKind`,
+    `SessionState`, `SessionDetachReason`).
+
+  **`exited` on a session terminal can reject.** When the attachment ends and the
+  program does not — the connection was lost, or another process took the
+  session — it rejects with `AgentSessionDetachedError`, carrying the byte offset
+  to come back at. Resolving it would report an exit that never happened, which
+  is the confusion this whole feature exists to remove. A connection-bound
+  terminal's `exited` is unchanged.
+
+  **What you have to know before relying on it.** The registry is the pod's
+  memory and is never written to disk, so `listSessions()` is empty after
+  `suspend()` and `resume()`, and after any eviction, node drain or restart:
+  this makes a program survive the HOST, not the pod. A session's output ring is
+  the same `OutputLog` a detached execution uses — one monotonic byte-offset
+  space, eviction reported as `droppedBytes`, never a shorter stream that looks
+  complete — and output is read into it whether or not anybody is attached, so a
+  program with no reader never blocks on a full PTY. No signal can follow a
+  process that called `setsid` for itself: it has left the session, and nothing
+  short of a PID namespace or a cgroup reaches it.
+
+  **`spawnDetached` is still absent, deliberately.** It returns a host
+  `ChildProcess` synchronously and its consumer keeps jobs in a map inside one
+  host process, so it cannot express a hand-off between processes. `startDetached`
+  has a different name because it does a different thing: it returns a NAME, and
+  the name is what a redeployed host comes back with.
+
+  **Redeploy the workspace image to get it.** The guest advertises `sessions` in
+  its `healthz` features, and a host asking for any session verb against an older
+  image is refused with `KubernetesSessionsUnsupportedError` — never downgraded
+  to a connection-bound terminal. The guest wire protocol version is deliberately
+  **unchanged**: `sessionId`, `persistent` and the four new ops
+  (`attach-session`, `start-detached`, `list-sessions`, `kill-session`) are all
+  additive, so no host and no image has to roll together with this release.
+
+  Three variables join the shipped workspace template's `env` block at their
+  defaults, so deleting them changes nothing: `NAMZU_AGENT_MAX_SESSIONS` (16
+  sessions at once), `NAMZU_AGENT_SESSION_LOG_BYTES` (1 MiB of retained output
+  each) and `NAMZU_AGENT_SESSION_TERMINAL_TTL_MS` (10 minutes an exited
+  session's record and output outlive it). The first two bound what the registry
+  can cost the container's 512Mi; a session exists only when a caller names one,
+  so a deployment that never asks for one pays nothing.
+
+### Minor Changes
+
+- b52609b: Adopting a Kubernetes workspace whose previous pod is still terminating now waits for the replacement instead of failing.
+
+  `createKubernetesWorkspace` on a name that already exists adopts the standing object, and the process that does so arrives at a moment the previous one did not choose: a `suspend()` that ended in `KubernetesWorkspaceSuspendTimeoutError` (the patch landed; the guest is riding out its `terminationGracePeriodSeconds`), two hosts coming up on one workspace during a rollout, or a host restarting inside that grace period. In each of those the only pod under the Sandbox's name carries a `deletionTimestamp` and is never bound to — its uid is the agent's bind token and the pod's replacement refuses it — while the replacement has not been created yet, so the bind-token read threw and the adopt rethrew it on the spot. It now polls for a live pod under the same `readyTimeoutMs` budget the resume path already polled under, and a budget that runs out names the pod that was still terminating rather than reporting a generic missing uid.
+
+  An adopt of an object that was Running with a healthy pod is unchanged, and so is the created path: nothing is being replaced there, so a pod that cannot be read is still reported on the first read rather than waited out for the whole budget. Nothing about suspend, resume, deletion or the guest wire protocol changed, and no default moved.
+
+  New on the public surface, and the reason this is `minor` rather than `patch`: `KubernetesWorkspace.origin`, typed by the new `KubernetesWorkspaceOrigin` union — `'created'`, `'adopted-running'` or `'resumed'`. It is fixed for the handle's life and says what the call walked into, not what state the workspace is in now (`suspended` is for that). A host reattaching to a workspace another process left behind needs it: on `'resumed'` the pod is brand new and only the disk survived, while on `'adopted-running'` the pod is the one the previous holder was using — a detached command may still be running in it, but no terminal is, because the guest agent kills a terminal's process group the moment its connection closes and a dead host's connections closed with it. Code that only reads a `KubernetesWorkspace` needs no change; code that implements the interface must add the field.
+
+- a75f670: `config.egress.ciliumNarrowing` lets a `static`/`resolver` egress allowlist under `engine: 'cilium'` limit ports, DNS names and TLS server names instead of allowing an address, any port and any resolvable name. This is additive: with `ciliumNarrowing` unset, the emitted `CiliumNetworkPolicy` is byte-for-byte what it always was, pinned by a deep-equality test, so an already-applied policy keeps verifying after this upgrade.
+
+  **Why.** Measured on AKS with Cilium 1.18.11: an unnarrowed allowlist's `toFQDNs` rule allows the ADDRESS a name resolved to, and one CDN address can serve many unrelated sites — `curl --resolve example.com:443:<registry.npmjs.org's own address>` returned the wrong site's content. It sets no `toPorts`, so `github.com:22` accepted a connection. And its DNS-visibility rule allows any name to resolve at all (`rules.dns: [{ matchPattern: '*' }]`), so DNS itself is an open channel out. `verifyEgressPolicyApplied` compares the applied object to the translation exactly, so an operator could not tighten any of this on the cluster without every `createKubernetesWorkspace` and provider `create()` failing.
+
+  **What's new**, all opt-in on `KubernetesEgressConfig.ciliumNarrowing`:
+
+  - `ports` (a default port list) and `hostPorts` (per-host overrides) — emitted as `toPorts` on each host's own `toFQDNs` rule. Setting either switches the translation from one shared `toFQDNs` rule naming every host to one rule PER host, so ports can differ host by host.
+  - `tlsServerNames: true` adds `serverNames: [<host>]` to a host's TLS ports (default `[443]`, override with `tlsPorts`) — SNI enforcement, which needs Cilium's L7 proxy. A host with no port configured is limited to its TLS ports rather than left open, because a `serverNames` rule needs a port to attach to.
+  - `dnsNames` (`true` or `{ namespace?, clusterDomain?, searchSuffixes? }`) replaces the DNS-visibility rule's `matchPattern: '*'` with an exact `matchName` per allowed host plus the host under `<namespace>.svc.<clusterDomain>`, `svc.<clusterDomain>`, `<clusterDomain>` (`cluster.local` default) and any configured extra search suffixes — exact names because Cilium's `matchName` does not match across a `.`.
+
+  Setting any of these under `engine: 'core'`, or with a `deny-all`/`no-network`/`allow-all`/`public-internet` policy, throws the new `KubernetesEgressNarrowingUnsupportedError` synchronously — both from `buildKubernetesBackend` and from `createKubernetesWorkspace`, before any request — because narrowing only means something next to a hostname allowlist Cilium enforces. A port outside `1-65535`, or an empty `clusterDomain`/search suffix, is refused at construction with `KubernetesEgressPolicyConfigError`.
+
+  Every new field becomes part of what `verifyEgressPolicyApplied` requires — no new comparison logic, it already deep-equals the whole `spec.egress` — so an applied object missing a configured `toPorts`, DNS name or `serverNames` entry throws `KubernetesEgressPolicyMismatchError` naming it. The union check that reads every OTHER policy selecting the pod now tracks ports per allowed hostname too, so a second `CiliumNetworkPolicy` naming an allowed host on a wider port (or with no `toPorts` at all) is caught as `policy-widens-egress` even though the hostname itself is on the allowlist.
+
+  A `ports`, `hostPorts[host]` or `tlsPorts` list set to an explicit empty array (`ports: []`) is now refused at construction with `KubernetesEgressPolicyConfigError` — it was neither "no restriction" (that's what omitting the field means) nor usable, and would have emitted a `toPorts` shape the API server rejects on apply.
+
+  **A shipped-manifest change you may need to make, now enforced rather than only documented.** `packages/sandbox/k8s/manifests/networkpolicy.yaml` and both `sandboxtemplate-{task,workspace}.yaml` templates' managed `networkPolicy` grant kube-dns on port 53 at plain L4, with no L7 rule. Cilium's own rule-precedence says an L4-only rule cancels the L7 portion of a similar rule that carries one — so if you turn `ciliumNarrowing.dnsNames` on, that plain rule defeats it: every name resolves again regardless of the narrower allowlist. Each shipped file says, at the rule itself, to delete it when `ciliumNarrowing.dnsNames` is set. Port and TLS-server-name narrowing need no manifest change; the translated `CiliumNetworkPolicy` grants the DNS access those two need on its own.
+
+  That plain rule reaches the exact same peer and port the narrowed `CiliumNetworkPolicy` allows for DNS, so mere reachability cannot distinguish them. The union check (above) now can: `EgressAllowance` carries the exact DNS names a narrowed translation restricts lookups to, and the check reads a candidate rule's own DNS restriction (or the fact that a plain `NetworkPolicy` has none at all) before deciding it is within bounds. Leave the shipped rule in place with `ciliumNarrowing.dnsNames` on, and — under the default `egress.verify: 'union'` — the next `create()` now refuses with `policy-widens-egress` naming that policy, rather than silently letting the narrowing do nothing. `egress.verify: 'named-object-only'` does not run this check, so a deployment on that setting must still delete the rule by hand.
+
+  **Unproven here, and the changeset says so rather than implying otherwise:** real Cilium L7 enforcement of any of these three options. The `kind` cluster this repository tests against runs no Cilium data plane, so a "the port is closed" probe there would pass for the wrong reason regardless of whether narrowing works; `k8s/scripts/egress-check.mjs` does not probe the hostname allowlist, narrowed or not, and its README section says so. Confirming enforcement needs a real Cilium cluster, a positive control (an allowed name still resolving and connecting) alongside the negative one, and ideally a `cilium policy trace`/BPF policy dump showing the narrowed rule is the one in force.
+
+- f024b6b: The Kubernetes backend can now label its own task-path claims with a
+  host-supplied identity, recover a crashed predecessor's claims by that label,
+  and read warm-pool headroom before admitting more work. All additive; no
+  default changed.
+
+  A `SandboxClaim`'s own name is client-generated per acquire, so nothing about
+  one said which host process created it. A host killed by a deploy, an OOM or
+  a lost node left every claim it held running until `claimTtlSeconds` reaped
+  it — an hour by default — and its replacement had no way to find, let alone
+  release, them sooner. Three new pieces of surface close that gap:
+
+  - `claimLabels?: Record<string, string>` on the Kubernetes backend config is
+    written into every `SandboxClaim`'s `metadata.labels` only — never into
+    `additionalPodMetadata`, so a running Sandbox's pod labels and any
+    `NetworkPolicy` selecting by them are unaffected.
+  - `releaseKubernetesTaskSandboxes(config, { labelSelector, signal })` LISTs
+    claims by `labelSelector` and DELETEs each one, returning
+    `{ deleted, names }`. `labelSelector` is **required** and refused, before a
+    single request goes out, if it is absent or empty: a release that fell back
+    to matching every claim would delete a live fleet's work.
+  - `readKubernetesTaskCapacity(config, { signal })` is three GETs and no
+    writes — the configured `SandboxWarmPool`, the claims collection filtered
+    to that pool, and the pods collection counted by `Pending` phase — into
+    `{ warmPool: { ready, desired }, activeClaims, pendingPods }`. Requires
+    `warmPoolName`; there is no pool to report on for a backend that creates
+    every sandbox directly.
+
+  The shipped `k8s/manifests/rbac.yaml` gains `list` on `sandboxclaims` — the
+  verb both new functions need to find claims by label instead of by a name
+  they already know — so a deployment that does not re-apply it gets a `403`
+  from either function alone, and never from `create()`. `sandboxwarmpools:
+get` is unchanged but is now a documented backend need rather than only a
+  diagnostic script's.
+
+  A host setting no `claimLabels` and calling neither new function sends the
+  exact requests it always has.
+
+- b07cebc: A second, deliberately narrower Kubernetes `Role` now ships for hosts that acquire only from a warm pool, and the verb list it grants is exported from the package root as data.
+
+  `packages/sandbox/k8s/manifests/rbac-claimant.yaml` is a `ServiceAccount` + `Role` + `RoleBinding` named `namzu-sandbox-claimant`, written in the same shape as the existing `rbac.yaml`'s. Bind a host that sets `warmPoolName` and never creates a `Sandbox` of its own to this ServiceAccount and it can claim, hold, release and enumerate pooled task sandboxes — nothing else.
+
+  Why it exists: the existing Role grants `sandboxes: create`, and a namespace that also runs the privileged workspace template has to allow privileged pods, so any identity holding that Role can POST a `Sandbox` with an arbitrary pod spec — privileged, `hostPath`-mounting, or on another `RuntimeClass`. RBAC decides per verb and never per object shape, so the only way to take that capability away from a host that does not need it is to not grant it. The claimant Role grants `create`/`get`/`list`/`patch`/`delete` on `sandboxclaims`, `get` on `sandboxes`, `get` on `sandboxwarmpools`, `get`/`list` on `pods`, and `get`/`list` on `networkpolicies` and `ciliumnetworkpolicies` — and withholds every `sandboxes` write, every write on a policy resource, and the `sandboxtemplates` and `persistentvolumeclaims` reads, each because no call site on the pool-only path issues it.
+
+  **What reaches a consumer through npm is the constant, not the manifest.** `k8s/` is outside the package's `files` array and has never been published, so the new `Role` is a repository artifact. New on the public surface, and the reason this is `minor` rather than `patch`: `KUBERNETES_CLAIMANT_RBAC_RULES`, exported from `@namzu/sandbox`'s entry point, with its `KubernetesRbacRule` and `KubernetesRbacVerb` types. It is the pool-only path's verb list with a call site named against every entry, and a host that wants to prove its own applied `Role` carries no more than this backend needs can compare against it instead of against a list copied out of a page. Nothing existing changed name, shape or default: no export was removed or narrowed, no config key moved, and a host that creates sandboxes directly keeps using `rbac.yaml` exactly as before.
+
+  The direct-create `ValidatingAdmissionPolicy` example that would bound what a `sandboxes: create` holder may POST is not in this change — it lands with the per-sandbox capability work. The manifest's header states that neither of the two cluster-level claims that go with it (a claimant host passing the contract suite and the acquire-p50 script, and `kubectl auth can-i create sandboxes` answering `no`) has been measured; the shipped test parses both Role files and compares verb sets, reads the pool-only path's own sources and resolves every literal `client.request('<METHOD>', …)` there to the `(apiGroup, resource, verb)` triple its path builder addresses — failing on any request it cannot trace, including a builder call with anything appended to it (a `pods/log`-style subresource is authorized separately from its parent), a NAME the source writes a second path to, in any of the four spellings the guard reads WHEREVER they are written rather than only where they open a statement (a plain assignment `path = …` — the one-line branch included — a compound one, a `for (path of …)` binding, a destructuring target `({ path } = …)`) — as a `const`/`let`/`var`-declared one, through which the appended spelling reaches a request too, and as a wrapper's own path parameter, through which the call sites that resolve it stop being what it sends; the first used to resolve to the initializer's triple in silence, a request in no function body it can match, a path that is a parameter of a body whose call sites it has not been told about, and a wrapper declared for such a path in a file the scan does not read — pins the file set it reads to the directory — any other `.ts` under `src/backends/kubernetes/` that reaches the client, calling `client.request(…)` itself in either spelling the scan reads (the literal one, or a computed `client['request']`) OR naming `listPolicies`, the one wrapper the scan knows, whose declaration is found in either shape the scan reads — fails until it is scanned or declared off the path with its reason — and contacts no API server. What it cannot see: the files declared off the path (`workspace.ts`, `k8s-client.ts`, `transport.ts`) are never resolved to triples, a wrapper call site in one of them included, since call sites are read from the scanned files only; a wrapper reached by another NAME is outside that file predicate, which matches the wrapper's name and not its identity, so a file importing a re-export of `listPolicies` — or calling a helper one level further out that calls it — is neither scanned nor required to be declared; a path arriving through an expression-bodied arrow's parameter is outside what it matches; a body it could not register — a class method, or an object literal's shorthand method, declared inside one of the bodies it reads — is attributed to the body that encloses it, so the nested body's own parameters are invisible; and the assignment guard it now has is by name in the file it resolves in rather than by scope, so a binding it registers nowhere shadows nothing there — a destructuring parameter (`function f({ path })`) or a write made to an exported binding from another module — and an assignment to a same-named local in an unrelated function of the same file refuses the request too, a false refusal rather than an escape; a parameter carrying a default (`function f(path = …)`, `function f({ path } = {})`) is written with an `=`, so the guard reads it and refuses the request rather than resolving it; and a destructuring pattern nested inside another (`({ a: { path } } = …)`) is read by neither spelling — measured green, and listed as a hole rather than claimed as read. That list is the SHORT form, not the list: it is carried in full in the header of `packages/sandbox/k8s/__tests__/manifests.test.ts`, which also holds the bullet `a path assembled by an operation the scan does not model`. Three shapes it used to pass in silence fail it now rather than being listed here: a declared wrapper written as `const NAME = … =>`, whose call sites resolved to nothing because the declaration was looked up with a `function`-keyword pattern; a file whose only route to the client is the computed `client['request']` spelling, which the file predicate's literal half could not match; and a name a source writes a second path to, in the two shapes it can reach a request through — a declared one, whose request used to be resolved from the initializer, and a wrapper's own path parameter, whose request used to be resolved from its call sites. Both are the appended-subresource escape the argument spelling already failed on.
+
+- 7488339: The Kubernetes backend can now select an egress PROFILE per claim, so one
+  `SandboxWarmPool` serves several enforced network modes. **It needs an
+  operator action on the cluster before it works:** a profile is a pod label,
+  and the agent-sandbox controller refuses a claim whose label key is outside
+  the `allowed-label-domains` key of the `agent-sandbox-config` ConfigMap in
+  the controller's own namespace (built-in default `sandbox.users.io`), while
+  this backend's default key is `sandbox.namzu.ai/egress-profile`. Add the
+  domain there, or set `egress.profileLabelKey` to a key already allowed.
+  Everything is additive: with no `egress.profile` set, every emitted body,
+  selector, policy name and request is byte for byte what it was.
+
+  Egress was one policy per backend: the translated policy's selector is the
+  template label alone, and a per-`create()` override is refused. Every network
+  mode therefore needed its own `SandboxTemplate`, its own `SandboxWarmPool`
+  and its own policy, and every warm replica is a full pod reservation
+  multiplied by the number of modes.
+
+  `KubernetesEgressConfig` gains two fields:
+
+  - `profile?: string` — a DNS-1123 label value, e.g. `none` or `internet`.
+    Set, it is written onto the `SandboxClaim`'s
+    `spec.additionalPodMetadata.labels`, onto a directly created `Sandbox`'s
+    (and a workspace's) pod template, and into the translated policy's
+    `podSelector`/`endpointSelector`. The default policy name becomes
+    `${sandboxTemplateName}-${profile}-egress`.
+  - `profileLabelKey?: string` — the key it is written under. Defaults to
+    `DEFAULT_EGRESS_PROFILE_LABEL_KEY` (`sandbox.namzu.ai/egress-profile`),
+    now exported.
+
+  One thing to plan for when adopting it: **each profile needs its own applied
+  policy object.** A deployment that sets `profile` while leaving the policy an
+  operator applied selecting the template label alone gets
+  `KubernetesEgressPolicyMismatchError` on the first `create()` — by design,
+  because the selector is part of the exact-match verification, and a profile
+  whose policy does not select it would bound nothing.
+
+  Two new refusals are thrown, each catchable by class:
+  `KubernetesEgressProfileConfigError` (synchronous, while the host is being
+  wired, for a profile or key this backend will not emit — including
+  `sandbox.namzu.ai/template`, which would overwrite the template label, and a
+  `${template}-${profile}-egress` past the 253-character object-name limit) and
+  `KubernetesPodLabelNotObservedError` (the bound pod never carried the label;
+  the claim is released rather than a sandbox handed back, because an
+  unlabelled pod would run under whatever policy does select it).
+
+  **A claim the controller refuses for its metadata does NOT get a taxonomy of
+  its own.** `InvalidMetadata` is already one of the terminal claim reasons an
+  acquire fails fast on, so it still rejects with `KubernetesAcquireError`
+  (`reason: 'claim-rejected'`, `retryable: false`) whether or not a profile is
+  configured — an existing `catch` keeps working unchanged. The new
+  `KubernetesPodLabelsRejectedError` is exported but never thrown on its own: it
+  rides as that error's `cause`, carrying the pod labels this backend sent
+  (`requestedPodLabels`) and the `egress.profileLabelKey` that moves the
+  offending key to an allowed domain, neither of which the controller's own
+  message can know.
+
+  A third refusal is an existing class gaining a value: a workspace whose
+  standing `Sandbox` does not carry the configured profile on its pod template
+  is **not adopted**. `KubernetesWorkspaceMismatchError.field` gains
+  `'egressProfile'` beside `'sandboxTemplateName'` and `'runtimeClassName'`
+  (additive — a host matching on the two existing values is unaffected), and
+  the refusal lands before any resume patch, so the workspace is left asleep
+  rather than woken up to be rejected. The way to move an existing workspace
+  onto a profile is `refreshPodTemplate: true` on `resume()` or
+  `createKubernetesWorkspace`, which rewrites `spec.podTemplate` — profile label
+  included — on the one Suspended → Running transition; the refusal is lifted
+  for a call that is about to write the configured profile, exactly as the
+  `runtimeClassName` refusal is, and re-applied if the patch does not land. A
+  workspace that is neither refreshed nor recreated refuses to open rather than
+  opening under whatever policy still selects it.
+
+  Measured against agent-sandbox v1.0.2 on Kubernetes v1.37: six claims out of
+  one two-replica pool, alternating two profile values, each bound a replica
+  that already existed, in 47–61 ms, with the controller patching the label
+  onto the running pod and into the `Sandbox`'s own `spec.podTemplate`. What
+  was NOT measured anywhere in this repo is the egress difference between two
+  profiles — that is enforcement, and it needs a cluster that enforces.
+
+- 260547f: A Kubernetes workspace command can now keep running when the connection
+  watching it is lost, and be picked up again by execution id — from this host
+  process or another one.
+
+  Before this, a command's output and result were tied to the one connection
+  that started it. Any socket reset made the host cancel the command to
+  reconcile, and a cancel it could not confirm within eight seconds retired the
+  pod, taking every open terminal with it. If the host process exited instead,
+  nothing cancelled at all: the command ran on, its output had been written only
+  to a closed socket and kept nowhere, and the only op that returned its record
+  terminated a running command to hand it over. A host that ran installs, builds
+  or test suites from a redeployable process had to hold every rollout until
+  nothing was in flight.
+
+  **Nothing changes unless you ask for it.** Without `executionId` and without
+  `detach`, `exec()` sends byte-for-byte the wire request it always sent, keeps
+  no output, and behaves exactly as it did. `SandboxExecOptions` is untouched, so
+  the SDK's exec contract and every other backend — the Firecracker tier
+  included — are unaffected, and `@namzu/sdk` is unchanged.
+
+  **What is new, all on the Kubernetes workspace handle.**
+
+  - `exec(command, argv, { executionId, detach, detachSignal, reattachWindowMs,
+onGap })`. When the exec connection fails, the handle reattaches from the
+    last byte offset it received. Only getting back is bounded
+    (`reattachWindowMs`, 30 s by default), and the bound is disarmed once an
+    attach succeeds. If it cannot get back, `exec()` rejects with
+    `KubernetesExecutionDetachedError`, carrying the `executionId` and the
+    `outputOffset` to resume from. **It never sends a cancel to reconcile**, so a
+    lost connection now costs the workspace nothing — no patch, no suspend, no
+    pod. `signal` keeps its SDK contract and terminates; `detachSignal` ends the
+    watching and leaves the command running.
+  - `attachExecution(executionId, { fromOffset, onOutput, onGap, signal })`,
+    resolving to the same `SandboxExecResult`. It never signals the command:
+    aborting its signal detaches. Every attach inside the retention window
+    returns the same result. A refusal arrives as
+    `KubernetesExecutionNotAttachableError`, whose `executionState` — when the
+    guest reported one — tells the two answers apart that matter:
+    `'reserved'` means the command never started, so nothing is running.
+  - `cancelExecution(executionId)`, the confirmed-cancel path from any process
+    holding the id. A cancellation it could not confirm rejects and retires
+    nothing.
+  - Exported: `KubernetesExecutionDetachedError`,
+    `KubernetesExecutionNotAttachableError`,
+    `KubernetesExecutionAttachUnsupportedError`,
+    `KubernetesDetachedExecOptions`, `KubernetesAttachExecutionOptions`,
+    `KubernetesAttachRefusal`.
+
+  **What you have to know before relying on it.** Starting the same
+  `executionId` twice runs the command once — but only while the guest still
+  holds the record. That ends at the retention window
+  (`NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS`, 10 minutes) and at pod replacement,
+  which takes the whole registry with it; after either, the same id starts a
+  fresh command. A reader that asks for output the guest has already evicted is
+  told how many bytes it lost through `onGap`, and the result carries
+  `stdoutTruncated` and `stderrTruncated` — both, because the retained log is one
+  interleaved space.
+
+  **Redeploy the workspace image to get it.** The guest advertises
+  `execution-attach` in its `healthz` features and a host asking for a detachable
+  command against an older image is refused before the command is admitted. The
+  guest wire protocol version is deliberately **unchanged**, so no host and no
+  image has to roll together with this release.
+
+  **`NAMZU_SANDBOX_MAX_TIMEOUT_MS`.** The guest's ceiling on a caller's `timeout`
+  was a hard 30-minute constant; it is now read from this variable — the same one
+  the container worker has always read for the same limit — and named in the
+  refusal. The default is still 30 minutes, so an unconfigured deployment refuses
+  exactly what it always refused. Set it to run a suite longer than that without
+  rebuilding the image.
+
+  Four variables join the shipped workspace template's `env` block at their
+  defaults, so deleting them changes nothing: `NAMZU_SANDBOX_MAX_TIMEOUT_MS`,
+  `NAMZU_AGENT_EXECUTION_LOG_BYTES` (1 MiB of retained output per execution),
+  `NAMZU_AGENT_MAX_RETAINED_OUTPUT_LOGS` (32 executions retaining at once) and
+  `NAMZU_AGENT_EXECUTION_RETAINED_TTL_MS`. The last three bound what retention
+  can cost the container's 512Mi; only a command that asked for it retains
+  anything.
+
+- 5a2c25a: Kubernetes sandboxes can now be dialed at their pod IP, so a host outside the cluster can reach the guest agent at all.
+
+  Before, every sandbox and workspace was addressed as `<name>.<namespace>.svc.cluster.local`, which only the cluster's own DNS resolves. A host running outside the cluster — a peered VNet, an operator on a node, a CI runner with a route to the pod network — failed every call at name resolution, readiness and the acquire-time privilege probe included, so `create()` rejected on its readiness budget describing a timeout while the cluster was fine.
+
+  `KubernetesBackendConfig.agentAddress` takes `'service'` or `'pod-ip'` and **defaults to `'service'`, which is exactly the previous behaviour** — same address, same API requests, same dial. Nothing changes for a host running inside the cluster, and no existing configuration needs to be touched.
+
+  `'pod-ip'` dials the bound pod's IP, read from the same `GET` that reads the pod's uid, so the address and the bind token always describe one pod. It needs a pod network routable from the host and a `NetworkPolicy` admitting the host's address range on `agentPort`; the bind token, the privilege probe and egress verification are unchanged. A pod is `Pending` and has no IP until the CNI attaches it, so in this mode an acquire and a resume both WAIT for the address on the readiness budget they already own, and refuse only when it never arrives. Because a pod IP dies with its pod, every `resume()` re-reads it, and a dial that fails at connect re-reads the live pod once: a new uid means the controller replaced the pod, so the handle follows the new address and token and retries — safe because the failure came from the dial, so nothing reached the guest — while an unchanged pod leaves the original error standing. That covers every operation that dials the guest — `exec` and `listFiles`, `readFile`, `writeFile` including a body written in parts, `openTerminal`, `openTcpConnection` — with one exception: a command whose cancellation the guest could not confirm is never retried, because its outcome is unknown. `exec` and `listFiles` get there by watching what their dials did rather than by reading their error: the shared execution controller bounds a control request at 2 s and a dial's connect timer is 5 s, so a released pod IP that drops the SYN — the failure shape this mode is most likely to meet — is aborted by the bound before it has failed, leaving the caller a bare `… reservation exceeded 2000ms` with the dial's own failure discarded. "A connect was attempted and none handed back a socket" is the same "nothing reached the guest" guarantee, read from the other end.
+
+  A dial of a Service FQDN that fails with `ENOTFOUND`/`EAI_AGAIN` now throws the new, exported `KubernetesAgentAddressUnresolvableError`, naming the FQDN and pointing at `agentAddress: 'pod-ip'`, instead of surfacing as an unexplained readiness timeout. An `ENOTFOUND` also stops retrying at once rather than spending its 30-second connect budget re-asking a resolver that has already answered definitively: that budget outlasts the privilege probe's own deadline, which is how the diagnosis used to be lost. An `EAI_AGAIN` — "temporary failure in name resolution", the shape a CoreDNS restart produces for an in-cluster host — keeps the whole budget and is named this way only if the budget runs out. `VsockTransportOptions` gains two optional hooks this is built on — the `permanentDialFailure` predicate, and `onDialAttempt`, which fires once per connect attempt before it is made so a caller can tell "no socket was ever established" from "the attempt had not failed yet". Absent, as both are everywhere else, every dial behaves exactly as before. `AgentDialFailedError` is now exported too: `VsockAgentTransport`'s dial throws it when it gives up without a socket, which is how "nothing reached the guest" is established by type rather than by reading an error's text.
+
+  Minor, not major: one optional config field, two optional transport options and two new exported error classes, all additive, with the default behaviour byte-for-byte what it was. The guest wire protocol is untouched, so no pod image needs rebuilding.
+
+- b14e068: `walkFiles` is now implemented on Kubernetes task sandboxes and on
+  `KubernetesWorkspace`, and the shared sandbox conformance suite gains three
+  sections.
+
+  The SDK's `glob` and `grep` builtins refuse any sandbox that omits
+  `walkFiles`, and both are in the default builtin set — so a host that
+  registered them and moved from the Firecracker or docker backend to Kubernetes
+  lost both tools with no change on its own side. It no longer does. Nothing
+  about the guest wire protocol changed and no new agent op was added: this is
+  the SDK's own `walkFilesViaExec` running the SDK's walk program through the
+  existing `execute`, the same way the Firecracker and docker backends have
+  always done it, so all three answer a search identically for one tree. The
+  shipped guest image needed no change either (`node:22-bookworm-slim`; the
+  agent is itself node).
+
+  The walk is an execution. It counts as busy for its whole duration rather than
+  per entry, `options.signal` and breaking out of the iterator both terminate the
+  guest's walk process, and a cancellation the guest cannot confirm retires the
+  sandbox exactly as a failed `exec` cancel does. On a workspace it passes the
+  same admission gate as every other data-plane call, so a suspended workspace
+  refuses a walk with `KubernetesWorkspaceSuspendedError` naming `walkFiles`,
+  exactly as it refuses `readFile`, without dialing anything.
+
+  `SANDBOX_CONTRACT_VERSION` moves from `2` to `3`: `defineSandboxConformance`
+  now also covers `walkFiles` (`maxEntries`, `maxDepth`, `includeHidden`, a
+  missing root, symlinks not followed, `ERR_FILE_WALK_LIMIT` on an exhausted
+  budget, and a refusal once destroyed), several `exec` calls at once on one
+  sandbox with no cross-talk between their results, and an `exec` whose `timeout`
+  produces a timed-out result and really terminates the command. A backend author
+  running the suite should expect the new cases; `walkFiles` is optional on
+  `Sandbox`, so a backend that omits it skips that section rather than failing
+  it, and no new case needs a guest feature that did not already exist.
+
+- 7bf9425: Kubernetes workspaces can be listed, suspended and deleted without waking them, and a handle can see a suspend another process performed.
+
+  `createKubernetesWorkspace` adopts AND resumes, and until now it was the only way in. So there was no path for the two things that are about the OBJECT rather than the guest: retention — deleting a month-old suspended workspace meant starting its pod and probing it purely to tell it to go away — and hand-off, where a second process could not discover a holder-less running workspace, and a handle opened before another process suspended the workspace went on reporting `suspended: false` over a pod that was gone.
+
+  Three new verbs reach a workspace without opening one, and none of them creates a pod, dials an agent or resumes anything. `listKubernetesWorkspaces(config, { signal })` issues one GET of the sandboxes collection and returns a `KubernetesWorkspaceSummary` per workspace — `workspaceId`, `operatingMode`, `template`, `createdAt`, `operatingModeChangedAt` — sending no PATCH and no DELETE. `deleteKubernetesWorkspace(config, workspaceId, { signal })` DELETEs by the deterministic name with the same guarantees `destroy({ deleteDisk: true })` gives: an object already gone counts as deleted, and a DELETE that fails rejects and stays retryable. `suspendKubernetesWorkspace(config, workspaceId, { signal })` sends the suspend patch and waits for the pod to actually stop, rejecting with `KubernetesWorkspaceSuspendTimeoutError` if it outlives `readyTimeoutMs`.
+
+  `operatingModeChangedAt` comes from a new annotation, `sandbox.namzu.ai/operating-mode-changed-at`, that the suspend and resume patches now stamp. Nothing already on the object answers the question — upstream leaves the `Suspended` condition True across a resume, so neither it nor its `lastTransitionTime` says when the mode last changed. A workspace whose mode has never changed carries no annotation and is reported without one rather than defaulted to `createdAt`, so a retention rule can tell "never suspended" from "suspended a month ago".
+
+  On the handle: `KubernetesWorkspace.refresh()` re-reads `spec.operatingMode`, so a workspace another process suspended reports `suspended: true` and `resume()` brings it back on the same disk. A call that FAILS while the handle still believes it is running now also re-reads the object once, and if it is suspended the caller gets `KubernetesWorkspaceSuspendedError` — carrying the transport failure on `cause` — instead of the flat `unauthorized` or connect refusal that named nothing. That error's new `noticedBy` field (`'admission' | 'transport'`, typed by `KubernetesWorkspaceSuspensionNotice`) says which of the two happened, and its message changes with it, because "nothing was dialed" is a promise only the first keeps. A foreign suspend is recorded as UNCONFIRMED: what was observed is the object's mode, not the pod stopping, so this handle's own `suspend()` still patches and waits.
+
+  **Two things to do on upgrade.** The host's Role needs `list` on `sandboxes` in the sandbox namespace — `packages/sandbox/k8s/manifests/rbac.yaml` grants it, and `listKubernetesWorkspaces` is the only caller; without it that one verb gets a 403 naming it and nothing else changes. And code that IMPLEMENTS `KubernetesWorkspace` rather than merely consuming one must add `refresh()`. Nothing else moved: no default changed, the guest wire protocol is untouched, and the only difference on the wire is the annotation the two existing patches now carry.
+
+- e2024bc: `Sandbox.setNetworkPolicy` is now implemented on Kubernetes sandboxes — but
+  only on a TASK handle, only when the backend is configured with
+  `egress.perSandbox`, and only on a cluster where **both operator
+  prerequisites** are in place: the applied
+  `ValidatingAdmissionPolicy` and its binding
+  (`packages/sandbox/k8s/manifests/validatingadmissionpolicy-cilium.yaml`),
+  which the backend proves before its first write, and the opt-in RBAC file
+  (`rbac-per-sandbox-egress.yaml`), whose policy-write verbs the default
+  `rbac.yaml` Role deliberately still withholds. A host enabling the option
+  without the fence gets `KubernetesAdmissionFenceMissingError` and nothing is
+  written; without the RBAC it gets a `403` naming the verb. Everything is
+  additive: with no `egress.perSandbox`, the method is absent exactly as before
+  and no new request is issued on any path.
+
+  A `KubernetesWorkspace` handle never carries the method — nothing in its
+  create path composes a per-sandbox pod label or tracks an owner uid for one —
+  so `createKubernetesWorkspace` **refuses** a config carrying
+  `egress.perSandbox`, with `KubernetesWorkspacePerSandboxEgressConfigError`
+  and no request sent, rather than accepting a capability it would never serve.
+  A host that creates workspaces and task sandboxes from one config object
+  passes that call a config without `perSandbox`; task sandboxes are unaffected.
+
+  Live per-sandbox egress is the SDK's contract for "fetch the repository with
+  a token, then narrow before running what the repository contains", and the
+  Kubernetes backend omitted it: egress was one policy for every sandbox the
+  backend produced, so a per-tenant host list meant an operator-applied policy,
+  its own template and its own warm pool, per list.
+
+  Configured, each `setNetworkPolicy({ allowedHosts })` writes one
+  `CiliumNetworkPolicy` for that sandbox alone: named `namzu-sbx-<uid>` after
+  the `SandboxClaim` (or `Sandbox`) this backend created, selecting one
+  per-sandbox pod label carried in the same claim-time
+  `additionalPodMetadata.labels` map the egress profile travels in and confirmed
+  on the bound pod before the sandbox is handed back, owned by that object
+  through `ownerReferences` so `destroy()` lets the cluster collect it, and
+  allowing the cluster-DNS rule plus one `toFQDNs` rule for the list —
+  `api.example.com` for a host, `matchName` plus `matchPattern: '*.example.com'`
+  for a `.example.com` entry, carrying the same port/DNS-name/TLS-server-name
+  narrowing options the config-level allowlist has. `dnsNames` narrowing goes
+  one step further here than at the config level, because this translation is
+  the one that expands the domain form: an expanded entry also gets a
+  `matchPattern: '*.<host>.<suffix>'` for every cluster search suffix, since a
+  guest resolving `a.example.com` tries those suffixes first under the default
+  `ndots: 5` and a lookup the DNS proxy refuses can fail the whole resolution.
+  Both halves of that are new — the exact-host branch emits `<host>.<suffix>`
+  `matchName`s and never a pattern — and it is reachable only under
+  `perSandbox.narrowing`, where the entry really does admit subdomains. The call
+  resolves only after a read-back deep-equals what it sent, through the
+  comparator the named-object check already used. `setNetworkPolicy([])` deletes
+  that one object, leaving the configured baseline in force rather than no
+  policy at all.
+
+  Policies UNION, so a per-sandbox list ADDS to whatever `egress.policy`
+  translated to and only narrows when that baseline denies: pair `perSandbox`
+  with `no-network` or `deny-all` if `setNetworkPolicy` is to be the boundary
+  rather than an addition to one. Allowlist entries are hostnames, and letter
+  case is canonicalised rather than refused; a URL, a port suffix, an explicit
+  glob, an IP address and a whole public suffix such as `.com` are each refused
+  by name before anything is sent, the last two more strictly than the docker
+  backend's proxy.
+
+  One message correction rides along: `KubernetesEgressPolicyConfigError` now
+  spells its `field` relative to `config.egress` rather than to
+  `config.egress.policy`, because the fields that reach it live at both levels
+  — `policy.exceptCidrs` on the policy, `ciliumNarrowing` and
+  `perSandbox.narrowing` beside it — and the old prefix named a key that does
+  not exist for two of the three. A caller matching that error's `field` on the
+  literal `'exceptCidrs'` should match `'policy.exceptCidrs'` instead; nothing
+  about which values are refused has changed.
+
+  One combination is refused rather than translated: **a `.domain` allowlist
+  entry together with `tlsServerNames`**, with `KubernetesNetworkPolicyHostError`
+  and nothing written. A TLS server name is one exact SNI value a handshake
+  presents, while `.example.com` means that domain and every subdomain of it, so
+  `serverNames: ['.example.com']` is a value no handshake ever presents and
+  `['example.com']` would deny every subdomain the same rule's `toFQDNs` half
+  admits — the object is admitted by the fence and reads back deep-equal to what
+  was sent, so the call would report success and deny the domain it was asked to
+  allow. Refused at the translation, which covers `config.egress.ciliumNarrowing`
+  on the config-level allowlist as well as `perSandbox.narrowing`, and again —
+  earlier, before the fence is read — by the per-sandbox writer.
+
+  **The refusal's message is path-aware**, because the entry is a different
+  thing on each path and one sentence cannot be true of both. The per-sandbox
+  translation expands `.example.com` into a name plus a `*.example.com` pattern,
+  so its message says exactly that, and the remedy it offers — "list the exact
+  hosts, or leave `tlsServerNames` off for a domain list" — is a real repair
+  there. The CONFIG-level translation expands nothing: the entry reaches the
+  object as the literal `matchName: '.example.com'`, which no DNS answer carries,
+  so it admits nothing with the option on or off, and `serverNames` on top of it
+  is a second, independent denial. Its message says that instead of offering a
+  remedy that is not one. Which values are refused is unchanged; only what a
+  refused caller is told to do about it is. Each message names the caller's OWN
+  field — `config.egress.perSandbox.narrowing` for the expanding one,
+  `config.egress.ciliumNarrowing` for the config-level one — and the
+  config-level one omits the closing sentence saying what an entry means, since
+  that is the grammar its translation does not apply. (That a config-level
+  `.domain` entry matches no answer at all is a pre-existing defect of this
+  shipped translation: it is left exactly as it was and deferred to its own
+  change.)
+
+  A fence read the API server REFUSES (a `401`/`403` — most often the namespaced
+  `Role` applied without the `ClusterRole` in the same file, since both admission
+  objects are cluster-scoped) is now its own refusal,
+  `KubernetesAdmissionFenceUnreadableError`, rather than being reported as a
+  missing fence: `404` means the object is not there, `403` means this host may
+  not look, and the two send an operator to different files. Nothing is written
+  in either case.
+
+  New exports: `KubernetesAdmissionFenceUnreadableError`,
+  `KubernetesPerSandboxEgressConfig`,
+  `KubernetesPerSandboxEgressConfigError`, `KubernetesAdmissionFenceMissingError`,
+  `KubernetesNetworkPolicyHostError`, `KubernetesOwnerUidMissingError`,
+  `KubernetesWorkspacePerSandboxEgressConfigError`,
+  `DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY`,
+  `PER_SANDBOX_POLICY_NAME_PREFIX`. `egress.perSandbox.engine: 'core'` is
+  refused synchronously while the host is being wired, because core
+  `NetworkPolicy` has no hostname concept to translate an allowlist into. The
+  per-sandbox selector key defaults to `sandbox.namzu.ai/per-sandbox-egress`,
+  which carries the same controller `allowed-label-domains` prerequisite the
+  egress profile's key does, and the shipped admission policy pins that KEY
+  alongside the owner's name as the value — the value check alone would let a
+  claim named `namzu-task` select on the shared template label.
+
+  **Enforcement was not measured in this repository.** What was measured, on a
+  local single-node cluster running the upstream `CiliumNetworkPolicy` CRD with
+  no data plane at all: that the exact body written is admitted by the shipped
+  fence and its replacement merge-patch is too; that the fence refuses a name
+  without the prefix, a name whose suffix is not its owner's uid, a missing or
+  foreign owner, `blockOwnerDeletion: true`, a two-label selector, a one-label
+  selector pointed at any pod but the owner's own, a `toFQDNs` entry matching
+  every name (`'*'`, `'*.*'`, `'*.com'`), the kube-dns rule moved off port 53,
+  `toEntities`, `toCIDR`, an ingress rule, a `specs` list, a widening patch and
+  a `DELETE` of the operator's own policy; that 51 concurrent claims produced 51
+  distinct policies with no cross-writes; and that deleting a claim collected
+  exactly its policy (about 100 ms) while the operator's unowned policy
+  survived. That an allowed host answers and a disallowed one does not is a
+  property of a CNI data plane and needs a real Cilium cluster with a positive
+  control.
+
+- feaeaba: Read a large file out of a sandbox without the sandbox holding it.
+
+  `readFile` used to load the whole file in the guest, base64-encode it into one
+  JSON object and write that object as a single frame, so the file buffer, the
+  base64 string, the JSON string and two frame buffers all existed at once —
+  about 7.7x the file, inside the container the workload shares. A 64 MiB read
+  grew the guest agent by 405 MiB against the shipped workspace template's
+  `512Mi` limit, and a file of about 384 MiB or more could not be read at all:
+  its base64 string exceeds V8's `0x1fffffe8`-character ceiling, so the call
+  failed with `Cannot create a string longer than 0x1fffffe8 characters`. That
+  call now succeeds.
+
+  - `readFile(path, { offset, length, signal })` reads one slice. The guest
+    `pread`s at that position and answers with the whole file's size beside the
+    bytes; a range past the end returns what exists. A slice above
+    `NAMZU_AGENT_READ_FILE_RANGE_BYTES` (1 MiB default) is refused, not
+    shortened.
+  - `readFileStream(path, options?)` returns an `AsyncIterable<Buffer>` over a
+    new `read-file-stream` guest op. A 1 GiB read grows the guest by about
+    12 MiB.
+  - `readFile(path)` with no options is served by that stream against a guest
+    that advertises the capability, so callers lose the ceiling without changing
+    a line. It still returns one `Buffer`; iterate `readFileStream` to avoid even
+    that copy.
+
+  The guest opts in. `agent.cjs` advertises `read-file-stream` in its `healthz`
+  reply, and against a guest that does not, a whole-file read takes the
+  unchanged single-frame path while a ranged read or a `readFileStream` throws
+  the new `AgentReadFileStreamUnsupportedError` before dialing — an agent that
+  predates the feature ignores `offset`/`length` and answers with the whole
+  file, which you would otherwise read as your slice. Rebuild the guest image
+  from this release to get the new behaviour; nothing forces you to, and the
+  guest wire protocol version is unchanged.
+
+  A `KubernetesWorkspace` has both shapes too, which is where they matter most:
+  draining a large output file before `suspend()` or `destroy()` is what a
+  long-lived workspace is for. Its `readFile` forwards `offset`/`length` to the
+  guest, and `readFileStream` is present on the interface rather than optional.
+  Both refuse a suspended workspace by name, as every other data-plane call does.
+
+  The two backends that cannot serve a range now REFUSE one rather than ignoring
+  it: the docker and standby-pool workers answer whole files only, so
+  `readFile(path, { offset })` against either throws instead of handing back the
+  file. Previously those backends declared the one-parameter form, which type
+  checks and silently discards the range. Both also pass `options.signal` to the
+  request they make. Nothing that compiled before breaks — no caller could pass
+  the parameter until this release.
+
+  Three guest rules to know if you write to this wire yourself. A range must ask
+  for `base64` (`read_file_range_requires_base64`): a `utf8` slice at an
+  arbitrary offset can split a multi-byte character. `read-file-stream` serves
+  regular files only (`read_file_stream_not_a_regular_file`), so a whole-file
+  read of a fifo or a device node — reachable only if you set
+  `NAMZU_SANDBOX_READ_ROOTS` — is now refused rather than attempted, and a file
+  that shrinks under the open fd fails the read instead of coming back short.
+  A regular file that `stat` reports as zero bytes and that still has content,
+  the procfs shape, is read to EOF by both new shapes rather than answered as
+  empty.
+
+  New exports: `AgentReadFileStreamUnsupportedError`, `READ_FILE_STREAM_FEATURE`,
+  `ReadFileStreamRequest`, `ReadFileStreamEvent`. New guest environment
+  variables: `NAMZU_AGENT_READ_FILE_RANGE_BYTES` (1 MiB),
+  `NAMZU_AGENT_READ_FILE_STREAM_CHUNK_BYTES` (256 KiB). `defineSandboxConformance`
+  gains `supportsRangedAndStreamedReads`, default `false`, which gates two new
+  cases; those two deliberately did not raise `SANDBOX_CONTRACT_VERSION` beyond
+  the `3` the `walkFiles`, concurrent-`exec` and `exec`-timeout sections took it
+  to, so a backend that passes those three still passes the suite without
+  implementing either read shape.
+
+- 30da35d: Kubernetes workspaces can be woken onto the current `SandboxTemplate`, keeping their disk.
+
+  A `Sandbox` carries its own copy of `spec.podTemplate`, taken once in the create `POST`, and agent-sandbox builds every replacement pod from that copy rather than from the template. A workspace kept for weeks therefore ran the pod spec it was created with: a new image tag, a memory limit, a `terminationGracePeriodSeconds` or an env change reached only workspaces created after the edit. After a release that changes the agent's wire protocol this is not cosmetic — every session start runs the privilege probe through an `exec`, the execution controller refuses a reservation whose `protocolVersion` is not the host's, and every adopt and every resume of a workspace pinning the old image fails. Until now the only way out was `destroy({ deleteDisk: true })`, which deletes the PVC.
+
+  `refreshPodTemplate` is opt-in on both entry points and is honoured on exactly one transition, Suspended → Running:
+
+  ```ts
+  await workspace.resume({ refreshPodTemplate: true });
+  // or, for a host that restarted and holds no handle:
+  await createKubernetesWorkspace(config, {
+    workspaceId,
+    workingDirectory,
+    refreshPodTemplate: true,
+  });
+  ```
+
+  It sends one `application/json-patch+json` body — `test /spec/operatingMode == "Suspended"`, then the annotations, `/spec/podTemplate` and `/spec/operatingMode` — so the condition and the write cannot be separated, and a configured holder epoch's `test` travels in that same body rather than in a second request. A JSON Patch rather than a merge patch on purpose: a merge patch recurses into maps, so a `nodeSelector` entry the template dropped would survive on the object. The two writes go up as `add` rather than `replace`, which is the same write on a member that is already there (RFC 6902 §4.1) and the only one of the two that lands on a member that is not — `spec.operatingMode` is absent on a `Sandbox` that has never been suspended.
+
+  The disk is the one part of a template a refresh cannot apply: `spec.volumeClaimTemplates` is CEL-immutable, so it is never in the patch and the PVC is untouched. Two refusals guard that, both `KubernetesWorkspaceDiskError`, both before anything is sent, both leaving the workspace suspended — a template that no longer claims this workspace's disk through `volumeDevices`, and a template that declares a disk this workspace does not have. The second is the one to know about: adding a second `volumeClaimTemplates` entry with its matching `volumeDevices` entry is a valid edit that a NEW workspace would honour, and refreshing an existing workspace onto it would write a pod spec claiming a device node backed by no PVC. Give an existing workspace another disk by creating a new one from the new template and migrating the data.
+
+  Nothing happens to a Running `Sandbox`: v1.0.2 does not rewrite a pod that already exists, so an adopt that finds the workspace Running — and a `test` that loses to another process's resume — binds the pod that is there, unchanged. The `sandboxTemplateName` mismatch refusal still always applies; the `runtimeClassName` one is lifted only for a call whose patch lands, because that patch is what writes the configured class.
+
+  Two new readonly fields on `KubernetesWorkspace`, `templateRevision` and `templateCurrent`, report whether a workspace is still on the template it was built from. They are REQUIRED members of that exported interface, so anything that implements `KubernetesWorkspace` by hand — a test double, in practice — needs both before it compiles again; nothing that merely consumes a handle is affected, which is why this is a minor rather than a major. They read a new `sandbox.namzu.ai/pod-template-hash` annotation that every workspace create `POST` now stamps; a workspace created before this release carries none and reports `undefined` and `false`, which reads as unknown rather than as current. Task sandboxes are unchanged — their create body gains nothing.
+
+  One thing is asserted rather than measured, and is stated here so an operator can weigh it rather than discover it: that the sandbox controller builds the replacement pod from `spec.podTemplate` AS REWRITTEN. That is upstream behaviour, taken from its source, and it was not reproduced against a live cluster for this change — not because the experiment is hard, but because the environment this change was written in refuses cluster writes; the run was attempted there and could not be made. It is a small run and it needs neither a disk nor a workspace: create a bare `Sandbox` with any pod template and no `volumeClaimTemplates`, wait for its pod, suspend it, send exactly the patch above with a changed image tag, a changed `terminationGracePeriodSeconds` and one `nodeSelector` key dropped, and read the replacement pod's own `spec` back. Anyone with write access to a cluster running the controller can settle it.
+
+  The `test` clause bounds the cost of the premise being wrong: a refresh that never reaches the pod is a missed refresh, never a wrong write, and nothing in this release changes what a workspace runs without one. What would be wrong is `templateCurrent`, which would report a workspace as current while its pod ran the old spec — so treat it as a scheduling hint until that run is made, not as a statement about a running process. The disk-preserving round trip through a real block-mode PVC (file digests match, PVC uid unchanged) is unmeasured for the separate reason that it needs block storage; what is proven is that `spec.volumeClaimTemplates` never appears in the patch and that the stored claims are byte-identical afterwards.
+
+  Without the option nothing changes: `resume()` sends the same single merge patch it always sent, an adopt behaves exactly as it did, both adopt refusals apply as they did, and no new RBAC or guest protocol change is involved.
+
+- 7948fc0: Kubernetes workspace lifecycle writes can now be fenced with a holder epoch, so a superseded host process cannot suspend, resume or delete a workspace another process has taken over.
+
+  A host that drives one workspace from more than one process — a rollout overlap, a restart, a retention job beside a request handler — usually already keeps a monotonic holder epoch of its own. It fenced nothing on the cluster: "check my epoch, then call `suspend()`" is check-then-act, the write that follows is a separate request, and the API server accepted it. A late `suspend()` stopped the new holder's pod, a late `destroy({ deleteDisk: true })` took the disk, and a late adopt woke a workspace that had just been suspended.
+
+  Pass `epoch` and the condition travels in the same request as the write. It is accepted on `createKubernetesWorkspace`, `workspace.suspend()`, `workspace.resume()`, `workspace.destroy()`, `suspendKubernetesWorkspace` and `deleteKubernetesWorkspace`; a handle keeps the epoch it was opened or last resumed with and writes under it whenever a call passes none, including the cleanup patch a failed start sends. A write carrying epoch `e` applies when the epoch stored on the `Sandbox` is `<= e` and stores `e` in the same request; a stored epoch above `e` rejects with the new `KubernetesWorkspacePreconditionError` (`operation`, `workspaceId`, `sandboxName`, `epoch`, `storedEpoch`) and changes nothing — not on the cluster, and not on the handle, because the refusal is decided before `suspend()` reaps its terminals or `destroy()` tears its session down. `createKubernetesWorkspace` with an epoch now also writes it when it adopts a workspace that is already `Running`, and `resume({ epoch })` writes it on a workspace that is already running; both of those used to send nothing at all, which is exactly what left a new holder invisible to the process it had superseded.
+
+  **Nothing changes for a caller that passes no epoch**, which is why this is a minor rather than a major: every request is byte for byte what it was, `application/merge-patch+json` included, and an unfenced write is not a write with epoch 0 — it carries no condition and still applies to a workspace held at 7. A workspace with no annotation reads as epoch 0, so existing workspaces accept their first epoch-carrying write.
+
+  Also new: `KubernetesWorkspaceSummary.holderEpoch`, so a retention pass can see the fences it is looking at without waking anything; `KubernetesPatchNotAppliedError` for a conditional patch the API server would not apply; and a `patchType` argument on the internal API client's `request()`. No RBAC change is needed — the `patch` verb covers every patch type and the shipped `Role` already grants `patch` and `delete` on `sandboxes`.
+
+- 3162371: Stop every process in a Kubernetes workspace's guest before a capture, with the new opt-in `quiesce` op and `KubernetesWorkspace.quiesce()`.
+
+  A `suspend()` promises a quiesced disk, and until now that promise was only kept once the pod had stopped — by which point there is no agent left to read the disk through. What `suspend()` itself reaches is narrower than it looks: the terminals **that handle** returned, plus an execution somebody cancelled by id. A terminal another host process opened, an `exec` already in flight, and above all a program that moved into a session of its own with `setsid` and was then reparented away from the agent all kept running, and kept writing, into the drain. A host taking a final capture could not make it exact, and before deleting a suspended workspace it had to wake it and check.
+
+  `workspace.quiesce({ graceMs })` stops all of it and **leaves the agent serving**, so the next `exec`, `readFile`, `readFileStream` or `writeFile` reads a filesystem nobody is writing under. It marks every running execution before it signals anything (the mark is what keeps the agent from fencing itself on a group leader that dies first, which would refuse the very capture the quiesce was for), scans `/proc` rather than its own children, skips PID 1, itself and its own kernel session, and signals in rounds — `SIGTERM`, `graceMs`, `SIGKILL` on what is left — until a pass finds nothing. A process still present after `SIGKILL` rejects the call with `KubernetesQuiesceUnconfirmedError` naming its pid; it never resolves optimistically. `suspend({ quiesce: true })` and `destroy({ quiesce: true })` run it after this handle's terminals are reaped and before the `Suspended` patch, and a quiesce that cannot be confirmed sends **no patch**, leaving the workspace running and admitting calls. Concurrent suspends still share one transition, with one exception worth knowing before you wire this to a shutdown path: a `suspend({ quiesce: true })` arriving while a suspend WITHOUT a quiesce is already in flight is rejected with `KubernetesQuiesceUnconfirmedError` (`reason: 'suspend_already_in_flight'`) rather than joining it, because that transition's patch has gone over a guest nothing stopped and no later call can make it still. A caller the flight already satisfies joins it as before.
+
+  Nothing changes for a caller that does not ask. `suspend()`, `destroy()` and the standalone `suspendKubernetesWorkspace` without the option send exactly the requests they sent before (`suspendKubernetesWorkspace` refuses the option outright, since it never dials the agent and could not honour it), and the guest wire protocol version is unchanged: `quiesce` is an additive op advertised in `healthz` as `quiesce`, so no image and no host has to roll together with this release. An explicit `quiesce()` against an image whose agent predates the op is refused with `KubernetesQuiesceUnsupportedError` rather than answered with an empty list that would read like a guest with nothing to stop; a `suspend({ quiesce: true })` against that image suspends as it always did and tells the new `KubernetesWorkspaceOptions.onQuiesceUnsupported` callback, so the gap is reported rather than hidden.
+
+  New surface: `KubernetesWorkspace.quiesce`, `KubernetesQuiesceOptions`, `KubernetesQuiesceReport`, `KubernetesWorkspaceQuiesceRequest`, the new `KubernetesWorkspaceSuspendOptions` (`KubernetesWorkspaceTransitionOptions` plus `quiesce`, taken by `suspend()` and by `suspendKubernetesWorkspace`, so that `resume()`, `refresh()`, `listKubernetesWorkspaces` and `deleteKubernetesWorkspace` do not accept a flag they could only ignore), `quiesce` on `KubernetesWorkspaceDestroyOptions`, `onQuiesceUnsupported` and `onQuiesceNarrowed` on `KubernetesWorkspaceOptions`, `KubernetesQuiesceUnsupportedError`, `KubernetesQuiesceUnconfirmedError`, and the wire vocabulary `QUIESCE_FEATURE`, `QuiesceScope` and `QuiescedProcess`. Nothing is added to `@namzu/sdk`'s `Sandbox`.
+
+  One caveat worth reading before you rely on it: the general scan covers the guest's PID namespace, which in a pod is the container and nothing else, and the agent performs it only when it is the init of that namespace or was started by it — the shape `k8s/entrypoint.sh` gives it, where `tini` is PID 1 and the agent is its child. An agent that is neither narrows itself to the kernel sessions its own registries own and reports `scope: 'owned-sessions'`, which can miss exactly the program this op exists for. The scope is always in the report — and because `suspend({ quiesce: true })` answers `void` and cannot read one, a narrowed scan reaches that caller through `onQuiesceNarrowed` instead.
+
+- 5f0222a: `Sandbox.writeFile` now writes a file of any size over the Kubernetes (`tcp`) transport, instead of refusing anything above about 5.9 MiB.
+
+  Before: every `tcp` request dials a fresh connection and the guest's credential rides inside the request envelope, so every request was that connection's first, not-yet-authenticated frame and was bounded by the guest's pre-auth frame ceiling (`NAMZU_AGENT_MAX_PREAUTH_FRAME_BYTES`, 8 MiB) on _every_ call. A `write-file` carries its whole body base64-encoded in that one frame, so a body above ~5.9 MiB raw threw `AgentPreauthFrameTooLargeError` before dialing. The only workaround was raising the guest's ceiling — trading away the pre-auth budget that bound exists to enforce — which made seeding a repository archive into a workspace impractical.
+
+  Now: a body that does not fit one frame is split into parts that each do. The parts are appended to a temporary _sibling_ of the target inside the same workspace jail, each naming the byte offset it starts at, and the sequence finishes with an atomic `rename` onto the target. So a reader never observes a half-written file, a failed or cancelled write leaves the target exactly as it was (including not existing), a part that went missing or arrived twice is refused by the guest rather than written in the wrong place, and an abandoned sequence removes its temp file on a best-effort basis. Parts go out sequentially, each on its own connection, so the guest's pre-auth connection pool never holds more than one of this caller's sockets.
+
+  A body that already fits one frame is unaffected: the same single request, byte for byte.
+
+  The guest opts in. `agent.cjs` advertises `features: ['write-file-parts']` in its `healthz` reply and the host sends a part only to a guest that did, because an agent that predates the field would read a part's content as a whole file. An oversized body against such a guest still fails with the named `AgentPreauthFrameTooLargeError`, whose message now says the guest is what is missing. The guest wire protocol version is deliberately unchanged (`2`): `part` is an optional field on an existing op, so no host and no guest image has to roll together with this release. `part.discard` — the one verb on `write-file` that removes a file — reaches only the agent's own `.namzu-write-….part` files, a `part` that is present but is not an object is refused rather than served as the plain write it resembles, and a final part's `renameTo` is jailed before any byte is written, so a refused target leaves the temp file untouched. A part whose bytes did not all reach the disk is refused (`write_part_short_write`) rather than renamed: one `pwrite` answers a write that crosses the volume's free space or an `RLIMIT_FSIZE` with a short count and no error, and on the final part a truncated temp file would otherwise be renamed onto the target — destroying the file the rename exists to protect while the caller is told the write failed.
+
+  New on `VsockTransportOptions`, both optional: `maxWriteFileBytes` (default 1 GiB) is the body size the host refuses outright, with the new `AgentWriteFileTooLargeError` naming it — a bound stated up front rather than an out-of-memory partway through a sequence, and checked before the route is chosen, so a value below what one frame carries caps the ordinary single-frame writes too; `writeFilePartBytes` sets the bytes per part, defaulting to the largest a frame admits. Newly exported from `@namzu/sandbox`: `AgentWriteFileTooLargeError`, `DEFAULT_MAX_WRITE_FILE_BYTES`, `GUEST_FRAME_LIMIT_BYTES`, `WRITE_FILE_PARTS_FEATURE` and the `WriteFilePart` type. `VsockAgentTransport.writeFile` and `KubernetesAgentTransport.writeFile` take an optional trailing `AbortSignal`.
+
+  Also in this release: the host-side frame reader accumulates into one geometrically-grown buffer instead of re-concatenating every arriving socket chunk onto a fresh allocation. Reading a 64 MiB file back spent 31 seconds of memory copying on a reply the socket delivered in under one; it now takes about 0.7s. Same framing, same errors — only the copying changed.
+
+  Minor, not major: every existing call keeps its behaviour and its types. The one thing a caller could observe differently is that a `writeFile` above ~5.9 MiB now succeeds where it used to throw, and `SANDBOX_CONTRACT_VERSION` moved from 1 to 2 because `defineSandboxConformance` gained a case for it — a backend run against the suite must now serve a body larger than one wire frame.
+
+### Patch Changes
+
+- ddf5a3c: A failed Kubernetes lease renewal now retries on a short capped backoff — one second, doubling, capped at whichever is smaller of thirty seconds or a twentieth of the TTL — instead of waiting a full half-TTL for the next attempt.
+
+  `KubernetesLeaseRenewal.tick()` used to schedule its next attempt a full jittered half-TTL after every outcome, success or failure alike. A renewal failure landed its retry 0.9–1.1 × TTL after the last success, while the object's `shutdownTime` was exactly one TTL after that same success: a single API blip at renewal time expired a live claim with roughly 50% probability, and the controller deleted the pod out from under whatever command was still running in it. The fix does not change what a success does — the loop still renews every half-TTL and reports nothing — only how quickly it comes back after a failure, so a short outage around a scheduled renewal now gets several attempts inside the window that actually matters instead of one. A renewal that finds the object already gone (404/410) still stops the loop immediately, exactly as before.
+
+  No public API changed — `LeaseRenewalOptions` gained no new field, and no default a caller configures moved. This is a bug fix to already-documented behaviour (`onLeaseRenewalError`'s doc comment and the [lease renewal](docs/sdk/kubernetes-sandbox.md#the-lease) page both promised the resilience this now actually provides), so it ships as `patch`.
+
+- 8d97927: The Kubernetes-backend guest entrypoint (`packages/sandbox/k8s/entrypoint.sh`) no longer treats every `blkid` failure as "the workspace disk is empty."
+
+  Previously `blkid`'s exit status was folded away with `2>/dev/null || true`, so a `blkid` that was missing from `PATH` (127), not executable (126), erroring (4), or answering ambiguously (8) looked identical to a device that genuinely carries no filesystem — and the entrypoint ran `mkfs.ext4 -F` on it either way. On an image whose `PATH` omits `blkid`'s directory, or that ships a broken `blkid`, that reformats an already-populated, resumed workspace disk instead of refusing to touch it.
+
+  The entrypoint now keeps `blkid`'s exit status and acts on it: only status 2 ("no filesystem found", `blkid(8)`) may lead to `mkfs`, and only once a raw `dd` read confirms the device can actually be probed (status 2 also covers "blkid could not read the device at all"). Every other outcome — a missing tool, a non-2/non-0 status, or a 0 exit with no printed type — aborts the pod instead, naming the status and leaving `blkid`'s own stderr on the container log rather than discarding it. `blkid`, `dd`, `mkfs.ext4`, `mount`, `chown` and `setpriv` are each checked with `command -v` up front, so a missing tool is named explicitly rather than surfacing as a silent format.
+
+  No public API changed — this is guest-image/entrypoint behaviour for the `microvm`/`kubernetes` sandbox backend's deployment artifacts, which are not part of the published npm package (`packages/sandbox/k8s/` is excluded from `files`). A host running a workspace template built from the shipped image should rebuild it to pick up the fix.
+
+- 29493a3: The shipped Kubernetes sandbox host `Role` (`packages/sandbox/k8s/manifests/rbac.yaml`) now grants `get` on `ciliumnetworkpolicies` (`cilium.io`), matching what `docs/sdk/kubernetes-sandbox.md`'s RBAC section already documented.
+
+  Before: the Role granted `get` on `networkpolicies` (`networking.k8s.io`) only. A deployment configuring `config.egress.engine: 'cilium'` has `verifyEgressPolicyConfigured` read a `CiliumNetworkPolicy` instead, before every `createKubernetesWorkspace` call and a provider's first `create()` — so the shipped Role 403'd on exactly the path the docs said it covered.
+
+  A cluster with no Cilium CRDs installed simply never matches the added rule, so this changes nothing for the default `'core'` engine. No code, type or default changed — patch.
+
+- Updated dependencies [bd32216]
+- Updated dependencies [c272993]
+- Updated dependencies [c99f088]
+- Updated dependencies [d0227e2]
+- Updated dependencies [359b27f]
+- Updated dependencies [5663108]
+- Updated dependencies [165fd64]
+- Updated dependencies [93f8d1e]
+- Updated dependencies [7694a82]
+- Updated dependencies [6283f8d]
+- Updated dependencies [449642e]
+- Updated dependencies [3e6980d]
+- Updated dependencies [feaeaba]
+  - @namzu/sdk@41.0.0
+
 ## 14.0.0
 
 ### Minor Changes

@@ -1,5 +1,222 @@
 # @namzu/cli
 
+## 25.1.0
+
+### Minor Changes
+
+- 3ff9027: Agent rows in the delegated-work rail, the agent cockpit and a child's transcript header now show the resolved child model and live token/tool-call counters when a host reported them: cumulative spend compacted to `42.1k`/`1.38M` and a `· N tools` count. Spend is the child's cumulative `token_usage_updated` usage, never its current context size — a different, shrinking number that would otherwise make a long-running child look like it was spending far more than it was. A child that has not yet reported usage shows an em dash rather than `0`, since "unknown" and "spent nothing" are different facts. On a narrow terminal the counters are dropped first, then the model name; the description is never truncated to make room for either, and a resolved model id long enough to threaten that (a self-hosted or gateway-style id can run well past a typical short name) is itself capped to a short label with an ellipsis rather than left to crowd the description out.
+
+  Minor, not patch: this is new operator-visible capability, not a fix. `SubagentActivity` (the type these fields were added to) is internal to `@namzu/cli`'s own TUI and is not exported from the package's public entry, so no published type changed shape for a consumer.
+
+- ea82bd8: List past and running orchestration runs with `/agents runs`, a third
+  subcommand beside `/agents running` and `/agents available`.
+
+  Each row is one parent turn that delegated at least one child: its name, when
+  it started, the phases its children reported, agents done/total, tokens spent
+  and elapsed time — the same shape `/jobs` prints, newest run first. A run still
+  going is read straight from the live monitor; a finished one is read cheaply
+  from disk, one `run.json` per child, without opening any child's transcript.
+  A finished run has no `workflow` label to show — that annotation never
+  survives a restart — so its name is the opening words of the parent turn
+  instead; a live run still shows its `workflow` label when one was set. The
+  listing is capped at 20 rows, newest first, with an omitted count beyond that,
+  matching the delegation-history archive's own bound. An empty history says so
+  in words rather than opening an empty picker, and `/agents` with an
+  unrecognised subcommand still shows usage.
+
+  Enter opens the selected run in the same cockpit `Ctrl+T` opens, landing
+  directly on the first agent's transcript — so a finished run's `Replayed from
+saved evidence. This child cannot be continued.` banner is the first thing on
+  screen, and nothing on it offers to message or cancel work that already ended
+  in another process.
+
+  Additive: a new subcommand and a new optional `listOrchestrationRuns()` on the
+  session object the TUI already builds. Nothing existing changed.
+
+- ea130bc: New optional `eraProbeTimeoutMs` on an `mcpServers` entry, letting one server override how long its era probe (`server/discover`, sent before the legacy `initialize` handshake) waits before falling back — validated like `connectTimeoutMs` and refused rather than silently defaulted when given but not a positive number of milliseconds. Useful for a stdio server known to be old and slow to connect: shortening the probe leaves more of `connectTimeoutMs` for the handshake that will actually answer. Unconfigured servers are unaffected — the SDK's own default and clamp apply exactly as before.
+
+  [Tool servers](../docs/cli/mcp-servers.md#the-era-probe) also documents the era probe's operator-visible cost for the first time: one extra round trip on first contact per origin or resolved command, cached afterward, and the probe's own timeout once against a legacy server old enough to stay silent on it.
+
+- 380691e: The composer footer now sits directly under the message frame in every case, and the automatic agent rail — the panel that used to be titled "Delegated work" — no longer uses that literal title.
+
+  Before: the render order below the message frame was frame → delegated-work rail (when agents were live) → footer, so the footer's row depended on whether a rail was drawn between it and the frame. The rail's title, and the agent cockpit's per-workflow header, fell back to the literal string `Delegated work` whenever no single explicit `workflow` label covered every agent shown — including the ordinary case of agents that never set one.
+
+  Now: the order below the frame is frame → footer → the rail (or, in its place, the agent cockpit, a child transcript, or the tool-output viewer). The footer is always the row immediately after the message frame's bottom border, whether or not anything follows it. The rail's title is the workflow label every one of its agents shares; when they carry none, or carry more than one, the title is a neutral count instead — `2 agents · 1 running` — never the generic "Delegated work" name. The agent cockpit's header follows the same rule. Each row of the cockpit's own workflow picker (`ctrl+t` with two or more groups live or retained) follows it too: an unlabelled group is named after its own lead agent instead, so two unlabelled groups no longer render as identical "Delegated work" rows. The right-hand side of the rail is unchanged (`N active · M total · ↓ / ctrl+t`).
+
+  Nothing about permission-mode behavior, the footer's own content rules, or agent scheduling changed — only where the rail draws relative to the footer, and what its title says when no workflow was named. Minor, not patch: an operator with agents running sees a different screen layout, and any workflow that never sets an explicit label now reads a different title in the rail and the cockpit — a terminal-automation script or screenshot keyed to either no longer matches.
+
+- d0227e2: The CLI's MCP client connections now negotiate against a broader set of legacy MCP protocol revisions (via `@namzu/sdk`'s `MCPClient`), so an MCP server that had negotiated to `2025-03-26`, `2025-06-18` or `2025-11-25` — refused outright before this release — now connects normally. No CLI-owned config key, flag or default changes; this is an operator-visible improvement (more MCP servers connect) delivered through the SDK dependency bump, not a change to anything the CLI itself declares as its own surface. Minor rather than major on that basis.
+- 5663108: Every MCP server the CLI connects to is now asked `server/discover` at MCP `2026-07-28` before the legacy `initialize` handshake is offered (via `@namzu/sdk`'s `MCPClient`), so a server that only speaks the 2026-07-28 revision — which has no `initialize` at all — connects for the first time.
+
+  **What an operator observes.** One extra round trip on first contact per HTTP origin or per stdio command, then nothing: the resolved era is cached for the process. Against a server that answers an unknown method with an error, that is a round trip's latency. Against one that ignores unknown methods entirely it is the SDK's `eraProbeTimeoutMs`, 2 seconds by default; measured against a real child process of that kind, `mcp add`-style connects finish in about 2s, well inside the CLI's unchanged 10s `connectTimeoutMs`. No CLI-owned flag, config key or default changes — as with the legacy-era broadening two releases ago, this is an operator-visible improvement delivered through the SDK dependency rather than a change to anything the CLI declares as its own surface, which is what makes it minor rather than major.
+
+- c0aeab2: The permission mode and the model/effort identity now share a single dim line directly below the message frame, instead of two separately-positioned indicators.
+
+  Before: the active permission mode (when it differed from `prompt`) was drawn as its own row _inside_ the message frame, above the `›` input, growing the frame from three rows to four; the model, reasoning effort and working directory sat on a wholly separate status line, one blank row further down, with the interaction hint or durable goal on its right.
+
+  Now: one footer line, always present, immediately below the frame (the frame is a constant three rows). Left to right: the permission-mode badge, colored by mode, with its `(shift+tab to cycle)` reminder when the mode differs from `prompt` — or, in `prompt` mode, a quiet `shift+tab to cycle` in its place; a reasoning-effort override beside it as `· effort <level>`, only when the operator has set one (the previous line's unconditional `<model> default` is gone — an unset effort is no longer named); the working directory. On the right: the interaction hint or durable goal exactly as before, or — when neither is active — the model identity, which moved here from the left. The footer stays exactly one row at every width: on narrow screens the working directory shrinks and drops first (a path is recoverable, the mode is not), then the effort label, then the cycle-key reminder, then the model on the right, and only as a last resort does the mode badge itself truncate.
+
+  Nothing about what a mode does, or its name, changed — only where and how it is drawn. `PermissionMode`, `permissionModeLabel` and the Shift+Tab cycle order (`prompt` → `accept-edits` → `plan` → `prompt`) are untouched, and neither `Composer` nor `StatusBar` is part of this package's public entry point (`packages/cli/src/index.ts`) — a consumer importing `@namzu/cli` as a library sees no type or export change at all.
+
+  Minor, not patch: an operator running `namzu` sees a different screen on every launch — the mode fact and the identity fact move to a line neither used to share, an unset reasoning effort is no longer implied to be `default`, and a screenshot, recording or terminal-automation script keyed to the old two-indicator layout no longer matches. That is a behavior change worth a changelog entry even though no importable type moved.
+
+- 449642e: Add `/orchestrate`, a session mode layered above reasoning effort rather than inside it.
+
+  `@namzu/cli`: `/orchestrate [on|off]` (no argument toggles) turns the mode on or off for the current session. It is deliberately not a `ReasoningEffort` value — typing `/effort orchestrate` still reports "unavailable for this model", exactly as `ultracode` does today. When the `/effort` picker can open, the mode also appears there as its own row below a rule, apart from the model's own levels. Turning the mode on pins reasoning effort to the model's highest published level and strengthens delegation guidance for future turns toward delegating by default; when the model publishes no exact effort menu the mode still turns on and still strengthens guidance, but pins nothing and says so. Like effort, the mode is in-memory and per-session — nothing is written to preferences. A model switch still resets an explicit effort override to the new model's default, but while the mode is on it re-pins to the new model's highest level instead. The status line shows the level and the mode together (`effort high · orchestrate`), or the mode alone when nothing is pinned — never a fabricated effort value.
+
+  `@namzu/sdk`: `codingAgentDoctrineContribution` gains an optional `orchestrate` field on `CodingAgentDoctrineOptions`, and a new exported `CODING_AGENT_ORCHESTRATE_DOCTRINE` constant. Passing `orchestrate: true` (and leaving `delegation` at its default) appends that text after the existing delegation doctrine. Leaving the new field unset — the only behavior any existing caller can observe — renders byte-identical output to before this field existed. No default changed and no export was renamed or removed, so this is additive for every current consumer.
+
+- b58b8ae: The parent can now write a line of commentary above the agent rail, through a
+  new `narrate_work` tool.
+
+  While several agents are running, the rail says what each one is doing but
+  nothing says why — which phase just came back, what disagreed, what happens
+  next. `narrate_work` takes one `line` and shows it directly above the rail,
+  outside its border, in the run's own voice. It changes nothing: no task is
+  started, corrected, stopped or re-ordered, and no surface reads the line back.
+
+  Bounded on purpose, because the rows it spends are the most valuable on the
+  screen: the three most recent lines stay, a further line drops the oldest, each
+  line is one row clipped at 200 characters with a marker saying so, a blank line
+  is refused, and the whole band is cleared when the conversation is reset. Text
+  longer than twice a row is not a line and is refused rather than reduced to its
+  opening clause. A session that never calls it renders exactly as it did before
+  — no heading, no separator, no reserved row — and the band never costs the
+  agent rail a row: the rail's height budget is computed from the terminal's own
+  rows, and on a full screen the band's rows are paid for by the conversation
+  scrolling at the top, the way every row this interface adds is paid for.
+
+  The call is not reviewed: it declares itself read-only because it starts,
+  changes and stops nothing — no file of its own, no request, no task — and a
+  consent dialog per line of commentary, shown to the operator being asked, is a
+  tool nobody would call. `send_message` and `cancel_agent`, which do reach into a
+  running child, are reviewed exactly as before. A successful call adds no
+  transcript row either — the line is already on screen — while a refused one
+  keeps its row, since nothing was shown.
+
+  The tool is mounted only in the interactive terminal, where somebody is there
+  to read the line — the same condition `ask_user_question` is mounted under.
+  `namzu run`, `namzu run --stream`, `namzu drain` and the resident step have no
+  rail for a line to appear above and are not offered it, so their tool rosters
+  are unchanged by this release.
+
+  The tool is the parent's alone. It is registered on the parent conversation's
+  registry beside `send_message` and `cancel_agent`, and a delegated child's
+  roster carries none of them, so nothing a child writes can be rendered as the
+  run's own narration. A child's output stays wrapped as untrusted, which is the
+  whole reason the boundary is where it is.
+
+  The band is in-memory only: it is cleared on reset and nothing replays it onto
+  the screen after a resume. The call is not. It is recorded in the run's
+  transcript and in the conversation's checkpoints like every other tool call,
+  and it returns to the model's own history on `/resume` — so treat a narrated
+  line as durable text about the work, not as a caption that disappears with the
+  screen.
+
+  Additive: a new tool on the roster the parent already carries, and an optional
+  narration reader on the session's activity source. Nothing existing changed.
+
+- 8463b54: The `Agent` tool accepts an optional `phase_detail` string alongside `workflow`, `phase` and `phase_order` — display-only text for a phase, exactly like its neighbours: it creates no dependencies, barriers or serial execution. The first agent to declare a phase's detail sets it; a later sibling in the same phase cannot change it, so concurrent children with slightly different wording never make the pane flicker.
+
+  In the agent cockpit (Ctrl+T / `/agents`), a phase's detail is revealed beneath the phase list only while that phase carries the cursor — the other phases show none, and a phase with no detail renders exactly as it did before this change, with no reserved blank space. The text wraps to the pane width and is clipped to a fixed line budget, so the pane's height never depends on how long the detail is. The compact approval plan and its detailed pager (`permission-review.ts`) now surface the same text, so the plan an operator approves and the cockpit they inspect afterward agree.
+
+  Minor, not patch: this is new operator-visible capability. `SubagentActivity` and `AgentPhase` (the internal types that gained `phaseDetail`/`detail`) are not exported from `@namzu/cli`'s public entry, so no published type changed shape for a consumer.
+
+- 3e6980d: Open a finished delegated child from the evidence it already writes to disk.
+
+  **`@namzu/sdk`** gains one static method and the type it returns:
+  `RunDiskStore.listChildren(baseDir, parentRunId)` and `DelegatedChildRun`. It
+  walks `<baseDir>/<parentRunId>/children/`, reads each child's `run.json`, and
+  reports the run id, its directory, and whatever the file recorded of the agent,
+  the model, the status, the timings and the token total. Every field from the
+  file is optional: `run.json` is written on a run's terminal path, so a child
+  killed before it got there leaves a transcript worth reading and no recorded
+  ending, and absent means "the file did not say" rather than zero.
+
+  Additive. Nothing existing changed, and in particular **`listRuns` is
+  unchanged** — do not read this as a fix to the index. `addToIndex` still
+  returns early for any run with a `parentRunId`, so a delegated child still
+  never appears in the browsable catalogue, which is what keeps it out of a
+  host's conversation listing. `listChildren` is the separate read for a caller
+  that wants the evidence anyway. It performs no writes: binding a `RunDiskStore`
+  to a run creates that run's directory, which is why discovery is a static walk
+  and not a bound method.
+
+  **`@namzu/cli`** can now open a delegated child that is no longer live — evicted
+  by the activity monitor's eighty-agent bound, or left behind by a process that
+  has since exited. The agent cockpit lists it from disk and drills into its saved
+  transcript, rebuilt through the same projection a live child renders through, so
+  the past and the present look alike.
+
+  It cannot be continued, and the screen says so: a replayed row is marked `saved`,
+  its transcript is headed `Replayed from saved evidence. This child cannot be
+continued.`, it never appears in the live panel above the composer, and there is
+  no message or cancel affordance on it. Resume has never restarted delegated
+  tasks or reconnected their processes, and opening one does not either. Replay is
+  read-only — no file is written, moved or pruned by looking at a past run — and a
+  torn transcript opens with the records that could be read plus a row saying it is
+  partial; one that cannot be read at all opens with that row alone, beside what
+  `run.json` recorded, rather than dropping the child from the list.
+
+  Two limits worth knowing before relying on it. Streaming deltas never enter a
+  run's durable log, so a replayed transcript carries tool calls, their results and
+  any failure text but not the assistant prose that streamed between them; the
+  child's `report.md` holds its answer. Delegation lifecycle events enter no log
+  either, so a replayed child's `workflow` and `phase` labels are not recovered:
+  saved children are grouped by the parent run they belonged to and carry the
+  unlabelled default workflow, as a live child launched without labels does.
+
+  Child run directories accumulate and nothing prunes them. That predates this
+  change — the directories were always written — but this is what makes the growth
+  visible. Reclaiming the space today means deleting `children/` directories by
+  hand; a prune command is follow-up work.
+
+- 35cbc02: A correction queued with `send_message` was previously invisible: the child's transcript jumped straight from one tool call to a visibly redirected next turn, and the parent saw only a one-line "queued" acknowledgement that scrolled away. Once delivery is confirmed (never for a refused or unowned send), it now appears on both sides: the child's transcript gets a `← from parent: …` row using the existing system-row kind, and the main conversation gets a matching `<description> · correction sent` row with the message text beneath it. Each side shows the message exactly once, however many times the surface re-renders.
+
+  Minor, not patch: this is new operator-visible capability. `SubagentActivityMonitor.recordMessage()` and the `direction` field it adds to a transcript row are internal to the CLI, not exported from `@namzu/cli`'s public entry, so no published type changed shape for a consumer.
+
+### Patch Changes
+
+- bd32216: Delegation display labels now ride the `agent_pending` event. `RunEvent`'s `agent_pending` variant, `CreateTaskOptions` and `SendMessageOptions` each gain optional `workflow`, `phase`, `phaseDetail` and `phaseOrder`, and the SSE bridge carries them on `agent.pending` as `workflow`, `phase`, `phase_detail` and `phase_order`.
+
+  **These are display annotations only; they do not create dependencies, barriers, or serial execution.** Nothing in the kernel reads them back: admission, capacity, ordering and concurrency are decided by the scheduler, and two children naming the same phase are not thereby sequenced, synchronised or joined. `planId`/`planStepId` remain the delegation fields that carry correlation a host may act on. A reader who infers execution structure from a label here has inferred it from a caption.
+
+  What they buy is reach. A label that stays in the delegating process's memory is visible to that process and to nothing else; on the event it reaches every listener the delegation was given, and through `mapRunToStreamEvent` the SSE wire, so a consumer watching from elsewhere rebuilds the same grouping instead of seeing an undifferentiated list of children.
+
+  **Reach is not durability, and this does not add persistence.** Delegation lifecycle events are handed straight to a host's listener without passing through the run's event translator, so `agent_pending` enters no run's log — which is what the absent `seq` on these variants has always meant. A label supplied here is written nowhere by the kernel and does not survive a restart; a host that wants the grouping to outlive its process records it from the listener, into whatever store it already keeps.
+
+  Minor, and nothing to do on the upgrade: every field is optional and absent unless a host supplies one, no export was removed or renamed, no union narrowed, no default changed. A host that supplies none sees byte-identical events and wire payloads. The A2A bridge continues to emit nothing for delegation events — deliberately, and now said so in its comment: a peer models one task lifecycle and has no screen of ours to caption.
+
+  The CLI change is behaviour-preserving (`patch`): the `Agent` tool sends the labels it already collected down onto the delegation, and its activity monitor reads them off the event with the launch-time values kept as the seed, so a child that fails before `agent_pending` still groups where it was launched. For a run supplying the same labels on both paths — which is every CLI run — the grouping is byte-identical to before.
+
+- 1391ab8: The composer footer's `· orchestrate` marker no longer disappears at narrow terminal widths while orchestrate mode stays silently on.
+
+  Before: `orchestrate` was appended to the reasoning-effort label as one droppable unit (`effort <level> · orchestrate`, or `orchestrate` alone with no effort pinned) inside `StatusBar.tsx`'s `fitStatusLine`. That unit was dropped for room right after the working directory, well before the model — so at 40 columns, a real PTY run with orchestrate mode on and no effort menu open showed only `shift+tab to cycle       gpt-5.6-terra`: no `orchestrate` anywhere on screen, with the permission-mode badge (or its quiet reminder) and the model both still shown. Orchestrate is a persistent, behavior-changing session setting — it pins effort to the model's highest level and strengthens delegation guidance for every later turn — with no other on-screen indicator, so an operator working in a narrow pane had no way to tell it was on.
+
+  Now: `orchestrate` is its own segment, no longer bundled with `effort`, and it holds the same survival priority as the permission-mode badge. It is dropped only after the working directory, the effort label, the cycle-key reminder and the model are already gone, and only as a last resort — never truncated to a fragment of the word, and never at the cost of shrinking the badge itself to make room for it. At 100 columns the line is unaffected. At 40 columns with orchestrate on, the footer now reads `shift+tab to cycle · orchestrate` (or the equivalent with an active permission badge) instead of naming neither.
+
+  Patch, not minor: no prop, export or default changed shape — `StatusBar`'s existing `orchestrate` prop behaves exactly as documented, just fitted with a different priority under width pressure.
+
+- Updated dependencies [bd32216]
+- Updated dependencies [c272993]
+- Updated dependencies [c99f088]
+- Updated dependencies [d0227e2]
+- Updated dependencies [359b27f]
+- Updated dependencies [5663108]
+- Updated dependencies [165fd64]
+- Updated dependencies [93f8d1e]
+- Updated dependencies [7694a82]
+- Updated dependencies [6283f8d]
+- Updated dependencies [449642e]
+- Updated dependencies [3e6980d]
+- Updated dependencies [feaeaba]
+  - @namzu/sdk@41.0.0
+  - @namzu/computer-use@1.4.2
+  - @namzu/anthropic@5.1.1
+  - @namzu/ollama@2.2.2
+  - @namzu/openai@3.1.1
+  - @namzu/openrouter@2.4.0
+
 ## 25.0.1
 
 ### Patch Changes
