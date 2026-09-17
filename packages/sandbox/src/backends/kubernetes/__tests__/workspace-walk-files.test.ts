@@ -179,6 +179,7 @@ function clusterConfig(): KubernetesBackendConfig {
 		agentPort: agent.port,
 		readyTimeoutMs: 1_000,
 		readyPollIntervalMs: 5,
+		ingress: 'unverified' as const,
 	}
 }
 
