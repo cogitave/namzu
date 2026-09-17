@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -9,7 +9,6 @@ import { buildDockerBackend, resolveLayout } from '../index.js'
 import type { DockerBackendInternalConfig } from '../index.js'
 import {
 	assertNetworkCarriesThePolicy,
-	egressProxyContainerConfig,
 	renderEgressProxyAttachArgs,
 	renderEgressProxyRunArgs,
 } from '../index.js'
@@ -29,8 +28,12 @@ import {
  * `docker run` on an ordinary network for its route out and `docker network
  * connect`ed to the internal network the sandbox is on, where its alias is the
  * name the sandbox's proxy environment resolves. The sandbox joins the
- * internal network alone, so its only reachable destination is the proxy — a
- * route it cannot put back, because `--cap-drop=ALL` took `NET_ADMIN` away.
+ * internal network alone, which has no route off it, so the only way its
+ * traffic reaches the internet is through that container — a route it cannot
+ * put back, because `--cap-drop=ALL` took `NET_ADMIN` away. The proxy is not
+ * its only reachable destination, and nothing here claims it is: the internal
+ * network is a subnet, so a second sandbox on it, and that sandbox's proxy,
+ * are reachable too. `docs/sdk/sandbox-egress.md` states that reach in full.
  *
  * NOT MEASURED HERE. No test in this repository starts a container: there is
  * no docker daemon in the test environment (see `hardening.test.ts`'s own note;
@@ -139,7 +142,6 @@ function proxyArgvInput(overrides: Partial<Parameters<typeof renderEgressProxyRu
 		containerName: 'namzu-egress-abc',
 		upstreamNetwork: 'bridge',
 		internalNetwork: CONTAINER_NETWORK,
-		configJson: JSON.stringify(egressProxyContainerConfig({}, ['api.example.com'], 2025)),
 		...overrides,
 	}
 }
@@ -164,11 +166,38 @@ describe('renderEgressProxyRunArgs', () => {
 			'--tmpfs',
 			'/tmp:nosuid,nodev,exec,mode=1777',
 			'--env',
-			`NAMZU_EGRESS_PROXY_CONFIG=${JSON.stringify(
-				egressProxyContainerConfig({}, ['api.example.com'], 2025),
-			)}`,
+			'NAMZU_EGRESS_PROXY_CONFIG',
 			'namzu-egress-proxy:latest',
 		])
+	})
+
+	it('names the configuration variable without carrying its value', () => {
+		// `docker run --env NAME` takes the value from the environment of the
+		// `docker` CLI process, which is where the caller puts it. The value is
+		// the whole policy, credential values included, and an argv is
+		// world-readable on Linux (`/proc/<pid>/cmdline`) where a process
+		// environment is readable only by its owner — so `NAME=VALUE` in this
+		// argv published brokered credentials to every local user on the docker
+		// host for as long as the client ran. Asserted on the token AFTER
+		// `--env` rather than on the absence of a substring, so a future edit
+		// that reintroduced the value would have to change this pin.
+		const rendered = renderEgressProxyRunArgs(proxyArgvInput())
+		expect(rendered[rendered.indexOf('--env') + 1]).toBe('NAMZU_EGRESS_PROXY_CONFIG')
+		expect(rendered.join(' ')).not.toContain('api.example.com')
+	})
+
+	it('refuses an upstream network that would give the proxy no route out', () => {
+		// Both are the same failure by different spelling, and both come up as a
+		// proxy that cannot reach the internet — a boundary in front of nothing,
+		// with the only way the sandbox's traffic reaches the internet pointing
+		// at it. Refused here because this is the last function both values pass
+		// through before the argv.
+		expect(() => renderEgressProxyRunArgs(proxyArgvInput({ upstreamNetwork: 'none' }))).toThrow(
+			/no interface and no route/,
+		)
+		expect(() =>
+			renderEgressProxyRunArgs(proxyArgvInput({ upstreamNetwork: CONTAINER_NETWORK })),
+		).toThrow(/the same network the sandbox is on/)
 	})
 
 	it('gives the proxy its route out first, because the internal leg has none', () => {
@@ -245,14 +274,34 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 	let workDir: string
 	let dockerShim: string
 	let dockerLog: string
+	let dockerEnvLog: string
+	let marker: string
+	let containers: string
 
 	beforeEach(() => {
 		workDir = mkdtempSync(join(tmpdir(), 'namzu-docker-egress-'))
 		dockerShim = join(workDir, 'docker-shim')
 		dockerLog = join(workDir, 'docker.log')
+		dockerEnvLog = join(workDir, 'docker-env.log')
+		marker = join(workDir, 'marker.log')
+		containers = join(workDir, 'containers')
+		mkdirSync(containers, { recursive: true })
 		writeFileSync(dockerLog, '')
+		writeFileSync(dockerEnvLog, '')
+		writeFileSync(marker, '')
 		process.env.NAMZU_TEST_DOCKER_LOG = dockerLog
+		process.env.NAMZU_TEST_DOCKER_ENV_LOG = dockerEnvLog
+		process.env.NAMZU_TEST_MARKER = marker
+		process.env.NAMZU_TEST_CONTAINER_DIR = containers
 		process.env.NAMZU_TEST_NETWORK_INTERNAL = 'true'
+		// `= undefined` stores the string "undefined", which is what this file
+		// already does and what biome's `noDelete` asks for. It is safe for
+		// these because every one of them is compared against a literal the
+		// shim was given, never tested for emptiness.
+		process.env.NAMZU_TEST_HOLD = undefined
+		process.env.NAMZU_TEST_RUN_COUNT = join(workDir, 'run-count')
+		process.env.NAMZU_TEST_FAIL_RUN = undefined
+		process.env.NAMZU_TEST_FAIL_CONNECT = undefined
 		writeFileSync(
 			dockerShim,
 			[
@@ -261,11 +310,41 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 				// an argument containing a space survives the round trip.
 				'for a in "$@"; do printf "%s\\037" "$a"; done >> "${NAMZU_TEST_DOCKER_LOG:?}"',
 				'printf "\\n" >> "${NAMZU_TEST_DOCKER_LOG:?}"',
+				// The value this process was handed, in its environment rather
+				// than in its argv — logged separately so `dockerCalls()` stays
+				// pure argv.
+				'if [ -n "${NAMZU_EGRESS_PROXY_CONFIG:-}" ]; then printf "%s\\n" "$NAMZU_EGRESS_PROXY_CONFIG" >> "${NAMZU_TEST_DOCKER_ENV_LOG:?}"; fi',
+				// A hold, so a caller can be aborted at a chosen point in the
+				// sequence rather than whenever the machine happens to be slow.
+				'hold() { if [ "${NAMZU_TEST_HOLD:-}" = "$1" ]; then printf "%s\\n" "$1" >> "${NAMZU_TEST_MARKER:?}"; sleep 1; fi; }',
+				// The container the daemon committed, one file per name under
+				// the state directory; `docker rm -f` deletes it. It is what
+				// lets a test ask whether a container is STILL RUNNING rather
+				// than whether an `rm` was typed, and the two differ exactly
+				// when the removal is issued before the container exists —
+				// which is the race the policy-swap probes exist for. The
+				// commit lands after the hold, because that is the daemon's own
+				// business: a client that is killed, times out or never hears
+				// back does not stop it, which is why this backend reconciles
+				// by name.
+				'commit() { if [ -n "$1" ]; then : > "${NAMZU_TEST_CONTAINER_DIR:?}/$1"; fi; }',
+				// A counted failure, so a test can fail the Nth start rather
+				// than the first one the shim happens to see.
 				'case "$1" in',
-				'  network) if [ "$2" = "inspect" ]; then printf "%s\\n" "${NAMZU_TEST_NETWORK_INTERNAL:?}"; fi ;;',
-				'  run) printf "container-id\\n" ;;',
-				'  inspect) printf "true\\n" ;;',
-				'  rm) : ;;',
+				'  network) if [ "$2" = "inspect" ]; then printf "%s\\n" "${NAMZU_TEST_NETWORK_INTERNAL:?}"; fi; if [ "$2" = "connect" ]; then hold connect; if [ "${NAMZU_TEST_FAIL_CONNECT:-}" = "1" ]; then exit 5; fi; fi ;;',
+				'  run)',
+				'    hold run',
+				'    count=$(cat "${NAMZU_TEST_RUN_COUNT:?}" 2>/dev/null || echo 0)',
+				'    count=$((count + 1))',
+				'    printf "%s" "$count" > "${NAMZU_TEST_RUN_COUNT:?}"',
+				'    name=""',
+				'    previous=""',
+				'    for a in "$@"; do if [ "$previous" = "--name" ]; then name="$a"; fi; previous="$a"; done',
+				'    commit "$name"',
+				'    if [ "${NAMZU_TEST_FAIL_RUN:-}" = "$count" ]; then exit 5; fi',
+				'    printf "container-id\\n" ;;',
+				'  inspect) hold inspect; printf "true\\n" ;;',
+				'  rm) if [ "$2" = "-f" ]; then rm -f "${NAMZU_TEST_CONTAINER_DIR:?}/$3"; fi ;;',
 				'  *) exit 2 ;;',
 				'esac',
 			].join('\n'),
@@ -287,6 +366,13 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 		globalThis.fetch = realFetch
 		process.env.NAMZU_TEST_DOCKER_LOG = undefined
 		process.env.NAMZU_TEST_NETWORK_INTERNAL = undefined
+		process.env.NAMZU_TEST_DOCKER_ENV_LOG = undefined
+		process.env.NAMZU_TEST_MARKER = undefined
+		process.env.NAMZU_TEST_CONTAINER_DIR = undefined
+		process.env.NAMZU_TEST_HOLD = undefined
+		process.env.NAMZU_TEST_RUN_COUNT = undefined
+		process.env.NAMZU_TEST_FAIL_RUN = undefined
+		process.env.NAMZU_TEST_FAIL_CONNECT = undefined
 		rmSync(workDir, { recursive: true, force: true })
 	})
 
@@ -295,11 +381,90 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 		return readFileSync(dockerLog, 'utf8')
 			.split('\n')
 			.filter((line) => line.length > 0)
-			.map((line) => line.split('').slice(0, -1))
+			.map((line) => line.split('\u001f').slice(0, -1))
 	}
 
 	function callsMatching(predicate: (argv: string[]) => boolean): string[][] {
 		return dockerCalls().filter(predicate)
+	}
+
+	/** The container this run's proxy was named, or fails the calling test. */
+	function proxyContainerName(): string {
+		const named = callsMatching(
+			(argv) =>
+				argv[0] === 'run' && (argv[argv.indexOf('--name') + 1] ?? '').startsWith('namzu-egress-'),
+		)
+		expect(named).toHaveLength(1)
+		return (named[0] as string[])[(named[0] as string[]).indexOf('--name') + 1] as string
+	}
+
+	function proxyRemoveCalls(): string[][] {
+		return callsMatching(
+			(argv) => argv[0] === 'rm' && argv[1] === '-f' && (argv[2] ?? '').startsWith('namzu-egress-'),
+		)
+	}
+
+	/**
+	 * What the daemon still has running, read off its own state.
+	 *
+	 * The distinction this exists for: a `docker rm -f` issued BEFORE the
+	 * container it names was committed removes nothing, and an argv log cannot
+	 * tell that from a removal that worked. A real daemon commits the container
+	 * whether or not the client that asked for it is still listening, so
+	 * "which `rm` was typed" and "what is still running" are different
+	 * questions and only the second one is the invariant.
+	 */
+	function containersRunning(): string[] {
+		return readdirSync(containers).sort()
+	}
+
+	/** Poll, because the removal runs on its own deadline rather than inside
+	 * the promise `create()` rejected on. */
+	async function waitForProxyRemove(): Promise<void> {
+		const deadline = Date.now() + 10_000
+		while (Date.now() < deadline) {
+			if (proxyRemoveCalls().length > 0) return
+			await new Promise((resolve) => setTimeout(resolve, 10))
+		}
+		throw new Error('no `docker rm -f` was issued for the proxy container')
+	}
+
+	async function waitForMarker(token: string): Promise<void> {
+		const deadline = Date.now() + 10_000
+		while (Date.now() < deadline) {
+			if (readFileSync(marker, 'utf8').includes(token)) return
+			await new Promise((resolve) => setTimeout(resolve, 10))
+		}
+		throw new Error(`the docker shim never reached ${token}`)
+	}
+
+	/**
+	 * Abort a `create()` at a named point in the proxy's start sequence.
+	 *
+	 * `docker run --detach` against an image being pulled for the first time is
+	 * a slow call, which is where this matters in production: the SDK's sandbox
+	 * acquisition aborts `provider.create()` on a timeout
+	 * (`packages/sdk/src/runtime/query/sandbox-lifecycle.ts`), and that window
+	 * includes the proxy image's first pull.
+	 */
+	async function abortDuring(hold: string): Promise<void> {
+		process.env.NAMZU_TEST_HOLD = hold
+		const controller = new AbortController()
+		const creating = backend().create({
+			workingDirectory: workDir,
+			egress: STATIC_ALLOWLIST,
+			signal: controller.signal,
+		})
+		await waitForMarker(hold)
+		const reason = new Error(`aborted during ${hold}`)
+		controller.abort(reason)
+		// The caller's own reason, by identity — not a wrapper describing an
+		// image that failed to start. An acquisition timeout that arrives
+		// dressed as a configuration problem is the diagnosis shape the
+		// backend refuses everywhere else, and this is the one catch on this
+		// path where the distinction could quietly be lost.
+		await expect(creating).rejects.toBe(reason)
+		await waitForProxyRemove()
 	}
 
 	function backend(overrides: Partial<DockerBackendInternalConfig> = {}) {
@@ -373,10 +538,12 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 			egress: STATIC_ALLOWLIST,
 		})
 		try {
-			const proxyRun = callsMatching((argv) => argv[0] === 'run')[0] as string[]
-			const configArg = proxyRun[proxyRun.indexOf('--env') + 1] as string
-			expect(configArg.startsWith('NAMZU_EGRESS_PROXY_CONFIG=')).toBe(true)
-			const parsed = JSON.parse(configArg.slice('NAMZU_EGRESS_PROXY_CONFIG='.length)) as {
+			// The value the `docker` CLI process was handed, read back out of
+			// its environment — which is where `--env NAMZU_EGRESS_PROXY_CONFIG`
+			// (the name, with no `=`) takes it from.
+			const handed = readFileSync(dockerEnvLog, 'utf8').trim().split('\n')
+			expect(handed).toHaveLength(1)
+			const parsed = JSON.parse(handed[0] as string) as {
 				allowedHosts: string[]
 				credentials: unknown[]
 				port: number
@@ -386,9 +553,16 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 			expect(parsed.port).toBe(2025)
 
 			// And the point of the whole arrangement: the token is in the
-			// proxy's environment and NOT in the sandbox's.
-			const sandboxRun = callsMatching((argv) => argv[0] === 'run')[1] as string[]
-			expect(sandboxRun.join(' ')).not.toContain('real-token')
+			// proxy's configuration and in NEITHER container's argv — not the
+			// proxy's, where it would be world-readable in `/proc/<pid>/cmdline`
+			// on the docker host, and not the sandbox's, which is the line the
+			// threat model draws.
+			const runs = callsMatching((argv) => argv[0] === 'run')
+			expect(runs).toHaveLength(2)
+			for (const argv of runs) {
+				expect(argv.join(' ')).not.toContain('real-token')
+				expect(argv.join(' ')).not.toContain('api.example.com')
+			}
 		} finally {
 			await sandbox.destroy()
 		}
@@ -405,8 +579,40 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 			(argv) => argv[2],
 		)
 		expect(removed).toContain(`namzu-sandbox-${sandbox.id}`)
-		expect(removed.some((name) => name?.startsWith('namzu-egress-'))).toBe(true)
+		expect(removed).toContain(proxyContainerName())
 		expect(removed).toHaveLength(2)
+	})
+
+	/**
+	 * An aborted `create()` must not leave the proxy behind.
+	 *
+	 * The first cut of this change did, on all three of these. The block that
+	 * starts the proxy sat outside the `try` that owns `cleanupOnFailure`, so an
+	 * abort at its `throwIfAborted()` rethrew past every removal; the `docker
+	 * run` catch rethrew without removing at all; and the one removal that WAS
+	 * attempted ran on the caller's already-aborted signal, whose abort listener
+	 * kills the child before it reaches the daemon. The result was a container
+	 * holding real credentials with a live route to the internet and nothing
+	 * that would ever remove it — `destroy()` being unreachable, because
+	 * `create()` never returned a handle. The pre-change code got this right
+	 * with a local `close()` an aborted signal cannot defeat.
+	 *
+	 * Each probe holds the fake daemon at one point of the sequence and aborts
+	 * there, so the window is chosen rather than raced.
+	 */
+	it('removes the proxy when the create is aborted during the proxy container start', async () => {
+		await abortDuring('run')
+	})
+
+	it('removes the proxy when the create is aborted while it joins the internal network', async () => {
+		await abortDuring('connect')
+	})
+
+	it('removes the proxy when the create is aborted after the proxy is up', async () => {
+		// The microtask boundary between `startEgressProxyContainer` returning
+		// and the sandbox's own `docker run` beginning, which is the check the
+		// block used to rethrow from.
+		await abortDuring('inspect')
 	})
 
 	it('removes the proxy when the sandbox it was started for never comes up', async () => {
@@ -443,10 +649,14 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 
 			const runs = callsMatching((argv) => argv[0] === 'run')
 			expect(runs).toHaveLength(3)
-			const replacement = runs[2] as string[]
-			const configArg = replacement[replacement.indexOf('--env') + 1] as string
-			expect(configArg).toContain('other.example.com')
-			expect(configArg).not.toContain('api.example.com')
+
+			// The replacement's policy, read from the environment the `docker`
+			// CLI process was handed: one entry per proxy start, so the last is
+			// the one the live sandbox is now running under.
+			const handed = readFileSync(dockerEnvLog, 'utf8').trim().split('\n')
+			expect(handed).toHaveLength(2)
+			const replacement = JSON.parse(handed[1] as string) as { allowedHosts: string[] }
+			expect(replacement.allowedHosts).toEqual(['other.example.com'])
 
 			const connects = callsMatching((argv) => argv[0] === 'network' && argv[1] === 'connect')
 			expect(connects).toHaveLength(2)
@@ -457,6 +667,101 @@ describe('spawnDockerSandbox — the proxy as a sibling container', () => {
 		} finally {
 			await sandbox.destroy()
 		}
+	})
+
+	/**
+	 * The two catches inside `startEgressProxyContainer` are only load-bearing
+	 * where `cleanupOnFailure` is unreachable, which is exactly here: a live
+	 * policy swap happens on a sandbox that already exists, so nothing else is
+	 * watching for a proxy container that failed to come up. Both probes count
+	 * `rm -f` calls for the proxy's name — one from the replacement's own
+	 * pre-start removal, and the second the rollback this asserts — and both
+	 * assert what the daemon has left running afterwards.
+	 *
+	 * The first is mutation-distinguishable: take the `docker run` catch's
+	 * removal away and the replacement stays up. The second is NOT, and it is
+	 * kept as a regression pin rather than claimed as a probe — recorded in
+	 * `docs/sdk/sandbox-egress.md` and in this commit's message. The reason is
+	 * the shape of the swap: `restartEgressProxyContainer` hands
+	 * `startEgressProxyContainer` no signal, so the pre-change spelling for
+	 * that catch (`runOnceQuiet` on `signal`) behaved identically here — there
+	 * was no aborted signal for it to be defeated by. What that spelling loses
+	 * on the paths where a signal exists is asserted where it exists, by the
+	 * three abort probes and `cleanupOnFailure`'s own.
+	 */
+	it('removes the replacement proxy when its container fails to start', async () => {
+		const sandbox = await backend().create({
+			workingDirectory: workDir,
+			egress: STATIC_ALLOWLIST,
+		})
+		try {
+			// The third `run` of the sequence: proxy, sandbox, replacement.
+			process.env.NAMZU_TEST_FAIL_RUN = '3'
+			await expect(
+				sandbox.setNetworkPolicy?.({ allowedHosts: ['other.example.com'] }),
+			).rejects.toThrow(/Could not start the egress proxy container/)
+			expect(proxyRemoveCalls()).toHaveLength(2)
+			expect(containersRunning()).toEqual([`namzu-sandbox-${sandbox.id}`])
+		} finally {
+			await sandbox.destroy()
+		}
+	})
+
+	it('removes the replacement proxy when it cannot join the internal network', async () => {
+		const sandbox = await backend().create({
+			workingDirectory: workDir,
+			egress: STATIC_ALLOWLIST,
+		})
+		try {
+			// The container starts and then cannot be attached, which is the
+			// case the second catch owns: a proxy that exists, is reachable by
+			// nothing, and would otherwise be left holding credentials.
+			process.env.NAMZU_TEST_FAIL_CONNECT = '1'
+			await expect(
+				sandbox.setNetworkPolicy?.({ allowedHosts: ['other.example.com'] }),
+			).rejects.toThrow()
+			expect(proxyRemoveCalls()).toHaveLength(2)
+			expect(containersRunning()).toEqual([`namzu-sandbox-${sandbox.id}`])
+		} finally {
+			await sandbox.destroy()
+		}
+	})
+
+	/**
+	 * A teardown that lands while the REPLACEMENT is starting must not leave the
+	 * replacement behind.
+	 *
+	 * `setNetworkPolicy` checks its lifecycle before its first `await`, and a
+	 * teardown — `destroy()`, or the `retire()` an in-flight `exec` triggers on
+	 * a worker whose cancellation outcome is unknown — sets `lifecycle` and
+	 * removes both containers while the swap is suspended inside
+	 * `restartEgressProxyContainer`. The swap then goes on to start a NEW
+	 * `namzu-egress-<id>` container after those removals have run, and nothing
+	 * removes that one: `egressProxyContainer` is only removed from
+	 * `teardownSandbox` and `cleanupOnFailure`, and both have already run.
+	 *
+	 * The holder is inside the replacement's `docker run`, so the container is
+	 * committed AFTER the teardown's `rm -f` was issued — that ordering is the
+	 * whole race, and it is why the assertion is on what the daemon has left
+	 * running rather than on which `rm` was typed. Counting removals cannot see
+	 * this: the removal was issued, before the container existed.
+	 */
+	it('leaves no proxy container when the sandbox is torn down while the replacement starts', async () => {
+		const sandbox = await backend().create({
+			workingDirectory: workDir,
+			egress: STATIC_ALLOWLIST,
+		})
+		// Set AFTER the create, so the `docker run` this catches is the
+		// replacement's — the third of the sequence.
+		process.env.NAMZU_TEST_HOLD = 'run'
+		const swapping = sandbox.setNetworkPolicy?.({ allowedHosts: ['other.example.com'] })
+		await waitForMarker('run')
+
+		await sandbox.destroy()
+		// The swap neither reports a policy change on a sandbox that is gone
+		// nor leaves its replacement running.
+		await expect(swapping).rejects.toThrow(/no new worker operation can be admitted/)
+		expect(containersRunning()).toEqual([])
 	})
 
 	it('refuses a live policy change on a sandbox that has no proxy to change', async () => {

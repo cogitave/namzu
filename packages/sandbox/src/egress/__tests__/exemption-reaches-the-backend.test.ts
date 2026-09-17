@@ -13,10 +13,11 @@ import type { DockerBackendInternalConfig } from '../../backends/docker/index.js
  * whoever was watching production traffic get refused.
  *
  * `brokeredCredentials` is the cautionary neighbour: it is declared on the
- * internal backend config, read by `egressProxyOptions`, and `createSandboxProvider`
- * has never passed it — so the credential brokering this whole boundary exists
- * for is unreachable through the provider today. That is a separate defect and
- * is not fixed here; it is why this case exists.
+ * internal backend config, read by `egressProxyContainerConfig` (which puts it
+ * into the proxy container's environment), and `createSandboxProvider` has
+ * never passed it — so the credential brokering this whole boundary exists for
+ * is unreachable through the provider today. That is a separate defect and is
+ * not fixed here; it is why this case exists.
  */
 
 const built: DockerBackendInternalConfig[] = []

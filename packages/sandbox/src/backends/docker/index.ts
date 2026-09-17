@@ -23,10 +23,13 @@
  *  - Outbound network from the worker is restricted by the network
  *    it is attached to (see {@link DockerBackendConfig.network}) and,
  *    for a host allowlist, by an egress proxy running as a sibling
- *    container on that same network — the sandbox's only route out,
- *    because the network is `--internal`. The proxy environment the
- *    sandbox is given directs traffic; the topology is what confines
- *    it. See {@link assertNetworkCarriesThePolicy} and #398.
+ *    container on that same network — the only way its traffic reaches
+ *    the internet, because the network is `--internal` and has no route
+ *    off it. The proxy is a container on that subnet like any other, so
+ *    it is not the sandbox's only reachable destination. The proxy
+ *    environment the sandbox is given directs traffic; the topology is
+ *    what confines it. See {@link assertNetworkCarriesThePolicy} and
+ *    #398.
  *
  * The credential above is what a previous version of this docblock
  * claimed network placement alone provided. It said the worker "only
@@ -453,12 +456,12 @@ export function isInternalNetwork(inspectedInternalFlag: string): boolean {
  *    container that opens a socket directly reaches the network with the
  *    allowlist unconsulted, and untrusted code is the caller least likely to
  *    honour a convention. With the proxy as a sibling container on an
- *    `--internal` network, the sandbox has no route out except to that
- *    container, which it cannot change because `--cap-drop=ALL` took
- *    `NET_ADMIN` away (see {@link HARDENING_ARGS}). The environment
- *    variables stay and now DIRECT traffic rather than permit it. On a
- *    network that is not internal there is no such route to remove, and the
- *    policy is back to being advisory — which is what this refuses.
+ *    `--internal` network, the only way the sandbox's traffic reaches the
+ *    internet is that container, and it cannot change that because
+ *    `--cap-drop=ALL` took `NET_ADMIN` away (see {@link HARDENING_ARGS}). The
+ *    environment variables stay and now DIRECT traffic rather than permit it.
+ *    On a network that is not internal there is no such route to remove, and
+ *    the policy is back to being advisory — which is what this refuses.
  *
  * The first two are exact opposites, so `deny-all` over a published host port
  * is impossible rather than merely unsupported: no arrangement of docker
@@ -493,7 +496,7 @@ export function assertNetworkCarriesThePolicy(
 
 	if (needsEgressProxy(egress) && !internal) {
 		throw new Error(
-			`The docker sandbox backend was asked for an egress policy of kind '${egress?.kind}' on network '${network}', but that network is not internal, so nothing stops the container from reaching the world directly and the allowlist would only be a proxy environment variable a workload may decline to read. Create the network with 'docker network create --internal ${network}': the sandbox then has no route out except to the egress proxy container, which is the boundary — and set hostReachability: 'container-network' to reach the worker by name on it, since a published host port needs a route out this network does not have. Refusing rather than reporting a boundary that is not there.`,
+			`The docker sandbox backend was asked for an egress policy of kind '${egress?.kind}' on network '${network}', but that network is not internal, so nothing stops the container from reaching the world directly and the allowlist would only be a proxy environment variable a workload may decline to read. Create the network with 'docker network create --internal ${network}': the sandbox then reaches the internet only through the egress proxy container, which is the boundary — and set hostReachability: 'container-network' to reach the worker by name on it, since a published host port needs a route out this network does not have. Refusing rather than reporting a boundary that is not there.`,
 		)
 	}
 }
@@ -509,9 +512,11 @@ export function assertNetworkCarriesThePolicy(
  * failure this shape exists to make testable.
  *
  * `parseProxyConfig` in `egress-proxy/server.mjs` refuses every shape in here
- * it cannot read, and the two ends are pinned against each other by tests on
- * both sides — this serialises, that parses, and a field renamed on one side
- * alone fails a test rather than starting an empty boundary.
+ * it cannot read — and this function's own output is fed to that parser by
+ * `__tests__/hardening.test.ts`, so the two ends are pinned against each other
+ * rather than each against its own idea of the shape. A field renamed on one
+ * side alone fails a test rather than starting a boundary that enforces
+ * something nobody wrote.
  */
 export interface EgressProxyContainerConfig {
 	readonly port: number
@@ -572,6 +577,15 @@ function renderLabelArgs(labels: Readonly<Record<string, string>> | undefined): 
 	return args
 }
 
+/**
+ * Name the proxy container reads its configuration from.
+ *
+ * The NAME travels in the argv and the VALUE travels in the `docker` CLI
+ * child's environment, which is why this is one constant used by both ends of
+ * that pair rather than a literal written twice.
+ */
+const EGRESS_PROXY_CONFIG_ENV = 'NAMZU_EGRESS_PROXY_CONFIG'
+
 /** Everything {@link renderEgressProxyRunArgs} renders, as a value. */
 export interface EgressProxyArgvInput {
 	readonly config: DockerBackendInternalConfig
@@ -580,8 +594,6 @@ export interface EgressProxyArgvInput {
 	readonly upstreamNetwork: string
 	/** The internal network the sandbox is on, which the proxy is also joined to. */
 	readonly internalNetwork: string
-	/** The serialised {@link EgressProxyContainerConfig}. */
-	readonly configJson: string
 }
 
 /**
@@ -614,10 +626,20 @@ export interface EgressProxyArgvInput {
  * proxy rather than this argv naming an entrypoint.
  */
 export function renderEgressProxyRunArgs(input: EgressProxyArgvInput): string[] {
-	const { config, containerName, upstreamNetwork, configJson } = input
+	const { config, containerName, upstreamNetwork, internalNetwork } = input
 	if (!config.egressProxyImage) {
 		throw new Error(
 			'renderEgressProxyRunArgs was called without config.egressProxyImage; the docker backend cannot start an egress proxy container it has no image for. resolveNetwork refuses an allowlist policy in this state, so reaching here means the refusal was bypassed.',
+		)
+	}
+	if (upstreamNetwork === 'none') {
+		throw new Error(
+			`egressProxyUpstreamNetwork is 'none', which would give the proxy container no interface and no route: it would come up unable to reach anything, and the only way the sandbox's traffic reaches the internet would be a boundary that cannot reach it itself. Name a bridge, or drop the field to take the 'bridge' default.`,
+		)
+	}
+	if (upstreamNetwork === internalNetwork) {
+		throw new Error(
+			`egressProxyUpstreamNetwork names '${upstreamNetwork}', which is the same network the sandbox is on — the internal one. A container whose primary network is internal comes up with no default route and never acquires one, so the proxy would start with no way to reach the internet: the boundary would be a container that can only talk to the sandbox. Name a different network for egressProxyUpstreamNetwork, or drop the field to take the 'bridge' default.`,
 		)
 	}
 	return [
@@ -639,8 +661,19 @@ export function renderEgressProxyRunArgs(input: EgressProxyArgvInput): string[] 
 		'--tmpfs',
 		`/tmp:${TMPFS_MOUNT_OPTIONS}`,
 		...renderLabelArgs(config.labels),
+		// The NAME only: docker takes the value from the environment of the
+		// `docker` CLI process it names, which the caller sets (see
+		// `startEgressProxyContainer`). The value is the whole policy —
+		// including brokered credential values — and an argv is a worse place
+		// for it than an environment on every platform that has a process
+		// table: `/proc/<pid>/cmdline` is world-readable on Linux, so putting
+		// it here published it to every local user on the docker host for as
+		// long as the client ran, where the child's own environment is readable
+		// only by the user that owns the process. It is still readable by
+		// anything with access to the daemon, through `docker inspect`, and
+		// `docs/sdk/sandbox-egress.md` says so.
 		'--env',
-		`NAMZU_EGRESS_PROXY_CONFIG=${configJson}`,
+		EGRESS_PROXY_CONFIG_ENV,
 		config.egressProxyImage,
 	]
 }
@@ -1128,7 +1161,7 @@ export interface DockerRunArgvInput {
  * The complete `docker run` argv, as a value.
  *
  * Extracted for the same reason {@link resolveNetwork} and
- * {@link egressProxyOptions} were: everything downstream of it needs a running
+ * {@link egressProxyContainerConfig} were: everything downstream of it needs a running
  * Docker daemon, so a confinement flag that never reached the argv — or one
  * that reached it in an order that cancels another — could only be caught by an
  * operator noticing its effect missing in production. Spawning a fake `docker`
@@ -1333,30 +1366,8 @@ async function spawnDockerSandbox(
 	)
 	const containerName = `namzu-sandbox-${id}`
 
-	// The boundary a host allowlist is actually enforced at, as a sibling
-	// container on this container's network (#398). Started before the sandbox
-	// so its alias is in the network's DNS by the time the sandbox's proxy
-	// environment resolves it, and removed with the sandbox — a proxy holding
-	// real credentials must not outlive the thing it was filtering for, and on
-	// this topology a leftover one is also a live route to the internet for
-	// anything that can reach that network.
+	/** The proxy container's name, once it is being started. */
 	let egressProxyContainer: string | undefined
-	if (proxyPlanned && options.egress) {
-		egressProxyContainer = egressProxyContainerName(id)
-		// Resolved once, here, rather than per request — see
-		// `egressProxyContainerConfig` for what that costs and why it is paid.
-		const allowedHosts = await resolveAllowedHosts(options.egress)
-		options.signal?.throwIfAborted()
-		await startEgressProxyContainer({
-			docker,
-			config,
-			containerName: egressProxyContainer,
-			internalNetwork: network,
-			allowedHosts,
-			signal: options.signal,
-		})
-		options.signal?.throwIfAborted()
-	}
 
 	// All bind sources come from the consumer-supplied layout. The
 	// backend never allocates host directories and never removes them
@@ -1375,16 +1386,26 @@ async function spawnDockerSandbox(
 		// teardown is in `destroy()`, which a create that never returned can
 		// never reach. So every failure between the two — a daemon that is
 		// down, a port that could not be read, a worker that missed its
-		// readiness deadline — would leave a container holding real
+		// readiness deadline, an abort — would leave a container holding real
 		// credentials and a live route to the internet, and a retry loop left
 		// one per attempt. That is the invariant this file states where the
 		// proxy is started: it must not outlive the thing it was filtering
 		// for. Start both arms before awaiting either: a stuck runtime must
 		// not keep the credential-bearing one alive.
+		//
+		// The proxy arm is the reconciler rather than a `runOnceQuiet` on this
+		// signal, and the difference is the grace this function's caller runs
+		// under: `runFailureCleanup` spends ONE SECOND on both arms together,
+		// so a daemon that is slow to answer rather than down would have its
+		// `docker rm -f` killed at that boundary — the credential-bearing
+		// container outliving the sandbox by exactly the failure this exists to
+		// prevent. The reconciler carries its own deadline, is not reachable by
+		// any abort, and is not waited on by the caller's grace either: it
+		// finishes whether or not this function is still listening.
 		const removeProxy =
 			egressProxyContainer === undefined
 				? Promise.resolve()
-				: runOnceQuiet(docker, ['rm', '-f', egressProxyContainer], signal)
+				: removeEgressProxyContainer(docker, egressProxyContainer)
 		egressProxyContainer = undefined
 		await Promise.all([removeContainer, removeProxy])
 	}
@@ -1396,6 +1417,43 @@ async function spawnDockerSandbox(
 	const rootDir = resolvedLayout.outputs.containerPath
 
 	try {
+		// The boundary a host allowlist is actually enforced at, as a sibling
+		// container on this container's network (#398). Started before the
+		// sandbox so its alias is in the network's DNS by the time the sandbox's
+		// proxy environment resolves it, and removed with the sandbox — a proxy
+		// holding real credentials must not outlive the thing it was filtering
+		// for, and on this topology a leftover one is also a live route to the
+		// internet for anything that can reach that network.
+		//
+		// Inside this `try` on purpose, which the first cut of this change got
+		// wrong. This block has three suspension points — the resolver, the
+		// proxy's `docker run`, and an explicit `throwIfAborted()` — and an
+		// abort at any of them leaves a container holding real credentials with
+		// nothing that will ever remove it: `destroy()` is unreachable, because
+		// `create()` never returned a handle. Outside the `try` the abort
+		// rethrew past `cleanupOnFailure`; inside it, every path that does not
+		// return a `Sandbox` goes through that cleanup, which removes the proxy
+		// by name on a deadline of its own. The abort that arrives here has to
+		// be raised by a call inside the block — the sandbox's own `docker run`
+		// does that itself — so an abort before this point reaches the same
+		// place by the same route.
+		if (proxyPlanned && options.egress) {
+			egressProxyContainer = egressProxyContainerName(id)
+			// Resolved once, here, rather than per request — see
+			// `egressProxyContainerConfig` for what that costs and why it is paid.
+			const allowedHosts = await resolveAllowedHosts(options.egress)
+			options.signal?.throwIfAborted()
+			await startEgressProxyContainer({
+				docker,
+				config,
+				containerName: egressProxyContainer,
+				internalNetwork: network,
+				allowedHosts,
+				signal: options.signal,
+			})
+			options.signal?.throwIfAborted()
+		}
+
 		const args = buildDockerRunArgs({
 			config,
 			options,
@@ -1567,13 +1625,63 @@ async function spawnDockerSandbox(
 			// which the proxy was absent — and it is the honest trade for a
 			// boundary the sandbox cannot route around. See
 			// `docs/sdk/sandbox-egress.md`.
-			await restartEgressProxyContainer({
-				docker,
-				config,
-				containerName: egressProxyContainer,
-				internalNetwork: network,
-				allowedHosts: policy.allowedHosts,
-			})
+			//
+			// The name is read out of the closure once, here, rather than at
+			// each use below: `cleanupOnFailure` clears it, and a swap that
+			// raced a failing create would otherwise call `assertActive()` and
+			// then name `undefined` in the removal.
+			const proxyContainer = egressProxyContainer
+			try {
+				await restartEgressProxyContainer({
+					docker,
+					config,
+					containerName: proxyContainer,
+					internalNetwork: network,
+					allowedHosts: policy.allowedHosts,
+				})
+				// A teardown that landed while the replacement was starting
+				// leaves a container nothing else will ever remove: `destroy()`
+				// is running or has run, `egressProxyContainer` is only removed
+				// from `teardownSandbox` and `cleanupOnFailure`, and the
+				// `assertActive()` above ran BEFORE the first `await` — before
+				// the swap suspended inside `restartEgressProxyContainer`, which
+				// is exactly when a teardown lands. So the swap fails here
+				// rather than reporting a policy change on a sandbox that no
+				// longer exists.
+				assertActive()
+			} finally {
+				// ... and the replacement is removed even so, because the check
+				// above cannot be where the guarantee lives. It sits AFTER the
+				// container comes into existence, and that ordering is what
+				// makes it airtight rather than merely narrower than the check
+				// at entry. A generation counter read before the `docker run`
+				// has the opposite shape: it can only refuse a start it already
+				// knows about, and a teardown that begins between that refusal
+				// being evaluated and the daemon committing the container is in
+				// no check's view — the container exists and nothing has looked
+				// since. Here the two orderings partition the space instead. A
+				// teardown that began before this point has already set
+				// `lifecycle`, synchronously (`teardownSandbox` and `retire()`
+				// both do, before their first `await`), so this removal runs. A
+				// teardown that begins after it issues its own `rm -f` for this
+				// same name — `teardownSandbox` reads `egressProxyContainer`,
+				// which is this container — against a container that, at this
+				// point, exists. Whichever of the two runs second finds the
+				// container and removes it, and both are idempotent.
+				//
+				// A signal-less remover, and not `runOnce` on some signal, for
+				// the reason `removeEgressProxyContainer` exists: the teardown
+				// this is racing may be one whose own signal was already
+				// aborted, and it removes nothing at all in that case (the whole
+				// container set is left, which is what `Sandbox.destroy`
+				// promises to settle promptly over). That is the caller's
+				// contract and not something to defeat — but a proxy container
+				// holding brokered credentials and a live route to the internet
+				// is not something to leave with it either.
+				if (lifecycle !== 'active') {
+					await removeEgressProxyContainer(docker, proxyContainer)
+				}
+			}
 		},
 
 		async writeFile(path: string, content: string | Buffer): Promise<void> {
@@ -1710,6 +1818,48 @@ async function spawnDockerSandbox(
 /** The proxy's upstream network when the host named none. See the field. */
 const DEFAULT_EGRESS_PROXY_UPSTREAM_NETWORK = 'bridge'
 
+/**
+ * How long a reconciliation remove of the proxy container may take.
+ *
+ * The same order as `retire()`'s own deadline, and for the same reason: this
+ * bounds a call to a daemon that may never answer. It is a deadline of its own
+ * rather than the caller's, because the caller is usually an aborted operation
+ * — see {@link removeEgressProxyContainer}.
+ */
+const EGRESS_PROXY_REMOVE_TIMEOUT_MS = 5_000
+
+/**
+ * Remove the proxy container, on a path that is already failing.
+ *
+ * Three properties, each of which the first cut of this change got wrong, and
+ * each of which is why this is a function rather than a `runOnceQuiet` call at
+ * three sites:
+ *
+ *  - **It never takes the caller's signal.** A reconciliation remove handed an
+ *    already-aborted signal does not reach the daemon at all: `runOnce` and
+ *    `runOnceQuiet` install an abort listener that kills the child the moment
+ *    they see one, so `docker rm -f` dies before it is spawned and the
+ *    container survives — in exactly the case this exists to handle, an
+ *    operation that was aborted midway through starting it.
+ *  - **It is bounded anyway.** A fresh deadline of its own, so a daemon that
+ *    never answers cannot hang the failure path that is cleaning up after it.
+ *  - **It does not throw.** Whatever went wrong to bring the caller here is the
+ *    thing the caller needs to hear; a failure to remove is reported by the
+ *    container's own name in `docker ps` and by the label reaper this file
+ *    documents, not by replacing that error with a worse one.
+ */
+async function removeEgressProxyContainer(docker: string, containerName: string): Promise<void> {
+	const deadline = new OperationDeadline(
+		EGRESS_PROXY_REMOVE_TIMEOUT_MS,
+		`egress proxy container ${containerName} removal`,
+	)
+	try {
+		await deadline.run((signal) => runOnceQuiet(docker, ['rm', '-f', containerName], signal))
+	} catch {
+		// Deliberately swallowed. See the third property above.
+	}
+}
+
 interface EgressProxyContainerInput {
 	readonly docker: string
 	readonly config: DockerBackendInternalConfig
@@ -1745,8 +1895,13 @@ interface EgressProxyContainerInput {
  *
  * A failure after the container exists removes it before rethrowing. Leaving
  * it would leave a container holding real credentials and a live route to the
- * internet with no sandbox it belongs to, and the caller's own cleanup cannot
- * see it: this runs before the try/catch that owns that cleanup.
+ * internet with no sandbox it belongs to. This is not the only remover on that
+ * path: the block that starts this container sits INSIDE the `try` that owns
+ * `cleanupOnFailure`, and the name it is started under is in
+ * `egressProxyContainer` from before the call, so the caller's cleanup removes
+ * the same name again. The first cut of this change had the block outside that
+ * `try` and this sentence said the caller's own cleanup could not see the
+ * container; the two were wrong together, and the leak was real.
  */
 async function startEgressProxyContainer(input: EgressProxyContainerInput): Promise<void> {
 	const { docker, config, containerName, internalNetwork, allowedHosts, signal } = input
@@ -1756,19 +1911,37 @@ async function startEgressProxyContainer(input: EgressProxyContainerInput): Prom
 		containerName,
 		upstreamNetwork: config.egressProxyUpstreamNetwork ?? DEFAULT_EGRESS_PROXY_UPSTREAM_NETWORK,
 		internalNetwork,
-		configJson: JSON.stringify(
+	}
+	// The policy, on its way to the container's environment by way of the
+	// `docker` CLI's own. See `renderEgressProxyRunArgs` for why it does not
+	// travel in the argv.
+	const proxyEnvironment = {
+		[EGRESS_PROXY_CONFIG_ENV]: JSON.stringify(
 			egressProxyContainerConfig(config, allowedHosts, EGRESS_PROXY_PORT_INSIDE_CONTAINER),
 		),
 	}
 
 	try {
-		await runOnce(docker, renderEgressProxyRunArgs(argvInput), signal)
+		await runOnce(docker, renderEgressProxyRunArgs(argvInput), signal, proxyEnvironment)
 	} catch (error) {
+		// The container may exist even though this call did not return
+		// successfully: `docker run --detach` is a CLI process talking to a
+		// daemon, and the daemon can commit the container while the client is
+		// killed, times out, or fails to report the id back. Remove by name
+		// before rethrowing, which is what the docblock above promised in the
+		// first cut of this change and did not do.
+		await removeEgressProxyContainer(docker, containerName)
+		// An abort is not a failure to start, and the caller that aborted is
+		// entitled to hear its own reason back — the same rule every other
+		// catch in this file follows. Without this an acquisition timeout would
+		// arrive dressed as an image-install problem, which is the diagnosis
+		// shape this file refuses everywhere else.
+		signal?.throwIfAborted()
 		throw withHint(
 			new Error(
 				`Could not start the egress proxy container '${containerName}' from image '${config.egressProxyImage}': ${error instanceof Error ? error.message : String(error)}`,
 			),
-			'Build that image with `docker build -f packages/sandbox/egress-proxy/Dockerfile -t <tag> packages/sandbox` (after `pnpm --filter @namzu/sandbox build`), and name the tag in egressProxyImage. The sandbox is deliberately not started when the only route out of it is missing.',
+			'Build that image with `docker build -f packages/sandbox/egress-proxy/Dockerfile -t <tag> packages/sandbox` (after `pnpm --filter @namzu/sandbox build`), and name the tag in egressProxyImage. The sandbox is deliberately not started when the only way its traffic reaches the internet is missing.',
 		)
 	}
 
@@ -1776,7 +1949,7 @@ async function startEgressProxyContainer(input: EgressProxyContainerInput): Prom
 		await runOnce(docker, renderEgressProxyAttachArgs(argvInput), signal)
 		await assertEgressProxyContainerIsRunning(docker, containerName, signal)
 	} catch (error) {
-		await runOnceQuiet(docker, ['rm', '-f', containerName], signal)
+		await removeEgressProxyContainer(docker, containerName)
 		throw error
 	}
 }
@@ -1796,13 +1969,19 @@ async function startEgressProxyContainer(input: EgressProxyContainerInput): Prom
 async function restartEgressProxyContainer(
 	input: Omit<EgressProxyContainerInput, 'signal'>,
 ): Promise<void> {
-	await runOnceQuiet(input.docker, ['rm', '-f', input.containerName])
+	await removeEgressProxyContainer(input.docker, input.containerName)
 	try {
 		await startEgressProxyContainer(input)
 	} catch (error) {
+		// The hint names both states rather than assuming the safe one. The
+		// removal above swallows its own failure, so "the old container is
+		// gone" is not something this function knows: if the daemon never
+		// answered the remove, the previous container is still up and still
+		// enforcing the policy the caller just replaced — which would be a
+		// worse thing to misreport than a sandbox with no route out.
 		throw withHint(
 			error instanceof Error ? error : new Error(String(error)),
-			'The previous proxy container was already removed, so this sandbox now has no route out at all — every outbound request fails closed until a proxy container is started again. Retry, or destroy the sandbox and create it under the policy you want.',
+			"Check `docker ps` for this sandbox's proxy container before relying on the new policy: the replacement did not come up, so this sandbox either has no route out at all (every request fails closed) or still has the previous container enforcing the policy you just replaced. Retry, or destroy the sandbox and create it under the policy you want.",
 		)
 	}
 }
@@ -2022,6 +2201,24 @@ export function redactDockerArgv(args: readonly string[]): string[] {
 	return rendered
 }
 
+/**
+ * Run a docker subcommand to completion.
+ *
+ * `extraEnv` is added to the child's environment rather than the parent's, and
+ * it is how a value reaches a container without entering the argv this file
+ * builds. Two callers use it, for the same reason:
+ *
+ *  - The sandbox's own `docker run`, which hands over the worker's
+ *    per-instance credential for the valueless `--env NAMZU_SANDBOX_TOKEN` its
+ *    argv carries (minted in `spawnDockerSandbox`).
+ *  - The egress proxy's `docker run`, which names its configuration variable
+ *    in the argv and hands the value over here. See
+ *    `renderEgressProxyRunArgs`.
+ *
+ * Anything a process is told through the environment is visible to `ps`'s
+ * neighbour, `/proc/<pid>/environ`, only to the user that owns it — while an
+ * argv is world-readable on Linux.
+ */
 function runOnce(
 	binary: string,
 	args: string[],

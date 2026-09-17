@@ -5,8 +5,11 @@
 # a host-allowlist egress policy (`src/backends/docker/index.ts`,
 # `renderEgressProxyRunArgs`). It is dual-homed: attached to the `--internal`
 # network the sandbox is on, and to an ordinary bridge through which it reaches
-# the internet. The sandbox itself is attached to the internal network only, so
-# the proxy is the one destination it can reach and the only way off the box.
+# the internet. The sandbox itself is attached to the internal network only,
+# which has no route off it: the only way the sandbox's traffic reaches the
+# internet is through this container — and it is a container on a subnet, so
+# whatever else a host attaches to that same network (a second sandbox, that
+# sandbox's proxy) is reachable from the sandbox too.
 #
 # WHY THIS IMAGE EXISTS RATHER THAN A BIND MOUNT. The proxy is
 # `src/egress/proxy.ts` — a Node module, and deliberately nothing else: it
@@ -18,10 +21,10 @@
 # and drives a *remote* daemon (`hostReachability: 'container-network'`), the
 # path it would bind is on the SDK container's filesystem and the daemon cannot
 # see it. Docker materialises an empty directory instead, `node` exits
-# `MODULE_NOT_FOUND`, and the sandbox is left with no route out and a proxy URL
-# that resolves to nothing. Baking the module into an image is the shape that
-# survives both deployments, and it is the shape the other two images in this
-# package already use.
+# `MODULE_NOT_FOUND`, and the sandbox is left with no route to the internet and
+# a proxy URL that resolves to nothing. Baking the module into an image is the
+# shape that survives both deployments, and it is the shape the other two
+# images in this package already use.
 #
 # BUILD IT FROM `packages/sandbox`, AFTER BUILDING THE PACKAGE. The build
 # context is this directory's parent (same convention as `worker/Dockerfile`
@@ -87,9 +90,10 @@ COPY egress-proxy/server.mjs /opt/namzu-egress/server.mjs
 # CommonJS to Node, and the first `import` in `egress/index.js` would fail with
 # "Cannot use import statement outside a module" — a failure that happens
 # inside the container, after the sandbox has already been given this container
-# as its only route out. The marker is written here rather than committed as a
-# `package.json` in this directory so that nothing walks up from a stray
-# manifest and treats this Dockerfile's home as a Node package.
+# as the only way its traffic reaches the internet. The marker is written here
+# rather than committed as a `package.json` in this directory so that nothing
+# walks up from a stray manifest and treats this Dockerfile's home as a Node
+# package.
 RUN printf '{"type":"module"}\n' > /opt/namzu-egress/package.json \
     && chown -R namzu:namzu /opt/namzu-egress
 

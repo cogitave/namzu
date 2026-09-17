@@ -112,6 +112,33 @@ images on a runner that has a daemon, so the Dockerfiles are known to build.
 `deny-all` and `allow-all` need none of this beyond the internal network
 `deny-all` already required.
 
+Two more things are refused rather than started: `egressProxyUpstreamNetwork`
+set to `'none'`, and set to the internal network itself — either leaves the
+proxy with no default route, which is a boundary in front of nothing while the
+only way the sandbox's traffic reaches the internet points at it.
+
+An aborted `create()` removes the proxy too. That is worth stating because it
+is a container holding credentials with a route to the internet, and
+`destroy()` is unreachable when `create()` never returned a handle; the
+acquisition timeout in the SDK's sandbox lifecycle is enough to reach it.
+
+A `setNetworkPolicy()` whose replacement is still starting when the sandbox is
+torn down does not leave that replacement behind, even though the teardown has
+run by the time the replacement comes up: it fails with the sandbox's own
+retirement rather than reporting a policy change on a sandbox that no longer
+exists. The removal is issued after the container exists and does not travel on
+the caller's signal, which is what closes that ordering rather than narrowing
+it.
+
+That last property is NOT claimed of the ordinary teardown, and the difference
+matters to anyone reading this as "the proxy is always removed". A `destroy()`
+whose own `signal` was already aborted issues no `rm -f` at all — not for the
+proxy, and not for the sandbox either. `Sandbox.destroy` binds an
+implementation to stop its teardown transport and settle promptly when it
+aborts, and this backend does: the whole container set is left running, not
+just the credential-bearing one. That is the caller's instruction rather than a
+failure of the removal paths above.
+
 ## What the sandbox can still reach, and what it cannot
 
 Argued from the flags rather than from an expectation:
@@ -122,7 +149,15 @@ Argued from the flags rather than from an expectation:
   traffic from an internal bridge to any other bridge, and there is no route to
   the other bridge in its table.
 - **Can** reach `namzu-egress:<port>` — the proxy container, on its own subnet.
-  That is the whole design: one destination, and it is the boundary.
+  That is the destination the design is built around.
+- **Can also reach everything else on that same internal network.** The
+  internal network is a subnet, not a point-to-point link: a second sandbox on
+  it, a second sandbox's proxy, and anything else a host attaches there are all
+  reachable — and a sandbox's proxy listens on every interface inside its own
+  container, so it answers whoever asks. A host that puts more than one
+  sandbox's containers on one internal network has put them in reach of each
+  other and of each other's credential-stamping proxy. Give each sandbox (or
+  each trust domain) its own internal network when that matters.
 - **Can** reach the docker host's own IP on the internal bridge, and any
   service of the host's bound to it. The internal network removes the route
   OUT; it does not remove the host, which owns the bridge and terminates
@@ -138,13 +173,27 @@ limit — a reader should not infer more than is true.
   the name in the `CONNECT` line and never inspects the tunnel. This is
   unchanged by any of the above and is why the proxy decides by resolved
   address (#385) rather than by name alone.
-- **A brokered credential now lives in the proxy container's environment.** It
-  was previously held only by the process that created the sandbox. It still
+- **A brokered credential now lives in two places it did not before**: the
+  proxy container's environment, and the `docker inspect` output that shows it.
+  It was previously held only by the process that created the sandbox. It still
   never enters the SANDBOX — that is the line the threat model draws, and a
-  sandbox has no way to read another container's environment — but on a shared
-  docker daemon it is readable by anything with daemon access. If that is not
-  the same trust domain as the host process, treat brokered credentials as
-  visible to it.
+  sandbox has no way to read another container's environment — but anything
+  with access to the docker daemon can read it, so treat daemon access as
+  credential access. On the way there it is handed to the `docker` CLI process
+  through that process's ENVIRONMENT rather than its argv, deliberately: an
+  argv is world-readable on Linux (`/proc/<pid>/cmdline`), which would have
+  published every credential value to every local user on the docker host for
+  as long as the client ran, while a process environment is readable only by
+  the user that owns it. A host that runs the sandbox SDK as one user and
+  shares the machine with untrusted local users should still prefer not to use
+  credential brokering on it.
+- **`createSandboxProvider` does not forward `brokeredCredentials` at all.**
+  That is a pre-existing gap in the provider's plumbing, not a consequence of
+  anything above: the field is read by `egressProxyContainerConfig` and has
+  never been passed by `createSandboxProvider`, so credential brokering is
+  reachable today only by constructing the backend directly. It is recorded in
+  `src/egress/__tests__/exemption-reaches-the-backend.test.ts` and is not
+  altered by this change.
 - **A `resolver` policy is resolved at `create()` and at each
   `setNetworkPolicy()`**, not per request. The container has no channel back to
   the host's resolver, and a channel it could reach is one the sandbox could
@@ -173,7 +222,24 @@ container-hardening work (#378) reports. What is pinned:
 - `src/backends/docker/__tests__/egress-topology.test.ts` pins the proxy's
   `docker run` argv and its `docker network connect` argv, and drives `create()`
   through a fake `docker` binary to assert the order the two containers are
-  started in, the network each joins, and that `destroy()` removes both.
+  started in, the network each joins, and that `destroy()` removes both. That
+  fake daemon keeps a registry of the containers it has committed, so "removed"
+  means the container is gone rather than that an `rm` was typed. Four of its
+  cases hold the daemon at a chosen point and abort there — during the proxy's
+  `docker run`, during its attach, after it is up, and inside the replacement's
+  `docker run` during a live policy swap, which is torn down while that
+  replacement is starting — and assert that no container is left running. Each
+  of those four was confirmed to fail against the shape it replaces. Two further
+  cases drive the two failure paths of a live policy swap — the replacement's
+  `run` failing, and its attach failing — and assert the rollback removal and
+  the containers left; the first fails against the shape it replaces, and the
+  second does NOT: the swap hands that start no signal, so the pre-change
+  spelling of that catch behaved identically there. It is kept as a regression
+  pin rather than reported as a probe.
+- `src/backends/docker/__tests__/hardening.test.ts` feeds
+  `egressProxyContainerConfig`'s own output to `parseProxyConfig`, the parser the
+  container runs, so the two ends of that boundary are pinned against each
+  other rather than each against its own idea of the shape.
 - `egress-proxy/__tests__/server.test.js` starts the container's entrypoint as
   a subprocess and asserts that a readable configuration comes up and that
   every unreadable one exits non-zero.

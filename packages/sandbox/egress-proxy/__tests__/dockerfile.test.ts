@@ -13,9 +13,9 @@
  * relative to itself (`DEFAULT_PROXY_MODULE`), which is the image's layout and
  * nothing else. If this Dockerfile copies `dist/egress` somewhere else, the
  * image still builds — `COPY` only cares that the source exists — and the
- * failure arrives when the proxy container starts, inside a sandbox whose only
- * route out is that container. That is the shape of bug worth a test that
- * costs nothing to run.
+ * failure arrives when the proxy container starts, inside a sandbox whose
+ * traffic reaches the internet through nothing else. That is the shape of bug
+ * worth a test that costs nothing to run.
  */
 
 import { readFileSync } from 'node:fs'

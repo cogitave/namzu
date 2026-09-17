@@ -665,9 +665,13 @@ export interface ContainerBackendConfig {
 	 * An egress policy of `static` or `resolver` — a host allowlist —
 	 * additionally REQUIRES this network to be `--internal`, and requires
 	 * `hostReachability: 'container-network'`. The allowlist is enforced by
-	 * the egress proxy running as a sibling container on this network, so
-	 * the sandbox's only route off the box is that container; on a network
-	 * with a route out the allowlist is a proxy environment variable a
+	 * the egress proxy running as a sibling container on this network: the
+	 * sandbox is attached to this network alone, and an internal network has
+	 * no route off it, so the only way the sandbox's traffic reaches the
+	 * internet is through that container. It is a container on a subnet like
+	 * any other there, so what else a host attaches to this network — a second
+	 * sandbox, and that sandbox's proxy — is reachable from this one too; on a
+	 * network with a route out the allowlist is a proxy environment variable a
 	 * workload may decline to read, and `create()` refuses rather than
 	 * reporting a boundary that is not there.
 	 */

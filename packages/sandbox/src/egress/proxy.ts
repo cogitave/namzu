@@ -80,10 +80,11 @@ export interface EgressProxyOptions {
 	 * where that reasoning flips, and it is the whole reason this is
 	 * configurable: the docker tier runs the proxy as a container of its own
 	 * (`egress-proxy/server.mjs`), the sandbox is attached to an `--internal`
-	 * network with no route out, and the proxy's container is the only thing
-	 * on that network that can be reached. There, `0.0.0.0` inside the proxy
-	 * container is not "every interface on the host" — the container IS the
-	 * boundary, and the sandbox has no other destination to reach.
+	 * network with no route out, and this container is the only way its traffic
+	 * reaches the internet. There, `0.0.0.0` inside the proxy container is not
+	 * "every interface on the host" — the container IS the boundary — and what
+	 * else the sandbox can reach on that network is whatever other containers a
+	 * host attached to it, which `docs/sdk/sandbox-egress.md` states.
 	 */
 	readonly bindHost?: string
 	/**

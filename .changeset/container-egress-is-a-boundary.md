@@ -12,8 +12,10 @@ the sandbox kept ordinary bridge networking with full outbound reachability —
 `--add-host namzu-egress:host-gateway` was the only thing pointing traffic at
 it. Anything inside the container that opened a socket directly reached the
 network with the allowlist unconsulted. It is now a sibling container on an
-`--internal` network the sandbox is also on, and the sandbox has no route out
-except to it.
+`--internal` network the sandbox is also on, which has no route off it: the
+sandbox's traffic reaches the internet only through that container, and
+everything else a host attaches to that network is a container on the sandbox's
+own subnet.
 
 **What a host using `EgressPolicy` of `static` or `resolver` must now do**, all
 three refused at `create()` rather than downgraded:
@@ -52,10 +54,19 @@ boundary existing:**
   **closed** — no request is permitted that the new policy would refuse.
 - `brokeredCredentials` are passed to the proxy container's environment. They
   still never enter the sandbox; they are now readable by anything with access
-  to the docker daemon rather than only by the creating process.
+  to the docker daemon, which should be treated as credential access. (On the
+  way there the value goes through the `docker` CLI child's ENVIRONMENT, not its
+  argv — an argv is world-readable in `/proc/<pid>/cmdline` on Linux.) Note also
+  that `createSandboxProvider` has never forwarded `brokeredCredentials` at all;
+  that pre-existing gap is unchanged.
 - `egressProxyUpstreamNetwork` (default `bridge`) is where the proxy reaches
   the internet. Anything else attached to that network can reach the proxy and
-  use it, so name a dedicated one on a shared daemon.
+  use it, so name a dedicated one on a shared daemon. `'none'`, and the internal
+  network itself, are refused: either leaves the proxy with no route out.
+- Everything else on the SANDBOX's internal network is reachable from the
+  sandbox — a second sandbox, a second sandbox's proxy. That is a property of
+  the network rather than of this tier; give each sandbox its own internal
+  network when they should not see one another.
 
 `deny-all` and `allow-all` are unaffected beyond the internal network
 `deny-all` already required. `EgressProxy` gains two optional options

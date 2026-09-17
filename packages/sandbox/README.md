@@ -129,10 +129,17 @@ the egress proxy running as a **sibling container**, not by the process that
 created the sandbox. The proxy is dual-homed: `docker run` puts it on an
 ordinary network so it has a route to the internet, and `docker network
 connect --alias namzu-egress` adds the `--internal` network the sandbox is on.
-The sandbox joins that internal network alone, so the only thing it can reach
-is the proxy — a route it cannot put back, because `--cap-drop=ALL` removed
-`NET_ADMIN`. `--add-host namzu-egress:host-gateway` and the loopback proxy that
-needed it are gone.
+The sandbox joins that internal network alone and has no route off it — a route
+it cannot put back, because `--cap-drop=ALL` removed `NET_ADMIN`.
+`--add-host namzu-egress:host-gateway` and the loopback proxy that needed it are
+gone.
+
+"No route off it" is the accurate half of that, and it is worth being exact
+about the other: the internal network is a subnet, so the sandbox can also
+reach whatever else a host attaches there — a second sandbox, a second
+sandbox's proxy. Give each sandbox its own internal network when they should
+not see one another; see
+[docs/sdk/sandbox-egress.md](../../docs/sdk/sandbox-egress.md).
 
 `HTTP_PROXY`, `http_proxy`, `HTTPS_PROXY`, `https_proxy` and `NO_PROXY` are
 still set on the sandbox, and what they are has changed. They no longer permit
@@ -161,8 +168,9 @@ What the boundary does not cover — domain fronting inside a `CONNECT` tunnel, 
 `resolver` policy resolved at `create()` and `setNetworkPolicy()` rather than
 per request, `setNetworkPolicy()` replacing the proxy container rather than
 swapping a list in place, brokered credentials now readable by anything with
-daemon access, and the proxy's listener being reachable by whatever else shares
-its upstream network — is stated in
+daemon access, the proxy's listener being reachable by whatever else shares its
+upstream network, and everything else the sandbox shares its own internal
+network with — is stated in
 [docs/sdk/sandbox-egress.md](../../docs/sdk/sandbox-egress.md), along with the
 argv-level evidence this change is verified by and the fact that no test here
 starts a container.

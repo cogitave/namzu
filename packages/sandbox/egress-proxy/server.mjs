@@ -13,10 +13,14 @@
  * This file is the other half of the fix. The proxy now runs as a container of
  * its own, dual-homed: attached to an `--internal` network that the sandbox is
  * also on, and to an ordinary bridge through which it reaches the internet.
- * The sandbox is attached to the internal network ONLY, so its one route off
- * the box is the proxy's address on that network — a route it cannot remove,
- * because `--cap-drop=ALL` took `NET_ADMIN` away (see `HARDENING_ARGS` in
- * `src/backends/docker/index.ts`, which records that dependency).
+ * The sandbox is attached to the internal network ONLY, which has no route off
+ * it — its traffic reaches the internet through this container's address on
+ * that network, and through nothing else. A route it cannot put back, because
+ * `--cap-drop=ALL` took `NET_ADMIN` away (see `HARDENING_ARGS` in
+ * `src/backends/docker/index.ts`, which records that dependency). What it can
+ * reach is not only this container: the internal network is a subnet, so
+ * anything else a host attaches to it — a second sandbox, that sandbox's proxy
+ * — is reachable too, which `docs/sdk/sandbox-egress.md` states in full.
  *
  * The proxy environment variables stay, and they still point at this process.
  * What changed is what they are: on this topology they DIRECT traffic rather
@@ -61,6 +65,19 @@ import { pathToFileURL } from 'node:url'
 const CONFIG_ENV = 'NAMZU_EGRESS_PROXY_CONFIG'
 
 /**
+ * Whether this file is the process's command, or was imported by one.
+ *
+ * The container's `CMD` is `node /opt/namzu-egress/server.mjs`, so every
+ * refusal in the container still ends in `process.exit(1)`. A test that
+ * imports the parser is the other case, and what it must not do is kill the
+ * runner — see {@link fail}. The expression is the same one that decides
+ * whether `main()` runs, evaluated once here rather than in two places that
+ * could disagree.
+ */
+const IS_ENTRYPOINT =
+	Boolean(process.argv[1]) && import.meta.url === pathToFileURL(process.argv[1]).href
+
+/**
  * The compiled boundary module, as the image lays it out.
  *
  * `Dockerfile` copies `dist/egress` to `/opt/namzu-egress/egress` beside this
@@ -79,13 +96,24 @@ const DEFAULT_PORT = 2025
  * Anything wrong with the configuration is a hard stop.
  *
  * A proxy that starts with a policy it could not read is worse than one that
- * does not start at all: the sandbox's only route out would be a process that
- * is up and deciding nothing, and every request through it would look exactly
- * like the policy working. So an unreadable config exits non-zero, the
- * container leaves `--rm` further down, and the sandbox — which has no route
- * out of its own — fails closed.
+ * does not start at all: the only way the sandbox's traffic reaches the
+ * internet would be a process that is up and deciding nothing, and every
+ * request through it would look exactly like the policy working. So an
+ * unreadable config exits non-zero, the container leaves `--rm` further down,
+ * and the sandbox — which reaches the internet through nothing else — fails
+ * closed.
+ *
+ * Refusing EXITS only where this file is the container's process. Imported, it
+ * throws: `process.exit(1)` inside a test runner takes the whole worker down,
+ * which reads as a crashed suite rather than a failing assertion, and the
+ * parser is worth asserting on directly — `hardening.test.ts` does, on the
+ * shapes the backend produces and on the shapes it must not. The container is
+ * unaffected: it runs this file as its command, and {@link IS_ENTRYPOINT} is
+ * read from the process rather than passed in as a seam a deployment could get
+ * wrong.
  */
 function fail(message) {
+	if (!IS_ENTRYPOINT) throw new Error(`namzu-egress-proxy: ${message}`)
 	process.stderr.write(`namzu-egress-proxy: ${message}\n`)
 	process.exit(1)
 }
@@ -122,7 +150,18 @@ export function parseProxyConfig(raw) {
 	try {
 		parsed = JSON.parse(raw)
 	} catch (error) {
-		fail(`${CONFIG_ENV} is not valid JSON: ${error instanceof Error ? error.message : error}`)
+		// Where the parse stopped is a fact about the configuration that a
+		// deployer needs and that cannot be a credential. The rest of V8's
+		// message cannot be trusted that way: `JSON.parse` embeds a snippet of
+		// the INPUT in it, and the input here is the whole policy, brokered
+		// credential values included — on its way to this container's stderr,
+		// which is what `docker logs` shows and what a deployment may ship to a
+		// collector. So the position is kept and the snippet is dropped.
+		const at =
+			error instanceof Error
+				? error.message.match(/at position \d+ \(line \d+ column \d+\)/)?.[0]
+				: undefined
+		fail(`${CONFIG_ENV} is not valid JSON${at === undefined ? '' : ` (${at})`}`)
 	}
 	if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
 		fail(`${CONFIG_ENV} must be a JSON object`)
@@ -237,8 +276,9 @@ async function main() {
 }
 
 // Imported by a test, or run as the container's command — and the two must not
-// be confused, because the second one exits the process.
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// be confused, because the second one exits the process. See
+// {@link IS_ENTRYPOINT}.
+if (IS_ENTRYPOINT) {
 	main().catch((error) => {
 		fail(`could not start: ${error instanceof Error ? error.stack : String(error)}`)
 	})

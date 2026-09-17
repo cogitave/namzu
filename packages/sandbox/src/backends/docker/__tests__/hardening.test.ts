@@ -1,6 +1,7 @@
 import type { ResolvedContainerSandboxLayout } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
+import { parseProxyConfig } from '../../../../egress-proxy/server.mjs'
 import type { DockerBackendInternalConfig } from '../index.js'
 import {
 	assertCpuLimitIsRenderable,
@@ -105,18 +106,95 @@ describe('egressProxyContainerConfig', () => {
 		expect(egressProxyContainerConfig({}, hosts, 2025).selfNames).toEqual(['namzu-egress'])
 	})
 
-	it('survives the round trip through JSON, which is how it travels', () => {
-		// It leaves this process as a string in an environment variable and is
-		// parsed on the other side. A value that is not JSON-clean — a token
-		// with a quote in it, say — has to survive that or the boundary is
-		// handed a policy nobody wrote.
+	it('is accepted by the parser the container actually runs', () => {
+		// The cross-boundary fact this file's docblock above claims, and the
+		// first cut of this change did not test: this side serialises, that side
+		// parses, and a field renamed or reshaped on one side alone has to fail
+		// here rather than start a boundary that enforces something nobody
+		// wrote. `parseProxyConfig` is imported from the entrypoint's own file,
+		// so the parser under test is the one the container executes — not a
+		// second reading of the same shape.
+		//
+		// The values are the awkward ones on purpose: a credential value with a
+		// quote and a backslash in it, and a leading-dot allowlist entry, which
+		// are the two shapes a hand-rolled serialisation gets wrong.
 		const credential = { host: 'api.example.com', header: 'authorization', value: 'a"b\\c' }
 		const config = egressProxyContainerConfig(
 			{ brokeredCredentials: [credential], allowInwardFor: ['inside.example'] },
-			['.example.com'],
+			['.example.com', 'api.example.com'],
 			2025,
 		)
-		expect(JSON.parse(JSON.stringify(config))).toEqual(config)
+
+		const parsed = parseProxyConfig(JSON.stringify(config))
+		expect(parsed.port).toBe(2025)
+		expect(parsed.allowedHosts).toEqual(['.example.com', 'api.example.com'])
+		expect(parsed.credentials).toEqual([credential])
+		expect(parsed.allowInwardFor).toEqual(['inside.example'])
+		expect(parsed.selfNames).toEqual(['namzu-egress'])
+	})
+
+	it('sends a credential through that round trip without mangling it', () => {
+		// The narrower version of the same fact, asserted on the value that is
+		// hardest to keep intact: a token with a quote and a backslash survives
+		// being serialised by this side and parsed by that one, byte for byte.
+		const credential = {
+			host: 'api.example.com',
+			header: 'authorization',
+			value: 'Bearer a"b\\c\n',
+		}
+		const config = egressProxyContainerConfig({ brokeredCredentials: [credential] }, ['x'], 2025)
+		const parsed = parseProxyConfig(JSON.stringify(config))
+		expect(parsed.credentials[0]?.value).toBe(credential.value)
+	})
+})
+
+/**
+ * The other half of the parser's contract: the configurations it must refuse,
+ * and what a refusal is allowed to say.
+ *
+ * These run in-process, which is the point of the `IS_ENTRYPOINT` guard in
+ * `server.mjs`: a refusal used to call `process.exit(1)`, so importing this
+ * parser and handing it a bad config took the vitest worker down instead of
+ * failing an assertion (observed, before the guard). The container's own
+ * behaviour is unchanged — it runs the file as its `CMD` — and
+ * `egress-proxy/__tests__/server.test.js` is where the exit code is asserted,
+ * as a subprocess.
+ */
+describe('parseProxyConfig — what a refusal may say', () => {
+	function thrownBy(run: () => unknown): string {
+		try {
+			run()
+		} catch (error) {
+			return error instanceof Error ? error.message : String(error)
+		}
+		throw new Error('expected the call to throw')
+	}
+
+	it('refuses a configuration that is not JSON without quoting it back', () => {
+		// V8's own message for this class of error embeds a window of the INPUT:
+		// all of it when it is short enough, as asserted here on the raw
+		// `JSON.parse`, and a slice of it otherwise. The input in production is
+		// the whole policy — brokered credential values included — and the
+		// message goes to the container's stderr, which is what `docker logs`
+		// shows and what a deployment may ship to a collector. So the refusal
+		// keeps what is safe to say (where the parse stopped, when V8 reports
+		// one) and drops everything else.
+		expect(() => JSON.parse('[super-secret-token]')).toThrow(/super-secret-token/)
+		expect(thrownBy(() => JSON.parse('[super-secret-token]'))).toContain('super-secret-token')
+
+		const refused =
+			'{"allowedHosts":[],"credentials":[{"value":"super-secret-token"}],"x":super-secret-token}'
+		const message = thrownBy(() => parseProxyConfig(refused))
+		expect(message).toMatch(/is not valid JSON/)
+		expect(message).not.toContain('super-secret-token')
+		expect(message).not.toContain('allowedHosts')
+	})
+
+	it('refuses an unset configuration by name, without reading the process environment', () => {
+		// The value is a parameter, so this is a refusal and not a fallback:
+		// the entrypoint is the only caller that reads the environment.
+		expect(thrownBy(() => parseProxyConfig(undefined))).toMatch(/is not set/)
+		expect(thrownBy(() => parseProxyConfig(''))).toMatch(/is not set/)
 	})
 })
 
