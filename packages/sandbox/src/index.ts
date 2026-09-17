@@ -438,6 +438,17 @@ export type {
 	KubernetesReleaseTaskSandboxesOptions,
 	KubernetesTaskCapacity,
 } from './backends/kubernetes/index.js'
+// What a CLAIM-ONLY host is allowed to do, as data: the verbs the pool-only
+// path issues, each pinned to its call site in `backends/kubernetes/rbac.ts`.
+// `k8s/manifests/rbac-claimant.yaml` grants exactly this and a test parses
+// that file and compares it here, so an operator who has to prove a live
+// `Role` carries no more than this backend needs compares against the same
+// constant rather than against a list copied out of a page.
+export {
+	KUBERNETES_CLAIMANT_RBAC_RULES,
+	type KubernetesRbacRule,
+	type KubernetesRbacVerb,
+} from './backends/kubernetes/rbac.js'
 // The persistent workspace: a `Sandbox` that keeps a block disk across a
 // suspend, the union naming how a handle came by its object, plus the four
 // errors its lifecycle can refuse with — a template that cannot carry a disk,

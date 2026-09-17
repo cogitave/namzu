@@ -4310,6 +4310,179 @@ this change gets a `403` the first time either function runs — never from
 as of this change, a backend need rather than only a diagnostic script's: it
 is what `readKubernetesTaskCapacity` reads for `warmPool.ready`/`.desired`.
 
+### A narrower Role for a host that only claims
+
+`k8s/manifests/rbac-claimant.yaml` is a **second, deliberately smaller grant**
+— a `ServiceAccount` + `Role` + `RoleBinding` named `namzu-sandbox-claimant`
+in the same namespace, written in the same shape as `rbac.yaml`'s. It is for
+one kind of deployment: a host that sets `warmPoolName` and never creates a
+`Sandbox` of its own. Bind that host's pod to this ServiceAccount instead of
+`namzu-sandbox-host`, and it can claim, hold, release and enumerate pooled
+task sandboxes — and nothing else. The whole grant is six rules:
+`create`/`get`/`list`/`patch`/`delete` on `sandboxclaims`; `get` on
+`sandboxes`; `get` on `sandboxwarmpools`; `get`/`list` on `pods`; and
+`get`/`list` on each of `networkpolicies` and `ciliumnetworkpolicies`. That
+list is exported as data under **The verb list is data, not prose** below,
+which is the form an operator can diff a live `Role` against instead of
+reading it out of both YAML files.
+
+It exists because the wider Role is not merely generous, it is an escalation
+path. `rbac.yaml` grants `sandboxes: create`, and a namespace that also runs
+the **privileged** workspace template must allow privileged pods — so any
+identity holding that Role can POST a `Sandbox` whose `podTemplate` is
+privileged, mounts a `hostPath`, or names another `RuntimeClass`, and receive
+a pod with more of the node than the host process ever needed. RBAC is
+decided per verb, never per object shape, so the only way to remove that for
+a host that does not need it is to not grant it.
+
+What the claimant Role withholds, each for a reason rather than for
+minimalism:
+
+- **Everything on `sandboxes` except `get`.** A claim's bound `Sandbox`
+  belongs to the controller; the host reads one for `status.selector` when the
+  pod-by-name read comes back gone, which on the claim path is the only way
+  to find the pod a claim bound. It never lists, creates, patches or deletes
+  one.
+- **Every write verb on `networkpolicies` and `ciliumnetworkpolicies`.** The
+  two checks only ever enumerate and read. A host that could rewrite a policy
+  could open the agent port every create spends a policy read proving closed.
+- **`get` on `sandboxtemplates`.** The template read sits in the pool-LESS
+  branch of the create body, after the `warmPoolName` return — a claimant
+  never reaches it, because a pooled sandbox's pod spec was decided by the
+  pool's own template on the controller's side.
+- **`get` on `persistentvolumeclaims`.** That read exists so a workspace
+  handle can report each disk's uid. A claim carries no
+  `volumeClaimTemplates`, so there is nothing to iterate and no request is
+  ever issued.
+- **`list` on `sandboxes`**, which is the workspace inventory's, and the
+  workspace API generally. Workspaces are never pooled, so a host that
+  manages them creates `Sandbox` objects directly and needs `rbac.yaml`.
+
+Nothing changes for an existing deployment: `rbac.yaml` is untouched, a host
+that creates sandboxes directly keeps using it, and the claimant file is
+inert until someone binds a ServiceAccount to it. The only decision it asks
+of an operator is the rebind itself, and the safe half of that is a host that
+provably never creates a `Sandbox`.
+
+**The verb list is data, not prose.** `@namzu/sandbox` exports
+`KUBERNETES_CLAIMANT_RBAC_RULES` — the pool-only path's verbs, each pinned to
+its call site in
+`packages/sandbox/src/backends/kubernetes/rbac.ts` — and
+`k8s/__tests__/manifests.test.ts` does three things with it. It parses **both**
+Role files and asserts the claimant Role grants exactly that list and stays a
+strict subset of the wider Role's; it asserts the constant is frozen one level
+deeper than the array, so a plain-JS consumer cannot rewrite a rule in place;
+and it reads the pool-only path's own sources
+(`src/backends/kubernetes/{index,objects,ingress-policy,egress-policy}.ts`),
+resolves every literal `client.request('<METHOD>', …)` in them to the
+`(apiGroup, resource, verb)` triple the path builder it goes through
+addresses, and fails on any request it cannot resolve — an undeclared builder,
+a path expression it cannot follow, a **builder call with anything appended to
+it** (the `pods/log` subresource is authorized separately from `pods`, so a
+concatenated path is a different resource than the builder names), a **name the
+source writes a second path to** — the guard reads four spellings, each wherever
+it is written rather than only where it opens a statement: a plain assignment
+(`path = …`, a one-line branch included), a compound one (`path += …`), a
+`for (path of …)` binding, and a destructuring target (`({ path } = …)`) — as a
+`const`/`let`/`var`-declared name, where the initializer a request through that
+name resolves to is then not the path the request sends, and as a **wrapper's
+own path parameter**, where the call sites that resolve it are then not what it
+sends; the append spelling above reaches a request through the first of those
+too, as a `let` whose initializer is the parent builder and whose next write is
+the concatenation — a request
+in no function body it can match, a path that is a **parameter of a body it
+has no call sites for** (so a second wrapper has to declare itself rather than
+resolving through the function it happens to sit under — in either declaration
+shape the scan reads, `function NAME(…)` or `const NAME = … =>`, since the
+declaration is where its call sites are found), or a **wrapper declared in a
+file it does not read**, which reaches none of its call sites at all. Which
+files it reads is itself part of the pin: a `.ts` file under
+`src/backends/kubernetes/` that reaches the client — calling
+`client.request(…)` itself in **either spelling it reads**, the literal one or
+a computed `client['request']`, **or naming `listPolicies`**, the one wrapper
+the scan knows, which takes its path as an argument; every half read on text
+with its comments blanked — fails the test until it is scanned or declared off
+the path with its reason, so the four names cannot silently stop covering it.
+The wrapper half is there because the spellings alone were a hole: a file that
+issues its request *through* that wrapper contains no `.request` at all, and
+the scan reads call sites in the four scanned files only — and the computed
+spelling is in the predicate because `client['request'](…)` contains no
+`.request` either: the scan refuses that spelling by line, but only for a file
+it was told to read, which is the decision this half forces. That is what
+makes the claim real rather than local to the two YAML files: a verb added to
+the pool-only path — in code, with neither the constant nor the manifest
+touched — fails a test naming the resource, the file and the line, instead of
+surfacing as a `403` in a host's log, and a rule the code never issues fails
+it from the other side, because the grant would then be wider than the path.
+
+An operator who wants the same check against a live
+cluster can compare an applied `Role` against the same constant, or ask the
+API server directly:
+`kubectl auth can-i create sandboxes --as=system:serviceaccount:<ns>:namzu-sandbox-claimant`
+must answer `no`.
+
+**What the scan does not see**, so none of it reads stronger than it is: the
+files it declares off the path — `workspace.ts`, `k8s-client.ts`,
+`transport.ts` — are never resolved to triples, a **call site** of a wrapper in
+one of them included, since call sites are read from the scanned files only;
+and that a claimant host never reaches `workspace.ts` is a claim about the
+deployment rather than something this test proves; a wrapper reached by
+**another name** is outside that file predicate, which matches the wrapper's
+name and not its identity, so a file importing a re-export of `listPolicies`,
+or calling a helper one level further out that calls it, is neither scanned nor
+required to be declared; a path arriving through an expression-bodied arrow's
+parameter is outside what it matches; a body it could not register — a class
+method, or an object literal's shorthand method, declared inside one of the
+bodies it reads — is attributed to the body that encloses it, so the nested
+body's own parameters are invisible; and it contacts no API server, so nothing
+about a live `Role` is measured here. The assignment guard is by name in the
+file it resolves in, not by scope, so a binding it registers nowhere shadows
+nothing there: a destructuring parameter (`function f({ path })`) keeps its
+positional slot without a name the scan can match, and a write made to an
+exported binding from **another module** is not in that file's text — which is
+also to say that an assignment to a same-named local in an unrelated function
+of the same file refuses the request too, a false refusal rather than an
+escape. A parameter carrying a **default** (`function f(path = …)`,
+`function f({ path } = {})`) is written with an `=`, so the guard reads it and
+refuses the request rather than resolving it; and a **destructuring pattern
+nested inside another** (`({ a: { path } } = …)`) is read by neither spelling,
+which is measured green.
+
+The list above is the **short form** of that list, not the list: it is carried
+in full in the header of `k8s/__tests__/manifests.test.ts`, which also holds a
+bullet this page does not — `a path assembled by an
+operation the scan does not model`: a variable holding part of a path,
+`.join('/')`, a helper in another module.
+
+Three things this scan was blind to are
+**not** on that list any more, because they now fail it: a declared wrapper
+whose declaration is written as `const NAME = … =>`, which used to resolve its
+call sites to nothing in silence; a file whose only route to the client is
+the computed `client['request']` spelling, which used to be required to be
+declared by nobody; and a name a source writes a second path to, in any of the
+four spellings the guard reads — as a declared one, which used to resolve to
+the initializer's triple, and as a wrapper's own path parameter, which used to
+resolve to its callers' arguments — while the request sent a different resource
+than either.
+
+**Unmeasured as shipped.** Nothing in this repository has bound an identity
+to the claimant Role against a cluster, and nothing in CI can: the test above
+reads two YAML files and this backend's own source, and contacts no API
+server. The two kind-level claims that go
+with the file — that a pool-only host bound to it passes
+`contract-suite.mjs` and `acquire-p50.mjs`, and that the `can-i` question
+answers `no` — are therefore unproven as of this writing.
+
+**A host that DOES create sandboxes directly cannot be narrowed this way.**
+Its `sandboxes: create` is the capability, so what it may POST has to be
+bounded at admission rather than by RBAC: a `ValidatingAdmissionPolicy` that
+permits only the pod spec shape the sandbox templates actually name — its
+`RuntimeClass`, the non-privileged task shape, no `hostPath`, no added
+volume — and refuses anything else, regardless of who asks. That manifest is
+not in this directory yet; it lands with the per-sandbox capability work,
+written against the first admission-policy manifest this repository ships, so
+that there is one model to copy rather than two to reconcile.
+
 ## Deployment
 
 The cluster artifacts the rest of this page assumes are under

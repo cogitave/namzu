@@ -252,6 +252,16 @@ because the init would not go, or `NAMZU_PRESTOP_WAIT_SECONDS` set to
 override it) exits 0 and is not recorded at all, which is the case worth
 looking into.
 
+**`rbac.yaml` is the wider of two Roles.** A host that only ever claims from
+the warm pool — `warmPoolName` set, never a `Sandbox` created by that host —
+can apply `manifests/rbac-claimant.yaml` instead: the same three objects under
+the name `namzu-sandbox-claimant`, with no write verb on `sandboxes`, none on
+a policy resource, and neither of the template/disk reads a claim never
+issues. It exists because `rbac.yaml`'s `sandboxes: create` is an arbitrary
+pod spec for any holder, which a host that never creates one does not need.
+See `docs/sdk/kubernetes-sandbox.md`'s RBAC section for the host shapes each
+Role is for; everything below is unchanged whichever one you apply.
+
 **`networkpolicy.yaml` is not optional.** The backend LISTS this namespace's
 policies before every create and refuses — by default, with a named error —
 unless one of them enforces ingress on the pod's own labels and none of them
@@ -385,7 +395,12 @@ Every script takes `--namespace` and (task-sandbox scripts) `--template` /
 `--pool`, plus one of two access modes:
 
 - `--in-cluster` — run the script as a Job/Pod under `manifests/rbac.yaml`'s
-  `namzu-sandbox-host` ServiceAccount.
+  `namzu-sandbox-host` ServiceAccount. A host that only claims from the pool
+  can run the two scripts a claimant host is expected to pass —
+  `contract-suite.mjs` and `acquire-p50.mjs` — under
+  `manifests/rbac-claimant.yaml`'s `namzu-sandbox-claimant` ServiceAccount
+  instead; that manifest's header carries both the expectation and the record
+  that it is unmeasured here.
 - `--server <url> --token <token>` (or `--token-file`, or `NAMZU_K8S_*` env
   vars — see `scripts/lib/cluster-access.mjs`'s own doc comment) — run it
   from a laptop or CI runner against a remote cluster.

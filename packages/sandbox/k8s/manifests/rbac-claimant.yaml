@@ -1,0 +1,208 @@
+# ServiceAccount + Role + RoleBinding for a namzu host that acquires ONLY
+# from a warm pool: `createSandboxProvider({ backend: { tier: 'microvm',
+# service: 'kubernetes', access: { inCluster: true }, warmPoolName: '…',
+# ... } })` and never a `Sandbox` of its own. Namespace-scoped on purpose —
+# no ClusterRole, no wildcard verb, exactly the verbs actually issued.
+#
+# This is the NARROWER of the two Roles this directory ships, and it exists
+# because the wider one is a privilege-escalation path rather than merely a
+# convenience. rbac.yaml grants `sandboxes: create`, and a namespace running
+# the privileged workspace template has to allow privileged pods — so any
+# identity holding that Role can POST a `Sandbox` whose podTemplate is
+# privileged, hostPath-mounting or on another RuntimeClass, and get a pod
+# with more of the node than the host process ever needed. A host that only
+# claims needs none of that, and gets none of it here:
+#
+#   - NO write verb on `sandboxes` at all — no create, no patch, no delete.
+#     A claim's bound Sandbox is the controller's to own; this Role only
+#     READS one, and only to find the pod behind it.
+#   - NO write verb on any policy resource. The two policy checks only ever
+#     enumerate and read: a host that could rewrite a `NetworkPolicy` could
+#     open the agent port it spends every create proving closed.
+#   - NO `sandboxtemplates: get`, which rbac.yaml grants. The template read
+#     in packages/sandbox/src/backends/kubernetes/index.ts sits in
+#     `buildCreateBody`'s pool-LESS branch, after the `warmPoolName !==
+#     undefined` return — a claimant never reaches it, because a pooled
+#     sandbox's pod spec came from the pool's own template server-side.
+#   - NO `persistentvolumeclaims: get`, which rbac.yaml grants for a
+#     workspace handle's disk identity. Claims carry no
+#     `volumeClaimTemplates` (the claim body deliberately omits them), so
+#     the read has nothing to iterate and this host never issues one.
+#
+# A host that creates a Sandbox directly — including one that creates
+# WORKSPACES, which are never pooled — needs rbac.yaml instead. Binding both
+# Roles to one ServiceAccount is possible and pointless: the union is just
+# the wider Role, and the escalation this file removes comes back with it.
+#
+# Kept honest by a test rather than by review. __tests__/manifests.test.ts
+# parses this file and rbac.yaml and asserts (a) every grant below is also in
+# the wider Role, (b) the grants below are EXACTLY
+# KUBERNETES_CLAIMANT_RBAC_RULES, the constant the backend itself exports
+# (packages/sandbox/src/backends/kubernetes/rbac.ts), and (c) that constant is
+# what the pool-only path's SOURCES issue — the same test reads
+# src/backends/kubernetes/{index,objects,ingress-policy,egress-policy}.ts,
+# resolves every `client.request` to the (apiGroup, resource, verb) triple its
+# path builder addresses, and fails on any request it cannot resolve: an
+# unknown builder, a builder call with a suffix appended to it (that is a
+# subresource, authorized separately), a name the source writes a second path
+# to (the guard reads a plain assignment wherever it is written, the one-line
+# branch included, plus a compound one, a `for (path of …)` binding and a
+# destructuring target — as a const/let/var-declared name, whose initializer is
+# then not what a request through it sends, or as a wrapper's own path
+# parameter, whose call sites then do not say what it sends), a request in no
+# function body the scan can match, a path that is a parameter of a wrapper the
+# scan has no call
+# sites for (a wrapper declared in the arrow form counts exactly like a
+# `function` declaration does, since the scan reads both through one reader), or
+# a wrapper declared for such a path in a file the scan does not read. Which
+# files it reads is itself asserted against the DIRECTORY: any other .ts under
+# src/backends/kubernetes/ that reaches the client — calling
+# `client.request(…)` itself in either spelling the scan reads, the literal one
+# or a computed `client['request']`, or naming listPolicies, the one wrapper the
+# scan knows, which takes its path as an argument; every half read on text with
+# its comments blanked — fails the test until it is either scanned or declared
+# off the path with its reason. A verb added to the pool-only path therefore
+# fails that test naming the resource, the file and the line, until this file
+# carries it — and a verb added to this file fails it until a call site
+# justifies it.
+#
+# What the test does NOT see, so nothing above reads stronger than it is: the
+# files it declares off the path (workspace.ts, k8s-client.ts, transport.ts)
+# are never resolved to triples, so a request there is unmeasured — a wrapper
+# call site in one of them included, since call sites are read from the scanned
+# files only — and that a claimant host never reaches workspace.ts is a
+# deployment claim this file states rather than one the test proves. A wrapper
+# reached by ANOTHER NAME is outside that file predicate, which matches the
+# wrapper's name and not its identity: a file importing a re-export of
+# listPolicies, or calling a helper one level further out that calls it, is
+# neither scanned nor required to be declared. A path that arrives through an
+# expression-bodied arrow's parameter is outside what the scan matches, and a
+# body the scan could not register — a class method, or an object literal's
+# shorthand method, declared inside one of the bodies it reads — is attributed
+# to the body that encloses it, so its own parameters are invisible. The
+# assignment guard reads WRITES to a name in the file it resolves in, by name
+# and not by scope, so a BINDING it registers nowhere shadows nothing there: a
+# destructuring parameter (function f({ path })) keeps its slot without a name
+# the scan can match, and a write made to an exported binding from another
+# module is not in that file's text — which is also to say that an assignment to
+# a same-named local in an unrelated function of the same file refuses the
+# request too, a false refusal rather than an escape. A parameter carrying a
+# DEFAULT (function f(path = …), function f({ path } = {})) is written with an
+# `=`, so the guard reads it and refuses the request rather than resolving it;
+# and a destructuring pattern nested inside another (`({ a: { path } } = …)`) is
+# read by neither spelling — measured green.
+#
+# THAT LIST IS THE SHORT FORM, NOT THE LIST. It is carried in full in the
+# header of k8s/__tests__/manifests.test.ts, which also holds a bullet this
+# paragraph does not: `a path assembled by an operation the scan does not
+# model`. The list's other bullet, `the cluster`, is stated below under NOT
+# MEASURED HERE rather than in this paragraph; the file carries it either way.
+#
+# Three former blind spots are deliberately NOT on this list, because they fail
+# the test now rather than passing it: a declared wrapper whose declaration is
+# written as `const NAME = … =>`, which used to resolve its call sites to
+# nothing in silence; a file whose only route to the client is the
+# computed `client['request']` spelling, which used to be required to be
+# declared by nobody; and a name a source reassigned — a declared one, which
+# used to resolve to its initializer's triple while the request sent the other
+# path, and a wrapper's own path parameter, which used to resolve to its
+# callers' arguments while the body sent something else.
+#
+# NOT MEASURED HERE. No host has been bound to this Role against a cluster in
+# this repository, and nothing in it can be: the test above parses YAML, reads
+# the backend's own sources, and never contacts an API server. The two claims
+# this file was written to satisfy — that a pool-only host bound to it passes
+# ../scripts/contract-suite.mjs and ../scripts/acquire-p50.mjs, and that
+# `kubectl auth can-i create sandboxes` answers `no` for its ServiceAccount —
+# are therefore unproven as of this writing. The SDK page's acceptance
+# numbers (docs/sdk/kubernetes-sandbox.md) are where a measured run is
+# recorded, and none records either yet.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: namzu-sandbox-claimant
+  namespace: namzu-sandboxes
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: namzu-sandbox-claimant
+  namespace: namzu-sandboxes
+rules:
+  # The whole acquire/lease/release cycle, on CLAIMS only. `create` is
+  # acquireKubernetesSandbox's POST of the claim body; `get` is the
+  # readiness poll that waits for the controller to bind it; `patch` is the
+  # lease renewal that rewrites `spec.lifecycle.shutdownTime` so a long run's
+  # claim is not reaped under it; `delete` is what `destroy()` sends and what
+  # a failed acquire's cleanup sends. `list` is neither of those and is the
+  # easier one to lose: releaseKubernetesTaskSandboxes finds a crashed
+  # predecessor's claims by label before deleting them, and
+  # readKubernetesTaskCapacity counts every claim bound to the configured
+  # pool. The acquire path never notices it is missing — create() never lists
+  # the collection, so nothing there reads it — which makes the failure
+  # DEFERRED rather than quiet: neither function catches its own `403`, so the
+  # first call to either one rejects with a KubernetesCredentialError carrying
+  # the refused verb and the collection's path.
+  - apiGroups: [extensions.agents.x-k8s.io]
+    resources: [sandboxclaims]
+    verbs: [create, get, list, patch, delete]
+  # `get`, and only `get`: readSandboxSelector reads the bound Sandbox for
+  # `status.selector` when the pod-by-name GET comes back gone or not live.
+  # On this path that fallback is the ONLY way to find the pod — a claim
+  # carries no podSelector of its own — so the verb is load-bearing even
+  # though a healthy acquire never issues it. Read by a name the claim's own
+  # status supplied; never listed, never written.
+  - apiGroups: [agents.x-k8s.io]
+    resources: [sandboxes]
+    verbs: [get]
+  # readKubernetesTaskCapacity's headroom read: the configured pool's own
+  # `status.readyReplicas`/`spec.replicas`, so a host can tell a warm pool
+  # from one that is still building its first replicas before it admits more
+  # work. Also what ../scripts/acquire-p50.mjs reads before it starts timing.
+  # Nothing on the acquire path reads it, so a host that never calls
+  # readKubernetesTaskCapacity never issues this.
+  - apiGroups: [extensions.agents.x-k8s.io]
+    resources: [sandboxwarmpools]
+    verbs: [get]
+  # The bind token, and the address under `agentAddress: 'pod-ip'` — both
+  # off the pod the claim bound, by name, through readBoundPod; `list` is
+  # that function's fallback read (by the Sandbox's own selector) and
+  # readKubernetesTaskCapacity's unfiltered count of Pending pods. No pod
+  # SUBRESOURCE is granted or needed: the guest agent is a socket the pod
+  # serves, so exec, files and the acquire-time privilege probe all travel
+  # over its own protocol rather than `pods/exec`.
+  - apiGroups: ['']
+    resources: [pods]
+    verbs: [get, list]
+  # `list`, not `get`, is what BOTH enumerating checks need: each has to read
+  # every policy in the namespace and evaluate its selector against the pod's
+  # own labels, because a GET by name proves an object exists and not that it
+  # selects these pods. The ingress check runs before every create unless the
+  # deployment sets `ingress: 'unverified'`; the egress union check runs
+  # whenever `config.egress` is set, unless the deployment sets
+  # `egress.verify: 'named-object-only'`. `get` is the egress NAMED-object
+  # check's, exercised only when a deployment sets `config.egress`.
+  - apiGroups: [networking.k8s.io]
+    resources: [networkpolicies]
+    verbs: [get, list]
+  # The same two verbs, for a deployment that declares `engine: 'cilium'` on
+  # either check — see the header comment of rbac.yaml. A cluster with no
+  # Cilium CRDs installed simply never matches this rule; granting it costs
+  # nothing there.
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [get, list]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: namzu-sandbox-claimant
+  namespace: namzu-sandboxes
+subjects:
+  - kind: ServiceAccount
+    name: namzu-sandbox-claimant
+    namespace: namzu-sandboxes
+roleRef:
+  kind: Role
+  name: namzu-sandbox-claimant
+  apiGroup: rbac.authorization.k8s.io
