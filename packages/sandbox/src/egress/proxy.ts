@@ -71,13 +71,45 @@ export interface EgressProxyOptions {
 	 * reach — which is the hole this screen exists to close.
 	 */
 	readonly allowInwardFor?: readonly string[]
+	/**
+	 * Address this proxy listens on. Default `127.0.0.1`.
+	 *
+	 * The default is loopback because a proxy holding real credentials and
+	 * bound to every interface is reachable by anything on the network, which
+	 * is the opposite of what it exists for. There is exactly one deployment
+	 * where that reasoning flips, and it is the whole reason this is
+	 * configurable: the docker tier runs the proxy as a container of its own
+	 * (`egress-proxy/server.mjs`), the sandbox is attached to an `--internal`
+	 * network with no route out, and the proxy's container is the only thing
+	 * on that network that can be reached. There, `0.0.0.0` inside the proxy
+	 * container is not "every interface on the host" — the container IS the
+	 * boundary, and the sandbox has no other destination to reach.
+	 */
+	readonly bindHost?: string
+	/**
+	 * Names that denote THIS proxy, for the loop guard in `listen`.
+	 *
+	 * `isSelf` refuses a request whose target is the proxy itself, because
+	 * forwarding it makes the proxy call itself until the process runs out of
+	 * sockets — a failure that arrives as a hang rather than as an error. On
+	 * loopback the target is one of `127.0.0.1`, `localhost`, `::1` and the
+	 * check is closed by construction. Bound to another address it is not:
+	 * anything that names this proxy by a name it answers to — its container
+	 * name or network alias, say — would walk straight into that loop. So
+	 * every such name is listed here by whoever knows it.
+	 */
+	readonly selfNames?: readonly string[]
 	/** Injected in tests. Defaults to the platform resolver. */
 	readonly resolveAddresses?: ScreeningLookupOptions['resolve']
 }
 
 export interface RunningEgressProxy {
 	readonly port: number
-	/** `http://127.0.0.1:<port>` — what a sandbox sets `HTTP_PROXY` to. */
+	/**
+	 * `http://<the address this proxy bound>:<port>` — what a sandbox sets
+	 * `HTTP_PROXY` to. Loopback by default; the address is whatever
+	 * {@link EgressProxyOptions.bindHost} said.
+	 */
 	readonly url: string
 	/** Swap the allowlist on a live proxy. See `setNetworkPolicy`. */
 	setAllowedHosts(resolve: () => Promise<readonly string[]>): void
@@ -85,6 +117,12 @@ export interface RunningEgressProxy {
 }
 
 const DENIED_STATUS = 403
+
+/** The default bind address. See {@link EgressProxyOptions.bindHost}. */
+const LOOPBACK_BIND_HOST = '127.0.0.1'
+
+/** Names that mean "this proxy" on loopback, whatever it bound to. */
+const LOOPBACK_SELF_NAMES: readonly string[] = ['127.0.0.1', 'localhost', '::1']
 
 export class EgressProxy {
 	private resolveAllowed: () => Promise<readonly string[]>
@@ -101,6 +139,8 @@ export class EgressProxy {
 	 */
 	private readonly lookup: ReturnType<typeof createScreeningLookup>
 	private readonly inwardAllowed: readonly string[]
+	private readonly bindHost: string
+	private readonly selfNames: readonly string[]
 
 	constructor(options: EgressProxyOptions) {
 		this.resolveAllowed = options.allowedHosts
@@ -108,6 +148,8 @@ export class EgressProxy {
 		this.upgradeToHttps = options.upgradeToHttps ?? true
 		this.onDenied = options.onDenied
 		this.inwardAllowed = options.allowInwardFor ?? []
+		this.bindHost = options.bindHost ?? LOOPBACK_BIND_HOST
+		this.selfNames = options.selfNames ?? []
 		this.lookup = createScreeningLookup(
 			{
 				...(options.allowInwardFor ? { allowInwardFor: options.allowInwardFor } : {}),
@@ -131,10 +173,12 @@ export class EgressProxy {
 		})
 		await new Promise<void>((resolve, reject) => {
 			server.once('error', reject)
-			// Loopback only. A proxy that holds real credentials and binds
-			// every interface is reachable by anything on the network, which
-			// is the opposite of what it exists for.
-			server.listen(port, '127.0.0.1', () => {
+			// Loopback by default. A proxy that holds real credentials and binds
+			// every interface is reachable by anything on the network, which is
+			// the opposite of what it exists for — see
+			// {@link EgressProxyOptions.bindHost} for the one deployment where
+			// the container itself is the boundary and this is not that.
+			server.listen(port, this.bindHost, () => {
 				server.off('error', reject)
 				resolve()
 			})
@@ -153,7 +197,7 @@ export class EgressProxy {
 
 		return {
 			port: boundPort,
-			url: `http://127.0.0.1:${boundPort}`,
+			url: `http://${this.bindHost}:${boundPort}`,
 			setAllowedHosts: (resolve) => {
 				this.resolveAllowed = resolve
 			},
@@ -363,10 +407,22 @@ export class EgressProxy {
 		})
 	}
 
-	/** Whether a target names this proxy. See the loop guard in `listen`. */
+	/**
+	 * Whether a target names this proxy. See the loop guard in `listen`.
+	 *
+	 * The loopback spellings are always this proxy — a client inside the same
+	 * network namespace reaches it at one of them whatever it bound to, and
+	 * the bound address when that address is a literal is one more. Anything
+	 * else has to be named by the caller, through
+	 * {@link EgressProxyOptions.selfNames}: this process cannot know which
+	 * names resolve to it on the network it is attached to, and a guard that
+	 * guessed would either miss the loop or refuse a legitimate target.
+	 */
 	private isSelf(host: string, port?: number): boolean {
 		if (port === undefined || port !== this.selfPort) return false
-		return host === '127.0.0.1' || host === 'localhost' || host === '::1'
+		if (host === this.bindHost) return true
+		if (LOOPBACK_SELF_NAMES.includes(host)) return true
+		return this.selfNames.includes(host)
 	}
 
 	private credentialFor(host: string): BrokeredCredential | undefined {

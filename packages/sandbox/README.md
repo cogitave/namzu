@@ -122,6 +122,51 @@ tier gets uid 0 mapped to an unprivileged uid outside.
 overrides the image's own choice and the reference image already ends with
 `USER namzu`.
 
+## Container egress boundary
+
+An egress policy of `static` or `resolver` — a host allowlist — is enforced by
+the egress proxy running as a **sibling container**, not by the process that
+created the sandbox. The proxy is dual-homed: `docker run` puts it on an
+ordinary network so it has a route to the internet, and `docker network
+connect --alias namzu-egress` adds the `--internal` network the sandbox is on.
+The sandbox joins that internal network alone, so the only thing it can reach
+is the proxy — a route it cannot put back, because `--cap-drop=ALL` removed
+`NET_ADMIN`. `--add-host namzu-egress:host-gateway` and the loopback proxy that
+needed it are gone.
+
+`HTTP_PROXY`, `http_proxy`, `HTTPS_PROXY`, `https_proxy` and `NO_PROXY` are
+still set on the sandbox, and what they are has changed. They no longer permit
+traffic, they direct it: a tool that honours them sends its request through the
+boundary, and a tool that ignores them — a binary that does not read proxy
+environment, `curl --noproxy '*'`, a raw socket — has nowhere to send anything
+and fails with `Network unreachable`. Before this, that second tool reached the
+network with the allowlist unconsulted.
+
+Three things a host must supply, each refused at `create()` rather than
+downgraded: an `--internal` network in `network` (`docker network create
+--internal <name>`), `hostReachability: 'container-network'` (a published host
+port needs a route out that this network does not have), and
+`egressProxyImage` — the proxy image, built from
+`packages/sandbox/egress-proxy/Dockerfile` exactly as the sandbox image is
+built from `packages/sandbox/worker/Dockerfile`. Nothing in this repository
+pushes an image; both are built by hand and named by tag in the config.
+
+The proxy container carries the same baseline the sandbox does
+(`--cap-drop=ALL`, `--security-opt=no-new-privileges`, `--ipc private`,
+`--read-only`), because it is the process standing between untrusted code and
+the internet. `deny-all` and `allow-all` need none of this beyond the internal
+network `deny-all` already required.
+
+What the boundary does not cover — domain fronting inside a `CONNECT` tunnel, a
+`resolver` policy resolved at `create()` and `setNetworkPolicy()` rather than
+per request, `setNetworkPolicy()` replacing the proxy container rather than
+swapping a list in place, brokered credentials now readable by anything with
+daemon access, and the proxy's listener being reachable by whatever else shares
+its upstream network — is stated in
+[docs/sdk/sandbox-egress.md](../../docs/sdk/sandbox-egress.md), along with the
+argv-level evidence this change is verified by and the fact that no test here
+starts a container.
+
 ## Protocol readiness and cancellation
 
 Pass `SandboxExecOptions.signal` to stop a command on any shipped backend. A

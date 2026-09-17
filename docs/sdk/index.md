@@ -32,6 +32,7 @@ The kernel.
 * [Kubernetes sandboxes](kubernetes-sandbox.md) - Warm-pool claims on an agent-sandbox cluster, the pristine-claim rule, the per-instance agent credential, persistent block-disk workspaces and what is not built yet.
 * [Firecracker sandboxes](firecracker-sandbox.md) - The owned microvm tier, the reserve-then-execute path over the framed guest-agent wire, per-phase exec timing and the half-close contract a relay has to honour.
 * [The container sandbox worker's credential](container-sandbox-worker.md) - The per-instance bearer token the container backend mints and the worker requires on every route but /healthz, the refusal that makes a routable bind without one impossible, the named escape and what it gives up, and the workers nobody can authenticate against.
+* [Container-tier egress](sandbox-egress.md) - The internal-network topology that makes the docker tier's allowlist a kernel boundary rather than a proxy environment variable, the two images to build, the reach a sandbox keeps, and what is stated rather than measured.
 * [Zen and Zen Go](zen.md) - Native model protocol routing, conversation attribution, validated reasoning replay and catalogue limits.
 * [Bounded file discovery](file-discovery.md) - Explicit glob scope, incremental sandbox enumeration and recoverable incomplete results.
 * [Bounded code execution](code-execution.md) - Opt-in tool batching, structured results and interpreter resource limits.

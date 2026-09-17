@@ -5,7 +5,7 @@ import type { DockerBackendInternalConfig } from '../index.js'
 import {
 	assertCpuLimitIsRenderable,
 	buildDockerRunArgs,
-	egressProxyOptions,
+	egressProxyContainerConfig,
 	renderWritableRootfsArgs,
 	resolveNetwork,
 } from '../index.js'
@@ -57,41 +57,66 @@ describe('resolveNetwork', () => {
  * The knobs a host sets have to arrive at the boundary.
  *
  * Everything past this function needs a running Docker daemon, so a config
- * field that never reached `EgressProxy` would be caught by an operator
+ * field that never reached the proxy container would be caught by an operator
  * watching production traffic get denied — with no way to fix it, because the
  * escape hatch they were told to use is the one that went missing.
+ *
+ * The boundary is a container now (#398), so what has to arrive is a JSON blob
+ * its entrypoint parses instead of an options object it is constructed from.
+ * `egress-proxy/server.mjs`'s own test parses what this renders with the parser
+ * the container uses, which is the other half of the pair.
  */
-describe('egressProxyOptions', () => {
-	const policy = { kind: 'static', allowedHosts: ['api.example.com'] } as const
+describe('egressProxyContainerConfig', () => {
+	const hosts = ['api.example.com']
+
+	it('carries the allowlist it was handed, as the policy the container gets', () => {
+		expect(egressProxyContainerConfig({}, hosts, 2025).allowedHosts).toEqual(hosts)
+	})
+
+	it('carries the port it will listen on', () => {
+		// The port is fixed by the backend's constant and read by the sandbox's
+		// `HTTP_PROXY` value; a container listening somewhere else is a boundary
+		// nothing can reach.
+		expect(egressProxyContainerConfig({}, hosts, 2025).port).toBe(2025)
+	})
 
 	it('carries the inward exemption to the boundary', () => {
-		const options = egressProxyOptions({ allowInwardFor: ['inside.example'] }, policy)
-		expect(options.allowInwardFor).toEqual(['inside.example'])
+		const config = egressProxyContainerConfig({ allowInwardFor: ['inside.example'] }, hosts, 2025)
+		expect(config.allowInwardFor).toEqual(['inside.example'])
 	})
 
 	it('leaves it absent when the host named none, so the screen applies', () => {
 		// The other half of the same fact: a field populated whatever the host
 		// passed would satisfy the case above and say nothing.
-		expect(egressProxyOptions({}, policy).allowInwardFor).toBeUndefined()
+		expect(egressProxyContainerConfig({}, hosts, 2025).allowInwardFor).toBeUndefined()
 	})
 
 	it('carries the brokered credentials too', () => {
 		const credential = { host: 'api.example.com', header: 'authorization', value: 'real' }
-		expect(egressProxyOptions({ brokeredCredentials: [credential] }, policy).credentials).toEqual([
-			credential,
-		])
+		const config = egressProxyContainerConfig({ brokeredCredentials: [credential] }, hosts, 2025)
+		expect(config.credentials).toEqual([credential])
 	})
 
-	it('resolves the allowlist per call rather than capturing it', async () => {
-		// `setNetworkPolicy` swaps the policy on a live sandbox, and a
-		// snapshot taken at construction would enforce the policy the sandbox
-		// started with for the rest of its life.
-		let hosts: string[] = ['first.example']
-		const options = egressProxyOptions({}, { kind: 'resolver', resolve: async () => hosts })
+	it('names the network alias as itself, so the loop guard closes', () => {
+		// Bound to 0.0.0.0 inside its container, the proxy cannot tell from the
+		// request line that a target naming `namzu-egress` is itself — and
+		// forwarding that request would make it call itself until the process
+		// ran out of sockets.
+		expect(egressProxyContainerConfig({}, hosts, 2025).selfNames).toEqual(['namzu-egress'])
+	})
 
-		expect(await options.allowedHosts()).toEqual(['first.example'])
-		hosts = ['second.example']
-		expect(await options.allowedHosts()).toEqual(['second.example'])
+	it('survives the round trip through JSON, which is how it travels', () => {
+		// It leaves this process as a string in an environment variable and is
+		// parsed on the other side. A value that is not JSON-clean — a token
+		// with a quote in it, say — has to survive that or the boundary is
+		// handed a policy nobody wrote.
+		const credential = { host: 'api.example.com', header: 'authorization', value: 'a"b\\c' }
+		const config = egressProxyContainerConfig(
+			{ brokeredCredentials: [credential], allowInwardFor: ['inside.example'] },
+			['.example.com'],
+			2025,
+		)
+		expect(JSON.parse(JSON.stringify(config))).toEqual(config)
 	})
 })
 
@@ -333,17 +358,41 @@ describe('buildDockerRunArgs — the baseline', () => {
 			containerName: 'namzu-sandbox-abc',
 			network: 'namzu-tasks',
 			hostReachability: 'container-network',
-			egressProxyPort: 41234,
+			egressProxyPort: 2025,
 		})
-		expect(rendered).toContain('--add-host')
-		expect(rendered).toContain('namzu-egress:host-gateway')
 		expect(rendered).toContain('--env')
-		expect(rendered).toContain('HTTP_PROXY=http://namzu-egress:41234')
-		expect(rendered).toContain('https_proxy=http://namzu-egress:41234')
+		expect(rendered).toContain('HTTP_PROXY=http://namzu-egress:2025')
+		expect(rendered).toContain('https_proxy=http://namzu-egress:2025')
 		// container-network publishes no host port, and an absent proxy leaves
 		// no proxy environment behind — the two omissions are different facts.
 		expect(rendered).not.toContain('--publish')
 		expect(argv().join(' ')).not.toContain('HTTP_PROXY')
+	})
+
+	it('never renders `--add-host`, and never names `host-gateway`', () => {
+		// This is the flag the whole change removes (#398). `--add-host
+		// namzu-egress:host-gateway` put the name in the sandbox's hosts file
+		// pointing at the docker host, where the proxy used to listen on
+		// loopback — a route out of the sandbox that went somewhere other than
+		// the boundary, next to an allowlist enforced by an environment
+		// variable the sandbox could decline to read. The name resolves now
+		// because the proxy is a container on the sandbox's own network
+		// (`renderEgressProxyAttachArgs`), which needs no alias file.
+		//
+		// Asserted on the argv WITH a proxy, because that is the only argv
+		// that ever carried it: a test on the default argv would pass whether
+		// or not the flag came back.
+		const withProxy = buildDockerRunArgs({
+			config: backendConfig(),
+			options: { workingDirectory: '/workspace' },
+			containerName: 'namzu-sandbox-abc',
+			network: 'namzu-tasks',
+			hostReachability: 'container-network',
+			egressProxyPort: 2025,
+		})
+		expect(withProxy).not.toContain('--add-host')
+		expect(withProxy.join(' ')).not.toContain('host-gateway')
+		expect(withProxy.join(' ')).not.toContain('host.docker.internal')
 	})
 })
 

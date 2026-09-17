@@ -52,7 +52,7 @@
     }
   },
   "files": {
-    "include": ["src/**/*.ts", "worker/**/*.js", "agent/**/*.cjs"]
+    "include": ["src/**/*.ts", "worker/**/*.js", "agent/**/*.cjs", "egress-proxy/**/*"]
   },
   "overrides": [
     {

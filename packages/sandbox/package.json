@@ -48,7 +48,7 @@
   "scripts": {
     "build": "tsc --build",
     "dev": "tsc --build --watch",
-    "lint": "biome check src/ worker/ agent/ k8s/",
+    "lint": "biome check src/ worker/ agent/ k8s/ egress-proxy/",
     "lint:fix": "biome check --write src/",
     "format": "biome format --write src/",
     "test": "vitest run --passWithNoTests",

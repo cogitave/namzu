@@ -78,6 +78,21 @@ jobs:
             --file packages/sandbox/worker/Dockerfile \
             packages/sandbox
 
+      - name: Build egress proxy image
+        # The sibling container a host-allowlist policy runs, and the only
+        # route out of the sandbox that policy is enforced by (#398). Built
+        # here for the reason the worker image is: a Dockerfile that nothing
+        # builds is a Dockerfile nobody finds out is broken, and the `COPY
+        # dist/egress` below depends on the build step above having run.
+        # Nothing exercises it beyond this build yet — the unit tier pins the
+        # args and the entrypoint's parsing, and a daemon is what would add
+        # "the container comes up".
+        run: |
+          docker build \
+            --tag namzu-egress-proxy:smoke \
+            --file packages/sandbox/egress-proxy/Dockerfile \
+            packages/sandbox
+
       - name: Smoke test
         env:
           CI: 'true'

@@ -661,8 +661,47 @@ export interface ContainerBackendConfig {
 	 *
 	 * Egress from the sandbox is governed separately by `EgressPolicy`,
 	 * which is checked against this network rather than trusted.
+	 *
+	 * An egress policy of `static` or `resolver` — a host allowlist —
+	 * additionally REQUIRES this network to be `--internal`, and requires
+	 * `hostReachability: 'container-network'`. The allowlist is enforced by
+	 * the egress proxy running as a sibling container on this network, so
+	 * the sandbox's only route off the box is that container; on a network
+	 * with a route out the allowlist is a proxy environment variable a
+	 * workload may decline to read, and `create()` refuses rather than
+	 * reporting a boundary that is not there.
 	 */
 	readonly network?: 'none' | 'bridge' | string
+	/**
+	 * Image the egress proxy runs as, when the policy needs one.
+	 *
+	 * Required for a `static` or `resolver` policy, refused without it. The
+	 * image is `packages/sandbox/egress-proxy/Dockerfile`:
+	 *
+	 *   pnpm --filter @namzu/sandbox build
+	 *   docker build -f packages/sandbox/egress-proxy/Dockerfile \
+	 *     -t <tag> packages/sandbox
+	 *
+	 * It is a second image rather than the sandbox's own because the
+	 * sandbox image is a string this backend cannot read: there is no way to
+	 * know whether it contains the proxy module, and the bind-mount
+	 * alternative fails on exactly the remote-daemon deployment
+	 * `hostReachability: 'container-network'` exists for. `deny-all` and
+	 * `allow-all` need no image.
+	 */
+	readonly egressProxyImage?: string
+	/**
+	 * Network the egress proxy joins for its route to the internet. Default
+	 * `'bridge'`, docker's own default bridge.
+	 *
+	 * The proxy is dual-homed: it sits on the internal network the sandbox
+	 * is on, and on this one, which is how it reaches the world. Name a
+	 * dedicated network when the daemon is shared, because anything else
+	 * attached to this one can reach the proxy — and this proxy enforces its
+	 * allowlist for whoever asks and stamps brokered credentials on what it
+	 * forwards.
+	 */
+	readonly egressProxyUpstreamNetwork?: string
 	/**
 	 * Maximum time spent waiting for the container worker's `/healthz`
 	 * readiness probe. Must be a positive integer within Node's timer range.
@@ -1341,6 +1380,12 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
 			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
+			...(backend.egressProxyImage !== undefined
+				? { egressProxyImage: backend.egressProxyImage }
+				: {}),
+			...(backend.egressProxyUpstreamNetwork !== undefined
+				? { egressProxyUpstreamNetwork: backend.egressProxyUpstreamNetwork }
+				: {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
 			...(backend.cpuLimit !== undefined ? { cpuLimit: backend.cpuLimit } : {}),
 			...(backend.readOnlyRootfs !== undefined ? { readOnlyRootfs: backend.readOnlyRootfs } : {}),
@@ -1366,6 +1411,12 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
 			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
+			...(backend.egressProxyImage !== undefined
+				? { egressProxyImage: backend.egressProxyImage }
+				: {}),
+			...(backend.egressProxyUpstreamNetwork !== undefined
+				? { egressProxyUpstreamNetwork: backend.egressProxyUpstreamNetwork }
+				: {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
 			...(backend.cpuLimit !== undefined ? { cpuLimit: backend.cpuLimit } : {}),
 			...(backend.readOnlyRootfs !== undefined ? { readOnlyRootfs: backend.readOnlyRootfs } : {}),

@@ -20,9 +20,13 @@
  *    not create must be provisioned with its own. The worker requires
  *    it on every route but `/healthz`, and refuses to start at all if
  *    it has none and is bound to anything routable.
- *  - Outbound network from the worker is restricted by host-side
- *    firewall config (see {@link DockerBackendConfig.network}) plus
- *    the egress proxy when one is configured (P3.2).
+ *  - Outbound network from the worker is restricted by the network
+ *    it is attached to (see {@link DockerBackendConfig.network}) and,
+ *    for a host allowlist, by an egress proxy running as a sibling
+ *    container on that same network — the sandbox's only route out,
+ *    because the network is `--internal`. The proxy environment the
+ *    sandbox is given directs traffic; the topology is what confines
+ *    it. See {@link assertNetworkCarriesThePolicy} and #398.
  *
  * The credential above is what a previous version of this docblock
  * claimed network placement alone provided. It said the worker "only
@@ -60,12 +64,7 @@ import {
 	walkFilesViaExec,
 	withHint,
 } from '@namzu/sdk'
-import { EgressProxy } from '../../egress/index.js'
-import type {
-	BrokeredCredential,
-	EgressProxyOptions,
-	RunningEgressProxy,
-} from '../../egress/index.js'
+import type { BrokeredCredential } from '../../egress/index.js'
 
 import {
 	ContainerSandboxLayoutValidationError,
@@ -207,6 +206,55 @@ export interface DockerBackendInternalConfig {
 	 */
 	readonly allowInwardFor?: readonly string[]
 
+	/**
+	 * Image the egress proxy runs as, when the policy needs one.
+	 *
+	 * A host allowlist (`static` or `resolver`) is enforced by a proxy, and
+	 * this backend no longer runs that proxy in its own process: it runs it as
+	 * a sibling container, dual-homed between the sandbox's `--internal`
+	 * network (where the sandbox can reach it, and nothing else) and an
+	 * ordinary bridge (where it reaches the internet). See
+	 * {@link renderEgressProxyRunArgs} for the argv and
+	 * `egress-proxy/Dockerfile` for the image to build.
+	 *
+	 * It is a second image rather than a reuse of `image` on purpose, and the
+	 * reason is deployment-shaped rather than hygienic: the sandbox image is a
+	 * host-supplied string that this backend cannot read, so there is no way to
+	 * know whether the image named there has the proxy module in it, and the
+	 * bind-mount alternative breaks exactly on the remote-daemon deployment
+	 * (`hostReachability: 'container-network'`) where the SDK's own filesystem
+	 * is not the daemon's.
+	 *
+	 * Unset, an allowlist policy is REFUSED at `create()` rather than
+	 * downgraded — the same rule the rest of this file applies to a policy it
+	 * cannot enforce. `deny-all` and `allow-all` need no image.
+	 */
+	readonly egressProxyImage?: string
+
+	/**
+	 * Network the egress proxy joins for its route to the internet. Default
+	 * `'bridge'`, docker's own default bridge.
+	 *
+	 * This is the proxy's second leg, and it exists because the internal
+	 * network the sandbox sits on has no route out by design. `'bridge'` is
+	 * the default because it always exists and always has NAT, which keeps a
+	 * host's first allowlist policy working without a second network to
+	 * create.
+	 *
+	 * **The default is also the one wart of this topology, and a host that
+	 * shares a docker daemon should know it.** The proxy listens on every
+	 * interface inside its own container, so any other container attached to
+	 * the same network reaches it too — and this proxy enforces its allowlist
+	 * for whoever asks and stamps brokered credentials on the requests it
+	 * forwards. On `'bridge'` that means every container on the host's default
+	 * bridge. Name a dedicated network here (one only this deployment's
+	 * containers join) to decide who that is. There is deliberately no switch
+	 * that narrows the listener instead: the container has no way to know
+	 * which of its own interfaces is which, and a listener bound to the wrong
+	 * one is a sandbox with no route out at all.
+	 */
+	readonly egressProxyUpstreamNetwork?: string
+
 	readonly network?: 'none' | 'bridge' | string
 	readonly readyPollIntervalMs?: number
 	readonly readyTimeoutMs?: number
@@ -247,6 +295,12 @@ export interface DockerBackendInternalConfig {
 	 * monitoring filters) via `docker ps --filter label=…`. Keys
 	 * containing `=` or empty names throw at spawn time — the docker
 	 * CLI accepts them but the resulting label split is ambiguous.
+	 *
+	 * They are applied to the egress proxy's container too, when one runs.
+	 * That is deliberate in both directions: a reaper that collects a
+	 * sandbox's containers should collect the proxy with them, and a proxy
+	 * left running by a sandbox that died is a container holding real
+	 * credentials with a route to the internet.
 	 */
 	readonly labels?: Readonly<Record<string, string>>
 }
@@ -303,6 +357,14 @@ export function buildDockerBackend(config: DockerBackendInternalConfig): Sandbox
  * just the way out. It now keeps the configured network, and
  * {@link assertNetworkCarriesThePolicy} is what makes that network a
  * boundary.
+ *
+ * Every policy that returns the configured network depends on that same
+ * assertion, which is why the two live side by side: this function says which
+ * network the container joins, and that one refuses the network if it cannot
+ * do what the policy asks of it (#398). An allowlist used to answer the
+ * configured network and get a proxy environment variable pointed at a
+ * host-side listener — enforcement by convention, which an uncooperative
+ * process simply ignores.
  */
 export function resolveNetwork(
 	configured: string,
@@ -323,7 +385,7 @@ export function resolveNetwork(
 			// reporting that it had been restricted.
 			if (hasProxy) return configured
 			throw new Error(
-				`The docker sandbox backend cannot enforce an egress policy of kind '${egress.kind}' without an egress proxy: it has nothing to filter hosts through. Construct the provider with one, or use 'deny-all' / 'allow-all'. Refusing rather than silently granting full network access.`,
+				`The docker sandbox backend cannot enforce an egress policy of kind '${egress.kind}' without an egress proxy: it has nothing to filter hosts through. Name the image it should run the proxy as (egressProxyImage — see packages/sandbox/egress-proxy/Dockerfile), or use 'deny-all' / 'allow-all'. Refusing rather than silently granting full network access.`,
 			)
 	}
 }
@@ -365,9 +427,9 @@ export function isInternalNetwork(inspectedInternalFlag: string): boolean {
 /**
  * Refuse a container whose network cannot do what was asked of it.
  *
- * Two requirements meet on the same object here, and both were previously
- * unstated — which is how the backend came to ship a default configuration
- * that could not create a sandbox at all:
+ * Three requirements meet on the same object here, and the first two were
+ * previously unstated — which is how the backend came to ship a default
+ * configuration that could not create a sandbox at all:
  *
  *  - **A published host port needs a route out.** Docker binds the port by
  *    NAT to the container's address, so a container with no address gets no
@@ -383,12 +445,31 @@ export function isInternalNetwork(inspectedInternalFlag: string): boolean {
  *    nothing. `deny-all` pointed at the default bridge would be full egress
  *    under a policy object claiming none — the "accepted and silently
  *    ignored" failure the rest of this file exists to refuse.
+ *  - **A host allowlist needs one too, for the same reason and with one
+ *    addition.** Until #398 the allowlist tier answered the configured
+ *    network and pointed the sandbox at a proxy running on the host's
+ *    loopback, and the only thing making traffic go through it was
+ *    `HTTP_PROXY`. That is a request, not a boundary: anything inside the
+ *    container that opens a socket directly reaches the network with the
+ *    allowlist unconsulted, and untrusted code is the caller least likely to
+ *    honour a convention. With the proxy as a sibling container on an
+ *    `--internal` network, the sandbox has no route out except to that
+ *    container, which it cannot change because `--cap-drop=ALL` took
+ *    `NET_ADMIN` away (see {@link HARDENING_ARGS}). The environment
+ *    variables stay and now DIRECT traffic rather than permit it. On a
+ *    network that is not internal there is no such route to remove, and the
+ *    policy is back to being advisory — which is what this refuses.
  *
- * They are exact opposites, so `deny-all` over a published host port is
- * impossible rather than merely unsupported: no arrangement of docker
+ * The first two are exact opposites, so `deny-all` over a published host port
+ * is impossible rather than merely unsupported: no arrangement of docker
  * networking both denies all egress and lets the host reach the worker over
- * TCP. Closing that needs the control channel moved off TCP — see #398 —
- * and is not a flag this function could accept.
+ * TCP. Closing that needs the control channel moved off TCP — see #398 — and
+ * is not a flag this function could accept. The same opposition now reaches
+ * an allowlist policy, which is new: an allowlist on an internal network must
+ * be reached by container name, so a host that used a published port with a
+ * host allowlist has to move that consumer onto the internal network. That is
+ * a consequence of the boundary existing at all and not a gap in this
+ * function; the refusal below names the mode to move to.
  */
 export function assertNetworkCarriesThePolicy(
 	network: string,
@@ -409,29 +490,180 @@ export function assertNetworkCarriesThePolicy(
 			`The docker sandbox backend was asked for an egress policy of 'deny-all' on network '${network}', but that network is not internal, so the container can still reach the world. Create it with 'docker network create --internal ${network}' — an internal bridge denies egress in the kernel, rather than through an environment variable a workload may decline to read, while sibling containers still reach the worker by name. Refusing rather than reporting a boundary that is not there.`,
 		)
 	}
+
+	if (needsEgressProxy(egress) && !internal) {
+		throw new Error(
+			`The docker sandbox backend was asked for an egress policy of kind '${egress?.kind}' on network '${network}', but that network is not internal, so nothing stops the container from reaching the world directly and the allowlist would only be a proxy environment variable a workload may decline to read. Create the network with 'docker network create --internal ${network}': the sandbox then has no route out except to the egress proxy container, which is the boundary — and set hostReachability: 'container-network' to reach the worker by name on it, since a published host port needs a route out this network does not have. Refusing rather than reporting a boundary that is not there.`,
+		)
+	}
 }
 
 /**
- * The options the boundary is built from, as a value.
+ * What the proxy container is told, as a value.
  *
- * Extracted for the same reason {@link resolveNetwork} is: everything
- * downstream of here needs a running Docker daemon, so a policy that never
- * reached the proxy could only be caught by an operator noticing their
- * traffic denied in production. A knob a host sets and the boundary never
- * receives is the failure this shape exists to make testable.
+ * The boundary's whole configuration. It is a value for the reason
+ * {@link resolveNetwork} is one: everything downstream of here needs a running
+ * Docker daemon, so a credential that failed to reach the boundary could only
+ * be caught by an operator noticing their requests arrive unauthenticated in
+ * production. A knob a host sets and the boundary never receives is the
+ * failure this shape exists to make testable.
+ *
+ * `parseProxyConfig` in `egress-proxy/server.mjs` refuses every shape in here
+ * it cannot read, and the two ends are pinned against each other by tests on
+ * both sides — this serialises, that parses, and a field renamed on one side
+ * alone fails a test rather than starting an empty boundary.
  */
-export function egressProxyOptions(
+export interface EgressProxyContainerConfig {
+	readonly port: number
+	readonly allowedHosts: readonly string[]
+	readonly credentials: readonly BrokeredCredential[]
+	readonly allowInwardFor?: readonly string[]
+	/**
+	 * Names that denote the proxy itself, for its loop guard. The container's
+	 * own hostname is added to this by the entrypoint; this field carries the
+	 * network alias, which is the name the sandbox actually dials.
+	 */
+	readonly selfNames?: readonly string[]
+}
+
+/**
+ * Build the proxy container's configuration.
+ *
+ * `allowedHosts` is already resolved here rather than passed as a policy, and
+ * that is the one behavioural difference this change carries into the
+ * boundary: the in-process proxy called the host's resolver per request, and
+ * the container cannot. A `resolver` policy that rotates is honoured at
+ * `create()` and again at every `setNetworkPolicy()` — the container has no
+ * channel back to the host's resolver, and a channel the container CAN reach
+ * is one the sandbox can reach too, which would let the sandbox ask for its
+ * own allowlist to be widened. See `docs/sdk/sandbox-egress.md`.
+ */
+export function egressProxyContainerConfig(
 	config: Pick<DockerBackendInternalConfig, 'brokeredCredentials' | 'allowInwardFor'>,
-	policy: EgressPolicy,
-): EgressProxyOptions {
+	allowedHosts: readonly string[],
+	port: number,
+): EgressProxyContainerConfig {
 	return {
-		// Re-resolved per request rather than captured once, so a `resolver`
-		// policy that rotates is honoured and `setNetworkPolicy` can swap it
-		// on a live sandbox.
-		allowedHosts: () => resolveAllowedHosts(policy),
+		port,
+		allowedHosts,
 		credentials: config.brokeredCredentials ?? [],
 		...(config.allowInwardFor ? { allowInwardFor: config.allowInwardFor } : {}),
+		selfNames: [PROXY_HOST_ALIAS],
 	}
+}
+
+/**
+ * `--label key=value` flags, validated before they reach the daemon.
+ *
+ * An empty key or one containing `=` would silently produce a malformed label
+ * that a downstream `docker ps --filter label=…` could not match, so misuse
+ * surfaces during construction rather than as a container that mysteriously
+ * has no labels.
+ */
+function renderLabelArgs(labels: Readonly<Record<string, string>> | undefined): string[] {
+	const args: string[] = []
+	if (!labels) return args
+	for (const [key, value] of Object.entries(labels)) {
+		if (!key || key.includes('=')) {
+			throw new Error(`docker label key ${JSON.stringify(key)} is invalid (empty or contains '=')`)
+		}
+		args.push('--label', `${key}=${value}`)
+	}
+	return args
+}
+
+/** Everything {@link renderEgressProxyRunArgs} renders, as a value. */
+export interface EgressProxyArgvInput {
+	readonly config: DockerBackendInternalConfig
+	readonly containerName: string
+	/** Network the proxy reaches the internet through. See `egressProxyUpstreamNetwork`. */
+	readonly upstreamNetwork: string
+	/** The internal network the sandbox is on, which the proxy is also joined to. */
+	readonly internalNetwork: string
+	/** The serialised {@link EgressProxyContainerConfig}. */
+	readonly configJson: string
+}
+
+/**
+ * The `docker run` argv for the egress proxy container, as a value.
+ *
+ * Extracted for the reason every other argv in this file is: nothing
+ * downstream of it can run without a docker daemon, so a flag that never
+ * reached it — or a `--network` that named the wrong side of a dual-homed
+ * container — could only be caught by an operator in production, where the
+ * symptom is a sandbox that reaches nothing.
+ *
+ * The two networks are the whole topology and they are two calls:
+ * `docker run --network <upstream>` gives the container a default route, and
+ * {@link renderEgressProxyAttachArgs}'s `docker network connect` adds the
+ * internal network afterwards. The order is load-bearing. Attached to the
+ * internal network FIRST it would come up with no default route and no way to
+ * acquire one, and the proxy would be a boundary in front of nothing.
+ *
+ * The hardening baseline is the sandbox's, minus the parts that describe a
+ * filesystem. `--cap-drop=ALL`, `--no-new-privileges` and `--ipc private` are
+ * applied exactly as {@link HARDENING_ARGS} defines them, because this
+ * container sits between untrusted code and the internet and is the last one in
+ * the deployment that should be holding a capability. `--read-only` is the
+ * sandbox's too, with one tmpfs: the proxy writes nothing, and the tmpfs is
+ * there so that a Node process which one day wants a temp file fails at a
+ * filesystem boundary rather than at a mysterious `EROFS`.
+ *
+ * The image is last, so nothing after it is read as a flag — the same rule the
+ * sandbox argv follows, and here it also means the image's own `CMD` starts the
+ * proxy rather than this argv naming an entrypoint.
+ */
+export function renderEgressProxyRunArgs(input: EgressProxyArgvInput): string[] {
+	const { config, containerName, upstreamNetwork, configJson } = input
+	if (!config.egressProxyImage) {
+		throw new Error(
+			'renderEgressProxyRunArgs was called without config.egressProxyImage; the docker backend cannot start an egress proxy container it has no image for. resolveNetwork refuses an allowlist policy in this state, so reaching here means the refusal was bypassed.',
+		)
+	}
+	return [
+		'run',
+		'--detach',
+		'--rm',
+		'--name',
+		containerName,
+		// The name the sandbox dials, and the name the proxy's own loop guard
+		// has to recognise as itself. Set as the container's hostname so the
+		// entrypoint can read it back with `os.hostname()` instead of holding a
+		// second copy of the constant.
+		'--hostname',
+		PROXY_HOST_ALIAS,
+		'--network',
+		upstreamNetwork,
+		...HARDENING_ARGS,
+		'--read-only',
+		'--tmpfs',
+		`/tmp:${TMPFS_MOUNT_OPTIONS}`,
+		...renderLabelArgs(config.labels),
+		'--env',
+		`NAMZU_EGRESS_PROXY_CONFIG=${configJson}`,
+		config.egressProxyImage,
+	]
+}
+
+/**
+ * The `docker network connect` argv that makes the proxy dual-homed.
+ *
+ * `--alias` is what puts `namzu-egress` in the internal network's DNS, which
+ * is the name {@link buildDockerRunArgs} hands the sandbox in its proxy
+ * environment. The alias rather than the container name because the alias is
+ * the constant: a container named `namzu-egress-<sandbox-id>` would otherwise
+ * make the sandbox's `HTTP_PROXY` value depend on a generated id, and the two
+ * would have to be kept in step by hand.
+ */
+export function renderEgressProxyAttachArgs(input: EgressProxyArgvInput): string[] {
+	return [
+		'network',
+		'connect',
+		'--alias',
+		PROXY_HOST_ALIAS,
+		input.internalNetwork,
+		input.containerName,
+	]
 }
 
 /**
@@ -548,8 +780,34 @@ const HARDENING_ARGS: readonly string[] = [
 	'private',
 ]
 
-/** Name the container reaches the host-side egress proxy by. */
+/**
+ * Name the sandbox reaches the egress proxy by.
+ *
+ * This used to be a `--add-host namzu-egress:host-gateway` entry, because the
+ * proxy ran on the host's loopback and `host-gateway` is docker's portable
+ * name for the host from inside a container. It is now the proxy's own
+ * container name and network alias on the internal network, which needs no
+ * alias file at all: docker's embedded DNS resolves a container's aliases for
+ * every container on the same user-defined network. The constant survives the
+ * mechanism because what the sandbox is told has not changed — only what makes
+ * the name resolve, and whether anything else can be reached.
+ */
 const PROXY_HOST_ALIAS = 'namzu-egress'
+
+/**
+ * Port the egress proxy listens on inside its own container.
+ *
+ * A fixed port rather than one the host reads back, because there is no host
+ * port involved: the sandbox dials the proxy container directly on the network
+ * they share. The old arrangement had to read a published port back out of
+ * `docker inspect`, with the race and the failure mode that came with it.
+ */
+const EGRESS_PROXY_PORT_INSIDE_CONTAINER = 2025
+
+/** Name of the sibling container the egress proxy runs in, for one sandbox. */
+function egressProxyContainerName(sandboxId: string): string {
+	return `${PROXY_HOST_ALIAS}-${sandboxId}`
+}
 
 /**
  * Mount options for every scratch mount this backend creates.
@@ -856,9 +1114,12 @@ export interface DockerRunArgvInput {
 	readonly network: string
 	readonly hostReachability: 'host-port' | 'container-network'
 	/**
-	 * Port the host-side egress proxy listens on, when one is running. Absent
-	 * means no proxy, and no proxy environment is passed in — which is not the
-	 * same fact as a proxy that was configured and is unreachable.
+	 * Port the egress proxy listens on, when one is running. Absent means no
+	 * proxy, and no proxy environment is passed in — which is not the same
+	 * fact as a proxy that was configured and is unreachable.
+	 *
+	 * It is the proxy CONTAINER's port, on the internal network the two
+	 * containers share; nothing is published on the host any more.
 	 */
 	readonly egressProxyPort?: number
 }
@@ -901,22 +1162,7 @@ export function buildDockerRunArgs(input: DockerRunArgvInput): string[] {
 		args.push('--user', config.runAsUser)
 	}
 
-	// `--label key=value` flags. Validate first — an empty key or
-	// a key containing `=` would silently produce a malformed
-	// label that downstream `docker ps --filter label=…` queries
-	// could not match reliably. Throw before the spawn so misuse
-	// surfaces during construction, not as a mysterious "container
-	// has no labels" later.
-	if (config.labels) {
-		for (const [key, value] of Object.entries(config.labels)) {
-			if (!key || key.includes('=')) {
-				throw new Error(
-					`docker label key ${JSON.stringify(key)} is invalid (empty or contains '=')`,
-				)
-			}
-			args.push('--label', `${key}=${value}`)
-		}
-	}
+	args.push(...renderLabelArgs(config.labels))
 
 	args.push(...renderLayoutMountArgs(layout))
 	// Forward only the workspace root so the worker's lexical
@@ -927,15 +1173,27 @@ export function buildDockerRunArgs(input: DockerRunArgvInput): string[] {
 	// write it to a bind path the worker reads at startup —
 	// avoids env-size limits, keeps the wire shape minimal.
 	if (egressProxyPort !== undefined) {
-		// `host-gateway` is docker's own portable name for the host from
-		// inside a container; hard-coding a bridge address would break on
-		// every platform whose bridge is numbered differently. The proxy
-		// itself binds loopback, so this alias is the only way in.
-		args.push('--add-host', `${PROXY_HOST_ALIAS}:host-gateway`)
+		// No `--add-host`, and no `host-gateway`. The proxy is a container on
+		// this container's own internal network and `PROXY_HOST_ALIAS` is its
+		// network alias there (see {@link renderEgressProxyAttachArgs}), which
+		// docker's embedded DNS resolves with no alias file involved. The alias
+		// entry this replaced pointed at the host's loopback, where the proxy
+		// used to run — and a name resolving to a host that is not on this
+		// network is exactly the route this change removes.
 		const proxyUrl = `http://${PROXY_HOST_ALIAS}:${egressProxyPort}`
-		// Both spellings: tooling is split between them, and a workload
-		// that reads only the one that is missing bypasses the boundary
-		// entirely — which would look exactly like the policy working.
+		// Both spellings: tooling is split between them, and a workload that
+		// reads only the one that is missing loses the redirection.
+		//
+		// **These are convenience, not the boundary, and that is the point of
+		// the arrangement.** A tool that honours them sends its requests to the
+		// proxy; a tool that ignores them — a Go or Rust binary that does not
+		// read proxy env, `curl --noproxy '*'`, a raw socket — has nowhere to
+		// send anything. This container is on an `--internal` network with no
+		// default route, and the only host on it is the proxy, so the
+		// uncooperative path fails with `Network unreachable` rather than
+		// bypassing the allowlist. What makes that true is
+		// {@link assertNetworkCarriesThePolicy} refusing a network that is not
+		// internal, not this block of environment.
 		for (const key of ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy']) {
 			args.push('--env', `${key}=${proxyUrl}`)
 		}
@@ -1053,49 +1311,52 @@ async function spawnDockerSandbox(
 	// base64url keeps it one argv-free environment value on every platform.
 	const workerToken = randomBytes(32).toString('base64url')
 
-	// The boundary a host allowlist is actually enforced at. Started before
-	// the container so its address can be handed in as proxy environment,
-	// and torn down with the sandbox — a proxy holding real credentials
-	// must not outlive the thing it was filtering for.
-	let egressProxy: RunningEgressProxy | undefined
-	if (needsEgressProxy(options.egress) && options.egress) {
-		const policy = options.egress
-		try {
-			egressProxy = await new EgressProxy(egressProxyOptions(config, policy)).listen()
-			options.signal?.throwIfAborted()
-		} catch (error) {
-			await egressProxy?.close().catch(() => undefined)
-			throw error
-		}
-	}
-
 	const hostReachability = config.hostReachability ?? 'host-port'
-	const network = resolveNetwork(
-		config.network ?? 'none',
-		options.egress,
-		egressProxy !== undefined,
-	)
+	// Whether a proxy CONTAINER will run, which is what `resolveNetwork` turns
+	// on: an allowlist policy needs the image to run one as, and without it
+	// there is no boundary to hand traffic to. The refusal lives in
+	// `resolveNetwork` so that every caller of it gets the same answer, and it
+	// fires before anything is started.
+	const proxyPlanned = needsEgressProxy(options.egress) && config.egressProxyImage !== undefined
+	const network = resolveNetwork(config.network ?? 'none', options.egress, proxyPlanned)
 	// Whether this network can carry the reachability mode and the policy is
 	// a fact about the network, so it is checked against the daemon rather
-	// than inferred from its name. Before the container starts on purpose: a
+	// than inferred from its name. Before anything starts on purpose: a
 	// refusal here is a wiring mistake and must not arrive dressed as a
 	// container that failed to come up, which is exactly how it used to
 	// arrive.
-	try {
-		assertNetworkCarriesThePolicy(
-			network,
-			hostReachability,
-			options.egress,
-			await inspectNetworkInternalFlag(docker, network, options.signal),
-		)
-	} catch (err) {
-		// The allowlist kinds start a proxy above, and this is outside the
-		// try/catch that owns teardown — so without this the refusal would
-		// leave a listening server on loopback stamping real credentials.
-		await egressProxy?.close().catch(() => undefined)
-		throw err
-	}
+	assertNetworkCarriesThePolicy(
+		network,
+		hostReachability,
+		options.egress,
+		await inspectNetworkInternalFlag(docker, network, options.signal),
+	)
 	const containerName = `namzu-sandbox-${id}`
+
+	// The boundary a host allowlist is actually enforced at, as a sibling
+	// container on this container's network (#398). Started before the sandbox
+	// so its alias is in the network's DNS by the time the sandbox's proxy
+	// environment resolves it, and removed with the sandbox — a proxy holding
+	// real credentials must not outlive the thing it was filtering for, and on
+	// this topology a leftover one is also a live route to the internet for
+	// anything that can reach that network.
+	let egressProxyContainer: string | undefined
+	if (proxyPlanned && options.egress) {
+		egressProxyContainer = egressProxyContainerName(id)
+		// Resolved once, here, rather than per request — see
+		// `egressProxyContainerConfig` for what that costs and why it is paid.
+		const allowedHosts = await resolveAllowedHosts(options.egress)
+		options.signal?.throwIfAborted()
+		await startEgressProxyContainer({
+			docker,
+			config,
+			containerName: egressProxyContainer,
+			internalNetwork: network,
+			allowedHosts,
+			signal: options.signal,
+		})
+		options.signal?.throwIfAborted()
+	}
 
 	// All bind sources come from the consumer-supplied layout. The
 	// backend never allocates host directories and never removes them
@@ -1110,20 +1371,22 @@ async function spawnDockerSandbox(
 		// reconciliation; an external daemon that commits after this delete still
 		// needs its ordinary label/name reaper.
 		const removeContainer = runOnceQuiet(docker, ['rm', '-f', containerName], signal)
-		// The proxy starts BEFORE the container and its only other close is
-		// in `destroy()`, which a create that never returned can never
-		// reach. So every failure between the two — a daemon that is down, a
-		// port that could not be read, a worker that missed its readiness
-		// deadline, a label the validator rejected — left a listening server
-		// on loopback stamping real credential headers, plus a retained
-		// event-loop handle, and a retry loop left one per attempt. That is
-		// exactly the invariant this file states where the proxy is started:
-		// it must not outlive the thing it was filtering for.
-		// Start both teardown arms before awaiting either. A stuck runtime must
-		// not prevent the proxy from releasing its credential-bearing listener.
-		const closeProxy = egressProxy?.close().catch(() => undefined) ?? Promise.resolve()
-		egressProxy = undefined
-		await Promise.all([removeContainer, closeProxy])
+		// The proxy container starts BEFORE the sandbox and its only other
+		// teardown is in `destroy()`, which a create that never returned can
+		// never reach. So every failure between the two — a daemon that is
+		// down, a port that could not be read, a worker that missed its
+		// readiness deadline — would leave a container holding real
+		// credentials and a live route to the internet, and a retry loop left
+		// one per attempt. That is the invariant this file states where the
+		// proxy is started: it must not outlive the thing it was filtering
+		// for. Start both arms before awaiting either: a stuck runtime must
+		// not keep the credential-bearing one alive.
+		const removeProxy =
+			egressProxyContainer === undefined
+				? Promise.resolve()
+				: runOnceQuiet(docker, ['rm', '-f', egressProxyContainer], signal)
+		egressProxyContainer = undefined
+		await Promise.all([removeContainer, removeProxy])
 	}
 
 	let hostPort: number
@@ -1139,7 +1402,7 @@ async function spawnDockerSandbox(
 			containerName,
 			network,
 			hostReachability,
-			...(egressProxy ? { egressProxyPort: egressProxy.port } : {}),
+			...(egressProxyContainer ? { egressProxyPort: EGRESS_PROXY_PORT_INSIDE_CONTAINER } : {}),
 		})
 
 		await runOnce(docker, args, options.signal, { NAMZU_SANDBOX_TOKEN: workerToken })
@@ -1192,10 +1455,17 @@ async function spawnDockerSandbox(
 			} catch (error) {
 				teardownError = error
 			} finally {
-				try {
-					await egressProxy?.close()
-				} catch (error) {
-					teardownError ??= error
+				// The proxy goes with the sandbox, for the reason it is
+				// started before it: a container holding real credentials must
+				// not outlive the thing it was filtering for, and on this
+				// topology leaving it running would also leave a live route to
+				// the internet on a network the sandbox was confined to.
+				if (egressProxyContainer !== undefined) {
+					try {
+						await runOnce(docker, ['rm', '-f', egressProxyContainer], signal)
+					} catch (error) {
+						teardownError ??= error
+					}
 				}
 			}
 			if (teardownError !== undefined) throw teardownError
@@ -1279,15 +1549,31 @@ async function spawnDockerSandbox(
 			// here and doing nothing would leave the caller believing the
 			// sandbox had been confined when it had not. Same rule the
 			// egress-kind refusal above follows.
-			if (!egressProxy) {
+			if (egressProxyContainer === undefined) {
 				throw withHint(
 					new Error(
 						'This sandbox cannot change its network policy: it was created without an egress proxy, so its network was fixed at creation and there is nothing to narrow. Refusing rather than accepting a policy that would not be applied.',
 					),
-					'Construct the provider with an egress proxy to make the policy mutable, or create a second sandbox under the narrower policy.',
+					'Construct the provider with an egress proxy (and an egressProxyImage to run it as) to make the policy mutable, or create a second sandbox under the narrower policy.',
 				)
 			}
-			egressProxy.setAllowedHosts(async () => policy.allowedHosts)
+			// The policy lives in the proxy container's environment, which is
+			// written when the container starts and cannot be rewritten from
+			// outside. So a live policy change REPLACES the container: the
+			// allowlist the caller asked for is the allowlist the next
+			// connection meets, and the connections open at that instant fail
+			// closed. That is a real difference from the in-process proxy this
+			// used to be — it swapped the allowlist in place, with no window in
+			// which the proxy was absent — and it is the honest trade for a
+			// boundary the sandbox cannot route around. See
+			// `docs/sdk/sandbox-egress.md`.
+			await restartEgressProxyContainer({
+				docker,
+				config,
+				containerName: egressProxyContainer,
+				internalNetwork: network,
+				allowedHosts: policy.allowedHosts,
+			})
 		},
 
 		async writeFile(path: string, content: string | Buffer): Promise<void> {
@@ -1419,6 +1705,140 @@ async function spawnDockerSandbox(
 			// owns each `hostPath`.
 		},
 	}
+}
+
+/** The proxy's upstream network when the host named none. See the field. */
+const DEFAULT_EGRESS_PROXY_UPSTREAM_NETWORK = 'bridge'
+
+interface EgressProxyContainerInput {
+	readonly docker: string
+	readonly config: DockerBackendInternalConfig
+	readonly containerName: string
+	readonly internalNetwork: string
+	/**
+	 * The hosts the proxy will permit, already resolved. Resolved by the
+	 * caller rather than passed as a policy because the two callers resolve
+	 * differently and the difference is the point: `create()` resolves a
+	 * policy once through {@link resolveAllowedHosts}, and `setNetworkPolicy`
+	 * is handed a list by definition (`SandboxNetworkPolicy`).
+	 */
+	readonly allowedHosts: readonly string[]
+	readonly signal?: AbortSignal
+}
+
+/**
+ * Start the proxy container: run it, join it to the internal network, prove it
+ * is up.
+ *
+ * Three steps and not one, in this order, for reasons that are all about the
+ * topology rather than about docker's ergonomics. `docker run --network
+ * <upstream>` gives the proxy its default route — the leg that reaches the
+ * internet. `docker network connect --alias` adds the internal leg the sandbox
+ * dials it on, and it has to be second: a container created on an internal
+ * network first comes up with no default route and never gets one, which is a
+ * proxy that can reach nothing. The readiness check is third because the first
+ * two are `docker run` exiting 0, and `docker run --detach` exits 0 for a
+ * container whose entrypoint is about to fail — an image without the compiled
+ * module in it, or a config the entrypoint refused. Those failures arrive as a
+ * sandbox whose every outbound request fails, which reads as the policy
+ * working.
+ *
+ * A failure after the container exists removes it before rethrowing. Leaving
+ * it would leave a container holding real credentials and a live route to the
+ * internet with no sandbox it belongs to, and the caller's own cleanup cannot
+ * see it: this runs before the try/catch that owns that cleanup.
+ */
+async function startEgressProxyContainer(input: EgressProxyContainerInput): Promise<void> {
+	const { docker, config, containerName, internalNetwork, allowedHosts, signal } = input
+
+	const argvInput: EgressProxyArgvInput = {
+		config,
+		containerName,
+		upstreamNetwork: config.egressProxyUpstreamNetwork ?? DEFAULT_EGRESS_PROXY_UPSTREAM_NETWORK,
+		internalNetwork,
+		configJson: JSON.stringify(
+			egressProxyContainerConfig(config, allowedHosts, EGRESS_PROXY_PORT_INSIDE_CONTAINER),
+		),
+	}
+
+	try {
+		await runOnce(docker, renderEgressProxyRunArgs(argvInput), signal)
+	} catch (error) {
+		throw withHint(
+			new Error(
+				`Could not start the egress proxy container '${containerName}' from image '${config.egressProxyImage}': ${error instanceof Error ? error.message : String(error)}`,
+			),
+			'Build that image with `docker build -f packages/sandbox/egress-proxy/Dockerfile -t <tag> packages/sandbox` (after `pnpm --filter @namzu/sandbox build`), and name the tag in egressProxyImage. The sandbox is deliberately not started when the only route out of it is missing.',
+		)
+	}
+
+	try {
+		await runOnce(docker, renderEgressProxyAttachArgs(argvInput), signal)
+		await assertEgressProxyContainerIsRunning(docker, containerName, signal)
+	} catch (error) {
+		await runOnceQuiet(docker, ['rm', '-f', containerName], signal)
+		throw error
+	}
+}
+
+/**
+ * Replace the proxy container, for `setNetworkPolicy`.
+ *
+ * The policy the container enforces is in its environment, which is written
+ * when it starts and is not writable from outside, so a live policy change is
+ * a new container. The window between the two is one in which the sandbox has
+ * no route out at all — the old proxy is gone and the new one is not up yet —
+ * which fails CLOSED. That is the property worth naming: the alternative
+ * ordering (start the second, then remove the first) has no such window, but
+ * two containers cannot hold the same name or the same network alias, so it
+ * would need a second name the sandbox's `HTTP_PROXY` does not know.
+ */
+async function restartEgressProxyContainer(
+	input: Omit<EgressProxyContainerInput, 'signal'>,
+): Promise<void> {
+	await runOnceQuiet(input.docker, ['rm', '-f', input.containerName])
+	try {
+		await startEgressProxyContainer(input)
+	} catch (error) {
+		throw withHint(
+			error instanceof Error ? error : new Error(String(error)),
+			'The previous proxy container was already removed, so this sandbox now has no route out at all — every outbound request fails closed until a proxy container is started again. Retry, or destroy the sandbox and create it under the policy you want.',
+		)
+	}
+}
+
+/**
+ * Whether the daemon says the proxy container is still up.
+ *
+ * Read the same way {@link inspectNetworkInternalFlag} reads the network's
+ * `Internal` flag, and for the same reason: an unreadable answer is not
+ * evidence. A container that has already exited is gone (`--rm` removed it),
+ * so the failure arrives as a failed `docker inspect` rather than as a
+ * `false`, and both have to land on the same refusal.
+ */
+async function assertEgressProxyContainerIsRunning(
+	docker: string,
+	containerName: string,
+	signal?: AbortSignal,
+): Promise<void> {
+	let running = ''
+	try {
+		running = await runOnce(
+			docker,
+			['inspect', '--format', '{{.State.Running}}', containerName],
+			signal,
+		)
+	} catch {
+		signal?.throwIfAborted()
+		running = ''
+	}
+	if (running.trim() === 'true') return
+	throw withHint(
+		new Error(
+			`The egress proxy container '${containerName}' is not running after being started, so this sandbox has no boundary to reach and no other route out.`,
+		),
+		'Almost always the image: it either lacks the compiled module (build the package before the image — `pnpm --filter @namzu/sandbox build`) or the entrypoint refused its configuration. `docker logs <container>` has the line the entrypoint wrote; the container is started with --rm, so an already-exited one is gone and its output with it.',
+	)
 }
 
 /**
