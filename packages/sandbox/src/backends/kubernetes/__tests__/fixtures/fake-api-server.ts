@@ -17,6 +17,18 @@ export interface RecordedRequest {
 	/** Path plus query string, exactly as the client sent it. */
 	readonly path: string
 	readonly body: unknown
+	/**
+	 * The `content-type` header, verbatim, or `''` when the request carried
+	 * no body and so sent none.
+	 *
+	 * Recorded because the patch DIALECT is part of the wire contract now: a
+	 * conditional write goes up as `application/json-patch+json` and an
+	 * unconditional one as `application/merge-patch+json`, and the two apply
+	 * completely different semantics to bodies a log would otherwise show
+	 * side by side. A suite that asserted only the body could not tell them
+	 * apart.
+	 */
+	readonly contentType: string
 }
 
 export interface FakeApiReply {
@@ -45,6 +57,7 @@ export async function startFakeApiServer(
 				method: req.method ?? 'GET',
 				path: req.url ?? '',
 				body: raw.length > 0 ? JSON.parse(raw) : undefined,
+				contentType: req.headers['content-type'] ?? '',
 			}
 			requests.push(recorded)
 			void Promise.resolve(handle(recorded)).then(

@@ -84,7 +84,12 @@ design. Nothing is written, the handle goes on serving, the rejection carries
 `retirement: { accepted: false, reason: 'workspace-kept' }`, and a bounded
 health probe reports through `onCancellationUnconfirmed` whether the guest
 agent is serving, has fenced itself, or could not be reached — so the host
-decides when the live sessions in that pod go down. See
+decides when the live sessions in that pod go down. Because such a workspace
+is held by more than one process, the writes that DO still go to it — suspend,
+resume, adopt, delete — take an optional monotonic holder epoch, stored on the
+object and tested in the same request that writes, so a superseded process's
+late suspend or late delete is refused by the cluster rather than applied.
+A call that passes no epoch sends exactly the requests it always sent. See
 `docs/sdk/kubernetes-sandbox.md`.
 
 Remote peers retain terminal ids briefly for idempotent cancellation, but evict

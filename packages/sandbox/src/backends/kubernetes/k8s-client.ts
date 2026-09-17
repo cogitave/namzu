@@ -67,6 +67,23 @@ import https from 'node:https'
 export type KubernetesHttpMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE'
 
 /**
+ * Which patch dialect a `PATCH` body is.
+ *
+ *  - `merge` (the default, and what every caller sent before conditional
+ *    writes existed) is RFC 7386 `application/merge-patch+json`: a partial
+ *    object that recurses into maps, so a patch touching one annotation
+ *    leaves the others standing. It has no way to express a condition.
+ *  - `json` is RFC 6902 `application/json-patch+json`: an ordered list of
+ *    operations, one of which is `test`. That is the whole reason it exists
+ *    here — a `test` and the mutation it guards travel in ONE request, so
+ *    there is no window between checking and writing. See
+ *    `objects.ts`'s `buildHolderEpochPatch`.
+ *
+ * Omitted means `merge`, so no existing call site changes a byte.
+ */
+export type KubernetesPatchType = 'merge' | 'json'
+
+/**
  * Authentication callback. Caller returns a fresh bearer token. Invoked on
  * every request so a long-running host survives token rotation — the same
  * contract as ACI's `ArmTokenProvider` and Firecracker's
@@ -145,12 +162,18 @@ export interface KubernetesClient {
 	 * when the request outlives
 	 * {@link KubernetesClientOptions.requestTimeoutMs}; any other non-2xx
 	 * status rejects with a plain `Error`.
+	 *
+	 * `patchType` picks the dialect a `PATCH` body is sent as, and is ignored
+	 * for every other verb. `json` additionally maps a 422 to
+	 * {@link KubernetesPatchNotAppliedError} — see that class for why the
+	 * status alone is all the API server gives anyone to go on.
 	 */
 	request<T>(
 		method: KubernetesHttpMethod,
 		path: string,
 		body?: unknown,
 		signal?: AbortSignal,
+		patchType?: KubernetesPatchType,
 	): Promise<T | undefined>
 	/** From the ServiceAccount file in-cluster, from config otherwise. */
 	namespace(): string
@@ -178,6 +201,52 @@ export class KubernetesConflictError extends Error {
 	) {
 		super(`kubernetes ${method} ${resource} -> 409: conflict`)
 		this.name = 'KubernetesConflictError'
+	}
+}
+
+/**
+ * A JSON Patch the API server would not apply: 422 Unprocessable Entity.
+ *
+ * ## What the API server actually says, measured
+ *
+ * Against a real API server (v1.37.0) and the agent-sandbox `Sandbox` CRD, a
+ * JSON Patch whose `test` clause does not hold answers **422** with this
+ * body, byte for byte:
+ *
+ * ```json
+ * {"kind":"Status","apiVersion":"v1","metadata":{},"status":"Failure",
+ *  "message":"the server rejected our request due to an error in our request",
+ *  "reason":"Invalid","details":{},"code":422}
+ * ```
+ *
+ * A patch that is simply WRONG — a pointer into a member that does not
+ * exist, say — answers with exactly the same status, the same reason and the
+ * same message. The server does not name the operation that failed, so
+ * nothing this class could read off the response would tell a lost race from
+ * a malformed body, and a class that claimed to would be lying.
+ *
+ * So it says what it can honestly say: the patch did not apply and NOTHING
+ * was changed. Deciding which of the two it was belongs to the caller that
+ * knows what it tested — `workspace.ts` re-reads the object and compares the
+ * value it tested against what is stored now: changed ⇒ somebody raced it,
+ * unchanged ⇒ the body is wrong and the error is rethrown rather than
+ * retried forever.
+ *
+ * Not a {@link KubernetesConflictError}: that one is 409, which the same
+ * server returns for a DELETE whose `preconditions.resourceVersion` does not
+ * match (measured on the same cluster, with a message that DOES name the two
+ * versions). The two statuses mean different things and are kept apart.
+ */
+export class KubernetesPatchNotAppliedError extends Error {
+	constructor(
+		readonly method: KubernetesHttpMethod,
+		readonly resource: string,
+		readonly status: number,
+	) {
+		super(
+			`kubernetes ${method} ${resource} -> ${status}: the API server did not apply the JSON patch and changed nothing. It does not say which operation failed, so this is either a \`test\` clause that no longer holds — another holder wrote the object first — or a patch body that is wrong.`,
+		)
+		this.name = 'KubernetesPatchNotAppliedError'
 	}
 }
 
@@ -404,13 +473,16 @@ function httpsRequest(
 }
 
 /**
- * `PATCH` always carries a JSON MERGE patch body (RFC 7386) — never
+ * `PATCH` carries a JSON MERGE patch body (RFC 7386) unless the caller asked
+ * for `json`, which sends an RFC 6902 operation list instead — never
  * server-side apply, never YAML. `POST` carries a plain JSON create body.
- * `GET`/`DELETE` normally carry no body; if a caller ever does pass one to
- * `DELETE` it is sent as plain JSON.
+ * `GET`/`DELETE` normally carry no body; when a caller does pass one to
+ * `DELETE` — a `DeleteOptions` with `preconditions` — it is sent as plain
+ * JSON, which is what the API server expects there.
  */
-function contentTypeFor(method: KubernetesHttpMethod): string {
-	return method === 'PATCH' ? 'application/merge-patch+json' : 'application/json'
+function contentTypeFor(method: KubernetesHttpMethod, patchType: KubernetesPatchType): string {
+	if (method !== 'PATCH') return 'application/json'
+	return patchType === 'json' ? 'application/json-patch+json' : 'application/merge-patch+json'
 }
 
 export function createKubernetesClient(
@@ -428,6 +500,7 @@ export function createKubernetesClient(
 		path: string,
 		body?: unknown,
 		signal?: AbortSignal,
+		patchType: KubernetesPatchType = 'merge',
 	): Promise<T | undefined> {
 		signal?.throwIfAborted()
 		// The caller's signal is WRAPPED, never replaced: `deadline` aborts
@@ -463,7 +536,7 @@ export function createKubernetesClient(
 				Authorization: `Bearer ${token}`,
 				Accept: 'application/json',
 			}
-			if (payload !== undefined) headers['content-type'] = contentTypeFor(method)
+			if (payload !== undefined) headers['content-type'] = contentTypeFor(method, patchType)
 
 			let res: RawResponse
 			try {
@@ -499,6 +572,15 @@ export function createKubernetesClient(
 				await readBody(res)
 				deadline.throwIfAborted()
 				throw new KubernetesConflictError(method, path)
+			}
+			// Before the generic mapping, and only for the dialect that has a
+			// `test` clause to fail: a merge patch has no condition, so a 422
+			// on one is a malformed body and belongs in the generic error
+			// where it always was.
+			if (res.status === 422 && method === 'PATCH' && patchType === 'json') {
+				await readBody(res)
+				deadline.throwIfAborted()
+				throw new KubernetesPatchNotAppliedError(method, path, res.status)
 			}
 			if (res.status < 200 || res.status >= 300) {
 				const text = await readBody(res)

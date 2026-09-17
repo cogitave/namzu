@@ -10,6 +10,7 @@ import {
 	KubernetesApiTimeoutError,
 	KubernetesConflictError,
 	KubernetesCredentialError,
+	KubernetesPatchNotAppliedError,
 	MIN_API_REQUEST_TIMEOUT_MS,
 	createKubernetesClient,
 } from '../k8s-client.js'
@@ -91,6 +92,135 @@ describe('createKubernetesClient — explicit access, default fetch path', () =>
 			getToken: async () => 't',
 		})
 		await client.request('PATCH', '/apis/agents.x-k8s.io/v1/namespaces/ns/sandboxes/s1', patchBody)
+		expect(fetchSpy).toHaveBeenCalledTimes(1)
+	})
+
+	it('sends a json patch with application/json-patch+json and the operation list verbatim', async () => {
+		// The dialect is the feature: a merge patch has no way to express a
+		// condition, so a conditional write has to go up as RFC 6902 — and
+		// the operation ORDER is part of the body, because a `test` written
+		// after an `add` would be testing this patch's own work.
+		const operations = [
+			{ op: 'test', path: '/metadata/annotations/sandbox.namzu.ai~1holder-epoch', value: '4' },
+			{ op: 'add', path: '/metadata/annotations/sandbox.namzu.ai~1holder-epoch', value: '5' },
+			{ op: 'add', path: '/spec/operatingMode', value: 'Suspended' },
+		]
+		const fetchSpy = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+			const headers = init?.headers as Record<string, string>
+			expect(init?.method).toBe('PATCH')
+			expect(headers['content-type']).toBe('application/json-patch+json')
+			expect(init?.body).toBe(JSON.stringify(operations))
+			return jsonResponse(200, { ok: true })
+		})
+		globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+		const client = createKubernetesClient({
+			server: 'http://127.0.0.1:1',
+			namespace: 'ns',
+			getToken: async () => 't',
+		})
+		await client.request(
+			'PATCH',
+			'/apis/agents.x-k8s.io/v1/namespaces/ns/sandboxes/s1',
+			operations,
+			undefined,
+			'json',
+		)
+		expect(fetchSpy).toHaveBeenCalledTimes(1)
+	})
+
+	it('maps a 422 on a json patch to KubernetesPatchNotAppliedError', async () => {
+		// The body a real API server (v1.37.0, agent-sandbox `Sandbox` CRD)
+		// answers an unapplied JSON patch with — identical for a failed
+		// `test`, for a pointer into a member that does not exist and for a
+		// `test` on an absent annotation key. The class says only what that
+		// reply supports: the patch did not apply and nothing changed.
+		globalThis.fetch = (async () =>
+			jsonResponse(422, {
+				kind: 'Status',
+				apiVersion: 'v1',
+				metadata: {},
+				status: 'Failure',
+				message: 'the server rejected our request due to an error in our request',
+				reason: 'Invalid',
+				details: {},
+				code: 422,
+			})) as unknown as typeof fetch
+
+		const client = createKubernetesClient({
+			server: 'http://127.0.0.1:1',
+			namespace: 'ns',
+			getToken: async () => 't',
+		})
+		const failure = await client
+			.request(
+				'PATCH',
+				'/apis/agents.x-k8s.io/v1/namespaces/ns/sandboxes/s1',
+				[],
+				undefined,
+				'json',
+			)
+			.catch((err: unknown) => err)
+		expect(failure).toBeInstanceOf(KubernetesPatchNotAppliedError)
+		expect((failure as KubernetesPatchNotAppliedError).status).toBe(422)
+		expect((failure as KubernetesPatchNotAppliedError).method).toBe('PATCH')
+		// It does not claim to know which of the two happened, because the
+		// reply does not say.
+		expect((failure as Error).message).toMatch(
+			/either a `test` clause .* or a patch body that is wrong/,
+		)
+	})
+
+	it('leaves a 422 on a MERGE patch as the plain error it always was', async () => {
+		// A merge patch carries no condition, so a 422 on one is a malformed
+		// body and has nothing to do with a lost race. Reading it as one
+		// would send a caller re-reading an object nobody touched.
+		globalThis.fetch = (async () =>
+			jsonResponse(422, {
+				message: 'Sandbox in version "v1beta1" cannot be handled',
+			})) as unknown as typeof fetch
+
+		const client = createKubernetesClient({
+			server: 'http://127.0.0.1:1',
+			namespace: 'ns',
+			getToken: async () => 't',
+		})
+		const failure = await client
+			.request('PATCH', '/apis/agents.x-k8s.io/v1/namespaces/ns/sandboxes/s1', { spec: {} })
+			.catch((err: unknown) => err)
+		expect(failure).toBeInstanceOf(Error)
+		expect(failure).not.toBeInstanceOf(KubernetesPatchNotAppliedError)
+		expect((failure as Error).message).toMatch(/-> 422:/)
+	})
+
+	it('sends a DELETE body as plain application/json, so preconditions travel with it', async () => {
+		// A fenced delete cannot use a patch `test`; its condition is
+		// `preconditions.resourceVersion` inside a `DeleteOptions` body, and
+		// a DELETE body is plain JSON rather than any patch dialect.
+		const deleteBody = {
+			apiVersion: 'v1',
+			kind: 'DeleteOptions',
+			preconditions: { resourceVersion: '4271' },
+		}
+		const fetchSpy = vi.fn(async (_input: string | URL | Request, init?: RequestInit) => {
+			const headers = init?.headers as Record<string, string>
+			expect(init?.method).toBe('DELETE')
+			expect(headers['content-type']).toBe('application/json')
+			expect(init?.body).toBe(JSON.stringify(deleteBody))
+			return jsonResponse(200, { kind: 'Status' })
+		})
+		globalThis.fetch = fetchSpy as unknown as typeof fetch
+
+		const client = createKubernetesClient({
+			server: 'http://127.0.0.1:1',
+			namespace: 'ns',
+			getToken: async () => 't',
+		})
+		await client.request(
+			'DELETE',
+			'/apis/agents.x-k8s.io/v1/namespaces/ns/sandboxes/s1',
+			deleteBody,
+		)
 		expect(fetchSpy).toHaveBeenCalledTimes(1)
 	})
 

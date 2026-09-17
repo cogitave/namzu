@@ -217,6 +217,13 @@ export {
 	DEFAULT_API_REQUEST_TIMEOUT_MS,
 	KubernetesApiTimeoutError,
 	type KubernetesHttpMethod,
+	// A conditional write the API server would not apply. A host that fences
+	// its workspaces with a holder epoch normally catches
+	// `KubernetesWorkspacePreconditionError` instead — this one survives only
+	// when the object kept changing under the write or the patch body was
+	// wrong, and a caller that cannot name the class cannot tell it from a
+	// cluster failure.
+	KubernetesPatchNotAppliedError,
 	MIN_API_REQUEST_TIMEOUT_MS,
 } from './backends/kubernetes/k8s-client.js'
 /** Default `KubernetesBackendConfig.streamHeartbeatMs` — see there. */
@@ -243,6 +250,12 @@ export type {
 export {
 	KubernetesWorkspaceDiskError,
 	KubernetesWorkspaceMismatchError,
+	// A lifecycle write refused because this caller's holder epoch has been
+	// overtaken: the workspace belongs to another process now, nothing on the
+	// cluster changed and nothing about the handle changed. A host that fences
+	// its workspaces has to be able to tell this from a cluster failure, which
+	// is the whole reason the write is conditional.
+	KubernetesWorkspacePreconditionError,
 	KubernetesWorkspaceSuspendTimeoutError,
 	KubernetesWorkspaceSuspendedError,
 } from './backends/kubernetes/workspace.js'

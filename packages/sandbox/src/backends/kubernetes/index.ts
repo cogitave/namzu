@@ -886,6 +886,17 @@ export interface SandboxBodyOptions {
 	 * sets it, because an unbounded task sandbox is a leak.
 	 */
 	readonly shutdownTime?: string
+	/**
+	 * Annotations to stamp on the Sandbox's OWN metadata at creation.
+	 *
+	 * One caller and one annotation today: a workspace created under a holder
+	 * epoch, which is fenced from the moment the object exists rather than
+	 * from its first patch — see `workspace.ts`'s
+	 * `HOLDER_EPOCH_ANNOTATION_KEY`. Absent, the body is byte for byte what
+	 * it always was, which is what keeps every task sandbox's create
+	 * unchanged.
+	 */
+	readonly annotations?: Readonly<Record<string, string>>
 }
 
 /**
@@ -930,7 +941,11 @@ export function buildSandboxBody(options: SandboxBodyOptions): Record<string, un
 	return {
 		apiVersion: `${SANDBOX_API_GROUP}/${SANDBOX_API_VERSION}`,
 		kind: 'Sandbox',
-		metadata: { name: options.name, namespace: options.namespace },
+		metadata: {
+			name: options.name,
+			namespace: options.namespace,
+			...(options.annotations !== undefined ? { annotations: options.annotations } : {}),
+		},
 		spec: {
 			operatingMode: 'Running',
 			service: true,

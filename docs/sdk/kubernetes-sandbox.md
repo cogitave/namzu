@@ -1129,11 +1129,16 @@ names the two honest exits instead: point the workspace at the template it was
 built from, or delete the `Sandbox` — which takes its disk with it — and
 create it again.
 
-**A workspace id is a name, not a lock.** Nothing stops two host processes from
-adopting the same running workspace; each gets its own handle over the same
-pod, and either one's `destroy()` suspends the pod the other is executing in.
-That coordination is the caller's, and this backend does not pretend to it —
-but a handle can at least [find out](#a-handle-notices-a-suspend-it-did-not-perform)
+**A workspace id is a name, not a lock — unless you give it one.** Nothing
+stops two host processes from adopting the same running workspace; each gets
+its own handle over the same pod, and either one's `destroy()` suspends the
+pod the other is executing in. Deciding which process may do that is the
+host's, and always was — what this backend adds is a way to make that decision
+*stick* on the cluster, so the write a superseded process sends is refused
+rather than applied. That is the [holder
+epoch](#a-holder-epoch-fences-every-lifecycle-write), and it is opt-in: a call
+that passes none sends exactly the requests it always sent. Independently of
+it, a handle can [find out](#a-handle-notices-a-suspend-it-did-not-perform)
 that somebody else suspended its workspace, rather than reporting
 `suspended: false` over a pod that is gone.
 
@@ -1380,14 +1385,25 @@ None of the three creates a pod, dials an agent or resumes anything.
 | Verb | What it sends | What it never does |
 |---|---|---|
 | `listKubernetesWorkspaces(config, { signal })` | One `GET` of the `sandboxes` collection | No `PATCH`, no `DELETE`, no pod read: a suspended workspace is still suspended afterwards |
-| `deleteKubernetesWorkspace(config, workspaceId, { signal })` | One `DELETE` of `namzu-ws-<id>` | Never adopts, never resumes — the deterministic name is enough to address the object |
-| `suspendKubernetesWorkspace(config, workspaceId, { signal })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own |
+| `deleteKubernetesWorkspace(config, workspaceId, { signal, epoch })` | One `DELETE` of `namzu-ws-<id>` | Never adopts, never resumes — the deterministic name is enough to address the object |
+| `suspendKubernetesWorkspace(config, workspaceId, { signal, epoch })` | The `operatingMode: Suspended` patch, then the pod wait | Never adopts, opens no session, reaps no terminals it does not own |
+
+Both writing verbs take an optional [holder
+epoch](#a-holder-epoch-fences-every-lifecycle-write), which is where a
+retention pass most wants one: the job that deletes a month-old workspace is
+exactly the caller most likely to be acting on a decision it made before
+somebody reopened the workspace, and a `DELETE` is the one write nothing
+brings back. `listKubernetesWorkspaces` sends no write, so it has nothing for
+an epoch to condition; it **reports** each workspace's stored epoch instead.
 
 `listKubernetesWorkspaces` returns a `KubernetesWorkspaceSummary` per
-workspace — `workspaceId`, `operatingMode`, `template`, `createdAt` and
-`operatingModeChangedAt` — in the API server's own order. `operatingMode` is
-`spec.operatingMode` verbatim and not "is a pod running": a `Running`
-workspace whose pod is being created, or has just crashed, reads `Running`.
+workspace — `workspaceId`, `operatingMode`, `template`, `createdAt`,
+`operatingModeChangedAt` and `holderEpoch` — in the API server's own order.
+`operatingMode` is `spec.operatingMode` verbatim and not "is a pod running": a
+`Running` workspace whose pod is being created, or has just crashed, reads
+`Running`. `holderEpoch` is `0` on a workspace nobody has fenced, because that
+is what every write compares against, and is **absent** only when the
+annotation is present and unreadable.
 
 **What counts as a workspace** is two of this backend's own marks together:
 the `namzu-ws-` name prefix, which is the only thing that makes a
@@ -1452,7 +1468,10 @@ window](#nothing-but-an-explicit-delete-deletes) that decides authorship: a
 `Running` patch the API server did not refuse counts as this call's own wake,
 so a concurrent writer between the read and the patch can still make one
 process the apparent author of a wake it did not perform — and a start that
-then fails suspends on the strength of it.
+then fails suspends on the strength of it. A [holder
+epoch](#a-holder-epoch-fences-every-lifecycle-write) closes that window too,
+because the cleanup patch is then conditional on the same epoch the start
+carried.
 
 Two things correct it, and both re-read `spec.operatingMode` rather than
 guessing:
@@ -1490,6 +1509,132 @@ handle is suspended is not taken back, because coming back means binding a new
 pod, reading its token and probing it, which is what `resume()` is. A
 workspace somebody deleted rejects with the client's already-gone error and
 changes nothing on the handle.
+
+### A holder epoch fences every lifecycle write
+
+A host that drives one workspace from more than one process — during a rollout
+overlap, after a restart, or when a scheduled job runs beside a request
+handler — usually already keeps a monotonic **holder epoch** in its own
+database. That fences what the host does itself and nothing else: "check my
+epoch, then call `suspend()`" is check-then-act, the write that follows is a
+separate request, and the API server accepts it. Three races fit in that gap:
+
+- a **late suspend** stops the new holder's pod;
+- a **late `destroy({ deleteDisk: true })`** takes the disk, and nothing
+  brings a disk back;
+- a **late adopt** wakes a workspace that was just suspended.
+
+Passing the epoch into this package closes all three, because the condition
+then travels in the same request as the write:
+
+```ts
+import {
+  KubernetesWorkspacePreconditionError,
+  createKubernetesWorkspace,
+} from '@namzu/sandbox'
+
+const cluster = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+} as const
+
+// `epoch` is the host's own number, raised whenever authority moves.
+const workspace = await createKubernetesWorkspace(cluster, {
+  workspaceId: 'ada-main',
+  workingDirectory: '/workspace',
+  epoch: 5,
+})
+
+try {
+  await workspace.suspend()
+} catch (error) {
+  if (error instanceof KubernetesWorkspacePreconditionError) {
+    // Another process holds this workspace now. Nothing was changed on the
+    // cluster, and nothing was changed on this handle either.
+    console.warn(`held at epoch ${String(error.storedEpoch)}, not ${String(error.epoch)}`)
+  } else {
+    throw error
+  }
+}
+```
+
+**The rule.** The epoch lives in an annotation on the `Sandbox` itself,
+`sandbox.namzu.ai/holder-epoch`, holding a decimal integer. A write carrying
+epoch `e` applies when the stored epoch is `<= e`, and stores `e` in the same
+request; a stored epoch above `e` refuses it. A workspace with no annotation
+reads as **0**, so every workspace created before this release accepts its
+first epoch-carrying write.
+
+**Where an epoch is accepted**, and what each one fences:
+
+| Call | The write it conditions |
+|---|---|
+| `createKubernetesWorkspace(config, { …, epoch })` | The `POST` stamps it. On adopt it is checked **before** any resume patch, like the adopt's other refusals — and then written even when the object was already `Running`, where nothing used to be sent at all |
+| `workspace.suspend({ epoch })` | The `operatingMode: Suspended` patch |
+| `workspace.resume({ epoch })` | The `Running` patch — and on a workspace that is already running, a stamp-only write, where nothing used to be sent |
+| `workspace.destroy({ epoch, deleteDisk })` | The suspend patch, or the `DELETE` |
+| `suspendKubernetesWorkspace` / `deleteKubernetesWorkspace` | The same two, from a process holding no handle |
+
+A handle **keeps** the epoch it was opened or last resumed with and writes
+under it whenever a call passes none — including the cleanup patch a failed
+start sends, which is the write nobody looks at and the one most likely to
+take a pod away from a holder that arrived while the start was running.
+
+**One request per write, never check-then-act.** A fenced `PATCH` goes up as
+`application/json-patch+json` (RFC 6902) instead of the merge patch: it
+`test`s the value it just read and then writes, in one body, so nothing can
+fit between the condition and the mutation. The pointer to the annotation is
+`/metadata/annotations/sandbox.namzu.ai~1holder-epoch` — `/` is `~1` in a JSON
+Pointer. A `DELETE` has no patch body, so its condition is
+`preconditions.resourceVersion` on the version whose epoch was read, which the
+API server refuses with `409` naming both versions.
+
+**A refused write changes nothing** — not on the cluster, and not on the
+handle. `KubernetesWorkspacePreconditionError` carries `operation`,
+`workspaceId`, `sandboxName`, `epoch` and `storedEpoch`, and the refusal is
+decided **before** `suspend()` reaps the handle's terminals or `destroy()`
+tears its session down, so a superseded holder does not take its own caller's
+sessions away over a write that never applied.
+
+**No epoch, no change.** A call that passes none sends exactly the requests it
+sent before this existed, `application/merge-patch+json` and all. An unfenced
+write is not a write with epoch 0: it carries no condition at all, so it still
+applies to a workspace held at 7. Opting in is a decision, and not opting in
+puts you exactly where you were.
+
+**How this squares with "no watch, no informers, no resourceVersion
+tracking".** That invariant, stated at the top of
+`backends/kubernetes/k8s-client.ts`, still holds. The condition is the
+**annotation**, read off a `GET` this backend already makes and tested inside
+the very next write. `resourceVersion` appears in exactly two places and never
+outlives the call that read it: as the fallback `test` for an object that
+carries no annotation yet — the migration case, which fires once per workspace
+and never again — and as a fenced `DELETE`'s precondition. Nothing is stored
+across calls, nothing is streamed, and no cursor is kept. That distinction
+also decides what a controller status write does: it moves `resourceVersion`
+without touching the annotation, so under the steady-state annotation test it
+is simply not a condition the write is interested in, and under the one-time
+`resourceVersion` test it costs a single re-read and retry rather than a
+refusal.
+
+**What the API server tells you, and what it does not.** Measured against a
+real API server (v1.37.0) and the agent-sandbox `Sandbox` CRD: a JSON Patch
+whose `test` does not hold answers **422 `Invalid`** with the message *"the
+server rejected our request due to an error in our request"* — and a patch
+that is simply malformed answers with the identical status, reason and
+message. The server does not name the operation that failed. So the host does
+not pretend to read it off the reply: an unapplied patch becomes
+`KubernetesPatchNotAppliedError` ("the patch did not apply and nothing
+changed"), and the backend then **re-reads the object**. If the value it
+tested has moved, it lost a race and retries under the fresh reading, refusing
+if the new stored epoch has overtaken it; if nothing moved, the body is wrong
+rather than late and the error stands rather than being retried.
+
+**No new RBAC.** The `patch` verb covers every patch type, and the shipped
+`Role` already grants `patch` and `delete` on `sandboxes`.
 
 ### A command can outlive the connection watching it
 
@@ -1762,10 +1907,14 @@ default) and on `KubernetesWorkspaceTransitionOptions` (one `resume()`):
 | `'leave'` | Nothing, on any start failure, without exception — for a host that keeps its own holder record and sweeps idle workspaces itself |
 
 The read that decides "did this call wake it" and the patch that follows are
-deliberately not one conditional write. Another process can change the object
-between them, and the honest way to close that window is a condition **on**
-the write rather than a second read; until there is one, a patch the API
-server did not refuse is treated as this call's own.
+two requests, so another process can change the object between them. With a
+[holder epoch](#a-holder-epoch-fences-every-lifecycle-write) the window is
+closed at the write itself: the cleanup patch carries the same epoch the
+transition carried, so a holder that arrived while the start was running
+refuses it and the pod it is using stays up. The refusal is swallowed like any
+other cleanup failure and the primary error still reaches the caller. Without
+an epoch the window is open exactly as before, and a patch the API server did
+not refuse is treated as this call's own.
 
 Writing nothing to the cluster is not the same as changing nothing about the
 **handle**. A start that fails leaves this handle with no session either way,

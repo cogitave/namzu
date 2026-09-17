@@ -54,6 +54,19 @@ export interface KubernetesObjectMeta {
 	 */
 	readonly creationTimestamp?: string
 	/**
+	 * The object's version as this read saw it, written by the API server on
+	 * every write and never by a client.
+	 *
+	 * It is here for exactly one use and no other: the fallback `test` clause
+	 * of a holder-epoch patch aimed at an object that does not carry the
+	 * annotation yet, and the `preconditions.resourceVersion` of a fenced
+	 * DELETE — both INSIDE the one read-write pair that read it. It is never
+	 * stored on a handle, never carried across calls and never streamed, so
+	 * the "no watch, no informers, no resourceVersion tracking" invariant
+	 * `k8s-client.ts` states still holds. See {@link buildHolderEpochPatch}.
+	 */
+	readonly resourceVersion?: string
+	/**
 	 * Set the moment a DELETE is accepted, long before the object goes away.
 	 * A pod that carries one is on its way out and must never be bound to —
 	 * see {@link isPodLive}.
@@ -372,6 +385,224 @@ export const SANDBOX_TEMPLATE_LABEL_KEY = 'sandbox.namzu.ai/template'
  * Same prefix as {@link SANDBOX_TEMPLATE_LABEL_KEY}, for the same reason.
  */
 export const OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY = 'sandbox.namzu.ai/operating-mode-changed-at'
+
+/**
+ * Backend-owned annotation carrying the HOLDER EPOCH: a decimal integer the
+ * host raises whenever authority over this workspace moves to another
+ * process.
+ *
+ * A workspace id is a name, not a lock, and a host that drives one workspace
+ * from more than one process has to decide which of them may suspend, resume
+ * or delete it. Checking its own epoch and then calling `suspend()` does not
+ * close the race, because the write that follows is a separate request and
+ * the API server accepts it. So the epoch is stored HERE, on the object every
+ * lifecycle write targets, and every such write carries it as a condition in
+ * the same request — see {@link buildHolderEpochPatch}.
+ *
+ * The rule: a write carrying epoch `e` applies when the stored epoch is `<=
+ * e`, and sets the stored epoch to `e` in the same request. A stored epoch
+ * greater than `e` refuses it. An object with NO annotation reads as 0, so
+ * every workspace created before this existed accepts its first
+ * epoch-carrying write.
+ *
+ * It is the caller's number, never this backend's: nothing here invents,
+ * increments or persists an epoch of its own, and a call that passes none
+ * sends exactly the requests it always sent.
+ *
+ * Same prefix as {@link SANDBOX_TEMPLATE_LABEL_KEY} and
+ * {@link OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY}, for the same reason.
+ */
+export const HOLDER_EPOCH_ANNOTATION_KEY = 'sandbox.namzu.ai/holder-epoch'
+
+/**
+ * One RFC 6902 operation, in the only three shapes this backend sends.
+ *
+ * `test` is the condition, `add` is every mutation. `add` rather than
+ * `replace` throughout: on a JSON object member `add` creates the member when
+ * it is missing and replaces it when it is present, while `replace` fails
+ * outright on a missing one — and `spec.operatingMode` is absent on a Sandbox
+ * that has never been suspended, as is the epoch annotation on every
+ * workspace created before this release. A `replace` would turn both of those
+ * ordinary cases into a rejected patch.
+ */
+export interface JsonPatchOperation {
+	readonly op: 'test' | 'add'
+	readonly path: string
+	readonly value: unknown
+}
+
+/**
+ * One JSON Pointer reference token (RFC 6901 §3): `~` becomes `~0` and `/`
+ * becomes `~1`, in that order — the reverse order would turn a literal `~1`
+ * into a slash.
+ *
+ * An annotation key always contains a `/` (`sandbox.namzu.ai/holder-epoch`),
+ * so the pointer to one is unusable without this.
+ */
+export function escapeJsonPointerSegment(token: string): string {
+	return token.replace(/~/g, '~0').replace(/\//g, '~1')
+}
+
+/** Pointer to one annotation on an object's own metadata. */
+export function annotationPointer(key: string): string {
+	return `/metadata/annotations/${escapeJsonPointerSegment(key)}`
+}
+
+/** What one read of an object saw about its holder epoch. */
+export interface HolderEpochReading {
+	/**
+	 * The stored epoch: the annotation parsed, or `0` when there is none.
+	 *
+	 * `undefined` means the annotation is PRESENT and is not a decimal
+	 * integer, which no version of this backend writes. It is reported as
+	 * unreadable rather than as 0 on purpose: reading a value this code does
+	 * not understand as "nobody holds this workspace" would let a write
+	 * overwrite a fence somebody else established, which is the one thing the
+	 * annotation exists to prevent.
+	 */
+	readonly epoch?: number
+	/**
+	 * The annotation exactly as stored, and the value the `test` clause
+	 * carries. Absent when the object has no such annotation.
+	 */
+	readonly annotation?: string
+	/** `metadata.annotations` existed at all — decides which `add` is sent. */
+	readonly hasAnnotations: boolean
+	/** `metadata.resourceVersion`, for the fallback `test` and a fenced DELETE. */
+	readonly resourceVersion?: string
+}
+
+/** Decimal, no sign, no padding, no exponent — what this backend writes. */
+const HOLDER_EPOCH_PATTERN = /^(?:0|[1-9][0-9]*)$/
+
+/** Read {@link HOLDER_EPOCH_ANNOTATION_KEY} off an object's metadata. */
+export function readHolderEpoch(meta: KubernetesObjectMeta | undefined): HolderEpochReading {
+	const annotations = meta?.annotations
+	const resourceVersion =
+		typeof meta?.resourceVersion === 'string' && meta.resourceVersion !== ''
+			? meta.resourceVersion
+			: undefined
+	const stored = annotations?.[HOLDER_EPOCH_ANNOTATION_KEY]
+	const base = {
+		hasAnnotations: annotations !== undefined,
+		...(resourceVersion !== undefined ? { resourceVersion } : {}),
+	}
+	if (typeof stored !== 'string') return { ...base, epoch: 0 }
+	if (!HOLDER_EPOCH_PATTERN.test(stored)) return { ...base, annotation: stored }
+	const parsed = Number(stored)
+	if (!Number.isSafeInteger(parsed)) return { ...base, annotation: stored }
+	return { ...base, epoch: parsed, annotation: stored }
+}
+
+/** A stored epoch of `epoch` or lower lets a write carrying `epoch` through. */
+export function holderEpochAllows(reading: HolderEpochReading, epoch: number): boolean {
+	return reading.epoch !== undefined && reading.epoch <= epoch
+}
+
+/** What {@link buildHolderEpochPatch} is asked to write, and under what condition. */
+export interface HolderEpochPatchInput {
+	/** The metadata the GET returned. The condition is built from THIS read. */
+	readonly reading: HolderEpochReading
+	/** The epoch the write carries, and the one it stores. */
+	readonly epoch: number
+	/**
+	 * Further `test` clauses composed into the SAME body.
+	 *
+	 * This is the seam a second condition uses instead of a second request: a
+	 * write that also has to assert, say, `spec.operatingMode` passes its
+	 * clause here and the object is still written under one atomic patch. Two
+	 * call sites each sending their own conditional patch would be two writes
+	 * and two chances to lose a race between them.
+	 */
+	readonly tests?: readonly JsonPatchOperation[]
+	/** Written to `spec.operatingMode`; omitted leaves the mode alone. */
+	readonly operatingMode?: 'Running' | 'Suspended'
+	/**
+	 * RFC 3339 stamp for {@link OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY}.
+	 * Passed only by a write that actually CHANGES the mode — the annotation
+	 * says when the mode last changed, and a write that merely restamps the
+	 * epoch has not changed it.
+	 */
+	readonly operatingModeChangedAt?: string
+}
+
+/**
+ * The one conditional-write builder this backend has, and the only place a
+ * JSON Patch body is composed.
+ *
+ * Every clause is decided from ONE read, and the whole thing goes up as one
+ * request: the condition and the mutation are in the same body, so there is
+ * no window between checking and writing for another holder to fit into.
+ *
+ * Three shapes, decided by what that read saw:
+ *
+ *  - the object carries the epoch annotation ⇒ `test` it by its exact stored
+ *    string, then `add` the new value over it;
+ *  - the object carries annotations but not this one ⇒ `test`
+ *    `/metadata/resourceVersion` instead, then `add` the member;
+ *  - the object carries no `metadata.annotations` at all ⇒ the same
+ *    `resourceVersion` test, then `add` the map whole, because there is no
+ *    member to add one to.
+ *
+ * The `resourceVersion` fallback is the migration case and nothing more: it
+ * fires once, on a workspace created before this release, and from the first
+ * epoch write onwards the annotation is what is tested. That matters because
+ * a controller status write moves `resourceVersion` without touching the
+ * annotation, and under the annotation test those are simply not conditions
+ * this write is interested in.
+ *
+ * Every `test` precedes every mutation, which RFC 6902 requires of a
+ * condition: operations apply in order, so a `test` written after an `add`
+ * would be testing this patch's own work.
+ */
+export function buildHolderEpochPatch(input: HolderEpochPatchInput): readonly JsonPatchOperation[] {
+	const { reading, epoch } = input
+	const epochPointer = annotationPointer(HOLDER_EPOCH_ANNOTATION_KEY)
+	const tests: JsonPatchOperation[] = []
+	if (reading.annotation !== undefined) {
+		tests.push({ op: 'test', path: epochPointer, value: reading.annotation })
+	} else if (reading.resourceVersion !== undefined) {
+		tests.push({ op: 'test', path: '/metadata/resourceVersion', value: reading.resourceVersion })
+	} else {
+		// Unreachable from every call site here — each one builds from an
+		// object it just read, and the API server sets `resourceVersion` on
+		// every object it serves. It throws rather than sending an
+		// UNCONDITIONAL patch, because a fenced write that quietly stopped
+		// being fenced is the defect this whole path exists to prevent.
+		throw new Error(
+			'kubernetes: cannot build a holder-epoch patch from an object that carries neither the holder-epoch annotation nor a metadata.resourceVersion — there is nothing to condition the write on.',
+		)
+	}
+	tests.push(...(input.tests ?? []))
+
+	const mutations: JsonPatchOperation[] = []
+	const stamp = String(epoch)
+	if (!reading.hasAnnotations) {
+		mutations.push({
+			op: 'add',
+			path: '/metadata/annotations',
+			value: {
+				[HOLDER_EPOCH_ANNOTATION_KEY]: stamp,
+				...(input.operatingModeChangedAt !== undefined
+					? { [OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY]: input.operatingModeChangedAt }
+					: {}),
+			},
+		})
+	} else {
+		mutations.push({ op: 'add', path: epochPointer, value: stamp })
+		if (input.operatingModeChangedAt !== undefined) {
+			mutations.push({
+				op: 'add',
+				path: annotationPointer(OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY),
+				value: input.operatingModeChangedAt,
+			})
+		}
+	}
+	if (input.operatingMode !== undefined) {
+		mutations.push({ op: 'add', path: '/spec/operatingMode', value: input.operatingMode })
+	}
+	return [...tests, ...mutations]
+}
 
 /** `{ [SANDBOX_TEMPLATE_LABEL_KEY]: sandboxTemplateName }`, as a matchLabels-ready object. */
 export function sandboxTemplateLabel(

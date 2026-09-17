@@ -206,9 +206,12 @@ import {
 	KubernetesAlreadyGoneError,
 	type KubernetesClient,
 	KubernetesConflictError,
+	KubernetesPatchNotAppliedError,
 	createKubernetesClient,
 } from './k8s-client.js'
 import {
+	HOLDER_EPOCH_ANNOTATION_KEY,
+	type HolderEpochReading,
 	OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY,
 	type PodResource,
 	SANDBOX_TEMPLATE_LABEL_KEY,
@@ -216,8 +219,11 @@ import {
 	type SandboxPodTemplate,
 	type SandboxResource,
 	type SandboxVolumeClaimTemplate,
+	buildHolderEpochPatch,
+	holderEpochAllows,
 	isPodStopped,
 	podPath,
+	readHolderEpoch,
 	sandboxCollectionPath,
 	sandboxPath,
 } from './objects.js'
@@ -377,6 +383,75 @@ export class KubernetesWorkspaceSuspendTimeoutError extends Error {
 }
 
 /**
+ * Thrown when a lifecycle write carried a holder epoch the workspace has
+ * already moved past: the request was NOT sent, or was sent and refused, and
+ * nothing on the cluster changed either way.
+ *
+ * The workspace is somebody else's now. The epoch stored on the Sandbox is
+ * higher than the one this call carried, which is what a host says when it
+ * hands authority over a workspace to another process — see
+ * {@link HOLDER_EPOCH_ANNOTATION_KEY}. A superseded holder that suspends,
+ * resumes or deletes anyway would be taking the pod, or the disk, away from
+ * whoever holds it now.
+ *
+ * Nothing about the handle changes either. A refused `suspend()` leaves the
+ * handle exactly where it was — still `running`, terminals still open,
+ * because the refusal is decided BEFORE they are reaped — so a caller that
+ * catches this and re-reads its own holder record has lost nothing.
+ *
+ * `storedEpoch` is `undefined` in the one case the annotation cannot be read
+ * at all: it is present and is not a decimal integer, which no release of
+ * this backend writes. `storedAnnotation` carries it verbatim so an operator
+ * can see what is actually on the object.
+ */
+export class KubernetesWorkspacePreconditionError extends Error {
+	override readonly name = 'KubernetesWorkspacePreconditionError'
+
+	constructor(
+		/** The verb that was refused — `suspend`, `resume`, `destroy`, ... */
+		readonly operation: string,
+		readonly workspaceId: string,
+		readonly sandboxName: string,
+		/** The epoch this call carried. */
+		readonly epoch: number,
+		/** The epoch stored on the Sandbox, or `undefined` if unreadable. */
+		readonly storedEpoch: number | undefined,
+		/** The annotation exactly as stored, when there is one. */
+		readonly storedAnnotation?: string,
+	) {
+		super(
+			storedEpoch === undefined
+				? `kubernetes: ${operation}() on workspace ${workspaceId} (Sandbox ${sandboxName}) carried holder epoch ${epoch}, and the Sandbox's ${HOLDER_EPOCH_ANNOTATION_KEY} annotation reads ${JSON.stringify(
+						storedAnnotation,
+					)}, which is not a decimal integer. No release of this backend writes that, so it was set by hand or by something else; the write was refused rather than overwriting a fence this code does not understand. Nothing on the cluster changed. Fix the annotation, or remove it to start the workspace's epoch again at 0.`
+				: `kubernetes: ${operation}() on workspace ${workspaceId} (Sandbox ${sandboxName}) carried holder epoch ${epoch}, but the Sandbox is held at epoch ${storedEpoch} — another process took this workspace over. Nothing on the cluster changed and nothing about this handle changed: its terminals are still open and it is still admitting calls. A host that raised the epoch elsewhere should stop using this handle; one that believes it is still the holder should re-read its own record first.`,
+		)
+	}
+}
+
+/**
+ * Refuse an epoch this backend cannot honour, at the entry point rather than
+ * at the request — the same place {@link resolveRequestTimeoutMs} refuses a
+ * timeout, and for the same reason: a configuration that will never work
+ * should be named where the caller can still see which call it came from.
+ *
+ * Non-negative because the stored value is compared as a number and written
+ * as a decimal string, and an integer because a fractional epoch would
+ * round-trip through the annotation as something other than what was passed.
+ */
+function assertHolderEpoch(epoch: number | undefined, where: string): number | undefined {
+	if (epoch === undefined) return undefined
+	if (!Number.isSafeInteger(epoch) || epoch < 0) {
+		throw new Error(
+			`kubernetes: ${where} epoch must be a non-negative safe integer, got ${JSON.stringify(
+				epoch,
+			)}. It is stored on the Sandbox as a decimal string and compared as a number, so anything else could not be written back as the value that was passed.`,
+		)
+	}
+	return epoch
+}
+
+/**
  * What a start that FAILED is allowed to do to the workspace it was starting
  * in.
  *
@@ -455,6 +530,32 @@ export interface KubernetesWorkspaceTransitionOptions {
 	 * transition does not have to know which verb consults which field.
 	 */
 	readonly onStartFailure?: KubernetesWorkspaceStartFailurePolicy
+	/**
+	 * The holder epoch this call writes under — see
+	 * {@link HOLDER_EPOCH_ANNOTATION_KEY}.
+	 *
+	 * The write applies when the epoch stored on the Sandbox is `<=` this
+	 * one, and stores this one in the same request; a stored epoch above it
+	 * refuses the write with {@link KubernetesWorkspacePreconditionError} and
+	 * changes nothing. Omitted, every request goes out exactly as it did
+	 * before epochs existed, merge-patch content type included — this fences
+	 * nothing until a host opts in.
+	 *
+	 * Read by every verb on this shape that WRITES: `suspend()`, `resume()`,
+	 * `destroy()` and the standalone
+	 * {@link suspendKubernetesWorkspace} / {@link deleteKubernetesWorkspace}.
+	 * `refresh()`, `cancelExecution()` and {@link listKubernetesWorkspaces}
+	 * send no write, so there is nothing for an epoch to condition there and
+	 * they ignore it — the same way `onStartFailure` above is ignored by
+	 * every verb that starts no session. A list REPORTS each workspace's
+	 * stored epoch instead, on
+	 * {@link KubernetesWorkspaceSummary.holderEpoch}.
+	 *
+	 * A handle that was opened with one, or last resumed with one, uses it
+	 * for every write it sends when the call passes none — including the
+	 * patch a failed start's cleanup sends.
+	 */
+	readonly epoch?: number
 }
 
 /**
@@ -468,6 +569,18 @@ export interface KubernetesWorkspaceDestroyOptions extends SandboxDestroyOptions
 	 * including the default, suspends and leaves the object standing.
 	 */
 	readonly deleteDisk?: boolean
+	/**
+	 * The holder epoch this destroy writes under — see
+	 * {@link KubernetesWorkspaceTransitionOptions.epoch}, which it means
+	 * exactly the same thing as.
+	 *
+	 * It fences both shapes of `destroy()`: the default's suspend patch and
+	 * `deleteDisk: true`'s DELETE, the latter through a
+	 * `preconditions.resourceVersion` on the version whose epoch was read. A
+	 * retention job superseded between its check and its call takes nobody's
+	 * disk.
+	 */
+	readonly epoch?: number
 }
 
 /**
@@ -707,6 +820,24 @@ export interface KubernetesWorkspaceOptions {
 	 * receives.
 	 */
 	readonly onCancellationUnconfirmed?: (notice: KubernetesWorkspaceCancellationNotice) => void
+	/**
+	 * The holder epoch this call opens the workspace under, and the one the
+	 * handle keeps — see {@link HOLDER_EPOCH_ANNOTATION_KEY}.
+	 *
+	 * On the CREATE path the POST stamps it, so the workspace is fenced from
+	 * the moment it exists. On the ADOPT path it is checked against the
+	 * stored epoch before anything is patched — an opener the workspace has
+	 * moved past is refused with
+	 * {@link KubernetesWorkspacePreconditionError} and wakes nothing — and
+	 * then written, even when the object was already `Running` and today
+	 * nothing would be sent: taking a workspace over is exactly the moment
+	 * the fence has to move.
+	 *
+	 * The handle then uses it for every write it sends when the call passes
+	 * none: `suspend()`, `destroy()`, and the cleanup patch a failed start
+	 * sends. Omitted, nothing is fenced and every request is what it was.
+	 */
+	readonly epoch?: number
 }
 
 /** Prefix every workspace Sandbox's name carries. */
@@ -926,6 +1057,7 @@ export async function createKubernetesWorkspace(
 	// Resolved before anything is POSTed, so a configuration this backend
 	// will never honour is refused rather than leaving an object behind.
 	const streamHeartbeatMs = resolveStreamHeartbeatMs(config.streamHeartbeatMs)
+	const epoch = assertHolderEpoch(options.epoch, 'createKubernetesWorkspace')
 	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
 
 	// The same two egress steps `buildKubernetesBackend` runs for a task
@@ -998,6 +1130,13 @@ export async function createKubernetesWorkspace(
 				name,
 				template,
 				sandboxTemplateName: templateName,
+				// Stamped by the POST itself rather than by a patch after it,
+				// so a workspace created under an epoch is fenced from the
+				// moment it exists — there is no window in which the object
+				// stands unfenced and a second opener could take it.
+				...(epoch !== undefined
+					? { annotations: { [HOLDER_EPOCH_ANNOTATION_KEY]: String(epoch) } }
+					: {}),
 				...(config.runtimeClassName !== undefined
 					? { runtimeClassName: config.runtimeClassName }
 					: {}),
@@ -1010,12 +1149,14 @@ export async function createKubernetesWorkspace(
 			client,
 			namespace,
 			name,
+			options.workspaceId,
 			{
 				sandboxTemplateName: templateName,
 				...(config.runtimeClassName !== undefined
 					? { runtimeClassName: config.runtimeClassName }
 					: {}),
 			},
+			epoch,
 			options.signal,
 		)
 	}
@@ -1031,6 +1172,7 @@ export async function createKubernetesWorkspace(
 		streamHeartbeatMs,
 		readiness,
 		origin: adopted === undefined ? 'created' : adopted.resumed ? 'resumed' : 'adopted-running',
+		...(epoch !== undefined ? { epoch } : {}),
 		...(adopted?.drainingPodUid !== undefined ? { drainingPodUid: adopted.drainingPodUid } : {}),
 		...(options.onStartFailure !== undefined ? { onStartFailure: options.onStartFailure } : {}),
 		...(options.onCancellationUnconfirmed !== undefined
@@ -1067,22 +1209,26 @@ async function adoptExistingWorkspace(
 	client: KubernetesClient,
 	namespace: string,
 	name: string,
+	workspaceId: string,
 	expected: { readonly sandboxTemplateName: string; readonly runtimeClassName?: string },
+	epoch: number | undefined,
 	signal?: AbortSignal,
 ): Promise<AdoptedWorkspace> {
-	const existing = await client.request<SandboxResource>(
-		'GET',
-		sandboxPath(namespace, name),
-		undefined,
-		signal,
-	)
+	const target: WorkspaceWriteTarget = { client, namespace, name, workspaceId }
+	const existing = await readSandboxObject(target, signal)
 	assertBlockModeWorkspaceDisk(
 		`Sandbox ${name} in namespace ${namespace}`,
 		existing?.spec?.podTemplate,
 		existing?.spec?.volumeClaimTemplates,
 	)
 	assertAdoptedWorkspaceMatchesConfig(name, namespace, existing?.spec?.podTemplate, expected)
-	const resumed = existing?.spec?.operatingMode === 'Suspended'
+	const reading = readHolderEpoch(existing?.metadata)
+	// With the adopt's other refusals, and for the same reason: an object this
+	// call will not use is not woken up on the way to being rejected. A
+	// superseded opener patches nothing and starts no pod.
+	if (epoch !== undefined)
+		assertHolderEpochAllows(target, 'createKubernetesWorkspace', epoch, reading)
+	const resumed = operatingModeOf(existing) === 'Suspended'
 	// Read BEFORE the resume patch, so what is recorded is the state this
 	// adopt WALKED INTO rather than one it provoked. It costs one GET on a
 	// path that is a rare, explicit act with nothing to amortise — the same
@@ -1091,7 +1237,15 @@ async function adoptExistingWorkspace(
 	// this name is on its way out.
 	const drainingPodUid = await readDrainingPodUid(client, namespace, name, signal)
 	if (resumed) {
-		await client.request('PATCH', sandboxPath(namespace, name), resumePatch(), signal)
+		await writeOperatingMode(target, 'createKubernetesWorkspace', 'Running', epoch, signal, reading)
+	} else if (epoch !== undefined) {
+		// The one write this path did not use to make. Adopting a RUNNING
+		// workspace sent nothing at all, which is precisely what left race 1
+		// open: the new holder took the workspace over and left no trace on
+		// the object, so a superseded holder's later suspend had nothing to
+		// be refused by. Taking a workspace over is the moment the fence
+		// moves, whether or not the mode moves with it.
+		await writeOperatingMode(target, 'createKubernetesWorkspace', undefined, epoch, signal, reading)
 	}
 	return { resumed, ...(drainingPodUid !== undefined ? { drainingPodUid } : {}) }
 }
@@ -1148,7 +1302,11 @@ async function readDrainingPodUid(
 }
 
 /**
- * The two merge patches this module sends, and the only two.
+ * The UNFENCED operating-mode merge patch — what this module sends when a
+ * call carries no holder epoch, which is every call that carried none before
+ * epochs existed, byte for byte and content type included. The fenced form is
+ * `objects.ts`'s `buildHolderEpochPatch`; both go out through
+ * {@link writeOperatingMode} and nothing else builds either.
  *
  * Built per call rather than held as constants because each one stamps
  * {@link OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY} with the moment it was
@@ -1173,8 +1331,230 @@ function operatingModePatch(mode: 'Running' | 'Suspended'): Record<string, unkno
 	}
 }
 
-const suspendPatch = (): Record<string, unknown> => operatingModePatch('Suspended')
-const resumePatch = (): Record<string, unknown> => operatingModePatch('Running')
+/**
+ * How many times one fenced write may be re-read and re-sent before it gives
+ * up.
+ *
+ * A failed `test` is only worth retrying when the value the patch tested has
+ * actually MOVED, and the loop checks that on every attempt (see
+ * {@link writeOperatingMode}), so this is not a "retry until it works" budget
+ * — it is the ceiling on how many times a workspace may legitimately change
+ * underneath one call. Three is one more than the case that really happens: a
+ * controller status write moving `resourceVersion` between the read and the
+ * write of a workspace that carries no epoch annotation yet, which needs one
+ * re-read and then succeeds.
+ */
+const HOLDER_EPOCH_WRITE_ATTEMPTS = 3
+
+/** Everything a fenced write needs to address, and to name in a refusal. */
+interface WorkspaceWriteTarget {
+	readonly client: KubernetesClient
+	readonly namespace: string
+	readonly name: string
+	readonly workspaceId: string
+}
+
+/** One GET of the Sandbox, which is where every condition is read from. */
+async function readSandboxObject(
+	target: WorkspaceWriteTarget,
+	signal?: AbortSignal,
+): Promise<SandboxResource | undefined> {
+	return await target.client.request<SandboxResource>(
+		'GET',
+		sandboxPath(target.namespace, target.name),
+		undefined,
+		signal,
+	)
+}
+
+/** `spec.operatingMode`, with the CRD's own default for an absent one. */
+function operatingModeOf(sandbox: SandboxResource | undefined): 'Running' | 'Suspended' {
+	return sandbox?.spec?.operatingMode === 'Suspended' ? 'Suspended' : 'Running'
+}
+
+/** Refuse a write the stored epoch has moved past. Changes nothing anywhere. */
+function assertHolderEpochAllows(
+	target: WorkspaceWriteTarget,
+	operation: string,
+	epoch: number,
+	reading: HolderEpochReading,
+): void {
+	if (holderEpochAllows(reading, epoch)) return
+	throw new KubernetesWorkspacePreconditionError(
+		operation,
+		target.workspaceId,
+		target.name,
+		epoch,
+		reading.epoch,
+		reading.annotation,
+	)
+}
+
+/**
+ * Read the object and refuse the write if this caller has been superseded,
+ * BEFORE the caller does anything it cannot undo.
+ *
+ * The refusal it raises is the same one the write itself would raise; what
+ * this buys is WHEN. `suspend()` kills every terminal it handed out and
+ * `destroy()` tears its session down, both before any request goes out, so a
+ * superseded holder that found out from the write would have taken its own
+ * caller's sessions away on a write that never applied. The reading it hands
+ * back is then used as the first attempt's condition, so the gate costs no
+ * extra round trip.
+ *
+ * With no epoch there is nothing to check and nothing is read: the request
+ * log of an unfenced call is what it always was.
+ */
+async function readHolderEpochGate(
+	target: WorkspaceWriteTarget,
+	operation: string,
+	epoch: number | undefined,
+	signal?: AbortSignal,
+): Promise<HolderEpochReading | undefined> {
+	if (epoch === undefined) return undefined
+	const reading = readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+	assertHolderEpochAllows(target, operation, epoch, reading)
+	return reading
+}
+
+/**
+ * The single send path for every `spec.operatingMode` write this backend
+ * makes, fenced or not.
+ *
+ * Unfenced (`epoch === undefined`) it sends the merge patch it always sent,
+ * content type included, and a `mode` of `undefined` sends nothing at all —
+ * there is no such thing as an unfenced write with no mutation in it.
+ *
+ * Fenced, it is one request: {@link buildHolderEpochPatch} puts the `test`
+ * and the mutation in the same body, so nothing can fit between them. The
+ * loop around it is NOT a retry-until-it-works — the API server answers every
+ * unapplied JSON patch with the same opaque 422 whether the `test` failed or
+ * the body was wrong (see {@link KubernetesPatchNotAppliedError}), so the
+ * only honest way to tell them apart is to look: re-read the object, and if
+ * the value this patch tested is still exactly what it tested, the patch did
+ * not lose a race and is simply wrong, so the error stands. If it HAS moved,
+ * the new reading is checked against this call's epoch like any other — a
+ * holder that overtook this one is refused, and a controller status write
+ * that only moved `resourceVersion` is retried on the fresh read.
+ *
+ * `mode` omitted with an epoch present is the stamp-only write: take the
+ * workspace over without changing what it is doing. It deliberately does not
+ * stamp {@link OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY} — the mode did not
+ * change, and that annotation is an inventory column that has to stay true.
+ */
+async function writeOperatingMode(
+	target: WorkspaceWriteTarget,
+	operation: string,
+	mode: 'Running' | 'Suspended' | undefined,
+	epoch: number | undefined,
+	signal?: AbortSignal,
+	gate?: HolderEpochReading,
+): Promise<void> {
+	const path = sandboxPath(target.namespace, target.name)
+	if (epoch === undefined) {
+		if (mode === undefined) return
+		await target.client.request('PATCH', path, operatingModePatch(mode), signal)
+		return
+	}
+	let reading = gate ?? readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+	for (let attempt = 1; ; attempt += 1) {
+		assertHolderEpochAllows(target, operation, epoch, reading)
+		const patch = buildHolderEpochPatch({
+			reading,
+			epoch,
+			...(mode !== undefined
+				? { operatingMode: mode, operatingModeChangedAt: new Date().toISOString() }
+				: {}),
+		})
+		try {
+			await target.client.request('PATCH', path, patch, signal, 'json')
+			return
+		} catch (err) {
+			if (!(err instanceof KubernetesPatchNotAppliedError)) throw err
+			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
+			const next = readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+			const unmoved =
+				next.annotation === reading.annotation &&
+				next.resourceVersion === reading.resourceVersion &&
+				next.hasAnnotations === reading.hasAnnotations
+			if (unmoved) throw err
+			reading = next
+		}
+	}
+}
+
+/**
+ * DELETE the Sandbox, fenced by the epoch when the caller supplied one.
+ *
+ * The condition here cannot be a JSON Patch `test`, because a DELETE has no
+ * patch body — so it is `preconditions.resourceVersion` on the very version
+ * whose epoch was just read, which the API server answers with a 409 naming
+ * both versions when it no longer matches (measured). Anything that touched
+ * the object between the read and the DELETE — another holder raising the
+ * epoch included — moves that version, so the DELETE is refused and re-read
+ * rather than taking a disk on a stale view.
+ *
+ * Unfenced it is the bodyless DELETE it always was. Already gone counts as
+ * deleted either way, that being the state DELETE was asking for.
+ */
+async function deleteSandboxObject(
+	target: WorkspaceWriteTarget,
+	operation: string,
+	epoch: number | undefined,
+	signal?: AbortSignal,
+	gate?: HolderEpochReading,
+): Promise<void> {
+	const path = sandboxPath(target.namespace, target.name)
+	if (epoch === undefined) {
+		try {
+			await target.client.request('DELETE', path, undefined, signal)
+		} catch (err) {
+			if (!(err instanceof KubernetesAlreadyGoneError)) throw err
+		}
+		return
+	}
+	let reading = gate
+	for (let attempt = 1; ; attempt += 1) {
+		if (reading === undefined) {
+			let sandbox: SandboxResource | undefined
+			try {
+				sandbox = await readSandboxObject(target, signal)
+			} catch (err) {
+				if (err instanceof KubernetesAlreadyGoneError) return
+				throw err
+			}
+			reading = readHolderEpoch(sandbox?.metadata)
+		}
+		assertHolderEpochAllows(target, operation, epoch, reading)
+		if (reading.resourceVersion === undefined) {
+			// Unreachable against a real API server, which sets it on every
+			// object it serves — and a bodyless DELETE here would be an
+			// UNFENCED delete of somebody's disk, which is the one thing this
+			// path may never silently become.
+			throw new Error(
+				`kubernetes: cannot delete workspace ${target.workspaceId} (Sandbox ${target.name}) under holder epoch ${epoch}: the object came back with no metadata.resourceVersion, so there is no precondition to send and the DELETE would be unconditional.`,
+			)
+		}
+		try {
+			await target.client.request(
+				'DELETE',
+				path,
+				{
+					apiVersion: 'v1',
+					kind: 'DeleteOptions',
+					preconditions: { resourceVersion: reading.resourceVersion },
+				},
+				signal,
+			)
+			return
+		} catch (err) {
+			if (err instanceof KubernetesAlreadyGoneError) return
+			if (!(err instanceof KubernetesConflictError)) throw err
+			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
+			reading = undefined
+		}
+	}
+}
 
 /**
  * Which pod one bind attempt may settle on, and what a read that finds no
@@ -1326,7 +1706,7 @@ async function readOperatingMode(
 		undefined,
 		signal,
 	)
-	return sandbox?.spec?.operatingMode === 'Suspended' ? 'Suspended' : 'Running'
+	return operatingModeOf(sandbox)
 }
 
 /**
@@ -1367,6 +1747,23 @@ export interface KubernetesWorkspaceSummary {
 	 * able to tell "never suspended" from "suspended a month ago".
 	 */
 	readonly operatingModeChangedAt?: string
+	/**
+	 * The holder epoch stored on the Sandbox — see
+	 * {@link HOLDER_EPOCH_ANNOTATION_KEY}.
+	 *
+	 * `0` on a workspace that carries no such annotation, because that is
+	 * what every write compares against: a workspace nobody has fenced is
+	 * held at epoch 0 and the next write of any epoch takes it. ABSENT only
+	 * when the annotation is present and unreadable — not a decimal integer,
+	 * which no release of this backend writes — because reporting that as 0
+	 * would tell a retention pass a workspace is free when the next write
+	 * against it will be refused.
+	 *
+	 * Reported rather than conditioned: a list sends no write, so it has
+	 * nothing for an epoch to fence, and what an inventory needs is to SEE
+	 * the fences it is looking at.
+	 */
+	readonly holderEpoch?: number
 }
 
 /**
@@ -1428,14 +1825,16 @@ export async function listKubernetesWorkspaces(
 		if (typeof template !== 'string' || template === '') continue
 		const createdAt = sandbox?.metadata?.creationTimestamp
 		const changedAt = sandbox?.metadata?.annotations?.[OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY]
+		const holder = readHolderEpoch(sandbox?.metadata)
 		summaries.push({
 			workspaceId: name.slice(WORKSPACE_NAME_PREFIX.length),
-			operatingMode: sandbox?.spec?.operatingMode === 'Suspended' ? 'Suspended' : 'Running',
+			operatingMode: operatingModeOf(sandbox),
 			template,
 			...(typeof createdAt === 'string' && createdAt !== '' ? { createdAt } : {}),
 			...(typeof changedAt === 'string' && changedAt !== ''
 				? { operatingModeChangedAt: changedAt }
 				: {}),
+			...(holder.epoch !== undefined ? { holderEpoch: holder.epoch } : {}),
 		})
 	}
 	return summaries
@@ -1470,12 +1869,18 @@ export async function deleteKubernetesWorkspace(
 	options?.signal?.throwIfAborted()
 	const namespace = config.namespace
 	const name = workspaceSandboxName(workspaceId)
+	const epoch = assertHolderEpoch(options?.epoch, 'deleteKubernetesWorkspace')
 	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
-	try {
-		await client.request('DELETE', sandboxPath(namespace, name), undefined, options?.signal)
-	} catch (err) {
-		if (!(err instanceof KubernetesAlreadyGoneError)) throw err
-	}
+	// The fence reaches the standalone verbs too, and this is the one it
+	// matters most on: a retention job superseded between deciding to delete a
+	// workspace and calling this would otherwise take the new holder's disk,
+	// and nothing brings a disk back.
+	await deleteSandboxObject(
+		{ client, namespace, name, workspaceId },
+		'deleteKubernetesWorkspace',
+		epoch,
+		options?.signal,
+	)
 }
 
 /**
@@ -1513,9 +1918,16 @@ export async function suspendKubernetesWorkspace(
 	options?.signal?.throwIfAborted()
 	const namespace = config.namespace
 	const name = workspaceSandboxName(workspaceId)
+	const epoch = assertHolderEpoch(options?.epoch, 'suspendKubernetesWorkspace')
 	const readiness = resolveKubernetesReadiness(config)
 	const client = createKubernetesClient(clientAccess(config), clientOptions(config))
-	await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), options?.signal)
+	await writeOperatingMode(
+		{ client, namespace, name, workspaceId },
+		'suspendKubernetesWorkspace',
+		'Suspended',
+		epoch,
+		options?.signal,
+	)
 	await awaitPodRetired(client, namespace, name, workspaceId, readiness, options?.signal)
 }
 
@@ -1544,6 +1956,12 @@ interface WorkspaceHandleOptions {
 	 * created path, where there is no previous pod at all.
 	 */
 	readonly drainingPodUid?: string
+	/**
+	 * The holder epoch this handle was opened under, already validated.
+	 * Absent means this handle fences nothing and sends the requests it
+	 * always sent.
+	 */
+	readonly epoch?: number
 	/** The handle's default; a transition may override it for one call. */
 	readonly onStartFailure?: KubernetesWorkspaceStartFailurePolicy
 	/** See {@link KubernetesWorkspaceOptions.onCancellationUnconfirmed}. */
@@ -1581,11 +1999,31 @@ interface WakeRecord {
 	readonly woke: boolean
 	/** The caller's policy for this transition. */
 	readonly policy: KubernetesWorkspaceStartFailurePolicy
+	/**
+	 * The epoch this transition is writing under, so the cleanup patch is
+	 * fenced by the same authority the start was. A cleanup that suspended
+	 * unconditionally would take a pod away from the holder that overtook
+	 * this call while it was starting — which is the failure mode the epoch
+	 * exists for, arriving through the one path nobody looks at.
+	 */
+	readonly epoch?: number
 }
 
 async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<KubernetesWorkspace> {
 	const { client, namespace, name, workspaceId, readiness } = options
 	const id = name as SandboxId
+	/** What every fenced write addresses, and what a refusal names. */
+	const target: WorkspaceWriteTarget = { client, namespace, name, workspaceId }
+	/**
+	 * The epoch this handle writes under when a call passes none.
+	 *
+	 * It is the one the handle was opened with, and it moves to whatever a
+	 * later call wrote under successfully — never down, because a write only
+	 * succeeds when its epoch was at least the stored one. Letting it lag
+	 * behind a write this handle itself made would be the worst of both:
+	 * every later `suspend()` of its own would be refused by its own stamp.
+	 */
+	let heldEpoch = options.epoch
 	/** The handle's own policy; a transition may override it for one call. */
 	const defaultStartFailure: KubernetesWorkspaceStartFailurePolicy =
 		options.onStartFailure ?? 'suspend-if-woken'
@@ -1688,14 +2126,13 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	let pendingSuspend: Promise<void> | undefined
 	let pendingDelete: Promise<void> | undefined
 
-	const deleteSandbox = async (signal?: AbortSignal): Promise<void> => {
-		try {
-			await client.request('DELETE', sandboxPath(namespace, name), undefined, signal)
-		} catch (err) {
-			// Already gone is the state DELETE was asking for.
-			if (!(err instanceof KubernetesAlreadyGoneError)) throw err
-		}
-	}
+	const deleteSandbox = async (
+		signal?: AbortSignal,
+		epoch?: number,
+		gate?: HolderEpochReading,
+	): Promise<void> =>
+		// Already gone is the state DELETE was asking for, fenced or not.
+		await deleteSandboxObject(target, 'destroy', epoch, signal, gate)
 
 	const readBinding = async (
 		pollSignal: AbortSignal,
@@ -2148,7 +2585,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// not decoration — a detached chain that rejects with no handler takes
 		// the host process down with it.
 		void reapTerminals().catch(() => undefined)
-		await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), signal)
+		// Fenced by whatever this handle holds, like every other write it
+		// sends on its own: a superseded handle's release must not suspend the
+		// pod the new holder is using. The refusal travels out on the error
+		// the caller is already receiving, exactly as a refused patch does.
+		await writeOperatingMode(target, 'retire', 'Suspended', heldEpoch, signal)
 		// The patch landed, so the controller is taking this pod away and the
 		// next resume must see it replaced rather than bind it.
 		retiredPodUid = podUid
@@ -2164,12 +2605,20 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * them with the transition still unfinished. Neither can be returned from
 	 * by a later `suspend()` as though it had worked.
 	 */
-	const suspendNow = async (signal?: AbortSignal): Promise<void> => {
+	const suspendNow = async (signal?: AbortSignal, epoch?: number): Promise<void> => {
 		if (state === 'deleted') throw new KubernetesSandboxDestroyedError('suspend', name)
 		// `suspending` deliberately falls through: the patch is re-sent and
 		// the pod waited for again. Only a CONFIRMED suspend returns here.
 		if (state === 'suspended') return
 		const before = state
+		// BEFORE the terminals are reaped, which is the whole point of doing
+		// the read here rather than letting the patch below carry the refusal
+		// on its own: `reapTerminals` SIGKILLs every session this handle
+		// handed out, and a superseded holder that learned it was superseded
+		// from the write would already have taken its own caller's terminals
+		// away on a write that never applied. The reading is reused as the
+		// patch's condition, so the gate costs no extra round trip.
+		const gate = await readHolderEpochGate(target, 'suspend', epoch, signal)
 		// A terminal owns an interactive process tree in a pod that is about
 		// to be taken away, so it is stopped first — and stays stopped even if
 		// the patch below fails. `suspend()` is a declaration that nobody is
@@ -2183,7 +2632,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// straight back.
 		state = 'suspending'
 		try {
-			await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), signal)
+			await writeOperatingMode(target, 'suspend', 'Suspended', epoch, signal, gate)
 		} catch (err) {
 			// Nothing was changed on the cluster, so nothing is changed here:
 			// the pod is still running and this handle can still serve it.
@@ -2198,6 +2647,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// next resume must see it replaced rather than bind it — whether or
 		// not the wait below is still around when it goes.
 		retiredPodUid = podUid
+		if (epoch !== undefined) heldEpoch = epoch
 		dropSession()
 		await awaitPodRetired(client, namespace, name, workspaceId, readiness, signal)
 		state = 'suspended'
@@ -2222,25 +2672,49 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	const resumeNow = async (
 		signal?: AbortSignal,
 		onStartFailure: KubernetesWorkspaceStartFailurePolicy = defaultStartFailure,
+		epoch?: number,
 	): Promise<void> => {
 		if (state === 'deleted') throw new KubernetesSandboxDestroyedError('resume', name)
-		if (state === 'running') return
+		if (state === 'running') {
+			// Resuming a running workspace sends nothing — unless it carries
+			// an epoch, in which case the ONE thing it is asking for is the
+			// thing that still has to happen: take this workspace over. That
+			// is a write, even though the mode does not move, and a `resume()`
+			// that silently dropped it would leave the new holder unfenced.
+			if (epoch === undefined) return
+			await writeOperatingMode(target, 'resume', undefined, epoch, signal)
+			heldEpoch = epoch
+			return
+		}
 		// The pod a landed suspend patch took away is one this resume must see
 		// replaced rather than bound — see `acquireBoundPod` and
 		// `retiredPodUid`. Where there is none to exclude this is one poll
 		// plus one read, exactly as it is on create.
 		const replacing = retiredPodUid
-		const woke = (await readOperatingMode(client, namespace, name, signal)) === 'Suspended'
+		// One GET, read twice: the mode decides whether a patch is sent at all
+		// and the epoch decides whether it may be. Reading both off the same
+		// object rather than off two GETs is what keeps an unfenced resume's
+		// request log identical to what it always was.
+		const current = await readSandboxObject(target, signal)
+		const woke = operatingModeOf(current) === 'Suspended'
+		const reading = readHolderEpoch(current?.metadata)
+		if (epoch !== undefined) assertHolderEpochAllows(target, 'resume', epoch, reading)
 		if (woke) {
-			await client.request('PATCH', sandboxPath(namespace, name), resumePatch(), signal)
+			await writeOperatingMode(target, 'resume', 'Running', epoch, signal, reading)
+		} else if (epoch !== undefined) {
+			// Somebody else resumed it first, so there is no mode change to
+			// make — but this call is still the one taking the workspace over,
+			// and the stamp is what says so.
+			await writeOperatingMode(target, 'resume', undefined, epoch, signal, reading)
 		}
+		if (epoch !== undefined) heldEpoch = epoch
 		session = await startSessionOrSuspend(
 			{
 				transition: 'resume',
 				awaitReplacement: replacing !== undefined,
 				...(replacing !== undefined ? { retiring: replacing } : {}),
 			},
-			{ woke, policy: onStartFailure },
+			{ woke, policy: onStartFailure, ...(heldEpoch !== undefined ? { epoch: heldEpoch } : {}) },
 			signal,
 		)
 		state = 'running'
@@ -2258,10 +2732,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * released inside the run, before the promise handed to callers settles,
 	 * so a caller that awaits and then suspends again gets a fresh attempt.
 	 */
-	const suspendShared = (signal?: AbortSignal): Promise<void> => {
+	const suspendShared = (signal?: AbortSignal, epoch?: number): Promise<void> => {
 		pendingSuspend ??= serialise(async () => {
 			try {
-				await suspendNow(signal)
+				await suspendNow(signal, epoch)
 			} finally {
 				pendingSuspend = undefined
 			}
@@ -2288,7 +2762,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * deleteDisk: true })` the queue admitted first must be a no-op in that
 	 * order too, which is the order it is most likely to be written in.
 	 */
-	const destroyBySuspending = async (signal?: AbortSignal): Promise<void> => {
+	const destroyBySuspending = async (signal?: AbortSignal, epoch?: number): Promise<void> => {
 		// Read through a call on both sides. `state` is assigned from other
 		// closures, which the checker cannot see, so it takes the first
 		// comparison as narrowing the second out of existence — and the second
@@ -2297,7 +2771,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		const gone = (): boolean => state === 'deleted'
 		if (gone()) return
 		try {
-			await suspendShared(signal)
+			await suspendShared(signal, epoch)
 		} catch (err) {
 			if (gone() && err instanceof KubernetesSandboxDestroyedError) return
 			throw err
@@ -2317,6 +2791,33 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 */
 	const deleteNow = async (destroyOptions?: KubernetesWorkspaceDestroyOptions): Promise<void> => {
 		if (state === 'deleted') return
+		const epoch = destroyOptions?.epoch ?? heldEpoch
+		// Before the terminals are reaped and before the session is torn
+		// down, for the same reason `suspendNow` gates there: a refused
+		// destroy must leave this handle exactly as it found it. The reading
+		// is carried into the DELETE as its `preconditions.resourceVersion`,
+		// so the gate costs no extra round trip.
+		//
+		// An object that is already gone is not a refusal: already gone is the
+		// state DELETE was asking for, and an unfenced destroy has always
+		// resolved on it. Reading the epoch must not turn that into a
+		// rejection — the fence exists to stop a write, and there is no write
+		// left to stop.
+		let gate: HolderEpochReading | undefined
+		try {
+			gate = await readHolderEpochGate(target, 'destroy', epoch, destroyOptions?.signal)
+		} catch (err) {
+			if (!(err instanceof KubernetesAlreadyGoneError)) throw err
+			state = 'deleted'
+			dropSession()
+			// Killed but not awaited, as every other path that learns the pod
+			// is gone does it: `exited` on a session whose pod no longer
+			// exists resolves only when TCP notices. The `catch` is not
+			// decoration — a detached chain that rejects with no handler takes
+			// the host process down.
+			void reapTerminals().catch(() => undefined)
+			return
+		}
 		await reapTerminals()
 		const current = session
 		// Dropped BEFORE the handle is torn down, because tearing it down runs
@@ -2336,7 +2837,8 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// here either way, exactly once, and it is retryable: the terminal
 		// state below is committed only once it resolves.
 		if (current) await current.destroy(destroyOptions)
-		await deleteSandbox(destroyOptions?.signal)
+		await deleteSandbox(destroyOptions?.signal, epoch, gate)
+		if (epoch !== undefined) heldEpoch = epoch
 		state = 'deleted'
 	}
 
@@ -2412,7 +2914,14 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			if (!wake.woke || wake.policy === 'leave') throw err
 			let retired = false
 			await runFailureCleanup(async (cleanupSignal) => {
-				await client.request('PATCH', sandboxPath(namespace, name), suspendPatch(), cleanupSignal)
+				// Fenced by the epoch this transition carried, which closes
+				// the window the comment above names: between the read that
+				// decided `woke` and this patch, another holder can take the
+				// workspace, and an unconditional suspend here would stop the
+				// pod that holder is now using. A refusal is swallowed by
+				// `runFailureCleanup` like every other cleanup failure, and
+				// the primary error is still what the caller receives.
+				await writeOperatingMode(target, 'start-cleanup', 'Suspended', wake.epoch, cleanupSignal)
 				retired = true
 			})
 			// Only when the patch came back. A resume that got as far as
@@ -2595,7 +3104,11 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// patched it Running; an adopt of an object that was already Running
 		// moved nothing, and a start that fails on it must leave the pod its
 		// holder is using exactly where it found it.
-		{ woke: options.origin !== 'adopted-running', policy: defaultStartFailure },
+		{
+			woke: options.origin !== 'adopted-running',
+			policy: defaultStartFailure,
+			...(heldEpoch !== undefined ? { epoch: heldEpoch } : {}),
+		},
 		options.signal,
 	)
 	// Whatever the backend's own Sandbox reports, rather than a second copy of
@@ -2781,7 +3294,15 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		},
 
 		async suspend(transitionOptions?: KubernetesWorkspaceTransitionOptions): Promise<void> {
-			await suspendShared(transitionOptions?.signal)
+			// The single flight takes the FIRST caller's epoch, exactly as it
+			// takes the first caller's signal: a second caller arriving
+			// mid-suspend is joining that transition rather than starting one
+			// of its own, and one transition can only be written under one
+			// authority.
+			await suspendShared(
+				transitionOptions?.signal,
+				assertHolderEpoch(transitionOptions?.epoch, 'suspend') ?? heldEpoch,
+			)
 		},
 
 		async resume(transitionOptions?: KubernetesWorkspaceTransitionOptions): Promise<void> {
@@ -2799,11 +3320,13 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 					await resumeNow(
 						transitionOptions?.signal,
 						transitionOptions?.onStartFailure ?? defaultStartFailure,
+						assertHolderEpoch(transitionOptions?.epoch, 'resume') ?? heldEpoch,
 					),
 			)
 		},
 
 		async destroy(destroyOptions?: KubernetesWorkspaceDestroyOptions): Promise<void> {
+			assertHolderEpoch(destroyOptions?.epoch, 'destroy')
 			if (destroyOptions?.deleteDisk !== true) {
 				// The default, and the whole point of the default: there is no
 				// delete-compute-keep-disk verb, so the closest thing to one is
@@ -2812,7 +3335,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				// single flight, so `destroy()` racing `suspend()` is one
 				// transition rather than two — and it stays idempotent over a
 				// workspace already deleted, where `suspend()` itself refuses.
-				await destroyBySuspending(destroyOptions?.signal)
+				await destroyBySuspending(destroyOptions?.signal, destroyOptions?.epoch ?? heldEpoch)
 				return
 			}
 			await deleteShared(destroyOptions)
