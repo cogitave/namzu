@@ -22,6 +22,8 @@
  *                                    sandboxclaims
  */
 
+import { createHash } from 'node:crypto'
+
 /** Group serving the `Sandbox` kind. */
 export const SANDBOX_API_GROUP = 'agents.x-k8s.io'
 /** Group serving `SandboxTemplate`, `SandboxWarmPool` and `SandboxClaim`. */
@@ -444,15 +446,93 @@ export const OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY = 'sandbox.namzu.ai/operat
 export const HOLDER_EPOCH_ANNOTATION_KEY = 'sandbox.namzu.ai/holder-epoch'
 
 /**
+ * Backend-owned annotation carrying a hash of the pod template a Sandbox was
+ * last built with.
+ *
+ * A Sandbox's `spec.podTemplate` is a COPY of the SandboxTemplate's, taken
+ * once, and the controller rebuilds every replacement pod from that copy
+ * rather than from the template — so a workspace kept for weeks runs the pod
+ * spec it was created with, and an edit to the template (a new image tag, a
+ * memory limit, a grace period, an env entry) reaches only workspaces created
+ * after it. Nothing on the object answers "is this copy still the template's
+ * current one": the two are separate objects with separate
+ * `resourceVersion`s, and comparing the templates field by field on every
+ * open would be a second, weaker copy of the overlay rules.
+ *
+ * So the value is a hash of exactly what was written: the template's
+ * `podTemplate` AFTER this backend's own overlays (the template label and the
+ * configured `runtimeClassName`), which is the object the Sandbox carries.
+ * Hashing before the overlays would report drift on every workspace whose
+ * RuntimeClass this backend chose.
+ *
+ * Written by the workspace paths only — the create POST and the refresh patch
+ * — and read back as `templateRevision` on a handle. A task sandbox is
+ * ephemeral and has nothing to drift from, so its create body is unchanged.
+ * A workspace created before this existed carries no annotation and reports
+ * `templateRevision: undefined`, which reads honestly as "unknown", never as
+ * "current".
+ *
+ * Same prefix as {@link SANDBOX_TEMPLATE_LABEL_KEY}, for the same reason.
+ */
+export const POD_TEMPLATE_HASH_ANNOTATION_KEY = 'sandbox.namzu.ai/pod-template-hash'
+
+/** Object keys in code-unit order, so the hash does not depend on a locale. */
+function compareKeys(left: string, right: string): number {
+	if (left < right) return -1
+	return left > right ? 1 : 0
+}
+
+/**
+ * The same JSON with its object keys sorted, recursively.
+ *
+ * `JSON.stringify` preserves insertion order, and the two pod templates this
+ * hash has to compare never have the same one: one comes back from the API
+ * server's own serialisation of a stored object and the other is built here
+ * by spreading a template's members into a fresh object. Without this, every
+ * comparison would report drift that does not exist.
+ */
+function canonicalJson(value: unknown): unknown {
+	if (Array.isArray(value)) return value.map(canonicalJson)
+	if (typeof value !== 'object' || value === null) return value
+	const canonical: Record<string, unknown> = {}
+	for (const key of Object.keys(value as Record<string, unknown>).sort(compareKeys)) {
+		const member = (value as Record<string, unknown>)[key]
+		if (member === undefined) continue
+		canonical[key] = canonicalJson(member)
+	}
+	return canonical
+}
+
+/**
+ * `sha256:<hex>` over the pod template, for
+ * {@link POD_TEMPLATE_HASH_ANNOTATION_KEY}.
+ *
+ * It is an identity, not a checksum of anything security-relevant: two hosts
+ * running the same release against the same template must compute the same
+ * string, and a template edit must change it. Nothing here compares it
+ * against a value an untrusted party chose.
+ */
+export function podTemplateHash(podTemplate: SandboxPodTemplate): string {
+	const digest = createHash('sha256')
+		.update(JSON.stringify(canonicalJson(podTemplate)))
+		.digest('hex')
+	return `sha256:${digest}`
+}
+
+/**
  * One RFC 6902 operation, in the only three shapes this backend sends.
  *
  * `test` is the condition, `add` is every mutation. `add` rather than
- * `replace` throughout: on a JSON object member `add` creates the member when
- * it is missing and replaces it when it is present, while `replace` fails
- * outright on a missing one — and `spec.operatingMode` is absent on a Sandbox
- * that has never been suspended, as is the epoch annotation on every
- * workspace created before this release. A `replace` would turn both of those
- * ordinary cases into a rejected patch.
+ * `replace` throughout: RFC 6902 §4.1 says that on a JSON object member `add`
+ * creates the member when it is missing and replaces its value when it is
+ * present, while §4.3's `replace` fails outright on a missing one — and
+ * `spec.operatingMode` is absent on a Sandbox that has never been suspended,
+ * as is the epoch annotation on every workspace created before this release.
+ * A `replace` would turn both of those ordinary cases into a rejected patch.
+ *
+ * So where a design or an issue says the wire carries `replace /spec/…`, this
+ * is that write: on a member that is already there the two operations are the
+ * same write, and on one that is not, only this one lands.
  */
 export interface JsonPatchOperation {
 	readonly op: 'test' | 'add'
@@ -523,6 +603,19 @@ export function readHolderEpoch(meta: KubernetesObjectMeta | undefined): HolderE
 	return { ...base, epoch: parsed, annotation: stored }
 }
 
+/**
+ * Read {@link POD_TEMPLATE_HASH_ANNOTATION_KEY} off an object's metadata.
+ *
+ * Absent — an object created before this existed, or one an older release
+ * refreshed — is `undefined`, which reads as "unknown" everywhere it is
+ * consumed. It is deliberately never compared as an empty string: a
+ * revision nobody recorded is not a revision that differs.
+ */
+export function readPodTemplateHash(meta: KubernetesObjectMeta | undefined): string | undefined {
+	const stored = meta?.annotations?.[POD_TEMPLATE_HASH_ANNOTATION_KEY]
+	return typeof stored === 'string' && stored !== '' ? stored : undefined
+}
+
 /** A stored epoch of `epoch` or lower lets a write carrying `epoch` through. */
 export function holderEpochAllows(reading: HolderEpochReading, epoch: number): boolean {
 	return reading.epoch !== undefined && reading.epoch <= epoch
@@ -532,8 +625,18 @@ export function holderEpochAllows(reading: HolderEpochReading, epoch: number): b
 export interface HolderEpochPatchInput {
 	/** The metadata the GET returned. The condition is built from THIS read. */
 	readonly reading: HolderEpochReading
-	/** The epoch the write carries, and the one it stores. */
-	readonly epoch: number
+	/**
+	 * The epoch the write carries, and the one it stores.
+	 *
+	 * ABSENT is the unfenced conditional write: no epoch clause is tested and
+	 * no epoch annotation is written, and {@link tests} then carries the whole
+	 * condition — which is why an epoch-less call with no `tests` is refused
+	 * below rather than sent unconditionally. A workspace refresh is the one
+	 * caller: its condition is `spec.operatingMode`, and a host that has not
+	 * opted into the fence must not acquire one by asking for a new pod
+	 * template.
+	 */
+	readonly epoch?: number
 	/**
 	 * Further `test` clauses composed into the SAME body.
 	 *
@@ -553,6 +656,24 @@ export interface HolderEpochPatchInput {
 	 * epoch has not changed it.
 	 */
 	readonly operatingModeChangedAt?: string
+	/**
+	 * Further annotations written in the SAME body, merged with the epoch's
+	 * and the mode stamp's rather than sent after them.
+	 *
+	 * {@link POD_TEMPLATE_HASH_ANNOTATION_KEY} is the only caller: the hash
+	 * has to land with the pod template it describes, or a patch that applied
+	 * half of the pair would leave the object claiming a revision it is not
+	 * running.
+	 */
+	readonly annotations?: Readonly<Record<string, string>>
+	/**
+	 * Written to `spec.podTemplate`, replacing it WHOLE — which is the reason
+	 * this is a JSON Patch at all. A merge patch recurses into maps, so a
+	 * `nodeSelector` entry the template dropped would survive in the object
+	 * and the pod would keep a constraint nobody can see in the template any
+	 * more.
+	 */
+	readonly podTemplate?: SandboxPodTemplate
 }
 
 /**
@@ -580,15 +701,33 @@ export interface HolderEpochPatchInput {
  * annotation, and under the annotation test those are simply not conditions
  * this write is interested in.
  *
+ * A call carrying NO epoch skips all three: it tests only what
+ * {@link HolderEpochPatchInput.tests} carries and writes no epoch annotation,
+ * which is how a workspace refresh conditions itself on `spec.operatingMode`
+ * without fencing a host that never asked for a fence.
+ *
  * Every `test` precedes every mutation, which RFC 6902 requires of a
  * condition: operations apply in order, so a `test` written after an `add`
- * would be testing this patch's own work.
+ * would be testing this patch's own work. Mutations go up in a fixed order —
+ * annotations, then `spec.podTemplate`, then `spec.operatingMode` — so the
+ * body a given input produces is one body and a test can assert it.
  */
 export function buildHolderEpochPatch(input: HolderEpochPatchInput): readonly JsonPatchOperation[] {
 	const { reading, epoch } = input
 	const epochPointer = annotationPointer(HOLDER_EPOCH_ANNOTATION_KEY)
 	const tests: JsonPatchOperation[] = []
-	if (reading.annotation !== undefined) {
+	if (epoch === undefined) {
+		// Unfenced: the caller's own clauses are the whole condition, and an
+		// unconditional JSON patch is refused rather than sent. Every caller
+		// on this branch is conditioning on something — a refresh on
+		// `spec.operatingMode` — and one that passed nothing would be asking
+		// for a blind write in the one builder that exists to prevent them.
+		if ((input.tests ?? []).length === 0) {
+			throw new Error(
+				'kubernetes: cannot build a conditional patch that carries neither a holder epoch nor a test clause — there is nothing to condition the write on.',
+			)
+		}
+	} else if (reading.annotation !== undefined) {
 		tests.push({ op: 'test', path: epochPointer, value: reading.annotation })
 	} else if (reading.resourceVersion !== undefined) {
 		tests.push({ op: 'test', path: '/metadata/resourceVersion', value: reading.resourceVersion })
@@ -605,27 +744,53 @@ export function buildHolderEpochPatch(input: HolderEpochPatchInput): readonly Js
 	tests.push(...(input.tests ?? []))
 
 	const mutations: JsonPatchOperation[] = []
-	const stamp = String(epoch)
-	if (!reading.hasAnnotations) {
-		mutations.push({
-			op: 'add',
-			path: '/metadata/annotations',
-			value: {
-				[HOLDER_EPOCH_ANNOTATION_KEY]: stamp,
-				...(input.operatingModeChangedAt !== undefined
-					? { [OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY]: input.operatingModeChangedAt }
-					: {}),
-			},
-		})
-	} else {
-		mutations.push({ op: 'add', path: epochPointer, value: stamp })
-		if (input.operatingModeChangedAt !== undefined) {
-			mutations.push({
-				op: 'add',
-				path: annotationPointer(OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY),
-				value: input.operatingModeChangedAt,
-			})
+	// Every annotation this body writes, in one place: the epoch when the
+	// write is fenced, the mode stamp when the mode moves, and whatever else
+	// the caller is landing atomically with them.
+	const annotations: Record<string, string> = {
+		...(epoch !== undefined ? { [HOLDER_EPOCH_ANNOTATION_KEY]: String(epoch) } : {}),
+		...(input.operatingModeChangedAt !== undefined
+			? { [OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY]: input.operatingModeChangedAt }
+			: {}),
+		...input.annotations,
+	}
+	const keys = Object.keys(annotations)
+	if (keys.length > 0) {
+		if (!reading.hasAnnotations) {
+			// No member to add one to, so the map goes up whole — and a whole
+			// map REPLACES whatever is there, so this one operation is the only
+			// mutation in this builder that can erase another writer's work.
+			// The window is real: between the GET that saw no annotations and
+			// this patch, another process can stamp one without moving
+			// `spec.operatingMode` — a suspend carrying a holder epoch onto an
+			// already-Suspended object does exactly that — and an unconditional
+			// whole-map `add` would silently unfence the workspace it took.
+			// `resourceVersion` is what closes it. The fenced path already
+			// tests it on this branch (an object with no annotations has no
+			// epoch annotation to test); this adds the same clause for an
+			// UNFENCED caller, whose own clauses are about `spec` and say
+			// nothing about `metadata`.
+			if (!tests.some((test) => test.path === '/metadata/resourceVersion')) {
+				if (reading.resourceVersion === undefined) {
+					throw new Error(
+						'kubernetes: cannot add a metadata.annotations map to an object that carries no metadata.resourceVersion — a whole-map write with nothing to condition it on would overwrite annotations written since the read.',
+					)
+				}
+				tests.push({
+					op: 'test',
+					path: '/metadata/resourceVersion',
+					value: reading.resourceVersion,
+				})
+			}
+			mutations.push({ op: 'add', path: '/metadata/annotations', value: annotations })
+		} else {
+			for (const key of keys) {
+				mutations.push({ op: 'add', path: annotationPointer(key), value: annotations[key] })
+			}
 		}
+	}
+	if (input.podTemplate !== undefined) {
+		mutations.push({ op: 'add', path: '/spec/podTemplate', value: input.podTemplate })
 	}
 	if (input.operatingMode !== undefined) {
 		mutations.push({ op: 'add', path: '/spec/operatingMode', value: input.operatingMode })

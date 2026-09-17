@@ -1202,12 +1202,17 @@ export interface SandboxBodyOptions {
 	/**
 	 * Annotations to stamp on the Sandbox's OWN metadata at creation.
 	 *
-	 * One caller and one annotation today: a workspace created under a holder
-	 * epoch, which is fenced from the moment the object exists rather than
-	 * from its first patch — see `workspace.ts`'s
-	 * `HOLDER_EPOCH_ANNOTATION_KEY`. Absent, the body is byte for byte what
-	 * it always was, which is what keeps every task sandbox's create
-	 * unchanged.
+	 * One caller, and everything it writes is a fact the object has to carry
+	 * from the moment it exists rather than from its first patch: the holder
+	 * epoch of a workspace created under one, so there is no window in which
+	 * it stands unfenced, and the revision of the pod template it was built
+	 * from, so there is no window in which it claims none. Both are
+	 * `workspace.ts`'s — see `HOLDER_EPOCH_ANNOTATION_KEY` and
+	 * `POD_TEMPLATE_HASH_ANNOTATION_KEY`.
+	 *
+	 * Absent, the body is byte for byte what it always was, which is what
+	 * keeps every task sandbox's create unchanged — a task sandbox is
+	 * ephemeral, so it has no revision to drift from and nothing to fence.
 	 */
 	readonly annotations?: Readonly<Record<string, string>>
 }
@@ -1242,15 +1247,6 @@ export interface SandboxBodyOptions {
  * label the translated policy is built to match.
  */
 export function buildSandboxBody(options: SandboxBodyOptions): Record<string, unknown> {
-	const podTemplate = options.template.podTemplate
-	const spec =
-		options.runtimeClassName !== undefined
-			? { ...podTemplate.spec, runtimeClassName: options.runtimeClassName }
-			: { ...podTemplate.spec }
-	const metadata = {
-		...podTemplate.metadata,
-		labels: sandboxPodLabels(options.template, options.sandboxTemplateName),
-	}
 	return {
 		apiVersion: `${SANDBOX_API_GROUP}/${SANDBOX_API_VERSION}`,
 		kind: 'Sandbox',
@@ -1268,8 +1264,42 @@ export function buildSandboxBody(options: SandboxBodyOptions): Record<string, un
 			...(options.template.volumeClaimTemplates !== undefined
 				? { volumeClaimTemplates: options.template.volumeClaimTemplates }
 				: {}),
-			podTemplate: { ...podTemplate, metadata, spec },
+			podTemplate: sandboxPodTemplate(
+				options.template,
+				options.sandboxTemplateName,
+				options.runtimeClassName,
+			),
 		},
+	}
+}
+
+/**
+ * The `spec.podTemplate` a directly created Sandbox carries: the template's,
+ * with this backend's two overlays — the template label
+ * ({@link sandboxPodLabels}) and the configured `runtimeClassName`.
+ *
+ * Its own function because it is now built twice: once into the create POST
+ * by {@link buildSandboxBody}, and once into the JSON Patch that refreshes a
+ * standing workspace's pod template (`workspace.ts`). Two expressions of the
+ * same overlay would drift, and the one that drifted would report a workspace
+ * as off-template forever — the hash under
+ * `sandbox.namzu.ai/pod-template-hash` is taken over exactly this object, so
+ * a second spelling is a second revision.
+ */
+export function sandboxPodTemplate(
+	template: SandboxTemplateCopy,
+	sandboxTemplateName: string,
+	runtimeClassName?: string,
+): SandboxPodTemplate {
+	const podTemplate = template.podTemplate
+	const spec =
+		runtimeClassName !== undefined
+			? { ...podTemplate.spec, runtimeClassName }
+			: { ...podTemplate.spec }
+	return {
+		...podTemplate,
+		metadata: { ...podTemplate.metadata, labels: sandboxPodLabels(template, sandboxTemplateName) },
+		spec,
 	}
 }
 

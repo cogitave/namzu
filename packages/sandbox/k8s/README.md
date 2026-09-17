@@ -82,6 +82,27 @@ There is no disk-bearing warm pool in this repo's manifests (workspaces are
 never pooled — see `manifests/sandboxtemplate-workspace.yaml`'s own header),
 but keep that consequence in mind before ever changing this default.
 
+**A new tag does not reach an existing workspace on its own.** A `Sandbox`
+carries its own copy of `spec.podTemplate`, taken when it was created, and
+the controller builds every replacement pod from that copy — so editing
+`manifests/sandboxtemplate-workspace.yaml` changes what NEW workspaces run
+and nothing about the ones already on the cluster. Moving an existing
+workspace onto the new tag is a host-side call: it suspends and resumes with
+`refreshPodTemplate`, which rewrites `spec.podTemplate` in the same patch
+that wakes it and keeps the disk. See the SDK page's "A resume can bring the
+current pod template with it". There is no `kubectl` equivalent that is
+safe to recommend: a hand-written patch has no condition on the operating
+mode and neither of the two disk checks that call makes.
+
+**Disks are the one edit that does not travel.** `spec.volumeClaimTemplates`
+is CEL-immutable on a standing `Sandbox`, so adding a `volumeClaimTemplates`
+entry here gives NEW workspaces a second disk and cannot be applied to the
+ones that exist; a refresh against such a template is refused outright rather
+than writing a pod spec that claims a device node no PVC backs. Renaming or
+removing an entry is refused for the mirror-image reason. Give an existing
+workspace another disk by creating a new workspace from the new template and
+migrating the data.
+
 ## 3. Fix the two placeholder selectors
 
 Both `manifests/sandboxtemplate-task.yaml`'s (and `-workspace.yaml`'s)

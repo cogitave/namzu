@@ -638,13 +638,17 @@ describe('the patch a fenced write sends', () => {
 	}, 20_000)
 
 	it('adds the annotation map whole when the object carries none', async () => {
-		// The object a create made before epochs existed: no annotations at
-		// all, so there is no member to add one to and the condition has to
-		// fall back to resourceVersion.
-		const held = await openWorkspace()
+		// An object an older release created: no annotations at all, so there
+		// is no member to add one to and the condition has to fall back to
+		// resourceVersion. It is SEEDED rather than created here, because a
+		// create made by this release always stamps at least the pod-template
+		// revision — which is exactly what makes this the migration case and
+		// not the steady state.
+		seedWorkspace()
 		const object = sandboxes.get(WORKSPACE_NAME) as SandboxObject
 		expect(annotationsOf(object)).toBeUndefined()
 		const version = metaOf(object).resourceVersion
+		const held = await openWorkspace()
 
 		await held.suspend({ epoch: 3 })
 		const patch = sandboxPatches().at(-1)
@@ -762,6 +766,11 @@ describe('taking a workspace over', () => {
 		expect((post?.body as { metadata?: { annotations?: unknown } })?.metadata?.annotations).toEqual(
 			{
 				[EPOCH_KEY]: '4',
+				// The create body also records the pod template it was built
+				// from, which a workspace carries from the moment it exists
+				// for the same reason the epoch does — see
+				// `workspace-template-refresh.test.ts`.
+				'sandbox.namzu.ai/pod-template-hash': expect.stringMatching(/^sha256:[0-9a-f]{64}$/),
 			},
 		)
 		expect(storedEpoch()).toBe('4')

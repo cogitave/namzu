@@ -1158,7 +1158,9 @@ await workspace.destroy({ deleteDisk: true }) // deletes the Sandbox and the dis
 ```
 
 `createKubernetesWorkspace` returns a `KubernetesWorkspace`: the SDK's
-`Sandbox`, plus `suspend()`, `resume()`, `refresh()`, a `suspended` flag and a
+`Sandbox`, plus `suspend()`, `resume()`, `refresh()`, a `suspended` flag, the
+[`templateRevision`/`templateCurrent`](#a-resume-can-bring-the-current-pod-template-with-it)
+pair that says whether it is still on the template it was built from, and a
 `destroy()` that takes `deleteDisk`. Listing, deleting and suspending a
 workspace [without opening one](#managing-workspaces-without-waking-them) are
 verbs of their own, because none of them needs a guest. Those live on a type exported from `@namzu/sandbox`
@@ -1209,6 +1211,26 @@ new configuration is a larger decision than reattaching to it, so the error
 names the two honest exits instead: point the workspace at the template it was
 built from, or delete the `Sandbox` — which takes its disk with it — and
 create it again.
+
+That stays true by default, and a caller who has decided to make it now says
+so explicitly: `createKubernetesWorkspace(config, { refreshPodTemplate: true })`
+rewrites `spec.podTemplate` on a workspace it finds **suspended**, in the same
+patch that wakes it, and keeps the disk — see [a resume can bring the current
+pod template with it](#a-resume-can-bring-the-current-pod-template-with-it).
+The `runtimeClassName` row above is the one refusal that option lifts, and
+only for a call whose patch actually lands, because that patch is what writes
+the configured class. The template row is never lifted: a refresh rewrites a
+workspace's pod spec, it never moves the workspace to another template.
+
+**What lifting that row means, said plainly:** with `refreshPodTemplate`, a
+workspace can be moved between runtimes by an edit — to `config` or to the
+template — with nothing refusing it. The check above exists because the
+RuntimeClass is the VM boundary and the privilege probe passes identically on
+either side of it; a refresh replaces the refusal with an explicit decision,
+and the decision is the caller's. A deployment that must never drop to a
+shared kernel should pin `runtimeClassName` in `config` — the overlay writes
+that value over whatever the template says — and treat a change to it as the
+boundary change it is.
 
 **A workspace id is a name, not a lock — unless you give it one.** Nothing
 stops two host processes from adopting the same running workspace; each gets
@@ -1418,6 +1440,12 @@ The [privilege probe](#the-privilege-probe) runs again on every resume. A
 resumed pod is a new pod, possibly from a re-pulled image, and "it was
 deprivileged last week" is not a check.
 
+**The pod it brings up is built from the `Sandbox`'s own `spec.podTemplate`**,
+which is the copy taken when the workspace was created — not from the
+`SandboxTemplate` as it stands today. A resume that should pick up a template
+edit says so: see [a resume can bring the current pod template with
+it](#a-resume-can-bring-the-current-pod-template-with-it).
+
 Between the two, every call — `exec`, `readFile`, `readFileStream`,
 `writeFile`, `listFiles`, `openTerminal`, `openTcpConnection` — throws
 `KubernetesWorkspaceSuspendedError` and **issues no dial**. The Service outlives the pod, so the address still
@@ -1427,6 +1455,142 @@ resolves; a dial would hang on a connect timeout that names nothing.
 members and none of them is "suspended", and `destroyed` is the only one
 meaning "cannot serve a call". The `suspended` flag is what tells the
 recoverable state from the final one.
+
+### A resume can bring the current pod template with it
+
+A `Sandbox` carries its own copy of `spec.podTemplate`, taken once in the
+create `POST`, and agent-sandbox builds every replacement pod from that copy
+rather than from the `SandboxTemplate`. So a workspace kept for weeks runs the
+pod spec it had when it was created: a new image tag, a memory limit, a
+`terminationGracePeriodSeconds` or an env entry reaches only workspaces
+created after the edit.
+
+The sharp version of that is a release which changes the agent's wire
+protocol. The guest agent is baked into the image, every session start runs
+the [privilege probe](#the-privilege-probe) through an `exec`, and the shared
+execution controller refuses a reservation whose `protocolVersion` is not the
+host's — so every adopt and every resume of a workspace pinning the old image
+fails, and before this the only exit was `destroy({ deleteDisk: true })`,
+which takes the disk.
+
+`refreshPodTemplate` is the opt-in that writes the template as it stands now
+onto a workspace as it wakes:
+
+```ts
+import { type KubernetesBackendConfig, createKubernetesWorkspace } from '@namzu/sandbox'
+
+const config: KubernetesBackendConfig = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-workspace',
+}
+
+// From a host that restarted and holds no handle: adopt by name, and wake it
+// onto the template as it stands now.
+const workspace = await createKubernetesWorkspace(config, {
+  workspaceId: 'design-review',
+  workingDirectory: '/workspace',
+  refreshPodTemplate: true,
+})
+
+// From a handle that has one already.
+await workspace.suspend()
+await workspace.resume({ refreshPodTemplate: true })
+
+workspace.templateCurrent // true: the bound pod is on the template above
+```
+
+**Only on a Suspended → Running transition**, and the patch is what enforces
+that rather than the read before it:
+
+| | |
+|---|---|
+| `test` | `/spec/operatingMode` is `"Suspended"` |
+| `add` | the annotations: `sandbox.namzu.ai/operating-mode-changed-at`, `sandbox.namzu.ai/pod-template-hash`, and the [holder epoch](#a-holder-epoch-fences-every-lifecycle-write) when the call carries one |
+| `add` | `/spec/podTemplate` — the template's, with the template label and the configured `runtimeClassName` overlaid, exactly as a create builds it |
+| `add` | `/spec/operatingMode`: `"Running"` |
+
+One request, `application/json-patch+json`. **A JSON Patch rather than the
+merge patch every other lifecycle write sends**, because a merge patch
+recurses into maps: a `nodeSelector` entry the template dropped would survive
+on the object, and the pod would keep a constraint nobody can see in the
+template any more. And when an epoch is configured, its `test` rides in **this
+same body** — two conditions, one write, no window between them.
+
+**One thing here is upstream's behaviour, not this backend's, and has not been
+re-measured in this repository:** that the controller builds the replacement
+pod from `spec.podTemplate` as this patch rewrites it. What is measured is the
+object left on the cluster for it to read. The `test` bounds the cost of that
+premise being wrong — a refresh that does not reach the pod is a missed
+refresh, never a wrong write — but `templateRevision` and `templateCurrent`
+below would then describe the object rather than the running pod, so read them
+as a reason to schedule a suspend and a resume, not as a report on a process.
+
+**Never on a Running Sandbox.** agent-sandbox v1.0.2 does not rewrite a pod
+that already exists, so patching a Running object would leave its spec
+describing a pod it is not running. There are two ways to arrive at one and
+both bind the pod that is there, unchanged: an adopt that finds the object
+Running, and a `test` that loses to another process's resume in the moment
+between this call's read and its patch. The second is not an error — the
+workspace is awake, which is what was asked for — and it is not retried
+either: a mode clause that is no longer true is an outcome. A call that loses
+that race still **waits** for the winner's pod under `readyTimeoutMs`, exactly
+as its own resume would have: the object was observed suspended, so a pod is
+on its way in whoever asked for it, and a read that finds none is "not yet"
+rather than fatal.
+
+**The disk is never in the patch.** `spec.volumeClaimTemplates` is
+CEL-immutable and is not sent, so the PVC and its uid are untouched. Which
+makes the disks the one part of a template a refresh cannot apply, and two
+checks run before anything is sent — both refusing with
+`KubernetesWorkspaceDiskError` and leaving the workspace `Suspended`:
+
+* The refreshed pod template still claims **this workspace's** disk through
+  `volumeDevices`. A template that renamed or dropped it would come up healthy
+  with the disk attached to nothing, and the only symptom would be that
+  yesterday's files are gone.
+* The template declares **no disk this workspace does not have**. Adding a
+  second `volumeClaimTemplates` entry with its matching `volumeDevices` entry
+  is the ordinary way to give a workspace another disk, and such a template is
+  perfectly valid — a workspace created from it today gets both disks. Written
+  onto a workspace that already exists it would claim a device node backed by
+  no PVC, the controller could not build a pod at all, and the caller would
+  see a `readyTimeoutMs` bind timeout naming nothing. Give an existing
+  workspace another disk by creating a new one from the new template and
+  migrating the data.
+
+Editing an existing entry's *other* fields — its size, its storage class, its
+`volumeMode` — is not refused and does not apply: the disk that entry
+describes is the disk that is already attached.
+
+**Two fields say whether a workspace is on the current template.** Every
+`Sandbox` this backend creates records what it was built from, in
+`sandbox.namzu.ai/pod-template-hash` — a `sha256:` over the pod template after
+the overlays, stamped by the create `POST` itself and rewritten by the refresh
+patch:
+
+| | |
+|---|---|
+| `workspace.templateRevision` | The hash the bound object carries, or `undefined` for a workspace created before this existed |
+| `workspace.templateCurrent` | Whether that hash matches the `SandboxTemplate` this handle read |
+
+A workspace with no recorded revision reads `templateCurrent: false`: unknown
+is not current. The template is read when the handle is opened and again on
+every refresh, so a plain `resume()` leaves `templateCurrent` answering against
+the last template this handle read rather than paying a `GET` for one nothing
+is going to be compared to. The pair is there so a host can schedule a suspend
+and a resume at a moment of its choosing, instead of discovering the drift
+when a release makes the stored image fail every start.
+
+**Without the option, nothing changes.** `resume()` sends the same single
+merge patch it always sent, an adopt behaves exactly as it always did, and
+both refusals above apply as they always did. The epoch annotation and this
+one are the only things a create body gained.
+
+**No new RBAC**: the shipped `Role` already grants `patch` on `sandboxes` and
+`get` on `sandboxtemplates`.
 
 ### Managing workspaces without waking them
 

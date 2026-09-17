@@ -183,6 +183,7 @@ import {
 	type KubernetesBoundPod,
 	type KubernetesSandboxBinding,
 	ReadinessPollTimeout,
+	type SandboxTemplateCopy,
 	bindingFromSandbox,
 	buildAgentAddressRefresh,
 	buildEgressBoundary,
@@ -199,6 +200,7 @@ import {
 	resolveProbeTimeoutMs,
 	resolveStreamHeartbeatMs,
 	sandboxPodLabels,
+	sandboxPodTemplate,
 } from './index.js'
 import {
 	KubernetesAlreadyGoneError,
@@ -211,6 +213,7 @@ import {
 	HOLDER_EPOCH_ANNOTATION_KEY,
 	type HolderEpochReading,
 	OPERATING_MODE_CHANGED_AT_ANNOTATION_KEY,
+	POD_TEMPLATE_HASH_ANNOTATION_KEY,
 	type PodResource,
 	SANDBOX_TEMPLATE_LABEL_KEY,
 	type SandboxListResource,
@@ -221,7 +224,9 @@ import {
 	holderEpochAllows,
 	isPodStopped,
 	podPath,
+	podTemplateHash,
 	readHolderEpoch,
+	readPodTemplateHash,
 	sandboxCollectionPath,
 	sandboxPath,
 } from './objects.js'
@@ -562,6 +567,25 @@ export interface KubernetesWorkspaceTransitionOptions {
 	 * patch a failed start's cleanup sends.
 	 */
 	readonly epoch?: number
+	/**
+	 * Write the SandboxTemplate's CURRENT `spec.podTemplate` onto the
+	 * workspace as it wakes, keeping its disk — see
+	 * {@link KubernetesWorkspace.templateRevision}.
+	 *
+	 * `resume()` is the only verb on this shape that reads it, in the same
+	 * way `onStartFailure` above is read only by the verb that starts a
+	 * session. It is honoured on exactly one transition — a workspace
+	 * observed `Suspended` going back to `Running` — because the controller
+	 * does not rewrite a pod that already exists, so a Running workspace
+	 * patched this way would carry a spec describing a pod it is not running.
+	 * A `resume()` of a workspace that is already awake, and one whose
+	 * condition loses to another process's resume, send no pod template and
+	 * bind the pod that is there.
+	 *
+	 * Omitted or `false`, `resume()` sends exactly the single merge patch it
+	 * always sent.
+	 */
+	readonly refreshPodTemplate?: boolean
 }
 
 /**
@@ -646,6 +670,39 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * one that assumes it can reattach to them is not.
 	 */
 	readonly origin: KubernetesWorkspaceOrigin
+	/**
+	 * The revision of the pod template the BOUND Sandbox carries — the value
+	 * of its `sandbox.namzu.ai/pod-template-hash` annotation.
+	 *
+	 * A Sandbox's `spec.podTemplate` is a copy of the SandboxTemplate's,
+	 * taken once, and the controller builds every replacement pod from that
+	 * copy — so a workspace kept for weeks runs the pod spec it was created
+	 * with. This is what the object recorded it was built from.
+	 *
+	 * `undefined` for a workspace created before the annotation existed, and
+	 * for one an older release last wrote. That is reported as unknown rather
+	 * than guessed from the stored spec: a comparison this backend invents
+	 * would be a second, weaker copy of the overlay rules.
+	 */
+	readonly templateRevision: string | undefined
+	/**
+	 * Whether {@link templateRevision} matched the SandboxTemplate this
+	 * handle last read.
+	 *
+	 * `false` means a suspend and a resume with
+	 * {@link KubernetesWorkspaceTransitionOptions.refreshPodTemplate} would
+	 * change what this workspace runs — a new image tag, a memory limit, a
+	 * grace period, an env entry. A host can schedule that at a moment of its
+	 * choosing instead of finding out when a release makes the stored image
+	 * fail every start.
+	 *
+	 * A workspace with no recorded revision reads `false`: unknown is not
+	 * current. The template is read when the handle is opened and again on
+	 * every refresh, so a `resume()` WITHOUT the option leaves this answering
+	 * against the last template this handle read rather than paying a GET for
+	 * one nothing is going to be compared to.
+	 */
+	readonly templateCurrent: boolean
 	/**
 	 * True from the moment `suspend()` starts until `resume()` finishes.
 	 *
@@ -838,6 +895,16 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * Take a new pod, on a new address, with a new agent token, and prove it
 	 * is deprivileged before handing it back. Idempotent: resuming a running
 	 * workspace sends nothing.
+	 *
+	 * With
+	 * {@link KubernetesWorkspaceTransitionOptions.refreshPodTemplate}, the
+	 * wake-up patch also writes the SandboxTemplate's current
+	 * `spec.podTemplate`, so the new pod is built from the template as it
+	 * stands rather than as it stood when the workspace was created. The disk
+	 * is untouched — `spec.volumeClaimTemplates` is CEL-immutable and is not
+	 * in the patch — and a template that no longer claims this workspace's
+	 * disk is refused with {@link KubernetesWorkspaceDiskError} before
+	 * anything is sent.
 	 */
 	resume(options?: KubernetesWorkspaceTransitionOptions): Promise<void>
 	/**
@@ -927,6 +994,22 @@ export interface KubernetesWorkspaceOptions {
 	 * sends. Omitted, nothing is fenced and every request is what it was.
 	 */
 	readonly epoch?: number
+	/**
+	 * On the ADOPT path, write the SandboxTemplate's current
+	 * `spec.podTemplate` onto the workspace as it wakes — the same opt-in
+	 * {@link KubernetesWorkspaceTransitionOptions.refreshPodTemplate}
+	 * describes, reachable from an entry point that needs no handle.
+	 *
+	 * It exists here because a host that restarted has no handle to call
+	 * `resume()` on: the workspace is found again by name, and this call is
+	 * the only place the decision can be made. It is honoured on exactly the
+	 * transition the handle's is — an object found `Suspended` going back to
+	 * `Running` — and is ignored on the CREATE path, where the POST already
+	 * carries the template as it stands.
+	 *
+	 * Omitted or `false`, an adopt behaves exactly as it always did.
+	 */
+	readonly refreshPodTemplate?: boolean
 }
 
 /** Prefix every workspace Sandbox's name carries. */
@@ -1041,6 +1124,81 @@ export function assertBlockModeWorkspaceDisk(
 			)
 		}
 	}
+}
+
+/** The `metadata.name` of each claim, in declaration order, blanks dropped. */
+function volumeClaimTemplateNames(
+	volumeClaimTemplates: readonly SandboxVolumeClaimTemplate[] | undefined,
+): string[] {
+	const names: string[] = []
+	for (const entry of volumeClaimTemplates ?? []) {
+		const name = entry.metadata?.name
+		if (typeof name === 'string' && name !== '') names.push(name)
+	}
+	return names
+}
+
+/**
+ * Refuse a refresh whose template declares a DIFFERENT set of disks than the
+ * Sandbox it would be written onto.
+ *
+ * Only a refresh can arrive here, and that is the whole point. On the create
+ * path the pod template and the `volumeClaimTemplates` come out of the same
+ * `SandboxTemplate` in the same read, so the two sides cannot disagree. On a
+ * refresh they are two different objects: `spec.volumeClaimTemplates` is
+ * CEL-immutable, so it is never in the patch and stays whatever the create
+ * POST froze, while `spec.podTemplate` becomes whatever the template says
+ * TODAY.
+ *
+ * {@link assertBlockModeWorkspaceDisk} asks one half of the question — is
+ * every disk this Sandbox HAS still claimed as a block device by the pod
+ * template about to land. This asks the other half, which nothing else can
+ * see: does the template claim a disk this Sandbox does not have. Adding a
+ * second `volumeClaimTemplates` entry with its matching `volumeDevices` entry
+ * is the ordinary way to give a workspace another disk, and a template edited
+ * that way is internally consistent — it passes every check made against
+ * itself, and every branch of the check above, because the original disk is
+ * still claimed. Written onto a standing workspace it produces a pod spec
+ * naming a device the Sandbox has no PVC for. The shipped workspace template
+ * declares no `spec.volumes`, so there is no other source for that name: the
+ * controller would be left unable to build a valid pod, the workspace would
+ * sit `Running` with nothing coming up, and the caller would see a bind
+ * timeout naming nothing. Recovery would mean suspending, reverting the
+ * template and refreshing again — the object having been left permanently
+ * describing a disk that does not exist.
+ *
+ * Comparing the NAMES is the whole rule, because the name is what the
+ * controller wires by (StatefulSet style, `<entry name>-<sandbox name>`). An
+ * edit to an existing entry's other fields — its size, its storage class,
+ * its `volumeMode` — simply does not apply to a standing workspace, and is
+ * not refused here: the disk it describes is the disk that is already there.
+ * Only a template pointed at a workspace whose disks it cannot describe at
+ * all is a mistake worth stopping.
+ *
+ * What neither check catches, and deliberately: a template whose containers
+ * claim a `volumeDevices` name that is in NEITHER its own
+ * `volumeClaimTemplates` NOR the Sandbox's. The check above asks only that
+ * every disk the Sandbox HAS is still claimed, and this one asks only about
+ * names the template's `volumeClaimTemplates` adds, so a device claimed out
+ * of nowhere passes both. That template is equally broken on the CREATE path,
+ * which has no check either and would produce the same unbuildable pod on a
+ * brand-new workspace — it is a template that is wrong about itself, not a
+ * template that is wrong about this workspace, and this pair of refusals is
+ * only about the second kind.
+ */
+function assertRefreshedTemplateClaimsTheSameDisks(
+	source: string,
+	templateVolumeClaimTemplates: readonly SandboxVolumeClaimTemplate[] | undefined,
+	sandboxVolumeClaimTemplates: readonly SandboxVolumeClaimTemplate[] | undefined,
+): void {
+	const wanted = volumeClaimTemplateNames(templateVolumeClaimTemplates)
+	const held = new Set(volumeClaimTemplateNames(sandboxVolumeClaimTemplates))
+	const extra = wanted.filter((name) => !held.has(name))
+	if (extra.length === 0) return
+	throw new KubernetesWorkspaceDiskError(
+		source,
+		`kubernetes: ${source} declares the volumeClaimTemplate${extra.length === 1 ? '' : 's'} ${extra.map((name) => JSON.stringify(name)).join(', ')}, which this workspace's Sandbox does not have — it was created with ${[...held].map((name) => JSON.stringify(name)).join(', ') || 'none'} and spec.volumeClaimTemplates is CEL-immutable, so no refresh can add a disk to a workspace that already exists. Writing this template's pod spec onto it would claim a device node backed by no PVC, and the controller would never build a valid pod. Refresh this workspace against a template that declares the disks it already has, or create a new workspace from this template and migrate the data.`,
+	)
 }
 
 /**
@@ -1211,6 +1369,11 @@ export async function createKubernetesWorkspace(
 	// rather than woken up to be refused.
 	await egressBoundary?.verifyUnion(workspacePodLabels, workspaceSubject, options.signal)
 
+	// The pod template this call would write, and its revision — built once,
+	// from the same overlays `buildSandboxBody` applies below, because the
+	// hash has to be taken over exactly the object that lands on the cluster.
+	const refresh = buildPodTemplateRefresh(template, templateName, config.runtimeClassName)
+
 	let adopted: AdoptedWorkspace | undefined
 	try {
 		await client.request(
@@ -1226,10 +1389,14 @@ export async function createKubernetesWorkspace(
 				// Stamped by the POST itself rather than by a patch after it,
 				// so a workspace created under an epoch is fenced from the
 				// moment it exists — there is no window in which the object
-				// stands unfenced and a second opener could take it.
-				...(epoch !== undefined
-					? { annotations: { [HOLDER_EPOCH_ANNOTATION_KEY]: String(epoch) } }
-					: {}),
+				// stands unfenced and a second opener could take it. The
+				// pod-template revision rides along for the same reason: an
+				// object that recorded what it was built from on its second
+				// request would have a window in which it claimed none.
+				annotations: {
+					...(epoch !== undefined ? { [HOLDER_EPOCH_ANNOTATION_KEY]: String(epoch) } : {}),
+					[POD_TEMPLATE_HASH_ANNOTATION_KEY]: refresh.hash,
+				},
 				...(config.runtimeClassName !== undefined
 					? { runtimeClassName: config.runtimeClassName }
 					: {}),
@@ -1250,6 +1417,7 @@ export async function createKubernetesWorkspace(
 					: {}),
 			},
 			epoch,
+			options.refreshPodTemplate === true ? refresh : undefined,
 			options.signal,
 		)
 	}
@@ -1265,6 +1433,18 @@ export async function createKubernetesWorkspace(
 		streamHeartbeatMs,
 		readiness,
 		origin: adopted === undefined ? 'created' : adopted.resumed ? 'resumed' : 'adopted-running',
+		sandboxTemplateName: templateName,
+		...(config.runtimeClassName !== undefined ? { runtimeClassName: config.runtimeClassName } : {}),
+		// A create wrote the revision it just computed; an adopt reports
+		// whatever the standing object carries, which is `undefined` for one
+		// created before the annotation existed.
+		...(adopted === undefined
+			? { templateRevision: refresh.hash }
+			: adopted.templateRevision !== undefined
+				? { templateRevision: adopted.templateRevision }
+				: {}),
+		currentTemplateHash: refresh.hash,
+		...(adopted?.awaitReplacement === true ? { awaitReplacement: true } : {}),
 		...(epoch !== undefined ? { epoch } : {}),
 		...(adopted?.drainingPodUid !== undefined ? { drainingPodUid: adopted.drainingPodUid } : {}),
 		...(options.onStartFailure !== undefined ? { onStartFailure: options.onStartFailure } : {}),
@@ -1305,6 +1485,7 @@ async function adoptExistingWorkspace(
 	workspaceId: string,
 	expected: { readonly sandboxTemplateName: string; readonly runtimeClassName?: string },
 	epoch: number | undefined,
+	refresh: PodTemplateRefresh | undefined,
 	signal?: AbortSignal,
 ): Promise<AdoptedWorkspace> {
 	const target: WorkspaceWriteTarget = { client, namespace, name, workspaceId }
@@ -1314,14 +1495,48 @@ async function adoptExistingWorkspace(
 		existing?.spec?.podTemplate,
 		existing?.spec?.volumeClaimTemplates,
 	)
-	assertAdoptedWorkspaceMatchesConfig(name, namespace, existing?.spec?.podTemplate, expected)
+	const suspended = operatingModeOf(existing) === 'Suspended'
+	// A refresh is a Suspended→Running write and nothing else, so an object
+	// found Running is adopted exactly as it always was — see
+	// {@link KubernetesWorkspaceTransitionOptions.refreshPodTemplate}.
+	const refreshing = refresh !== undefined && suspended
+	assertAdoptedWorkspaceMatchesConfig(name, namespace, existing?.spec?.podTemplate, {
+		sandboxTemplateName: expected.sandboxTemplateName,
+		// The RuntimeClass refusal is lifted for a call that is ABOUT TO WRITE
+		// the configured class, and only for as long as that stays true: if
+		// the patch below does not land, it is re-applied against the object
+		// as it then stands, so a pod on the wrong runtime is never bound. The
+		// TEMPLATE refusal is never lifted — a refresh rewrites a workspace's
+		// pod spec, it never moves the workspace to another template.
+		...(refreshing || expected.runtimeClassName === undefined
+			? {}
+			: { runtimeClassName: expected.runtimeClassName }),
+	})
 	const reading = readHolderEpoch(existing?.metadata)
 	// With the adopt's other refusals, and for the same reason: an object this
 	// call will not use is not woken up on the way to being rejected. A
 	// superseded opener patches nothing and starts no pod.
 	if (epoch !== undefined)
 		assertHolderEpochAllows(target, 'createKubernetesWorkspace', epoch, reading)
-	const resumed = operatingModeOf(existing) === 'Suspended'
+	if (refreshing && refresh !== undefined) {
+		// Both BEFORE the patch, and both against the SANDBOX's
+		// volumeClaimTemplates rather than the template's: those are
+		// CEL-immutable and are not in the patch, so the disks a refresh can
+		// be applied to are the disks this workspace already has, and the two
+		// questions worth asking are whether the template still claims them
+		// and whether it claims anything else.
+		const source = `SandboxTemplate ${expected.sandboxTemplateName} in namespace ${namespace}, refreshing Sandbox ${name}`
+		assertRefreshedTemplateClaimsTheSameDisks(
+			source,
+			refresh.volumeClaimTemplates,
+			existing?.spec?.volumeClaimTemplates,
+		)
+		// A template that stopped claiming this workspace's disk would come up
+		// healthy with the disk attached to nothing, and the only symptom
+		// would be that yesterday's files are gone.
+		assertBlockModeWorkspaceDisk(source, refresh.podTemplate, existing?.spec?.volumeClaimTemplates)
+	}
+	let templateRevision = readPodTemplateHash(existing?.metadata)
 	// Read BEFORE the resume patch, so what is recorded is the state this
 	// adopt WALKED INTO rather than one it provoked. It costs one GET on a
 	// path that is a rare, explicit act with nothing to amortise — the same
@@ -1329,7 +1544,46 @@ async function adoptExistingWorkspace(
 	// nothing else on this path can supply: whether the pod standing under
 	// this name is on its way out.
 	const drainingPodUid = await readDrainingPodUid(client, namespace, name, signal)
-	if (resumed) {
+	let resumed = suspended
+	/** Somebody else's resume beat this call's patch — see `awaitReplacement`. */
+	let racedResume = false
+	if (refreshing && refresh !== undefined) {
+		const result = await writeRefreshedPodTemplate(
+			target,
+			'createKubernetesWorkspace',
+			refresh,
+			epoch,
+			reading,
+			signal,
+		)
+		if (result.applied) {
+			templateRevision = refresh.hash
+		} else {
+			// Another process resumed it first: nothing was written, so this
+			// is an adopt of a Running object and behaves like one — the
+			// RuntimeClass refusal applies again, against the object as it
+			// now stands, and the pod that is there is bound unchanged.
+			resumed = false
+			racedResume = true
+			assertAdoptedWorkspaceMatchesConfig(
+				name,
+				namespace,
+				result.sandbox.spec?.podTemplate,
+				expected,
+			)
+			templateRevision = readPodTemplateHash(result.sandbox.metadata)
+			if (epoch !== undefined) {
+				await writeOperatingMode(
+					target,
+					'createKubernetesWorkspace',
+					undefined,
+					epoch,
+					signal,
+					readHolderEpoch(result.sandbox.metadata),
+				)
+			}
+		}
+	} else if (resumed) {
 		await writeOperatingMode(target, 'createKubernetesWorkspace', 'Running', epoch, signal, reading)
 	} else if (epoch !== undefined) {
 		// The one write this path did not use to make. Adopting a RUNNING
@@ -1340,13 +1594,38 @@ async function adoptExistingWorkspace(
 		// moves, whether or not the mode moves with it.
 		await writeOperatingMode(target, 'createKubernetesWorkspace', undefined, epoch, signal, reading)
 	}
-	return { resumed, ...(drainingPodUid !== undefined ? { drainingPodUid } : {}) }
+	return {
+		resumed,
+		...(templateRevision !== undefined ? { templateRevision } : {}),
+		...(racedResume ? { awaitReplacement: true } : {}),
+		...(drainingPodUid !== undefined ? { drainingPodUid } : {}),
+	}
 }
 
 /** What an adopt found standing under the workspace's name. */
 interface AdoptedWorkspace {
 	/** The object was `Suspended`, and this call patched it back to Running. */
 	readonly resumed: boolean
+	/**
+	 * The pod-template revision the adopted object carries, AFTER this call's
+	 * refresh if one landed — see
+	 * {@link KubernetesWorkspace.templateRevision}. Absent on an object
+	 * created before the annotation existed.
+	 */
+	readonly templateRevision?: string
+	/**
+	 * The object was observed `Suspended` and ANOTHER process resumed it
+	 * before this call's conditional patch landed.
+	 *
+	 * It is not `resumed` — this call patched nothing and did not author the
+	 * transition — but a replacement pod is on its way in exactly as it would
+	 * be if it had, so the first bind has to WAIT rather than fail on a read
+	 * that finds no live pod. That is the rule
+	 * {@link PodBindPolicy.awaitReplacement} already states for an object that
+	 * was suspended; without this the authorship and the waiting would be one
+	 * field, and losing the race would cost the workspace its bind.
+	 */
+	readonly awaitReplacement?: boolean
 	/**
 	 * The uid of a pod that was ALREADY terminating when the adopt looked —
 	 * `deletionTimestamp` set, container still running.
@@ -1566,6 +1845,150 @@ async function writeOperatingMode(
 			if (!(err instanceof KubernetesPatchNotAppliedError)) throw err
 			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
 			const next = readHolderEpoch((await readSandboxObject(target, signal))?.metadata)
+			const unmoved =
+				next.annotation === reading.annotation &&
+				next.resourceVersion === reading.resourceVersion &&
+				next.hasAnnotations === reading.hasAnnotations
+			if (unmoved) throw err
+			reading = next
+		}
+	}
+}
+
+/**
+ * The pod template a refresh would write, and the revision it stamps beside
+ * it.
+ *
+ * Built once per call and carried as a pair on purpose: the hash is taken
+ * over the template AFTER this backend's overlays, so computing it anywhere
+ * but next to the object it describes is how `templateCurrent` starts
+ * reporting drift that does not exist.
+ */
+interface PodTemplateRefresh {
+	readonly podTemplate: SandboxPodTemplate
+	readonly hash: string
+	/**
+	 * The disks the template declares. Never written — they are CEL-immutable
+	 * on a standing Sandbox and are not in the patch — and carried only so
+	 * {@link assertRefreshedTemplateClaimsTheSameDisks} can refuse a template
+	 * whose disks this workspace cannot have.
+	 */
+	readonly volumeClaimTemplates?: readonly SandboxVolumeClaimTemplate[]
+}
+
+/** The overlays of `buildSandboxBody`'s create body, plus their revision. */
+function buildPodTemplateRefresh(
+	template: SandboxTemplateCopy,
+	sandboxTemplateName: string,
+	runtimeClassName?: string,
+): PodTemplateRefresh {
+	const podTemplate = sandboxPodTemplate(template, sandboxTemplateName, runtimeClassName)
+	return {
+		podTemplate,
+		hash: podTemplateHash(podTemplate),
+		...(template.volumeClaimTemplates !== undefined
+			? { volumeClaimTemplates: template.volumeClaimTemplates }
+			: {}),
+	}
+}
+
+/**
+ * What one refresh attempt settled on.
+ *
+ * `applied: false` is not a failure: the `test` clause found the workspace
+ * already `Running`, which means another process resumed it first and the pod
+ * standing under this name is theirs. Nothing was written, the caller binds
+ * that pod unchanged, and `sandbox` is the object as re-read so the refusals
+ * an adopt of a Running object makes can be made against it without a second
+ * GET.
+ *
+ * `sandbox` is therefore never `undefined`: an object that is GONE by the time
+ * of that re-read is not this outcome at all, and the type is what says so.
+ */
+type PodTemplateRefreshResult =
+	| { readonly applied: true }
+	| { readonly applied: false; readonly sandbox: SandboxResource }
+
+/**
+ * The Suspended→Running write that also rewrites `spec.podTemplate`: ONE
+ * conditional patch, built by the one builder this backend has.
+ *
+ * `test /spec/operatingMode == "Suspended"` is what enforces "only on a
+ * suspended workspace" — not the read that preceded it, which another
+ * process's resume can invalidate in the time it takes to send this. When the
+ * caller also carries a holder epoch, that clause rides in the SAME body
+ * (`buildHolderEpochPatch`'s `tests` seam), so the two conditions are one
+ * request and there is no window between them.
+ *
+ * The discrimination is the one W8 measured and has to be repeated here
+ * rather than shared with {@link writeOperatingMode}, because the two want
+ * opposite things from the same 422: a real API server answers an unapplied
+ * JSON patch identically whether a `test` failed or the body was malformed,
+ * so the only way to tell is to re-read the object.
+ *
+ *  - the object is GONE ⇒ the re-read 404s and says so, and that error is
+ *    what the caller hears. Neither clause can be said to have refused the
+ *    patch, and there is no pod to fall back to.
+ *  - the mode is no longer `Suspended` ⇒ the mode clause is what refused it.
+ *    That is an outcome, not an error: report it, after checking that this
+ *    caller has not ALSO been superseded, which is a refusal.
+ *  - the mode is still `Suspended` and the call carries no epoch ⇒ the only
+ *    condition in the body was true, so the body is what the server refused.
+ *    Nothing to retry.
+ *  - otherwise the epoch clause is the suspect: a stored epoch above this
+ *    caller's refuses it by name, one that merely moved is retried on the
+ *    fresh reading, and an object that did not move at all means the body is
+ *    wrong and the error stands.
+ */
+async function writeRefreshedPodTemplate(
+	target: WorkspaceWriteTarget,
+	operation: string,
+	refresh: PodTemplateRefresh,
+	epoch: number | undefined,
+	gate: HolderEpochReading,
+	signal?: AbortSignal,
+): Promise<PodTemplateRefreshResult> {
+	const path = sandboxPath(target.namespace, target.name)
+	let reading = gate
+	for (let attempt = 1; ; attempt += 1) {
+		if (epoch !== undefined) assertHolderEpochAllows(target, operation, epoch, reading)
+		const patch = buildHolderEpochPatch({
+			reading,
+			...(epoch !== undefined ? { epoch } : {}),
+			tests: [{ op: 'test', path: '/spec/operatingMode', value: 'Suspended' }],
+			annotations: { [POD_TEMPLATE_HASH_ANNOTATION_KEY]: refresh.hash },
+			podTemplate: refresh.podTemplate,
+			operatingMode: 'Running',
+			operatingModeChangedAt: new Date().toISOString(),
+		})
+		try {
+			await target.client.request('PATCH', path, patch, signal, 'json')
+			return { applied: true }
+		} catch (err) {
+			if (!(err instanceof KubernetesPatchNotAppliedError)) throw err
+			const sandbox = await readSandboxObject(target, signal)
+			// An object DELETED in this window does not arrive here as
+			// `undefined`: the GET 404s and `readSandboxObject` throws
+			// `KubernetesAlreadyGoneError`, which is the truthful answer and is
+			// let through. `undefined` is the API server answering 200 with no
+			// body — a shape this code has no reading of. It must not fall
+			// through, because `operatingModeOf(undefined)` is `'Running'` and
+			// the branch below means "somebody else's pod is standing under
+			// this name", which would send the caller on to bind a pod nothing
+			// established was there, after refusals made against an object
+			// nobody read. The original error says the one thing that is known
+			// — the patch did not apply and nothing changed.
+			if (sandbox === undefined) throw err
+			const next = readHolderEpoch(sandbox.metadata)
+			if (operatingModeOf(sandbox) !== 'Suspended') {
+				// Somebody resumed it first. If they also took the workspace
+				// over, this caller hears THAT rather than being handed a pod
+				// it is no longer entitled to bind.
+				if (epoch !== undefined) assertHolderEpochAllows(target, operation, epoch, next)
+				return { applied: false, sandbox }
+			}
+			if (epoch === undefined) throw err
+			if (attempt >= HOLDER_EPOCH_WRITE_ATTEMPTS) throw err
 			const unmoved =
 				next.annotation === reading.annotation &&
 				next.resourceVersion === reading.resourceVersion &&
@@ -2045,6 +2468,26 @@ interface WorkspaceHandleOptions {
 	 */
 	readonly origin: KubernetesWorkspaceOrigin
 	/**
+	 * The template this workspace is built from, and the RuntimeClass to
+	 * overlay on it — what a `resume({ refreshPodTemplate: true })` re-reads
+	 * and rebuilds from. Carried on the handle because a resume happens long
+	 * after the call that opened it, and re-deriving either from the backend
+	 * config would let a handle refresh a workspace onto a template it was
+	 * never opened against.
+	 */
+	readonly sandboxTemplateName: string
+	readonly runtimeClassName?: string
+	/** The revision the bound object carries — see `templateRevision`. */
+	readonly templateRevision?: string
+	/** The revision the template read at open would produce — see `templateCurrent`. */
+	readonly currentTemplateHash: string
+	/**
+	 * Wait for a replacement pod although this handle's own `origin` does not
+	 * imply one — see {@link AdoptedWorkspace.awaitReplacement}. The two are
+	 * separate because authorship and waiting are separate questions.
+	 */
+	readonly awaitReplacement?: boolean
+	/**
 	 * A pod found already terminating when the adopt looked; never set on the
 	 * created path, where there is no previous pod at all.
 	 */
@@ -2117,6 +2560,14 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * every later `suspend()` of its own would be refused by its own stamp.
 	 */
 	let heldEpoch = options.epoch
+	/**
+	 * The pod-template revision the BOUND object carries, and the one the
+	 * template this handle last read would produce. Both move together on a
+	 * refresh; a plain `resume()` re-reads only the first, off the `GET` it
+	 * already makes.
+	 */
+	let templateRevision = options.templateRevision
+	let currentTemplateHash = options.currentTemplateHash
 	/** The handle's own policy; a transition may override it for one call. */
 	const defaultStartFailure: KubernetesWorkspaceStartFailurePolicy =
 		options.onStartFailure ?? 'suspend-if-woken'
@@ -2783,6 +3234,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		signal?: AbortSignal,
 		onStartFailure: KubernetesWorkspaceStartFailurePolicy = defaultStartFailure,
 		epoch?: number,
+		refreshPodTemplate = false,
 	): Promise<void> => {
 		if (state === 'deleted') throw new KubernetesSandboxDestroyedError('resume', name)
 		if (state === 'running') {
@@ -2806,10 +3258,68 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// object rather than off two GETs is what keeps an unfenced resume's
 		// request log identical to what it always was.
 		const current = await readSandboxObject(target, signal)
-		const woke = operatingModeOf(current) === 'Suspended'
+		let woke = operatingModeOf(current) === 'Suspended'
 		const reading = readHolderEpoch(current?.metadata)
 		if (epoch !== undefined) assertHolderEpochAllows(target, 'resume', epoch, reading)
-		if (woke) {
+		// Off the GET this path already makes, so an unfenced resume that asks
+		// for no refresh sends and reads exactly what it always did: whatever
+		// the object says it was built from, including a refresh another
+		// process applied while this handle slept.
+		templateRevision = readPodTemplateHash(current?.metadata)
+		if (woke && refreshPodTemplate) {
+			// The template is re-read HERE rather than remembered from the
+			// open: the whole point of the option is to pick up an edit made
+			// since, and a cached copy would refresh a workspace onto the
+			// template as it stood when the handle was created.
+			const template = await readSandboxTemplate(
+				client,
+				namespace,
+				options.sandboxTemplateName,
+				signal,
+			)
+			const refresh = buildPodTemplateRefresh(
+				template,
+				options.sandboxTemplateName,
+				options.runtimeClassName,
+			)
+			currentTemplateHash = refresh.hash
+			// Before any patch, and against the SANDBOX's own disk — both of
+			// them, in the same order as the adopt path.
+			const source = `SandboxTemplate ${options.sandboxTemplateName} in namespace ${namespace}, refreshing Sandbox ${name}`
+			assertRefreshedTemplateClaimsTheSameDisks(
+				source,
+				refresh.volumeClaimTemplates,
+				current?.spec?.volumeClaimTemplates,
+			)
+			assertBlockModeWorkspaceDisk(source, refresh.podTemplate, current?.spec?.volumeClaimTemplates)
+			const result = await writeRefreshedPodTemplate(
+				target,
+				'resume',
+				refresh,
+				epoch,
+				reading,
+				signal,
+			)
+			if (result.applied) {
+				templateRevision = refresh.hash
+			} else {
+				// Another process resumed it first. Nothing was written, so
+				// this call did not wake the workspace and a start that fails
+				// must not put somebody else's live pod back to sleep.
+				woke = false
+				templateRevision = readPodTemplateHash(result.sandbox.metadata)
+				if (epoch !== undefined) {
+					await writeOperatingMode(
+						target,
+						'resume',
+						undefined,
+						epoch,
+						signal,
+						readHolderEpoch(result.sandbox.metadata),
+					)
+				}
+			}
+		} else if (woke) {
 			await writeOperatingMode(target, 'resume', 'Running', epoch, signal, reading)
 		} else if (epoch !== undefined) {
 			// Somebody else resumed it first, so there is no mode change to
@@ -3201,7 +3711,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			? { transition: 'create', awaitReplacement: false }
 			: {
 					transition: 'adopt',
-					awaitReplacement: options.origin === 'resumed' || options.drainingPodUid !== undefined,
+					awaitReplacement:
+						options.origin === 'resumed' ||
+						options.awaitReplacement === true ||
+						options.drainingPodUid !== undefined,
 					...(options.drainingPodUid !== undefined ? { retiring: options.drainingPodUid } : {}),
 				}
 
@@ -3229,6 +3742,16 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	return {
 		id,
 		origin: options.origin,
+		get templateRevision(): string | undefined {
+			return templateRevision
+		},
+		get templateCurrent(): boolean {
+			// An object that recorded no revision is NOT current: unknown is
+			// not a match, and reporting it as one would tell a host there is
+			// nothing to refresh on exactly the workspaces created before
+			// anything recorded what they were built from.
+			return templateRevision !== undefined && templateRevision === currentTemplateHash
+		},
 		get status(): SandboxStatus {
 			// A suspended workspace reports 'destroyed' because that is the only
 			// member of the SDK's four-way union meaning "cannot serve a call".
@@ -3507,6 +4030,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 						transitionOptions?.signal,
 						transitionOptions?.onStartFailure ?? defaultStartFailure,
 						assertHolderEpoch(transitionOptions?.epoch, 'resume') ?? heldEpoch,
+						transitionOptions?.refreshPodTemplate === true,
 					),
 			)
 		},
