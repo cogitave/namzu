@@ -9,11 +9,21 @@ import { OpenRouterProvider } from '../client.js'
  * parameter no code path consumed — asserting the helper works would have
  * reproduced that shape one level up.
  *
- * The guard runs before any request, so the unreachable host below is never
- * dialled on the throwing cases.
+ * The guard runs before any request, so the host below is never dialled on
+ * the throwing cases, and the one case that must dial — the explicit disable,
+ * which the guard lets past — is pointed at an address that CANNOT answer
+ * rather than at the real service. That is the difference between a case that
+ * asserts the guard let the request through and a case that asserts this
+ * machine has a working, fast route to openrouter.ai: it went red on a CI
+ * runner whose egress to the service took longer than the 5 s test timeout,
+ * which said nothing about the guard. Nothing listens on 127.0.0.1:1 (binding
+ * it needs root), so the dial is refused at once, on every machine.
  */
 
-const provider = new OpenRouterProvider({ apiKey: 'test-key' } as never)
+const provider = new OpenRouterProvider({
+	apiKey: 'test-key',
+	baseUrl: 'http://127.0.0.1:1',
+} as never)
 
 async function run(thinking?: ChatCompletionParams['thinking']): Promise<void> {
 	for await (const _chunk of provider.chatStream({
