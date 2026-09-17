@@ -17,6 +17,8 @@
 			"execution",
 			"invariants",
 			"manager",
+			"model-router",
+			"persona",
 			"plugin",
 			"pricing",
 			"probe",
@@ -40,10 +42,7 @@
 			"utils",
 			"vault"
 		],
-		"baselineExempt": [
-			"model-router",
-			"persona"
-		],
+		"baselineExempt": [],
 		"exempt": [
 			"__tests__",
 			"constants",
@@ -73,6 +72,10 @@
 			"line": 85,
 			"branch": 82
 		},
+		"manager": {
+			"line": 78,
+			"branch": 85
+		},
 		"pricing": {
 			"line": 97,
 			"branch": 97
@@ -84,7 +87,16 @@
 		"registry": {
 			"line": 93,
 			"branch": 90
+		},
+		"runtime": {
+			"line": 88,
+			"branch": 86
+		},
+		"store": {
+			"line": 90,
+			"branch": 85
 		}
 	},
-	"$comment_baseline_exempt": "`baselineExempt` means ZERO-TESTED, per check-sdk-test-presence.mjs's own docblock. It had drifted badly: seven of its nine entries carried tests -- `utils` had 25 files -- so the list said 'these have no tests' about modules that did. A routing document that is false is worse than none, because the next person picks the wrong module to work on. Audited and corrected in ses_020; `model-router` and `persona` are the two that genuinely have none. Moving a module here into `required` asserts only that it HAS a test, which is what this gate checks -- coverage is the separate, opt-in `coverageFloors` claim, and none of the seven carries one yet."
+	"$comment_coverageFloors": "`runtime`, `store` and `manager` were the three critical modules with no floor; they are added here by issue #502. They were already `required`, so this is not a claim that they are untested -- `runtime` alone carries 192 test files, 187 of them under `runtime/query` -- it is the measurement that was missing, because test presence is not coverage -- a module can carry two hundred passing tests and still have whole failure paths that nothing executes. Measured on the parent commit, 718 files and 7355 tests, and unchanged on the commit that lands them (720 files and 7381 tests -- the two new test files and their 26 tests): `runtime` 91.18% lines / 89.69% branches, `store` 93.23% / 88.33%, `manager` 81.63% / 88.91%. Floors are measured minus 3 per the policy in check-sdk-module-coverage.mjs. `manager`'s floor of 78 is the lowest line floor of the three added here, because `manager` also has the lowest measured line coverage of the eleven (81.63% against `directory`'s 87.76). It is NOT the tightest floor relative to its own measurement, and keeping those two questions apart matters, because only the second one says whether a gate can still go red: against what they measured, the tightest floor in this file is `directory` (85 against 87.76, 2.76 points of slack), then `pricing` (3.00), `runtime` and `registry` (3.18, 3.19), `store` (3.23), `bridge` (3.49) and `manager` (3.63) -- while `connector`'s floor of 47 carries 47.48, making the lowest floor in this file also the loosest by an order of magnitude. `manager`'s floor sits at what that module actually holds; the next phase raises it by landing tests on the coordinators under `src/manager/` against their own failure paths -- `run/`, `resident/`, `project/`, and delegated agents under `manager/agent/`, where `lifecycle.ts` is what holds their budget -- rather than by raising the number. Two things to know before trusting any of these figures. The branch denominator is not run-stable: five coverage runs over the same `store` sources gave it four different branch denominators (3289, 3290, 3291, 3292) and a module aggregate ranging 88.32% to 88.36%, and between the last two of those runs 23 of the report's 486 rows moved in branch percentage, so a measured value carries a few hundredths of uncertainty, which is what the 3 points of slack absorbs. And a branch floor cannot see a module LOSE a path: deleting untested code takes its branch records with it and the ratio can go UP, so the line floor is set alongside the branch floor and not instead of it.",
+	"$comment_baseline_exempt": "`baselineExempt` means ZERO-TESTED, per check-sdk-test-presence.mjs's own docblock. It had drifted badly: seven of its nine entries carried tests -- `utils` had 25 files -- so the list said 'these have no tests' about modules that did. A routing document that is false is worse than none, because the next person picks the wrong module to work on. Audited and corrected in ses_020, which left the two that genuinely had none. Both graduated to `required` in issue #502, in the commit that added their tests, so the list is empty and stays here as the bucket a new module lands in while it is dark -- empty is the state this file is supposed to be in, not one to refill. Measured on the commit BEFORE those tests landed: `model-router` 100% lines and branches, all 14 and all 8 of them, because `compaction.ts` calls `resolveTaskModel` on every compaction and `compaction-model-routing.test.ts` asserts every step of the chain from there -- covered, and covered from another module's tests, which is the gap the bucket was naming: nothing failed if the resolver was wrong for a task type compaction never asks about. `persona` measured 52.99% lines / 81.48% branches / 40% functions (62/117, 22/27, 2/5), every uncovered line in `persona/assembler.ts`, and every one of them a field a host sets: expertise domains, constraints, tool guidance, output discipline, and the whole of `mergePersonas` and `withSessionContext`. After their tests `persona` reads 117/117 lines, 58/58 branches, 5/5 functions. Neither carries a `coverageFloors` entry yet -- a floor for them is a separate ratchet, and these numbers are recorded here so it has something measured to ratchet from. Moving a module here into `required` asserts only that it HAS a test, which is what this gate checks -- coverage is the separate, opt-in `coverageFloors` claim."
 }
