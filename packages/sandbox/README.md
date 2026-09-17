@@ -552,6 +552,32 @@ that can change egress after admission. A backend must throw when it cannot
 enforce a requested live policy; accepting without applying it would erase the
 security boundary the host relied on.
 
+## Kubernetes per-sandbox egress
+
+The kubernetes backend serves that contract when — and only when —
+`egress.perSandbox` is configured: the method is PRESENT on a task handle
+then and absent otherwise, which is the same omit-rather-than-ignore rule read
+from the other side. A `KubernetesWorkspace` handle never carries it, and
+`createKubernetesWorkspace` refuses a config that sets the option (with
+`KubernetesWorkspacePerSandboxEgressConfigError`, before the first request)
+rather than omitting a method the config asked for. Configured, each
+`setNetworkPolicy` call writes one
+`CiliumNetworkPolicy` for that sandbox alone, named after the claim's uid,
+selecting one per-sandbox pod label, owned by the claim so the cluster
+collects it on `destroy()`, and resolving only once a read-back deep-equals
+what was sent. An empty list deletes that object and leaves the configured
+baseline in force — which is a narrowing only when that baseline denies,
+because cluster policies union.
+
+It has two operator prerequisites, and a host that enables the option without
+them is refused by design rather than by accident: an applied
+`ValidatingAdmissionPolicy` and its binding, which the backend proves before
+its first write and which bound what the host may write, and a separate RBAC
+file granting the policy-write verbs the default Role deliberately withholds.
+Whether such a policy is ENFORCED is a property of the cluster's CNI and is
+not measured anywhere in this repository. See
+`docs/sdk/kubernetes-sandbox.md`.
+
 ## Documentation
 
 - [Namzu docs](https://github.com/cogitave/namzu/tree/main/docs)

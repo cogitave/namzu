@@ -21,6 +21,9 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import { parseAllDocuments } from 'yaml'
 
+import { DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY } from '../../src/backends/kubernetes/egress-policy.js'
+import { PER_SANDBOX_POLICY_NAME_PREFIX } from '../../src/backends/kubernetes/per-sandbox-policy.js'
+
 const HERE = dirname(fileURLToPath(import.meta.url))
 const MANIFESTS_DIR = join(HERE, '../manifests')
 
@@ -116,6 +119,8 @@ describe('every manifest parses as YAML', () => {
 		'sandboxwarmpool.yaml',
 		'networkpolicy.yaml',
 		'rbac.yaml',
+		'rbac-per-sandbox-egress.yaml',
+		'validatingadmissionpolicy-cilium.yaml',
 	])('%s', (fileName) => {
 		expect(() => loadYaml(fileName)).not.toThrow()
 	})
@@ -129,6 +134,8 @@ describe('no manifest contains an inline secret value', () => {
 		'sandboxwarmpool.yaml',
 		'networkpolicy.yaml',
 		'rbac.yaml',
+		'rbac-per-sandbox-egress.yaml',
+		'validatingadmissionpolicy-cilium.yaml',
 	])('%s', (fileName) => {
 		assertNoInlineSecrets(fileName, loadYaml(fileName))
 	})
@@ -630,5 +637,255 @@ describe('sandboxwarmpool.yaml', () => {
 		const pool = loadOne('sandboxwarmpool.yaml')
 		const ref = (pool.spec as Record<string, unknown>).sandboxTemplateRef as Record<string, unknown>
 		expect(ref.name).toBe('namzu-task')
+	})
+})
+
+describe('the default Role holds no write verb on any policy resource', () => {
+	// The whole reason per-sandbox egress ships its write verbs in a file of
+	// their own: a host that never configures `egress.perSandbox` must not be
+	// able to create, change or delete a policy in its namespace, and a stanza
+	// inside the default Role would grant it to everyone who applies that file.
+	const docs = loadYaml('rbac.yaml') as Record<string, unknown>[]
+	const role = docs.find((d) => d.kind === 'Role') as Record<string, unknown>
+
+	it.each(['networkpolicies', 'ciliumnetworkpolicies'])('%s', (resource) => {
+		const rules = role.rules as Record<string, unknown>[]
+		const rule = rules.find((r) => (r.resources as string[]).includes(resource))
+		expect(rule, `no rule grants ${resource}`).toBeDefined()
+		for (const verb of ['create', 'patch', 'update', 'delete', 'deletecollection']) {
+			expect(rule?.verbs as string[], `${resource} is writable by the default Role`).not.toContain(
+				verb,
+			)
+		}
+	})
+})
+
+describe('rbac-per-sandbox-egress.yaml', () => {
+	const docs = loadYaml('rbac-per-sandbox-egress.yaml') as Record<string, unknown>[]
+	const role = docs.find((d) => d.kind === 'Role') as Record<string, unknown>
+	const clusterRole = docs.find((d) => d.kind === 'ClusterRole') as Record<string, unknown>
+	const roleBinding = docs.find((d) => d.kind === 'RoleBinding') as Record<string, unknown>
+	const clusterRoleBinding = docs.find((d) => d.kind === 'ClusterRoleBinding') as Record<
+		string,
+		unknown
+	>
+	const defaultDocs = loadYaml('rbac.yaml') as Record<string, unknown>[]
+	const defaultRole = defaultDocs.find((d) => d.kind === 'Role') as Record<string, unknown>
+
+	it('is a SEPARATE Role from the default one, so it can be left unapplied', () => {
+		expect(role.kind).toBe('Role')
+		expect((role.metadata as Record<string, unknown>).name).not.toBe(
+			(defaultRole.metadata as Record<string, unknown>).name,
+		)
+		expect((role.metadata as Record<string, unknown>).namespace).toBe(
+			(defaultRole.metadata as Record<string, unknown>).namespace,
+		)
+	})
+
+	it('grants exactly the three write verbs the capability issues, and no read verbs', () => {
+		const rules = role.rules as Record<string, unknown>[]
+		expect(rules).toHaveLength(1)
+		expect(rules[0]?.apiGroups).toEqual(['cilium.io'])
+		expect(rules[0]?.resources).toEqual(['ciliumnetworkpolicies'])
+		// `create` writes the first policy, `patch` replaces it, `delete` is
+		// `setNetworkPolicy([])`. `get`/`list` are the default Role's and are
+		// deliberately not repeated: two Roles granting the same verb would
+		// drift the first time either check changed.
+		expect(new Set(rules[0]?.verbs as string[])).toEqual(new Set(['create', 'patch', 'delete']))
+	})
+
+	it('reads the admission fence through a read-only ClusterRole, because it is cluster-scoped', () => {
+		const rules = clusterRole.rules as Record<string, unknown>[]
+		expect(rules).toHaveLength(1)
+		expect(rules[0]?.apiGroups).toEqual(['admissionregistration.k8s.io'])
+		expect(new Set(rules[0]?.resources as string[])).toEqual(
+			new Set(['validatingadmissionpolicies', 'validatingadmissionpolicybindings']),
+		)
+		// READ only. A host that could write its own fence would not have one.
+		expect(rules[0]?.verbs).toEqual(['get'])
+	})
+
+	it('binds both to the same ServiceAccount the default Role is bound to', () => {
+		const defaultBinding = defaultDocs.find((d) => d.kind === 'RoleBinding') as Record<
+			string,
+			unknown
+		>
+		const account = (defaultBinding.subjects as Record<string, unknown>[])[0]
+		for (const binding of [roleBinding, clusterRoleBinding]) {
+			const subjects = binding.subjects as Record<string, unknown>[]
+			expect(subjects).toHaveLength(1)
+			expect(subjects[0]?.kind).toBe('ServiceAccount')
+			expect(subjects[0]?.name).toBe(account?.name)
+			expect(subjects[0]?.namespace).toBe(account?.namespace)
+		}
+	})
+
+	it('grants no wildcard apiGroup, resource or verb', () => {
+		for (const subject of [role, clusterRole]) {
+			for (const rule of subject.rules as Record<string, unknown>[]) {
+				for (const field of ['apiGroups', 'resources', 'verbs'] as const) {
+					expect(rule[field] as string[]).not.toContain('*')
+				}
+			}
+		}
+	})
+})
+
+describe('validatingadmissionpolicy-cilium.yaml', () => {
+	const docs = loadYaml('validatingadmissionpolicy-cilium.yaml') as Record<string, unknown>[]
+	const policy = docs.find((d) => d.kind === 'ValidatingAdmissionPolicy') as Record<string, unknown>
+	const binding = docs.find((d) => d.kind === 'ValidatingAdmissionPolicyBinding') as Record<
+		string,
+		unknown
+	>
+	const spec = policy.spec as Record<string, unknown>
+	const validations = spec.validations as Record<string, unknown>[]
+	const expressions = validations.map((v) => v.expression as string).join('\n')
+
+	it('fails closed', () => {
+		// An expression that errors — an unexpected type, a shape nothing here
+		// anticipated — must refuse the write rather than admit it.
+		expect(spec.failurePolicy).toBe('Fail')
+	})
+
+	it('covers DELETE as well as CREATE and UPDATE', () => {
+		// Without DELETE the host could remove the operator's own baseline
+		// policy with the `delete` verb the opt-in Role grants it.
+		const rules = (spec.matchConstraints as { resourceRules: Record<string, unknown>[] })
+			.resourceRules
+		expect(rules).toHaveLength(1)
+		expect(rules[0]?.apiGroups).toEqual(['cilium.io'])
+		expect(rules[0]?.resources).toEqual(['ciliumnetworkpolicies'])
+		expect(new Set(rules[0]?.operations as string[])).toEqual(
+			new Set(['CREATE', 'UPDATE', 'DELETE']),
+		)
+	})
+
+	it('bounds ONE identity, so an operator applying the baseline is unaffected', () => {
+		const conditions = spec.matchConditions as Record<string, unknown>[]
+		expect(conditions).toHaveLength(1)
+		expect(conditions[0]?.expression as string).toContain('request.userInfo.username')
+		expect(conditions[0]?.expression as string).toContain('system:serviceaccount:')
+	})
+
+	it('pins the same name prefix the backend writes under', () => {
+		// Driven from the exported constant, never a hand-written copy: the
+		// prefix is half of a contract with an object an operator applies, so a
+		// rename has to fail here rather than silently produce a fence that
+		// admits nothing.
+		expect(expressions).toContain(`'${PER_SANDBOX_POLICY_NAME_PREFIX}'`)
+	})
+
+	it('refuses every peer kind that is not a name or the cluster resolver', () => {
+		for (const field of [
+			'toCIDR',
+			'toCIDRSet',
+			'toEntities',
+			'toServices',
+			'toGroups',
+			'toNodes',
+			'toRequires',
+		]) {
+			expect(expressions, `${field} is not refused`).toContain(`has(r.${field})`)
+		}
+		// `specs` is the CRD's list-of-specs alternative to `spec`; a fence
+		// that read only `spec` would be walked straight past by it.
+		expect(expressions).toContain('specs')
+		expect(expressions).toContain('ingress')
+	})
+
+	it('bounds the selector to the object that owns the policy, not merely to one label', () => {
+		// One matchLabels entry is a SHAPE, not a bound: `sandbox.namzu.ai/
+		// template: namzu-task` is one label and selects every sandbox pod in
+		// the namespace. The bound is the KEY and the VALUE together — the
+		// per-sandbox label key holding the owner's own name, which is what
+		// the backend puts on the pod and selects on.
+		expect(expressions).toContain('variables.owners[0].name')
+		expect(expressions).toContain('variables.selector.matchLabels.all(')
+	})
+
+	it('pins the selector KEY to the one the backend writes, from the exported default', () => {
+		// The VALUE check alone leaves a hole: a host chooses the names of the
+		// objects it creates, so a claim named `namzu-task` would satisfy
+		// "value equals the owner's name" while selecting on
+		// `sandbox.namzu.ai/template` — every sandbox pod in the namespace.
+		// Driven from the constant, so a rename has to fail here.
+		expect(expressions).toContain(`k == '${DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY}'`)
+	})
+
+	it('gates every rule but the name on writes, so DELETE is bounded by the prefix alone', () => {
+		// Said out loud because the manifest's own prose used to overstate it:
+		// a validating policy cannot tell which sandboxes a host holds, so the
+		// DELETE arm protects every policy OUTSIDE the namzu-sbx- prefix — the
+		// operator's baseline — and not one namzu-sbx- policy from another.
+		const nameRule = validations[0]?.expression as string
+		expect(nameRule).toContain(`startsWith('${PER_SANDBOX_POLICY_NAME_PREFIX}')`)
+		expect(nameRule).not.toContain('variables.writing')
+		for (const validation of validations.slice(1)) {
+			expect(validation.expression as string).toContain('!variables.writing ||')
+		}
+	})
+
+	it('refuses a toFQDNs entry that matches every name', () => {
+		// `toFQDNs: [{matchPattern: '*'}]` is a toFQDNs rule to the letter and
+		// unrestricted egress in fact, so the ENTRIES are checked, not just the
+		// peer kind.
+		expect(expressions).toContain('f.matchPattern.matches(')
+		expect(expressions).toContain('f.matchName.matches(')
+		const entryRule = validations
+			.map((v) => v.expression as string)
+			.find((e) => e.includes('f.matchPattern.matches('))
+		expect(entryRule).toBeDefined()
+		const patterns = [...(entryRule ?? '').matchAll(/matches\('([^']+)'\)/g)].map((m) => m[1] ?? '')
+		expect(patterns).toHaveLength(2)
+		const [nameRe, patternRe] = patterns as [string, string]
+		// The two regular expressions the API server will compile, exercised
+		// here against the shapes that matter — RE2 and JavaScript agree on
+		// this subset (character classes, anchors, `*`, `?`, `+`).
+		for (const admitted of ['registry.npmjs.org', 'internal', 'a-b.example.com']) {
+			expect(new RegExp(nameRe).test(admitted), `${admitted} refused`).toBe(true)
+		}
+		for (const refused of ['*', '*.example.com', 'a..b', '-lead.example.com', '']) {
+			expect(new RegExp(nameRe).test(refused), `${refused} admitted`).toBe(false)
+		}
+		for (const admitted of ['*.example.com', '*.a.b.example.com']) {
+			expect(new RegExp(patternRe).test(admitted), `${admitted} refused`).toBe(true)
+		}
+		for (const refused of ['*', '*.*', '*.com', '*.a*.com', 'example.com', '**.example.com']) {
+			expect(new RegExp(patternRe).test(refused), `${refused} admitted`).toBe(false)
+		}
+	})
+
+	it('bounds the kube-dns rule to port 53', () => {
+		// Otherwise a rule wearing the DNS rule's toEndpoints could carry any
+		// port and be ordinary egress to those pods.
+		expect(expressions).toContain("q.port == '53'")
+	})
+
+	it('names the ServiceAccount and namespace rbac.yaml actually ships', () => {
+		// The fence matches ONE username and ONE namespace, both spelled out
+		// as literals here while rbac.yaml owns the objects. A rename in one
+		// file alone leaves a fence that matches nothing — inert, and still
+		// passing the backend's existence GET, which is exactly the failure
+		// the binding check exists to avoid.
+		const rbac = loadYaml('rbac.yaml') as Record<string, unknown>[]
+		const account = rbac.find((d) => d.kind === 'ServiceAccount') as Record<string, unknown>
+		const meta = account.metadata as { name: string; namespace: string }
+		const conditions = spec.matchConditions as Record<string, unknown>[]
+		expect((conditions[0]?.expression as string).replace(/\s+/g, ' ')).toContain(
+			`'system:serviceaccount:${meta.namespace}:${meta.name}'`,
+		)
+		const selector = (binding.spec as { matchResources: { namespaceSelector: unknown } })
+			.matchResources.namespaceSelector as { matchLabels: Record<string, string> }
+		expect(selector.matchLabels['kubernetes.io/metadata.name']).toBe(meta.namespace)
+	})
+
+	it('binds the policy, and denies rather than warns', () => {
+		const bindingSpec = binding.spec as Record<string, unknown>
+		expect(bindingSpec.policyName).toBe((policy.metadata as Record<string, unknown>).name)
+		// A ValidatingAdmissionPolicy with no binding validates nothing at all,
+		// and one bound with `Warn` would leave the host's write access
+		// unbounded while looking fenced.
+		expect(bindingSpec.validationActions).toEqual(['Deny'])
 	})
 })

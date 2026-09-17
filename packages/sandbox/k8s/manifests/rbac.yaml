@@ -94,6 +94,15 @@ rules:
   # either check — see the header comment. A cluster with no Cilium CRDs
   # installed simply never matches this rule; granting it costs nothing
   # there.
+  #
+  # READ VERBS ONLY, on purpose. `create`, `patch` and `delete` on this
+  # resource are what `config.egress.perSandbox` needs to write one policy per
+  # live sandbox, and they are NOT here: a host that never configures that
+  # capability must not hold write access to the namespace's network
+  # policies. They ship, together with the cluster-scoped read of the
+  # admission fence that bounds them, in this directory's
+  # `rbac-per-sandbox-egress.yaml` — applied deliberately, beside
+  # `validatingadmissionpolicy-cilium.yaml`, or not at all.
   - apiGroups: [cilium.io]
     resources: [ciliumnetworkpolicies]
     verbs: [get, list]

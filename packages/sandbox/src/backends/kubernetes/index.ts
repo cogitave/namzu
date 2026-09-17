@@ -105,7 +105,7 @@
  * comment for what was measured.
  */
 
-import type { Sandbox } from '@namzu/sdk'
+import type { Sandbox, SandboxNetworkPolicy } from '@namzu/sdk'
 import { generateSandboxId } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
@@ -123,10 +123,12 @@ import {
 	type KubernetesTranslatedEgressPolicy,
 	assertEgressPolicyIsEnforceable,
 	assertEgressProfileIsUsable,
+	assertPerSandboxEgressIsUsable,
 	composeAdditionalPodLabels,
 	defaultEgressPolicyName,
 	egressProfileLabel,
 	egressUnionVerificationEnabled,
+	perSandboxEgressLabelKey,
 	translateEgressPolicy,
 	verifyEgressPolicyApplied,
 	verifyEgressPolicyUnion,
@@ -177,6 +179,12 @@ import {
 	sandboxTemplatePath,
 	warmPoolPath,
 } from './objects.js'
+import {
+	KubernetesOwnerUidMissingError,
+	type PerSandboxPolicyOwner,
+	buildAdmissionFence,
+	buildPerSandboxPolicySetter,
+} from './per-sandbox-policy.js'
 import { privilegeProbeTimedOut, runPrivilegeProbe } from './privilege-probe.js'
 import { buildKubernetesSandbox } from './sandbox.js'
 import { KubernetesAgentTransport } from './transport.js'
@@ -187,6 +195,7 @@ export type {
 	KubernetesEgressPolicy,
 	KubernetesEgressVerification,
 	KubernetesOnlyEgressPolicy,
+	KubernetesPerSandboxEgressConfig,
 } from './egress-policy.js'
 export type { KubernetesIngressConfig, KubernetesIngressEngine } from './ingress-policy.js'
 
@@ -403,6 +412,24 @@ export interface KubernetesAcquisition {
 	readonly refreshAgent?: (signal?: AbortSignal) => Promise<KubernetesAgentAddress>
 	/** API path of the object THIS backend created — the claim, or the Sandbox. */
 	readonly ownedPath: string
+	/**
+	 * The object this backend created, identified well enough to be named in
+	 * another object's `ownerReferences`: its kind, its name and the uid the
+	 * API server assigned it.
+	 *
+	 * Present only when `config.egress.perSandbox` is configured, because it
+	 * is read from the create reply and the readiness polls and nothing else
+	 * needs it — a deployment that never writes a per-sandbox policy should
+	 * not start carrying a field whose absence would otherwise be a bug.
+	 */
+	readonly owner?: PerSandboxPolicyOwner
+	/**
+	 * The VALUE of the per-sandbox selector label on this sandbox's pod —
+	 * the created object's name, confirmed on the bound pod before the
+	 * sandbox was admitted. Present under the same condition as
+	 * {@link owner}.
+	 */
+	readonly perSandboxLabelValue?: string
 	/** The TTL acquire stamped, which every renewal re-stamps. */
 	readonly ttlSeconds: number
 	/** DELETE that object. An already-gone object counts as released. */
@@ -566,6 +593,12 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 	// nothing binds or a policy nobody can apply, and both are decidable
 	// from config alone.
 	assertEgressProfileIsUsable(config.egress)
+	// And the same for per-sandbox egress: an engine that cannot express a
+	// hostname, an unnamed admission fence or a selector key the API server
+	// would refuse are all decidable from config alone, and a host that
+	// learns any of them from its first `setNetworkPolicy` call learns it an
+	// hour into a run that cannot be redone.
+	assertPerSandboxEgressIsUsable(config.egress)
 	// Resolved here as well as at each session, so a configuration this
 	// backend will never honour is refused while `buildKubernetesBackend` is
 	// still on the stack rather than on someone's first `create()`.
@@ -588,6 +621,14 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 	// behind it. The egress UNION check is keyed the same way, for the same
 	// reason, and additionally expires: see {@link EGRESS_UNION_CACHE_TTL_MS}.
 	const ingressVerifier = buildIngressVerifier(client, config, new Map())
+	// One fence per backend, so its memo is shared by every sandbox this
+	// backend hands out rather than re-proved per handle. `undefined` when
+	// per-sandbox egress is not configured, which is what makes
+	// `setNetworkPolicy` absent from the handle — presence follows
+	// CONFIGURATION and never a runtime probe, so a caller's capability
+	// detection cannot depend on when it asked.
+	const perSandbox = config.egress?.perSandbox
+	const fence = perSandbox === undefined ? undefined : buildAdmissionFence(client, perSandbox)
 	return {
 		tier: 'microvm',
 		name: 'kubernetes',
@@ -601,11 +642,27 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 				ingressVerifier,
 				egressBoundary,
 			)
+			const egress = config.egress
+			const setNetworkPolicy =
+				fence !== undefined &&
+				egress?.perSandbox !== undefined &&
+				acquisition.owner !== undefined &&
+				acquisition.perSandboxLabelValue !== undefined
+					? buildPerSandboxPolicySetter({
+							client,
+							fence,
+							namespace: config.namespace,
+							egress: { ...egress, perSandbox: egress.perSandbox },
+							owner: acquisition.owner,
+							selectorValue: acquisition.perSandboxLabelValue,
+						})
+					: undefined
 			return await admitProbedSandbox(
 				acquisition,
 				config,
 				options,
 				resolveProbeTimeoutMs(readiness.timeoutMs),
+				setNetworkPolicy,
 			)
 		},
 	}
@@ -713,6 +770,11 @@ export function buildEgressBoundary(
 	}
 	let namedObject: Promise<void> | undefined
 	const passes = new Map<string, CachedPass>()
+	// The per-sandbox selector label carries a once-ever value, so it is
+	// excluded from the memo key — see {@link policyCacheKey}. Resolved once
+	// here rather than per check, because the resolver validates as it
+	// resolves and a per-check throw would surface from a cache lookup.
+	const perSandboxKey = perSandboxEgressLabelKey(egress)
 	return {
 		async verifyNamedObject(signal) {
 			namedObject ??= (async () => {
@@ -726,7 +788,7 @@ export function buildEgressBoundary(
 		async verifyUnion(podLabels, subject, signal) {
 			if (!egressUnionVerificationEnabled(egress)) return
 			const translated = await translate()
-			const key = policyCacheKey(podLabels)
+			const key = policyCacheKey(podLabels, perSandboxKey)
 			const cached = passes.get(key)
 			if (cached !== undefined && now() - cached.at < EGRESS_UNION_CACHE_TTL_MS) {
 				await cached.pending
@@ -760,9 +822,32 @@ export type IngressVerifier = (
 	signal?: AbortSignal,
 ) => Promise<void>
 
-/** Canonical key for one label set — order-independent, so two spellings of the same pod share a memo. */
-function policyCacheKey(podLabels: Readonly<Record<string, string>>): string {
-	return JSON.stringify(Object.entries(podLabels).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
+/**
+ * Canonical key for one label set — order-independent, so two spellings of
+ * the same pod share a memo.
+ *
+ * `excludeKey` drops the PER-SANDBOX egress label, whose value is unique per
+ * acquire. Both memos exist to amortise a namespace-wide policy enumeration
+ * across every sandbox a backend produces, and a key that carried a
+ * once-ever value would give every acquire a miss and leave an entry behind
+ * that nothing ever looks up again — a full enumeration per sandbox, and a
+ * Map that grows for the host's whole life.
+ *
+ * Dropping it is sound at the moment these checks run: the only policy that
+ * could select a pod BY that key and value is that sandbox's own, whose name
+ * is generated in the same call and which does not exist yet. Every other
+ * policy selecting the pod — the operator's baseline, a per-profile one,
+ * anything hand-written — selects on the labels that remain, so two pods
+ * differing only in this label are the same question. The label itself is
+ * still PRESENT in the label set each check is run against; only the memo's
+ * key ignores it.
+ */
+function policyCacheKey(podLabels: Readonly<Record<string, string>>, excludeKey?: string): string {
+	return JSON.stringify(
+		Object.entries(podLabels)
+			.filter(([k]) => k !== excludeKey)
+			.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
+	)
 }
 
 /**
@@ -781,13 +866,17 @@ export function buildIngressVerifier(
 	if (!ingressVerificationEnabled(config.ingress)) return undefined
 	const engine = resolveIngressEngine(config.ingress, config.egress?.engine)
 	const agentPort = config.agentPort ?? DEFAULT_AGENT_PORT
+	// Same exclusion, same reason, as the egress union memo above: a
+	// once-ever label value in the key would make this memo a per-acquire
+	// miss and an unbounded Map. See {@link policyCacheKey}.
+	const perSandboxKey = perSandboxEgressLabelKey(config.egress)
 	return async (podLabels, subject, signal) => {
 		const target = { namespace: config.namespace, podLabels, agentPort, engine, subject }
 		if (cache === undefined) {
 			await verifyIngressPolicyApplied(client, target, signal)
 			return
 		}
-		const key = policyCacheKey(podLabels)
+		const key = policyCacheKey(podLabels, perSandboxKey)
 		let pending = cache.get(key)
 		if (pending === undefined) {
 			pending = verifyIngressPolicyApplied(client, target, signal).catch((err: unknown) => {
@@ -1361,8 +1450,24 @@ export async function acquireKubernetesSandbox(
 	// is built from the same resolution. See `composeAdditionalPodLabels`.
 	// Empty — the only case before a profile is configured — means every body
 	// below is byte for byte what it was.
-	const podLabels = composeAdditionalPodLabels(config.egress)
+	// The per-sandbox selector label rides in the SAME map, through the same
+	// composer, as a second key rather than a second construction — the whole
+	// reason `composeAdditionalPodLabels` takes an `extra`. Its value is the
+	// name of the object this acquire is about to create, which is unique per
+	// acquire and known BEFORE the POST: that is what lets the label travel as
+	// claim-time pod metadata (warm-safe, no cold start) instead of as a patch
+	// to a running pod this backend has no verb for.
+	const perSandboxLabelKey = perSandboxEgressLabelKey(config.egress)
+	const podLabels = composeAdditionalPodLabels(
+		config.egress,
+		perSandboxLabelKey !== undefined ? { [perSandboxLabelKey]: objectName } : undefined,
+	)
 	const profile = egressProfileLabel(config.egress)
+	// Read off the create reply, and off the readiness polls if that reply
+	// carried no object — it is the uid a per-sandbox policy's
+	// `ownerReferences` names and the suffix of its name, so the cluster can
+	// garbage-collect the policy with the object this backend owns.
+	let ownerUid: string | undefined
 	const buildCreateBody = async (): Promise<Record<string, unknown>> => {
 		if (config.warmPoolName !== undefined) {
 			return buildClaimBody({
@@ -1434,7 +1539,15 @@ export async function acquireKubernetesSandbox(
 	try {
 		// Inside the cleanup block: a POST that fails client-side may still have
 		// committed, so the only safe assumption is that the object exists.
-		await deadline.run((signal) => client.request('POST', createPath, createBody, signal))
+		const created = await deadline.run((signal) =>
+			client.request<{ readonly metadata?: { readonly uid?: string } }>(
+				'POST',
+				createPath,
+				createBody,
+				signal,
+			),
+		)
+		ownerUid ??= created?.metadata?.uid
 		const binding =
 			config.warmPoolName !== undefined
 				? await pollForBinding(
@@ -1446,6 +1559,7 @@ export async function acquireKubernetesSandbox(
 								signal,
 							)
 							diagnosablePodName = claim?.status?.sandbox?.name ?? diagnosablePodName
+							ownerUid ??= claim?.metadata?.uid
 							// The pod labels this backend asked the controller for
 							// travel into the read, not because the fail-fast needs
 							// them — `InvalidMetadata` is already one of
@@ -1465,15 +1579,16 @@ export async function acquireKubernetesSandbox(
 						pollBehaviour,
 					)
 				: await pollForBinding(
-						async (signal) =>
-							bindingFromSandbox(
-								await client.request<SandboxResource>(
-									'GET',
-									sandboxPath(namespace, objectName),
-									undefined,
-									signal,
-								),
-							),
+						async (signal) => {
+							const sandbox = await client.request<SandboxResource>(
+								'GET',
+								sandboxPath(namespace, objectName),
+								undefined,
+								signal,
+							)
+							ownerUid ??= sandbox?.metadata?.uid
+							return bindingFromSandbox(sandbox)
+						},
 						deadline,
 						readiness,
 						`sandbox ${objectName}`,
@@ -1527,6 +1642,20 @@ export async function acquireKubernetesSandbox(
 				)
 			}
 		}
+		// Only when the capability is configured, and only after the pod has
+		// been confirmed to carry the selector label: a policy written for a
+		// pod that never got the label would select nothing while the caller
+		// was told its egress had been narrowed.
+		const owner =
+			perSandboxLabelKey === undefined
+				? undefined
+				: {
+						kind: (config.warmPoolName !== undefined ? 'SandboxClaim' : 'Sandbox') as
+							| 'SandboxClaim'
+							| 'Sandbox',
+						name: objectName,
+						uid: assertOwnerUid(ownerUid, objectName, namespace),
+					}
 		return {
 			binding,
 			agent: resolveAgentAddress(binding, agentPort, pod.uid, {
@@ -1538,6 +1667,7 @@ export async function acquireKubernetesSandbox(
 				? { refreshAgent: buildAgentAddressRefresh(client, namespace, binding, agentPort, mode) }
 				: {}),
 			ownedPath,
+			...(owner !== undefined ? { owner, perSandboxLabelValue: objectName } : {}),
 			ttlSeconds,
 			release,
 			renew,
@@ -1642,6 +1772,23 @@ function assertRequestedPodLabelsObserved(
 		if (pod.labels?.[key] === value) continue
 		throw new KubernetesPodLabelNotObservedError({ key, value }, subject, pod.labels ?? {})
 	}
+}
+
+/**
+ * The uid of the object this acquire created, or a refusal naming what was
+ * missing.
+ *
+ * Only reached when `config.egress.perSandbox` is configured, and only after
+ * a create reply and every readiness poll have been read without one — the
+ * API server assigns `metadata.uid` on admission and returns the object it
+ * created, so an object with no uid is an API server that answered something
+ * other than what it was asked for. Refusing is right: without the uid there
+ * is no owner reference, and a per-sandbox policy with no owner is one the
+ * cluster never collects.
+ */
+function assertOwnerUid(uid: string | undefined, objectName: string, namespace: string): string {
+	if (uid !== undefined && uid !== '') return uid
+	throw new KubernetesOwnerUidMissingError(objectName, namespace)
 }
 
 /**
@@ -2436,6 +2583,12 @@ async function admitProbedSandbox(
 	config: KubernetesBackendInternalConfig,
 	options: SandboxBackendOptions,
 	probeTimeoutMs: number,
+	/**
+	 * Present exactly when `config.egress.perSandbox` is configured — which
+	 * is what makes `setNetworkPolicy` present on the handle. See
+	 * `per-sandbox-policy.ts`.
+	 */
+	setNetworkPolicy?: (policy: SandboxNetworkPolicy) => Promise<void>,
 ): Promise<Sandbox> {
 	const sandbox = buildKubernetesSandbox({
 		name: acquisition.binding.name,
@@ -2454,6 +2607,7 @@ async function admitProbedSandbox(
 		...(config.onLeaseRenewalError !== undefined
 			? { onRenewalError: config.onLeaseRenewalError }
 			: {}),
+		...(setNetworkPolicy !== undefined ? { setNetworkPolicy } : {}),
 	})
 	try {
 		await probeSandboxPrivileges(sandbox, acquisition.binding.name, probeTimeoutMs, options.signal)

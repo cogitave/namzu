@@ -17,7 +17,7 @@ into `k8s/` would be a publish-time surprise, not a build error.
 k8s/
   Dockerfile           guest image: node + setpriv/blkid/mkfs.ext4 + the agent
   entrypoint.sh         format/mount (workspace only, root) then exec into setpriv
-  manifests/            apply these to the cluster
+  manifests/            apply these to the cluster (two are opt-in: see step 4)
   scripts/               run these against the cluster once applied
   __tests__/             sh -n/dash -n + PATH-shimmed logic + YAML structure
 ```
@@ -287,6 +287,59 @@ entirely if no backend sets `egress.profile`; nothing else in this directory
 depends on it. Each profile also needs its own applied policy, named
 `<template>-<profile>-egress` by default — see
 `docs/sdk/kubernetes-sandbox.md`'s egress section.
+
+**Using `egress.perSandbox` needs two more manifests, applied together or
+not at all** — they are deliberately absent from the list above:
+
+```sh
+kubectl apply -f manifests/validatingadmissionpolicy-cilium.yaml
+kubectl apply -f manifests/rbac-per-sandbox-egress.yaml
+```
+
+They are prerequisites for the TASK path only: `setNetworkPolicy` is present
+on a task sandbox handle and never on a `KubernetesWorkspace`, whose create
+call refuses a config carrying `egress.perSandbox`
+(`KubernetesWorkspacePerSandboxEgressConfigError`) rather than accepting an
+option it would never use. See `docs/sdk/kubernetes-sandbox.md`.
+
+The first is the admission FENCE: it bounds what the host ServiceAccount may
+write to this namespace's `CiliumNetworkPolicies` — a name of
+`namzu-sbx-<owner uid>`, one selector label keyed
+`sandbox.namzu.ai/per-sandbox-egress` (edit rule 4 if you set
+`egress.perSandbox.labelKey`) **whose value is that owner's own name**, so a
+policy reaches only the pods of the sandbox that owns it, `toFQDNs` entries
+that are each one exact name or one `*.<domain>` pattern over at least two
+labels (`*`, `*.*` and `*.com` are refused), the cluster-DNS rule on port 53,
+an owner reference naming the claim, no address- or entity-based peers, no
+ingress, and no `DELETE` of a policy outside the `namzu-sbx-` prefix — which
+is the operator's own baseline, not another sandbox's policy: a validating
+policy cannot tell which sandboxes a host holds, so a host deleting one of its
+own sandboxes' policies (an allowance removed, not added) is inside the
+bound. **Edit the ServiceAccount username in its `matchConditions` and the
+namespace in its binding** to match this deployment; as shipped they name
+`system:serviceaccount:namzu-sandboxes:namzu-sandbox-host` and
+`namzu-sandboxes`. It matches on that identity alone, so an operator applying
+the baseline policy is unaffected by it.
+
+The second grants that identity `create`/`patch`/`delete` on
+`ciliumnetworkpolicies` — verbs `rbac.yaml` deliberately does not — plus a
+read-only, cluster-scoped `get` on the two admission objects, which the
+backend reads before its first write and refuses without. Both admission
+objects being cluster-scoped is why that read needs the `ClusterRole` and not
+only the namespaced `Role`: applied without it, the host is refused with
+`KubernetesAdmissionFenceUnreadableError` (a `403`, a different file to fix
+than the `404` that raises `KubernetesAdmissionFenceMissingError`) rather than
+being allowed to write unproven. Apply the RBAC without the fence and the host
+holds unbounded write access to every policy in the namespace; the backend
+refuses to write until the fence exists, which covers the host that follows
+its own config and not an attacker holding its token.
+
+The same label-domain prerequisite as `egress.profile` applies: the
+per-sandbox selector key defaults to `sandbox.namzu.ai/per-sandbox-egress`,
+so either the ConfigMap edit above covers it too, or set
+`egress.perSandbox.labelKey` to a key that is already allowed. Cilium has to
+be the CNI for any of it to be ENFORCED; nothing in this repository has
+measured that it is.
 
 (`SandboxWarmPool` last because it immediately starts building replicas from
 `sandboxtemplate-task.yaml` — apply the template it references first, or the

@@ -1,0 +1,83 @@
+# The OPT-IN policy-write grant for per-sandbox egress
+# (`config.egress.perSandbox`), and the one manifest in this directory that
+# `rbac.yaml` deliberately does not include.
+#
+# It is a second Role bound to the SAME ServiceAccount rather than three more
+# verbs in the default one, because RBAC is additive and a file is the only
+# opt-in unit an operator actually chooses: a host that never configures
+# per-sandbox egress must not hold write access to the namespace's network
+# policies, and a stanza inside the default Role would grant it to everyone
+# who applies that file.
+#
+# APPLY BOTH OR NEITHER. These verbs are safe to hold only because
+# validatingadmissionpolicy-cilium.yaml bounds what may be written with them
+# — objects named `namzu-sbx-<owner uid>`, one selector label, `toFQDNs` plus
+# the cluster-DNS rule, nothing else, and no DELETE of anything else. Applying
+# this file without that one hands the host unbounded create/patch/delete on
+# every CiliumNetworkPolicy in the namespace. The backend refuses to write
+# until the fence exists, which covers the host that follows its own config;
+# it does not cover an attacker who already has the token.
+#
+# `get` and `list` are NOT repeated here — `rbac.yaml` already grants them for
+# the egress named-object and union checks, and a Role that re-granted them
+# would drift from that one the first time either check changed.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: namzu-sandbox-host-per-sandbox-egress
+  namespace: namzu-sandboxes
+rules:
+  # `create` writes a sandbox's first policy, `patch` replaces it when the
+  # same sandbox narrows again (a merge patch replaces spec.egress wholesale),
+  # and `delete` is what `setNetworkPolicy([])` issues — the call that drops
+  # back to the configured baseline. Ordinary teardown needs none of them: the
+  # policy carries an ownerReference to the claim, so destroying the sandbox
+  # lets the cluster's garbage collector remove it.
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [create, patch, delete]
+---
+# The fence CHECK's own grant, and the only cluster-scoped rule namzu ships.
+# It has to be a ClusterRole because `ValidatingAdmissionPolicy` and its
+# binding are cluster-scoped objects — a namespaced Role cannot name them at
+# all — and the backend GETs both before its first write, so without this the
+# capability fails closed with a 403 naming the verb and the resource.
+#
+# Read-only, two resources, nothing else. It grants no ability to CREATE or
+# change an admission policy: a host that could write its own fence would not
+# have one.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: namzu-sandbox-host-admission-fence-read
+rules:
+  - apiGroups: [admissionregistration.k8s.io]
+    resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
+    verbs: [get]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: namzu-sandbox-host-admission-fence-read
+subjects:
+  - kind: ServiceAccount
+    name: namzu-sandbox-host
+    namespace: namzu-sandboxes
+roleRef:
+  kind: ClusterRole
+  name: namzu-sandbox-host-admission-fence-read
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: namzu-sandbox-host-per-sandbox-egress
+  namespace: namzu-sandboxes
+subjects:
+  - kind: ServiceAccount
+    name: namzu-sandbox-host
+    namespace: namzu-sandboxes
+roleRef:
+  kind: Role
+  name: namzu-sandbox-host-per-sandbox-egress
+  apiGroup: rbac.authorization.k8s.io

@@ -1,0 +1,260 @@
+# The admission FENCE for per-sandbox egress (`config.egress.perSandbox`).
+#
+# OPT-IN, and a prerequisite rather than a nicety: the host cannot write a
+# per-sandbox policy until this and its binding exist, because the backend
+# GETs both before its first write and refuses — writing nothing — if either
+# is absent.
+#
+# WHY IT HAS TO EXIST. Writing one CiliumNetworkPolicy per live sandbox needs
+# `create`/`patch`/`delete` on `ciliumnetworkpolicies` in the namespace (see
+# rbac-per-sandbox-egress.yaml), and RBAC has no way to say "only the objects
+# you own". Without a fence, a host holding those verbs could widen the
+# operator's own baseline egress policy, or delete it. This policy is what
+# turns "may write policies" into "may write ITS OWN sandboxes' policies, and
+# only ones shaped like an allowlist".
+#
+# WHAT IT ALLOWS the host identity below to write:
+#   - a name of exactly `namzu-sbx-<uid>`, where the uid is the object the
+#     policy names as its owner — so a host can only write a policy for an
+#     object it already holds, and the cluster garbage-collects the policy
+#     when that object goes;
+#   - an `endpointSelector` of exactly ONE matchLabels entry, no
+#     matchExpressions, whose KEY is the per-sandbox label key and whose VALUE
+#     is that owner's own name — so a policy reaches only the pods of the
+#     sandbox that owns it, and not, say, every pod carrying the shared
+#     template label;
+#   - egress rules that are either `toFQDNs` (a hostname allowlist) or the
+#     cluster-DNS rule to kube-system's kube-dns endpoints on port 53, which
+#     is what makes `toFQDNs` resolvable at all;
+#   - `toFQDNs` entries that actually list something: one exact `matchName`
+#     or one `*.<domain>` `matchPattern` over at least two labels, never both
+#     on one entry and never a further glob — `*`, `*.*` and `*.com` are all
+#     refused, because a name allowlist that matches every name is not one;
+#   - nothing else: no `toCIDR`/`toCIDRSet` (an address bypasses the name
+#     check), no `toEntities` (`world` is the whole internet), no
+#     `toServices`/`toGroups`/`toNodes`/`toRequires`, no ingress of any kind,
+#     no `egressDeny`/`ingressDeny`, no `nodeSelector`, and no `specs` list —
+#     that last one is a CiliumNetworkPolicy's alternative to `spec`, and a
+#     fence that checked only `spec` would be walked straight past by it.
+#
+# WHAT IT DELIBERATELY DOES NOT DO. It does not apply to anyone but the host
+# identity in `matchConditions` — an operator applying the baseline policy is
+# unaffected, which is the point: this bounds an automated writer, not a
+# human reviewing a boundary. Change the username below to the ServiceAccount
+# your host actually runs as, the namespace in the binding to the one your
+# sandboxes run in, and the selector key in rule 4 if you set
+# `config.egress.perSandbox.labelKey` away from its default.
+#
+# It also does NOT bound WHICH namzu-sbx-<uid> policy the host may DELETE. The
+# DELETE arm checks the name prefix and nothing else, because a validating
+# policy cannot tell which sandboxes a host holds: what it protects is every
+# policy OUTSIDE that prefix — the operator's own baseline first of all. A
+# host deleting one of its own sandboxes' policies removes an allowance rather
+# than adding one, which is why the prefix is the bound worth having here.
+#
+# NOT MEASURED HERE: whether any of these policies is ENFORCED. That is one
+# CNI's data plane and no cluster available to this repository runs it. What
+# WAS measured on a local single-node cluster (Kubernetes v1.37, the upstream
+# CiliumNetworkPolicy CRD installed without its data plane): that this policy
+# admits the exact body the backend writes, and refuses a name without the
+# prefix, an owner-reference uid that does not match the name, a two-label
+# selector, a one-label selector whose VALUE is not the owner's name (the
+# shared template label, for one), `toFQDNs: [{matchPattern: '*'}]`, `'*.*'`,
+# `'*.com'`, an entry carrying both `matchName` and `matchPattern`, a
+# kube-dns rule on a port other than 53, `toEntities: world`, `toCIDR`, an
+# ingress rule, a `specs` list, and a DELETE of a policy outside the
+# `namzu-sbx-` prefix (the operator's own baseline).
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: namzu-per-sandbox-egress
+spec:
+  # Fail closed. An expression that errors — a field of an unexpected type, a
+  # shape nothing here anticipated — refuses the write rather than admitting
+  # it, which is the only safe direction for a fence.
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [cilium.io]
+        apiVersions: [v2]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [ciliumnetworkpolicies]
+  matchConditions:
+    # The ONE identity this policy bounds. Everything else in the namespace —
+    # an operator applying the baseline policy, a platform controller — is
+    # matched out here and validated by none of the rules below.
+    - name: only-the-namzu-sandbox-host
+      expression: >-
+        request.userInfo.username ==
+        'system:serviceaccount:namzu-sandboxes:namzu-sandbox-host'
+  variables:
+    # `object` is null on DELETE and `oldObject` is null on CREATE; one
+    # variable so every rule below reads the object under review whichever
+    # verb brought it here.
+    - name: target
+      expression: "request.operation == 'DELETE' ? oldObject : object"
+    - name: writing
+      expression: "request.operation != 'DELETE'"
+    - name: owners
+      expression: >-
+        has(variables.target.metadata.ownerReferences)
+        ? variables.target.metadata.ownerReferences : []
+    - name: spec
+      expression: "has(variables.target.spec) ? variables.target.spec : {}"
+    - name: egress
+      expression: "has(variables.spec.egress) ? variables.spec.egress : []"
+    - name: selector
+      expression: >-
+        has(variables.spec.endpointSelector) ? variables.spec.endpointSelector : {}
+  validations:
+    # 1. The name. Applies to DELETE too, which is what stops a host from
+    #    deleting the operator's own baseline policy with the verbs it holds.
+    - expression: "variables.target.metadata.name.startsWith('namzu-sbx-')"
+      message: >-
+        a namzu sandbox host may only write CiliumNetworkPolicies named
+        namzu-sbx-<owner uid>
+      reason: Forbidden
+    # 2. Exactly one owner, and the name is derived from its uid. Together
+    #    with rule 1 this is what limits a host to objects it actually holds:
+    #    the uid is assigned by the API server on admission, so a host cannot
+    #    invent one for an object it never created.
+    - expression: >-
+        !variables.writing || (size(variables.owners) == 1 &&
+        variables.owners[0].uid != '' &&
+        variables.target.metadata.name == 'namzu-sbx-' + variables.owners[0].uid)
+      message: >-
+        the policy must carry exactly one ownerReference whose uid is the
+        suffix of its own name
+      reason: Forbidden
+    # 3. The owner is one of this system's own objects, and does not block its
+    #    own deletion (which would need a verb no namzu Role grants).
+    - expression: >-
+        !variables.writing || (variables.owners[0].kind in ['SandboxClaim', 'Sandbox'] &&
+        variables.owners[0].apiVersion in
+        ['extensions.agents.x-k8s.io/v1beta1', 'agents.x-k8s.io/v1beta1'] &&
+        !(has(variables.owners[0].blockOwnerDeletion) &&
+        variables.owners[0].blockOwnerDeletion))
+      message: >-
+        the ownerReference must name a SandboxClaim or a Sandbox and must not
+        set blockOwnerDeletion
+      reason: Forbidden
+    # 4. The selector names THIS policy's own sandbox and nothing else.
+    #
+    #    One matchLabels entry and no matchExpressions is the shape, but the
+    #    shape alone is not the bound: a single label is exactly what selects
+    #    every sandbox pod in the namespace (`sandbox.namzu.ai/template:
+    #    namzu-task` is one label). What bounds it is the KEY and the VALUE
+    #    together — the per-sandbox label key, holding the name of the object
+    #    the policy is owned by, which the backend puts on the pod as
+    #    claim-time metadata and selects on. Rules 1 and 2 tie the policy's
+    #    NAME to an owner uid the API server assigned; this ties its REACH to
+    #    that same owner, so a host can neither write a policy for an object
+    #    it does not hold nor point one it does hold at somebody else's pods.
+    #
+    #    The VALUE check alone would not do it: a host can choose the names of
+    #    the objects it creates, so a claim named after a shared label's value
+    #    (`namzu-task`) would satisfy "value equals the owner's name" while
+    #    selecting on `sandbox.namzu.ai/template` and reaching every sandbox
+    #    pod in the namespace. Pinning the KEY is what closes that.
+    #
+    #    CHANGE THIS KEY if you set `config.egress.perSandbox.labelKey`: it is
+    #    the one literal here that follows the host's configuration rather
+    #    than this file's own defaults, and a mismatch refuses every write.
+    - expression: >-
+        !variables.writing || (has(variables.selector.matchLabels) &&
+        size(variables.selector.matchLabels) == 1 &&
+        !has(variables.selector.matchExpressions) &&
+        size(variables.owners) == 1 &&
+        variables.selector.matchLabels.all(k,
+        k == 'sandbox.namzu.ai/per-sandbox-egress' &&
+        variables.selector.matchLabels[k] == variables.owners[0].name))
+      message: >-
+        the endpointSelector must carry exactly one matchLabels entry, no
+        matchExpressions, the per-sandbox label key
+        (sandbox.namzu.ai/per-sandbox-egress, or whatever this policy was
+        edited to name) and a value equal to the ownerReference's name — a
+        policy may only select the pods of the sandbox that owns it
+      reason: Forbidden
+    # 5. Nothing but egress, and nothing outside `spec`. `specs` is a
+    #    CiliumNetworkPolicy's list-of-specs alternative to `spec`; a fence
+    #    that read only `spec` would be bypassed by it outright.
+    - expression: >-
+        !variables.writing || (!has(variables.target.specs) &&
+        !has(variables.spec.ingress) && !has(variables.spec.ingressDeny) &&
+        !has(variables.spec.egressDeny) && !has(variables.spec.nodeSelector) &&
+        size(variables.egress) > 0)
+      message: >-
+        the policy may carry only spec.endpointSelector and spec.egress — no
+        specs list, no ingress, no deny rules and no nodeSelector
+      reason: Forbidden
+    # 6. Every egress rule is either a hostname allowlist or the cluster-DNS
+    #    rule that makes one resolvable. An address-based or entity-based peer
+    #    would let a host reach anything while the policy still looked like a
+    #    name allowlist.
+    #
+    #    The kube-dns rule is bounded to port 53 as well as to kube-system's
+    #    kube-dns endpoints: the rule exists so the DNS proxy sees lookups,
+    #    and a toPorts entry naming any other port would be ordinary egress
+    #    to those pods wearing the DNS rule's clothes.
+    - expression: >-
+        !variables.writing || variables.egress.all(r,
+        !has(r.toCIDR) && !has(r.toCIDRSet) && !has(r.toEntities) &&
+        !has(r.toServices) && !has(r.toGroups) && !has(r.toNodes) &&
+        !has(r.toRequires) &&
+        ((has(r.toFQDNs) && !has(r.toEndpoints)) ||
+        (has(r.toEndpoints) && !has(r.toFQDNs) && r.toEndpoints.all(e,
+        has(e.matchLabels) &&
+        'k8s:io.kubernetes.pod.namespace' in e.matchLabels &&
+        e.matchLabels['k8s:io.kubernetes.pod.namespace'] == 'kube-system' &&
+        'k8s:k8s-app' in e.matchLabels &&
+        e.matchLabels['k8s:k8s-app'] == 'kube-dns') &&
+        (!has(r.toPorts) || r.toPorts.all(p,
+        has(p.ports) && p.ports.all(q, q.port == '53'))))))
+      message: >-
+        every egress rule must be either toFQDNs or the kube-dns rule on port
+        53; toCIDR, toCIDRSet, toEntities, toServices, toGroups, toNodes and
+        toRequires are all refused
+      reason: Forbidden
+    # 7. An allowlist has to list something. `toFQDNs: [{matchPattern: '*'}]`
+    #    satisfies rule 6 to the letter — it IS a toFQDNs rule — and means
+    #    every name that resolves, which is the whole internet reached without
+    #    any of the peer kinds rule 6 refuses. So the ENTRIES are checked too:
+    #    each one is exactly one of an exact name or a `*.<domain>` pattern
+    #    over at least two labels, and neither may carry a further glob.
+    #
+    #    `*` and `*.*` are refused, and so is a single-label pattern such as
+    #    `*.com`: a whole public suffix is not an allowlist entry, and the
+    #    backend refuses the `.com` that would produce it for the same reason
+    #    — the fence and the writer agree on the grammar, so a caller gets a
+    #    named host error rather than an opaque 403 from here.
+    - expression: >-
+        !variables.writing || variables.egress.all(r,
+        !has(r.toFQDNs) || (size(r.toFQDNs) > 0 && r.toFQDNs.all(f,
+        (has(f.matchName) != has(f.matchPattern)) &&
+        (!has(f.matchName) ||
+        f.matchName.matches('^[a-zA-Z0-9]([-a-zA-Z0-9]*[a-zA-Z0-9])?([.][a-zA-Z0-9]([-a-zA-Z0-9]*[a-zA-Z0-9])?)*$')) &&
+        (!has(f.matchPattern) ||
+        f.matchPattern.matches('^[*][.][a-zA-Z0-9]([-a-zA-Z0-9]*[a-zA-Z0-9])?([.][a-zA-Z0-9]([-a-zA-Z0-9]*[a-zA-Z0-9])?)+$')))))
+      message: >-
+        every toFQDNs entry must be exactly one of matchName (an exact
+        hostname) or matchPattern of the form *.<domain> over at least two
+        labels; '*', '*.*' and a single-label pattern such as '*.com' are all
+        refused, because an allowlist that matches every name is not one
+      reason: Forbidden
+---
+# The BINDING. A ValidatingAdmissionPolicy with no binding is inert — it
+# validates nothing at all — which is why the backend checks for this object
+# separately rather than inferring it from the policy's existence.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: namzu-per-sandbox-egress-binding
+spec:
+  policyName: namzu-per-sandbox-egress
+  # Deny, not Warn or Audit: a fence that logged would leave the host holding
+  # unbounded write access to every policy in the namespace.
+  validationActions: [Deny]
+  matchResources:
+    namespaceSelector:
+      matchLabels:
+        kubernetes.io/metadata.name: namzu-sandboxes

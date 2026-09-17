@@ -179,6 +179,7 @@ import {
 	type EgressProfileLabel,
 	assertEgressPolicyIsEnforceable,
 	assertEgressProfileIsUsable,
+	assertWorkspaceCarriesNoPerSandboxEgress,
 	composeAdditionalPodLabels,
 	egressProfileLabel,
 } from './egress-policy.js'
@@ -1823,6 +1824,17 @@ export async function createKubernetesWorkspace(
 	options: KubernetesWorkspaceOptions,
 ): Promise<KubernetesWorkspace> {
 	options.signal?.throwIfAborted()
+	// `config.egress.perSandbox` is the one part of `config.egress` this path
+	// cannot honour at all, and it is refused FIRST — before readiness, before
+	// the client, before any request. It configures `setNetworkPolicy`, which
+	// a workspace handle never carries: nothing in the create path below
+	// composes a per-sandbox pod label or tracks an owner uid for one, and
+	// the option exists to make the method present on a TASK handle. Accepting
+	// it here and omitting the method is the silent downgrade every other
+	// refusal in `egress-policy.ts` exists to prevent, so it is refused by
+	// name rather than validated: `assertPerSandboxEgressIsUsable` would
+	// check a config this path serves no purpose for and report it as usable.
+	assertWorkspaceCarriesNoPerSandboxEgress(config.egress)
 	const readiness = resolveKubernetesReadiness(config)
 	const namespace = config.namespace
 	const name = workspaceSandboxName(options.workspaceId)

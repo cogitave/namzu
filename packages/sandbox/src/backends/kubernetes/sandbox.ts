@@ -14,13 +14,31 @@
  * the wait), `writeFile`, `readFile`, `listFiles`, `walkFiles`,
  * `openTerminal`, `openTcpConnection`, `destroy`.
  *
+ * Conditionally present, on the same contract read the other way:
+ *
+ *  - `setNetworkPolicy` — present on a TASK handle exactly when the backend
+ *    was configured with `egress.perSandbox`, which is what gives this host
+ *    an object to write (one `CiliumNetworkPolicy` per sandbox, owned by the
+ *    claim), an admission fence bounding what it may write, and the RBAC to
+ *    write it. Without that configuration there is still no per-running-pod
+ *    knob to turn, so the method is ABSENT rather than present and throwing —
+ *    the same rule, applied to a capability that now sometimes exists.
+ *    Presence follows configuration alone, never a probe of the cluster. See
+ *    `per-sandbox-policy.ts`.
+ *
+ *    A WORKSPACE handle never carries it: `KubernetesWorkspace`'s create path
+ *    builds its handle through `buildKubernetesSandbox` without this option,
+ *    because it composes no per-sandbox pod label and tracks no owner uid for
+ *    one. That is a property of the PATH and not of the configuration, so it
+ *    is not answered by omission: `createKubernetesWorkspace` refuses a
+ *    config carrying `egress.perSandbox` outright
+ *    (`KubernetesWorkspacePerSandboxEgressConfigError`, before any request)
+ *    rather than letting the option declare a capability the path never
+ *    serves — see `workspace.ts`.
+ *
  * Absent on purpose, because the SDK's contract says a backend that cannot
  * honour an optional method must omit it rather than accept and ignore:
  *
- *  - `setNetworkPolicy` — egress here is a `NetworkPolicy` attached to the
- *    pool's `SandboxTemplate`. There is no per-running-pod knob to turn, and
- *    a policy accepted and not applied is worse than one never offered: the
- *    caller stops looking.
  *  - `spawnDetached` — the guest agent has no op that starts a process and
  *    returns it running. A host asking for background jobs must be told no.
  *
@@ -50,6 +68,7 @@ import type {
 	SandboxExecResult,
 	SandboxFileEntry,
 	SandboxId,
+	SandboxNetworkPolicy,
 	SandboxReadFileOptions,
 	SandboxStatus,
 	SandboxTcpConnectOptions,
@@ -145,6 +164,30 @@ interface KubernetesSandboxBaseOptions {
 	readonly onUnconfirmedCancellation?: (
 		error: RemoteCancellationUnknownError,
 	) => Promise<SandboxRetirementObservation>
+	/**
+	 * Narrow this sandbox's egress while it runs — present on the handle
+	 * EXACTLY when this is passed, and passed by the TASK acquire exactly when
+	 * `config.egress.perSandbox` is configured.
+	 *
+	 * That conditional presence is what the SDK's omit-or-throw contract
+	 * licenses and what makes it honest here: without the configuration there
+	 * is no policy object to write, no admission fence bounding what this
+	 * host may write, and no RBAC grant to write it with, so the method is
+	 * ABSENT rather than present and throwing. With it, `per-sandbox-policy.ts`
+	 * writes one `CiliumNetworkPolicy` per sandbox, owned by the object the
+	 * acquire created.
+	 *
+	 * The workspace passes NO such option whatever the config says — its
+	 * create path composes no per-sandbox pod label and tracks no owner uid
+	 * for one — and `createKubernetesWorkspace` refuses
+	 * `config.egress.perSandbox` rather than silently omitting the method the
+	 * option asks for.
+	 *
+	 * Presence depends only on configuration — never on a runtime probe of
+	 * the cluster — so a caller's capability detection cannot come out
+	 * differently depending on when it asked.
+	 */
+	readonly setNetworkPolicy?: (policy: SandboxNetworkPolicy) => Promise<void>
 }
 
 /**
@@ -212,6 +255,9 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 	// line carrying an id is also a `kubectl get sandbox` argument.
 	const id = options.name as SandboxId
 	const transport = options.transport
+	// Captured as a const so the conditional member below narrows: the method
+	// is on the handle if and only if this is defined, decided once, here.
+	const setNetworkPolicy = options.setNetworkPolicy
 
 	type Lifecycle = 'active' | 'retiring' | 'destroyed' | 'gone'
 	let lifecycle: Lifecycle = 'active'
@@ -410,6 +456,21 @@ export function buildKubernetesSandbox(options: KubernetesSandboxOptions): Kuber
 			assertAdmissible('readFileStream')
 			return transport.readFileStream(path, readOptions)
 		},
+
+		// Present only when the backend was configured for per-sandbox egress
+		// — see {@link KubernetesSandboxBaseOptions.setNetworkPolicy}. The
+		// admissibility gate is this file's, not the writer's, so a destroyed
+		// or cluster-removed sandbox refuses BY NAME here, exactly as every
+		// other method does, rather than failing at the API server one round
+		// trip later.
+		...(setNetworkPolicy !== undefined
+			? {
+					setNetworkPolicy: async (policy: SandboxNetworkPolicy): Promise<void> => {
+						assertAdmissible('setNetworkPolicy')
+						await setNetworkPolicy(policy)
+					},
+				}
+			: {}),
 
 		async openTerminal(terminalOptions: OpenTerminalOptions): Promise<TerminalSession> {
 			assertAdmissible('openTerminal')

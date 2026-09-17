@@ -98,6 +98,7 @@ import {
 	selectorIsReadable,
 } from './ingress-policy.js'
 import { KubernetesAlreadyGoneError, type KubernetesClient } from './k8s-client.js'
+import type { KubernetesOwnerReference } from './objects.js'
 import {
 	CILIUM_NETWORK_POLICY_API_GROUP,
 	CILIUM_NETWORK_POLICY_API_VERSION,
@@ -249,6 +250,15 @@ export interface KubernetesCiliumEgressNarrowing {
 	 * port configured in `ports`/`hostPorts` is limited to `tlsPorts` rather
 	 * than left with no port restriction at all, because a `serverNames`
 	 * rule needs a port to attach to.
+	 *
+	 * REFUSED for a `.domain` allowlist entry, with
+	 * {@link KubernetesNetworkPolicyHostError} and nothing written: a server
+	 * name is one exact SNI value a handshake presents, while the entry means
+	 * a name PLUS its subdomains, and no single value means both — see
+	 * {@link assertHostsFitNarrowing}. The refusal is the entry's, not this
+	 * option's, so it fires wherever `tlsServerNames` can be set:
+	 * `config.egress.ciliumNarrowing` on the config-level allowlist and
+	 * `config.egress.perSandbox.narrowing` on the per-sandbox one.
 	 */
 	readonly tlsServerNames?: boolean
 	/**
@@ -335,6 +345,127 @@ export interface KubernetesEgressConfig {
 	 * domain is upstream's own default and needs no ConfigMap edit at all.
 	 */
 	readonly profileLabelKey?: string
+	/**
+	 * Opt in to PER-SANDBOX egress: one `CiliumNetworkPolicy` per live
+	 * sandbox, written by this host when a caller calls
+	 * `Sandbox.setNetworkPolicy`, owned by the object the acquire created so
+	 * the cluster garbage-collects it.
+	 *
+	 * Unset (the default) is every release before this one: `setNetworkPolicy`
+	 * is ABSENT from the handle, exactly as the SDK's omit-or-throw contract
+	 * asks of a backend that cannot honour an optional method, and this
+	 * backend issues no policy write of any kind. Presence depends only on
+	 * this field — never on a runtime probe — so a host can decide what it
+	 * has from its own config rather than from a call that might fail.
+	 *
+	 * TWO OPERATOR PREREQUISITES, and neither is a nicety: the admission
+	 * policy named below (with its binding) has to exist, and the host's
+	 * ServiceAccount needs the write verbs the default Role deliberately does
+	 * not grant. See {@link KubernetesPerSandboxEgressConfig}.
+	 */
+	readonly perSandbox?: KubernetesPerSandboxEgressConfig
+}
+
+/**
+ * Per-sandbox egress: what it takes to let a host narrow ONE live sandbox's
+ * egress without touching any other sandbox's.
+ *
+ * The mechanism is a `CiliumNetworkPolicy` per sandbox, named
+ * `namzu-sbx-<uid of the object this backend created>`, selecting that one
+ * sandbox's pod through a per-sandbox label, and carrying an
+ * `ownerReferences` entry naming that same object — so `destroy()` deletes
+ * the claim (or the Sandbox) and the cluster's garbage collector removes the
+ * policy, with this backend issuing no deletion of its own.
+ *
+ * It is NOT the docker backend's mechanism. That one is an egress PROXY with
+ * no relationship to any policy object; the only two things worth taking from
+ * it are its refusal discipline and `SandboxNetworkPolicy.allowedHosts`'s
+ * `.domain`-prefix wildcard semantics.
+ *
+ * A per-sandbox list ADDS to {@link KubernetesEgressConfig.policy}, because
+ * the cluster unions every policy that selects a pod. That makes it the whole
+ * boundary under a `'no-network'` or `'deny-all'` baseline — the deployment
+ * this is for — and a no-op addition under `'allow-all'`, where
+ * `setNetworkPolicy([])` also does not deny everything the way
+ * `SandboxNetworkPolicy` describes. Neither combination is refused; pair this
+ * with a denying `policy.kind` when `setNetworkPolicy` is meant to BE the
+ * boundary rather than to widen one.
+ */
+export interface KubernetesPerSandboxEgressConfig {
+	/**
+	 * Must be `'cilium'`. `'core'` is accepted by the TYPE and refused
+	 * SYNCHRONOUSLY during host wiring, the same way
+	 * {@link assertEgressPolicyIsEnforceable} refuses a hostname allowlist
+	 * with no FQDN-capable engine: core `NetworkPolicy` has no hostname
+	 * concept at all, so there is nothing for an `allowedHosts` list to
+	 * become. It is spelled out in the type rather than fixed to the one
+	 * legal value so the refusal can name what was configured.
+	 */
+	readonly engine: KubernetesEgressEngine
+	/**
+	 * Name of the operator-applied `ValidatingAdmissionPolicy` that bounds
+	 * what this host may write. Checked — with its binding — BEFORE the first
+	 * write, and the write is refused with nothing sent if either object is
+	 * missing.
+	 *
+	 * The fence is the whole reason this capability can be granted at all:
+	 * the RBAC it needs is `create`/`patch`/`delete` on the namespace's
+	 * `ciliumnetworkpolicies`, which without a fence would let a compromised
+	 * host widen or delete the operator's own baseline policy. The shipped
+	 * example is `k8s/manifests/validatingadmissionpolicy-cilium.yaml`.
+	 */
+	readonly admissionPolicyName: string
+	/**
+	 * Name of the `ValidatingAdmissionPolicyBinding` that ATTACHES the policy
+	 * above. Defaults to `${admissionPolicyName}-binding`, which is what the
+	 * shipped manifest names it.
+	 *
+	 * Checked separately because a `ValidatingAdmissionPolicy` with no
+	 * binding validates nothing at all — it is inert, and an inert fence
+	 * reads exactly like an enforced one from the object alone.
+	 */
+	readonly admissionPolicyBindingName?: string
+	/**
+	 * Label key the per-sandbox selector is written under. Defaults to
+	 * {@link DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY}.
+	 *
+	 * Its VALUE is the name of the object this backend created for the
+	 * sandbox, so it is unique per acquire and known before the create POST —
+	 * which is what lets it travel as claim-time pod metadata through
+	 * {@link composeAdditionalPodLabels}, the ONE composer, rather than as a
+	 * patch to a running pod this backend has no verb for.
+	 *
+	 * Same operator prerequisite as {@link KubernetesEgressConfig.profile}:
+	 * the key's domain has to be in the controller's `allowed-label-domains`
+	 * allowlist, or the claim is refused with the controller's own reason.
+	 */
+	readonly labelKey?: string
+	/**
+	 * Port, DNS-name and TLS-server-name narrowing applied to the policies
+	 * `setNetworkPolicy` writes — the same shape as
+	 * {@link KubernetesEgressConfig.ciliumNarrowing}, and deliberately its own
+	 * field rather than a reuse of it: that one narrows the ONE config-level
+	 * policy, which is only a hostname allowlist at all when
+	 * `policy.kind` is `'static'` or `'resolver'`, while these narrow the
+	 * per-sandbox policies of a deployment whose baseline is usually
+	 * `'deny-all'` or `'no-network'`.
+	 *
+	 * Unset (the default) emits one `toFQDNs` rule per host with no
+	 * `toPorts` at all — every port on an allowed host reachable, which is
+	 * what `SandboxNetworkPolicy` itself says (it names hosts, not ports).
+	 *
+	 * `hostPorts` is keyed by the `allowedHosts` entry AS WRITTEN, leading
+	 * dot included: a `.example.com` entry needs the key `.example.com`, even
+	 * though the rule it produces says `example.com` plus `*.example.com`.
+	 *
+	 * `tlsServerNames` and a `.domain` entry are REFUSED together, with
+	 * {@link KubernetesNetworkPolicyHostError} and nothing written. A TLS
+	 * server name is one exact SNI value; the expanded entry is a name and a
+	 * pattern, and no single SNI value means both — `example.com` would deny
+	 * every subdomain the policy claims to allow. List the exact hosts, or
+	 * leave `tlsServerNames` off for a domain list.
+	 */
+	readonly narrowing?: KubernetesCiliumEgressNarrowing
 }
 
 /**
@@ -435,10 +566,12 @@ export function egressProfileLabel(
 }
 
 /**
- * Refuse a `profileLabelKey` the API server would not take, or that this
- * backend already uses for something else.
+ * Why a label KEY is unusable, or `undefined` when it is fine — the grammar
+ * half of the two checks below, shared because the API server's rule is the
+ * same whichever of this backend's label keys is being configured and two
+ * spellings of it would be two rules.
  */
-function assertUsableProfileLabelKey(key: string): void {
+function labelKeyProblem(key: string): string | undefined {
 	const slash = key.indexOf('/')
 	const name = slash === -1 ? key : key.slice(slash + 1)
 	const prefix = slash === -1 ? undefined : key.slice(0, slash)
@@ -447,11 +580,19 @@ function assertUsableProfileLabelKey(key: string): void {
 		(prefix !== undefined && !LABEL_KEY_PREFIX.test(prefix)) ||
 		key.indexOf('/', slash + 1) !== -1
 	) {
-		throw new KubernetesEgressProfileConfigError(
-			'profileLabelKey',
-			key,
-			'is not a Kubernetes label key (an optional DNS-subdomain prefix, a single slash, then a name of at most 63 characters)',
-		)
+		return 'is not a Kubernetes label key (an optional DNS-subdomain prefix, a single slash, then a name of at most 63 characters)'
+	}
+	return undefined
+}
+
+/**
+ * Refuse a `profileLabelKey` the API server would not take, or that this
+ * backend already uses for something else.
+ */
+function assertUsableProfileLabelKey(key: string): void {
+	const problem = labelKeyProblem(key)
+	if (problem !== undefined) {
+		throw new KubernetesEgressProfileConfigError('profileLabelKey', key, problem)
 	}
 	// The one legal key that must not be used: it is the key this backend
 	// stamps the SandboxTemplate name under, and the profile label is applied
@@ -476,6 +617,192 @@ function assertUsableProfileLabelKey(key: string): void {
  */
 export function assertEgressProfileIsUsable(egress: KubernetesEgressConfig | undefined): void {
 	egressProfileLabel(egress)
+}
+
+/**
+ * Default {@link KubernetesPerSandboxEgressConfig.labelKey} — the key the
+ * per-sandbox policy's `endpointSelector` matches on.
+ *
+ * In this backend's own label domain, for the same reason the profile key is
+ * (see {@link DEFAULT_EGRESS_PROFILE_LABEL_KEY}), and carrying the same
+ * operator prerequisite: the controller's `allowed-label-domains` allowlist
+ * has to admit `sandbox.namzu.ai`, or every claim carrying it is refused with
+ * {@link KubernetesPodLabelsRejectedError} as the cause. A deployment that
+ * would rather not edit that ConfigMap sets this to a key under
+ * `sandbox.users.io`, which is upstream's own default domain.
+ */
+export const DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY = 'sandbox.namzu.ai/per-sandbox-egress'
+
+/**
+ * Named refusal for a `config.egress.perSandbox` this backend can read but
+ * not honour. Thrown SYNCHRONOUSLY from `buildKubernetesBackend`, beside the
+ * policy and profile refusals, so a host that has mis-declared the capability
+ * learns it during wiring rather than from the first `setNetworkPolicy` call
+ * — which may be an hour into a run, after work that cannot be redone.
+ *
+ * Its own class rather than a reuse of {@link KubernetesEgressProfileConfigError}
+ * for the reason that one is not a reuse of
+ * {@link KubernetesEgressPolicyConfigError}: an operator reading a refusal
+ * should not have to work out which level of `config.egress` the named field
+ * belongs to.
+ */
+export class KubernetesPerSandboxEgressConfigError extends Error {
+	override readonly name = 'KubernetesPerSandboxEgressConfigError'
+
+	constructor(
+		readonly field: 'engine' | 'admissionPolicyName' | 'admissionPolicyBindingName' | 'labelKey',
+		readonly value: string,
+		reason: string,
+	) {
+		super(
+			`kubernetes: config.egress.perSandbox.${field} is unusable: ${JSON.stringify(value)} ${reason}. Per-sandbox egress writes one CiliumNetworkPolicy per live sandbox, selected by a per-sandbox pod label and fenced by an operator-applied ValidatingAdmissionPolicy, so a value this backend cannot honour would leave either a policy that selects nothing or a write the fence refuses. Refusing during host wiring rather than at the first setNetworkPolicy call.`,
+		)
+	}
+}
+
+/**
+ * The per-sandbox selector label KEY this config asks for, or nothing at all
+ * when `perSandbox` is unset — the one place the default is applied, so the
+ * pod label, the policy selector and the admission policy's own expectation
+ * cannot disagree.
+ *
+ * Validates as it resolves, exactly as {@link egressProfileLabel} does.
+ */
+export function perSandboxEgressLabelKey(
+	egress: KubernetesEgressConfig | undefined,
+): string | undefined {
+	const perSandbox = egress?.perSandbox
+	if (perSandbox === undefined) return undefined
+	const key = perSandbox.labelKey ?? DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY
+	const problem = labelKeyProblem(key)
+	if (problem !== undefined) {
+		throw new KubernetesPerSandboxEgressConfigError('labelKey', key, problem)
+	}
+	if (key === SANDBOX_TEMPLATE_LABEL_KEY) {
+		throw new KubernetesPerSandboxEgressConfigError(
+			'labelKey',
+			key,
+			'is the key this backend writes the SandboxTemplate name under, so a pod would carry a sandbox name where its template label belongs and every policy selecting the template would stop selecting it',
+		)
+	}
+	// The profile's key is refused from the other direction too — see
+	// `composeAdditionalPodLabels` — but naming it HERE names the field a
+	// reader has to change, which the generic collision message cannot.
+	const profile = egressProfileLabel(egress)
+	if (profile !== undefined && key === profile.key) {
+		throw new KubernetesPerSandboxEgressConfigError(
+			'labelKey',
+			key,
+			'is also config.egress.profileLabelKey, and both are written into the SAME pod-label map — one value would silently replace the other, and whichever lost would be a label a policy selector still expects',
+		)
+	}
+	return key
+}
+
+/**
+ * Validate `config.egress.perSandbox` in full — the wiring-time hook, so a
+ * mis-declared capability is refused the same moment an unenforceable policy
+ * or an unusable profile is.
+ *
+ * `engine: 'core'` is the refusal the SDK's contract cares about: core
+ * `NetworkPolicy` cannot express a hostname at all, so a host that configured
+ * it would be told "policy applied" about an object that could never carry
+ * the allowlist. It is refused here rather than from the method, which means
+ * a `'core'` deployment never gets a handle carrying the method in the first
+ * place.
+ */
+export function assertPerSandboxEgressIsUsable(egress: KubernetesEgressConfig | undefined): void {
+	const perSandbox = egress?.perSandbox
+	if (perSandbox === undefined) return
+	if (perSandbox.engine !== 'cilium') {
+		throw new KubernetesPerSandboxEgressConfigError(
+			'engine',
+			perSandbox.engine,
+			"is not 'cilium'; a per-sandbox allowlist is a list of HOSTNAMES, and core NetworkPolicy has only ipBlock, podSelector and namespaceSelector — it has no hostname concept to translate one into",
+		)
+	}
+	// `admissionPolicyName` is REQUIRED by the type; the cast is for the
+	// caller reaching here from JavaScript, or through a cast of its own.
+	// There is no default and there must not be one: the fence is what makes
+	// the policy-write RBAC safe to grant, and a host that could skip naming
+	// it would hold create/patch/delete on every CiliumNetworkPolicy in the
+	// namespace with nothing bounding what it writes.
+	const names = [
+		['admissionPolicyName', perSandbox.admissionPolicyName as string | undefined, true],
+		['admissionPolicyBindingName', perSandbox.admissionPolicyBindingName, false],
+	] as const
+	for (const [field, value, required] of names) {
+		if (value === undefined) {
+			if (!required) continue
+			throw new KubernetesPerSandboxEgressConfigError(
+				field,
+				'',
+				'is required, and has no default: an unnamed fence is an unchecked one',
+			)
+		}
+		if (value === '' || value.trim() !== value) {
+			throw new KubernetesPerSandboxEgressConfigError(
+				field,
+				value,
+				'is not an object name (an empty or space-padded name matches nothing, so the fence check would refuse every write)',
+			)
+		}
+	}
+	if (perSandbox.narrowing !== undefined) {
+		assertCiliumNarrowingIsUsable(perSandbox.narrowing, 'perSandbox.narrowing')
+	}
+	perSandboxEgressLabelKey(egress)
+}
+
+/**
+ * Named refusal for `config.egress.perSandbox` reaching an entry point that
+ * can never carry the capability it configures: `createKubernetesWorkspace`.
+ *
+ * `perSandbox` exists to make `Sandbox.setNetworkPolicy` PRESENT on a TASK
+ * handle, where the acquire creates the object each policy is named after and
+ * owned by and stamps the per-sandbox pod label its selector matches, and
+ * where the RBAC and the admission fence are the ones that bound the write.
+ * A workspace's create path does none of that — it composes no per-sandbox
+ * pod label and tracks no owner uid for one — so on that path the option
+ * would be accepted and mean nothing at all: exactly the "declared and
+ * silently unused" configuration this module refuses everywhere else. The
+ * alternative, omitting the method and saying nothing, is how a host comes to
+ * believe it narrowed a workspace's egress.
+ *
+ * NOT a variant of {@link KubernetesPerSandboxEgressConfigError}, which is
+ * about a `perSandbox` value this backend cannot honour ANYWHERE (an engine
+ * with no hostname concept, an unnamed fence). This one is about a `perSandbox`
+ * value it honours perfectly well on the other entry point, so a caller
+ * catching the sibling for a typo'd value does not also catch a correct
+ * configuration aimed at the wrong path.
+ */
+export class KubernetesWorkspacePerSandboxEgressConfigError extends Error {
+	override readonly name = 'KubernetesWorkspacePerSandboxEgressConfigError'
+
+	constructor() {
+		super(
+			`kubernetes: config.egress.perSandbox is set, but a KubernetesWorkspace cannot carry the capability it configures: Sandbox.setNetworkPolicy is implemented on a TASK handle, whose acquire creates the object each per-sandbox policy is named after and owned by and stamps the pod label its selector matches, while a workspace's create path composes no per-sandbox pod label and tracks no owner uid for one. Accepting the option here would declare a capability this path never serves — the silent downgrade this backend refuses on every other entry point — so it is refused before anything is sent. Drop egress.perSandbox from the configuration workspaces are created from (a backend serving task sandboxes can keep it), or create a task sandbox with it, where the method is present.`,
+		)
+	}
+}
+
+/**
+ * Refuse `config.egress.perSandbox` on the entry point that cannot carry it —
+ * `createKubernetesWorkspace`. See
+ * {@link KubernetesWorkspacePerSandboxEgressConfigError}.
+ *
+ * Deliberately not {@link assertPerSandboxEgressIsUsable}, which validates the
+ * same config for the path that DOES honour it: a workspace has nothing to
+ * validate the option for, whatever its `engine` or `admissionPolicyName` say,
+ * because it serves no `setNetworkPolicy` at all. Calling that validator here
+ * instead would be worse than saying nothing — it would report a
+ * `perSandbox` this deployment can use as if it were in use.
+ */
+export function assertWorkspaceCarriesNoPerSandboxEgress(
+	egress: KubernetesEgressConfig | undefined,
+): void {
+	if (egress?.perSandbox === undefined) return
+	throw new KubernetesWorkspacePerSandboxEgressConfigError()
 }
 
 /**
@@ -753,7 +1080,12 @@ export class KubernetesEgressPolicyConfigError extends Error {
 		readonly field: string,
 		reason: string,
 	) {
-		super(`kubernetes: config.egress.policy.${field} is unusable: ${reason}`)
+		// `field` is relative to `config.egress`, not to `config.egress.policy`:
+		// the fields that land here live at BOTH levels — `policy.exceptCidrs`
+		// on the policy, `ciliumNarrowing` and `perSandbox.narrowing` beside
+		// it — and a prefix that assumed one of them sent a reader to a key
+		// that does not exist.
+		super(`kubernetes: config.egress.${field} is unusable: ${reason}`)
 	}
 }
 
@@ -779,6 +1111,52 @@ export class KubernetesEgressNarrowingUnsupportedError extends Error {
 }
 
 /**
+ * The grammar a host refusal normally closes with: what an `allowedHosts`
+ * entry is. Stated only where the translation actually implements it — see
+ * `stateHostnameGrammar` on {@link KubernetesNetworkPolicyHostError}.
+ */
+const HOSTNAME_GRAMMAR_SENTENCE =
+	"Entries are hostnames: 'api.example.com' for one host, '.example.com' for that domain and its subdomains."
+
+/**
+ * Raised for an `allowedHosts` entry this backend will not translate.
+ *
+ * Named for the ENTRY rather than for a config field, because entries arrive
+ * from two directions: a host's `Sandbox.setNetworkPolicy` call, and the
+ * `allowedHosts` of a `static`/`resolver` `config.egress.policy`.
+ * `SandboxNetworkPolicy` names HOSTS: `api.example.com` for one host,
+ * `.example.com` for a domain and its subdomains. A glob, a URL, a port
+ * suffix or an address is refused rather than emitted, because a
+ * `CiliumNetworkPolicy` carrying one is an object the API server rejects on
+ * apply — or, worse, accepts as a name that resolves to nothing, which reads
+ * from the outside exactly like a policy that is working.
+ *
+ * `stateHostnameGrammar` is the one part of the message a caller can turn
+ * off, because NOT every refusal can make that claim. It is false for the
+ * config-level refusal of a leading-dot entry under `tlsServerNames`, whose
+ * body has just said that the entry reaches the object as a literal
+ * `matchName` admitting nothing with the option on or off: closing that
+ * message with "'.example.com' for that domain and its subdomains" would
+ * re-assert, as implemented, the very grammar whose absence is why the entry
+ * is refused. Every other refusal keeps the sentence, the expanding branch of
+ * the same one included.
+ */
+export class KubernetesNetworkPolicyHostError extends Error {
+	override readonly name = 'KubernetesNetworkPolicyHostError'
+
+	constructor(
+		readonly host: string,
+		reason: string,
+		options: { readonly stateHostnameGrammar?: boolean } = {},
+	) {
+		const grammar = options.stateHostnameGrammar === false ? '' : ` ${HOSTNAME_GRAMMAR_SENTENCE}`
+		super(
+			`kubernetes: the allowedHosts entry ${JSON.stringify(host)} is refused: it ${reason}.${grammar} Nothing was written.`,
+		)
+	}
+}
+
+/**
  * Every entry in `narrowing.ports`, `narrowing.hostPorts` and
  * `narrowing.tlsPorts` is a port the API server will actually accept, none of
  * those three is an explicitly empty array, and every DNS suffix
@@ -787,7 +1165,21 @@ export class KubernetesEgressNarrowingUnsupportedError extends Error {
  * checks `exceptCidrs`: a value the API server rejects on apply would leave a
  * policy that never verifies.
  */
-function assertNarrowingIsUsable(narrowing: KubernetesCiliumEgressNarrowing): void {
+/**
+ * Refuse a narrowing the API server would reject on apply, naming the field
+ * that has to change.
+ *
+ * `fieldPath` is how the refusal spells the option's location, because the
+ * same shape is configurable in two places now: `ciliumNarrowing` narrows the
+ * CONFIG-level translated policy, and `perSandbox.narrowing` narrows the
+ * per-sandbox policies a host writes through `setNetworkPolicy`. One
+ * validator, because they are one shape and two would disagree the first time
+ * either grew a field.
+ */
+export function assertCiliumNarrowingIsUsable(
+	narrowing: KubernetesCiliumEgressNarrowing,
+	fieldPath = 'ciliumNarrowing',
+): void {
 	const assertValidPort = (port: unknown, field: string): void => {
 		if (typeof port !== 'number' || !Number.isInteger(port) || port < 1 || port > 65535) {
 			throw new KubernetesEgressPolicyConfigError(
@@ -810,28 +1202,28 @@ function assertNarrowingIsUsable(narrowing: KubernetesCiliumEgressNarrowing): vo
 			)
 		}
 	}
-	assertNotEmptyPortList(narrowing.ports, 'ciliumNarrowing.ports')
-	for (const port of narrowing.ports ?? []) assertValidPort(port, 'ciliumNarrowing.ports')
+	assertNotEmptyPortList(narrowing.ports, `${fieldPath}.ports`)
+	for (const port of narrowing.ports ?? []) assertValidPort(port, `${fieldPath}.ports`)
 	for (const [host, ports] of Object.entries(narrowing.hostPorts ?? {})) {
-		assertNotEmptyPortList(ports, `ciliumNarrowing.hostPorts[${JSON.stringify(host)}]`)
+		assertNotEmptyPortList(ports, `${fieldPath}.hostPorts[${JSON.stringify(host)}]`)
 		for (const port of ports) {
-			assertValidPort(port, `ciliumNarrowing.hostPorts[${JSON.stringify(host)}]`)
+			assertValidPort(port, `${fieldPath}.hostPorts[${JSON.stringify(host)}]`)
 		}
 	}
-	assertNotEmptyPortList(narrowing.tlsPorts, 'ciliumNarrowing.tlsPorts')
-	for (const port of narrowing.tlsPorts ?? []) assertValidPort(port, 'ciliumNarrowing.tlsPorts')
+	assertNotEmptyPortList(narrowing.tlsPorts, `${fieldPath}.tlsPorts`)
+	for (const port of narrowing.tlsPorts ?? []) assertValidPort(port, `${fieldPath}.tlsPorts`)
 	if (typeof narrowing.dnsNames === 'object') {
 		const { clusterDomain, searchSuffixes } = narrowing.dnsNames
 		if (clusterDomain !== undefined && clusterDomain.trim() === '') {
 			throw new KubernetesEgressPolicyConfigError(
-				'ciliumNarrowing.dnsNames.clusterDomain',
+				`${fieldPath}.dnsNames.clusterDomain`,
 				'must not be an empty string',
 			)
 		}
 		for (const suffix of searchSuffixes ?? []) {
 			if (typeof suffix !== 'string' || suffix.trim() === '') {
 				throw new KubernetesEgressPolicyConfigError(
-					'ciliumNarrowing.dnsNames.searchSuffixes',
+					`${fieldPath}.dnsNames.searchSuffixes`,
 					`${JSON.stringify(suffix)} is not a usable DNS suffix`,
 				)
 			}
@@ -885,7 +1277,7 @@ export function assertEgressPolicyIsEnforceable(
 		for (const cidr of policy.exceptCidrs ?? []) {
 			if (parseCidr(cidr) === undefined) {
 				throw new KubernetesEgressPolicyConfigError(
-					'exceptCidrs',
+					'policy.exceptCidrs',
 					`${JSON.stringify(cidr)} is not an IPv4 or IPv6 CIDR this backend can read. A NetworkPolicy ipBlock.except entry has to be a CIDR inside the block it carves out of, and an entry the API server rejects on apply would leave a policy that never verifies.`,
 				)
 			}
@@ -895,7 +1287,7 @@ export function assertEgressPolicyIsEnforceable(
 		if (engine !== 'cilium' || (policy.kind !== 'static' && policy.kind !== 'resolver')) {
 			throw new KubernetesEgressNarrowingUnsupportedError(policy.kind, engine)
 		}
-		assertNarrowingIsUsable(narrowing)
+		assertCiliumNarrowingIsUsable(narrowing)
 	}
 }
 
@@ -1099,6 +1491,126 @@ function ciliumPortEntry(port: number): Readonly<Record<string, unknown>> {
 }
 
 /**
+ * Which translation a host refusal is being spelled for, as ONE value.
+ *
+ * The refusal has two halves that have to agree — the sentence, which follows
+ * from whether the translation expands a leading-dot entry, and the field
+ * path, which follows from which field the caller set — and both are facts
+ * about the SAME thing: the translation the caller is on. Passed as two
+ * arguments they are decided from two inputs, and an expanding caller was
+ * told to repair `config.egress.ciliumNarrowing` with the remedy that belongs
+ * to `config.egress.perSandbox.narrowing` — a message sending a reader to a
+ * field the entry never came from. Neither half means anything without the
+ * other, so they travel together.
+ */
+export interface HostsFitNarrowingContext {
+	/**
+	 * The field the refusal sends the reader to, spelled as the caller set it
+	 * — the full path, as every other refusal in this module spells one.
+	 */
+	readonly fieldPath: string
+	/**
+	 * Whether this translation turns a leading-dot entry into a `matchName`
+	 * plus a `matchPattern` — {@link ciliumFqdnEntries}. `true` for the
+	 * per-sandbox translation, `false` for the config-level one, whose emitted
+	 * bytes are pinned. Decides the refusal's sentence and its closing grammar
+	 * as well as the bytes, and all three are the same fact about one entry.
+	 */
+	readonly expandsDottedEntries: boolean
+}
+
+/**
+ * The refusal context of the PER-SANDBOX translation — the one that expands,
+ * and so the one `expandDomains: true` builds.
+ *
+ * Shared deliberately: the per-sandbox writer refuses a host by this context
+ * before it reads the fence, and {@link buildCiliumEgressManifest} refuses the
+ * same host by the same context on the way through the translation, so the two
+ * cannot name different fields for one entry however the earlier check is
+ * reached or skipped.
+ */
+export const PER_SANDBOX_NARROWING_REFUSAL: HostsFitNarrowingContext = {
+	fieldPath: 'config.egress.perSandbox.narrowing',
+	expandsDottedEntries: true,
+}
+
+/**
+ * The refusal context of the config-level translation — `config.egress.policy`
+ * and its `config.egress.ciliumNarrowing`, which expands nothing.
+ */
+export const CONFIG_LEVEL_NARROWING_REFUSAL: HostsFitNarrowingContext = {
+	fieldPath: 'config.egress.ciliumNarrowing',
+	expandsDottedEntries: false,
+}
+
+/**
+ * Refuse the one allowlist entry a narrowing option cannot express.
+ *
+ * `tlsServerNames` puts the entry on the rule as a TLS server name — one
+ * exact SNI value a handshake presents — and a `.domain` entry is a set of
+ * names no single SNI value means. Either way the emitted object would be
+ * admitted by the shipped fence, read back deep-equal to what was sent, and
+ * deny what the caller asked to allow — the failure every other refusal in
+ * this module exists to prevent. Refused rather than translated another way,
+ * because both other ways are guesses: dropping the subdomains silently
+ * narrows what the caller asked for, and a wildcard SNI value is not
+ * something the Cilium versions these manifests are written against are
+ * known here to match — an SNI that matches nothing denies just as
+ * completely, and more quietly.
+ *
+ * The entry is refused for a DIFFERENT reason on each of the two paths, and
+ * the message says which one the caller is on, because the same sentence
+ * cannot be true of both:
+ *
+ *  - `expandDomains` — the per-sandbox writer's translation, which turns
+ *    `.domain` into `matchName: domain` PLUS `matchPattern: '*.domain'`. No
+ *    single SNI value means that pair: `domain` alone denies every subdomain
+ *    the pattern admits, and the entry as written is not a name any handshake
+ *    presents at all.
+ *  - unexpanded — the config-level translation, which expands nothing. There
+ *    the entry reaches the object as the literal `matchName: '.domain'`,
+ *    which no DNS answer carries, so it already admits nothing; `serverNames`
+ *    on top of it is a second, independent denial. Telling this caller to
+ *    "leave tlsServerNames off for a domain list" would name a repair that is
+ *    not one — the config-level `.domain` entry denies the domain and every
+ *    subdomain with or without the option (a pre-existing defect of this
+ *    translation, deferred to its own change) — so it is not offered here.
+ *
+ * `context` is WHICH translation the refusal is being spelled for, as one
+ * value — see {@link HostsFitNarrowingContext}. A reader has to be sent to
+ * the field they actually set, and the sentence they are sent by has to be
+ * true of the translation they are on, and both follow from that one fact:
+ * passed separately, an expanding caller gets the per-sandbox remedy attached
+ * to the config-level field name, a message whose only repair is a field the
+ * entry never came from. Called from BOTH — the translation itself, so every
+ * caller is covered, and the per-sandbox writer, which refuses earlier still,
+ * before it reads the fence.
+ */
+export function assertHostsFitNarrowing(
+	allowedHosts: readonly string[],
+	narrowing: KubernetesCiliumEgressNarrowing | undefined,
+	context: HostsFitNarrowingContext,
+): void {
+	if (narrowing?.tlsServerNames !== true) return
+	for (const host of allowedHosts) {
+		if (!host.startsWith('.')) continue
+		throw new KubernetesNetworkPolicyHostError(
+			host,
+			context.expandsDottedEntries
+				? `names a domain and its subdomains while ${context.fieldPath}.tlsServerNames is on; a TLS server name is one exact SNI value a handshake presents, and this entry becomes a name plus a '*.domain' pattern, which no single value means — list the exact hosts, or leave tlsServerNames off for a domain list`
+				: `names a domain and its subdomains while ${context.fieldPath}.tlsServerNames is on; a TLS server name is one exact SNI value a handshake presents, and this translation does not expand a leading-dot entry — it reaches the object as the literal matchName ${JSON.stringify(host)}, which no DNS answer carries — so the entry admits nothing as written, and serverNames on top of it is a second, independent denial. List the exact hosts this policy should allow; leaving tlsServerNames off does not repair the entry here`,
+			// The closing grammar rides the same input as the sentence, and for
+			// the same reason: the unexpanded body has just said this entry
+			// admits nothing as written, so a tail asserting that
+			// `.example.com` means the domain and its subdomains would state,
+			// as implemented, the grammar the refusal exists because this
+			// translation does not apply to it.
+			{ stateHostnameGrammar: context.expandsDottedEntries },
+		)
+	}
+}
+
+/**
  * The port list a narrowed translation applies to `host`, before splitting
  * out the TLS subset — see {@link KubernetesCiliumEgressNarrowing.ports}.
  * `undefined` means no port restriction: the host's `toFQDNs` rule carries
@@ -1118,18 +1630,31 @@ function narrowedHostPorts(
 }
 
 /**
- * One host's `toFQDNs` rule under narrowing: the bare allowlist entry, plus
- * `toPorts` split into a `serverNames`-bearing entry for the host's TLS
- * ports and a plain entry for whatever is left, when `tlsServerNames` is on.
+ * One host's `toFQDNs` rule under narrowing: the allowlist entry's `toFQDNs`
+ * entries, plus `toPorts` split into a `serverNames`-bearing entry for the
+ * host's TLS ports and a plain entry for whatever is left, when
+ * `tlsServerNames` is on.
+ *
+ * `serverNames` carries the allowlist ENTRY as written, which is the same
+ * string as the `toFQDNs` entry only while nothing expanded it. A TLS server
+ * name is one exact SNI value a handshake presents, and a `.example.com`
+ * entry — whose `toFQDNs` half is `example.com` PLUS `*.example.com` — has no
+ * single SNI value meaning that set: `example.com` would deny every subdomain
+ * the pattern admits, and `.example.com` is not a name any handshake ever
+ * presents. So {@link assertHostsFitNarrowing} refuses that one combination
+ * before this rule is built, from `buildCiliumEgressManifest` for every
+ * caller and from the per-sandbox writer before it reads the fence — which is
+ * why this function can take `host` and the entry as one string.
  */
 function narrowedHostFqdnRule(
 	host: string,
 	narrowing: KubernetesCiliumEgressNarrowing,
+	fqdns: readonly Readonly<Record<string, string>>[] = [{ matchName: host }],
 ): Readonly<Record<string, unknown>> {
 	const ports = narrowedHostPorts(host, narrowing)
-	if (ports === undefined) return { toFQDNs: [{ matchName: host }] }
+	if (ports === undefined) return { toFQDNs: fqdns }
 	if (narrowing.tlsServerNames !== true) {
-		return { toFQDNs: [{ matchName: host }], toPorts: [{ ports: ports.map(ciliumPortEntry) }] }
+		return { toFQDNs: fqdns, toPorts: [{ ports: ports.map(ciliumPortEntry) }] }
 	}
 	const tlsPorts = narrowing.tlsPorts ?? DEFAULT_TLS_PORTS
 	const tlsSubset = ports.filter((port) => tlsPorts.includes(port))
@@ -1140,9 +1665,31 @@ function narrowedHostFqdnRule(
 	}
 	if (rest.length > 0) toPorts.push({ ports: rest.map(ciliumPortEntry) })
 	return {
-		toFQDNs: [{ matchName: host }],
+		toFQDNs: fqdns,
 		...(toPorts.length > 0 ? { toPorts } : {}),
 	}
+}
+
+/**
+ * One allowlist entry, expanded to the `toFQDNs` entries it means.
+ *
+ * `SandboxNetworkPolicy.allowedHosts`'s own grammar, which the SDK states and
+ * the docker backend implements: `api.example.com` is that host, and
+ * `.example.com` is the domain AND its subdomains. Cilium's `matchName` is an
+ * exact name and does not match across a `.`, so the domain form needs the
+ * name plus a `matchPattern` — `*.example.com` alone would admit
+ * `a.example.com` and not `example.com` itself.
+ *
+ * Used by the PER-SANDBOX policy only. The config-level translation
+ * (`config.egress.policy`) deliberately does not expand anything: what it
+ * emits for a given config is pinned byte-for-byte, because verification of
+ * the named object is an exact match and a changed translation fails every
+ * `create()` on every deployment that already applied a policy.
+ */
+export function ciliumFqdnEntries(entry: string): readonly Readonly<Record<string, string>>[] {
+	if (!entry.startsWith('.')) return [{ matchName: entry }]
+	const domain = entry.slice(1)
+	return [{ matchName: domain }, { matchPattern: `*.${domain}` }]
 }
 
 /**
@@ -1155,6 +1702,7 @@ function narrowedDnsVisibilityRule(
 	allowedHosts: readonly string[],
 	fallbackNamespace: string,
 	dnsNames: KubernetesCiliumDnsNarrowing,
+	expandDomains = false,
 ): Readonly<Record<string, unknown>> {
 	const namespace = dnsNames.namespace ?? fallbackNamespace
 	const clusterDomain = dnsNames.clusterDomain ?? 'cluster.local'
@@ -1164,10 +1712,29 @@ function narrowedDnsVisibilityRule(
 		clusterDomain,
 		...(dnsNames.searchSuffixes ?? []),
 	]
-	const matchNames: { matchName: string }[] = []
-	for (const host of allowedHosts) {
+	const matchNames: Record<string, string>[] = []
+	for (const entry of allowedHosts) {
+		// A `.domain` entry resolves through its subdomains as well, so the
+		// DNS proxy has to be allowed to SEE those lookups or `toFQDNs` never
+		// learns the addresses they resolve to. Off for the config-level
+		// translation, whose emitted bytes are pinned: `expandDomains` is
+		// false there and `host === entry`, so this loop is what it always
+		// was.
+		const wildcard = expandDomains && entry.startsWith('.')
+		const host = wildcard ? entry.slice(1) : entry
 		matchNames.push({ matchName: host })
-		for (const suffix of suffixes) matchNames.push({ matchName: `${host}.${suffix}` })
+		if (wildcard) matchNames.push({ matchPattern: `*.${host}` })
+		for (const suffix of suffixes) {
+			matchNames.push({ matchName: `${host}.${suffix}` })
+			// The suffixed names are here because a guest resolving a name
+			// with fewer dots than the cluster's `ndots` tries the search
+			// suffixes FIRST, and a lookup the DNS proxy refuses is not an
+			// NXDOMAIN the resolver walks past — it can fail the whole
+			// resolution. An EXPANDED entry admits subdomains, so its
+			// subdomains need the same treatment, or `a.example.com` fails on
+			// its first search-suffix attempt under a rule that allows it.
+			if (wildcard) matchNames.push({ matchPattern: `*.${host}.${suffix}` })
+		}
 	}
 	return {
 		toEndpoints: CILIUM_DNS_VISIBILITY_RULE.toEndpoints,
@@ -1180,44 +1747,128 @@ function narrowedDnsVisibilityRule(
 	}
 }
 
+/**
+ * Everything a `CiliumNetworkPolicy` for a hostname allowlist is built from.
+ *
+ * ONE builder, two callers: the config-level translation below, whose
+ * selector is the template (and profile) label and whose emitted bytes are
+ * pinned, and the per-sandbox policy in `per-sandbox-policy.ts`, whose
+ * selector is one per-sandbox label and which additionally carries an
+ * `ownerReferences` entry so the cluster garbage-collects it. A second
+ * builder would be a second answer to what a namzu egress policy looks like,
+ * and the read-back comparator would then be verifying one of them against
+ * the other's shape.
+ */
+export interface CiliumEgressManifestOptions {
+	readonly namespace: string
+	readonly name: string
+	/** What `spec.endpointSelector.matchLabels` carries, verbatim. */
+	readonly selectorLabels: Readonly<Record<string, string>>
+	readonly allowedHosts: readonly string[]
+	/** The CONFIGURED kind this came from, for a refusal's wording. */
+	readonly policyKind: KubernetesEgressPolicy['kind']
+	readonly narrowing?: KubernetesCiliumEgressNarrowing
+	/** `metadata.ownerReferences`. Absent ⇒ the metadata is what it always was. */
+	readonly ownerReferences?: readonly KubernetesOwnerReference[]
+	/**
+	 * Expand a leading-dot entry into `matchName` plus `matchPattern` — see
+	 * {@link ciliumFqdnEntries}. Off by default, because the config-level
+	 * translation's emitted bytes are pinned.
+	 *
+	 * This option IS the translation, not a formatting flag on it: it selects
+	 * the emitted bytes, the sentence a refusal carries and the field that
+	 * refusal names, all from one value — see
+	 * {@link HostsFitNarrowingContext}. There is no way to ask for one without
+	 * the others, and none should be added.
+	 */
+	readonly expandDomains?: boolean
+}
+
+export function buildCiliumEgressManifest(
+	options: CiliumEgressManifestOptions,
+): KubernetesTranslatedEgressPolicy {
+	const { narrowing, allowedHosts, expandDomains = false } = options
+	// Before anything is emitted. A leading-dot entry under `tlsServerNames`
+	// would become `serverNames: ['.domain']` — not a name any handshake
+	// presents — and `['domain']` would deny every subdomain the `toFQDNs`
+	// half of the same rule admits; the object is admitted by the shipped
+	// fence and reads back deep-equal to what was sent, so nothing downstream
+	// would ever report it.
+	//
+	// What this call guarantees, per caller shape: the per-sandbox writer
+	// refuses the same hosts earlier still, by name and by the same context
+	// (`per-sandbox-policy.ts`), and this call covers them again if that check
+	// is ever reached later or skipped; the config-level translation has no
+	// earlier check of its own and relies on this one entirely; and a direct
+	// call to this function is covered here too, whatever its `expandDomains`.
+	//
+	// ONE input decides all of it. `expandDomains` is not a formatting flag —
+	// it is which translation this is, and so which field a refused caller
+	// actually set, which sentence is true of the entry on that path, and
+	// whether the translation applies the hostname grammar at all. Deriving
+	// the field path from anything else is how an expanding caller came to be
+	// sent to the config-level field for a repair that only exists under
+	// `perSandbox.narrowing`.
+	assertHostsFitNarrowing(
+		allowedHosts,
+		narrowing,
+		expandDomains ? PER_SANDBOX_NARROWING_REFUSAL : CONFIG_LEVEL_NARROWING_REFUSAL,
+	)
+	// Unnarrowed is the exact shape every release before #490 emitted — kept
+	// as its own branch, untouched, rather than folded into the narrowed one
+	// with every option defaulted off, so the byte-identical guarantee does
+	// not depend on the narrowed code path happening to reduce to it.
+	const narrowed = ciliumNarrowingIsActive(narrowing)
+	const activeDns = narrowed ? activeDnsNarrowing(narrowing.dnsNames) : undefined
+	const dnsRule =
+		activeDns !== undefined
+			? narrowedDnsVisibilityRule(allowedHosts, options.namespace, activeDns, expandDomains)
+			: CILIUM_DNS_VISIBILITY_RULE
+	const entriesFor = (entry: string): readonly Readonly<Record<string, string>>[] =>
+		expandDomains ? ciliumFqdnEntries(entry) : [{ matchName: entry }]
+	const hostRules = narrowed
+		? allowedHosts.map((host) => narrowedHostFqdnRule(host, narrowing, entriesFor(host)))
+		: [{ toFQDNs: allowedHosts.flatMap(entriesFor) }]
+
+	return {
+		kind: 'CiliumNetworkPolicy',
+		policyKind: options.policyKind,
+		namespace: options.namespace,
+		name: options.name,
+		manifest: {
+			apiVersion: `${CILIUM_NETWORK_POLICY_API_GROUP}/${CILIUM_NETWORK_POLICY_API_VERSION}`,
+			kind: 'CiliumNetworkPolicy',
+			metadata: {
+				name: options.name,
+				namespace: options.namespace,
+				...(options.ownerReferences !== undefined
+					? { ownerReferences: options.ownerReferences }
+					: {}),
+			},
+			spec: {
+				endpointSelector: {
+					matchLabels: options.selectorLabels,
+				},
+				egress: [dnsRule, ...hostRules],
+			},
+		},
+	}
+}
+
 function buildCiliumNetworkPolicy(
 	target: EgressPolicyTarget,
 	policyKind: KubernetesEgressPolicy['kind'],
 	allowedHosts: readonly string[],
 	narrowing: KubernetesCiliumEgressNarrowing | undefined,
 ): KubernetesTranslatedEgressPolicy {
-	// Unnarrowed is the exact shape every release before #490 emitted — kept
-	// as its own branch, untouched, rather than folded into the narrowed one
-	// with every option defaulted off, so the byte-identical guarantee does
-	// not depend on the narrowed code path happening to reduce to it.
-	const activeDns = ciliumNarrowingIsActive(narrowing)
-		? activeDnsNarrowing(narrowing.dnsNames)
-		: undefined
-	const dnsRule =
-		activeDns !== undefined
-			? narrowedDnsVisibilityRule(allowedHosts, target.namespace, activeDns)
-			: CILIUM_DNS_VISIBILITY_RULE
-	const hostRules = ciliumNarrowingIsActive(narrowing)
-		? allowedHosts.map((host) => narrowedHostFqdnRule(host, narrowing))
-		: [{ toFQDNs: allowedHosts.map((host) => ({ matchName: host })) }]
-
-	return {
-		kind: 'CiliumNetworkPolicy',
-		policyKind,
+	return buildCiliumEgressManifest({
 		namespace: target.namespace,
 		name: target.name,
-		manifest: {
-			apiVersion: `${CILIUM_NETWORK_POLICY_API_GROUP}/${CILIUM_NETWORK_POLICY_API_VERSION}`,
-			kind: 'CiliumNetworkPolicy',
-			metadata: { name: target.name, namespace: target.namespace },
-			spec: {
-				endpointSelector: {
-					matchLabels: egressPolicySelectorLabels(target),
-				},
-				egress: [dnsRule, ...hostRules],
-			},
-		},
-	}
+		selectorLabels: egressPolicySelectorLabels(target),
+		allowedHosts,
+		policyKind,
+		...(narrowing !== undefined ? { narrowing } : {}),
+	})
 }
 
 /**
@@ -1330,7 +1981,13 @@ export class KubernetesEgressPolicyMismatchError extends Error {
  *  - `NetworkPolicy` additionally declares `policyTypes` including
  *    `'Egress'` — a `NetworkPolicy` with an `egress` array but no `'Egress'`
  *    in `policyTypes` enforces nothing on egress at all;
- *  - the `egress` rule array matches the translation exactly.
+ *  - the `egress` rule array matches the translation exactly;
+ *  - and, ONLY when the translation carries `metadata.ownerReferences` (the
+ *    per-sandbox policies of `per-sandbox-policy.ts`, never the operator's
+ *    own object), that the live object still carries each of them — an owner
+ *    reference dropped between the write and the read is a policy the
+ *    cluster will never collect with the sandbox it belongs to, which is the
+ *    leak the reference exists to prevent, and it is invisible in `spec`.
  *
  * Never mutates and never creates — a 404/410 is refused, not repaired.
  */
@@ -1344,7 +2001,12 @@ export async function verifyEgressPolicyApplied(
 			? ciliumNetworkPolicyPath(translated.namespace, translated.name)
 			: networkPolicyPath(translated.namespace, translated.name)
 
-	let resource: { readonly spec?: Readonly<Record<string, unknown>> } | undefined
+	let resource:
+		| {
+				readonly spec?: Readonly<Record<string, unknown>>
+				readonly metadata?: Readonly<Record<string, unknown>>
+		  }
+		| undefined
 	try {
 		resource = await client.request('GET', path, undefined, signal)
 	} catch (err) {
@@ -1383,6 +2045,27 @@ export async function verifyEgressPolicyApplied(
 			path,
 			`spec.egress is ${JSON.stringify(actualSpec.egress)}, expected ${JSON.stringify(expectedSpec.egress)}`,
 		)
+	}
+
+	// Last, and only for a translation that asked for one: an object written
+	// with an owner reference and read back without it is a policy that
+	// outlives its sandbox. The operator-applied objects this function's other
+	// caller checks carry none, so they never reach this branch.
+	const expectedOwners = (
+		translated.manifest as { readonly metadata?: { readonly ownerReferences?: readonly unknown[] } }
+	).metadata?.ownerReferences
+	if (expectedOwners !== undefined) {
+		const actualOwners = (resource?.metadata as { readonly ownerReferences?: readonly unknown[] })
+			?.ownerReferences
+		const held = Array.isArray(actualOwners) ? actualOwners : []
+		for (const owner of expectedOwners) {
+			if (held.some((entry) => isDeepStrictEqual(entry, owner))) continue
+			throw new KubernetesEgressPolicyMismatchError(
+				translated.kind,
+				path,
+				`metadata.ownerReferences is ${JSON.stringify(actualOwners)}, expected it to carry ${JSON.stringify(owner)} — without that entry the cluster never collects this policy with the object it belongs to, so it would outlive the sandbox it was written for`,
+			)
+		}
 	}
 }
 

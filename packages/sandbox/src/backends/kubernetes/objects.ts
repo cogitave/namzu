@@ -939,3 +939,45 @@ export function ciliumNetworkPolicyCollectionPath(namespace: string): string {
 export function ciliumNetworkPolicyPath(namespace: string, name: string): string {
 	return `${ciliumNetworkPolicyCollectionPath(namespace)}/${segment(name)}`
 }
+
+/**
+ * Core Kubernetes' own admission-policy resources — `ValidatingAdmissionPolicy`
+ * and its binding, both CLUSTER-scoped and both stock since v1.30, so a
+ * cluster that serves this group needs nothing installed.
+ *
+ * Read by exactly one caller: the per-sandbox policy fence
+ * (`per-sandbox-policy.ts`), which refuses to write a `CiliumNetworkPolicy`
+ * at all unless an operator has applied the policy that bounds what this
+ * host may write. Never written by this backend — the fence is the operator's
+ * object, reviewed by whoever has cluster-admin, and a host that could create
+ * its own fence would not have one.
+ */
+export const ADMISSION_REGISTRATION_API_GROUP = 'admissionregistration.k8s.io'
+export const ADMISSION_REGISTRATION_API_VERSION = 'v1'
+
+export function validatingAdmissionPolicyPath(name: string): string {
+	return `/apis/${ADMISSION_REGISTRATION_API_GROUP}/${ADMISSION_REGISTRATION_API_VERSION}/validatingadmissionpolicies/${segment(name)}`
+}
+
+export function validatingAdmissionPolicyBindingPath(name: string): string {
+	return `/apis/${ADMISSION_REGISTRATION_API_GROUP}/${ADMISSION_REGISTRATION_API_VERSION}/validatingadmissionpolicybindings/${segment(name)}`
+}
+
+/**
+ * An `ownerReferences` entry, as this backend writes it.
+ *
+ * `controller` and `blockOwnerDeletion` are deliberately ABSENT rather than
+ * written as `false`. `blockOwnerDeletion: true` would make the API server's
+ * `OwnerReferencesPermissionEnforcement` admission plugin demand `update` on
+ * the OWNER's `finalizers` subresource — a verb no Role in this repo grants
+ * and no host needs — so a field whose only legal value here is `false` is
+ * one the body is better off not carrying at all. Garbage collection does not
+ * need either field: a dependent whose owners are all gone is deleted, owning
+ * controller or not.
+ */
+export interface KubernetesOwnerReference {
+	readonly apiVersion: string
+	readonly kind: string
+	readonly name: string
+	readonly uid: string
+}

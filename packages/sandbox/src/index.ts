@@ -167,7 +167,36 @@ export type {
 	KubernetesEgressPolicy,
 	KubernetesEgressVerification,
 	KubernetesOnlyEgressPolicy,
+	KubernetesPerSandboxEgressConfig,
 } from './backends/kubernetes/egress-policy.js'
+// Per-sandbox egress — `config.egress.perSandbox`, which makes
+// `Sandbox.setNetworkPolicy` PRESENT on a kubernetes TASK handle instead of
+// omitted. Everything a host needs to configure it and to catch its two
+// refusals by class: a capability declared in a way this backend cannot
+// honour (wiring time), and a write refused because the operator-applied
+// admission fence that bounds it is not there — or cannot be read, which is
+// a different file to fix (call time, nothing written in either case).
+// `KubernetesNetworkPolicyHostError` is the third: an `allowedHosts` entry
+// that is not a hostname, or one the configured narrowing cannot express.
+// `KubernetesOwnerUidMissingError` is the fourth, and the only one raised
+// from an ACQUIRE — the object this backend created reported no uid, so a
+// policy written for it would be an orphan.
+// `KubernetesWorkspacePerSandboxEgressConfigError` is the fifth: the same
+// option reaching `createKubernetesWorkspace`, whose handle never carries
+// `setNetworkPolicy` — refused there rather than accepted and ignored.
+// See `backends/kubernetes/per-sandbox-policy.ts` — and, for
+// `KubernetesNetworkPolicyHostError`, which the config-level translation
+// refuses the same entries with, `backends/kubernetes/egress-policy.ts`.
+export { KubernetesPerSandboxEgressConfigError } from './backends/kubernetes/egress-policy.js'
+export { KubernetesWorkspacePerSandboxEgressConfigError } from './backends/kubernetes/egress-policy.js'
+export { DEFAULT_PER_SANDBOX_EGRESS_LABEL_KEY } from './backends/kubernetes/egress-policy.js'
+export {
+	KubernetesAdmissionFenceMissingError,
+	KubernetesAdmissionFenceUnreadableError,
+	KubernetesNetworkPolicyHostError,
+	KubernetesOwnerUidMissingError,
+	PER_SANDBOX_POLICY_NAME_PREFIX,
+} from './backends/kubernetes/per-sandbox-policy.js'
 // The default label key `KubernetesEgressConfig.profile` is written under.
 // Exported because an operator has to name that key's DOMAIN in the
 // controller's `allowed-label-domains` allowlist before a profiled claim is

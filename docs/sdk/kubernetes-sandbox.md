@@ -622,7 +622,7 @@ request envelope.
 | `openTerminal` | Implemented | A real PTY owned by the guest. `destroy()` kills and awaits every terminal it returned, which is what makes offering it compliant at all. Its teardown reaches [the whole session](#a-terminal-or-a-program-can-outlive-the-host-process), not only `script`'s process group. On a workspace it also takes `sessionId`/`persistent`. |
 | `openTcpConnection` | Implemented | Guest loopback only. |
 | `destroy` | Implemented | DELETEs the object this backend created, which cascades to the Pod, Service and Sandbox. Idempotent; an object already gone counts as released. |
-| `setNetworkPolicy` | **Omitted** | Egress here is a `NetworkPolicy` attached to the pool's `SandboxTemplate`; there is no per-running-pod knob. The SDK's contract says a backend that cannot enforce one must omit it rather than accept it and quietly not apply it. |
+| `setNetworkPolicy` | Implemented when `egress.perSandbox` is configured | Without that configuration it stays **omitted**: egress is then a `NetworkPolicy` attached to the pool's `SandboxTemplate` and there is no per-running-pod knob, and the SDK's contract says a backend that cannot enforce one must omit it rather than accept it and quietly not apply it. With it, each sandbox gets a claim-owned `CiliumNetworkPolicy` behind an operator-applied admission fence — see [per-sandbox egress](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox). Presence follows configuration, never a runtime probe. A `KubernetesWorkspace` handle never carries it, whatever the config says, and `createKubernetesWorkspace` refuses `egress.perSandbox` by name rather than omitting the method it asks for. |
 | `spawnDetached` | **Omitted** | It returns a host `ChildProcess`, which cannot cross a process boundary, so it stays omitted rather than half-implemented. A workspace's [`startDetached`](#a-terminal-or-a-program-can-outlive-the-host-process) is the thing that does exist: it returns a NAME another host process can come back with. |
 
 A confirmed `exec` cancellation resolves with the terminal signal/exit code
@@ -2974,6 +2974,13 @@ woken up to be refused. A missing, drifted or over-wide policy fails the call
 and no workspace is created — the network boundary on a long-lived sandbox is
 the policy, not the agent's bind token.
 
+**One option is refused here rather than run.** `egress.perSandbox` does not
+bound a workspace's egress — it makes `setNetworkPolicy` present on a TASK
+handle, and a workspace never carries one — so a config that sets it is
+refused with `KubernetesWorkspacePerSandboxEgressConfigError` before the first
+request, instead of being accepted and ignored. See
+[per-sandbox egress](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox).
+
 **It is verified against the template the workspace is built from**, which is
 `options.sandboxTemplateName` when given and `config.sandboxTemplateName`
 otherwise. That template's name is the label this backend stamps on the pod
@@ -3412,6 +3419,49 @@ and an empty `dnsNames.clusterDomain` or search suffix, are refused the same
 way with `KubernetesEgressPolicyConfigError` rather than emitted into a
 manifest the API server would reject on apply.
 
+**A `.domain` entry and `tlsServerNames` are refused together**, with
+`KubernetesNetworkPolicyHostError`. A server name is one exact SNI value a
+handshake presents, while a `.example.com` entry means that domain **plus
+every subdomain of it**, so no single value means both: `serverNames:
+['example.com']` denies every subdomain the same rule's `toFQDNs` half
+admits, and `'.example.com'` is not a name any handshake presents at all.
+Either way the object is admitted by the fence, reads back deep-equal to what
+was sent, and denies the domain it claims to allow — so it is refused while
+the manifest is being built, before anything is emitted, from
+`translateEgressPolicy` for this allowlist and from `setNetworkPolicy` for
+the per-sandbox one, which refuses even earlier, before it reads the fence.
+
+The refusal says which of the two callers it is, because the entry is a
+different thing on each path. On the per-sandbox path the entry really is
+expanded to `example.com` plus `*.example.com`, and the message says so —
+list the exact hosts, or leave `tlsServerNames` off for a domain list, which
+there really does allow the domain and its subdomains. On THIS path
+`ciliumNarrowing` expands nothing, so the entry reaches the object as the
+literal `matchName: '.example.com'`, a name no DNS answer carries: it admits
+nothing with the option on or off, and `serverNames` on top of it is a
+second, independent denial. Leaving `tlsServerNames` off is therefore **not**
+a repair here, and the message says so instead of offering it. (That
+unexpanded emission — a `.domain` entry matching no answer — is a
+pre-existing defect of this translation, unchanged by this release and left
+to its own change.)
+
+**On the per-sandbox path, an expanded `.domain` entry carries search-suffix
+patterns of its own.** An entry that admits subdomains needs the
+DNS-visibility rule to see their lookups: a guest resolving `a.example.com`
+tries the cluster's search suffixes FIRST under the default `ndots: 5`, and a
+lookup the DNS proxy refuses is not an `NXDOMAIN` the resolver walks past —
+it can fail the whole resolution. The exact-host branch has always answered
+that by emitting `<host>.<suffix>`, so the suffixes are not news; what an
+expanded entry adds is the PATTERN under each of them. So `.example.com`
+under `perSandbox.narrowing.dnsNames` emits `matchPattern: '*.example.com'`
+beside `matchName: example.com`, and
+`matchPattern: '*.example.com.<suffix>'` beside `example.com.<suffix>` for
+each search suffix, or the first lookup of a subdomain the rule admits is
+refused by the rule that admits it. **Both halves are new**: the exact-host
+branch emits `matchName`s and never a pattern, so `matchPattern` at a search
+suffix is not a shape this translation had at all. Config-level
+`ciliumNarrowing` emits none of it, because it expands nothing.
+
 **Verification needs no separate statement of these fields**: `spec.egress` is
 compared to the translation exactly, the same deep-equal check described
 below, so a `toPorts`, `serverNames` or narrowed DNS entry the applied object
@@ -3607,6 +3657,217 @@ per-profile policy with nothing on that path to read the label back. The
 handle keeps the labels it was opened under for that reason, so a
 `resume({ refreshPodTemplate: true })` taken weeks later rebuilds with them.
 
+### Per-sandbox egress: `setNetworkPolicy` on a live sandbox
+
+Everything above is one policy for every sandbox this backend produces.
+`config.egress.perSandbox` adds the other axis: one policy for ONE live
+sandbox, written while it runs, which is what the SDK's
+[`Sandbox.setNetworkPolicy`](#the-sandbox-surface) means — "fetch the
+repository with a token, then narrow to the package registry before running
+anything the repository contains", without a second provider and a second
+pool.
+
+```ts sketch
+const provider = createSandboxProvider({
+  backend: {
+    tier: 'microvm',
+    service: 'kubernetes',
+    namespace: 'namzu-sandboxes',
+    access: { inCluster: true },
+    sandboxTemplateName: 'namzu-task',
+    warmPoolName: 'namzu-task-pool',
+    egress: {
+      // The BASELINE every sandbox runs under, unchanged by any of this.
+      policy: { kind: 'no-network' },
+      perSandbox: {
+        engine: 'cilium',
+        admissionPolicyName: 'namzu-per-sandbox-egress',
+      },
+    },
+  },
+})
+
+const sandbox = await provider.create({ workingDirectory: '/workspace' })
+await sandbox.setNetworkPolicy?.({ allowedHosts: ['registry.npmjs.org', '.example.com'] })
+```
+
+**The method is PRESENT only when `perSandbox` is configured**, and absent
+otherwise — that is why the call above carries a `?.`. The SDK's contract
+says a backend that cannot enforce an optional method must omit it rather
+than accept it and quietly not apply it, and without this configuration
+there is no policy object to write, no fence bounding what this host may
+write and no RBAC to write it with. Presence follows CONFIGURATION and never
+a probe of the cluster, so capability detection cannot come out differently
+depending on when it asked.
+
+**Two operator prerequisites, and a host that skips either gets a refusal by
+design rather than by accident:**
+
+1. **The admission fence.** `k8s/manifests/validatingadmissionpolicy-cilium.yaml`
+   — a `ValidatingAdmissionPolicy` and its binding. The backend `GET`s both
+   before its first write and refuses with
+   `KubernetesAdmissionFenceMissingError`, having written nothing, if either
+   is absent. An unbound policy is checked separately from the policy itself
+   because a `ValidatingAdmissionPolicy` with no binding validates nothing at
+   all and reads, from the object alone, exactly like one that is enforced. A
+   read the API server REFUSES — a `403`/`401`, which is what applying the
+   namespaced `Role` from `rbac-per-sandbox-egress.yaml` without the
+   `ClusterRole` in that same file produces, since both admission objects are
+   cluster-scoped — is refused as `KubernetesAdmissionFenceUnreadableError`
+   instead, with nothing written either: 404 says the object is not there, 403
+   says this host may not look, and the two send an operator to different
+   files.
+2. **The RBAC.** `k8s/manifests/rbac-per-sandbox-egress.yaml` — `create`,
+   `patch` and `delete` on `ciliumnetworkpolicies` in the namespace, plus a
+   read-only `ClusterRole` for the two cluster-scoped admission objects the
+   fence check reads. It is a separate file, not a stanza in
+   `rbac.yaml`, because a host that never configures this capability must not
+   hold write access to its namespace's network policies.
+
+**What gets written.** One `CiliumNetworkPolicy` per sandbox:
+
+- **named** `namzu-sbx-<uid>`, where the uid is the object this backend
+  created for that sandbox — the `SandboxClaim` on the pooled path, the
+  `Sandbox` on the pool-less one;
+- **selecting** one per-sandbox pod label, `sandbox.namzu.ai/per-sandbox-egress`
+  by default (`perSandbox.labelKey` moves it, and the controller's
+  `allowed-label-domains` allowlist has to admit its domain exactly as it
+  does the [profile label](#egress-profiles-one-warm-pool-several-network-modes)'s);
+  its value is the created object's name, put on the pod through the same
+  claim-time `additionalPodMetadata.labels` map the profile travels in, and
+  CONFIRMED on the bound pod before the sandbox is handed back;
+- **owned** by that same object through `ownerReferences`, so `destroy()`
+  deletes the claim and the cluster's garbage collector removes the policy —
+  this backend issues no deletion of its own on teardown, which is what keeps
+  a crashed host from leaking policies;
+- **allowing** the cluster-DNS rule plus one `toFQDNs` rule for the list, with
+  `SandboxNetworkPolicy`'s own grammar: `api.example.com` is that host,
+  `.example.com` becomes `matchName: example.com` **plus**
+  `matchPattern: '*.example.com'`, because a Cilium `matchName` is an exact
+  name and does not match across a `.`. `perSandbox.narrowing` carries the
+  same [port, DNS-name and TLS-server-name options](#narrowing-a-staticresolver-allowlist-ports-dns-names-tls-server-names)
+  the config-level allowlist has — and, unlike the config-level translation,
+  it expands the domain form, so `dnsNames` additionally emits the
+  `matchPattern` form of an expanded entry under each cluster search suffix.
+
+**The call resolves only after a read-back deep-equals what it sent**,
+through the same comparator the named-object check uses — a policy the API
+server accepted and something else then mutated is a mismatch, not a success.
+
+**`setNetworkPolicy([])` deletes this sandbox's own object**, which leaves the
+configured BASELINE in force rather than "no policy at all": the API server
+unions every policy that selects a pod, so removing one narrows. An object
+already collected counts as deleted. The DELETE is fenced like any other
+write — a host that has never proved the fence does not reach the namespace's
+policies with any verb it holds — so a deployment that removes the fence
+mid-run gets `KubernetesAdmissionFenceMissingError` here too, and its sandbox
+keeps its per-sandbox allowance until it is destroyed and the cluster collects
+the policy with its owner.
+
+**A per-sandbox list ADDS to the baseline; it only NARROWS when the baseline
+denies.** Policies union, so `setNetworkPolicy(['registry.npmjs.org'])` under
+a `no-network` or `deny-all` baseline is the whole boundary that pod has,
+while under `allow-all` or `public-internet` it changes nothing the pod could
+not already do — and `setNetworkPolicy([])` under those does not deny
+everything, which is what `SandboxNetworkPolicy.allowedHosts` says an empty
+list means. Nothing refuses that wiring, because a permissive baseline with
+per-sandbox additions is a legitimate deployment (a pod that may reach the
+cluster freely and one named registry outside it); it is simply not the shape
+the SDK's "empty denies everything" sentence describes. Pair `perSandbox`
+with a denying `policy.kind` if you want `setNetworkPolicy` to be the
+boundary rather than an addition to one.
+
+**The grammar the entries are held to.** An entry is a hostname:
+`api.example.com`, or `.example.com` for a domain and its subdomains. Letter
+case is canonicalised (DNS names are case-insensitive, and a Cilium
+`matchName` is compared against what the DNS proxy saw), so
+`API.example.com` is accepted and emitted lowercase. A URL, a path, a port
+suffix, an explicit glob, an IP address and a whole public suffix (`.com`,
+whose `*.com` pattern the shipped fence refuses) are each refused with
+`KubernetesNetworkPolicyHostError` before anything is sent — the last two
+more strictly than the docker backend's proxy, which has no policy object to
+keep honest. `perSandbox.narrowing.hostPorts` is keyed by the allowlist entry
+**as written**, leading dot included: `.example.com`, not `example.com`.
+
+One combination is refused by the same class: **a `.domain` entry with
+`perSandbox.narrowing.tlsServerNames` on.** A server name is one exact SNI
+value a handshake presents and the entry means a domain plus its subdomains,
+so the `serverNames` the option would attach means something the entry does
+not — the policy would be admitted, read back deep-equal, and deny the domain
+it claims to allow. The refusal is the combination's, not the entry's or the
+option's: exact hosts under `tlsServerNames`, and a domain list with the
+option off, both translate as usual — here the entry really is expanded, so
+the refusal's own remedy ("leave `tlsServerNames` off for a domain list") is
+a repair, and its message says so. See
+[narrowing](#narrowing-a-staticresolver-allowlist-ports-dns-names-tls-server-names)
+for why both other spellings are guesses rather than translations, and for
+the CONFIG-level `ciliumNarrowing` case, which is refused by the same check
+with the other wording: that translation expands nothing, so leaving the
+option off there is not a repair.
+
+**What the fence actually bounds.** The shipped policy matches on the host's
+own ServiceAccount identity — an operator applying the baseline is unaffected
+— and, for that identity alone, refuses: a name without the `namzu-sbx-`
+prefix, a name whose suffix is not its owner reference's uid, a missing or
+foreign owner, `blockOwnerDeletion: true`, an `endpointSelector` with more
+than one `matchLabels` entry, with any `matchExpressions`, or with a
+`matchLabels` entry that is not the per-sandbox label key
+(`sandbox.namzu.ai/per-sandbox-egress` by default, and the one literal in the
+manifest that follows `perSandbox.labelKey`) **holding the owner's own name**,
+`toCIDR`/`toCIDRSet`/`toEntities`/`toServices`/`toGroups`/`toNodes`/
+`toRequires`, a kube-dns rule on any port but 53, a `toFQDNs` entry that is
+not exactly one of an exact `matchName` or a `*.<domain>` pattern over at
+least two labels (so `*`, `*.*` and `*.com` are all refused — an allowlist
+that matches every name is not one), any ingress or deny rule, and a `specs`
+list (the CRD's alternative to `spec`, which a fence reading only `spec`
+would be walked straight past by). Every one of those refusals was measured
+(see below); change the username in its `matchConditions` and the namespace in
+its binding to match your deployment.
+
+**The DELETE arm bounds by NAME PREFIX alone**, and it is worth saying
+precisely because a validating policy cannot tell which sandboxes a host
+holds: what it protects is every policy OUTSIDE the `namzu-sbx-` prefix — the
+operator's own baseline first of all — not one `namzu-sbx-` policy from
+another. A host deleting one of its own sandboxes' policies removes an
+allowance rather than adding one, which is why the prefix is the bound worth
+having here. Every other rule above is gated on the write arms, so a DELETE
+is checked for its name and nothing else.
+
+The selector rule is the one that carries the most weight. One `matchLabels`
+entry is a shape, not a bound: `sandbox.namzu.ai/template: namzu-task` is one
+entry and selects every sandbox pod in the namespace. What bounds the reach of
+a per-sandbox policy is the KEY being the per-sandbox label key and its VALUE
+the owner's own name, which is the label this backend actually puts on the pod
+— the VALUE check alone would not do it, because a host chooses the names of
+the objects it creates, and a claim named `namzu-task` would satisfy "value
+equals the owner's name" while selecting on the shared template label. So a
+host cannot point a policy for a claim it holds at somebody else's pods.
+
+**What a host with these verbs can and cannot do.** It cannot touch the
+operator's own baseline policy at all — not widen it, not delete it, not write
+anything outside the `namzu-sbx-<uid>` names the fence admits — and cannot
+reach a pod other than the one its policy is owned by. What it CAN do, by
+design, is add allowances to its own sandbox's pod: that is what the
+capability is. The [union check](#verify-never-trust) sees such a policy
+because it enumerates every policy selecting the pod's labels, but it runs
+at ACQUIRE — before any `setNetworkPolicy` write for that sandbox exists —
+so it is a check on the boundary a sandbox starts under, not a continuous
+audit of one the host narrows or widens later.
+
+**Workspaces do not carry this capability, and are refused it rather than
+left without it.** A `KubernetesWorkspace` wraps the same handle, built
+without the setter: nothing in its create path composes a per-sandbox label
+or tracks an owner uid for one, so `setNetworkPolicy` is absent there as it
+was everywhere before this change. That is a fact about the PATH and not
+about the configuration, so `createKubernetesWorkspace` does not simply
+ignore the option — a config carrying `egress.perSandbox` is refused with
+`KubernetesWorkspacePerSandboxEgressConfigError`, before the first request
+and before anything is created. A host that wired a workspace deployment with
+`perSandbox` therefore learns it at the call rather than believing it
+narrowed an egress it never touched. Creating task sandboxes with that config
+is unaffected: the method is present there, and a host that wants both passes
+a config without `perSandbox` to `createKubernetesWorkspace`.
+
 ### Verify, never trust
 
 This backend never CREATES the `NetworkPolicy` (or `CiliumNetworkPolicy`) —
@@ -3714,6 +3975,34 @@ that IS on the allowlist still resolving and connecting) alongside the
 negative one — a `cilium policy trace` or BPF policy dump showing the narrowed
 rule is the one in force is the strongest evidence, because a probe that
 merely reports "blocked" cannot tell a working narrowing from a broken guest.
+
+**Nor is a PER-SANDBOX policy enforced by anything measured here.** What a
+local single-node cluster (Kubernetes v1.37, the upstream
+`CiliumNetworkPolicy` CRD installed with no data plane at all, this repo's
+three manifests applied verbatim, every write issued as the host
+ServiceAccount through impersonation) did prove is the object half, and it
+proved it properly: the exact body this backend writes is admitted and its
+replacement merge-patch is too; the fence refuses a name without the prefix, a
+name whose suffix is not its owner's uid, a missing or foreign owner,
+`blockOwnerDeletion: true`, a two-label selector, a `matchExpressions`
+selector, a ONE-label selector whose value is the shared template label or
+another sandbox's name, `toFQDNs: [{matchPattern: '*'}]`, `'*.*'`, `'*.com'`,
+an empty `toFQDNs` list, a kube-dns rule moved to port 443,
+`toEntities: ['world']`, `toCIDR`, an ingress rule, a `specs` list, a widening
+patch of the host's own policy — by peer kind, by `toFQDNs` pattern and by
+selector — and a `DELETE` of the operator's baseline, while the host's DELETE
+of its OWN policy is admitted; 51 concurrent claims produced 51 distinct
+policies with 51 distinct owners and no cross-writes; deleting a claim
+collected exactly its policy about 100 ms after the `DELETE` returned,
+deleting all of them collected all 51, and the operator's own unowned policy
+survived; and a host bound to the default Role alone can `get`/`list`
+policies and cannot `create`, `patch` or `delete` one, nor read the admission
+objects, until `rbac-per-sandbox-egress.yaml` is applied — after which it
+still cannot create a `ValidatingAdmissionPolicy`. The issue's own acceptance
+criterion — "50 concurrent sandboxes with
+distinct lists each reach only their own hosts", and its `registry.npmjs.org`
+answers while `example.com` fails — is a statement about a data plane and is
+**unproven**. It needs a real Cilium cluster and a positive control.
 
 **Nor is the DIFFERENCE between two egress profiles.** What a kind run proves
 is that the claim-time label reaches the running pod without a cold start, and
@@ -3995,6 +4284,22 @@ the rest of what a workspace uses — `create`/`get`/`patch`/`delete` on
 `sandboxes`, `get` on `sandboxtemplates`, `get`/`list` on `pods` — the task
 path already required.
 
+**Per-sandbox egress asks for more, in a file of its own.**
+`config.egress.perSandbox` needs `create`/`patch`/`delete` on
+`ciliumnetworkpolicies` in the namespace and a read-only, cluster-scoped
+`get` on `validatingadmissionpolicies` and `validatingadmissionpolicybindings`
+— the fence check's own grant, cluster-scoped because those two objects are.
+None of it is in `k8s/manifests/rbac.yaml`, and that is deliberate: a host
+that never configures the capability must not hold write access to its
+namespace's network policies. It ships as
+`k8s/manifests/rbac-per-sandbox-egress.yaml`, applied beside
+`validatingadmissionpolicy-cilium.yaml` or not at all — the write verbs are
+safe to hold only because the fence bounds what may be written with them. A
+host that enables the option without the RBAC gets a `403` naming the verb
+and the resource; without the fence it gets
+`KubernetesAdmissionFenceMissingError` and nothing is written. See
+[per-sandbox egress](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox).
+
 `list` on `sandboxclaims` is the task path's own crash-recovery verb:
 [`releaseKubernetesTaskSandboxes`](#a-crashed-hosts-claims-labels-release-and-capacity)
 has to find a predecessor's claims by label before it can delete them, and
@@ -4030,7 +4335,11 @@ task image that `FROM`s this one and layers its own packages on top must
 repeat that exact `find`/`chmod` step after its own installs, since a
 package it adds can reintroduce a setuid/setgid binary this image already
 cleared), the `RuntimeClass` / `SandboxTemplate` / `SandboxWarmPool` /
-`NetworkPolicy` / RBAC manifests (`k8s/manifests/`, plus a `kind-overlay/`
+`NetworkPolicy` / RBAC manifests (`k8s/manifests/`, plus the two OPT-IN
+files [per-sandbox egress](#per-sandbox-egress-setnetworkpolicy-on-a-live-sandbox)
+needs — `validatingadmissionpolicy-cilium.yaml` and
+`rbac-per-sandbox-egress.yaml`, which are applied together or not at all and
+which no other capability reads — plus a `kind-overlay/`
 for local development — explicitly **not** a security boundary, see that
 overlay's own header comment), and six scripts under `k8s/scripts/` that
 each measure one acceptance criterion below against a live cluster and print

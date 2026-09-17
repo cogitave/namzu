@@ -30,8 +30,10 @@ import {
 	KubernetesEgressPolicyConfigError,
 	KubernetesEgressPolicyMismatchError,
 	KubernetesEgressPolicyNotAppliedError,
+	KubernetesNetworkPolicyHostError,
 	KubernetesUnenforceableEgressPolicyError,
 	assertEgressPolicyIsEnforceable,
+	buildCiliumEgressManifest,
 	decideEgressUnion,
 	defaultEgressPolicyName,
 	egressAllowance,
@@ -790,6 +792,159 @@ describe('cilium narrowing — TLS server names', () => {
 			toFQDNs: [{ matchName: 'tenant.example' }],
 			toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
 		})
+	})
+
+	it('refuses a .domain entry while tlsServerNames is on, at the translation', async () => {
+		// `serverNames: ['.example.com']` is not a name any handshake
+		// presents, and `['example.com']` would deny every subdomain the
+		// `toFQDNs` half of the same rule admits. Either way the object is
+		// admitted by the shipped fence and reads back deep-equal to what was
+		// sent, so a translation that emitted it would report success and
+		// deny the domain it was asked to allow — refused HERE, where every
+		// caller passes: the config-level translation below, the per-sandbox
+		// writer (which refuses earlier still, with its own field path), and
+		// a direct call to `buildCiliumEgressManifest`.
+		const failure = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['.example.com', 'registry.npmjs.org'] },
+			'cilium',
+			TARGET,
+			{ tlsServerNames: true },
+		).then(
+			() => undefined,
+			(err: unknown) => err as Error,
+		)
+
+		expect(failure).toBeInstanceOf(KubernetesNetworkPolicyHostError)
+		// The field path, asserted as its own half: this caller set
+		// `config.egress.ciliumNarrowing` and nothing else, so the refusal has
+		// to send it there — and never to the per-sandbox field, whose remedy
+		// (`perSandbox.narrowing`) does not exist in this host's config at all.
+		// Pinned separately from the wording below so that a change pairing one
+		// caller's sentence with the other caller's field fails here rather
+		// than reading as a correct refusal, which is exactly how the expanding
+		// caller came to be sent to the config-level field.
+		expect(failure?.message).toContain('config.egress.ciliumNarrowing')
+		expect(failure?.message).not.toContain('config.egress.perSandbox.narrowing')
+		// The message says what is true of THIS caller, and this caller is the
+		// unexpanded one: the entry below is emitted as a literal `matchName`,
+		// not expanded into a name plus a pattern, so the refusal cannot claim
+		// it "becomes a name plus a '*.domain' pattern" — and the remedy that
+		// sentence offers ("leave tlsServerNames off for a domain list") is not
+		// a repair here, because that emission admits nothing either. Both
+		// halves are asserted: the caller that IS expanded is pinned in
+		// `per-sandbox-policy.test.ts`.
+		expect(failure?.message).toContain('this translation does not expand a leading-dot entry')
+		expect(failure?.message).toContain(`the literal matchName ${JSON.stringify('.example.com')}`)
+		expect(failure?.message).toContain('a second, independent denial')
+		expect(failure?.message).not.toContain("becomes a name plus a '*.domain' pattern")
+		// And the closing grammar is suppressed here, because this translation
+		// does not implement it: the body has just said the entry admits
+		// nothing as written, and a tail re-stating that `.example.com` means
+		// the domain and its subdomains would describe a behaviour that is the
+		// reason this entry is refused rather than the behaviour it gets.
+		expect(failure?.message).not.toContain('Entries are hostnames')
+		expect(failure?.message).toContain('Nothing was written')
+
+		// The refusal belongs to the COMBINATION, not to either half. The
+		// leading dot alone is untouched here — the config-level translation
+		// has never expanded anything and its emitted bytes are pinned, so the
+		// refusal is about the SNI value the option would attach to it, not
+		// about the entry. What that entry emits on its own is `matchName:
+		// '.example.com'`, a literal no DNS answer carries: it matches nothing
+		// either way, which is a pre-existing defect of this translation
+		// (deferred, with its own change) and the second denial `serverNames`
+		// would add on top of it. The option alone is untouched, with
+		// `serverNames` holding the exact host.
+		const domains = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['.example.com'] },
+			'cilium',
+			TARGET,
+			{ ports: [443] },
+		)
+		expect(
+			(domains.manifest as { spec: { egress: Record<string, unknown>[] } }).spec.egress[1],
+		).toStrictEqual({
+			toFQDNs: [{ matchName: '.example.com' }],
+			toPorts: [{ ports: [{ port: '443', protocol: 'TCP' }] }],
+		})
+
+		const exact = await translateEgressPolicy(
+			{ kind: 'static', allowedHosts: ['registry.npmjs.org'] },
+			'cilium',
+			TARGET,
+			{ tlsServerNames: true },
+		)
+		expect(
+			(exact.manifest as { spec: { egress: Record<string, unknown>[] } }).spec.egress[1],
+		).toStrictEqual({
+			toFQDNs: [{ matchName: 'registry.npmjs.org' }],
+			toPorts: [
+				{
+					ports: [{ port: '443', protocol: 'TCP' }],
+					serverNames: ['registry.npmjs.org'],
+				},
+			],
+		})
+	})
+
+	it('sends a DIRECT expanding call to the per-sandbox field it would have set', () => {
+		// `buildCiliumEgressManifest` is the shared translation, and a caller
+		// reaching it directly is the shape the builder's own comment claims to
+		// cover — with no earlier check standing between the option and the
+		// message. `expandDomains` is the one option that says which translation
+		// is being built, so it has to decide the field path as well as the
+		// sentence: decided independently, this caller was told to repair
+		// `config.egress.ciliumNarrowing` with the remedy that belongs to
+		// `config.egress.perSandbox.narrowing`, a field it never set. Both
+		// halves are asserted, so pairing either sentence with the other
+		// caller's field fails here.
+		const refusal = ((): Error | undefined => {
+			try {
+				buildCiliumEgressManifest({
+					namespace: TARGET.namespace,
+					name: TARGET.name,
+					selectorLabels: EXPECTED_SELECTOR.matchLabels,
+					allowedHosts: ['.example.com'],
+					policyKind: 'static',
+					narrowing: { tlsServerNames: true },
+					expandDomains: true,
+				})
+				return undefined
+			} catch (err) {
+				return err as Error
+			}
+		})()
+
+		expect(refusal).toBeInstanceOf(KubernetesNetworkPolicyHostError)
+		expect(refusal?.message).toContain('config.egress.perSandbox.narrowing')
+		expect(refusal?.message).not.toContain('config.egress.ciliumNarrowing')
+		expect(refusal?.message).toContain("this entry becomes a name plus a '*.domain' pattern")
+		expect(refusal?.message).not.toContain('does not expand a leading-dot entry')
+		// Expanding is the translation that DOES apply the hostname grammar,
+		// so this half keeps it — the suppression belongs to the other one.
+		expect(refusal?.message).toContain('Entries are hostnames')
+
+		// And the same options with `expandDomains` off are the config-level
+		// caller's message: the option, not the function, decides.
+		const unexpanded = ((): Error | undefined => {
+			try {
+				buildCiliumEgressManifest({
+					namespace: TARGET.namespace,
+					name: TARGET.name,
+					selectorLabels: EXPECTED_SELECTOR.matchLabels,
+					allowedHosts: ['.example.com'],
+					policyKind: 'static',
+					narrowing: { tlsServerNames: true },
+				})
+				return undefined
+			} catch (err) {
+				return err as Error
+			}
+		})()
+
+		expect(unexpanded?.message).toContain('config.egress.ciliumNarrowing')
+		expect(unexpanded?.message).not.toContain('config.egress.perSandbox.narrowing')
+		expect(unexpanded?.message).not.toContain('Entries are hostnames')
 	})
 })
 
