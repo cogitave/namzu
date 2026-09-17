@@ -32,7 +32,6 @@ import {
 	parentContext,
 	serializeSpan,
 } from '../../telemetry/attributes.js'
-import { recordRunDuration } from '../../telemetry/metrics.js'
 import { getTracer } from '../../telemetry/runtime-accessors.js'
 import { buildAdvisoryTools } from '../../tools/advisory/index.js'
 import { SearchToolsTool } from '../../tools/builtins/search-tools.js'
@@ -79,7 +78,6 @@ import type {
 	StopCondition,
 } from '../../types/run/index.js'
 import type { PromoteMemory } from '../../types/run/memory-promotion.js'
-import { memoryCandidateFor } from '../../types/run/memory-promotion.js'
 import type { RunStore } from '../../types/run/store.js'
 import type { TokenBudgetStore } from '../../types/run/token-budget-store.js'
 import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
@@ -115,6 +113,7 @@ import type { PromptCache } from './prompt-cache.js'
 import { PromptBuilder } from './prompt.js'
 import type { PromptSegments } from './prompt.js'
 import { PendingAnswers, QuestionParkBinding } from './question-park.js'
+import { releaseRunResources } from './release-run.js'
 import { RepeatCallTracker } from './repeat-call.js'
 import { ResultAssembler } from './result.js'
 import {
@@ -127,7 +126,7 @@ import {
 	recoverCompletedCalls,
 	supersededByRecovery,
 } from './resume-pending.js'
-import { acquireSandbox, teardownSandbox } from './sandbox-lifecycle.js'
+import { acquireSandbox } from './sandbox-lifecycle.js'
 import { SteeringBinding, type SteeringChannel, isOperatorUserMessage } from './steering.js'
 import { ToolGrantSet } from './tool-grants.js'
 import { createToolPause } from './tool-pause.js'
@@ -2341,93 +2340,23 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			yield* eventTranslator.drainPending()
 			yield* resultAssembler.handleError(err, rootSpan)
 		} finally {
-			// Release the process's termination path as soon as this run is
-			// done with it. Leaving the handlers installed would keep a
-			// WeakRef'd, settled run as the crash target for the rest of the
-			// process's life.
-			emergencyManager?.detach()
-
-			// A background job outlives the tool call that started it — that
-			// is what it is for — so nothing but this stops it outliving the
-			// RUN. Scoped to this run's id: a shared registry serving several
-			// runs must not have one of them tear down another's work.
-			//
-			// Awaited, and its failure swallowed. A job that would not die is
-			// worth a log line, and is not worth retracting a run's answer.
-			unsubscribeJobExits?.()
-			// The wait-intent recorder listens on the same shared registry and
-			// leaks the same way if it is left attached.
-			awaitedJobs?.close()
-			// Only jobs bound to this run. Jobs a host bound to its session are
-			// the host's to stop, when the session ends.
-			if (params.backgroundJobs && (params.backgroundJobOwner ?? ctx.runId) === ctx.runId) {
-				try {
-					const stopped = await params.backgroundJobs.killOwner(ctx.runId)
-					if (stopped.length > 0) {
-						ctx.log.info('Background jobs stopped with the run', {
-							[NAMZU.RUN_ID]: ctx.runId,
-							'namzu.jobs.stopped': stopped.length,
-						})
-					}
-				} catch (jobErr) {
-					ctx.log.error('A background job did not stop cleanly', {
-						[NAMZU.RUN_ID]: ctx.runId,
-						...errorAttributes(jobErr),
-					})
-				}
-			}
-
-			// Same reasoning for the question channel: the tools outlive the
-			// run that bound them, so leaving it attached would have a later
-			// run's question written into this run's checkpoint store.
-			questionParks.unbind()
-
-			// Offer what the run learned to whoever decides what is worth
-			// keeping. In `finally` and awaited: a run that failed still
-			// discovered things, and a fire-and-forget write would race the
-			// process exiting on a one-shot CLI run. A throw here is
-			// swallowed — a memory that failed to form must not retract an
-			// answer that was already produced.
-			const candidate = memoryCandidateFor(ctx.runId, workingStateManager)
-			if (params.promoteMemory && candidate) {
-				try {
-					await params.promoteMemory(candidate)
-				} catch (promoteErr) {
-					ctx.log.error('Memory promotion threw — the run is unaffected', {
-						[NAMZU.RUN_ID]: ctx.runId,
-						'exception.message':
-							promoteErr instanceof Error ? promoteErr.message : String(promoteErr),
-					})
-				}
-			}
-
-			// --- Sandbox lifecycle: destroy after run ---
-			if (sandbox) {
-				const sandboxId = sandbox.id
-				const teardown = await teardownSandbox(sandbox, sandboxTeardownTimeoutMs)
-				if (teardown.kind === 'destroyed') {
-					await eventTranslator.emitEvent({
-						type: 'sandbox_destroyed',
-						runId: ctx.runId,
-						sandboxId,
-					})
-					yield* eventTranslator.drainPending()
-					ctx.log.info('Sandbox destroyed', { 'namzu.sandbox.id': sandboxId })
-				} else {
-					ctx.log.error('Sandbox destroy failed', {
-						'namzu.sandbox.id': sandboxId,
-						...errorAttributes(teardown.error),
-					})
-				}
-			}
-
-			unsubscribeTaskStore?.()
-			// Keyed by HOW it settled, not just that it did: a run that was
-			// cancelled and a run that hit its budget have very different
-			// duration distributions, and averaging them together describes
-			// neither.
-			recordRunDuration(ctx.runMgr.getRun().status ?? 'unknown', Date.now() - runStartedAt)
-			rootSpan.end()
+			yield* releaseRunResources({
+				ctx,
+				eventTranslator,
+				emergencyManager,
+				unsubscribeJobExits,
+				unsubscribeTaskStore,
+				awaitedJobs,
+				backgroundJobs: params.backgroundJobs,
+				backgroundJobOwner: params.backgroundJobOwner,
+				questionParks,
+				workingStateManager,
+				promoteMemory: params.promoteMemory,
+				sandbox,
+				sandboxTeardownTimeoutMs,
+				runStartedAt,
+				rootSpan,
+			})
 		}
 
 		// Reached only by a run that settled on its own terms. `finalize()` is
