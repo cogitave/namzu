@@ -705,12 +705,27 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('a peer that hangs up before the open r
 	 */
 	function writeAgentWithoutDescriptorOwnership(): string {
 		const shipped = readFileSync(AGENT_ENTRY_FILE, 'utf8')
-		// Three edits, one concept: the handler stops owning the descriptor
-		// it opens. The guard goes too — on its own it closes nothing, but it
-		// would make the control return before `stat` and so never reach the
-		// shape the defect had. Each anchor is asserted to occur exactly once
-		// before anything runs, so a rename that makes this patch a no-op
-		// fails here rather than turning the control green for free.
+		// Four edits, two concepts. The first three make the handler stop
+		// owning the descriptor it opens: the guard goes too — on its own it
+		// closes nothing, but it would make the control return before `stat`
+		// and so never reach the shape the defect had.
+		//
+		// The fourth is not about the defect — it is about OBSERVING it
+		// deterministically. `fs.promises` closes an abandoned `FileHandle`
+		// the moment it notices one has been garbage collected (Node's own
+		// DEP0137 safety net), and that race is not hypothetical: forcing GC
+		// in the child agent reproduces an empty descriptor list here every
+		// time, the same failure this control saw on CI. Once nothing but a
+		// local variable holds the handle, whether the leak is still
+		// observable by the time this file gets around to checking depends
+		// on whether V8 happened to collect in between — which is exactly
+		// the nondeterminism a POSITIVE CONTROL must not have. Stashing the
+		// handle somewhere that stays reachable for the rest of the process
+		// keeps the leak waiting for the test rather than for V8.
+		//
+		// Each anchor is asserted to occur exactly once before anything
+		// runs, so a rename that makes this patch a no-op fails here rather
+		// than turning the control green for free.
 		const edits: readonly (readonly [string, string])[] = [
 			['\tvoid (async () => {\n\t\ttry {\n', '\tvoid (async () => {\n'],
 			[
@@ -720,6 +735,13 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('a peer that hangs up before the open r
 			[
 				'\t\t\tif (settled) return\n\t\t\tconst stat = await handle.stat()',
 				'\t\t\tconst stat = await handle.stat()',
+			],
+			[
+				"\t\t\thandle = await fs.open(real, 'r')\n",
+				"\t\t\thandle = await fs.open(real, 'r')\n" +
+					'\t\t\tglobalThis.__namzuLeakedReadFileStreamHandles =\n' +
+					'\t\t\t\tglobalThis.__namzuLeakedReadFileStreamHandles || []\n' +
+					'\t\t\tglobalThis.__namzuLeakedReadFileStreamHandles.push(handle)\n',
 			],
 		]
 		let broken = shipped
@@ -748,8 +770,20 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('a peer that hangs up before the open r
 	 * Ask `port` to stream the fifo, hang up in the same tick, and only
 	 * then open the write end — which is what lets the guest's `fs.open`
 	 * return. `fs.open` on a fifo for reading blocks until a writer
-	 * arrives, so the window this case is about is held open for as long
-	 * as the test wants rather than raced for.
+	 * arrives, so THAT half of the race needs no timing at all: the open
+	 * stays provably pending for as long as this function wants, because
+	 * nothing else in the whole file ever writes to `slow.fifo`.
+	 *
+	 * The other half is the one a fixed sleep could only guess at: that the
+	 * guest's `close` handler — which owns nothing yet, since `fs.open`
+	 * has not resolved — has actually RUN before the write end opens and
+	 * lets it. A sleep cannot prove that; a full round trip to the SAME
+	 * agent can. The hang-up's FIN reaches the kernel before this function
+	 * issues a single further syscall, and a fresh connection's own
+	 * handshake, request and reply cost the agent's single-threaded event
+	 * loop several more turns than replaying an already-queued `close`
+	 * callback does — so by the time the round trip's own socket has
+	 * closed, the hang-up has been observed.
 	 */
 	async function raceAnOpenAgainstAHangUp(port: number, fifo: string): Promise<void> {
 		await new Promise<void>((resolve, reject) => {
@@ -764,9 +798,11 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('a peer that hangs up before the open r
 			})
 			socket.once('error', reject)
 		})
-		// Long enough for the request frame and the FIN to be delivered and
-		// for the guest to have reached its blocking open.
-		await new Promise((resolve) => setTimeout(resolve, 200))
+		// A bounded wait on an observable, not a sleep: this resolves only
+		// once the agent has accepted a connection, read a frame, replied
+		// and closed it — work the event loop cannot run ahead of the
+		// hang-up's own `close` callback above.
+		await sendFramedRequest(port, { op: 'healthz' })
 		const writer = await open(fifo, 'w')
 		await writer.close()
 	}
