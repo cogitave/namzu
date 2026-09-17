@@ -5,7 +5,7 @@ description: Findings and open composition options for provider-request cancella
 resource: packages/sdk/src/runtime/query/index.ts
 tags: [sdk, provider, cancellation, timeout, retry, fallback]
 status: draft
-generated: { by: process:claude-code, at: 2026-09-15T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-09-17T00:00:00Z }
 ---
 
 # Cancellation and timeouts
@@ -29,7 +29,7 @@ mechanisms, composed in sequence:
   each `it.next()` against this signal so a Stop can interrupt mid-token
   (`packages/sdk/src/runtime/query/iteration/stream-turn.ts:271-297`, driven
   by `this.ctx.abortController.signal` at
-  `packages/sdk/src/runtime/query/iteration/index.ts:886`).
+  `packages/sdk/src/runtime/query/iteration/index.ts:887`).
 - **Kernel idle watchdog.** `withStreamIdleTimeout` enforces a per-chunk
   silence bound (default five minutes,
   `packages/sdk/src/provider/idle-timeout.ts:7`) by racing the same iterator
@@ -66,11 +66,11 @@ const withRecovery = (provider: LLMProvider): LLMProvider => {
   const metered = withTokenBudget(withIdleBound, budget)
   return params.retry === false ? metered : withProviderRetry(metered, { config, log, canRetry })
 }
-// packages/sdk/src/runtime/query/index.ts:1124-1137
+// packages/sdk/src/runtime/query/index.ts:1174-1187
 const resilientProvider = withProviderFallback(
   chain.map((member) => ({ ...member, provider: withRecovery(member.provider) })),
   { log, canFallback, onSwap },
-) // packages/sdk/src/runtime/query/index.ts:1148-1163
+) // packages/sdk/src/runtime/query/index.ts:1198-1214
 ```
 
 Both `withProviderRetry` and `withProviderFallback` special-case one kind of
@@ -145,8 +145,8 @@ turn short. The kernel already had to learn this once for the idle watchdog:
 the ordering comment above `withRecovery` states it directly — "The idle
 layer cannot sit outside retry, because its timer would then count a
 legitimate backoff as provider silence. This order is not a preference."
-(`packages/sdk/src/runtime/query/index.ts:1098-1117`, with the quoted
-sentence at `index.ts:1110-1112`). A wall-clock deadline decorator has the
+(`packages/sdk/src/runtime/query/index.ts:1148-1167`, with the quoted
+sentence at `index.ts:1159-1162`). A wall-clock deadline decorator has the
 same failure mode in reverse if it sits *inside* retry: a backoff sleep
 between attempts would burn down a budget meant to bound provider work, not
 the kernel's own waiting. This is a constraint on the eventual composition,
@@ -163,7 +163,7 @@ has two working precedents in this exact codebase:
   `Math.max(0, timeoutMs - elapsed)`, or `+Infinity` when `timeoutMs === 0`
   (`packages/sdk/src/runtime/query/guard.ts:91-101`), and today feeds exactly
   one caller: sandbox acquisition's own `timeoutMs`
-  (`packages/sdk/src/runtime/query/index.ts:2603`).
+  (`packages/sdk/src/runtime/query/index.ts:2684`).
 - `resolveProviderContextWindow` clamps a caller-supplied `timeoutMs` against
   Node's 32-bit timer ceiling, arms a private `AbortController`, and fuses it
   with the caller's signal via `AbortSignal.any` before racing a
@@ -181,8 +181,8 @@ they are not one object reused three ways:
 - **Primary turns.** `resilientProvider` — the full
   idle → token-budget → retry chain, wrapped again in fallback — is what
   becomes `ctx.provider`: passed into `RunContext` at
-  `packages/sdk/src/runtime/query/index.ts:1319` and into
-  `IterationOrchestrator` at `index.ts:1998`.
+  `packages/sdk/src/runtime/query/index.ts:1369` and into
+  `IterationOrchestrator` at `index.ts:2046`.
 - **Callback inference** (`preparation`/`review` phases) reads `ctx.provider`
   directly (`packages/sdk/src/runtime/query/callback-inference.ts:66`), so it
   gets the same `resilientProvider`. It also composes its own extra,
@@ -190,7 +190,7 @@ they are not one object reused three ways:
   seconds (`requestSchema.timeoutMs` max, `callback-inference.ts:13`), fused
   via `AbortSignal.any([ctx.abortController.signal, lifetime.signal,
   deadline.signal, ...requestedSignal])` at `callback-inference.ts:42-51`.
-- **Advisory calls** get neither retry nor fallback. `index.ts:1929-1938`
+- **Advisory calls** get neither retry nor fallback. `index.ts:1979-1988`
   builds `boundedAdvisors` directly from `advisor.provider`:
   `withTokenBudget(withStreamIdleTimeout(advisor.provider, {
   idleTimeoutMs, log }), budget)` — idle-timeout and token-budget only. They
@@ -237,8 +237,8 @@ The reported "extra cancel signal" symptom is more likely to originate here
 than in the SDK, and this layer was not on the SDK's own map of the
 cancellation model. `SessionOperationOwner` in the CLI TUI owns a
 session-lifetime `AbortController`
-(`packages/cli/src/tui/agent.ts:863`, aborted on `close()` at
-`agent.ts:1013`) and fuses it with the caller's own signal before the SDK
+(`packages/cli/src/tui/agent.ts:909`, aborted on `close()` at
+`agent.ts:1059`) and fuses it with the caller's own signal before the SDK
 ever sees anything:
 
 ```ts sketch
@@ -248,14 +248,14 @@ private operationSignal(callerSignal: AbortSignal | undefined): AbortSignal {
   return callerSignal
     ? AbortSignal.any([callerSignal, this.lifetime.signal])
     : this.lifetime.signal
-} // packages/cli/src/tui/agent.ts:1018-1024
+} // packages/cli/src/tui/agent.ts:1064-1071
 ```
 
 That fused signal reaches `query()` through `operations.stream(opts?.signal,
-...)` (`agent.ts:2860`), which captures it into `turnOpts.signal`
-(`agent.ts:2865`); the run function destructures it as `const signal =
-opts?.signal` (`agent.ts:3787`) and passes it into the `query({ ...,
-signal })` call (`agent.ts:3794`, `signal` field at `agent.ts:3861`). A full
+...)` (`agent.ts:2968`), which captures it into `turnOpts.signal`
+(`agent.ts:2973`); the run function destructures it as `const signal =
+opts?.signal` (`agent.ts:3896`) and passes it into the `query({ ...,
+signal })` call (`agent.ts:3903`, `signal` field at `agent.ts:3970`). A full
 CLI turn therefore composes at least three `AbortSignal` layers before any
 provider driver sees one: CLI session-lifetime-plus-caller fusion → SDK
 `RunContext.abortController` fusion with `config.signal` → the per-call
@@ -300,7 +300,7 @@ cancelling it; `zen` does both:
 
 - `packages/providers/http/src/client.ts:606` and `:775` — `finally { reader.releaseLock() }`, nothing else.
 - `packages/providers/openrouter/src/client.ts:299` — same: `finally { reader.releaseLock() }`.
-- `packages/providers/zen/src/client.ts:429-430` and `:582-583` — `await reader.cancel().catch(() => {}); reader.releaseLock()`.
+- `packages/providers/zen/src/client.ts:429-430` and, on the catalogue read, `:646-647` — `await reader.cancel().catch(() => {}); reader.releaseLock()`.
 
 A shared conformance contract over an injectable fake transport (per-provider
 fixture adapters where transports differ materially — LM Studio's SDK-mediated

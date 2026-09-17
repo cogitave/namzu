@@ -105,11 +105,13 @@ console.log(identity)        // { sessionId, topicId, projectId, tenantId }
 ```
 
 That is not a chat call with extra steps. It generated a session identity,
-applied the default budgets, ran the tool scheduler, wrote a checkpoint per
-iteration, and left the whole run on disk under
-`.namzu/projects/<project>/sessions/<session>/runs/<run>/` — `run.json`,
-`messages.json`, `transcript.jsonl`, a human-readable `report.md`, and a
-`checkpoints/` directory.
+applied the default budgets, ran the tool scheduler, and left the whole run on
+disk under `.namzu/projects/<project>/sessions/<session>/runs/<run>/` —
+`run.json`, `messages.json`, `transcript.jsonl` and a human-readable
+`report.md`. A `checkpoints/` directory joins them once an iteration's tool
+batch is accepted and the run goes on to another iteration — one JSON per
+checkpoint — so the tool loop below writes them and the quickstart above, which
+ends on its first turn, writes none.
 
 `identity` comes back so the next turn continues the same session:
 
@@ -124,11 +126,21 @@ const second = await runAgent({
 })
 ```
 
-Give it tools and the same call runs a tool loop:
+Give it tools and a scripted turn that asks for one, and the same call runs a
+tool loop — the model requests `get_weather`, the kernel executes it, and the
+result goes back for the next turn:
 
 ```typescript
-import { defineTool, ToolRegistry } from '@namzu/sdk'
+import { defineTool, ProviderRegistry, runAgent, ToolRegistry } from '@namzu/sdk'
 import { z } from 'zod'
+
+const { provider } = ProviderRegistry.create({
+  type: 'mock',
+  turns: [
+    { toolCalls: [{ name: 'get_weather', args: { city: 'Paris' } }] },
+    { text: 'It is 17C in Paris.' },
+  ],
+})
 
 const tools = new ToolRegistry()
 
@@ -149,13 +161,20 @@ tools.register(
   }),
 )
 
-const { output } = await runAgent({
+const { output, run } = await runAgent({
   provider,
   model: 'mock-model',
   tools,
   prompt: 'What is the weather in Paris?',
 })
+
+console.log(output)                                        // 'It is 17C in Paris.'
+console.log(run.messages.filter((m) => m.role === 'tool'))  // the executed tool result
 ```
+
+The mock plays its turns in order, so a tool loop is scripted rather than
+inferred: the quickstart's single `responseText` turn above never asks for a
+tool, and the same `runAgent` call with it returns a plain answer.
 
 A tool declares what it *is* — read-only or not, destructive or not, safe to
 run concurrently or not, and which permissions it needs — because the
@@ -210,8 +229,11 @@ rival subsystems — they fill one slot, with a plain system prompt taking
 precedence over a persona. `assembleSystemPrompt(persona)` returns a string, so
 its output can simply be what `instructions.md` contains. A folder does not lose
 its skills by taking the simple route: the skills section is rendered either way.
-The trade-off is set out in
-an agent can be a directory.
+What the two routes trade is where that section lands — a persona places it
+among its own sections, after constraints and tool guidance, while a plain
+prompt gets it immediately after the prompt — and how much of the prompt you
+can address one piece at a time. Nothing else about the folder depends on
+which you pick.
 
 A tool file is a normal module:
 
@@ -336,13 +358,15 @@ nothing recoverable.
 → `packages/sdk/src/compaction/dangling.ts`, `compaction/context-window.ts`
 
 **A run that outlives the process that started it.**
-Each iteration writes a checkpoint carrying the history, the budgets, the
-working state and the trace context. `resumeRun` joins one of those snapshots
-back onto a live loop in a *different* process. It returns three outcomes
-rather than a nullable run, because the two failures mean opposite things: "no
-checkpoint" is a dead end, while "parked awaiting a decision" is the run
-working exactly as designed and waiting for a human. On `SIGINT` or `SIGTERM`
-an opt-in emergency save writes the run out before the process leaves.
+The run writes a checkpoint carrying the history, the budgets, the working
+state and the trace context at the end of each iteration it continues past; a
+run that ends on its first turn writes none. `resumeRun` joins one of those
+snapshots back onto a live loop in a *different* process. It returns three
+outcomes rather than a nullable run, because the two failures mean opposite
+things: "no checkpoint" is a dead end, while "parked awaiting a decision" is
+the run working exactly as designed and waiting for a human. On `SIGINT` or
+`SIGTERM` an opt-in emergency save writes the run out before the process
+leaves.
 → `runtime/query/resume-run.ts`, `runtime/query/checkpoint.ts`, `manager/run/emergency.ts`
 
 **Delegation that cannot quietly corrupt itself.**
