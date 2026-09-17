@@ -142,24 +142,81 @@ const ctx: TuiContext = { cwd: process.cwd(), version: '0.0.0-test' }
 const tick = (ms = 40) => new Promise((r) => setTimeout(r, ms))
 
 /**
- * Wait for `text` to appear in the frame, or give up.
+ * Everything this harness has drawn, as one line of words.
+ *
+ * Two readers are possible and they answer different questions, so this file
+ * uses both deliberately:
+ *
+ *   - `lastFrame` is the SCREEN. "The composer is up", "the turn is running",
+ *     "the draft is still there" are claims about what is on screen now, and
+ *     only the screen answers them: history still holds the frame the last of
+ *     those claims says has been replaced, so an assertion that a draft
+ *     survived the prompt, read through history, passes even when the prompt
+ *     destroyed it — which is the defect under test. Measured, not assumed:
+ *     with the draft destroyed on purpose, the screen reader goes red and the
+ *     history reader stays green.
+ *   - `frames` is the HISTORY. "The draft reached the composer", "the chip
+ *     appeared", "the interrupt landed" are events: they happened, and which
+ *     frame happens to be last afterwards cannot un-happen them. A frame the
+ *     renderer wrapped is the second reason — a needle that straddles the wrap
+ *     point is in the text and not in the row that carries it.
+ *
+ *     It is worth being exact about what history does NOT buy here, because a
+ *     reader kept for a wrong reason is a reader that will be dropped for a
+ *     wrong reason. This is not about `<Static>` rows going missing from later
+ *     frames: ink-testing-library renders through ink with `debug: true`, and
+ *     ink's debug path writes the accumulated static output and the live frame
+ *     in one write, so every later frame does carry every static row. Measured
+ *     over repeated cycles, no frame was ever a static-only chunk.
+ *
+ * Escapes come off BEFORE the whitespace is collapsed. Collapsing whitespace
+ * alone leaves an escape sequence sitting where a line happened to wrap, so
+ * `…and then deploy` survives as `and then <esc>deploy` and a `toContain` for
+ * the sentence fails on the renderer's width rather than on anything the code
+ * did.
+ */
+function said(harness: { readonly frames: readonly string[] }): string {
+	return (
+		harness.frames
+			.join('\n')
+			// biome-ignore lint/suspicious/noControlCharactersInRegex: matching ANSI escapes is the point
+			.replace(/\u001b\[[0-9;]*m/g, '')
+			.replace(/\s+/g, ' ')
+	)
+}
+
+/**
+ * Wait for `read()` to say `text`, and FAIL the test if it never does.
  *
  * Polling rather than one fixed sleep, for a reason this suite has already paid
  * for twice: the run transforms TypeScript on the way in, so under the full
  * parallel suite a step that takes 40ms alone can take several hundred. A fixed
  * wait turns that into a red assertion with nothing about the code changed.
- * Absence still needs a fixed wait — it cannot be polled for — which is why the
- * `not.toContain` assertions below sit after a generous one.
+ * Absence still needs a fixed wait — a thing that must never appear cannot be
+ * polled for — which is why the `not.toContain` assertions below sit after a
+ * wait on the positive fact that precedes them.
+ *
+ * It asserts rather than returning quietly, for the reason this file was filed
+ * as flaky. A poll whose needle stops arriving must report that; a poll that
+ * gives up in silence reports it as five passing tests that took 3s each, which
+ * is how a renamed label or a removed row turns into a budget nobody reads.
+ * `why` is that report.
+ *
+ * `read` is either the current screen (`harness.lastFrame`) or the history
+ * (`() => said(harness)`); which one is a property of the claim, see
+ * {@link said}.
  */
 async function frameShows(
-	lastFrame: () => string | undefined,
+	read: () => string | undefined,
 	text: string,
+	why: string,
 	timeoutMs = 3_000,
 ): Promise<void> {
 	const started = performance.now()
-	while (!(lastFrame() ?? '').includes(text) && performance.now() - started < timeoutMs) {
+	while (!(read() ?? '').includes(text) && performance.now() - started < timeoutMs) {
 		await tick(20)
 	}
+	expect(read(), why).toContain(text)
 }
 
 let nowMs = 1_000_000
@@ -202,20 +259,33 @@ async function turnRunningWithDraft(draft: string) {
 	mounted.push(harness)
 	// Wait for the composer to exist rather than guessing at how long the probe
 	// takes. Writing before it mounts loses the keystrokes silently.
-	await frameShows(harness.lastFrame, 'Type a message')
-	await tick(60)
+	await frameShows(harness.lastFrame, 'Type a message', 'the composer never appeared')
 	// Keys go in separately: one `stdin.write` is one keypress, so 'go\r' would
-	// arrive as pasted text and never submit.
+	// arrive as pasted text and never submit. Nothing is waited for in between:
+	// the composer keeps `valueRef` in step inside the key handler itself, so
+	// the return key sees 'go' whether or not React has committed the render.
 	harness.stdin.write('go')
-	await tick(20)
 	harness.stdin.write('\r')
-	// Wait for the turn to actually start rather than assuming 40ms is enough.
-	// The mock streams "working" as its first delta, so its arrival is the
-	// signal that the submit was processed and the composer is free again.
-	await frameShows(harness.lastFrame, 'working')
+	// Wait on the screen, not on the mock's first delta.
+	//
+	// This used to poll for the delta's own text, `'working'`, on the premise
+	// that it would reach the screen and mark the submit processed. It cannot:
+	// the renderer releases whole blocks (`splitCompleteBlocks`) and, when a
+	// paragraph drags, whole sentences (`splitSafeCut`) — neither will cut a
+	// bare word with no blank line after it loose, so the pending buffer held
+	// it for the life of the turn and the poll spent its entire budget on every
+	// test that came through here. A wait whose condition can never become true
+	// is the same defect as a wall clock, with a longer fuse.
+	//
+	// `Working` is the live activity row, drawn while a turn is in flight —
+	// `App.tsx` passes `state === 'thinking' || state === 'tool'`, and a running
+	// tool lights the row too, though nothing here runs one before the draft.
+	// That the submit was processed and the composer is live and free again is
+	// exactly what this wait needs and what the row states.
+	await frameShows(harness.lastFrame, 'Working', 'the turn never started')
 	harness.stdin.write(draft)
-	await frameShows(harness.lastFrame, draft)
-	expect(harness.lastFrame(), 'the draft never reached the composer').toContain(draft)
+	// The draft reaching the composer is an event, so it is read from history.
+	await frameShows(() => said(harness), draft, 'the draft never reached the composer')
 	// The draft is in. The prompt may open now.
 	letThePromptOpen()
 	return harness
@@ -224,19 +294,20 @@ async function turnRunningWithDraft(draft: string) {
 describe('a draft while a permission prompt comes and goes', () => {
 	it('is still there after the prompt is answered', async () => {
 		const draft = 'and then deploy'
-		const { stdin, lastFrame } = await turnRunningWithDraft(draft)
+		const harness = await turnRunningWithDraft(draft)
 
 		// The prompt takes the screen. The draft is deliberately not shown while
-		// it is up — the composer is hidden, not unmounted.
-		await frameShows(lastFrame, 'Do you want to')
-		expect(lastFrame(), 'the prompt never opened').toContain('Do you want to')
+		// it is up — the composer is hidden, not unmounted. Waiting on the screen
+		// matters here: the Esc below has to reach an OPEN prompt.
+		await frameShows(harness.lastFrame, 'Do you want to', 'the prompt never opened')
 
 		// Answer it, and the composer comes back with the sentence intact.
-		stdin.write('\x1B')
-		await frameShows(lastFrame, draft)
+		harness.stdin.write('\x1B')
+		// "Still there" is a claim about the screen. History would be satisfied by
+		// the frame from before the prompt, which is the state this asserts against.
+		await frameShows(harness.lastFrame, draft, 'the draft was destroyed by the prompt')
 
 		expect(decisions).toEqual([{ kind: 'reject' }])
-		expect(lastFrame(), 'the draft was destroyed by the prompt').toContain(draft)
 	})
 
 	it('keeps a pasted attachment across the same cycle', async () => {
@@ -244,26 +315,23 @@ describe('a draft while a permission prompt comes and goes', () => {
 		// notice after sending an incomplete message.
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
-		await frameShows(harness.lastFrame, 'Type a message')
-		await tick(60)
+		await frameShows(harness.lastFrame, 'Type a message', 'the composer never appeared')
 		harness.stdin.write('go')
-		await tick(20)
 		harness.stdin.write('\r')
-		// The turn's first delta, so the submit has been processed and the
-		// composer is free again. A fixed wait here is a guess about the machine.
-		await frameShows(harness.lastFrame, 'working')
+		// The turn is running and the composer is free again, read off the screen.
+		await frameShows(harness.lastFrame, 'Working', 'the turn never started')
 		// A newline in one keypress is held as a paste chip.
 		harness.stdin.write('first line\nsecond line')
-		await frameShows(harness.lastFrame, 'Pasted text')
-		expect(harness.lastFrame(), 'the paste chip never appeared').toContain('Pasted text')
+		// The chip appearing is an event — the keystrokes landed as a chip rather
+		// than being dropped by a composer that was not free.
+		await frameShows(() => said(harness), 'Pasted text', 'the paste chip never appeared')
 
 		letThePromptOpen()
-		await frameShows(harness.lastFrame, 'Do you want to')
-		expect(harness.lastFrame()).toContain('Do you want to')
+		await frameShows(harness.lastFrame, 'Do you want to', 'the prompt never opened')
 		harness.stdin.write('\x1B')
-		await frameShows(harness.lastFrame, 'Pasted text')
-
-		expect(harness.lastFrame(), 'the paste chip was destroyed').toContain('Pasted text')
+		// The chip coming back is a claim about the screen, for the same reason
+		// the draft is: history holds the frame from before the prompt.
+		await frameShows(harness.lastFrame, 'Pasted text', 'the paste chip was destroyed')
 	})
 })
 
@@ -273,13 +341,13 @@ describe('esc while a turn is running', () => {
 		// must not also empty the composer.
 		askPermission = false
 		const draft = 'keep me'
-		const { stdin, lastFrame } = await turnRunningWithDraft(draft)
+		const harness = await turnRunningWithDraft(draft)
 
-		stdin.write('\x1B')
-		await frameShows(lastFrame, 'Interrupted')
-
-		expect(lastFrame(), 'the turn was not interrupted').toContain('Interrupted')
-		expect(lastFrame(), 'esc cleared the draft').toContain(draft)
+		harness.stdin.write('\x1B')
+		await frameShows(() => said(harness), 'Interrupted', 'the turn was not interrupted')
+		// The draft, by contrast, has to be on the screen NOW: Esc clearing it is
+		// exactly the defect, and history still holds the frame from before.
+		expect(harness.lastFrame(), 'esc cleared the draft').toContain(draft)
 	})
 
 	it('still clears the composer when nothing is running', async () => {
@@ -288,13 +356,26 @@ describe('esc while a turn is running', () => {
 		askPermission = false
 		const harness = render(<App ctx={ctx} />)
 		mounted.push(harness)
-		await tick(80)
+		// The placeholder is drawn only while the composer is enabled and empty,
+		// which is the state a keystroke needs. A composer that is drawn but
+		// disabled for a moment (compacting, an external editor request) would not
+		// satisfy it, so this says more than "the composer is on screen" — and it
+		// says it without a guess at how long the probe takes.
+		await frameShows(harness.lastFrame, 'Type a message', 'the composer never appeared')
 		harness.stdin.write('throwaway')
-		await tick(40)
-		expect(harness.lastFrame()).toContain('throwaway')
+		// The keystrokes landing is an event; polling for it is what makes this a
+		// statement about the composer rather than about the machine's load.
+		await frameShows(
+			() => said(harness),
+			'throwaway',
+			'the keystrokes never reached the composer',
+		)
 
 		harness.stdin.write('\x1B')
-		await tick(120)
+		// An empty composer draws the placeholder again, in the same render that
+		// drops the text — so the placeholder returning is the completion to wait
+		// for. A fixed wait here asks whether the machine got to it in time.
+		await frameShows(harness.lastFrame, 'Type a message', 'the composer never came back empty')
 
 		expect(harness.lastFrame(), 'esc did not clear an idle composer').not.toContain('throwaway')
 	})
@@ -311,20 +392,20 @@ describe('while the prompt is up', () => {
 		// this test green — verified by mutation. What it does pin is the
 		// outcome, which is the thing that matters if either flag later moves.
 		const draft = 'untouched'
-		const { stdin, lastFrame } = await turnRunningWithDraft(draft)
-		await frameShows(lastFrame, 'Do you want to')
-		expect(lastFrame()).toContain('Do you want to')
-		expect(lastFrame(), 'the composer is still drawing under the prompt').not.toContain(draft)
+		const harness = await turnRunningWithDraft(draft)
+		await frameShows(harness.lastFrame, 'Do you want to', 'the prompt never opened')
+		expect(harness.lastFrame(), 'the composer is still drawing under the prompt').not.toContain(draft)
 
-		// `q` decides nothing at the prompt; it must not reach the composer.
-		stdin.write('q')
-		await tick(60)
+		// `q` decides nothing at the prompt; it must not reach the composer. Both
+		// keys go in now, in order, with nothing waited for between them: the
+		// question is whether a keystroke the prompt owns can reach the draft, and
+		// a wait would only ask it later.
+		harness.stdin.write('q')
 		settle()
-		stdin.write('\x1B')
-		await frameShows(lastFrame, draft)
+		harness.stdin.write('\x1B')
+		await frameShows(harness.lastFrame, draft, 'the draft did not survive the prompt')
 
-		expect(lastFrame()).toContain(draft)
-		expect(lastFrame(), 'a key meant for the prompt landed in the draft').not.toContain(
+		expect(harness.lastFrame(), 'a key meant for the prompt landed in the draft').not.toContain(
 			`${draft}q`,
 		)
 	})
