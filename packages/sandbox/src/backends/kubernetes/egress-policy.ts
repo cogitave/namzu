@@ -103,6 +103,7 @@ import {
 	CILIUM_NETWORK_POLICY_API_VERSION,
 	CORE_NETWORK_POLICY_API_GROUP,
 	CORE_NETWORK_POLICY_API_VERSION,
+	SANDBOX_TEMPLATE_LABEL_KEY,
 	ciliumNetworkPolicyCollectionPath,
 	ciliumNetworkPolicyPath,
 	networkPolicyCollectionPath,
@@ -290,6 +291,330 @@ export interface KubernetesEgressConfig {
 	 * {@link KubernetesCiliumEgressNarrowing}.
 	 */
 	readonly ciliumNarrowing?: KubernetesCiliumEgressNarrowing
+	/**
+	 * Which egress PROFILE the sandboxes this backend produces run under —
+	 * a DNS-1123 label value such as `none` or `internet`.
+	 *
+	 * Unset (the default) is the single-profile world this backend has
+	 * always had: one policy per backend, selected by the template label
+	 * alone, and every emitted body, selector and policy name byte-identical
+	 * to the release before profiles existed.
+	 *
+	 * SET, it becomes a pod LABEL — {@link profileLabelKey} is its key —
+	 * which travels three places at once: onto the `SandboxClaim`'s
+	 * `additionalPodMetadata.labels`, onto a directly created Sandbox's pod
+	 * template, and into the translated policy's own selector. That is what
+	 * lets ONE warm pool serve several network modes: a claim carrying a
+	 * profile label adopts a warm replica and the controller patches the
+	 * label onto the running pod, with no cold start and no second pool —
+	 * measured on agent-sandbox v1.0.2 (two profiles out of one two-replica
+	 * pool, every adopt under 70 ms, each bound pod a replica that already
+	 * existed). A label is the only claim-time metadata that is warm-safe:
+	 * `env` and `volumeClaimTemplates` force a cold start, which is why
+	 * neither appears on the claim body.
+	 *
+	 * OPERATOR PREREQUISITE, and it is not optional: the controller refuses
+	 * a claim whose label key sits outside its `allowed-label-domains`
+	 * allowlist (the `agent-sandbox-config` ConfigMap in the controller's
+	 * namespace; default `sandbox.users.io`), so the DEFAULT key below is
+	 * refused by a stock controller until an operator adds
+	 * `sandbox.namzu.ai` to that key — or sets {@link profileLabelKey} to
+	 * something already allowed. That refusal is fast and carries the
+	 * controller's own reason and message: it is the acquire's ordinary
+	 * `claim-rejected` failure, with a
+	 * {@link KubernetesPodLabelsRejectedError} as its cause naming the labels
+	 * that were sent and the key that moves them.
+	 */
+	readonly profile?: string
+	/**
+	 * Label key {@link profile} is written under. Defaults to
+	 * {@link DEFAULT_EGRESS_PROFILE_LABEL_KEY}.
+	 *
+	 * Worth setting to `sandbox.users.io/egress-profile` on a cluster whose
+	 * controller still carries the stock `allowed-label-domains` — that
+	 * domain is upstream's own default and needs no ConfigMap edit at all.
+	 */
+	readonly profileLabelKey?: string
+}
+
+/**
+ * Default {@link KubernetesEgressConfig.profileLabelKey} — this backend's
+ * own label domain, matching `SANDBOX_TEMPLATE_LABEL_KEY`'s prefix so
+ * every label a namzu host puts on a sandbox pod reads as one family.
+ *
+ * It is deliberately NOT upstream's `sandbox.users.io`: a key in someone
+ * else's domain is a key someone else may define differently. The cost is
+ * the ConfigMap edit named on {@link KubernetesEgressConfig.profile}, and
+ * the controller's refusal spells that edit out itself.
+ */
+export const DEFAULT_EGRESS_PROFILE_LABEL_KEY = 'sandbox.namzu.ai/egress-profile'
+
+/** One resolved profile label: the key it is written under and its value. */
+export interface EgressProfileLabel {
+	readonly key: string
+	readonly value: string
+}
+
+/**
+ * Kubernetes' own label-value grammar, narrowed to DNS-1123: lowercase
+ * alphanumerics and `-`, starting and ending alphanumeric, at most 63
+ * characters.
+ *
+ * Narrower than what a label value may legally hold (`_` and `.` are legal
+ * there, and uppercase is too) because the profile is also a NAME: it goes
+ * into `${template}-${profile}-egress`, which has to be a legal object name,
+ * and a value that is legal as a label but not as a name would produce a
+ * policy an operator cannot apply.
+ */
+const DNS_1123_LABEL = /^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$/
+
+/**
+ * A label KEY: an optional DNS-subdomain prefix, a `/`, then a name segment
+ * of at most 63 characters. Exactly what the API server enforces, checked
+ * here so a typo is refused during host wiring rather than as a claim the
+ * controller rejects one round trip later.
+ */
+const LABEL_KEY_NAME = /^[A-Za-z0-9]([-A-Za-z0-9_.]{0,61}[A-Za-z0-9])?$/
+const LABEL_KEY_PREFIX = /^[a-z0-9]([-a-z0-9.]{0,251}[a-z0-9])?$/
+
+/**
+ * Named refusal for an egress PROFILE this backend can read but not use.
+ * Sibling of {@link KubernetesEgressPolicyConfigError} rather than a reuse of
+ * it: that one names a field under `config.egress.policy` and this one names
+ * a field beside it, and an operator reading either should not have to work
+ * out which level of the config the path belongs to.
+ *
+ * Thrown SYNCHRONOUSLY from `buildKubernetesBackend` and
+ * `createKubernetesWorkspace`, so a misconfigured profile surfaces during
+ * host wiring rather than on the first `create()`.
+ */
+export class KubernetesEgressProfileConfigError extends Error {
+	override readonly name = 'KubernetesEgressProfileConfigError'
+
+	constructor(
+		readonly field: 'profile' | 'profileLabelKey',
+		readonly value: string,
+		reason: string,
+	) {
+		super(
+			`kubernetes: config.egress.${field} is unusable: ${JSON.stringify(value)} ${reason}. The profile travels onto a SandboxClaim's additionalPodMetadata.labels, onto a directly created Sandbox's pod template and into the translated policy's own selector, so a value the API server would reject leaves either a claim nothing binds or a policy nobody can apply. Refusing here rather than emitting it.`,
+		)
+	}
+}
+
+/**
+ * The profile label this config asks for, or nothing at all — the ONE place
+ * the key/value pair is derived, so the claim body, the Sandbox pod
+ * template, the policy selector and the policy name cannot disagree about
+ * what the profile is.
+ *
+ * Validates as it resolves: the value has to be a DNS-1123 label and the key
+ * a legal label key, both refused with {@link KubernetesEgressProfileConfigError}.
+ */
+export function egressProfileLabel(
+	egress: KubernetesEgressConfig | undefined,
+): EgressProfileLabel | undefined {
+	// The KEY is validated whenever it is present, profile or no profile. A
+	// key set without a value is a half-finished configuration — the value is
+	// usually the next line someone writes — and reporting the typo only once
+	// the profile arrives is reporting it at the second edit rather than the
+	// first.
+	const configured = egress?.profileLabelKey
+	if (configured !== undefined) assertUsableProfileLabelKey(configured)
+	const value = egress?.profile
+	if (value === undefined) return undefined
+	if (!DNS_1123_LABEL.test(value)) {
+		throw new KubernetesEgressProfileConfigError(
+			'profile',
+			value,
+			'is not a DNS-1123 label (lowercase letters, digits and dashes, starting and ending alphanumeric, at most 63 characters)',
+		)
+	}
+	const key = configured ?? DEFAULT_EGRESS_PROFILE_LABEL_KEY
+	return { key, value }
+}
+
+/**
+ * Refuse a `profileLabelKey` the API server would not take, or that this
+ * backend already uses for something else.
+ */
+function assertUsableProfileLabelKey(key: string): void {
+	const slash = key.indexOf('/')
+	const name = slash === -1 ? key : key.slice(slash + 1)
+	const prefix = slash === -1 ? undefined : key.slice(0, slash)
+	if (
+		!LABEL_KEY_NAME.test(name) ||
+		(prefix !== undefined && !LABEL_KEY_PREFIX.test(prefix)) ||
+		key.indexOf('/', slash + 1) !== -1
+	) {
+		throw new KubernetesEgressProfileConfigError(
+			'profileLabelKey',
+			key,
+			'is not a Kubernetes label key (an optional DNS-subdomain prefix, a single slash, then a name of at most 63 characters)',
+		)
+	}
+	// The one legal key that must not be used: it is the key this backend
+	// stamps the SandboxTemplate name under, and the profile label is applied
+	// LAST (see `sandboxPodLabels`), so this key would overwrite the template
+	// label on every pod this backend creates — and the translated policy's
+	// selector, built from the same resolution, would agree with it. Both
+	// halves would be wrong together, which is exactly the shape nothing else
+	// would catch.
+	if (key === SANDBOX_TEMPLATE_LABEL_KEY) {
+		throw new KubernetesEgressProfileConfigError(
+			'profileLabelKey',
+			key,
+			'is the key this backend writes the SandboxTemplate name under, and a profile label is applied last — a pod would carry the profile value where its template label belongs, and the policy selector built from the same resolution would match it anyway',
+		)
+	}
+}
+
+/**
+ * Validate the profile without needing its value — the wiring-time hook, so
+ * `buildKubernetesBackend` and `createKubernetesWorkspace` refuse a bad
+ * profile the same moment they refuse an unenforceable policy.
+ */
+export function assertEgressProfileIsUsable(egress: KubernetesEgressConfig | undefined): void {
+	egressProfileLabel(egress)
+}
+
+/**
+ * The ONE composer for a sandbox pod's `additionalPodMetadata.labels`.
+ *
+ * Every label this backend asks the controller to put on a POD is built
+ * here: the egress profile today, and whatever a later capability
+ * contributes through `extra` (a per-sandbox policy selector, for one). Two
+ * independent constructions would be two answers to "what labels is this pod
+ * selected by", and the policy selector is built from the same resolution —
+ * so a second builder would be a pod bound under a policy nobody checked.
+ *
+ * Deliberately NOT where `KubernetesBackendInternalConfig.claimLabels`
+ * goes. Those are a host's own bookkeeping on the CLAIM object's
+ * `metadata.labels`; putting them on the pod would change what selectors
+ * match a running sandbox, which is a different question on a different
+ * object.
+ *
+ * Returns an empty object when nothing applies, which every caller reads as
+ * "emit nothing at all" — that is what keeps an unprofiled body byte-identical.
+ *
+ * A key in `extra` that is ALSO the profile's is refused rather than merged
+ * either way round. Whichever won, the loser would be a label the translated
+ * policy's selector still expects: the profile's selector is built from this
+ * same resolution, so a pod carrying the other value is selected by no
+ * per-profile policy while `create()` reported the boundary verified. It is
+ * the same failure {@link egressProfileLabel} refuses the template key for,
+ * reached from the other direction.
+ */
+export function composeAdditionalPodLabels(
+	egress: KubernetesEgressConfig | undefined,
+	extra?: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+	const profile = egressProfileLabel(egress)
+	if (profile !== undefined && extra !== undefined && profile.key in extra) {
+		throw new KubernetesEgressProfileConfigError(
+			'profileLabelKey',
+			profile.key,
+			`is also the key another capability contributes to the same pod-label map (as ${JSON.stringify(extra[profile.key])}), and one of the two values would silently replace the other`,
+		)
+	}
+	return {
+		...(profile !== undefined ? { [profile.key]: profile.value } : {}),
+		...extra,
+	}
+}
+
+/**
+ * Why a claim the controller refused with `InvalidMetadata` was refused, in
+ * this backend's own terms — in practice a pod label whose domain is not in
+ * the controller's `allowed-label-domains` allowlist, which today means the
+ * egress profile's.
+ *
+ * NOT what an acquire throws. A refused claim comes out of `create()` as
+ * `KubernetesAcquireError { reason: 'claim-rejected' }` whether or not a
+ * profile is configured — one condition, one taxonomy, one `catch` — and this
+ * rides as that error's `cause`. Two classes for one controller condition
+ * would make a host's error handling correct or incorrect depending on
+ * whether `config.egress.profile` happened to be set.
+ *
+ * What it adds to the acquire error is what the controller cannot know: the
+ * map this backend actually sent, and the `config.egress.profileLabelKey`
+ * that moves the offending key to an allowed domain. It carries the whole map
+ * rather than the profile alone, and `profile` is optional, because the map is
+ * {@link composeAdditionalPodLabels}'s — the profile is the only thing in it
+ * today, and a later capability adding a second key would otherwise get an
+ * explanation that named a label it did not send.
+ *
+ * It carries the controller's OWN `reason` and `message` rather than a
+ * translation of them: the message agent-sandbox v1.0.2 writes names the
+ * offending key, the domain, the ConfigMap key to edit and its default, and
+ * no paraphrase of it would be as useful. Measured verbatim against a kind
+ * cluster running that controller:
+ *
+ * > invalid additionalPodMetadata: failed to validate label
+ * > "sandbox.namzu.ai/egress-profile": label domain "sandbox.namzu.ai" is
+ * > not in the allowlist (configure the allowed-label-domains key of the
+ * > agent-sandbox-config ConfigMap in the controller namespace; default:
+ * > sandbox.users.io)
+ *
+ * The refusal is raised as soon as that condition is read rather than after
+ * the readiness budget, because `InvalidMetadata` is one of
+ * `TERMINAL_CLAIM_REASONS` — nothing about it becomes true by waiting — and
+ * the claim is deleted on the way out, so a misconfigured profile costs one
+ * round trip rather than a minute of polling.
+ */
+export class KubernetesPodLabelsRejectedError extends Error {
+	override readonly name = 'KubernetesPodLabelsRejectedError'
+
+	constructor(
+		/** Every label this backend put on the claim's `additionalPodMetadata`. */
+		readonly requestedPodLabels: Readonly<Record<string, string>>,
+		readonly claimName: string,
+		readonly namespace: string,
+		/** The controller's own condition `reason`, e.g. `InvalidMetadata`. */
+		readonly controllerReason: string,
+		/** The controller's own condition `message`, verbatim. */
+		readonly controllerMessage: string,
+		/** The egress profile among those labels, when one is configured. */
+		readonly profile?: EgressProfileLabel,
+	) {
+		super(
+			`kubernetes: the controller refused SandboxClaim ${claimName} in namespace ${namespace} carrying the pod labels ${formatLabels(requestedPodLabels)} — ${controllerReason}: ${controllerMessage}. Those labels are written onto the claim's additionalPodMetadata.labels, so each key's domain has to appear in the controller's allowed-label-domains allowlist; add it there, or move the offending key to a domain that is already allowed${profile === undefined ? '' : ` (config.egress.profileLabelKey, for the egress profile ${profile.key}=${profile.value})`}. The claim has been deleted.`,
+		)
+	}
+}
+
+/**
+ * Named refusal for a bound pod that never carried a label this backend asked
+ * the controller to put on it — the egress profile's, today the only one
+ * {@link composeAdditionalPodLabels} produces, which is why the class is named
+ * for the LABEL rather than for the profile.
+ *
+ * This is the one failure this capability must not have quietly. An
+ * unlabelled pod handed back is a sandbox running under the DEFAULT policy
+ * while the host believes it is on a narrower profile — the translated
+ * policy's selector includes the profile label, so a pod without it is
+ * selected by neither this profile's policy nor, necessarily, anything else.
+ * Refusing is correct and waiting is correct; proceeding is not, so the
+ * acquire releases what it claimed and raises this instead.
+ *
+ * `missingLabel` is the pair that never arrived rather than "the profile", so
+ * the refusal stays true for whatever a later capability contributes to that
+ * same map: the wait in `readAddressedPod` already covers every entry of it,
+ * and this refusal covers exactly the same set.
+ */
+export class KubernetesPodLabelNotObservedError extends Error {
+	override readonly name = 'KubernetesPodLabelNotObservedError'
+
+	constructor(
+		/** The label this backend requested and never saw on the bound pod. */
+		readonly missingLabel: EgressProfileLabel,
+		readonly subject: string,
+		readonly observedLabels: Readonly<Record<string, string>>,
+	) {
+		super(
+			`kubernetes: refusing ${subject} — its pod never carried the label ${missingLabel.key}=${missingLabel.value} this backend asked the controller to put on it, within the readiness budget; the labels it did carry are ${formatLabels(observedLabels)}. The translated policy's selector includes that label, so admitting this pod would run it under whatever policy DOES select it rather than under the configured profile. The controller patches a claim's additionalPodMetadata.labels onto the pod it binds — a pod that never got them means the claim's metadata was not applied. Nothing was handed back and the claim was released.`,
+		)
+	}
 }
 
 /** `true` unless the deployment asked for the single-object check by name. */
@@ -310,6 +635,33 @@ export interface EgressPolicyTarget {
 	 * carries it.
 	 */
 	readonly sandboxTemplateName: string
+	/**
+	 * The egress PROFILE label this policy also selects, when
+	 * {@link KubernetesEgressConfig.profile} is set. Absent, the selector is
+	 * the template label alone and every translation is what it always was.
+	 *
+	 * It is part of the SELECTOR rather than a second policy because that is
+	 * what makes one warm pool serve several modes: pods out of one template
+	 * carry one template label and differ only by this one, so
+	 * `${template}-none-egress` selects exactly the `none` pods and
+	 * `${template}-internet-egress` exactly the `internet` ones.
+	 */
+	readonly profile?: EgressProfileLabel
+}
+
+/**
+ * What a translated policy's `podSelector`/`endpointSelector` matches: the
+ * template label, plus the profile label when one is configured. One
+ * function so the two manifest builders below and every reader of a
+ * translation agree on the selector down to the key order.
+ */
+export function egressPolicySelectorLabels(
+	target: EgressPolicyTarget,
+): Readonly<Record<string, string>> {
+	return {
+		...sandboxTemplateLabel(target.sandboxTemplateName),
+		...(target.profile !== undefined ? { [target.profile.key]: target.profile.value } : {}),
+	}
 }
 
 /**
@@ -335,9 +687,38 @@ export interface KubernetesTranslatedEgressPolicy {
 	readonly manifest: Readonly<Record<string, unknown>>
 }
 
-/** `${sandboxTemplateName}-egress`, the name {@link KubernetesEgressConfig.networkPolicyName} defaults to. */
-export function defaultEgressPolicyName(sandboxTemplateName: string): string {
-	return `${sandboxTemplateName}-egress`
+/**
+ * The longest name a Kubernetes object may carry. A `NetworkPolicy` name is a
+ * DNS subdomain, so 253 characters, and the API server refuses anything
+ * longer.
+ */
+const MAX_OBJECT_NAME_LENGTH = 253
+
+/**
+ * `${sandboxTemplateName}-egress`, the name
+ * {@link KubernetesEgressConfig.networkPolicyName} defaults to — or
+ * `${sandboxTemplateName}-${profile}-egress` when a profile is configured,
+ * because one template under two profiles needs two policy objects and a
+ * single default name would have the second silently verify against the
+ * first's manifest.
+ *
+ * The profile is bounded at 63 characters on its own, but the CONCATENATION
+ * is what has to be a legal object name, and only this function knows both
+ * halves. Refused here, during host wiring, rather than as an API-server
+ * rejection on the first policy GET of the first `create()`: `networkPolicyName`
+ * is the way out and it is a config field, so this is a config error.
+ */
+export function defaultEgressPolicyName(sandboxTemplateName: string, profile?: string): string {
+	if (profile === undefined) return `${sandboxTemplateName}-egress`
+	const name = `${sandboxTemplateName}-${profile}-egress`
+	if (name.length > MAX_OBJECT_NAME_LENGTH) {
+		throw new KubernetesEgressProfileConfigError(
+			'profile',
+			profile,
+			`makes the default egress policy name ${JSON.stringify(name)} ${name.length} characters long, past the ${MAX_OBJECT_NAME_LENGTH} an object name may carry — shorten the profile or the SandboxTemplate name, or set config.egress.networkPolicyName yourself`,
+		)
+	}
+	return name
 }
 
 /**
@@ -700,7 +1081,7 @@ function buildCoreNetworkPolicy(
 			metadata: { name: target.name, namespace: target.namespace },
 			spec: {
 				podSelector: {
-					matchLabels: sandboxTemplateLabel(target.sandboxTemplateName),
+					matchLabels: egressPolicySelectorLabels(target),
 				},
 				policyTypes: ['Egress'],
 				egress,
@@ -831,7 +1212,7 @@ function buildCiliumNetworkPolicy(
 			metadata: { name: target.name, namespace: target.namespace },
 			spec: {
 				endpointSelector: {
-					matchLabels: sandboxTemplateLabel(target.sandboxTemplateName),
+					matchLabels: egressPolicySelectorLabels(target),
 				},
 				egress: [dnsRule, ...hostRules],
 			},

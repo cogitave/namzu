@@ -54,8 +54,15 @@
  *   node egress-check.mjs --namespace namzu-sandboxes --template namzu-task \
  *     --policy no-network|public-internet|deny-all \
  *     [--pool namzu-task-pool] [--agent-port 1024] [--engine cilium] \
+ *     [--profile none] [--profile-label-key sandbox.users.io/egress-profile] \
  *     [--public-address 1.1.1.1:443] [--private-address 10.0.0.1:443] \
  *     [--api-server-ip 10.96.0.1] [--in-cluster | --server URL --token TOKEN]
+ *
+ * `--profile` is what makes this script runnable ONCE PER PROFILE against one
+ * warm pool: it sets `egress.profile`, so the sandbox is claimed with that
+ * label, the named object checked is `<template>-<profile>-egress` and the
+ * union check runs against the profile's own selector. Without it the run
+ * exercises the unprofiled policy, whatever profiles the deployment uses.
  */
 
 import { createSandboxProvider } from '@namzu/sandbox'
@@ -67,6 +74,8 @@ const template = requireOption(flags, 'template', 'NAMZU_K8S_TEMPLATE')
 const warmPoolName = flags.pool ?? process.env.NAMZU_K8S_POOL
 const agentPort = Number(flags['agent-port'] ?? process.env.NAMZU_K8S_AGENT_PORT ?? 1024)
 const engine = flags.engine ?? process.env.NAMZU_K8S_EGRESS_ENGINE
+const profile = flags.profile ?? process.env.NAMZU_K8S_EGRESS_PROFILE
+const profileLabelKey = flags['profile-label-key'] ?? process.env.NAMZU_K8S_EGRESS_PROFILE_LABEL_KEY
 const policyKind = String(flags.policy ?? process.env.NAMZU_K8S_EGRESS_POLICY ?? 'no-network')
 const access = resolveAccess(flags)
 
@@ -146,7 +155,12 @@ const backendConfig = {
 	sandboxTemplateName: template,
 	...(warmPoolName ? { warmPoolName } : {}),
 	agentPort,
-	egress: { policy: { kind: policyKind }, ...(engine ? { engine } : {}) },
+	egress: {
+		policy: { kind: policyKind },
+		...(engine ? { engine } : {}),
+		...(profile ? { profile: String(profile) } : {}),
+		...(profileLabelKey ? { profileLabelKey: String(profileLabelKey) } : {}),
+	},
 }
 
 let ok = true

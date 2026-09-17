@@ -349,10 +349,17 @@ asserted on the wire in
 `backends/kubernetes/__tests__/acquire-warm-and-cold.test.ts` to contain
 exactly `warmPoolRef` and `lifecycle` and nothing else — plus, when
 [`claimLabels`](#a-crashed-hosts-claims-labels-release-and-capacity) is
-configured, `metadata.labels`. That is the only field a caller can add to
-this body at all, and it never reaches `additionalPodMetadata`: a claim's own
-labels and a Sandbox's pod labels are different objects, and this backend
-keeps them that way.
+configured, `metadata.labels`, and when
+[`egress.profile`](#egress-profiles-one-warm-pool-several-network-modes) is,
+`spec.additionalPodMetadata.labels`.
+
+Those two are deliberately **not** the same map. `claimLabels` is the host's
+own bookkeeping on the claim object and never reaches the pod; the profile is
+a pod label a policy selector reads and never appears in the claim's own
+`metadata`. And the rule this section states is about COLD STARTS, not about
+claim-time metadata in general: `env` and `volumeClaimTemplates` cost one,
+`additionalPodMetadata.labels` does not — see the profile section for the
+measurement.
 
 ### The bound sandbox is not named after the claim
 
@@ -2967,6 +2974,131 @@ this backend has no path to add the label to a pool's pods after the fact.
 `packages/sandbox/k8s/manifests/sandboxtemplate-task.yaml` (a later change)
 carries it; a hand-written `SandboxTemplate` must add it too.
 
+### Egress profiles: one warm pool, several network modes
+
+**Before you set `egress.profile`, an operator has to allow the label's
+domain on the controller, or every profiled `create()` is refused.** The
+agent-sandbox controller validates a claim's `additionalPodMetadata` against
+an allowlist of label domains — the `allowed-label-domains` key of the
+`agent-sandbox-config` ConfigMap in the controller's own namespace, whose
+built-in default is `sandbox.users.io`. The default profile label key here is
+`sandbox.namzu.ai/egress-profile` (exported as
+`DEFAULT_EGRESS_PROFILE_LABEL_KEY`), so on a stock controller a profiled claim
+comes back refused until `sandbox.namzu.ai` is added to that key — or until
+`egress.profileLabelKey` is set to something already allowed, e.g.
+`sandbox.users.io/egress-profile`.
+
+Without a profile, egress is one policy per backend: its selector is the
+template label alone, so every network mode needs its own `SandboxTemplate`,
+its own `SandboxWarmPool` and its own policy — and every warm replica is a
+full pod reservation, multiplied by the number of modes. A profile collapses
+that. `egress.profile` is a DNS-1123 label value that travels three places at
+once:
+
+- onto the `SandboxClaim`'s `spec.additionalPodMetadata.labels`, which the
+  controller merges onto the pod it binds;
+- onto a directly created `Sandbox`'s pod template (and a workspace's), which
+  has no controller to merge anything for it;
+- into the translated policy's `podSelector`/`endpointSelector`, **and** into
+  the default policy name, which becomes
+  `${sandboxTemplateName}-${profile}-egress`.
+
+```ts
+import { createSandboxProvider } from '@namzu/sandbox'
+
+// Two providers, ONE warm pool, two enforced network modes.
+const backend = {
+  tier: 'microvm',
+  service: 'kubernetes',
+  namespace: 'namzu-sandboxes',
+  access: { inCluster: true },
+  sandboxTemplateName: 'namzu-task',
+  warmPoolName: 'namzu-task-pool',
+} as const
+
+const offline = createSandboxProvider({
+  backend: {
+    ...backend,
+    egress: {
+      policy: { kind: 'no-network' },
+      profile: 'none',
+      // Applied object: NetworkPolicy namzu-task-none-egress, selecting
+      // sandbox.namzu.ai/template=namzu-task AND the profile label.
+    },
+  },
+})
+
+const online = createSandboxProvider({
+  backend: {
+    ...backend,
+    egress: { policy: { kind: 'public-internet' }, profile: 'internet' },
+  },
+})
+```
+
+**Labels are the only claim-time metadata that is warm-safe.** `env` and
+`volumeClaimTemplates` force the claim to cold-start rather than adopt a warm
+replica, which is why neither ever appears on the claim body this backend
+sends. A label does not: measured against agent-sandbox v1.0.2 on Kubernetes
+v1.37, six claims out of one two-replica pool alternating the profile values
+`none` and `internet` each bound a replica that **already existed**, in 47–61
+ms, and the controller patched the label onto the running pod and into the
+`Sandbox`'s own `spec.podTemplate.metadata.labels`.
+
+**An unlabelled pod is refused, never admitted.** The acquire waits for the
+bound pod to actually carry the label — on the same readiness deadline that
+bounds everything else, in the same pod read that fetches the bind token — and
+the privilege probe does not run until it has been observed. A pod that never
+gets it fails with `KubernetesPodLabelNotObservedError` and the claim is
+released, because admitting it would run the sandbox under whatever policy
+*does* select it while the host believes it is on a narrower profile.
+
+Two refusals are thrown, and one class only ever arrives as a `cause`:
+
+| Class | When | What to do |
+|---|---|---|
+| `KubernetesEgressProfileConfigError` | Synchronously, while the host is being wired: the profile is not a DNS-1123 label, `profileLabelKey` is not a label key or is one this backend already uses, or the default policy name the two make is past 253 characters. | Fix the config value the message names. |
+| `KubernetesPodLabelNotObservedError` | The bound pod never carried the label within the readiness budget. | Check that the controller applied the claim's `additionalPodMetadata`. |
+| `KubernetesPodLabelsRejectedError` — **never thrown; it is the `cause`** of the `KubernetesAcquireError` below. | — | — |
+
+A claim the controller refuses for its metadata is **not** a separate
+taxonomy. `InvalidMetadata` is one of the terminal claim reasons [an acquire
+already fails fast on](#what-an-acquire-refuses-with), so it comes back as
+`KubernetesAcquireError` with `reason: 'claim-rejected'`, `retryable: false`
+and the controller's own `controllerReason`/`controllerMessage` — the same
+class, the same `reason` and the same `catch` a host writes whether or not a
+profile is configured. `KubernetesPodLabelsRejectedError` rides as that
+error's `cause`, adding the two things the controller cannot know: the pod
+labels this backend actually sent (`requestedPodLabels`) and the
+`egress.profileLabelKey` that moves the offending key to an allowed domain.
+
+A workspace is a directly created `Sandbox`, so it carries the profile label
+from its own create body — and a workspace that already exists is **adopted**
+with the pod labels it was created with, because an ordinary adopt patches no
+pod template. So adopting one whose pod does not carry the configured profile
+is **refused**, before any resume patch, with
+`KubernetesWorkspaceMismatchError` (`field: 'egressProfile'`), exactly as
+adopting one built from another `SandboxTemplate` is: a pod the per-profile
+policy does not select would otherwise be handed back with the boundary
+reported verified, and once each profile has its own policy object a pod
+carrying no profile label at all is selected by none of them. The check runs
+only when `egress.profile` is set; with no profile the policy selects the
+template label alone, which the standing object does carry.
+
+**The supported way to move an existing workspace between profiles is
+[`refreshPodTemplate`](#a-resume-can-bring-the-current-pod-template-with-it).**
+That option rewrites `/spec/podTemplate` whole on the one Suspended → Running
+transition, and the pod template it writes is the same one a create POSTs —
+profile label and all. The refusal above is therefore lifted for a call that
+is about to write the configured profile, exactly as the `runtimeClassName`
+refusal is, and re-applied against the object as it then stands if the patch
+does not land. It follows that a refresh **must** carry these labels: a
+whole-document replacement built from the `SandboxTemplate` alone would patch
+the profile off the object, leaving the replacement pod selected by no
+per-profile policy with nothing on that path to read the label back. The
+handle keeps the labels it was opened under for that reason, so a
+`resume({ refreshPodTemplate: true })` taken weeks later rebuilds with them.
+
 ### Verify, never trust
 
 This backend never CREATES the `NetworkPolicy` (or `CiliumNetworkPolicy`) —
@@ -3074,6 +3206,17 @@ that IS on the allowlist still resolving and connecting) alongside the
 negative one — a `cilium policy trace` or BPF policy dump showing the narrowed
 rule is the one in force is the strongest evidence, because a probe that
 merely reports "blocked" cannot tell a working narrowing from a broken guest.
+
+**Nor is the DIFFERENCE between two egress profiles.** What a kind run proves
+is that the claim-time label reaches the running pod without a cold start, and
+that the two profiles' claims, policy names and selectors are the ones this
+backend computed. That two pods carrying different profile labels actually
+*reach different networks* is a statement about enforcement, and the only
+place to make it is a cluster that enforces, with `egress-check.mjs`'s
+positive controls, run once per profile — `--profile <value>` (and
+`--profile-label-key` where the default key is not the one this deployment
+uses), so each run claims under that profile and checks that profile's own
+policy object rather than the unprofiled one.
 
 ## Ingress
 

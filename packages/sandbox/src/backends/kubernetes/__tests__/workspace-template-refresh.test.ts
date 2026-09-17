@@ -99,6 +99,14 @@ const EPOCH_POINTER = '/metadata/annotations/sandbox.namzu.ai~1holder-epoch'
 const MODE_CHANGED_AT = 'sandbox.namzu.ai/operating-mode-changed-at'
 const MODE_CHANGED_POINTER = '/metadata/annotations/sandbox.namzu.ai~1operating-mode-changed-at'
 const TEMPLATE_LABEL = 'sandbox.namzu.ai/template'
+/**
+ * The egress profile the suite at the end of this file opts into. Written out
+ * rather than imported, like the annotation keys above: it is a label key that
+ * goes onto a cluster object and into a policy selector, so a rename has to
+ * break a test.
+ */
+const PROFILE_KEY = 'sandbox.users.io/egress-profile'
+const PROFILE = 'none'
 const CREATED_AT = '2026-08-01T09:00:00Z'
 const MERGE_PATCH = 'application/merge-patch+json'
 const JSON_PATCH = 'application/json-patch+json'
@@ -191,8 +199,47 @@ function expectedPodTemplate(template: Json, runtimeClassName?: string): Json {
 	const podTemplate = (template.spec as Json).podTemplate as Json
 	const spec = podTemplate.spec as Json
 	return {
-		metadata: { labels: { [TEMPLATE_LABEL]: TEMPLATE_NAME } },
+		metadata: { labels: expectedPodLabels() },
 		spec: { ...spec, ...(runtimeClassName !== undefined ? { runtimeClassName } : {}) },
+	}
+}
+
+/**
+ * The labels that overlay names: the template label always, and the egress
+ * profile whenever this test has configured one.
+ *
+ * A refresh replaces `/spec/podTemplate` WHOLE, so these travel in the patch
+ * or they are removed from the object by it — which is the failure the profile
+ * suite at the end of this file exists to catch.
+ */
+function expectedPodLabels(): Record<string, string> {
+	return {
+		[TEMPLATE_LABEL]: TEMPLATE_NAME,
+		...(profiledEgress !== undefined ? { [PROFILE_KEY]: PROFILE } : {}),
+	}
+}
+
+/** The `deny-all` policy the profile suite's cluster serves, selector and all. */
+function egressPolicyObject(): Json {
+	return {
+		metadata: { name: `${TEMPLATE_NAME}-${PROFILE}-egress`, namespace: NAMESPACE },
+		spec: {
+			podSelector: { matchLabels: expectedPodLabels() },
+			policyTypes: ['Egress'],
+			egress: [
+				{
+					to: [
+						{
+							namespaceSelector: { matchLabels: { 'kubernetes.io/metadata.name': 'kube-system' } },
+						},
+					],
+					ports: [
+						{ protocol: 'UDP', port: 53 },
+						{ protocol: 'TCP', port: 53 },
+					],
+				},
+			],
+		},
 	}
 }
 
@@ -227,6 +274,12 @@ let annotateBeforeNextJsonPatch: Record<string, string> | undefined
 let vanishBetweenPatchAndReread: boolean
 /** Pod reads that answer "nothing yet" before the replacement shows up. */
 let podAppearsAfterReads: number
+/**
+ * The egress configuration under test, or `undefined` — which is every case
+ * but the profile suite at the end, and is what keeps their request logs free
+ * of policy reads.
+ */
+let profiledEgress: KubernetesBackendConfig['egress'] | undefined
 
 beforeEach(async () => {
 	template = buildTemplate()
@@ -240,6 +293,7 @@ beforeEach(async () => {
 	annotateBeforeNextJsonPatch = undefined
 	vanishBetweenPatchAndReread = false
 	podAppearsAfterReads = 0
+	profiledEgress = undefined
 	agent = await startScriptedAgent({ token: FIRST_POD_UID })
 	restoreDns = stubLoopbackDns()
 	server = await startFakeApiServer(handleClusterRequest)
@@ -458,6 +512,14 @@ function handleClusterRequest(req: RecordedRequest): FakeApiReply {
 	if (req.method === 'GET' && req.path.includes('/sandboxtemplates/')) {
 		return { status: 200, body: template }
 	}
+	// Only ever reached by the profile suite: no other case configures egress,
+	// so no other case asks.
+	if (req.method === 'GET' && req.path.includes('/networkpolicies/')) {
+		return { status: 200, body: egressPolicyObject() }
+	}
+	if (req.method === 'GET' && req.path.endsWith('/networkpolicies')) {
+		return { status: 200, body: { items: [egressPolicyObject()] } }
+	}
 	if (req.method === 'POST' && req.path.endsWith('/sandboxes')) {
 		if (sandboxes.has(WORKSPACE_NAME)) {
 			return { status: 409, body: { message: `sandboxes "${WORKSPACE_NAME}" already exists` } }
@@ -565,6 +627,7 @@ function clusterConfig(runtimeClassName?: string): KubernetesBackendConfig {
 		readyTimeoutMs: 1_000,
 		readyPollIntervalMs: 5,
 		ingress: 'unverified' as const,
+		...(profiledEgress !== undefined ? { egress: profiledEgress } : {}),
 		...(runtimeClassName !== undefined ? { runtimeClassName } : {}),
 	}
 }
@@ -1088,5 +1151,105 @@ describe('a workspace deleted between the refused patch and the re-read', () => 
 		expect(sandboxPatches()).toHaveLength(1)
 		expect(sandboxes.has(WORKSPACE_NAME)).toBe(false)
 		expect(livePodUid).toBeUndefined()
+	}, 30_000)
+})
+
+/**
+ * #498's egress profile meets #486's refresh, and the meeting is the whole
+ * point of these two cases.
+ *
+ * A profile is a pod LABEL: it is on the create POST's `spec.podTemplate`, it
+ * is half of the translated policy's `podSelector`, and nothing on the
+ * workspace path ever reads it back off the running pod. A refresh replaces
+ * `/spec/podTemplate` WHOLE, so a refresh built from the template alone would
+ * PATCH the label off the object — the replacement pod would come up selected
+ * by no per-profile policy while `createKubernetesWorkspace` had already
+ * reported the boundary verified, which is the one failure #498 must not have.
+ * It would also take the stamped revision over a pod template no create ever
+ * writes, so `templateCurrent` would report drift that no refresh could clear.
+ *
+ * The labels therefore travel on the HANDLE (`podLabels`), because a resume
+ * happens long after the call that opened it, and through
+ * `buildPodTemplateRefresh` on the adopt path.
+ */
+describe('a refresh under an egress profile', () => {
+	beforeEach(() => {
+		profiledEgress = {
+			policy: { kind: 'deny-all' },
+			profile: PROFILE,
+			profileLabelKey: PROFILE_KEY,
+		}
+	})
+
+	it('rebuilds a handle’s refresh with the labels it was opened under', async () => {
+		const held = await openWorkspace()
+		// The create stamped it; the question is what the resume does with it.
+		expect((storedPodTemplate().metadata as Json).labels).toEqual({
+			[TEMPLATE_LABEL]: TEMPLATE_NAME,
+			[PROFILE_KEY]: PROFILE,
+		})
+		await held.suspend()
+		template = buildTemplate({ image: 'namzu/agent:2' })
+
+		await held.resume({ refreshPodTemplate: true })
+
+		const refresh = sandboxPatches().at(-1) as RecordedRequest
+		const written = patchOperations(refresh).find((op) => op.path === '/spec/podTemplate')
+		expect(((written?.value as Json).metadata as Json).labels).toEqual({
+			[TEMPLATE_LABEL]: TEMPLATE_NAME,
+			[PROFILE_KEY]: PROFILE,
+		})
+		// The object, after the patch: the profile survived the whole-document
+		// replacement, and so did the new image.
+		expect((storedPodTemplate().metadata as Json).labels).toEqual({
+			[TEMPLATE_LABEL]: TEMPLATE_NAME,
+			[PROFILE_KEY]: PROFILE,
+		})
+		expect(((storedPodTemplate().spec as Json).containers as Json[])[0]?.image).toBe(
+			'namzu/agent:2',
+		)
+		// And the revision agrees with what a create would stamp, so the
+		// workspace does not report drift it cannot clear.
+		expect(held.templateRevision).toBe(storedHash())
+		expect(held.templateCurrent).toBe(true)
+		await held.destroy()
+	}, 30_000)
+
+	it('writes the configured profile onto a workspace that predates it, instead of refusing it', async () => {
+		// The object was created before `config.egress.profile` existed, so its
+		// pod template carries the template label alone — and an ordinary adopt
+		// REFUSES it, because a pod carrying no profile label is selected by
+		// none of the per-profile policies while create() would have reported
+		// the boundary verified.
+		const unprofiled: Json = {
+			metadata: { labels: { [TEMPLATE_LABEL]: TEMPLATE_NAME } },
+			spec: expectedPodTemplate(template).spec as Json,
+		}
+		seedWorkspace({ mode: 'Suspended', podTemplate: unprofiled })
+
+		const refusal = await openWorkspace().catch((err: unknown) => err)
+
+		expect(refusal).toBeInstanceOf(KubernetesWorkspaceMismatchError)
+		expect((refusal as KubernetesWorkspaceMismatchError).field).toBe('egressProfile')
+		expect(sandboxPatches()).toHaveLength(0)
+
+		// With the option, the refusal is lifted for the same reason the
+		// RuntimeClass one is: this call is ABOUT TO WRITE the configured
+		// value. The patch is what has to carry it.
+		const held = await openWorkspace({ refreshPodTemplate: true })
+
+		const refresh = sandboxPatches().at(-1) as RecordedRequest
+		expect(refresh.contentType).toBe(JSON_PATCH)
+		const written = patchOperations(refresh).find((op) => op.path === '/spec/podTemplate')
+		expect(((written?.value as Json).metadata as Json).labels).toEqual({
+			[TEMPLATE_LABEL]: TEMPLATE_NAME,
+			[PROFILE_KEY]: PROFILE,
+		})
+		expect((storedPodTemplate().metadata as Json).labels).toEqual({
+			[TEMPLATE_LABEL]: TEMPLATE_NAME,
+			[PROFILE_KEY]: PROFILE,
+		})
+		expect(held.templateCurrent).toBe(true)
+		await held.destroy()
 	}, 30_000)
 })

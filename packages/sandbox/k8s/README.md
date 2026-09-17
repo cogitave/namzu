@@ -199,6 +199,29 @@ Role cannot read — a cluster-scoped policy, a service mesh, a cloud security
 group — set `ingress: 'unverified'` on the backend config and say so out
 loud; see `docs/sdk/kubernetes-sandbox.md`'s ingress section.
 
+**Using `egress.profile` needs one more thing, and it is not in this
+directory.** An egress profile is a pod label the backend puts on a
+`SandboxClaim`'s `spec.additionalPodMetadata.labels`, and the agent-sandbox
+controller refuses a claim whose label key is outside its allowlist — the
+`allowed-label-domains` key of the `agent-sandbox-config` ConfigMap in the
+CONTROLLER's namespace (not this one), whose built-in default is
+`sandbox.users.io`. The backend's own default key is
+`sandbox.namzu.ai/egress-profile`, so either add `sandbox.namzu.ai` to that
+key:
+
+```sh
+kubectl -n agent-sandbox-system create configmap agent-sandbox-config \
+  --from-literal=allowed-label-domains=sandbox.users.io,sandbox.namzu.ai \
+  --dry-run=client -o yaml | kubectl apply -f -
+kubectl -n agent-sandbox-system rollout restart deployment/agent-sandbox-controller
+```
+
+…or set `egress.profileLabelKey` to a key that is already allowed. Skip this
+entirely if no backend sets `egress.profile`; nothing else in this directory
+depends on it. Each profile also needs its own applied policy, named
+`<template>-<profile>-egress` by default — see
+`docs/sdk/kubernetes-sandbox.md`'s egress section.
+
 (`SandboxWarmPool` last because it immediately starts building replicas from
 `sandboxtemplate-task.yaml` — apply the template it references first, or the
 first reconcile just retries until it exists.)

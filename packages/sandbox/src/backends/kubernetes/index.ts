@@ -116,10 +116,16 @@ import {
 	runFailureCleanup,
 } from '../readiness.js'
 import {
+	type EgressProfileLabel,
 	type KubernetesEgressConfig,
+	KubernetesPodLabelNotObservedError,
+	KubernetesPodLabelsRejectedError,
 	type KubernetesTranslatedEgressPolicy,
 	assertEgressPolicyIsEnforceable,
+	assertEgressProfileIsUsable,
+	composeAdditionalPodLabels,
 	defaultEgressPolicyName,
+	egressProfileLabel,
 	egressUnionVerificationEnabled,
 	translateEgressPolicy,
 	verifyEgressPolicyApplied,
@@ -555,6 +561,11 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 			config.egress.ciliumNarrowing,
 		)
 	}
+	// And the same for an egress PROFILE that could never be written as a
+	// label — a value the API server would reject leaves either a claim
+	// nothing binds or a policy nobody can apply, and both are decidable
+	// from config alone.
+	assertEgressProfileIsUsable(config.egress)
 	// Resolved here as well as at each session, so a configuration this
 	// backend will never honour is refused while `buildKubernetesBackend` is
 	// still on the stack rather than on someone's first `create()`.
@@ -672,10 +683,16 @@ export function buildEgressBoundary(
 	const egress = config.egress
 	if (egress === undefined) return undefined
 	const engine = egress.engine ?? 'core'
+	// One resolution of the profile, shared by the policy NAME and the policy
+	// SELECTOR: under a profile the default name gains the profile segment
+	// (one template under two profiles is two policy objects) and the
+	// selector gains the label, and the two must not be able to disagree.
+	const profile = egressProfileLabel(egress)
 	const target = {
 		namespace: config.namespace,
-		name: egress.networkPolicyName ?? defaultEgressPolicyName(sandboxTemplateName),
+		name: egress.networkPolicyName ?? defaultEgressPolicyName(sandboxTemplateName, profile?.value),
 		sandboxTemplateName,
+		...(profile !== undefined ? { profile } : {}),
 	}
 	// Translated ONCE per boundary, not once per check: a `resolver` policy's
 	// `resolve()` is the host's own closure and may cost a network call, and
@@ -943,29 +960,76 @@ function readyCondition(
 }
 
 /**
+ * What this backend asked the controller to put on the claim's pod, carried
+ * into the rejection so an `InvalidMetadata` refusal can say what was sent
+ * and which knob changes it.
+ *
+ * Context, never a second decision: whether a claim is refused at all is
+ * {@link TERMINAL_CLAIM_REASONS}' answer and nobody else's, so an empty map
+ * changes nothing about the class thrown, the reason on it, or when it is
+ * raised.
+ */
+export interface ClaimPodMetadataContext {
+	readonly namespace: string
+	/** `spec.additionalPodMetadata.labels`, exactly as sent. */
+	readonly requestedPodLabels: Readonly<Record<string, string>>
+	/** The egress profile among those labels, when one is configured. */
+	readonly profile?: EgressProfileLabel
+}
+
+/**
  * A claim the controller has refused, or `undefined` for one it is still
  * working on.
  *
  * `status: 'False'` alone is not a refusal — it is also what a claim looks
  * like for the whole of a cold start — so the REASON decides, against
  * {@link TERMINAL_CLAIM_REASONS}.
+ *
+ * ONE class comes out of here whatever the reason, and that is deliberate:
+ * `InvalidMetadata` is how the controller refuses a pod label whose domain is
+ * not on its allowlist — the profile's, today — and a host's `catch` must not
+ * have to be written differently depending on whether a profile happens to be
+ * configured. `metadata` only decides what rides along as the `cause`: a
+ * {@link KubernetesPodLabelsRejectedError} naming the map that was sent
+ * and the `config.egress.profileLabelKey` that moves it, which the
+ * controller's own message cannot know about.
  */
 export function classifyClaimRejection(
 	claim: SandboxClaimResource | undefined,
 	claimName: string,
+	metadata?: ClaimPodMetadataContext,
 ): KubernetesAcquireError | undefined {
 	const condition = readyCondition(claim?.status?.conditions)
 	if (condition === undefined || condition.status !== 'False') return undefined
 	const reason = condition.reason
 	if (reason === undefined || !TERMINAL_CLAIM_REASONS.includes(reason)) return undefined
+	// Only for the reason the pod metadata can actually cause, and only when
+	// this backend sent any: a `WarmPoolNotFound` carrying a labels-and-
+	// allowlist explanation would send an operator after the wrong thing.
+	const cause =
+		reason === 'InvalidMetadata' &&
+		metadata !== undefined &&
+		Object.keys(metadata.requestedPodLabels).length > 0
+			? new KubernetesPodLabelsRejectedError(
+					metadata.requestedPodLabels,
+					claimName,
+					metadata.namespace,
+					reason,
+					condition.message ?? '(the controller reported no message)',
+					metadata.profile,
+				)
+			: undefined
 	return new KubernetesAcquireError({
 		reason: 'claim-rejected',
 		retryable: false,
 		controllerReason: reason,
 		...(condition.message !== undefined ? { controllerMessage: condition.message } : {}),
+		...(cause !== undefined ? { cause } : {}),
 		message: `kubernetes: the agent-sandbox controller refused SandboxClaim ${claimName} with reason ${reason}${
 			condition.message !== undefined ? `: ${condition.message}` : ''
-		}. That is a decision, not a delay, so the readiness budget was not waited out.`,
+		}. That is a decision, not a delay, so the readiness budget was not waited out.${
+			cause !== undefined ? ` ${cause.message}` : ''
+		}`,
 	})
 }
 
@@ -1291,15 +1355,24 @@ export async function acquireKubernetesSandbox(
 		config.warmPoolName !== undefined
 			? claimCollectionPath(namespace)
 			: sandboxCollectionPath(namespace)
+	// Composed ONCE, here, and handed to whichever body builder runs below:
+	// the claim's `additionalPodMetadata.labels` and a direct Sandbox's pod
+	// template metadata are the same map, and the translated policy's selector
+	// is built from the same resolution. See `composeAdditionalPodLabels`.
+	// Empty — the only case before a profile is configured — means every body
+	// below is byte for byte what it was.
+	const podLabels = composeAdditionalPodLabels(config.egress)
+	const profile = egressProfileLabel(config.egress)
 	const buildCreateBody = async (): Promise<Record<string, unknown>> => {
 		if (config.warmPoolName !== undefined) {
-			return buildClaimBody(
+			return buildClaimBody({
 				namespace,
-				objectName,
-				config.warmPoolName,
+				name: objectName,
+				warmPoolName: config.warmPoolName,
 				shutdownTime,
-				config.claimLabels,
-			)
+				...(config.claimLabels !== undefined ? { labels: config.claimLabels } : {}),
+				podLabels,
+			})
 		}
 		const template = await deadline.run((signal) =>
 			readSandboxTemplate(client, namespace, config.sandboxTemplateName, signal),
@@ -1312,7 +1385,7 @@ export async function acquireKubernetesSandbox(
 		// the bound pod's labels); a pool-less Sandbox's labels are knowable
 		// before the POST, and refusing with nothing created is strictly
 		// better than refusing with an object to clean up.
-		const directPodLabels = sandboxPodLabels(template, config.sandboxTemplateName)
+		const directPodLabels = sandboxPodLabels(template, config.sandboxTemplateName, podLabels)
 		const directSubject = `to create Sandbox ${objectName} in namespace ${namespace}`
 		if (verifyIngress !== undefined) {
 			await deadline.run((signal) => verifyIngress(directPodLabels, directSubject, signal))
@@ -1328,6 +1401,7 @@ export async function acquireKubernetesSandbox(
 			template,
 			sandboxTemplateName: config.sandboxTemplateName,
 			shutdownTime,
+			podLabels,
 			...(config.runtimeClassName !== undefined
 				? { runtimeClassName: config.runtimeClassName }
 				: {}),
@@ -1372,7 +1446,18 @@ export async function acquireKubernetesSandbox(
 								signal,
 							)
 							diagnosablePodName = claim?.status?.sandbox?.name ?? diagnosablePodName
-							return bindingFromClaim(claim, objectName)
+							// The pod labels this backend asked the controller for
+							// travel into the read, not because the fail-fast needs
+							// them — `InvalidMetadata` is already one of
+							// `TERMINAL_CLAIM_REASONS`, and that is the ONE
+							// taxonomy a refused claim is reported under — but so
+							// the refusal can carry what was actually sent and how
+							// to change it. See {@link ClaimPodMetadataContext}.
+							return bindingFromClaim(claim, objectName, {
+								namespace,
+								requestedPodLabels: podLabels,
+								...(profile !== undefined ? { profile } : {}),
+							})
 						},
 						deadline,
 						readiness,
@@ -1398,8 +1483,30 @@ export async function acquireKubernetesSandbox(
 		const agentPort = config.agentPort ?? DEFAULT_AGENT_PORT
 		const mode = config.agentAddress ?? 'service'
 		// One read, two facts: the bind token and — under `'pod-ip'` — the
-		// address, off the same pod. See {@link readAddressedPod}.
-		const pod = await readAddressedPod(client, namespace, binding, deadline, readiness, mode)
+		// address, off the same pod. See {@link readAddressedPod}, which under
+		// a configured profile also waits for the label the controller
+		// patches onto the bound pod before anything is admitted.
+		const pod = await readAddressedPod(
+			client,
+			namespace,
+			binding,
+			deadline,
+			readiness,
+			mode,
+			podLabels,
+		)
+		// The one refusal this capability must not skip: an unlabelled pod
+		// handed back runs under whatever policy DOES select it while the host
+		// believes it is on a narrower profile. This throws INSIDE the try
+		// block, so the cleanup below releases the claim (or deletes the
+		// Sandbox) exactly as a failed privilege probe does — and the probe
+		// itself, which runs in `admitProbedSandbox` after this function
+		// returns, is therefore never reached with the label unobserved.
+		assertRequestedPodLabelsObserved(
+			pod,
+			podLabels,
+			`Sandbox ${binding.name} in namespace ${namespace}`,
+		)
 		// A CLAIMED sandbox's pod was built from the pool's own template, so
 		// its labels are not knowable until the controller has bound one.
 		// Checking here rather than not at all is the trade: a refusal
@@ -1454,9 +1561,10 @@ export async function acquireKubernetesSandbox(
 }
 
 /**
- * The claim body, in full. Everything absent from it is absent on purpose:
- * no `env`, no `volumeClaimTemplates`, no `additionalPodMetadata`. Either of
- * the first two forces a cold start upstream and takes the warm pool away.
+ * The claim body, in full. Everything absent from it is absent on purpose: no
+ * `env` and no `volumeClaimTemplates`, because either forces a cold start
+ * upstream and takes the warm pool away. `additionalPodMetadata` is the one
+ * piece of claim-time metadata that does NOT — see `podLabels` below.
  *
  * `shutdownTime` + `shutdownPolicy: 'Delete'` is the leak guard: it bounds the
  * object by the wall clock whatever the host does, so a host that dies
@@ -1465,30 +1573,74 @@ export async function acquireKubernetesSandbox(
  * starts from the Finished condition, which a crashed host never reaches.
  *
  * `labels` (from {@link KubernetesBackendInternalConfig.claimLabels}) is the
- * one caller-supplied thing this body carries, and it goes ONLY onto
- * `metadata.labels` — never into `additionalPodMetadata`, which does not
- * appear here at all. Absent or empty, the body is exactly what it was before
- * `claimLabels` existed.
+ * host's own bookkeeping and goes ONLY onto `metadata.labels` — never into
+ * `additionalPodMetadata`, because those are POD labels that change what
+ * selectors match a running sandbox, and a host's crash-recovery identity has
+ * no business doing that. Absent or empty, the body is exactly what it was
+ * before `claimLabels` existed.
+ *
+ * `podLabels` is the other map, on the other object: whatever
+ * `composeAdditionalPodLabels` produced — the egress profile today — which
+ * the controller merges onto the pod it binds. It is the one piece of
+ * claim-time metadata that does NOT cost a cold start, which is why `env` and
+ * `volumeClaimTemplates` are still absent from this body and this is not.
+ * Empty, `additionalPodMetadata` does not appear at all and the body is byte
+ * for byte what it always was.
  */
-function buildClaimBody(
-	namespace: string,
-	name: string,
-	warmPoolName: string,
-	shutdownTime: string,
-	labels?: Record<string, string>,
-): Record<string, unknown> {
+interface ClaimBodyOptions {
+	readonly namespace: string
+	readonly name: string
+	readonly warmPoolName: string
+	readonly shutdownTime: string
+	/** `metadata.labels` on the CLAIM. See above. */
+	readonly labels?: Record<string, string>
+	/** `spec.additionalPodMetadata.labels` — the POD's. See above. */
+	readonly podLabels?: Readonly<Record<string, string>>
+}
+
+function buildClaimBody(options: ClaimBodyOptions): Record<string, unknown> {
+	const { labels, podLabels } = options
 	return {
 		apiVersion: `${SANDBOX_EXTENSIONS_API_GROUP}/${SANDBOX_API_VERSION}`,
 		kind: 'SandboxClaim',
 		metadata: {
-			name,
-			namespace,
+			name: options.name,
+			namespace: options.namespace,
 			...(labels !== undefined && Object.keys(labels).length > 0 ? { labels } : {}),
 		},
 		spec: {
-			warmPoolRef: { name: warmPoolName },
-			lifecycle: { shutdownTime, shutdownPolicy: 'Delete' },
+			warmPoolRef: { name: options.warmPoolName },
+			...(podLabels !== undefined && Object.keys(podLabels).length > 0
+				? { additionalPodMetadata: { labels: podLabels } }
+				: {}),
+			lifecycle: { shutdownTime: options.shutdownTime, shutdownPolicy: 'Delete' },
 		},
+	}
+}
+
+/**
+ * Refuse a bound pod that does not carry EVERY label this backend asked the
+ * controller to put on it — the egress profile today, and whatever else
+ * `composeAdditionalPodLabels` later contributes to the same map.
+ *
+ * The same set {@link readAddressedPod} waits for, deliberately: a wait that
+ * covered more than the refusal would burn the readiness budget on a label
+ * nothing then checked, and a refusal that covered more than the wait would
+ * refuse a pod that had simply not been patched yet. An empty map (the
+ * unprofiled path) checks nothing and returns.
+ *
+ * Called after {@link readAddressedPod} has already waited on the readiness
+ * deadline, so reaching a missing label here means it never arrived, not that
+ * it had not arrived yet.
+ */
+function assertRequestedPodLabelsObserved(
+	pod: KubernetesBoundPod,
+	requested: Readonly<Record<string, string>>,
+	subject: string,
+): void {
+	for (const [key, value] of Object.entries(requested)) {
+		if (pod.labels?.[key] === value) continue
+		throw new KubernetesPodLabelNotObservedError({ key, value }, subject, pod.labels ?? {})
 	}
 }
 
@@ -1677,6 +1829,18 @@ export interface SandboxBodyOptions {
 	 * ephemeral, so it has no revision to drift from and nothing to fence.
 	 */
 	readonly annotations?: Readonly<Record<string, string>>
+	/**
+	 * Extra labels stamped onto the POD template's metadata, beside the
+	 * template label this body always adds.
+	 *
+	 * The same map `buildClaimBody` puts on a claim's
+	 * `additionalPodMetadata.labels`, from the same
+	 * `composeAdditionalPodLabels` call — a direct Sandbox has no controller
+	 * to merge them for it, so the create body stamps them itself and the two
+	 * paths produce one set of pod labels. Absent or empty, the pod template
+	 * is byte for byte what it was.
+	 */
+	readonly podLabels?: Readonly<Record<string, string>>
 }
 
 /**
@@ -1730,6 +1894,7 @@ export function buildSandboxBody(options: SandboxBodyOptions): Record<string, un
 				options.template,
 				options.sandboxTemplateName,
 				options.runtimeClassName,
+				options.podLabels,
 			),
 		},
 	}
@@ -1737,8 +1902,9 @@ export function buildSandboxBody(options: SandboxBodyOptions): Record<string, un
 
 /**
  * The `spec.podTemplate` a directly created Sandbox carries: the template's,
- * with this backend's two overlays — the template label
- * ({@link sandboxPodLabels}) and the configured `runtimeClassName`.
+ * with this backend's overlays — the template label and whatever
+ * {@link composeAdditionalPodLabels} produced ({@link sandboxPodLabels}), and
+ * the configured `runtimeClassName`.
  *
  * Its own function because it is now built twice: once into the create POST
  * by {@link buildSandboxBody}, and once into the JSON Patch that refreshes a
@@ -1747,11 +1913,20 @@ export function buildSandboxBody(options: SandboxBodyOptions): Record<string, un
  * as off-template forever — the hash under
  * `sandbox.namzu.ai/pod-template-hash` is taken over exactly this object, so
  * a second spelling is a second revision.
+ *
+ * `podLabels` is on this signature rather than only on the create body for
+ * exactly that reason. A refresh rewrites `/spec/podTemplate` WHOLE, so a
+ * refresh built without them would PATCH the egress profile off a pod
+ * template that carries it — the replacement pod would come up selected by no
+ * per-profile policy, on a path where nothing re-checks the label, and the
+ * revision stamped beside it would be taken over a template the POST never
+ * writes, so `templateCurrent` would report drift forever.
  */
 export function sandboxPodTemplate(
 	template: SandboxTemplateCopy,
 	sandboxTemplateName: string,
 	runtimeClassName?: string,
+	podLabels?: Readonly<Record<string, string>>,
 ): SandboxPodTemplate {
 	const podTemplate = template.podTemplate
 	const spec =
@@ -1760,7 +1935,10 @@ export function sandboxPodTemplate(
 			: { ...podTemplate.spec }
 	return {
 		...podTemplate,
-		metadata: { ...podTemplate.metadata, labels: sandboxPodLabels(template, sandboxTemplateName) },
+		metadata: {
+			...podTemplate.metadata,
+			labels: sandboxPodLabels(template, sandboxTemplateName, podLabels),
+		},
 		spec,
 	}
 }
@@ -1774,14 +1952,22 @@ export function sandboxPodTemplate(
  * labels {@link buildSandboxBody} stamps, before the POST that stamps them.
  * Two expressions of the same rule would be one rename away from a check that
  * verifies a pod nobody creates.
+ *
+ * `extra` is `composeAdditionalPodLabels`'s map — the egress profile today.
+ * It is applied LAST, and so wins over both, for the same reason the template
+ * label wins over the copied template's own: it is a label the translated
+ * policy's selector is built to match, and a pod that matched the selector
+ * only sometimes would be a boundary that applied only sometimes.
  */
 export function sandboxPodLabels(
 	template: SandboxTemplateCopy,
 	sandboxTemplateName: string,
+	extra?: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
 	return {
 		...template.podTemplate.metadata?.labels,
 		...sandboxTemplateLabel(sandboxTemplateName),
+		...extra,
 	}
 }
 
@@ -1875,8 +2061,9 @@ export function resolveAgentAddress(
 function bindingFromClaim(
 	claim: SandboxClaimResource | undefined,
 	claimName: string,
+	metadata?: ClaimPodMetadataContext,
 ): KubernetesSandboxBinding | undefined {
-	const rejection = classifyClaimRejection(claim, claimName)
+	const rejection = classifyClaimRejection(claim, claimName, metadata)
 	if (rejection !== undefined) throw rejection
 	if (!isConditionTrue(claim?.status?.conditions, READY_CONDITION)) return undefined
 	const bound = claim?.status?.sandbox
@@ -2032,8 +2219,12 @@ export interface KubernetesBoundPod {
 	 * matches. Read off the SAME object the uid and the address come from,
 	 * for the same reason they are: a policy decision made about one pod and
 	 * a connection made to another is the mismatch this record exists to
-	 * prevent. Only the claim path reads it — a directly created Sandbox's
-	 * labels are known before its pod exists. See `ingress-policy.ts`.
+	 * prevent. The claim path reads it to ask which policies select the bound
+	 * pod — a directly created Sandbox's labels are known before its pod
+	 * exists — and BOTH paths read it to confirm the pod really carries the
+	 * labels this backend asked the controller for, which is the one thing
+	 * knowing them in advance cannot establish. See `ingress-policy.ts` and
+	 * `assertRequestedPodLabelsObserved`.
 	 */
 	readonly labels?: Readonly<Record<string, string>>
 }
@@ -2127,6 +2318,15 @@ function boundPod(uid: string, pod: PodResource): KubernetesBoundPod {
  * A failed READ stays fatal, exactly as it was: this is the acquire path,
  * where nothing is being replaced and a pod that cannot be read is not a pod
  * that is about to appear.
+ *
+ * `requiredLabels` is the second thing worth waiting for, and it is waited
+ * for in the SAME loop rather than in a second one: an egress profile is a
+ * label the CONTROLLER patches onto the pod it binds, so a pod read the
+ * instant it was bound can be live, addressed and not yet labelled. Two
+ * loops would be two deadlines and two answers to "is this pod ready to be
+ * admitted". Like the address, an expired clock hands the pod back as it is
+ * — the caller decides whether a missing label is fatal, and on the acquire
+ * path it is: see `assertRequestedPodLabelsObserved`.
  */
 export async function readAddressedPod(
 	client: KubernetesClient,
@@ -2135,17 +2335,23 @@ export async function readAddressedPod(
 	deadline: OperationDeadline,
 	readiness: { readonly pollIntervalMs: number },
 	mode: KubernetesAgentAddressMode,
+	requiredLabels?: Readonly<Record<string, string>>,
 ): Promise<KubernetesBoundPod> {
+	const required = Object.entries(requiredLabels ?? {})
+	const wanting = (pod: KubernetesBoundPod): boolean =>
+		(mode === 'pod-ip' && pod.podIP === undefined) ||
+		required.some(([key, value]) => pod.labels?.[key] !== value)
+
 	let pod = await deadline.run((signal) => readBoundPod(client, namespace, binding, signal))
-	if (mode !== 'pod-ip') return pod
-	while (pod.podIP === undefined && deadline.remainingMs() > 0) {
+	while (wanting(pod) && deadline.remainingMs() > 0) {
 		try {
 			await deadline.delay(readiness.pollIntervalMs)
 			pod = await deadline.run((signal) => readBoundPod(client, namespace, binding, signal))
 		} catch (err) {
-			// An expired clock hands the address-less pod back rather than
+			// An expired clock hands the incomplete pod back rather than
 			// replacing it with a bare "deadline expired": the caller's
-			// `resolveAgentAddress` then reports WHICH fact never arrived.
+			// `resolveAgentAddress` (or `assertRequestedPodLabelsObserved`) then
+			// reports WHICH fact never arrived.
 			if (err instanceof OperationDeadlineExpired) break
 			throw err
 		}

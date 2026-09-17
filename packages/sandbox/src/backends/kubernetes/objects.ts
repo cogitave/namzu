@@ -130,10 +130,26 @@ export interface SandboxClaimLifecycle {
  * absent from this type: setting either forces the claim to cold-start rather
  * than adopt a warm pool sandbox, which is the one thing the warm path exists
  * to avoid. A field that cannot be named cannot be set by accident.
+ *
+ * `additionalPodMetadata` is the exception, and the reason the rule above is
+ * about COLD STARTS rather than about claim-time metadata in general: labels
+ * are merged into an adopted warm sandbox without one. Measured on
+ * agent-sandbox v1.0.2 — two claims out of one two-replica pool, each
+ * carrying a different label value, both binding a replica that already
+ * existed, and the controller patching the label onto the running pod and
+ * into the Sandbox's own podTemplate. See `egress-policy.ts`'s profile
+ * support.
  */
 export interface SandboxClaimResourceSpec {
 	readonly warmPoolRef: { readonly name: string }
 	readonly lifecycle?: SandboxClaimLifecycle
+	/**
+	 * Labels (and annotations, which this backend never sets) the controller
+	 * merges onto the pod it binds. Warm-safe — see the type comment.
+	 */
+	readonly additionalPodMetadata?: {
+		readonly labels?: Readonly<Record<string, string>>
+	}
 }
 
 /**

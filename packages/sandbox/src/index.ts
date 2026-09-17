@@ -159,6 +159,7 @@ export type {
 // and what the two Kubernetes-only kinds (`no-network`, `public-internet`)
 // mean that the shared `EgressPolicy` union has no word for.
 export type {
+	EgressProfileLabel,
 	KubernetesCiliumDnsNarrowing,
 	KubernetesCiliumEgressNarrowing,
 	KubernetesEgressConfig,
@@ -167,6 +168,12 @@ export type {
 	KubernetesEgressVerification,
 	KubernetesOnlyEgressPolicy,
 } from './backends/kubernetes/egress-policy.js'
+// The default label key `KubernetesEgressConfig.profile` is written under.
+// Exported because an operator has to name that key's DOMAIN in the
+// controller's `allowed-label-domains` allowlist before a profiled claim is
+// accepted, and reading it off the package beats copying a string out of a
+// document.
+export { DEFAULT_EGRESS_PROFILE_LABEL_KEY } from './backends/kubernetes/egress-policy.js'
 // The egress union check's refusal and the shapes it reports, so a host can
 // catch an over-wide policy by class and print which policy it was. Separate
 // from `KubernetesEgressPolicyMismatchError` (the ONE named object drifting)
@@ -181,6 +188,21 @@ export {
 	KubernetesEgressNarrowingUnsupportedError,
 	KubernetesEgressPolicyConfigError,
 	KubernetesEgressPolicyUnionError,
+} from './backends/kubernetes/egress-policy.js'
+// What an egress PROFILE adds to the refusals above. Two are thrown: a
+// profile this backend will not emit (while the host is still being wired),
+// and a bound pod that never carried the label this backend asked the
+// controller for — refused rather than admitted, because admitting it would
+// run the sandbox under whatever policy DOES select it. The third is never
+// thrown on its own: a claim the controller refused because a label key's
+// domain is not on its allowlist still comes out as
+// `KubernetesAcquireError { reason: 'claim-rejected' }`, and
+// `KubernetesPodLabelsRejectedError` is that error's `cause`, naming the map
+// that was sent and the config key that moves it.
+export {
+	KubernetesEgressProfileConfigError,
+	KubernetesPodLabelNotObservedError,
+	KubernetesPodLabelsRejectedError,
 } from './backends/kubernetes/egress-policy.js'
 // Ingress verification types named by `KubernetesBackendConfig.ingress`, plus
 // the refusal a create raises when no applied policy closes the agent port —

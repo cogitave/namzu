@@ -174,7 +174,13 @@ import type {
 
 import { OperationDeadline, OperationDeadlineExpired, runFailureCleanup } from '../readiness.js'
 import type { SandboxRetirementObservation } from '../remote-execution-controller.js'
-import { assertEgressPolicyIsEnforceable } from './egress-policy.js'
+import {
+	type EgressProfileLabel,
+	assertEgressPolicyIsEnforceable,
+	assertEgressProfileIsUsable,
+	composeAdditionalPodLabels,
+	egressProfileLabel,
+} from './egress-policy.js'
 import {
 	DEFAULT_AGENT_PORT,
 	type KubernetesAgentAddress,
@@ -290,6 +296,14 @@ export class KubernetesWorkspaceDiskError extends Error {
  *    egress `NetworkPolicy`'s `podSelector` matches. A pod carrying another
  *    value — or none — is not selected by the policy this call just verified,
  *    so the boundary would report verified while covering nothing.
+ *  - the egress PROFILE label, when `config.egress.profile` is set, for
+ *    exactly the same reason: it is the selector's second half. A standing
+ *    object built before the profile existed, or under a different one,
+ *    carries a pod the per-profile policy does not select — and once each
+ *    profile has its own policy object, as it must, a pod carrying neither
+ *    key is selected by no egress policy at all. This one is checked only
+ *    when a profile is configured: with none, the policy this call verified
+ *    selects the template label alone, which the object does carry.
  *  - `runtimeClassName`, which is the VM boundary. The privilege probe cannot
  *    stand in for it: `/proc/self/status` reads the same inside a VM guest as
  *    it does inside an ordinary shared-kernel container.
@@ -305,8 +319,12 @@ export class KubernetesWorkspaceMismatchError extends Error {
 		/** The Sandbox found standing under this workspace's name. */
 		readonly sandboxName: string,
 		/** Which configured field the standing object disagrees with. */
-		readonly field: 'sandboxTemplateName' | 'runtimeClassName',
-		/** What the configuration asked for. */
+		readonly field: 'sandboxTemplateName' | 'egressProfile' | 'runtimeClassName',
+		/**
+		 * What the configuration asked for. `key=value` for `egressProfile`,
+		 * because the KEY is configurable too and the value alone would not
+		 * say which label was compared.
+		 */
 		readonly expected: string,
 		/** What the object carries — absent when it carries nothing at all. */
 		readonly actual: string | undefined,
@@ -1407,12 +1425,38 @@ function assertRefreshedTemplateClaimsTheSameDisks(
  * object whose label says one thing while the caller builds from another is a
  * mix-up worth naming the first time it is seen rather than the first time a
  * policy is switched on. See {@link KubernetesWorkspaceMismatchError}.
+ *
+ * The PROFILE check is conditional, because a profile is what this
+ * configuration asks for rather than something every object has: it runs when
+ * `config.egress.profile` is set, and then the object's own pod template has
+ * to carry that key with that value — unless this call is about to REWRITE
+ * that pod template (`refreshPodTemplate: true` onto a Suspended object),
+ * which writes the configured profile with the rest of the overlays. That is
+ * the same lifting the `runtimeClassName` check gets, for the same reason and
+ * with the same re-application if the patch does not land.
+ *
+ * Both halves of the policy selector are therefore checked against the object
+ * on this path — which matters because neither network check further up can
+ * do it: the ingress verification and the egress union both run against the
+ * labels the POST *would* stamp, and on this path the POST already lost to a
+ * 409. What this does NOT check is a
+ * label the standing object carries that this configuration does not ask for
+ * — an object built under a profile this config has dropped, say. That pod is
+ * still selected by the unprofiled policy this call verified (a selector is a
+ * subset match), so the boundary it reports holds; what a stale label could
+ * do is bring a SECOND policy into the union, and the adopt path cannot
+ * enumerate the standing object's labels without reading them, which is a
+ * wider change than this refusal.
  */
 export function assertAdoptedWorkspaceMatchesConfig(
 	sandboxName: string,
 	namespace: string,
 	podTemplate: SandboxPodTemplate | undefined,
-	expected: { readonly sandboxTemplateName: string; readonly runtimeClassName?: string },
+	expected: {
+		readonly sandboxTemplateName: string
+		readonly profile?: EgressProfileLabel
+		readonly runtimeClassName?: string
+	},
 ): void {
 	const label = podTemplate?.metadata?.labels?.[SANDBOX_TEMPLATE_LABEL_KEY]
 	if (label !== expected.sandboxTemplateName) {
@@ -1423,6 +1467,19 @@ export function assertAdoptedWorkspaceMatchesConfig(
 			label,
 			`kubernetes: Sandbox ${sandboxName} in namespace ${namespace} already exists, and its spec.podTemplate carries ${SANDBOX_TEMPLATE_LABEL_KEY}: ${label === undefined ? '(absent)' : JSON.stringify(label)} rather than ${JSON.stringify(expected.sandboxTemplateName)} — it was built from a different SandboxTemplate, so it is not the workspace this call describes. That label is the one an egress NetworkPolicy's podSelector matches, so adopting this object would hand back a pod the policy verified for ${JSON.stringify(expected.sandboxTemplateName)} does not select, having reported the boundary as verified. Point this workspace at the template the object was built from, or delete the Sandbox — which takes its disk with it — and create it again, or choose another workspaceId.`,
 		)
+	}
+	const profile = expected.profile
+	if (profile !== undefined) {
+		const carried = podTemplate?.metadata?.labels?.[profile.key]
+		if (carried !== profile.value) {
+			throw new KubernetesWorkspaceMismatchError(
+				sandboxName,
+				'egressProfile',
+				`${profile.key}=${profile.value}`,
+				carried === undefined ? undefined : `${profile.key}=${carried}`,
+				`kubernetes: Sandbox ${sandboxName} in namespace ${namespace} already exists, and its spec.podTemplate carries ${profile.key}: ${carried === undefined ? '(absent)' : JSON.stringify(carried)} rather than the configured egress profile ${JSON.stringify(profile.value)}. The translated policy's podSelector matches that label as well as the template one, so this object's pod is not selected by the policy this call just verified — and since each profile needs its own policy object, a pod carrying no profile label at all is selected by none of them, while create() would have reported the boundary verified. A standing workspace's pod labels are not rewritten underneath it by an ordinary adopt, so the mismatch is named instead. Three ways out, and only the last one costs the disk: reopen it with refreshPodTemplate: true, which rewrites spec.podTemplate — profile label and all — on the one Suspended → Running transition and is the supported way to move a workspace between profiles; or point config.egress.profile at ${carried === undefined ? 'the profile this object was built under (none was)' : JSON.stringify(carried)}; or delete the Sandbox — which takes its disk with it — and create it again under ${JSON.stringify(profile.value)}.`,
+			)
+		}
 	}
 	if (expected.runtimeClassName === undefined) return
 	const declared = podTemplate?.spec?.runtimeClassName
@@ -1521,7 +1578,18 @@ export async function createKubernetesWorkspace(
 	// so both of its memos live exactly as long as this call — creating a
 	// workspace is a rare, explicit act with nothing to amortise, and a policy
 	// deleted since the last call has to be noticed. The union half runs
-	// further down, where the pod's labels are known.
+	// further down, against the labels the POST is about to stamp — the pod's
+	// own labels on the create path. On the ADOPT path the POST loses to a
+	// 409 and those labels are not the standing pod's, so the two a policy
+	// selector is built from, the template label and the profile, are checked
+	// against the standing object itself instead: see
+	// `assertAdoptedWorkspaceMatchesConfig`.
+	//
+	// Before the boundary is built, because building it resolves the profile:
+	// a profile this backend would never emit is a wiring error, and it reads
+	// as one when it is refused in its own words rather than out of a policy
+	// name.
+	assertEgressProfileIsUsable(config.egress)
 	const egressBoundary = buildEgressBoundary(client, config, templateName)
 	if (config.egress) {
 		assertEgressPolicyIsEnforceable(
@@ -1551,7 +1619,20 @@ export async function createKubernetesWorkspace(
 	// nobody creates. Not memoized, for the reason the egress check above is
 	// not: this is a rare, explicit act with nothing to amortise, and a policy
 	// deleted since the last call has to be noticed.
-	const workspacePodLabels = sandboxPodLabels(template, templateName)
+	// A workspace is a Sandbox this backend POSTs directly, so an egress
+	// PROFILE has to be stamped by this body rather than merged by the
+	// controller — and the same map has to reach both the check below and the
+	// POST further down, or the check would verify a pod nobody creates. One
+	// composer, one call, both call sites. A workspace ADOPTED from a previous
+	// create keeps the pod labels it was created with — an ordinary adopt
+	// patches no pod template — so the adopt below REFUSES an object whose
+	// profile label is not the configured one rather than handing back a pod
+	// the verified policy does not select. The way to move an existing
+	// workspace onto a new profile is `refreshPodTemplate: true`, which
+	// rewrites `/spec/podTemplate` with exactly these labels.
+	const profile = egressProfileLabel(config.egress)
+	const profilePodLabels = composeAdditionalPodLabels(config.egress)
+	const workspacePodLabels = sandboxPodLabels(template, templateName, profilePodLabels)
 	const workspaceSubject = `to open workspace ${options.workspaceId} as Sandbox ${name} in namespace ${namespace}`
 	const verifyIngress = buildIngressVerifier(client, config)
 	if (verifyIngress !== undefined) {
@@ -1569,7 +1650,16 @@ export async function createKubernetesWorkspace(
 	// The pod template this call would write, and its revision — built once,
 	// from the same overlays `buildSandboxBody` applies below, because the
 	// hash has to be taken over exactly the object that lands on the cluster.
-	const refresh = buildPodTemplateRefresh(template, templateName, config.runtimeClassName)
+	// `profilePodLabels` is one of those overlays: a refresh rewrites
+	// `/spec/podTemplate` WHOLE, so one built without them would PATCH the
+	// profile label off a workspace that carries it, and the revision stamped
+	// by the POST would be taken over a template the POST never wrote.
+	const refresh = buildPodTemplateRefresh(
+		template,
+		templateName,
+		config.runtimeClassName,
+		profilePodLabels,
+	)
 
 	let adopted: AdoptedWorkspace | undefined
 	try {
@@ -1583,6 +1673,7 @@ export async function createKubernetesWorkspace(
 				name,
 				template,
 				sandboxTemplateName: templateName,
+				podLabels: profilePodLabels,
 				// Stamped by the POST itself rather than by a patch after it,
 				// so a workspace created under an epoch is fenced from the
 				// moment it exists — there is no window in which the object
@@ -1609,6 +1700,10 @@ export async function createKubernetesWorkspace(
 			options.workspaceId,
 			{
 				sandboxTemplateName: templateName,
+				// The same resolution the create body and the policy selector
+				// were built from, so the object is checked against exactly
+				// the label this call would have stamped.
+				...(profile !== undefined ? { profile } : {}),
 				...(config.runtimeClassName !== undefined
 					? { runtimeClassName: config.runtimeClassName }
 					: {}),
@@ -1632,6 +1727,12 @@ export async function createKubernetesWorkspace(
 		origin: adopted === undefined ? 'created' : adopted.resumed ? 'resumed' : 'adopted-running',
 		sandboxTemplateName: templateName,
 		...(config.runtimeClassName !== undefined ? { runtimeClassName: config.runtimeClassName } : {}),
+		// Carried for the reason the template name and the RuntimeClass are:
+		// a `resume({ refreshPodTemplate: true })` rebuilds the pod template
+		// long after this call, and a refresh rebuilt without these labels
+		// would patch the egress profile off the very pod the configured
+		// policy selects.
+		...(Object.keys(profilePodLabels).length > 0 ? { podLabels: profilePodLabels } : {}),
 		// A create wrote the revision it just computed; an adopt reports
 		// whatever the standing object carries, which is `undefined` for one
 		// created before the annotation existed.
@@ -1666,9 +1767,9 @@ export async function createKubernetesWorkspace(
  * Everything checked here is checked against the object, because on this path
  * the object is not the one this call built. A create POSTs its own body and
  * knows what is in it; an adopt is handed a pod somebody else's process, or
- * last month's configuration, decided the shape of. The two silent losses are
- * the template label and the RuntimeClass — see
- * {@link KubernetesWorkspaceMismatchError}.
+ * last month's configuration, decided the shape of. The silent losses are the
+ * template label, the egress profile label when one is configured, and the
+ * RuntimeClass — see {@link KubernetesWorkspaceMismatchError}.
  *
  * The refusals all happen BEFORE the resume patch: an object this call will
  * not use is not woken up on the way to being rejected.
@@ -1686,7 +1787,11 @@ async function adoptExistingWorkspace(
 	namespace: string,
 	name: string,
 	workspaceId: string,
-	expected: { readonly sandboxTemplateName: string; readonly runtimeClassName?: string },
+	expected: {
+		readonly sandboxTemplateName: string
+		readonly profile?: EgressProfileLabel
+		readonly runtimeClassName?: string
+	},
 	epoch: number | undefined,
 	refresh: PodTemplateRefresh | undefined,
 	signal?: AbortSignal,
@@ -1705,15 +1810,24 @@ async function adoptExistingWorkspace(
 	const refreshing = refresh !== undefined && suspended
 	assertAdoptedWorkspaceMatchesConfig(name, namespace, existing?.spec?.podTemplate, {
 		sandboxTemplateName: expected.sandboxTemplateName,
-		// The RuntimeClass refusal is lifted for a call that is ABOUT TO WRITE
-		// the configured class, and only for as long as that stays true: if
-		// the patch below does not land, it is re-applied against the object
-		// as it then stands, so a pod on the wrong runtime is never bound. The
-		// TEMPLATE refusal is never lifted — a refresh rewrites a workspace's
-		// pod spec, it never moves the workspace to another template.
-		...(refreshing || expected.runtimeClassName === undefined
+		// The RuntimeClass and egress-profile refusals are lifted for a call
+		// that is ABOUT TO WRITE them, and only for as long as that stays
+		// true: if the patch below does not land, both are re-applied against
+		// the object as it then stands, so a pod on the wrong runtime — or
+		// under a profile no policy selects — is never bound. They are lifted
+		// together because a refresh writes them together: the patched pod
+		// template is `sandboxPodTemplate`'s, overlays and all, so the
+		// profile label lands with the class. The TEMPLATE refusal is never
+		// lifted — a refresh rewrites a workspace's pod spec, it never moves
+		// the workspace to another template.
+		...(refreshing
 			? {}
-			: { runtimeClassName: expected.runtimeClassName }),
+			: {
+					...(expected.profile !== undefined ? { profile: expected.profile } : {}),
+					...(expected.runtimeClassName !== undefined
+						? { runtimeClassName: expected.runtimeClassName }
+						: {}),
+				}),
 	})
 	const reading = readHolderEpoch(existing?.metadata)
 	// With the adopt's other refusals, and for the same reason: an object this
@@ -2079,13 +2193,25 @@ interface PodTemplateRefresh {
 	readonly volumeClaimTemplates?: readonly SandboxVolumeClaimTemplate[]
 }
 
-/** The overlays of `buildSandboxBody`'s create body, plus their revision. */
+/**
+ * The overlays of `buildSandboxBody`'s create body, plus their revision.
+ *
+ * `podLabels` is `composeAdditionalPodLabels`'s map — the egress profile
+ * today — and it is an overlay like the other two rather than an extra: the
+ * patch this feeds replaces `/spec/podTemplate` whole, so a refresh that left
+ * it out would REMOVE the profile label from a workspace created with it. The
+ * replacement pod would come up selected by no per-profile policy, on a path
+ * where nothing re-reads the label, and the hash would disagree with what
+ * every create POSTs, so `templateCurrent` would report drift that no refresh
+ * could clear.
+ */
 function buildPodTemplateRefresh(
 	template: SandboxTemplateCopy,
 	sandboxTemplateName: string,
 	runtimeClassName?: string,
+	podLabels?: Readonly<Record<string, string>>,
 ): PodTemplateRefresh {
-	const podTemplate = sandboxPodTemplate(template, sandboxTemplateName, runtimeClassName)
+	const podTemplate = sandboxPodTemplate(template, sandboxTemplateName, runtimeClassName, podLabels)
 	return {
 		podTemplate,
 		hash: podTemplateHash(podTemplate),
@@ -2681,6 +2807,17 @@ interface WorkspaceHandleOptions {
 	 */
 	readonly sandboxTemplateName: string
 	readonly runtimeClassName?: string
+	/**
+	 * The pod labels this workspace was opened with beyond its template
+	 * label — `composeAdditionalPodLabels`'s map, the egress profile today.
+	 *
+	 * On the handle for the same reason the two above are: a
+	 * `resume({ refreshPodTemplate: true })` rebuilds `/spec/podTemplate`
+	 * whole, and a rebuild without them would patch the profile label off the
+	 * object, leaving the replacement pod selected by no per-profile policy
+	 * with nothing on that path to notice.
+	 */
+	readonly podLabels?: Readonly<Record<string, string>>
 	/** The revision the bound object carries — see `templateRevision`. */
 	readonly templateRevision?: string
 	/** The revision the template read at open would produce — see `templateCurrent`. */
@@ -3520,6 +3657,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 				template,
 				options.sandboxTemplateName,
 				options.runtimeClassName,
+				options.podLabels,
 			)
 			currentTemplateHash = refresh.hash
 			// Before any patch, and against the SANDBOX's own disk — both of
