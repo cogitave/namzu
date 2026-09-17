@@ -134,11 +134,15 @@ import {
 import {
 	type KubernetesAccess,
 	KubernetesAlreadyGoneError,
+	KubernetesApiError,
+	KubernetesApiTimeoutError,
 	type KubernetesClient,
 	type KubernetesClientOptions,
+	KubernetesCredentialError,
 	createKubernetesClient,
 } from './k8s-client.js'
 import {
+	type KubernetesCondition,
 	type PodListResource,
 	type PodResource,
 	READY_CONDITION,
@@ -783,12 +787,430 @@ export function clientAccess(config: KubernetesBackendInternalConfig): Kubernete
 }
 
 /**
+ * Why an acquire was refused, in the terms an operator acts on rather than
+ * the terms the failure happened to arrive in.
+ *
+ *  - `'api-unreachable'` — the API server could not be reached, or kept
+ *    answering with a status that means "not now": a connect failure, a 429,
+ *    a 5xx. Retried inside the readiness budget before it ever reaches a
+ *    caller, so seeing it means the whole budget was spent failing.
+ *  - `'api-timeout'` — requests were accepted and never answered, until
+ *    `apiRequestTimeoutMs` gave up on them. Also retried first.
+ *  - `'forbidden'` — 401 or 403. The host's ServiceAccount cannot do this;
+ *    no amount of waiting changes that. See the RBAC section of
+ *    `docs/sdk/kubernetes-sandbox.md`.
+ *  - `'claim-rejected'` — the controller REFUSED the claim, and said why.
+ *    {@link KubernetesAcquireError.controllerReason} carries its own word for
+ *    it. This is the one that used to burn the entire readiness budget before
+ *    failing.
+ *  - `'capacity'` — the pod exists and cannot be placed: the scheduler
+ *    reports `PodScheduled=False` with reason `Unschedulable`. The cluster is
+ *    full, or nothing matches the template's placement rules.
+ *  - `'image-pull'` — the pod was placed and its container cannot start
+ *    because the image will not pull. Permanent until an operator fixes the
+ *    reference or the pull credential.
+ *  - `'not-ready'` — none of the above: the readiness budget expired with the
+ *    cluster reporting nothing wrong. A slow cold start, a webhook, an
+ *    admission controller, a CNI that never attached the pod.
+ */
+export type KubernetesAcquireFailureReason =
+	| 'api-unreachable'
+	| 'api-timeout'
+	| 'forbidden'
+	| 'claim-rejected'
+	| 'capacity'
+	| 'image-pull'
+	| 'not-ready'
+
+/**
+ * An acquire that was refused, carrying WHY in a field rather than in prose.
+ *
+ * Before this class a burst past node capacity and an API outage were the
+ * same plain `Error`, and a host could only tell them apart by matching
+ * message text that any release is free to reword. `reason` is the diagnosis,
+ * `retryable` is the advice that follows from it, and `cause` is the original
+ * failure — unmodified, so a host that already catches
+ * {@link ReadinessPollTimeout}, {@link KubernetesApiTimeoutError} or
+ * `KubernetesCredentialError` finds it there.
+ *
+ * `retryable` is about THIS acquire being worth attempting again, not about
+ * anything having been retried. Transient API failures are already retried
+ * inside the readiness budget, so a `retryable: true` that reaches a caller
+ * means the whole budget was spent on them.
+ *
+ * Not every acquire failure becomes one of these, and that is deliberate: a
+ * refusal this class cannot honestly diagnose — a malformed template, a 400
+ * from an admission webhook, a controller that reported Ready and named no
+ * sandbox — travels out as itself rather than being filed under whichever of
+ * the seven reasons is least wrong. `KubernetesApiError` carries the status
+ * for those.
+ */
+export class KubernetesAcquireError extends Error {
+	override readonly name = 'KubernetesAcquireError'
+	readonly reason: KubernetesAcquireFailureReason
+	/** Whether attempting the same acquire again could plausibly succeed. */
+	readonly retryable: boolean
+	/**
+	 * `status.conditions[Ready].reason`, verbatim, when the controller
+	 * refused the claim — `WarmPoolNotFound`, `TemplateNotFound`,
+	 * `InvalidMetadata`, `EnvVarsInjectionRejected`. Present only for
+	 * `'claim-rejected'`.
+	 */
+	readonly controllerReason?: string
+	/** The controller's own message for the same condition. */
+	readonly controllerMessage?: string
+
+	constructor(details: {
+		readonly reason: KubernetesAcquireFailureReason
+		readonly retryable: boolean
+		readonly message: string
+		readonly controllerReason?: string
+		readonly controllerMessage?: string
+		readonly cause?: unknown
+	}) {
+		super(details.message, details.cause !== undefined ? { cause: details.cause } : undefined)
+		this.reason = details.reason
+		this.retryable = details.retryable
+		if (details.controllerReason !== undefined) this.controllerReason = details.controllerReason
+		if (details.controllerMessage !== undefined) this.controllerMessage = details.controllerMessage
+	}
+}
+
+/**
+ * The `status.conditions[Ready].reason` values that mean the controller has
+ * DECIDED, so waiting is pointless.
+ *
+ * ## Where these strings came from
+ *
+ * Not from the issue that asked for this, and not from upstream source: this
+ * repo vendors none of agent-sandbox's Go, so a literal copied out of a
+ * changelog is a literal nobody here can check. Each of the four was produced
+ * against the deployed controller (kind v1.37.0, agent-sandbox v1.0.2,
+ * 2026-09-17) by making the claim it describes and reading the condition
+ * back:
+ *
+ * | reason | how it was produced | the controller's message |
+ * |---|---|---|
+ * | `WarmPoolNotFound` | claim at a pool that does not exist | `SandboxWarmPool "…" not found` |
+ * | `TemplateNotFound` | claim at a pool whose template does not exist | `SandboxTemplate "…" not found` |
+ * | `InvalidMetadata` | claim with an `additionalPodMetadata` label outside the allowed domains | `invalid additionalPodMetadata: …` |
+ * | `EnvVarsInjectionRejected` | claim with `spec.env` against a template that forbids injection | `environment variable injection rejected: …` |
+ *
+ * The transient reasons seen on the SAME cluster, which must NOT be in this
+ * set, were `DependenciesNotReady` (pod exists, still Pending) and
+ * `DependenciesReady` (the Ready=True reason).
+ *
+ * ## Why an unknown reason is not terminal
+ *
+ * A wrong literal here fails in one of two ways, and only one of them is
+ * recoverable. Too few entries: a rejected claim waits out the readiness
+ * budget, which is exactly the behaviour every release before this one had.
+ * Too many: an acquire that would have succeeded is refused on a guess. So
+ * the set is a closed list of measured strings and everything else falls
+ * through to the deadline.
+ */
+// Frozen because it is exported from the package root: an array handed to
+// every consumer is one a cast can push onto, and an entry added there would
+// change fail-fast for the whole process. The `readonly string[]` annotation
+// is deliberate rather than `as const` — `includes` on a literal tuple only
+// accepts the literals, and the whole point is to ask it about a reason no
+// one here has seen.
+export const TERMINAL_CLAIM_REASONS: readonly string[] = Object.freeze([
+	'WarmPoolNotFound',
+	'TemplateNotFound',
+	'InvalidMetadata',
+	'EnvVarsInjectionRejected',
+])
+
+/**
+ * The `Ready` condition a claim reports, whatever its status — the one
+ * {@link isConditionTrue} deliberately cannot return, because it answers a
+ * boolean question and this one needs the reason.
+ */
+function readyCondition(
+	conditions: readonly KubernetesCondition[] | undefined,
+): KubernetesCondition | undefined {
+	return conditions?.find((c) => c.type === READY_CONDITION)
+}
+
+/**
+ * A claim the controller has refused, or `undefined` for one it is still
+ * working on.
+ *
+ * `status: 'False'` alone is not a refusal — it is also what a claim looks
+ * like for the whole of a cold start — so the REASON decides, against
+ * {@link TERMINAL_CLAIM_REASONS}.
+ */
+export function classifyClaimRejection(
+	claim: SandboxClaimResource | undefined,
+	claimName: string,
+): KubernetesAcquireError | undefined {
+	const condition = readyCondition(claim?.status?.conditions)
+	if (condition === undefined || condition.status !== 'False') return undefined
+	const reason = condition.reason
+	if (reason === undefined || !TERMINAL_CLAIM_REASONS.includes(reason)) return undefined
+	return new KubernetesAcquireError({
+		reason: 'claim-rejected',
+		retryable: false,
+		controllerReason: reason,
+		...(condition.message !== undefined ? { controllerMessage: condition.message } : {}),
+		message: `kubernetes: the agent-sandbox controller refused SandboxClaim ${claimName} with reason ${reason}${
+			condition.message !== undefined ? `: ${condition.message}` : ''
+		}. That is a decision, not a delay, so the readiness budget was not waited out.`,
+	})
+}
+
+/**
+ * How long to wait before repeating a failed readiness read, or `undefined`
+ * when the failure is not worth repeating.
+ *
+ * Retryable: a connect failure (the socket, not the answer), a request the
+ * `apiRequestTimeoutMs` bound gave up on, a 429 (the API server's own
+ * priority-and-fairness queue shedding load) and any 5xx. Not retryable: 401
+ * and 403, which are a decision; 404 and 410, which are an answer; 409, which
+ * a caller resolves by re-reading; and everything this backend threw itself.
+ *
+ * The wait is the poll's own cadence unless the server named one — then its
+ * `Retry-After`, because the server knows when its queue drains and this code
+ * does not. Nothing here consults a clock: the caller's deadline owns the
+ * sleep, so a long `Retry-After` spends the readiness budget rather than
+ * extending it.
+ */
+/**
+ * The largest delay a timer can hold — `2^31 - 1` ms, Node's own ceiling.
+ * Above it `setTimeout` warns and fires immediately, which is the opposite of
+ * what a long `Retry-After` asked for.
+ */
+const MAX_RETRY_DELAY_MS = 2_147_483_647
+
+export function retryDelayForApiFailure(err: unknown, pollIntervalMs: number): number | undefined {
+	if (err instanceof KubernetesApiTimeoutError) return pollIntervalMs
+	if (!(err instanceof KubernetesApiError)) return undefined
+	if (err.transport === 'connect') return pollIntervalMs
+	const status = err.status
+	if (status === undefined) return undefined
+	// `Retry-After` may only ever SLOW the poll down, and only within what a
+	// timer can express. A header of `0`, or one naming a moment already past,
+	// would otherwise turn the retry into a hot loop against a server that is
+	// already shedding load — the caller's own cadence is the rate this loop
+	// runs at when nothing is wrong. And a header naming a moment years away
+	// overflows `setTimeout`, which then fires at once rather than never,
+	// producing the same hot loop from the opposite direction. The readiness
+	// deadline ends the wait either way; the clamp only stops the wait from
+	// silently becoming no wait at all.
+	if (status === 429 || status >= 500) {
+		const asked = err.retryAfterMs ?? pollIntervalMs
+		return Math.min(Math.max(asked, pollIntervalMs), MAX_RETRY_DELAY_MS)
+	}
+	return undefined
+}
+
+/**
+ * How long the one diagnostic pod read after a failed acquire may take.
+ *
+ * Same shape and the same argument as `runFailureCleanup`'s grace: the
+ * readiness clock has already expired, so this cannot share it, and a
+ * diagnosis that could hang would keep `create()` pending past the budget the
+ * caller chose — for a nicer error message. One second, and a diagnosis that
+ * does not arrive is simply not made.
+ */
+const ACQUIRE_DIAGNOSIS_GRACE_MS = 1_000
+
+/**
+ * The image-pull `status.containerStatuses[].state.waiting.reason` values the
+ * kubelet reports. Measured on kind v1.37.0 (2026-09-17): a container whose
+ * image does not exist waits as `ErrImagePull` for the first attempts and
+ * settles into `ImagePullBackOff`. The other two are the kubelet's names for
+ * a pull that resolved and then failed, and for a registry that cannot be
+ * reached at all.
+ */
+const IMAGE_PULL_WAITING_REASONS: readonly string[] = [
+	'ErrImagePull',
+	'ImagePullBackOff',
+	'ImageInspectError',
+	'RegistryUnavailable',
+]
+
+/**
+ * Ask the pod why it is not ready, once, after the budget has already gone.
+ *
+ * Nothing on the healthy path calls this and nothing waits on it: it runs
+ * exactly when an acquire has already failed, and its whole output is a
+ * better {@link KubernetesAcquireFailureReason} than `'not-ready'`. A read
+ * that fails, a pod that is not there and a pod with nothing to say all
+ * produce `undefined`, which leaves the reason where it was.
+ *
+ * It must run BEFORE the cleanup DELETE, because the pod goes away with the
+ * object it belongs to.
+ *
+ * It takes the CALLER's signal where `runFailureCleanup` deliberately does
+ * not: cleanup must finish or the cluster keeps the object, while a diagnosis
+ * is only a better sentence for an error a caller who aborted will never
+ * read.
+ */
+async function diagnoseUnreadyPod(
+	client: KubernetesClient,
+	namespace: string,
+	podName: string,
+	callerSignal: AbortSignal | undefined,
+): Promise<'capacity' | 'image-pull' | undefined> {
+	let pod: PodResource | undefined
+	try {
+		const deadline = new OperationDeadline(
+			ACQUIRE_DIAGNOSIS_GRACE_MS,
+			'kubernetes acquire diagnosis',
+			callerSignal,
+		)
+		pod = await deadline.run((signal) =>
+			client.request<PodResource>('GET', podPath(namespace, podName), undefined, signal),
+		)
+	} catch {
+		// The acquire failure is the primary one and keeps its reason. A
+		// diagnosis that cannot be made is not a second failure to report.
+		return undefined
+	}
+	const scheduled = pod?.status?.conditions?.find((c) => c.type === 'PodScheduled')
+	if (scheduled?.status === 'False' && scheduled.reason === 'Unschedulable') return 'capacity'
+	for (const container of pod?.status?.containerStatuses ?? []) {
+		const reason = container.state?.waiting?.reason
+		if (reason !== undefined && IMAGE_PULL_WAITING_REASONS.includes(reason)) return 'image-pull'
+	}
+	return undefined
+}
+
+/**
+ * The refusal a caller sees, given the failure that actually happened and
+ * whatever the pod had to say about it.
+ *
+ * Returns `undefined` for a failure none of the seven reasons describes —
+ * see {@link KubernetesAcquireError} for why that is a deliberate hole rather
+ * than a missing case. A {@link KubernetesAcquireError} that arrived from
+ * deeper in (the claim rejection) is returned unchanged: it is already the
+ * diagnosis.
+ */
+export function classifyAcquireFailure(
+	err: unknown,
+	podDiagnosis: 'capacity' | 'image-pull' | undefined,
+): KubernetesAcquireError | undefined {
+	if (err instanceof KubernetesAcquireError) return err
+	if (err instanceof KubernetesApiTimeoutError) {
+		return new KubernetesAcquireError({
+			reason: 'api-timeout',
+			retryable: true,
+			message: `kubernetes: the acquire was refused because the API server did not answer in time — ${err.message}`,
+			cause: err,
+		})
+	}
+	if (err instanceof KubernetesCredentialError) {
+		return new KubernetesAcquireError({
+			reason: 'forbidden',
+			retryable: false,
+			message: `kubernetes: the acquire was refused because the API server rejected this host's credential — ${err.message}. Check the host ServiceAccount's Role against the RBAC section of the Kubernetes sandbox documentation.`,
+			cause: err,
+		})
+	}
+	if (err instanceof KubernetesApiError) {
+		// The same predicate the poll retries on, so "worth trying again" has
+		// one definition and a caller cannot be told a failure is retryable
+		// that the poll would have declined to retry. The interval is
+		// irrelevant here — only whether an answer comes back at all.
+		if (retryDelayForApiFailure(err, 1) === undefined) return undefined
+		return new KubernetesAcquireError({
+			reason: 'api-unreachable',
+			retryable: true,
+			message: `kubernetes: the acquire was refused because the API server could not serve it — ${err.message}`,
+			cause: err,
+		})
+	}
+	if (err instanceof ReadinessPollTimeout) {
+		// ORDER MATTERS, and this is the order: what the cluster SAID beats
+		// what the failures suggest. A pod diagnosis is a condition the API
+		// server published about this pod, read after the budget had already
+		// gone; `err.cause` is at best the failure the poll was still meeting
+		// at that moment. On a saturated cluster both are present at once — a
+		// pod nothing can schedule AND an API server shedding load — and
+		// reporting `api-unreachable` there would hide the very reason this
+		// function exists to produce, and would turn `image-pull`'s
+		// `retryable: false` into a `true` that has a host retrying forever
+		// against an image reference that will never resolve. A diagnosis also
+		// cannot be stale in the way a cause can: it only exists because the
+		// API server answered one more read, moments ago.
+		if (podDiagnosis === 'capacity') {
+			return new KubernetesAcquireError({
+				reason: 'capacity',
+				retryable: true,
+				message: `kubernetes: the acquire was refused because its pod could not be scheduled — the cluster reports PodScheduled=False/Unschedulable. ${err.message}`,
+				cause: err,
+			})
+		}
+		if (podDiagnosis === 'image-pull') {
+			return new KubernetesAcquireError({
+				reason: 'image-pull',
+				retryable: false,
+				message: `kubernetes: the acquire was refused because its pod's container image will not pull. ${err.message}`,
+				cause: err,
+			})
+		}
+		// Nothing measured, so the failures the poll kept meeting decide: a
+		// poll that spent its budget retrying API failures did not fail
+		// because the sandbox was slow; it failed because the control plane
+		// was. `pollForBinding` carries the failure it was STILL meeting onto
+		// the timeout, and the reason follows it rather than the timeout.
+		const underlying = classifyAcquireFailure(err.cause, undefined)
+		if (underlying !== undefined) {
+			return new KubernetesAcquireError({
+				reason: underlying.reason,
+				retryable: underlying.retryable,
+				message: underlying.message,
+				cause: err,
+			})
+		}
+		return new KubernetesAcquireError({
+			reason: 'not-ready',
+			retryable: true,
+			message: err.message,
+			cause: err,
+		})
+	}
+	if (err instanceof OperationDeadlineExpired) {
+		return new KubernetesAcquireError({
+			reason: 'not-ready',
+			retryable: true,
+			message: `kubernetes: the acquire ran out of readiness budget — ${err.message}`,
+			cause: err,
+		})
+	}
+	return undefined
+}
+
+/**
  * Claim or create, wait for Ready, read the bound identity back, resolve the
  * address and learn the pod's uid — or leave nothing behind trying.
  *
  * Exported because the sandbox surface is built on top of this record rather
  * than beside it: one acquire path, one cleanup path, whatever ends up
  * wrapping them.
+ *
+ * ## What it refuses with
+ *
+ * Every refusal this function can diagnose arrives as a
+ * {@link KubernetesAcquireError} naming one of seven reasons, with the
+ * original failure as its `cause`. Three things stay outside that:
+ * configuration refused before anything is created
+ * ({@link assertEnforceable}, {@link assertRuntimeClassIsApplicable}), a
+ * caller's own abort, and a failure none of the seven reasons honestly
+ * describes — see {@link KubernetesAcquireError} for why the last one is a
+ * hole on purpose.
+ *
+ * ## What it retries, and what it will not
+ *
+ * A readiness GET that fails transiently — a connect failure, a request the
+ * API bound gave up on, a 429, a 5xx — is repeated INSIDE the readiness
+ * deadline, honouring `Retry-After`. One clock, so a retry spends the budget
+ * rather than extending it, and a `create()` cannot outlive the timeout its
+ * caller chose. The create POST is never retried: it is not idempotent, and a
+ * POST whose answer never arrived may already have committed — which is why
+ * cleanup deletes the client-owned name whatever happened.
  */
 export async function acquireKubernetesSandbox(
 	client: KubernetesClient,
@@ -860,16 +1282,16 @@ export async function acquireKubernetesSandbox(
 		config.warmPoolName !== undefined
 			? claimCollectionPath(namespace)
 			: sandboxCollectionPath(namespace)
-	let createBody: Record<string, unknown>
-	if (config.warmPoolName !== undefined) {
-		createBody = buildClaimBody(
-			namespace,
-			objectName,
-			config.warmPoolName,
-			shutdownTime,
-			config.claimLabels,
-		)
-	} else {
+	const buildCreateBody = async (): Promise<Record<string, unknown>> => {
+		if (config.warmPoolName !== undefined) {
+			return buildClaimBody(
+				namespace,
+				objectName,
+				config.warmPoolName,
+				shutdownTime,
+				config.claimLabels,
+			)
+		}
 		const template = await deadline.run((signal) =>
 			readSandboxTemplate(client, namespace, config.sandboxTemplateName, signal),
 		)
@@ -891,7 +1313,7 @@ export async function acquireKubernetesSandbox(
 				egressBoundary.verifyUnion(directPodLabels, directSubject, signal),
 			)
 		}
-		createBody = buildSandboxBody({
+		return buildSandboxBody({
 			namespace,
 			name: objectName,
 			template,
@@ -903,6 +1325,29 @@ export async function acquireKubernetesSandbox(
 		})
 	}
 
+	let createBody: Record<string, unknown>
+	try {
+		createBody = await buildCreateBody()
+	} catch (err) {
+		// Nothing exists yet, so there is nothing to clean up and no pod to
+		// ask — but a 403 on the template read is still a `forbidden` acquire,
+		// and a caller should not have to tell that apart by where it
+		// happened.
+		throw classifyAcquireFailure(err, undefined) ?? err
+	}
+
+	// The pod the diagnosis below asks, when there is one. A directly created
+	// Sandbox is backed by a pod of its own name; a CLAIM's pod is not knowable
+	// until the controller has named a sandbox in `status.sandbox`, which it
+	// does before Ready on a cold start and never on a rejected claim.
+	let diagnosablePodName: string | undefined =
+		config.warmPoolName !== undefined ? undefined : objectName
+	// One definition of "worth trying again", shared by the poll that retries
+	// and the classification that reports — see {@link retryDelayForApiFailure}.
+	const pollBehaviour: ReadinessPollBehaviour = {
+		retryDelayFor: (err) => retryDelayForApiFailure(err, readiness.pollIntervalMs),
+	}
+
 	try {
 		// Inside the cleanup block: a POST that fails client-side may still have
 		// committed, so the only safe assumption is that the object exists.
@@ -910,19 +1355,20 @@ export async function acquireKubernetesSandbox(
 		const binding =
 			config.warmPoolName !== undefined
 				? await pollForBinding(
-						async (signal) =>
-							bindingFromClaim(
-								await client.request<SandboxClaimResource>(
-									'GET',
-									claimPath(namespace, objectName),
-									undefined,
-									signal,
-								),
-								objectName,
-							),
+						async (signal) => {
+							const claim = await client.request<SandboxClaimResource>(
+								'GET',
+								claimPath(namespace, objectName),
+								undefined,
+								signal,
+							)
+							diagnosablePodName = claim?.status?.sandbox?.name ?? diagnosablePodName
+							return bindingFromClaim(claim, objectName)
+						},
 						deadline,
 						readiness,
 						`claim ${objectName}`,
+						pollBehaviour,
 					)
 				: await pollForBinding(
 						async (signal) =>
@@ -937,6 +1383,7 @@ export async function acquireKubernetesSandbox(
 						deadline,
 						readiness,
 						`sandbox ${objectName}`,
+						pollBehaviour,
 					)
 
 		const agentPort = config.agentPort ?? DEFAULT_AGENT_PORT
@@ -980,6 +1427,12 @@ export async function acquireKubernetesSandbox(
 			renew,
 		}
 	} catch (err) {
+		// Asked BEFORE cleanup, because the pod goes away with the object, and
+		// only for a timeout — every other failure already knows what it was.
+		const podDiagnosis =
+			err instanceof ReadinessPollTimeout && diagnosablePodName !== undefined
+				? await diagnoseUnreadyPod(client, namespace, diagnosablePodName, options.signal)
+				: undefined
 		// One cleanup for every way out of the block above, on its own short
 		// budget: the readiness clock has already expired in the common case,
 		// so spending it again would either skip cleanup or leave `create()`
@@ -987,7 +1440,7 @@ export async function acquireKubernetesSandbox(
 		await runFailureCleanup(async (signal) => {
 			await release(signal)
 		})
-		throw err
+		throw classifyAcquireFailure(err, podDiagnosis) ?? err
 	}
 }
 
@@ -1401,10 +1854,21 @@ export function resolveAgentAddress(
 	return { kind: 'tcp', host, port: agentPort, token }
 }
 
+/**
+ * Ready-or-not-yet, read off a `SandboxClaim`'s own status — plus the one
+ * "not yet" that is really a "no".
+ *
+ * The rejection check runs BEFORE the readiness check rather than after,
+ * because a refused claim is `Ready=False` forever and the readiness check
+ * cannot tell that from a cold start in progress. See
+ * {@link classifyClaimRejection}.
+ */
 function bindingFromClaim(
 	claim: SandboxClaimResource | undefined,
 	claimName: string,
 ): KubernetesSandboxBinding | undefined {
+	const rejection = classifyClaimRejection(claim, claimName)
+	if (rejection !== undefined) throw rejection
 	if (!isConditionTrue(claim?.status?.conditions, READY_CONDITION)) return undefined
 	const bound = claim?.status?.sandbox
 	// Ready with no bound name is the controller contradicting itself; polling
@@ -1455,37 +1919,86 @@ export class ReadinessPollTimeout extends Error {
 }
 
 /**
+ * What a failed readiness read is worth, decided by the caller.
+ *
+ * Optional, and absent means exactly the behaviour every caller had before:
+ * the first failure of any kind ends the poll. `workspace.ts` passes nothing
+ * and is unchanged; the acquire path passes
+ * {@link retryDelayForApiFailure} so one 429 on a shared cluster no longer
+ * fails a create that had fifty-nine seconds of budget left.
+ */
+export interface ReadinessPollBehaviour {
+	/**
+	 * Milliseconds to wait before reading again, or `undefined` to rethrow.
+	 *
+	 * The wait is spent on the SAME deadline as everything else in the poll,
+	 * so a retry consumes the readiness budget and can never extend it. A hook
+	 * that always returns a number therefore still terminates: the clock ends
+	 * the loop, not the hook.
+	 */
+	readonly retryDelayFor?: (err: unknown) => number | undefined
+}
+
+/**
  * Poll until `read` reports a binding. `read` returns `undefined` for "not
  * yet" and throws for a failure worth surfacing; the deadline owns every wait,
  * including the sleep between attempts, so an expired clock cannot be extended
  * by one more round trip. Shaped after ACI's `pollForRunningIp`.
  *
  * The only failure this raises on its own account is
- * {@link ReadinessPollTimeout}; anything `read` throws travels out unchanged.
+ * {@link ReadinessPollTimeout}; anything `read` throws travels out unchanged,
+ * unless `behaviour.retryDelayFor` claims it — in which case it is repeated
+ * inside the same budget and, if the budget then runs out, carried onto the
+ * timeout as its `cause`, so a poll that kept failing still says what it kept
+ * seeing.
  */
 export async function pollForBinding(
 	read: (signal: AbortSignal) => Promise<KubernetesSandboxBinding | undefined>,
 	deadline: OperationDeadline,
 	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
 	label: string,
+	behaviour: ReadinessPollBehaviour = {},
 ): Promise<KubernetesSandboxBinding> {
+	/**
+	 * The last failure that was retried rather than raised, and only while it
+	 * is still the truth: a read that succeeds clears it, so the timeout
+	 * carries a failure the poll was STILL meeting when the budget ran out
+	 * rather than a blip it recovered from twenty polls earlier. The
+	 * difference is not cosmetic — the acquire's reason is read off this
+	 * cause, so a stale one would report an API outage for a poll whose API
+	 * was answering fine.
+	 */
+	let lastRetried: unknown
 	while (deadline.remainingMs() > 0) {
+		/** Overrides the poll cadence for one round when the server named one. */
+		let nextDelayMs = readiness.pollIntervalMs
 		try {
 			const binding = await deadline.run(read)
+			lastRetried = undefined
 			if (binding) return binding
 		} catch (err) {
 			if (err instanceof OperationDeadlineExpired) break
-			throw err
+			const retryDelayMs = behaviour.retryDelayFor?.(err)
+			if (retryDelayMs === undefined) throw err
+			lastRetried = err
+			nextDelayMs = retryDelayMs
 		}
 		try {
-			await deadline.delay(readiness.pollIntervalMs)
+			await deadline.delay(nextDelayMs)
 		} catch (err) {
 			if (err instanceof OperationDeadlineExpired) break
 			throw err
 		}
 	}
 	throw new ReadinessPollTimeout(
-		`kubernetes: ${label} never became Ready (${readiness.timeoutMs}ms)`,
+		`kubernetes: ${label} never became Ready (${readiness.timeoutMs}ms)${
+			lastRetried !== undefined
+				? `; the last API failure retried inside that budget was: ${
+						lastRetried instanceof Error ? lastRetried.message : String(lastRetried)
+					}`
+				: ''
+		}`,
+		lastRetried !== undefined ? { cause: lastRetried } : undefined,
 	)
 }
 

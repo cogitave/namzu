@@ -34,6 +34,25 @@ export interface RecordedRequest {
 export interface FakeApiReply {
 	readonly status: number
 	readonly body?: unknown
+	/**
+	 * Extra response headers, on top of the `content-type` every reply sends.
+	 *
+	 * One header is read by production code — `Retry-After` — and a suite that
+	 * could not send it could not prove that a 429 is waited out for the
+	 * length the server asked for rather than a length the client invented.
+	 */
+	readonly headers?: Readonly<Record<string, string>>
+	/**
+	 * Destroy the socket instead of answering, so the client meets a reset
+	 * connection rather than a status.
+	 *
+	 * It is the one API failure with no status at all, and the one that
+	 * separates "the API server said no" from "there was nobody to ask" —
+	 * which is exactly the distinction `KubernetesApiError.transport` exists
+	 * to carry. `status` is ignored when this is set; the request is still
+	 * recorded, because what a retry test counts is attempts.
+	 */
+	readonly reset?: boolean
 }
 
 export interface FakeApiServer {
@@ -62,7 +81,14 @@ export async function startFakeApiServer(
 			requests.push(recorded)
 			void Promise.resolve(handle(recorded)).then(
 				(reply) => {
-					res.writeHead(reply.status, { 'content-type': 'application/json' })
+					if (reply.reset === true) {
+						req.socket.destroy()
+						return
+					}
+					res.writeHead(reply.status, {
+						'content-type': 'application/json',
+						...(reply.headers ?? {}),
+					})
 					res.end(reply.body === undefined ? '' : JSON.stringify(reply.body))
 				},
 				(error: unknown) => {

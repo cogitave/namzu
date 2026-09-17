@@ -40,6 +40,18 @@
  * `CredentialError` naming the attempted verb and resource — never the
  * token, which this module never logs or embeds in any thrown message.
  *
+ * ## What a failure carries, and what it deliberately does not
+ * Everything else — a connect failure, and every non-2xx status the mapping
+ * above does not name — rejects with {@link KubernetesApiError}, which
+ * carries the verb, the path, the status where there was one, and the
+ * `Retry-After` the server sent with a 429 or a 503. That is METADATA and
+ * nothing more: there is no retry loop and no retry policy in this module.
+ * A retry is a decision about the OPERATION — a GET during a readiness poll
+ * may be repeated, a POST that may already have committed may not — and this
+ * client cannot tell those apart. `backends/kubernetes/index.ts` owns the
+ * policy, beside the acquire it serves and inside that acquire's existing
+ * deadline.
+ *
  * ## Deadlines
  * Every request carries its own bound
  * ({@link KubernetesClientOptions.requestTimeoutMs}, default
@@ -160,8 +172,8 @@ export interface KubernetesClient {
 	 * {@link KubernetesConflictError} or {@link KubernetesCredentialError} for
 	 * the status codes each names, and with {@link KubernetesApiTimeoutError}
 	 * when the request outlives
-	 * {@link KubernetesClientOptions.requestTimeoutMs}; any other non-2xx
-	 * status rejects with a plain `Error`.
+	 * {@link KubernetesClientOptions.requestTimeoutMs}; a connect failure and
+	 * any other non-2xx status reject with {@link KubernetesApiError}.
 	 *
 	 * `patchType` picks the dialect a `PATCH` body is sent as, and is ignored
 	 * for every other verb. `json` additionally maps a 422 to
@@ -295,6 +307,96 @@ export class KubernetesApiTimeoutError extends Error {
 }
 
 /**
+ * Which half of a request failed, and therefore what is known about it.
+ *
+ *  - `'connect'` — the request never got an answer: DNS, TCP, TLS or a reset
+ *    socket. Whether the API server saw it at all is unknown.
+ *  - `'status'` — the API server answered, with a status this client's
+ *    mapping does not name. `status` is then always present.
+ */
+export type KubernetesApiFailureTransport = 'connect' | 'status'
+
+/**
+ * Every API failure this client does not already name: a connect failure, and
+ * every non-2xx status outside 401/403/404/409/410 (and the 422 a JSON patch
+ * gets).
+ *
+ * It exists because "a burst past node capacity" and "the API server is down"
+ * used to be the same plain `Error`, separable only by matching the message
+ * text a release is free to reword. The fields are the smallest set that
+ * makes the difference decidable by a caller:
+ *
+ *  - `status` — absent for a connect failure, present for every answered one.
+ *  - `retryAfterMs` — the `Retry-After` header the API server sends with a
+ *    429 (its own priority-and-fairness queue shedding load) and sometimes
+ *    with a 503, normalised to milliseconds from either spelling the header
+ *    allows. Absent when the server sent none, which is not the same as zero.
+ *  - `transport` — see {@link KubernetesApiFailureTransport}.
+ *  - `cause` — the underlying error for a connect failure.
+ *
+ * **There is no retry here.** This class is metadata; `index.ts` decides what
+ * is worth repeating, because only the caller knows whether the operation is
+ * idempotent and only the caller owns a clock to repeat it inside.
+ *
+ * The message keeps the exact wording both throw sites used before, so a host
+ * that logs it sees no change and only a host that inspects the type gains
+ * anything.
+ */
+export class KubernetesApiError extends Error {
+	readonly method: KubernetesHttpMethod
+	readonly path: string
+	readonly status?: number
+	readonly retryAfterMs?: number
+	readonly transport: KubernetesApiFailureTransport
+
+	constructor(
+		message: string,
+		details: {
+			readonly method: KubernetesHttpMethod
+			readonly path: string
+			readonly status?: number
+			readonly retryAfterMs?: number
+			readonly transport: KubernetesApiFailureTransport
+			readonly cause?: unknown
+		},
+	) {
+		super(message, details.cause !== undefined ? { cause: details.cause } : undefined)
+		this.name = 'KubernetesApiError'
+		this.method = details.method
+		this.path = details.path
+		if (details.status !== undefined) this.status = details.status
+		if (details.retryAfterMs !== undefined) this.retryAfterMs = details.retryAfterMs
+		this.transport = details.transport
+	}
+}
+
+/**
+ * `Retry-After`, in milliseconds, or `undefined` when the server sent none or
+ * sent one that cannot be read.
+ *
+ * RFC 9110 allows two spellings and the API server uses the first: a
+ * delta-seconds integer (`Retry-After: 1`), which is what
+ * priority-and-fairness sends with a 429. The HTTP-date spelling is accepted
+ * too, because a proxy in front of the API server may rewrite it. A date in
+ * the past, or a negative delta, reads as `0` — "now" — rather than being
+ * discarded, because the server still said to wait and the answer to "how
+ * long" is "no longer".
+ */
+export function parseRetryAfterMs(header: string | undefined): number | undefined {
+	if (header === undefined) return undefined
+	const raw = header.trim()
+	if (raw === '') return undefined
+	if (/^-?\d+$/.test(raw)) {
+		const seconds = Number(raw)
+		if (!Number.isSafeInteger(seconds)) return undefined
+		return Math.max(0, seconds * 1_000)
+	}
+	const at = Date.parse(raw)
+	if (Number.isNaN(at)) return undefined
+	return Math.max(0, at - Date.now())
+}
+
+/**
  * Validate the configured bound, or supply the default.
  *
  * There is no disabling value, and `0` is refused rather than read as
@@ -400,6 +502,16 @@ function resolveExplicit(access: ExplicitKubernetesAccess): ResolvedAccess {
 interface RawResponse {
 	readonly status: number
 	readonly contentType: string
+	/**
+	 * One response header, by lowercase name, or `undefined`.
+	 *
+	 * Exactly one header is read through it — `Retry-After` — and it is a
+	 * lookup rather than the whole header bag on purpose: the two transports
+	 * below spell a header bag differently (`Headers` versus a
+	 * `string | string[]` record), and a caller that had to cope with both
+	 * would be the third place in this file that knows which transport ran.
+	 */
+	readonly header: (name: string) => string | undefined
 	readonly text: () => Promise<string>
 }
 
@@ -418,6 +530,7 @@ async function fetchRequest(
 	return {
 		status: res.status,
 		contentType: res.headers.get('content-type') ?? '',
+		header: (name) => res.headers.get(name) ?? undefined,
 		text: () => res.text(),
 	}
 }
@@ -460,6 +573,10 @@ function httpsRequest(
 					resolve({
 						status: res.statusCode ?? 0,
 						contentType: Array.isArray(ct) ? (ct[0] ?? '') : (ct ?? ''),
+						header: (name) => {
+							const value = res.headers[name]
+							return Array.isArray(value) ? value[0] : value
+						},
 						text: async () => Buffer.concat(chunks).toString('utf8'),
 					})
 				})
@@ -552,9 +669,12 @@ export function createKubernetesClient(
 				if (timedOut && !callerGaveUp()) {
 					throw new KubernetesApiTimeoutError(method, path, requestTimeoutMs)
 				}
-				throw new Error(
+				// Same sentence it has always thrown, on a class that says which
+				// half failed. Nothing here decides whether to try again: see
+				// {@link KubernetesApiError}.
+				throw new KubernetesApiError(
 					`kubernetes ${method} ${path} failed: ${err instanceof Error ? err.message : String(err)}`,
-					{ cause: err },
+					{ method, path, transport: 'connect', cause: err },
 				)
 			}
 
@@ -583,9 +703,24 @@ export function createKubernetesClient(
 				throw new KubernetesPatchNotAppliedError(method, path, res.status)
 			}
 			if (res.status < 200 || res.status >= 300) {
+				// Read BEFORE the body, because `readBody` can abort out of this
+				// block and the header is the whole reason a caller can wait the
+				// length the server asked for rather than a length it invented.
+				// Only for the two statuses that mean "later, not never": a 400
+				// carrying one would be the server contradicting itself.
+				const retryAfterMs =
+					res.status === 429 || res.status === 503
+						? parseRetryAfterMs(res.header('retry-after'))
+						: undefined
 				const text = await readBody(res)
 				deadline.throwIfAborted()
-				throw new Error(`kubernetes ${method} ${path} -> ${res.status}: ${text}`)
+				throw new KubernetesApiError(`kubernetes ${method} ${path} -> ${res.status}: ${text}`, {
+					method,
+					path,
+					status: res.status,
+					...(retryAfterMs !== undefined ? { retryAfterMs } : {}),
+					transport: 'status',
+				})
 			}
 			if (res.status === 204) return undefined
 			if (res.contentType.includes('application/json')) {

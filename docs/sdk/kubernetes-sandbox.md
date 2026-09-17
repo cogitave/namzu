@@ -452,6 +452,119 @@ every `Pod` in the namespace currently in phase `Pending`, across both the
 warm and pool-less paths — a coarse signal of in-flight scale-up the
 ready-replica count alone does not carry.
 
+### What an acquire refuses with
+
+Every refusal `create()` can diagnose arrives as a **`KubernetesAcquireError`**
+(exported from `@namzu/sandbox`) carrying a `reason`, a `retryable` flag and
+the original failure as its `cause`. A host deciding between "try another
+cluster", "fail the run" and "page somebody" reads the field rather than
+matching a message any release is free to reword.
+
+| `reason` | What happened | `retryable` |
+|---|---|---|
+| `api-unreachable` | The API server could not be reached, or kept answering with a status that means *not now* — a connect failure, a 429, a 5xx | `true` |
+| `api-timeout` | Requests were accepted and never answered, until [`apiRequestTimeoutMs`](#apirequesttimeoutms--a-request-the-api-server-never-answers) gave up on them | `true` |
+| `forbidden` | 401 or 403. This host's ServiceAccount cannot do this — see [RBAC](#rbac) | `false` |
+| `claim-rejected` | The controller **refused** the claim and said why. `controllerReason` and `controllerMessage` carry its own words | `false` |
+| `capacity` | The pod exists and cannot be placed: `PodScheduled=False` with reason `Unschedulable` | `true` |
+| `image-pull` | The pod was placed and its container image will not pull | `false` |
+| `not-ready` | None of the above: the budget expired with the cluster reporting nothing wrong — a slow cold start, a webhook, a CNI that never attached the pod | `true` |
+
+`retryable` describes **this acquire being worth attempting again**, not
+anything having already been retried. It is not a promise: a `capacity`
+refusal is retryable and stays refused until the cluster has room.
+
+```ts
+import { KubernetesAcquireError, createSandboxProvider } from '@namzu/sandbox'
+
+const provider = createSandboxProvider({
+  backend: {
+    tier: 'microvm',
+    service: 'kubernetes',
+    namespace: 'namzu-sandboxes',
+    access: { inCluster: true },
+    sandboxTemplateName: 'namzu-task',
+    warmPoolName: 'namzu-task-pool',
+  },
+})
+
+try {
+  await provider.create({ workingDirectory: '/workspace' })
+} catch (error) {
+  if (error instanceof KubernetesAcquireError && error.reason === 'claim-rejected') {
+    // The controller's own diagnosis, e.g. `WarmPoolNotFound`.
+    console.error(`the cluster refused the claim: ${String(error.controllerReason)}`)
+  } else if (error instanceof KubernetesAcquireError && error.retryable) {
+    console.warn(`transient (${error.reason}); another attempt may succeed`)
+  } else {
+    throw error
+  }
+}
+```
+
+**A refusal this list cannot honestly describe is not filed under the least
+wrong reason.** A malformed template, a 400 from an admission webhook, a
+controller that reported `Ready` and named no sandbox: those travel out as
+themselves. Everything the API client throws is now a class too —
+`KubernetesApiError` (carrying `status`, `retryAfterMs`, and a `transport` of
+`'connect'` or `'status'`), `KubernetesCredentialError`,
+`KubernetesAlreadyGoneError` and `KubernetesConflictError` — and all four are
+exported from the package root, as are `ReadinessPollTimeout` and the three
+egress refusals.
+
+**A refused claim no longer waits out the clock.** The controller publishes its
+decision as `status.conditions[Ready]` with `status: False` and a reason, and
+four of those reasons mean *decided* rather than *not yet*:
+`WarmPoolNotFound`, `TemplateNotFound`, `InvalidMetadata` and
+`EnvVarsInjectionRejected`. Meeting one ends the acquire on the **first** read
+instead of after the full `readyTimeoutMs` (60 s by default). Measured against
+agent-sandbox v1.0.2 on Kubernetes v1.37.0: a claim naming a warm pool that
+does not exist is refused in **233 ms** against a 60 000 ms budget, with the
+claim deleted behind it. Any other reason — `DependenciesNotReady` while a cold
+start runs, or a reason a future controller invents — falls through to the
+deadline exactly as before. The list is a closed set of strings read off a live
+controller, and an unrecognised reason is never guessed at: too few entries
+costs a doomed acquire its budget, which is what every earlier release did, and
+a wrong extra entry would refuse an acquire that was going to succeed.
+
+**A transient API failure is retried, and that makes a doomed `create()`
+slower.** A readiness `GET` that fails with a connect error, an
+`apiRequestTimeoutMs` expiry, a 429 or a 5xx is repeated **inside the readiness
+deadline**, honouring the server's `Retry-After` — which may only slow the poll
+down, never speed it past `readyPollIntervalMs`. One clock: a retry spends the
+budget rather than extending it, so `create()` still cannot outlive the timeout
+its caller chose, but a `create()` against a failing API server that used to
+reject in milliseconds now rejects after the full `readyTimeoutMs`. A host with
+its own outer timeout will notice.
+
+**The create POST is never retried.** It is not idempotent, and a POST whose
+answer never arrived may already have committed — which is why cleanup deletes
+the client-owned name whatever happened. Only the readiness poll repeats
+anything.
+
+**The `capacity` and `image-pull` diagnoses cost the healthy path nothing.**
+They come from **one** pod `GET`, made only after the budget has already run
+out and before the cleanup `DELETE` (the pod goes away with the object). A
+diagnosis that cannot be made simply is not made, and the refusal keeps
+`not-ready`. Nothing on the successful path reads a pod it did not read before.
+
+**What the cluster said outranks what the failures suggest.** A saturated
+cluster produces both at once — a pod nothing can schedule, and an API server
+shedding load — so when a pod condition and a retried API failure both describe
+one refusal, the pod condition decides. It is something the API server
+published about this pod moments earlier; the retried failure is at most what
+the poll was still meeting. The poll also forgets a failure it recovered from,
+so a `create()` that met one 429 early and then ran out of budget on a healthy
+cold start reports `not-ready`, not `api-unreachable`. Only when no diagnosis
+can be made — the pod read fails too, or the pod has nothing to say — does the
+API failure name the reason.
+
+**Fail-fast belongs to the claim path.** The four terminal reasons are
+`SandboxClaim` conditions, so they apply only when `warmPoolName` is set. A
+directly created `Sandbox` that sits at `Ready=False` still waits out
+`readyTimeoutMs` whatever reason it carries. The pod diagnosis is made on both
+paths: a pool-less `Sandbox` is backed by a pod of its own name.
+
 ## The agent credential
 
 The per-instance token the transport presents to the guest agent is the backing

@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 
-import { ReadinessPollTimeout, buildKubernetesBackend } from '../index.js'
+import { KubernetesAcquireError, ReadinessPollTimeout, buildKubernetesBackend } from '../index.js'
 import {
 	type FakeApiServer,
 	readyCondition,
@@ -67,6 +67,12 @@ describe('a claim that never becomes Ready', () => {
 		// behind an expiry that has already happened. So the poll's own
 		// give-up is a TYPE — see `acquireBoundPod` in `workspace.ts`, which
 		// is the caller that would otherwise blame the CNI for a 5xx.
+		//
+		// An ACQUIRE now reports that clock as one of seven named reasons, and
+		// keeps the poll's own give-up underneath it: a host that already
+		// caught `ReadinessPollTimeout` finds it as the `cause`, and the
+		// workspace lifecycle — which does not go through acquire — still
+		// catches the class directly.
 		server = await startFakeApiServer((req) => {
 			if (req.method === 'POST') return { status: 201, body: {} }
 			if (req.method === 'GET' && req.path.includes('/sandboxclaims/')) {
@@ -83,7 +89,13 @@ describe('a claim that never becomes Ready', () => {
 				(err: unknown) => err,
 			)
 
-		expect(error).toBeInstanceOf(ReadinessPollTimeout)
+		expect(error).toBeInstanceOf(KubernetesAcquireError)
+		const acquire = error as KubernetesAcquireError
+		// Nothing was wrong with the cluster: the budget simply ran out.
+		expect(acquire.reason).toBe('not-ready')
+		expect(acquire.retryable).toBe(true)
+		expect(acquire.controllerReason).toBeUndefined()
+		expect(acquire.cause).toBeInstanceOf(ReadinessPollTimeout)
 	})
 
 	it('polls the claim rather than watching it', async () => {
@@ -128,7 +140,12 @@ describe('a claim that never becomes Ready', () => {
 })
 
 describe('a failure mid-poll', () => {
-	it('surfaces the API error and cleans up exactly once', async () => {
+	// A 5xx mid-poll used to end the acquire on its first occurrence. It is
+	// now retried inside the readiness budget — one clock, so the retries
+	// spend it rather than extend it — and what a caller finally sees is the
+	// last API failure, named. `acquire-classification.test.ts` owns the case
+	// where the retry SUCCEEDS; these two own what is left when it never does.
+	it('retries the API error inside the budget, then surfaces it and cleans up exactly once', async () => {
 		let polls = 0
 		server = await startFakeApiServer((req) => {
 			if (req.method === 'POST') return { status: 201, body: {} }
@@ -143,7 +160,21 @@ describe('a failure mid-poll', () => {
 			return { status: 404, body: {} }
 		})
 
-		await expect(backend(5_000).create({ workingDirectory: '/workspace' })).rejects.toThrow(/500/)
+		const error = await backend(300)
+			.create({ workingDirectory: '/workspace' })
+			.then(
+				() => undefined,
+				(err: unknown) => err,
+			)
+
+		expect(error).toBeInstanceOf(KubernetesAcquireError)
+		const acquire = error as KubernetesAcquireError
+		expect(acquire.reason).toBe('api-unreachable')
+		expect(acquire.retryable).toBe(true)
+		expect(acquire.message).toMatch(/500/)
+		// The 500 was met more than once: it was retried, not rethrown on
+		// sight. (One "not yet" plus at least two 500s.)
+		expect(polls).toBeGreaterThan(2)
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(1)
 	})
 
@@ -160,7 +191,7 @@ describe('a failure mid-poll', () => {
 
 		// The readiness failure is what the caller sees; the 404 on cleanup is
 		// success and must not replace it.
-		await expect(backend(5_000).create({ workingDirectory: '/workspace' })).rejects.toThrow(/500/)
+		await expect(backend(300).create({ workingDirectory: '/workspace' })).rejects.toThrow(/500/)
 		expect(server.requests.filter((r) => r.method === 'DELETE')).toHaveLength(1)
 	})
 })

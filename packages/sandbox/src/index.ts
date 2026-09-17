@@ -273,6 +273,15 @@ export {
 // field it is reading is back to inlining the union or reaching for `any`.
 export {
 	DEFAULT_API_REQUEST_TIMEOUT_MS,
+	// Every API failure the four classes below do not name: a connect
+	// failure, and every non-2xx status outside 401/403/404/409/410. It
+	// carries the status and the `Retry-After` the server sent, because a
+	// burst past node capacity (429) and an API server that is down (a
+	// connect failure) were otherwise the same plain `Error`, separable only
+	// by matching a message any release is free to reword. It carries no
+	// retry policy — see `backends/kubernetes/index.ts` for who decides that.
+	KubernetesApiError,
+	type KubernetesApiFailureTransport,
 	KubernetesApiTimeoutError,
 	type KubernetesHttpMethod,
 	// A conditional write the API server would not apply. A host that fences
@@ -284,6 +293,43 @@ export {
 	KubernetesPatchNotAppliedError,
 	MIN_API_REQUEST_TIMEOUT_MS,
 } from './backends/kubernetes/k8s-client.js'
+// The three statuses the client maps to a class of their own, so a caller can
+// treat "already gone" as the state a teardown was asking for, re-read after a
+// 409, and tell a rejected credential from a cluster failure — by class, which
+// is the only way that survives a reworded message. They have been thrown
+// since the backend existed and were reachable only by importing a deep path.
+export {
+	KubernetesAlreadyGoneError,
+	KubernetesConflictError,
+	KubernetesCredentialError,
+} from './backends/kubernetes/k8s-client.js'
+// Why an acquire was refused, as a field rather than as prose: the seven
+// reasons, the class that carries one, and the measured list of controller
+// `Ready=False` reasons that mean "decided" rather than "not yet". A host
+// deciding whether to retry, to fail the run or to page an operator reads
+// `reason` and `retryable`; `cause` is the original failure, so a host that
+// already catches `ReadinessPollTimeout` or `KubernetesApiTimeoutError` finds
+// it there. See `backends/kubernetes/index.ts`.
+export {
+	KubernetesAcquireError,
+	type KubernetesAcquireFailureReason,
+	// The poll's own give-up, by type. It is the `cause` of a `'not-ready'`
+	// acquire refusal and is raised directly by the workspace lifecycle, which
+	// does not go through acquire.
+	ReadinessPollTimeout,
+	TERMINAL_CLAIM_REASONS,
+} from './backends/kubernetes/index.js'
+// The three ways egress verification refuses: a policy this engine cannot
+// express, no applied object at all, and an applied object that does not
+// match what this configuration translates to. Catchable by class for the
+// same reason the ingress refusal above is — an operator debugging two
+// default-on refusals in one release should not have to read messages to
+// tell them apart.
+export {
+	KubernetesEgressPolicyMismatchError,
+	KubernetesEgressPolicyNotAppliedError,
+	KubernetesUnenforceableEgressPolicyError,
+} from './backends/kubernetes/egress-policy.js'
 /** Default `KubernetesBackendConfig.streamHeartbeatMs` — see there. */
 export { DEFAULT_STREAM_HEARTBEAT_MS } from './backends/kubernetes/index.js'
 // Crash recovery and headroom for the task path: label a claim with a

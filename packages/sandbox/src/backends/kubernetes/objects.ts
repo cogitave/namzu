@@ -297,6 +297,32 @@ export interface PodResource {
 		readonly phase?: string
 		readonly podIP?: string
 		readonly podIPs?: readonly { readonly ip?: string }[]
+		/**
+		 * `status.conditions` — read on ONE path only, and never on a healthy
+		 * one: after an acquire has already run out of readiness budget,
+		 * `PodScheduled=False` with reason `Unschedulable` is what separates
+		 * "the cluster has no room" from "the sandbox is just slow". Nothing
+		 * waits on a pod condition: `Ready` here is the kubelet's view of the
+		 * container, and readiness on this backend is the Sandbox's own
+		 * `Ready`, which is what {@link isConditionTrue} is called with
+		 * everywhere else. See `index.ts`'s `diagnoseUnreadyPod`.
+		 */
+		readonly conditions?: readonly KubernetesCondition[]
+		/**
+		 * `status.containerStatuses` — read on the same one path, for the same
+		 * one question. A container stuck in `waiting` with an image-pull
+		 * reason is a permanent failure wearing the clothes of a slow start,
+		 * and it is the only one of those this backend can name from the API.
+		 */
+		readonly containerStatuses?: readonly PodContainerStatus[]
+	}
+}
+
+/** The single `status.containerStatuses` field the diagnosis above reads. */
+export interface PodContainerStatus {
+	readonly name?: string
+	readonly state?: {
+		readonly waiting?: { readonly reason?: string; readonly message?: string }
 	}
 }
 

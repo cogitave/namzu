@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
 	DEFAULT_API_REQUEST_TIMEOUT_MS,
 	KubernetesAlreadyGoneError,
+	KubernetesApiError,
 	KubernetesApiTimeoutError,
 	KubernetesConflictError,
 	KubernetesCredentialError,
@@ -594,5 +595,128 @@ describe('createKubernetesClient — the per-request bound', () => {
 		await expect(client.request('GET', '/apis/x/v1/namespaces/ns/sandboxes')).resolves.toEqual({
 			ok: true,
 		})
+	})
+})
+
+describe('what a failure carries', () => {
+	// The client does not decide whether anything is worth repeating — that
+	// lives in `backends/kubernetes/index.ts`, beside the acquire that owns a
+	// clock to repeat inside. What it owes that decision is the METADATA, and
+	// these are the four facts the decision is made from.
+	const TOKEN = 'sa-token'
+
+	function client(server = 'http://127.0.0.1:1') {
+		return createKubernetesClient({ server, namespace: 'ns', getToken: async () => TOKEN })
+	}
+
+	async function failure(pending: Promise<unknown>): Promise<KubernetesApiError> {
+		const err = await pending.then(
+			() => undefined,
+			(e: unknown) => e,
+		)
+		expect(err).toBeInstanceOf(KubernetesApiError)
+		return err as KubernetesApiError
+	}
+
+	it('names the verb, the path and the status of an answered failure', async () => {
+		globalThis.fetch = vi.fn(async () =>
+			jsonResponse(500, { message: 'etcdserver: request timed out' }),
+		) as unknown as typeof fetch
+
+		const err = await failure(client().request('GET', '/apis/x/v1/namespaces/ns/sandboxes'))
+
+		expect(err.transport).toBe('status')
+		expect(err.status).toBe(500)
+		expect(err.method).toBe('GET')
+		expect(err.path).toBe('/apis/x/v1/namespaces/ns/sandboxes')
+		expect(err.retryAfterMs).toBeUndefined()
+		// The wording every release before this one used, unchanged: a host
+		// that only logs the message sees nothing new.
+		expect(err.message).toContain('-> 500')
+		expect(err.message).toContain('etcdserver')
+	})
+
+	it('reads Retry-After off a 429, in either spelling the header allows', async () => {
+		globalThis.fetch = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ message: 'too many requests' }), {
+					status: 429,
+					headers: { 'content-type': 'application/json', 'retry-after': '2' },
+				}),
+		) as unknown as typeof fetch
+
+		const err = await failure(client().request('GET', '/apis/x/v1/namespaces/ns/sandboxes'))
+		expect(err.status).toBe(429)
+		expect(err.retryAfterMs).toBe(2_000)
+
+		globalThis.fetch = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ message: 'unavailable' }), {
+					status: 503,
+					headers: {
+						'content-type': 'application/json',
+						// The HTTP-date spelling, which a proxy in front of the
+						// API server may rewrite the delta into.
+						'retry-after': new Date(Date.now() + 5_000).toUTCString(),
+					},
+				}),
+		) as unknown as typeof fetch
+
+		const dated = await failure(client().request('GET', '/apis/x/v1/namespaces/ns/sandboxes'))
+		expect(dated.status).toBe(503)
+		expect(dated.retryAfterMs ?? 0).toBeGreaterThan(3_000)
+		expect(dated.retryAfterMs ?? 0).toBeLessThanOrEqual(5_000)
+	})
+
+	it('does not read Retry-After off a status that means never', async () => {
+		// A 400 carrying one would be the server contradicting itself, and a
+		// caller that retried it would loop until its budget ran out.
+		globalThis.fetch = vi.fn(
+			async () =>
+				new Response(JSON.stringify({ message: 'bad request' }), {
+					status: 400,
+					headers: { 'content-type': 'application/json', 'retry-after': '2' },
+				}),
+		) as unknown as typeof fetch
+
+		const err = await failure(client().request('POST', '/apis/x/v1/namespaces/ns/sandboxes', {}))
+		expect(err.status).toBe(400)
+		expect(err.retryAfterMs).toBeUndefined()
+	})
+
+	it('marks a connect failure as the one with no status at all', async () => {
+		// Nothing is listening on port 1. Whether the API server ever saw the
+		// request is unknown, which is exactly what `transport: 'connect'`
+		// says and what a status could never say.
+		const err = await failure(client().request('GET', '/apis/x/v1/namespaces/ns/sandboxes'))
+
+		expect(err.transport).toBe('connect')
+		expect(err.status).toBeUndefined()
+		expect(err.message).toContain('failed:')
+		expect(err.cause).toBeDefined()
+	})
+
+	it('leaves the four mapped statuses on their own classes', async () => {
+		// The mapping above this one is untouched: a 404 is still "already
+		// gone", a 409 still a conflict, a 401/403 still a credential failure.
+		for (const [status, cls] of [
+			[404, KubernetesAlreadyGoneError],
+			[410, KubernetesAlreadyGoneError],
+			[409, KubernetesConflictError],
+			[401, KubernetesCredentialError],
+			[403, KubernetesCredentialError],
+		] as const) {
+			globalThis.fetch = vi.fn(async () =>
+				jsonResponse(status, { message: 'x' }),
+			) as unknown as typeof fetch
+			const err = await client()
+				.request('GET', '/apis/x/v1/namespaces/ns/sandboxes')
+				.then(
+					() => undefined,
+					(e: unknown) => e,
+				)
+			expect(err).toBeInstanceOf(cls)
+			expect(err).not.toBeInstanceOf(KubernetesApiError)
+		}
 	})
 })
