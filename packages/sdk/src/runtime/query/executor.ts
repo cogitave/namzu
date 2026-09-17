@@ -642,10 +642,28 @@ export class ToolExecutor {
 	 *
 	 * `denials` marks ids that must NOT run: each is answered with a
 	 * synthetic error result carrying the caller's reason instead of being
-	 * executed. This is what makes the invariant hold by construction —
-	 * a gate denial, a human rejection and a partial approval all leave
-	 * the history valid, because there is exactly one place that turns a
-	 * batch of tool calls into messages and it always covers all of them.
+	 * executed. A gate denial, a human rejection and a partial approval all
+	 * leave the history valid, because there is exactly one place that turns
+	 * a batch of tool calls into messages and it covers all of them.
+	 *
+	 * **That is a property of every path that RETURNS, not of the batch as
+	 * a whole.** A per-call throw rejects the batch before the fill-the-holes
+	 * loop below can run: `serial = serial.then(run)` means one rejection
+	 * skips every LATER serial call, and `Promise.all([...parallel, serial])`
+	 * then rejects — so this method produces no messages at all and the
+	 * assistant turn keeps its `tool_use` blocks unanswered. A resume is what
+	 * repairs that turn; see the `unfinished` step `iteration/index.ts`
+	 * records for it.
+	 *
+	 * Reachable, not hypothetical, and demonstrated end to end by
+	 * `a-throwing-batch-answers-nothing.test.ts`: `executeSingle` rethrows a
+	 * retry's budget-admission error, and a `runPreToolHook` failure on a
+	 * call whose preparation did not already run the hook.
+	 *
+	 * So do not read the guarantee below as covering a throw. The invariant
+	 * holds for denials, for approvals, for a rejected batch and for a
+	 * generation that partially failed while still returning: each of those
+	 * leaves a hole that the fill-the-holes loop closes.
 	 *
 	 * Answering with `is_error` semantics rather than dropping the call is
 	 * the universal contract across providers: an unanswered `tool_use`
