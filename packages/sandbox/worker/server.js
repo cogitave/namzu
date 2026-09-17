@@ -37,24 +37,36 @@
  *                         body: { path, content, encoding? }
  *                         response: { ok, bytesWritten }
  *
- * Authn: none, and nothing here checks a caller. What keeps that safe
- * is the network the container is attached to, NOT the bind address —
- * this listens on every interface by default and has to, for the
- * reasons recorded at the `BIND` constant below. So the boundary is the
- * network namespace, and wherever that boundary is absent this endpoint
- * is reachable by whoever can route to it.
+ * Authn: `Authorization: Bearer <token>` on every route but `/healthz`,
+ * where the token is `NAMZU_SANDBOX_TOKEN` — minted per instance by
+ * whoever starts this worker, read here at startup, never baked into an
+ * image, never written to disk, and dead with the container. Absent or
+ * wrong is a `401` with the reason and nothing else; the request never
+ * reaches a handler. The variable carries `WORKER_CONFIG_PREFIX`, which is
+ * what keeps it out of every command the sandbox runs — see
+ * {@link childEnvironment}.
  *
- * This paragraph used to say the worker "only listens on loopback".
- * It does not, ten lines from a comment that says so correctly, and a
- * reader who found the true half stopped looking. The claim also
- * promised authentication from the egress proxy, which has none of any
- * kind — that proxy stamps credentials outbound and checks nothing
- * inbound.
+ * A worker with no token is only allowed to LISTEN if it is bound to
+ * loopback; on anything routable it refuses to start. It listens on every
+ * interface by default and has to, for the reasons recorded at the `BIND`
+ * constant — which is exactly why the credential rather than the bind
+ * address is what makes the default defensible.
+ *
+ * This paragraph used to say the worker "only listens on loopback" and,
+ * later, that authn was "none" and the network the container sits on was
+ * the only boundary. The first was false ten lines from a comment that
+ * said so correctly, which is how a reader who found the true half stopped
+ * looking. The second was true and no longer is. What is still true and
+ * worth saying: the transport is plain HTTP, so this is a bearer token —
+ * replayable by anything on the path — and network placement remains the
+ * boundary it defends BEHIND, not something it replaces. The egress proxy
+ * still checks nothing inbound of any kind; it stamps credentials on the
+ * way out and has no opinion about what comes back.
  */
 
 const http = require('node:http')
 const { spawn } = require('node:child_process')
-const { randomUUID } = require('node:crypto')
+const { createHash, randomUUID, timingSafeEqual } = require('node:crypto')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
@@ -71,6 +83,190 @@ const REMOTE_EXECUTION_PROTOCOL_VERSION = 2
 const WORKER_CONFIG_PREFIX = 'NAMZU_SANDBOX_'
 
 const PORT = Number(process.env.NAMZU_SANDBOX_PORT || 2024)
+// Bind address picks `0.0.0.0` by default so a sibling container
+// (the Vandal app talking to a sandbox spawned via docker.sock on
+// the same host) can reach the worker over a docker bridge network.
+// Overridable via `NAMZU_SANDBOX_BIND` for the dev case where the
+// SDK consumer runs on the docker host itself and prefers loopback.
+//
+// Narrowing this default is not the fix and was measured as a
+// regression: a published container port translates to the container's
+// bridge address, so a worker bound to the container's own loopback is
+// unreachable through it. The container backend's reachability modes
+// both need a non-loopback bind. What makes an every-interface listener
+// defensible is the credential every route but `/healthz` requires and
+// the refusal below when there is none — not the network placement alone,
+// which is a property of the deployment rather than of this file.
+const BIND = process.env.NAMZU_SANDBOX_BIND || '0.0.0.0'
+
+/**
+ * The per-instance credential, and the one escape from requiring it.
+ *
+ * `NAMZU_SANDBOX_TOKEN` is minted by whoever starts this worker — the
+ * container backend at `docker run` time — and handed over in the
+ * environment, which is the only channel this process can READ from. That
+ * it is minted per instance rather than baked into the image is the whole
+ * point: an image-level secret is shared by every container ever built
+ * from it, readable by anything that can pull the image, and rotated by
+ * rebuilding and redeploying every deployment.
+ *
+ * A worker the host did NOT start — a warm pool claimed by address — has
+ * no such channel and must be provisioned with the token by whoever builds
+ * the profile or image it comes from. That is a real gap, not a hand-wave:
+ * see `docs/sdk/container-sandbox-worker.md`.
+ *
+ * Presence and contents are read separately on purpose. `= ""` is
+ * REFUSED at startup in every mode, because that is the shape an injected
+ * secret takes when it resolved to nothing — honouring it would open
+ * exactly the hole the variable exists to close. (The microVM guest agent
+ * refuses the same value for the same reason at its own startup.) So is
+ * any value that differs from its own trim, for a subtler version of the
+ * same reason: the presentation path reads the token out of a trimmed
+ * header, so a padded value can never be presented and would leave the
+ * worker booted, authenticated and refusing every caller — including its
+ * host — for the life of the container.
+ */
+const TOKEN_WAS_SET = Object.prototype.hasOwnProperty.call(process.env, 'NAMZU_SANDBOX_TOKEN')
+const TOKEN = process.env.NAMZU_SANDBOX_TOKEN
+const AUTH_ENABLED = TOKEN_WAS_SET && TOKEN !== '' && TOKEN === TOKEN.trim()
+/**
+ * The third way a token can be set and useless: one nobody can present.
+ *
+ * The credential travels as an HTTP header value, and a header value
+ * carries ONE BYTE per character. Two mechanisms enforce that and both are
+ * outside this process. The client's `fetch` throws `Cannot convert
+ * argument to a ByteString` for any code point above U+00FF before the
+ * request leaves the host, and the HTTP parser this server runs drops the
+ * connection on the C0 controls it will not accept — everything below
+ * U+0020 except HTAB, plus DEL. Either way the worker boots authenticated
+ * and refuses every caller including its host, for the life of the
+ * container: the same failure the padded value above is refused for, from
+ * the other end of the same header.
+ *
+ * The set below is therefore exactly what survives the round trip, mapped
+ * rather than guessed: HTAB, printable ASCII, and U+0080–U+00FF, which
+ * both sides carry as latin-1. Anything else is refused at startup, where
+ * the reason can still be read.
+ */
+const TOKEN_IS_PRESENTABLE = /^[\t\u0020-\u007e\u0080-\u00ff]*$/.test(TOKEN ?? '')
+/**
+ * The explicit escape from the refusal below, and what it gives up.
+ *
+ * Set `NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED=1` and a worker with no token
+ * will listen on a routable address, which is the pre-token behaviour and
+ * is unauthenticated `execute` for whoever can route to it. It exists so
+ * that an existing deployment keeps working while it is provisioned with a
+ * credential, and it is named rather than implied so that accepting the
+ * exposure is a decision someone made on purpose.
+ *
+ * A configured token WINS over this flag: the escape can only mean "serve
+ * without a credential", never "ignore the one I was given".
+ *
+ * Presence of the variable is not enough — `= 0` and `= false` are read as
+ * "not set", because a flag whose off-spelling turns it on is a trap. It is
+ * matched UNTRIMMED for the same reason: `= " yes "` is someone's editor
+ * adding a space to a value they meant to write, and a security escape that
+ * accepts an unrecognised spelling is exactly the trap the sentence above
+ * is about. An unrecognised value therefore fails CLOSED — the worker
+ * refuses to start — and the refusal names this variable and the accepted
+ * spellings.
+ */
+const ALLOW_UNAUTHENTICATED = ['1', 'true', 'yes', 'on'].includes(
+	(process.env.NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED || '').toLowerCase(),
+)
+
+/**
+ * A bind address only this container's own loopback can reach.
+ *
+ * Deliberately a narrow allowlist rather than "anything that resolves
+ * locally": `0.0.0.0` and `::` reach every interface and are what this
+ * worker binds by default, which is the case the refusal exists for. An
+ * address this predicate does not recognise is treated as routable, so a
+ * spelling nobody thought of fails closed.
+ */
+function isLoopbackBind(bind) {
+	const host = String(bind)
+		.trim()
+		.replace(/^\[|\]$/g, '')
+		.toLowerCase()
+	return host === 'localhost' || host === '::1' || host.startsWith('127.')
+}
+
+function refuseToStart(reason) {
+	console.error(`[namzu-sandbox-worker] refusing to start: ${reason}`)
+	process.exit(1)
+}
+
+/**
+ * The startup decision, taken before a socket exists.
+ *
+ * Two asymmetries, both deliberate:
+ *
+ *  - No token on LOOPBACK may start. Nothing outside this container's
+ *    network namespace can open that socket — inside the container the
+ *    only listener is this one, and the host reaches it through Docker's
+ *    port-forward, which is a different address. The exposure this issue
+ *    is about is a routable listener, and a loopback bind is not one, so
+ *    refusing here would break the dev case (a host running the SDK
+ *    beside the docker host) without closing anything.
+ *  - No token on anything ROUTABLE refuses. That is the default bind, so
+ *    this is where the honest default costs something: a deployment that
+ *    has not been given a credential stops working rather than continuing
+ *    to run unauthenticated. The escape above is how it keeps working on
+ *    purpose.
+ */
+function assertListenableConfiguration() {
+	// A token that was SET but cannot be used is refused before the bind
+	// address is considered: `""` is the empty injection, a padded value is
+	// one the trimmed header can never match, and a value outside what a
+	// header can carry is one no client can send at all.
+	if (TOKEN_WAS_SET && !AUTH_ENABLED) {
+		refuseToStart(
+			'NAMZU_SANDBOX_TOKEN is set but is empty after trimming, or carries leading or trailing whitespace. An empty value is the shape a per-instance secret takes when the injection that was supposed to supply it resolved to nothing, and honouring it would open exactly the hole the variable exists to close. A PADDED value is refused for the other half of the same reason: the token is read out of a trimmed `Authorization` header, so a value with whitespace around it can never be presented, and this worker would boot authenticated and refuse every caller including its host until the container is gone. Set it to a per-instance value with no surrounding whitespace, or leave it unset entirely and let the bind-address rule below decide.',
+		)
+	}
+	if (TOKEN_WAS_SET && !TOKEN_IS_PRESENTABLE) {
+		refuseToStart(
+			'NAMZU_SANDBOX_TOKEN carries a character that cannot be presented in an HTTP header value. A header carries one byte per character, so a code point above U+00FF is refused by the client before the request leaves it (`fetch` rejects it as a ByteString conversion), and a C0 control other than HTAB, or DEL, is refused by the HTTP parser on this side — the connection is dropped before the router sees it. Either way the token would be unanswerable: this worker would boot authenticated and refuse every caller including its host until the container is gone, which is the failure the padded-value refusal above exists to prevent and this is the same failure one rung further out. Mint the token from random bytes encoded as base64url (or any ASCII), which is what the container backend does.',
+		)
+	}
+	if (AUTH_ENABLED) return
+	if (isLoopbackBind(BIND)) return
+	if (ALLOW_UNAUTHENTICATED) return
+	refuseToStart(
+		`no NAMZU_SANDBOX_TOKEN is configured and NAMZU_SANDBOX_BIND=${BIND} would accept connections from anything that can route to this container, where every route but /healthz runs a command, reads a file, or writes a file on the caller's behalf with no credential of any kind. Set NAMZU_SANDBOX_TOKEN to a per-instance secret (the starter of this container mints one; a worker from a warm pool must be provisioned with one) and present it as \`Authorization: Bearer <token>\`; or bind 127.0.0.1 if only this container can be the caller; or set NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED=1 (exactly that spelling: 1, true, yes or on, in any case, with no surrounding whitespace) to serve unauthenticated on a routable address, which gives up the credential entirely rather than deferring it.`,
+	)
+}
+
+/**
+ * The digest compared against, precomputed once.
+ *
+ * Comparing fixed-width digests rather than the strings means the
+ * comparison is constant-time whatever the presented length and that
+ * `timingSafeEqual` cannot throw on a length mismatch — so neither the
+ * token's value nor its length is learnable by probing.
+ */
+function digest(value) {
+	return createHash('sha256').update(value).digest()
+}
+
+const TOKEN_DIGEST = AUTH_ENABLED ? digest(TOKEN) : undefined
+
+/** The bearer token a request presents, or `undefined` if it presents none. */
+function presentedToken(req) {
+	const header = req.headers.authorization
+	if (typeof header !== 'string') return undefined
+	const match = /^Bearer[ ]+(.+)$/i.exec(header.trim())
+	return match ? match[1] : undefined
+}
+
+function isAuthorized(req) {
+	if (!AUTH_ENABLED) return true
+	const presented = presentedToken(req)
+	if (presented === undefined) return false
+	return timingSafeEqual(TOKEN_DIGEST, digest(presented))
+}
+
 const WORKSPACE_ROOT = process.env.NAMZU_SANDBOX_WORKSPACE || '/workspace'
 const READ_ROOTS = normalizeRoots(
 	[WORKSPACE_ROOT, ...(process.env.NAMZU_SANDBOX_READ_ROOTS || '').split(path.delimiter)].filter(
@@ -181,6 +377,25 @@ function readBody(req) {
 function writeJson(res, status, payload) {
 	res.writeHead(status, { 'content-type': 'application/json; charset=utf-8' })
 	res.end(JSON.stringify(payload))
+}
+
+/**
+ * The one answer an unauthenticated caller gets.
+ *
+ * The body is the reason and nothing else — no "expected"/"got", no prefix
+ * of either value, no length, no hint about which routes exist. The
+ * `www-authenticate` header is the standard challenge and carries only the
+ * scheme and a realm name.
+ *
+ * The request body is deliberately NOT read here. Nothing downstream can
+ * act on it, and reading it would mean an unauthenticated peer could make
+ * this process parse bytes and hold a lease. Node discards the remainder
+ * of the request itself once the response is finished, and its own
+ * `requestTimeout` bounds how long that may take.
+ */
+function writeUnauthorized(res) {
+	res.setHeader('www-authenticate', 'Bearer realm="namzu-sandbox-worker"')
+	writeJson(res, 401, { error: 'unauthorized' })
 }
 
 function writeEvent(res, event) {
@@ -955,6 +1170,41 @@ function resetIdleTimer() {
 
 const server = http.createServer(async (req, res) => {
 	try {
+		// The gate is the FIRST thing in the router, ahead of the poison
+		// check and ahead of every dispatch, so an unauthenticated caller
+		// cannot tell an existing route from a missing one, or a bad token
+		// from a missing one: both are the same `401` with the same body.
+		//
+		// `/healthz` is the exception and the whole of it: it is what a
+		// host probes BEFORE it has any other business with the worker —
+		// the readiness poll runs many times per create — so a worker that
+		// required a token for it would need the token plumbed into the
+		// readiness path and would still answer a liveness question with a
+		// credential error. It reveals liveness and the protocol version
+		// and nothing else; the body is unchanged by any of this.
+		//
+		// Two consequences of that exemption, named rather than discovered.
+		//
+		// The poison check below answers BEFORE the `/healthz` dispatch, so
+		// an unauthenticated caller CAN tell a retiring worker from a
+		// serving one on that one route: `503 {"error":"worker_retiring"}`
+		// where a healthy worker answers `200`. This used to be written
+		// down as impossible. It is the drain signal, and it is the host's
+		// readiness probe that has to read it — a probe with no credential
+		// to present. What it discloses is that the worker is going away,
+		// and nothing about what it holds, what it has run, or which routes
+		// exist. Every route that does anything is behind the token, and
+		// there a retiring worker and a serving one are the same `401` to
+		// anyone without one.
+		//
+		// The exemption compares the WHOLE of `req.url`, so `POST /healthz`,
+		// `GET /healthz?x=1` and `GET /healthz/` are not it: they are gated,
+		// and with a token they are `404`s like any other route that does
+		// not exist.
+		if (!(req.method === 'GET' && req.url === '/healthz') && !isAuthorized(req)) {
+			writeUnauthorized(res)
+			return
+		}
 		if (workerPoisoned) {
 			writeJson(res, 503, { error: 'worker_retiring' })
 			return
@@ -1026,21 +1276,27 @@ process.on('uncaughtException', (err) => {
 	console.error('[namzu-sandbox-worker] uncaughtException:', err?.stack ? err.stack : err)
 })
 
-// Bind address picks `0.0.0.0` by default so a sibling container
-// (the Vandal app talking to a sandbox spawned via docker.sock on
-// the same host) can reach the worker over a docker bridge network.
-// Overridable via `NAMZU_SANDBOX_BIND` for the dev case where the
-// SDK consumer runs on the docker host itself and prefers loopback.
-//
-// Trust note: the container is the trust boundary. Listening on
-// `0.0.0.0` only matters at the network layer — the docker network
-// the worker is attached to is per-deployment policy (a bridge with
-// no internet egress, or a `network=none` mode where only docker
-// exec talks to the container at all).
-const BIND = process.env.NAMZU_SANDBOX_BIND || '0.0.0.0'
+// The startup decision comes before `listen`, so a worker that cannot
+// authenticate on a routable address refuses while refusal is still free:
+// nothing has answered yet, and the host sees an exited container rather
+// than an open one it must notice for itself.
+assertListenableConfiguration()
+// A failed `listen` must not look like a clean shutdown. Without this
+// handler the `error` event is unhandled, the process-level handler below
+// logs it and does not exit, and the worker then has nothing keeping its
+// event loop alive — so it exits 0, having served nothing, and a host (or a
+// test) reading an exit code calls that an intentional shutdown. That is
+// the one thing an operator cannot act on: the container is gone, the
+// reason is in a log they may not be reading, and the code says success.
+server.on('error', (error) => {
+	console.error(
+		`[namzu-sandbox-worker] could not listen on ${BIND}:${PORT}: ${error?.message ?? error}`,
+	)
+	process.exit(1)
+})
 server.listen(PORT, BIND, () => {
 	console.log(
-		`[namzu-sandbox-worker] listening on ${BIND}:${PORT} workspace=${WORKSPACE_ROOT} idleTimeoutMs=${IDLE_TIMEOUT_MS}`,
+		`[namzu-sandbox-worker] listening on ${BIND}:${PORT} workspace=${WORKSPACE_ROOT} idleTimeoutMs=${IDLE_TIMEOUT_MS} auth=${AUTH_ENABLED ? 'bearer' : 'none'}`,
 	)
 	// Arm the idle timer at boot. If the host never sends a single
 	// `/execute` (e.g. supervisor hangs before its first tool call),

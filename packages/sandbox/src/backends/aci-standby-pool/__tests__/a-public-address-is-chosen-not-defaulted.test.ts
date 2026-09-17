@@ -3,10 +3,21 @@ import { describe, expect, it } from 'vitest'
 import { assertNotPubliclyAddressed } from '../index.js'
 
 /**
- * With no subnet the platform assigns a public address, and the worker
- * answering on it has no authentication of any kind — its own docblock
- * says "Authn: none". Inside a private network that is the boundary doing
- * the work; on a public address there is no boundary left.
+ * With no subnet the platform assigns a public address, and the group is then
+ * reachable by anything that can route to it. Inside a private network the
+ * network was the boundary doing the work; on a public address there is no
+ * boundary left.
+ *
+ * The worker now requires a per-instance bearer token and refuses a routable
+ * bind without one, and THIS backend still has no credential to give it. The
+ * one override the claim API admits — a config map — is a file mount rather
+ * than an environment variable, and this worker reads its token from
+ * `process.env` at startup, so a per-claim value would land somewhere nothing
+ * reads; Microsoft's own guidance is that config map values are not validated
+ * by the runtime and are not where a value affecting application security
+ * belongs. The refusal below is about which way the address default falls and
+ * is unchanged — it now stands in front of a worker that would refuse the
+ * public case itself. See `docs/sdk/container-sandbox-worker.md`.
  *
  * The defect was not that a public address is possible. It is that it was
  * reachable by *omission* — a caller who had never heard of `subnetId` got
@@ -29,9 +40,12 @@ describe('claiming a container group with no subnet', () => {
 
 	it('says what is on the address, not just that it is public', () => {
 		// "Public address" alone reads as a networking preference. The reason
-		// it is refused is that the thing answering there is unauthenticated,
-		// and that is the sentence that changes an operator's mind.
-		expect(() => assertNotPubliclyAddressed({})).toThrow(/no authentication/i)
+		// it is refused is what is exposed by it, and that is the sentence that
+		// changes an operator's mind. It used to say the worker "has no
+		// authentication of any kind", which stopped being true when the token
+		// landed: the exposure now is a control API reachable from the
+		// internet behind nothing better than plain HTTP.
+		expect(() => assertNotPubliclyAddressed({})).toThrow(/plain HTTP/i)
 	})
 })
 

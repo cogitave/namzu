@@ -24,9 +24,17 @@
 # Trust model:
 #   - Container is the trust boundary; host treats process inside
 #     as untrusted code. The worker listens on every interface and
-#     authenticates nobody, so that boundary is the network the
-#     container is attached to — not the bind address. This line used
-#     to claim "127.0.0.1 only", which was never true of the default.
+#     requires `Authorization: Bearer <NAMZU_SANDBOX_TOKEN>` on every
+#     route but `/healthz`; the backend that starts the container mints
+#     that token per instance and passes it in the environment. Nothing
+#     about the image holds a credential, so an image-level secret is
+#     not a thing this build can leak. What the credential defends
+#     BEHIND is still the network the container is attached to, not the
+#     bind address: this line used to claim "127.0.0.1 only", which was
+#     never true of the default, and then that the worker
+#     "authenticates nobody", which stopped being true when the token
+#     landed. A worker started with no token refuses to listen on
+#     anything routable rather than serving unauthenticated.
 #   - Outbound goes through the egress proxy where one is configured.
 #     It allows by resolved address and brokers credentials outbound;
 #     it does not authenticate anything inbound.
@@ -194,6 +202,13 @@ COPY --chown=namzu:namzu worker/server.js /opt/namzu-sandbox/server.js
 
 USER namzu
 
+# Deliberately NO `NAMZU_SANDBOX_TOKEN` here. A token in the image is one
+# credential shared by every container ever built from it, readable by
+# anything that can pull the image, and rotated by rebuilding every
+# deployment — which is why the backend mints one per `create()` and passes
+# it to `docker run` instead. A blank one is worse than none: the worker
+# refuses to start on `NAMZU_SANDBOX_TOKEN=""` in every mode, because that
+# is the shape an injection takes when it resolved to nothing.
 ENV NAMZU_SANDBOX_WORKSPACE=/workspace \
     NAMZU_SANDBOX_PORT=2024
 

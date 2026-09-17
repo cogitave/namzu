@@ -53,10 +53,10 @@ import type {
 	SandboxStatus,
 	SandboxWalkFilesOptions,
 } from '@namzu/sdk'
-import { generateSandboxId, walkFilesViaExec } from '@namzu/sdk'
+import { generateSandboxId, walkFilesViaExec, withHint } from '@namzu/sdk'
 
 import type { SandboxBackend, SandboxBackendOptions } from '../../index.js'
-import { HttpWorkerClient } from '../http-worker-client.js'
+import { HttpWorkerClient, STANDBY_POOL_UNAUTHORIZED_HINT } from '../http-worker-client.js'
 import {
 	OperationDeadline,
 	OperationDeadlineExpired,
@@ -398,10 +398,28 @@ export function assertEnforceable(options: SandboxBackendOptions): void {
  * so nothing looks wrong. A caller who never heard of `subnetId` gets a
  * working sandbox on the internet and no signal at all.
  *
- * What is on that address matters: `worker/server.js` states "Authn: none"
- * in its own docblock and binds every interface. Inside a private network
- * that is the boundary doing the work. With a public address there is no
- * boundary left, and the worker's `/execute` is reachable by anyone.
+ * What is on that address matters: `worker/server.js` binds every interface
+ * and, inside a private network, that was the boundary doing the work — the
+ * worker authenticated nobody. With a public address there is no boundary
+ * left, and the worker's `/execute` is reachable by anyone.
+ *
+ * The worker now requires a per-instance `Authorization: Bearer` token on
+ * every route but `/healthz`, and REFUSES TO START on a routable bind when
+ * it has none. This backend cannot supply one, and the reason this comment
+ * used to give for that was wrong: it said the claim API's single admitted
+ * override — a config map — is no channel into the container group. It is
+ * one, on Linux a file mount under `/mnt/configmap/<containername>/<key>`
+ * carrying caller-supplied per-claim values. The credential is declined
+ * anyway, for two reasons that survive their source: the worker reads its
+ * token from `process.env` at startup and never looks for a file, so a
+ * mounted value is not read; and Microsoft's own guidance is that config
+ * map values are not validated by the runtime and that values affecting
+ * application security "should be made available to the container using
+ * environment variables". The full answer, and the change that would close
+ * the gap, is in `docs/sdk/container-sandbox-worker.md`. What that means
+ * for an operator is written down there too, rather than left to be
+ * discovered at startup; this refusal is unchanged, and now stands in
+ * front of a worker that would refuse the routable case itself.
  *
  * Defaulting to refusal rather than to a warning, because a warning on a
  * path that otherwise succeeds is read once and never again.
@@ -414,7 +432,7 @@ export function assertNotPubliclyAddressed(config: {
 	if (config.allowPublicAddress) return
 
 	throw new Error(
-		'The standby-pool sandbox backend will not claim a container group without `subnetId`: with no subnet the platform assigns a public address, and the worker on it has no authentication of any kind, so its execute endpoint would be reachable from the internet. Supply `subnetId` to inject the group into a private network, or set `allowPublicAddress: true` if this is a benchmark and you mean it.',
+		'The standby-pool sandbox backend will not claim a container group without `subnetId`: with no subnet the platform assigns a public address, so the group is reachable by anything that can route to it, and this backend has no credential to put in front of that. A worker with no token refuses to start on a routable bind at all, and a worker that has one is only as strong as its transport — plain HTTP, where a bearer token is replayable by anything on the path. Supply `subnetId` to inject the group into a private network, or set `allowPublicAddress: true` if this is a benchmark and you mean it.',
 	)
 }
 
@@ -631,6 +649,12 @@ async function spawnAciSandbox(
 						encoding: 'base64',
 					}),
 				})
+				if (res.status === 401) {
+					throw withHint(
+						new Error(`write-file failed: HTTP 401 ${await res.text()}`),
+						STANDBY_POOL_UNAUTHORIZED_HINT,
+					)
+				}
 				if (!res.ok) {
 					throw new Error(`write-file failed: HTTP ${res.status} ${await res.text()}`)
 				}
@@ -657,6 +681,12 @@ async function spawnAciSandbox(
 					body: JSON.stringify({ path, encoding: 'base64' }),
 					signal: options?.signal,
 				})
+				if (res.status === 401) {
+					throw withHint(
+						new Error(`read-file failed: HTTP 401 ${await res.text()}`),
+						STANDBY_POOL_UNAUTHORIZED_HINT,
+					)
+				}
 				if (!res.ok) {
 					throw new Error(`read-file failed: HTTP ${res.status} ${await res.text()}`)
 				}

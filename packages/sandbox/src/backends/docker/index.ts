@@ -14,14 +14,28 @@
  * Trust model:
  *  - Container is the trust boundary; everything inside is treated
  *    as untrusted code.
- *  - Worker only listens on loopback inside its own netns; the
- *    host adapter reaches it via Docker's port-forward.
+ *  - Every call to the worker's control API carries the per-instance
+ *    `NAMZU_SANDBOX_TOKEN` this backend mints at create time and
+ *    injects into the container's environment; a worker the host did
+ *    not create must be provisioned with its own. The worker requires
+ *    it on every route but `/healthz`, and refuses to start at all if
+ *    it has none and is bound to anything routable.
  *  - Outbound network from the worker is restricted by host-side
  *    firewall config (see {@link DockerBackendConfig.network}) plus
  *    the egress proxy when one is configured (P3.2).
+ *
+ * The credential above is what a previous version of this docblock
+ * claimed network placement alone provided. It said the worker "only
+ * listens on loopback inside its own netns", which is false — the worker
+ * binds every interface by default and has to, because a published
+ * container port forwards to the container's interface address rather
+ * than to its loopback, so a loopback-bound worker is unreachable through
+ * the port this backend publishes. The boundary was the network the
+ * container is attached to, and wanted a credential behind it.
  */
 
 import { spawn } from 'node:child_process'
+import { randomBytes } from 'node:crypto'
 
 import {
 	type ContainerSandboxLayout,
@@ -59,7 +73,11 @@ import {
 	type SandboxBackend,
 	type SandboxBackendOptions,
 } from '../../index.js'
-import { HttpWorkerClient } from '../http-worker-client.js'
+import {
+	HttpWorkerClient,
+	WORKER_UNAUTHORIZED_HINT,
+	workerAuthorization,
+} from '../http-worker-client.js'
 import {
 	OperationDeadline,
 	OperationDeadlineExpired,
@@ -972,6 +990,25 @@ export function buildDockerRunArgs(input: DockerRunArgvInput): string[] {
 		args.push('--env', `${key}=${value}`)
 	}
 
+	// The worker's credential, rendered VALUELESS and last among the `--env`
+	// flags.
+	//
+	// Valueless, because `docker run --env NAME` reads the value out of the
+	// docker CLI's own environment — which `runOnce` is handed — and an argv
+	// is the wrong place for a secret: `ps` shows it to every user on the
+	// host for as long as the CLI lives, and a non-zero run puts the whole
+	// argv into the error this backend throws. The CLI environment is
+	// readable only by the same user and root, and the message is redacted
+	// besides.
+	//
+	// Last, because docker applies repeated `--env` flags in order and the
+	// last one wins: a host that separately sets `NAMZU_SANDBOX_TOKEN` in
+	// `options.env` — a copied example, an inherited environment — must not
+	// be able to displace the value its own client is sending, which would
+	// produce a container that rejects every call and reads as a broken
+	// worker rather than as a duplicated setting.
+	args.push('--env', 'NAMZU_SANDBOX_TOKEN')
+
 	args.push(config.image)
 	return args
 }
@@ -985,6 +1022,36 @@ async function spawnDockerSandbox(
 	const resolvedLayout = config.layout
 	const id = generateSandboxId()
 	const docker = config.dockerBinary ?? DEFAULT_DOCKER_BINARY
+
+	// The worker's per-instance credential, minted HERE — per `create()`, not
+	// per process and never per image. Three properties are the point, and
+	// each one rules out a cheaper shape:
+	//
+	//  - Per instance. A token baked into the image is shared by every
+	//    container ever built from it and readable by anything that can pull
+	//    it, which is a worse artifact than a documented absence: it looks
+	//    like a credential while separating nobody.
+	//  - Not in an argv, and not in any message. It rides in the docker CLI
+	//    child's environment, which `runOnce` is handed, and the CLI resolves
+	//    it there for the valueless `--env NAMZU_SANDBOX_TOKEN`; a non-zero
+	//    `docker run` renders its argv with every `--env` value redacted. So
+	//    `ps` on the host does not show it and the error this backend throws
+	//    does not carry it — neither of which was true when the value was
+	//    rendered into the argv.
+	//  - Where it IS visible, said plainly: the container's own config, so
+	//    `docker inspect <name>` shows it for the container's life, to anyone
+	//    who can already talk to the daemon — the same authority that can
+	//    `docker exec` into the sandbox. And the worker's own `/proc` inside
+	//    the container, to a workload that shares its uid. Both are why it is
+	//    per-instance and dies with the container rather than being shared or
+	//    long-lived.
+	//  - Dead with the container. Nothing revokes it, because the only process
+	//    that would accept it is removed with the sandbox, and the container's
+	//    config that still holds it is removed with it.
+	//
+	// 32 bytes rather than a uuid: this is a secret, not an identifier, and
+	// base64url keeps it one argv-free environment value on every platform.
+	const workerToken = randomBytes(32).toString('base64url')
 
 	// The boundary a host allowlist is actually enforced at. Started before
 	// the container so its address can be handed in as proxy environment,
@@ -1075,7 +1142,7 @@ async function spawnDockerSandbox(
 			...(egressProxy ? { egressProxyPort: egressProxy.port } : {}),
 		})
 
-		await runOnce(docker, args, options.signal)
+		await runOnce(docker, args, options.signal, { NAMZU_SANDBOX_TOKEN: workerToken })
 		if (hostReachability === 'host-port') {
 			hostPort = await readMappedPort(docker, containerName, options.signal)
 			baseUrl = `http://127.0.0.1:${hostPort}`
@@ -1108,7 +1175,7 @@ async function spawnDockerSandbox(
 	let retirementPromise: Promise<{ readonly accepted: boolean; readonly error?: Error }> | undefined
 	let teardownPromise: Promise<void> | undefined
 	let teardownComplete = false
-	const workerClient = new HttpWorkerClient(baseUrl)
+	const workerClient = new HttpWorkerClient(baseUrl, workerToken)
 	const assertActive = (): void => {
 		if (lifecycle !== 'active') {
 			throw new Error(`Sandbox ${id} is ${lifecycle}; no new worker operation can be admitted`)
@@ -1230,7 +1297,10 @@ async function spawnDockerSandbox(
 			try {
 				res = await fetch(`${baseUrl}/write-file`, {
 					method: 'POST',
-					headers: { 'content-type': 'application/json' },
+					headers: {
+						'content-type': 'application/json',
+						...workerAuthorization(workerToken),
+					},
 					body: JSON.stringify({
 						path,
 						content: buf.toString('base64'),
@@ -1248,6 +1318,12 @@ async function spawnDockerSandbox(
 				throw new Error(
 					`namzu-sandbox /write-file fetch failed (baseUrl=${baseUrl}, path=${path}): ${err instanceof Error ? err.message : String(err)} — cause: ${causeMsg}`,
 					{ cause: err },
+				)
+			}
+			if (res.status === 401) {
+				throw withHint(
+					new Error(`write-file failed: HTTP 401 ${await res.text()}`),
+					WORKER_UNAUTHORIZED_HINT,
 				)
 			}
 			if (!res.ok) {
@@ -1278,10 +1354,19 @@ async function spawnDockerSandbox(
 			}
 			const res = await fetch(`${baseUrl}/read-file`, {
 				method: 'POST',
-				headers: { 'content-type': 'application/json' },
+				headers: {
+					'content-type': 'application/json',
+					...workerAuthorization(workerToken),
+				},
 				body: JSON.stringify({ path, encoding: 'base64' }),
 				signal: options?.signal,
 			})
+			if (res.status === 401) {
+				throw withHint(
+					new Error(`read-file failed: HTTP 401 ${await res.text()}`),
+					WORKER_UNAUTHORIZED_HINT,
+				)
+			}
 			if (!res.ok) {
 				throw new Error(`read-file failed: HTTP ${res.status} ${await res.text()}`)
 			}
@@ -1455,10 +1540,86 @@ async function waitForWorkerReady(
 	)
 }
 
-function runOnce(binary: string, args: string[], signal?: AbortSignal): Promise<string> {
+/**
+ * The argv as it may appear in an error message: the KEYS of every env
+ * entry, with the values replaced.
+ *
+ * A rendered argv is the last place a secret should survive. A non-zero
+ * `docker run` is a routine outcome — a missing image, a name conflict, a
+ * daemon hiccup, ENOSPC — and its message goes wherever the sandbox
+ * package's errors go: a log line, a telemetry batch, a CI transcript, a
+ * pasted bug report. The env flags carry the worker's credential and every
+ * value the host put in `options.env` (an API key, a broker token), and
+ * none of them are needed to explain an exit code. The keys are kept
+ * because they are what distinguishes "the image could not be pulled" from
+ * "the environment was rejected".
+ *
+ * EVERY SPELLING docker accepts for that flag, not the one this backend
+ * happens to emit today. `-e` IS `--env`, separated or `=`-attached, and
+ * this function used to compare each element to the literal `'--env'`: the
+ * long separated form this builder writes was redacted and `-e K=V`,
+ * `--env=K=V` and `-e=K=V` were printed in full. A future caller writing
+ * any of the three would have put a credential in a log line behind a
+ * docblock that promised it would not. The covered forms are `--env K=V`,
+ * `--env=K=V`, `-e K=V`, `-e=K=V` and the attached short form `-eK=V`; the
+ * one shape it does not read is a value attached to an `-e` bundled into a
+ * group of other short flags (`-iteK=V`), which no caller here writes and
+ * which no rule short of matching `-e` anywhere inside an option could
+ * catch. A valueless entry in any form (`--env K`) is passed through: it
+ * resolves from the CLI's own environment and carries no value to redact.
+ *
+ * That redacts the workspace paths the layout is rendered from as well,
+ * which are not secrets. They are also not what an exit code is about, and
+ * a rule with exceptions is a rule that leaks the first time someone's
+ * credential does not look like one.
+ */
+export function redactDockerArgv(args: readonly string[]): string[] {
+	const rendered = [...args]
+	/** `K=V` → `K=<redacted>`, keeping the key; a valueless entry is left alone. */
+	const redactEntry = (entry: string): string => {
+		const separator = entry.indexOf('=')
+		return separator > 0 ? `${entry.slice(0, separator)}=<redacted>` : entry
+	}
+	for (let index = 0; index < rendered.length; index += 1) {
+		const arg = rendered[index] as string
+		if (arg === '--env' || arg === '-e') {
+			const entry = rendered[index + 1]
+			if (entry !== undefined) rendered[index + 1] = redactEntry(entry)
+			index += 1
+			continue
+		}
+		// Attached, where the option's value is the rest of the same element:
+		// the `=` forms, and the short form with no separator (`-eK=V`).
+		const prefix = arg.startsWith('--env=')
+			? '--env='
+			: arg.startsWith('-e=')
+				? '-e='
+				: arg.startsWith('-e') && arg.length > 2
+					? '-e'
+					: undefined
+		if (prefix !== undefined) rendered[index] = prefix + redactEntry(arg.slice(prefix.length))
+	}
+	return rendered
+}
+
+function runOnce(
+	binary: string,
+	args: string[],
+	signal?: AbortSignal,
+	extraEnv?: Readonly<Record<string, string>>,
+): Promise<string> {
 	return new Promise((resolve, reject) => {
 		signal?.throwIfAborted()
-		const child = spawn(binary, args, { stdio: ['ignore', 'pipe', 'pipe'] })
+		const child = spawn(binary, args, {
+			stdio: ['ignore', 'pipe', 'pipe'],
+			// The one channel a value can ride in without entering the argv
+			// this process builds: `ps` shows an argv to every user on the
+			// host, and `/proc/<pid>/environ` is readable only by the same
+			// user and root. `docker run --env NAME` (no `=`) reads the value
+			// out of the CLI's own environment, which is why the credential
+			// is passed this way and rendered valueless in the argv.
+			...(extraEnv ? { env: { ...process.env, ...extraEnv } } : {}),
+		})
 		let stdout = ''
 		let stderr = ''
 		let settled = false
@@ -1485,7 +1646,12 @@ function runOnce(binary: string, args: string[], signal?: AbortSignal): Promise<
 		child.on('error', (error) => finish(error))
 		child.on('close', (code) => {
 			if (code === 0) finish(undefined, stdout.trim())
-			else finish(new Error(`${binary} ${args.join(' ')} exited ${code}: ${stderr.trim()}`))
+			else
+				finish(
+					new Error(
+						`${binary} ${redactDockerArgv(args).join(' ')} exited ${code}: ${stderr.trim()}`,
+					),
+				)
 		})
 		if (signal?.aborted) abort()
 		else signal?.addEventListener('abort', abort, { once: true })

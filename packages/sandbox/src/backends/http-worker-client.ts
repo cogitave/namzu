@@ -21,6 +21,68 @@ type WorkerEvent =
 	  }
 	| { readonly type: 'error'; readonly error: string }
 
+/**
+ * What every call to a worker's control API carries, if the worker has a
+ * credential at all.
+ *
+ * The worker (`packages/sandbox/worker/server.js`) requires
+ * `Authorization: Bearer <token>` on every route but `/healthz`, where the
+ * token is the per-instance `NAMZU_SANDBOX_TOKEN` it was started with. An
+ * absent token here sends no header, which is exactly right for a worker
+ * that has none: a loopback-bound dev worker, or a warm-pool worker whose
+ * profile authenticates nothing.
+ *
+ * A worker the host did NOT create is the case this cannot solve by
+ * itself. The token is minted by whoever starts the container and travels
+ * in its environment, so a warm pool has to be provisioned with the same
+ * token before a host can claim it — there is no channel back. Constructing
+ * this client with no token against such a worker fails at the first call
+ * with a `401`, not silently.
+ */
+export function workerAuthorization(token: string | undefined): Record<string, string> {
+	return token ? { authorization: `Bearer ${token}` } : {}
+}
+
+/**
+ * The `401` a worker answers with, and what to do about it.
+ *
+ * Hung on every path that can be a caller's FIRST request to a worker —
+ * `reserve`, `execute`, and the container backend's direct `read-file` /
+ * `write-file` — because the bare status is the one failure whose cause is
+ * never visible from the sandbox the caller thinks it is talking to: the
+ * container is up, the port is open, and every command fails.
+ */
+export const WORKER_UNAUTHORIZED_HINT =
+	'The worker requires the per-instance token it was started with, as `Authorization: Bearer <token>`. If this host created the worker, the token it minted and the token the client sends have diverged. If it did not — a warm pool, a shared profile, a container someone else started — that worker must be provisioned with the token by whoever builds it: the worker has no channel back to hand one over.'
+
+/**
+ * The same failure, for the one backend that can never fix it.
+ *
+ * The standby pool has no way to present a token. The claim API admits
+ * exactly one property override, and it is not `env`: it is a config map,
+ * and a config map reaches the container as a FILE MOUNT under
+ * `/mnt/configmap/<containername>/<key>`, not as an environment variable.
+ * This worker reads its credential from `process.env` once at startup, so
+ * a value delivered that way is not read at all — and Microsoft's own
+ * guidance is that config map values are not validated by the runtime and
+ * that a value affecting application security belongs in an environment
+ * variable instead. The channel exists; this credential is declined for
+ * it, at both ends. See `docs/sdk/container-sandbox-worker.md` for the
+ * answer, the reason, and the change that would close the gap.
+ *
+ * A token on the shared profile would make the worker boot and then refuse
+ * every call the backend makes — an unrecoverable loop that looks like a
+ * broken worker. So what works there is the address first and the
+ * worker-side escape second, and the hint says which of the two situations
+ * the caller is in.
+ *
+ * `HttpWorkerClient` uses {@link WORKER_UNAUTHORIZED_HINT} rather than this
+ * one: the client is shared by two backends, and a 401 it sees could be
+ * either situation.
+ */
+export const STANDBY_POOL_UNAUTHORIZED_HINT =
+	'The worker requires a per-instance token, and this backend cannot present one: the claim API admits a config map and nothing else, and a config map arrives as a file mount under /mnt/configmap, not as an environment variable this worker reads. Putting a token on the shared container group profile does NOT fix this — the worker boots, the backend sends no header, and every call 401s. What works today is the address and then the worker-side escape: claim the group with `subnetId` so it sits on a private network, and set `NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED=1` on that group profile, which is the only configuration in which a pooled worker starts and this backend can talk to it. Any other workload should run on a backend that can carry a credential. See `docs/sdk/container-sandbox-worker.md`.'
+
 function parseWorkerEvent(line: string): WorkerEvent {
 	let parsed: unknown
 	try {
@@ -57,6 +119,7 @@ function parseWorkerEvent(line: string): WorkerEvent {
 
 async function readExecution(
 	baseUrl: string,
+	token: string | undefined,
 	executionId: string | undefined,
 	command: string,
 	argv: string[] | undefined,
@@ -67,7 +130,7 @@ async function readExecution(
 	try {
 		response = await fetch(`${baseUrl}/execute`, {
 			method: 'POST',
-			headers: { 'content-type': 'application/json' },
+			headers: { 'content-type': 'application/json', ...workerAuthorization(token) },
 			signal: transportSignal,
 			body: JSON.stringify({
 				...(executionId ? { executionId } : {}),
@@ -92,6 +155,12 @@ async function readExecution(
 				{ cause: error },
 			),
 			'The worker was reachable when the sandbox started, so it has most likely exited, been killed, or become unreachable since. Check the container logs and runtime exit state.',
+		)
+	}
+	if (response.status === 401) {
+		throw withHint(
+			new Error(`execute failed: HTTP 401 ${await response.text()}`),
+			WORKER_UNAUTHORIZED_HINT,
 		)
 	}
 	if (!response.ok || !response.body) {
@@ -163,21 +232,35 @@ async function readExecution(
 /**
  * A per-sandbox HTTP worker client. Every command must reserve an identity
  * through the exact worker protocol before it can be admitted.
+ *
+ * `token` is the per-instance credential the worker was started with, and
+ * it rides on every request this client makes. It is optional because a
+ * worker that was never given one — a loopback dev worker — requires none;
+ * say what happens when it is missing from the wrong side rather than
+ * sending nothing quietly: the worker answers `401` and the failure names
+ * the reason.
  */
 export class HttpWorkerClient {
 	private readonly controller: RemoteExecutionController
 
-	constructor(baseUrl: string) {
+	constructor(baseUrl: string, token?: string) {
 		const adapter: RemoteExecutionAdapter = {
 			label: 'HTTP worker',
 			reserve: async (signal) => {
 				const response = await fetch(`${baseUrl}/executions/reserve`, {
 					method: 'POST',
+					headers: workerAuthorization(token),
 					signal,
 				})
 				if (response.status === 404) {
 					throw new RemoteProtocolError(
 						'The sandbox worker does not implement the required execution protocol. Rebuild the worker image or standby-pool profile from the same Namzu release before admitting commands.',
+					)
+				}
+				if (response.status === 401) {
+					throw withHint(
+						new Error(`execution reservation failed: HTTP 401 ${await response.text()}`),
+						WORKER_UNAUTHORIZED_HINT,
 					)
 				}
 				if (!response.ok) {
@@ -190,7 +273,7 @@ export class HttpWorkerClient {
 			cancel: async (executionId, signal) => {
 				const response = await fetch(`${baseUrl}/cancel`, {
 					method: 'POST',
-					headers: { 'content-type': 'application/json' },
+					headers: { 'content-type': 'application/json', ...workerAuthorization(token) },
 					body: JSON.stringify({ executionId }),
 					signal,
 				})
@@ -200,7 +283,7 @@ export class HttpWorkerClient {
 				return await response.json()
 			},
 			execute: async (executionId, command, argv, opts, signal) =>
-				await readExecution(baseUrl, executionId, command, argv, opts, signal),
+				await readExecution(baseUrl, token, executionId, command, argv, opts, signal),
 		}
 		this.controller = new RemoteExecutionController(adapter)
 	}
@@ -220,6 +303,7 @@ export async function execViaHttpWorker(
 	command: string,
 	argv: string[] | undefined,
 	opts: SandboxExecOptions | undefined,
+	token?: string,
 ): Promise<SandboxExecResult> {
-	return await new HttpWorkerClient(baseUrl).exec(command, argv, opts)
+	return await new HttpWorkerClient(baseUrl, token).exec(command, argv, opts)
 }

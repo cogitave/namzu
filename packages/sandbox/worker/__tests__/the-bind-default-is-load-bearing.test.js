@@ -8,25 +8,38 @@ import { afterEach, describe, expect, it } from 'vitest'
 /**
  * This worker binds every interface by default, and that is deliberate.
  *
- * It reads as a mistake — an unauthenticated control API listening
- * everywhere — and it has already been proposed as one. Measuring it
- * settled the question: a published container port translates to the
- * container's bridge address, so a worker bound to the container's own
- * loopback is unreachable through that port. Both of the container
- * backend's reachability modes need a non-loopback bind, so narrowing
- * this default does not harden the container tier, it disables it.
- *
- * The boundary is the network the container is attached to. Where that
- * boundary is absent — a group with a public address, say — the fix
- * belongs there, and `assertNotPubliclyAddressed` in the standby-pool
- * backend is that fix.
+ * It reads as a mistake — a control API listening everywhere — and it has
+ * already been proposed as one. Measuring it settled the question: a
+ * published container port translates to the container's bridge address,
+ * so a worker bound to the container's own loopback is unreachable through
+ * that port. Both of the container backend's reachability modes need a
+ * non-loopback bind, so narrowing this default does not harden the
+ * container tier, it disables it.
  *
  * So this test exists to fail on a well-meaning narrowing, and to make
  * whoever proposes it read the reason first. It pins the default, not
  * the ability to change it: `NAMZU_SANDBOX_BIND` still overrides.
+ *
+ * What changed is what makes the default defensible. The file used to
+ * justify it by network placement alone, and the worker authenticated
+ * nothing; a routable listener now requires a credential, so these cases
+ * configure a token the way the container backend does — `docker run
+ * --env NAMZU_SANDBOX_TOKEN=…` — and a worker without one refuses this
+ * default outright. That refusal has its own suite. The subject here is
+ * unchanged: the address the worker reports having bound.
  */
 
 const workers = []
+
+/**
+ * The credential these cases start the worker with.
+ *
+ * Not incidental: without it the worker refuses every routable bind, and a
+ * suite that reached for `NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED` here would
+ * be asserting the bound address of the escape path rather than of the
+ * deployment the container backend actually creates.
+ */
+const TOKEN = 'a-per-instance-token-for-this-worker'
 
 afterEach(async () => {
 	while (workers.length > 0) {
@@ -61,6 +74,9 @@ async function startAndReadBindLine(env) {
 			NAMZU_SANDBOX_PORT: String(port),
 			NAMZU_SANDBOX_WORKSPACE: workspace,
 			NAMZU_SANDBOX_IDLE_TIMEOUT_MS: '0',
+			// The credential the container backend injects at `docker run`
+			// time, so an unset bind is the only omission under test.
+			NAMZU_SANDBOX_TOKEN: TOKEN,
 			// Deliberately NOT setting NAMZU_SANDBOX_BIND unless a case asks
 			// for it — the unset case is the whole subject here. The sibling
 			// suite sets it, which is why it cannot observe this.

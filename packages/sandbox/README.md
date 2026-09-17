@@ -581,6 +581,117 @@ sees the agent's own settings — `NAMZU_SANDBOX_WORKSPACE` among them. A
 workload that needs a value in its terminal passes it in `env` on the
 `openTerminal` call, which still wins over everything else, `TERM` included.
 
+## The container worker's control API, and its token
+
+The container backend runs `worker/server.js` — a different process from the
+guest agent above, with a different wire: plain HTTP on a port Docker forwards,
+not a framed stream over a socket. It serves `GET /healthz`,
+`POST /execute`, `POST /executions/reserve`, `POST /cancel`, `POST /read-file`
+and `POST /write-file`, and until recently it authenticated nothing: any peer
+that could route to the container could run a command or read and write a file
+inside it. What made that defensible was the network the container is attached
+to, which is a property of a deployment rather than of the worker, and is
+absent wherever a control plane can put the container on a public address.
+
+Every route but `GET /healthz` now requires
+`Authorization: Bearer <NAMZU_SANDBOX_TOKEN>`. A missing, empty or different
+token is answered `401` with `{"error":"unauthorized"}` and nothing else — no
+expected/got, no length, no hint about which routes exist — and the request
+never reaches a handler, so a refused `/write-file` writes nothing. The
+comparison is a fixed-width SHA-256 digest compare, so neither the value nor
+its length is learnable by probing, and the gate runs before every dispatch,
+including the 404, so an unauthenticated caller cannot tell a real route from a
+missing one, or a wrong token from a missing one. `/healthz` requires no token
+and never echoes one, because it is what the host polls before it has any other
+business with the worker, and it answers with liveness and the protocol version
+only. That exemption is an exact match on the whole URL, so `POST /healthz`,
+`GET /healthz?x=1` and `GET /healthz/` are gated like anything else. It also
+leaves exactly one bit readable without a credential, deliberately: the
+retiring-worker check answers before the `/healthz` dispatch, so a worker that
+has poisoned itself answers `503 {"error":"worker_retiring"}` where a healthy
+one answers `200`. That is the drain signal, and the readiness probe — which
+has no credential to present — is who reads it; on every route that does
+anything, a caller without the token gets the same `401` from a retiring worker
+and a serving one.
+
+**The token is minted per instance, by whoever starts the container.** The
+container backend generates 32 random bytes at `create()` time and hands the
+value to the docker CLI in ITS environment, resolved by the valueless
+`--env NAMZU_SANDBOX_TOKEN`. It shares a destination with three variables that
+already exist — the workspace path and the read/write roots land in the
+container's environment through the same `--env` mechanism — and nothing else:
+those three are rendered in the argv as `--env K=V`, values and all, while this
+one is valueless, which is docker's form for "take the value from the CLI's own
+environment". So it is in no argv, `ps` on the host does not show it, and a
+failed `docker run` renders its argv with every `--env` value redacted, in all
+four spellings of the flag, so the error a host logs does not carry it either.
+What it IS visible in, said plainly: the container's own config, so
+`docker inspect <name>` shows it for the container's life to anyone who can
+already talk to the daemon, and the worker's `/proc` inside the container to a
+workload sharing its uid. That is why it is per-instance and why it dies with
+the container — an image-level secret would be shared by every container ever
+built from it and readable by anything that can pull it, and a profile-level one
+would be shared by every instance claimed from a pool. The variable carries the
+`NAMZU_SANDBOX_` prefix, which is what keeps it out of every command the sandbox
+runs: the worker strips that prefix from the environment it hands to a spawned
+command, so a sandboxed task cannot read the credential out of its own
+environment.
+
+**A worker with no token refuses to start on a routable address.** The bind
+default is `0.0.0.0` and stays that way: a published container port forwards to
+the container's interface address rather than to its loopback, so narrowing the
+default disables the container backend instead of hardening it. The credential
+is what makes that default defensible, so its absence fails closed:
+
+| What the worker was given | What it does |
+|---|---|
+| `NAMZU_SANDBOX_TOKEN` set | Requires it on every route but `/healthz`, whatever the bind address |
+| No token, bound to loopback (`127.0.0.1`, `::1`, `localhost`) | Starts, unauthenticated. Nothing outside the container's own network namespace can open that socket, and refusing here would break the host-beside-docker dev case while closing nothing |
+| No token, bound anywhere else — including the `0.0.0.0` default | Refuses to start, exit 1, naming the variable and every way out |
+| `NAMZU_SANDBOX_TOKEN` set but **empty**, or with leading/trailing whitespace | Refuses to start in every mode. An empty value is the shape an injected secret takes when the injection resolved to nothing; a padded one is read from a trimmed header and so can never be presented, leaving a worker that looks authenticated and refuses its own host for the container's life |
+| `NAMZU_SANDBOX_TOKEN` set to something **no HTTP header can carry** — a code point above U+00FF, or a C0 control other than HTAB | Refuses to start in every mode. A header value is one byte per character, so the client's own `fetch` throws before the request leaves the host for the first, and the HTTP parser on this side drops the connection for the second. Same "boots authenticated, refuses its host" state, caught at boot instead of at the first call |
+| No token, routable, and `NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED=1` | Starts, unauthenticated, on purpose |
+
+**The escape, and what it gives up.**
+`NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED=1` is the explicit, named way to keep an
+existing deployment running unauthenticated. It gives up the credential
+entirely rather than deferring it: every route but `/healthz` is then open to
+whoever can route to the container, which is exactly the pre-token behaviour
+and exactly what the credential was added to remove. Only `1`, `true`, `yes` and
+`on`, in any case and with no surrounding whitespace, turn it on: `= 0` and
+`= false` mean off, and so does everything else, because a flag whose
+off-spelling turns it on is a trap — and so is a security escape that accepts
+the shape a value takes when an editor adds a space to it. A configured token
+always wins over the escape, since the escape can only mean "serve without a
+credential", never "ignore the one I was given".
+
+**A worker this host did not create must be provisioned with the token by
+whoever does.** There is no channel back: the worker is handed its credential
+at startup and never publishes it, so a warm pool, a shared container-group
+profile or a container someone else started cannot be authenticated against by
+a host that has no way to learn what it holds. The standby-pool backend cannot
+send a per-instance token: the one property override its claim API admits is a
+config map, and a config map arrives as a file mount under `/mnt/configmap`,
+not as an environment variable — while this worker reads its token from
+`process.env` at startup and never looks at the filesystem for one. That is a
+channel that exists and a credential that still does not go in it, for two
+reasons rather than none: the worker would not read it, and Microsoft's own
+guidance is that config map values are not validated by the runtime and are not
+where a value affecting application security belongs. A token on the shared
+profile would be one credential for every instance claimed from the pool, and
+this backend has no field to present one anyway — so what runs there today is a
+private address (`subnetId`) plus the worker-side escape. The full answer, and
+the change that would close the gap, are in
+`docs/sdk/container-sandbox-worker.md`.
+
+**The transport is not confidential.** `Authorization: Bearer` over plain HTTP
+is replayable by anything on the path, so this is defence in depth behind
+network placement, not a replacement for it. On the container backend the
+worker is reached over Docker's port-forward on host loopback, or by DNS name
+on a private bridge; it does not make a public-address deployment safe, which is
+why the standby-pool backend still refuses to claim one without `subnetId`. The
+egress proxy is unrelated to any of this and checks nothing inbound.
+
 ## Firecracker workspace channels
 
 The Firecracker backend exposes two optional same-sandbox channels. Call

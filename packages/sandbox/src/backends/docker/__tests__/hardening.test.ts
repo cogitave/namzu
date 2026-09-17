@@ -127,6 +127,20 @@ function backendConfig(
 	return { image: 'namzu-sandbox:latest', layout, ...overrides }
 }
 
+/**
+ * The credential argv pins below do NOT contain, and that is the point.
+ *
+ * The worker's token is rendered as a valueless `--env NAMZU_SANDBOX_TOKEN`
+ * for docker to resolve out of the CLI's own environment, so no value of it
+ * can appear in a pinned array — because no value of it appears in the argv
+ * at all. A literal used to stand here; it is gone rather than kept, since
+ * a constant named for a secret that the argv no longer carries is the kind
+ * of line a later edit reintroduces verbatim.
+ * `the-worker-credential-is-minted-per-instance.test.ts` asserts the
+ * valueless form and the CLI environment behind it, through the real create
+ * path.
+ */
+
 function argv(
 	config: DockerBackendInternalConfig = backendConfig(),
 	options: Parameters<typeof buildDockerRunArgs>[0]['options'] = { workingDirectory: '/workspace' },
@@ -181,6 +195,8 @@ describe('buildDockerRunArgs — the baseline', () => {
 			'NAMZU_SANDBOX_WRITE_ROOTS=/mnt/user-data/outputs:/mnt/user-data/scratch',
 			'--publish',
 			'127.0.0.1::2024',
+			'--env',
+			'NAMZU_SANDBOX_TOKEN',
 			'namzu-sandbox:latest',
 		])
 	})
@@ -221,6 +237,8 @@ describe('buildDockerRunArgs — the baseline', () => {
 			'NAMZU_SANDBOX_WRITE_ROOTS=/mnt/user-data/outputs:/mnt/user-data/scratch',
 			'--publish',
 			'127.0.0.1::2024',
+			'--env',
+			'NAMZU_SANDBOX_TOKEN',
 			'namzu-sandbox:latest',
 		])
 	})
@@ -266,6 +284,11 @@ describe('buildDockerRunArgs — the baseline', () => {
 			memoryLimitMb: 512,
 			maxProcesses: 64,
 		})
+		// Sliced from `--memory` to the end, so the credential's `--env` entry
+		// is pinned here too — it is the last thing before the image, rendered
+		// valueless for docker to resolve out of the CLI's environment, and
+		// last because a host-supplied value under the same name must not be
+		// able to displace the one its own client sends.
 		expect(bounded.slice(bounded.indexOf('--memory'))).toEqual([
 			'--memory',
 			'512m',
@@ -273,6 +296,8 @@ describe('buildDockerRunArgs — the baseline', () => {
 			'64',
 			'--cpus',
 			'1.5',
+			'--env',
+			'NAMZU_SANDBOX_TOKEN',
 			'namzu-sandbox:latest',
 		])
 
