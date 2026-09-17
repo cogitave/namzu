@@ -1,4 +1,5 @@
 import { OUTPUT_SECRET_PATTERNS } from '../../constants/secret-patterns.js'
+import { untrustedEnvelopeBody } from '../../tools/untrusted-envelope.js'
 import type {
 	GuardrailVerdict,
 	NamedGuardrail,
@@ -165,6 +166,150 @@ export function toolResultInjectionGuardrail(): NamedGuardrail<ToolResultGuardra
 					reason: `the result from ${source} matched a known instruction-override pattern`,
 				}
 			}
+			return { action: 'pass' }
+		},
+	}
+}
+
+/**
+ * Requests shorter than this are not compared against the result.
+ *
+ * A one-word echo cannot be told from a one-word answer, and the shorter the
+ * value the likelier it is to recur in a legitimate result by coincidence:
+ * `ls` of a directory holding one entry called `src`, called with
+ * `{ path: "src" }`, returns `src`. The value of catching a five-character
+ * restatement is nil — nothing rides on it — so the comparison starts where
+ * a restatement actually means something.
+ */
+const MIN_RESTATEMENT_LENGTH = 16
+
+export interface ToolResultCorrespondenceOptions {
+	/**
+	 * Tools whose answer IS the request, and must not be refused for saying
+	 * so: a validator returning what it validated, a normaliser returning the
+	 * normalised form, a dry run echoing what it would have done.
+	 *
+	 * This is the escape hatch the check needs rather than a tuning knob. The
+	 * screen is right about a tool that was asked a question and handed the
+	 * question back; it is wrong about a tool whose purpose is to hand
+	 * something back, and nothing on the context distinguishes the two.
+	 */
+	readonly passthroughTools?: readonly string[]
+}
+
+interface RequestText {
+	/** Where in the request the text sits, e.g. `city` or `filters.city`. */
+	readonly path: string
+	readonly text: string
+}
+
+function normalizeText(text: string): string {
+	return text.trim().replace(/\s+/g, ' ')
+}
+
+/**
+ * Every string the call was made with, and where it sat.
+ *
+ * Strings only. A number is a plausible answer — a count of 10, a port of
+ * 8080 — and comparing one would fire on `{ maxResults: 10 }` answered with
+ * `10`, which is a legitimate result from a legitimate tool.
+ */
+function collectRequestText(value: unknown, path: string, into: RequestText[]): void {
+	if (typeof value === 'string') {
+		const text = normalizeText(value)
+		if (text.length >= MIN_RESTATEMENT_LENGTH) into.push({ path, text })
+		return
+	}
+	if (Array.isArray(value)) {
+		for (const [index, item] of value.entries()) {
+			collectRequestText(item, `${path}[${index}]`, into)
+		}
+		return
+	}
+	if (value === null || typeof value !== 'object') return
+	for (const [key, nested] of Object.entries(value)) {
+		collectRequestText(nested, path === '' ? key : `${path}.${key}`, into)
+	}
+}
+
+/**
+ * Refuse a result that is the request rather than an answer to it.
+ *
+ * #399 recorded that a screen at this boundary cannot know what a tool SHOULD
+ * have answered, and the issue that asked for this screen named three
+ * mismatches — a weather lookup for one city answering about another, a read
+ * of one path returning another's contents, a search returning instructions
+ * rather than results. **This screen decides none of the three.** The first
+ * two need a declaration of which argument names the subject, and the
+ * framework cannot infer one: for a file read the answer is the file's
+ * contents, which do not name the path, so the natural rule — an answer
+ * mentions its subject — would refuse every ordinary read. The third is what
+ * {@link toolResultInjectionGuardrail} already screens for at this same
+ * boundary, and re-implementing it here would give the two the same blind spot
+ * rather than the different one this adds.
+ *
+ * What is left is the one correspondence failure that needs no domain
+ * knowledge and cannot be an answer: **the result restates the request**. A
+ * tool handed a question and returning that question has answered nothing,
+ * whatever it is a tool for — and a tool whose result is the call text is
+ * either broken or doing something the call did not ask for. The comparison
+ * is exact equality after whitespace normalisation against each string the
+ * call carried, so a result that says anything extra — the answer plus
+ * anything at all — passes.
+ *
+ * Three things this deliberately does not touch:
+ *
+ *  - **An empty result for a non-empty request.** Real, and not a signal:
+ *    a search that matched nothing and a file with nothing in it both return
+ *    nothing, and refusing either tells the model to stop looking when there
+ *    was nothing to find.
+ *  - **A shape contradicting `ToolDefinition.outputSchema`.** The schema is
+ *    not on {@link ToolResultGuardrailContext} and is documented as shown to
+ *    the model, never validated. Carrying it and enforcing it are changes to
+ *    that contract, not this screen's to make.
+ *  - **A failed call.** On `success: false` the text is a diagnostic, and
+ *    `screenToolResult` replaces the output when it refuses — so refusing
+ *    here would trade an echo nobody needs to catch for the error message
+ *    the model needs to read.
+ *
+ * The comparison runs on the frame as well as on the text: a connector's
+ * result reaches a screen already wrapped by `wrapUntrusted`, so comparing
+ * the raw output would never match the one case this is most worth having —
+ * a connected server returning the request. Both the whole output and, when
+ * it is one wrapped block, the body inside it are compared.
+ *
+ * Detection is partial and this says so rather than implying coverage: an
+ * answer about the wrong subject, an answer that is plausible prose, and a
+ * restatement shorter than {@link MIN_RESTATEMENT_LENGTH} all pass.
+ */
+export function toolResultCorrespondenceGuardrail(
+	options: ToolResultCorrespondenceOptions = {},
+): NamedGuardrail<ToolResultGuardrail> {
+	const passthrough = new Set(options.passthroughTools ?? [])
+
+	return {
+		name: 'tool-result-correspondence',
+		check: ({ toolName, input, output, success }): ToolResultVerdict => {
+			if (!success || passthrough.has(toolName)) return { action: 'pass' }
+
+			const request: RequestText[] = []
+			collectRequestText(input, '', request)
+			if (request.length === 0) return { action: 'pass' }
+
+			const body = untrustedEnvelopeBody(output)
+			// The whole output, and the body when the output is one wrapped
+			// block. The two are never the same string — the frame carries the
+			// tags — so this is two comparisons, not the same one twice.
+			for (const text of [normalizeText(output), normalizeText(body ?? '')]) {
+				if (text === '') continue
+				const restated = request.find((entry) => entry.text === text)
+				if (!restated) continue
+				return {
+					action: 'refuse',
+					reason: `the result returns the "${restated.path}" argument this call sent, verbatim and on its own, so it is the request rather than an answer to it`,
+				}
+			}
+
 			return { action: 'pass' }
 		},
 	}

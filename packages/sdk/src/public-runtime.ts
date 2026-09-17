@@ -1192,6 +1192,7 @@ export type { TokenUsageSample } from './telemetry/metrics.js'
 export {
 	promptInjectionGuardrail,
 	secretRedactionGuardrail,
+	toolResultCorrespondenceGuardrail,
 	toolResultInjectionGuardrail,
 } from './runtime/query/guardrail-presets.js'
 // Thrown by a tool-result screen that returned `halt`. Exported because a
@@ -1362,6 +1363,7 @@ export type { ToolCatalogFromRegistryOptions } from './registry/toolset/catalog.
 export type { MockBidiScript, MockBidiSession } from './runtime/bidi/mock.js'
 export type { BidiRun, BidiRunParams } from './runtime/bidi/session.js'
 export type { SecretRedactionOptions } from './runtime/query/guardrail-presets.js'
+export type { ToolResultCorrespondenceOptions } from './runtime/query/guardrail-presets.js'
 export type { ListCheckpointsInput } from './runtime/query/replay/list.js'
 export type {
 	PrepareReplayInput,
