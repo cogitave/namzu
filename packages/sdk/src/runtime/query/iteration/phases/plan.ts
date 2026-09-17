@@ -1,6 +1,11 @@
 import type { HITLDecisionRequest } from '../../../../types/hitl/index.js'
 import type { RunEvent } from '../../../../types/run/index.js'
-import { type IterationContext, type PhaseSignal, handleHITLDecision } from './context.js'
+import {
+	type IterationContext,
+	type PhaseSignal,
+	awaitDecisionOrAbort,
+	handleHITLDecision,
+} from './context.js'
 
 export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEvent, PhaseSignal> {
 	if (!ctx.planManager.active || ctx.planManager.active.status !== 'ready') {
@@ -40,8 +45,19 @@ export async function* runPlanGate(ctx: IterationContext): AsyncGenerator<RunEve
 	// Record the park BEFORE awaiting it. A process that dies while a human
 	// is reading the plan otherwise leaves nothing behind saying the plan
 	// was ever put up for approval.
+	//
+	// The park stays eager — `awaitDecisionDurably` records only after
+	// `PARK_RECORD_DELAY_MS`, which is the right trade for a gate that runs
+	// on every iteration and the wrong one for a gate that runs once and is
+	// read by a human. Only the AWAIT below is raced.
 	await ctx.checkpointMgr.park(planCheckpoint, request)
-	const planDecision = await ctx.resumeHandler(request)
+	// Raced against the run's abort signal, like every other park. A bare
+	// `await ctx.resumeHandler(request)` here meant a Stop did nothing until
+	// the host answered: `runPlanGate` runs in the iteration loop rather than
+	// inside a tool call, so nothing downstream bounded the wait. A Stop now
+	// resolves the park as `abort`, which `handleHITLDecision` turns into
+	// `setStopReason('cancelled') + markCancelled + stop`.
+	const planDecision = await awaitDecisionOrAbort(ctx, request)
 	await ctx.checkpointMgr.unpark(planCheckpoint.id, planDecision)
 
 	return yield* handleHITLDecision(ctx, planDecision, planCheckpoint.id, 'plan_gate')
