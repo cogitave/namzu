@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Tool-result screening
-description: Where a tool result is judged before anything reads it, what the four verdicts mean, and the two screens namzu ships.
+description: Where a tool result is judged before anything reads it, what the four verdicts mean, the two screens namzu ships, the scope and the per-tool exception, and how a run, a registry and the CLI each choose them.
 resource: packages/sdk/src/registry/tool/screen.ts
 tags: [sdk, tools, guardrails, security]
 status: stable
@@ -16,8 +16,7 @@ authorized and reviewed before it ran; what came back was not examined at all.
 That is the shape of an indirect injection — the run is legitimate, the call is
 legitimate, and the payload arrives riding on an answer the model asked for.
 
-`ToolRegistryConfig.resultGuardrails` runs a list of screens against every
-result at that boundary.
+Result screening happens at the registry boundary.
 
 ## Why the boundary is where it is
 
@@ -36,7 +35,7 @@ outlives the result it came from.
 | `input` | The validated arguments, so a screen can compare the answer against what was asked. |
 | `output` | The text the model would read. |
 | `success` | Whether the tool reported success. A failure's text is model-visible too, and comes from the same place its output does. |
-| `provenance` | Who produced it, when it was not this process. A screen reading only the value cannot tell a connected server's words from a first-party tool's. |
+| `provenance` | Who produced it, when it was not this process — the connected server's name, as the MCP adapter sets it. A screen reading only the value cannot tell a connected server's words from a first-party tool's, and the `server:tool` spelling an exemption list accepts is derived from it. |
 
 ## The four verdicts
 
@@ -78,14 +77,76 @@ knowledge: **the result restates the request**. A tool handed a question and
 returning that question has answered nothing, whatever it is a tool for. The
 comparison is exact equality after whitespace normalisation against each string
 the call carried, so a result that says anything extra passes — quoting the
-request inside a larger answer is an answer.
+request inside a larger answer is an answer. Request strings under sixteen code
+points are not compared at all: a one-word echo cannot be told from a one-word
+answer.
 
 A connector's result reaches a screen already wrapped by `wrapUntrusted`, so the
 comparison runs on the body inside that frame as well as on the whole output.
-Without that it would never match the case it is most worth having.
+Without that it would never match the case it is most worth having. The body is
+read back with `untrustedEnvelopeBody`, which is exported for hosts that write
+their own screens against the same context.
 
-Three things it deliberately does not touch, each for a reason rather than for
-lack of time:
+### It judges framed results, and that is deliberate
+
+`scope` defaults to `'framed'`: results that carry the untrusted envelope,
+which is the only marker in this codebase that means *this process did not
+write this*. `wrapUntrusted` is what applies it, and a connector's tool result
+reaches a screen already framed because the adapter frames it
+(`frameServerResult`) — the same frame a host tool gets if it decides its own
+answer is not this process's to vouch for.
+
+An earlier version of this screen judged results whose tool DEFINITION carried
+`provenance`, and it was wrong for the reason a screen's scope should never be
+an accident of registration: the CLI's own remote search frames its answer with
+this envelope and registers as a host tool, so a search that restated its query
+passed while a connected fetch that did was refused. On every result the
+comparison can act on, the frame is a superset of that predicate — the only
+tool definition carrying `provenance` is the MCP adapter's, and the adapter
+frames every non-empty text it returns. It costs exactly one case: a connected
+result with an EMPTY output is no longer in scope, and the comparison skipped
+those anyway.
+
+What `'framed'` leaves alone is this process's own unframed tools. `web_fetch`
+returns a page body, and a page whose body IS the URL it was fetched from is a
+true result from a working tool. So is a validator's echo, and so is any tool
+whose answer is what it was handed. A test drives `getBuiltinTools()`,
+`web_fetch` and `structured_output` through real calls, both on the default
+scope and with the scope widened so the comparison actually runs on every one of
+them, and asserts none is refused.
+
+`scope: 'all'` adds the unframed tools too. That is the host's call, and it
+costs an exemption list: under `'all'`, `web_fetch` is refused until the fetch
+is named in `passthroughTools`.
+
+`passthroughTools` accepts the names a tool actually goes by, and the set
+depends on how it was registered — `passthroughToolNames(toolName, server)` is
+the one implementation:
+
+| Registered as | Also accepts |
+| --- | --- |
+| `mcp_weather-co_lookup` (server `weather-co`) | `lookup`, `weather-co:lookup` |
+| `myplugin__mcp__weather__lookup` (server `weather`) | `lookup`, `weather:lookup` — not `mcp_weather_lookup` |
+| `web_fetch` (a tool of this process's own) | nothing else |
+
+The names are not interchangeable: an exemption written for the direct shape
+does not exempt a plugin-qualified registration, which is why the table is
+worth reading before writing the list. A name that matches no tool is a
+question for the caller, not for the screen — the CLI reports it on
+`configNotices` rather than letting it look like an exemption in force.
+
+### What it does not decide, and why
+
+The mismatch the issue that asked for this screen named first — a lookup for one
+subject answering about another — **is not decidable here**, and this screen
+does not guess at it. It needs a declaration of which argument names the
+subject, and none can be inferred: for a file read the answer is the file's
+contents, which do not name the path, so the natural rule — an answer mentions
+its subject — would refuse every ordinary read. A host that knows a tool's
+subject can write that screen against the same context.
+
+Three more things it deliberately does not touch, each for a reason rather than
+for lack of time:
 
 - **An empty result for a non-empty request.** Real, and not a signal: a search
   that matched nothing and a file with nothing in it both return nothing, and
@@ -94,44 +155,69 @@ lack of time:
 - **A shape contradicting `ToolDefinition.outputSchema`.** The schema is not on
   the context and is documented as shown to the model, never validated.
   Carrying it and enforcing it are changes to that contract.
-- **A failed call.** On `success: false` the text is a diagnostic, and a
-  refusal replaces the output — so screening it would trade an echo nobody needs
-  caught for the error message the model needs to read.
+- **A failed call.** On `success: false` the text is a diagnostic, and a refusal
+  replaces the output — so screening it would trade an echo nobody needs caught
+  for the error message the model needs to read.
 
-The mismatch the issue that asked for this screen named first — a lookup for one
-subject answering about another — is **not decidable here**, and this screen
-does not guess at it. It needs a declaration of which argument names the
-subject, and the framework cannot infer one: for a file read the answer is the
-file's contents, which do not name the path, so the natural rule — an answer
-mentions its subject — would refuse every ordinary read. A host that knows a
-tool's subject can write that screen in a few lines against the same context.
+A result that is not a string is left alone rather than refused: a screen that
+throws fails closed, so a screen that assumed a string would turn its own bug
+into a refusal.
 
-A tool whose answer legitimately IS the request — a validator returning what it
-validated, a normaliser returning the normalised form, a dry run echoing what it
-would have done — is named in `passthroughTools`. Nothing on the context
-distinguishes those from a tool that answered nothing, so the host that knows
-says so.
+### The refusal says what it did and whose result it was
 
-## Turning one on
+The reason names the tool the result came from (`the result from "lookup"`) or,
+when the match was inside the envelope, says which comparison matched (`the
+text inside the untrusted frame from "lookup"`) — and describes the comparison
+as whitespace-normalised, which is what it is. A caller reading a transcript is
+the person who can exempt that tool, and an earlier wording claimed the result
+restated the request "verbatim and on its own" for a case the comparison only
+reached after normalising whitespace.
+
+## Who chooses the screens
+
+**A run installs the default.** `DEFAULT_TOOL_RESULT_GUARDRAILS` is one
+correspondence screen, and the executor puts it on the tool context of every
+run. A default here rather than on the registry because a run usually does not
+build its registry: a host assembles one and hands it to `runAgent`, so a
+registry-construction option alone is the host's to write and the kernel's
+default would reach nobody.
+
+**A registry that was built with `resultGuardrails` wins.** Including an empty
+array, which means none — a registry that stated its policy has stated it, and a
+run must not overrule it.
+
+**A run config option overrides the default** for a registry that declared
+nothing:
 
 ```ts
-import { ToolRegistry, toolResultCorrespondenceGuardrail } from '@namzu/sdk'
+import { MockLLMProvider, runAgent } from '@namzu/sdk'
 
-const tools = new ToolRegistry({
-  resultGuardrails: [toolResultCorrespondenceGuardrail()],
+await runAgent({
+  provider: new MockLLMProvider({ responseText: 'ready' }),
+  model: 'mock-model',
+  prompt: 'start',
+  toolResultGuardrails: [], // no screens; omit for the default
 })
 ```
 
-**The default is nothing.** `new ToolRegistry()` and
-`runAgent({ tools: new ToolRegistry() })` screen no results at all, and the
-screens above ship as presets to configure rather than as defaults that arrive
-with the version. Adding a control must not change an existing host's behaviour
-on upgrade; both presets are opt-in, and a test pins that a run with no
-`resultGuardrails` returns a result exactly as the tool produced it.
+The same option exists on `BaseAgentConfig`, so it reaches the agents a run
+delegates to — a delegated child is a fresh run with its own executor, and a
+switch that reached the parent and not its children would leave the default on
+in exactly the half a host was trying to change. `AgentManager` stamps it onto
+the child config after the child's `configBuilder` runs, the way it stamps
+`parentSpan`, `resumeHandler` and `env`, because a builder written by whoever
+registered the agent cannot be expected to forward a field it was never told
+about. A spawn that supplies `configOverrides.toolResultGuardrails` replaces
+the inherited value — including with `[]`.
 
-Reachability is asymmetric with `inputGuardrails` and `outputGuardrails`, which
-are run-config options. `resultGuardrails` is a registry-construction option,
-so a host looking for it beside the other two will not find it, and the CLI
-builds its registry with no screens and has no flag for them. Reaching the run
-config means the run config reaching a registry it did not construct, which is a
-separate change.
+**The CLI names screens in `namzu.config.json`:**
+
+```json
+{ "toolResultScreens": ["injection", "correspondence"] }
+```
+
+Absent means the kernel's default, `[]` means none, and the names are
+`correspondence` and `injection`. An entry may also be an object carrying that
+screen's options — `{ "name": "correspondence", "passthroughTools": [...] }` —
+which is how the shipped application exposes the exception this page documents.
+See [tool-result screens](../cli/tool-result-screens.md).

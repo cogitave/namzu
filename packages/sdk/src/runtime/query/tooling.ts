@@ -49,6 +49,8 @@ export interface ToolingBootstrapConfig {
 	maxToolCalls?: number
 	readToolCallBudgetEvents?: () => Promise<readonly RunEvent[]>
 	maxToolOutputChars?: number
+	/** See `QueryParams.toolResultGuardrails`. Absent installs the shipped default; a registry's own win. */
+	toolResultGuardrails?: readonly import('../../types/guardrail/index.js').ToolResultGuardrailSpec[]
 	retainedToolPreviewChars?: number
 	maxToolContentBytes?: number
 	captureRunEvidence?: import('../../types/tool/index.js').ToolContext['captureRunEvidence']
@@ -103,6 +105,9 @@ export class ToolingBootstrap {
 					: {}),
 				...(config.maxToolOutputChars !== undefined
 					? { maxToolOutputChars: config.maxToolOutputChars }
+					: {}),
+				...(config.toolResultGuardrails !== undefined
+					? { toolResultGuardrails: config.toolResultGuardrails }
 					: {}),
 				...(config.retainedToolPreviewChars !== undefined
 					? { retainedToolPreviewChars: config.retainedToolPreviewChars }

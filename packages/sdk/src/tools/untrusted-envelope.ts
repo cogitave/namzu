@@ -61,8 +61,23 @@ export function neutralizeEnvelopeDelimiter(content: string): string {
 	return content.replace(CLOSING_TOKEN, 'namzu_untrusted')
 }
 
+/**
+ * Escape a value so it cannot rewrite the tag it appears in.
+ *
+ * `>` is escaped along with the rest, and it is the one that is easy to miss:
+ * `&`, `"` and `<` stop an attribute value from ending the attribute or
+ * opening a second tag, but only `>` stops it from ending the TAG. A reader
+ * that finds the tag's end at the first `>` — which is the obvious way to
+ * write one — would cut the header in half and hand back a body that is
+ * mostly attribute text, and the token check below would then refuse a frame
+ * this module itself produced.
+ */
 function escapeAttribute(value: string): string {
-	return value.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;')
+	return value
+		.replace(/&/g, '&amp;')
+		.replace(/"/g, '&quot;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
 }
 
 export interface UntrustedEnvelope {
@@ -84,6 +99,17 @@ export interface UntrustedEnvelope {
  */
 const OPENING_TAG = '<namzu-untrusted'
 const CLOSING_TAG = '</namzu-untrusted>'
+
+/**
+ * The whole opening tag, attributes included.
+ *
+ * Anchored and attribute-aware rather than "up to the first `>`": that `>`
+ * has to be the tag's own, and after `escapeAttribute` escapes `>` it is. A
+ * hand-built `>` inside an attribute, or a bare `<namzu-untrusted` with no
+ * tag after it, matches nothing — and a reader that cannot find a well-formed
+ * tag should return nothing rather than guess where the tag ended.
+ */
+const OPENING_TAG_PATTERN = new RegExp(`^${OPENING_TAG}(?: [^>]*)?>`)
 
 /**
  * Wrap content so a model reads it as material rather than direction.
@@ -127,34 +153,45 @@ export function wrapUntrusted(envelope: UntrustedEnvelope, content: string): str
  * sees it — has to reach past both. The alternative is re-spelling the tag in
  * the consumer, which is the drift this module exists to prevent.
  *
- * `undefined` for anything that is not exactly one wrapped block: empty text
- * (`wrapUntrusted` leaves it unframed), text that merely starts or ends like
- * one, and two blocks laid end to end. A body is allowed to contain a blank
- * line and often does; the two header lines never do, so the first blank line
- * is the end of the header regardless of what the content says.
+ * `undefined` for anything that is not exactly one wrapped block: text that
+ * merely starts or ends like one, text with no well-formed opening tag, text
+ * with no blank line after the header, and two blocks laid end to end. A body
+ * is allowed to contain a blank line and often does; the two header lines
+ * never do, so the first blank line is the end of the header regardless of
+ * what the content says.
  *
- * The nested-block test is exact rather than best-effort. Every occurrence of
- * the token is defanged in the content before it is wrapped, opening tag
- * included — the replacement matches the token, not the closing form — so a
- * second live one inside can only mean this is not one block. Content that
- * arrives already framed therefore comes back as the BODY of the outer block,
- * defanged inside it, which is what it is.
+ * Empty content is NOT one of those cases. `wrapUntrusted` frames it like
+ * anything else — the "skip a zero-length body" branch is in
+ * `frameServerResult`, which is a different decision made by a different
+ * caller — so an empty body reads back as `''`, which is what it is.
+ *
+ * The nested-block test is exact rather than best-effort, and it looks at the
+ * BODY. Every occurrence of the token is defanged in the content before it is
+ * wrapped, opening tag included — the replacement matches the token, not the
+ * closing form — so a live one there means the text is not one block, and
+ * content that arrived already framed comes back as the body of the outer one.
+ * An ATTRIBUTE is a different matter: attribute values are escaped, not
+ * defanged, so a server or agent whose name contains the token puts it in the
+ * tag. Checking the tag would make a frame this module produced unreadable by
+ * the reader written to read it, which is the one failure this function must
+ * not have.
  */
 export function untrustedEnvelopeBody(text: string): string | undefined {
 	const trimmed = text.trim()
-	if (!trimmed.startsWith(OPENING_TAG) || !trimmed.endsWith(CLOSING_TAG)) return undefined
+	const opening = OPENING_TAG_PATTERN.exec(trimmed)
+	if (!opening || !trimmed.endsWith(CLOSING_TAG)) return undefined
 
-	// The first `>` is the opening tag's — `startsWith` plus `endsWith` above
-	// guarantee one exists, since the closing tag is one.
-	const inner = trimmed.slice(trimmed.indexOf('>') + 1, trimmed.length - CLOSING_TAG.length)
+	const inner = trimmed.slice(opening[0].length, trimmed.length - CLOSING_TAG.length)
+	const headerEnd = inner.indexOf('\n\n')
+	if (headerEnd < 0) return undefined
+	const body = inner.slice(headerEnd + 2).trim()
+
 	// Module-level /g regex, reused across calls: reset before and after, as
 	// `guardrail-presets.ts` does for the same reason.
 	CLOSING_TOKEN.lastIndex = 0
-	const nested = CLOSING_TOKEN.test(inner)
+	const nested = CLOSING_TOKEN.test(body)
 	CLOSING_TOKEN.lastIndex = 0
 	if (nested) return undefined
 
-	const headerEnd = inner.indexOf('\n\n')
-	if (headerEnd < 0) return undefined
-	return inner.slice(headerEnd + 2).trim()
+	return body
 }

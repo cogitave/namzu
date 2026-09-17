@@ -5,12 +5,14 @@ import type {
 	BidiRunEvent,
 	BidiSession,
 } from '../../types/bidi/index.js'
+import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { ToolContext, ToolRegistryContract } from '../../types/tool/index.js'
 import { toErrorMessage } from '../../utils/error.js'
 import { generateRunId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
+import { DEFAULT_TOOL_RESULT_GUARDRAILS } from '../query/guardrail-presets.js'
 
 const DEFAULT_CLOSE_TIMEOUT_MS = 5_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
@@ -78,6 +80,16 @@ export interface BidiRunParams {
 	readonly log?: Logger
 	/** Overrides the generated id, so a host can correlate its own. */
 	readonly runId?: RunId
+	/**
+	 * Screens for the results this session's tools produce. Absent installs
+	 * {@link DEFAULT_TOOL_RESULT_GUARDRAILS}; an empty array installs none.
+	 *
+	 * Here rather than nowhere because this path builds its OWN tool context:
+	 * a duplex session executes the tools the model asks for, and its results
+	 * reach a model just as a turn's do. A registry built with
+	 * `resultGuardrails` still wins, as it does on the query path.
+	 */
+	readonly toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
 }
 
 export interface BidiRun {
@@ -230,6 +242,7 @@ export async function startBidiRun(params: BidiRunParams): Promise<BidiRun> {
 				env: params.env ?? {},
 				log: (level, message) => log[level](message),
 				toolUseId: call.id,
+				toolResultGuardrails: params.toolResultGuardrails ?? DEFAULT_TOOL_RESULT_GUARDRAILS,
 			}
 			const result = await params.tools.execute(call.name, input, context)
 			output = result.success ? result.output : (result.error ?? 'the tool failed')

@@ -105,6 +105,9 @@ export class ReactiveAgent extends AbstractAgent<ReactiveAgentConfig, ReactiveAg
 				...(config.maxToolOutputChars !== undefined
 					? { maxToolOutputChars: config.maxToolOutputChars }
 					: {}),
+				...(config.toolResultGuardrails !== undefined
+					? { toolResultGuardrails: config.toolResultGuardrails }
+					: {}),
 				...(config.retainedToolPreviewChars !== undefined
 					? { retainedToolPreviewChars: config.retainedToolPreviewChars }
 					: {}),

@@ -222,6 +222,11 @@ export function createCliAcpRuntime(
 					...(projectCtx.config.compaction ? { compaction: projectCtx.config.compaction } : {}),
 					...(projectCtx.config.memory ? { memory: projectCtx.config.memory } : {}),
 					...(projectCtx.config.sandbox ? { sandbox: projectCtx.config.sandbox } : {}),
+					// `!== undefined`, not truthiness: an empty list is the
+					// operator turning the default screen OFF.
+					...(projectCtx.config.toolResultScreens !== undefined
+						? { toolResultScreens: projectCtx.config.toolResultScreens }
+						: {}),
 					onRunEvent: (event) => routeOwner.current?.route?.(event),
 				})
 				if (signal.aborted || closed) {

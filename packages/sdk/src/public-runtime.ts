@@ -1195,6 +1195,18 @@ export {
 	toolResultCorrespondenceGuardrail,
 	toolResultInjectionGuardrail,
 } from './runtime/query/guardrail-presets.js'
+// Which names a `passthroughTools` list has to contain for a given tool. A
+// caller that REPORTS on such a list — the CLI checks an operator's names
+// against the tools its registry actually holds, so a name that matches
+// nothing is said out loud rather than silently ignored — has to derive them
+// the way the screen does rather than keep a second copy of the rule: a name
+// the reporter accepts and the screen does not is an exemption the operator
+// believes is in force.
+export { passthroughToolNames } from './runtime/query/guardrail-presets.js'
+// What a run installs when its host configured no screens. Exported because a
+// caller who wants to keep the default AND add to it has to be able to name
+// it: `[...DEFAULT_TOOL_RESULT_GUARDRAILS, myScreen()]`.
+export { DEFAULT_TOOL_RESULT_GUARDRAILS } from './runtime/query/guardrail-presets.js'
 // Thrown by a tool-result screen that returned `halt`. Exported because a
 // host has to be able to tell it from an ordinary failure — that is the
 // entire difference between the two refusal outcomes.

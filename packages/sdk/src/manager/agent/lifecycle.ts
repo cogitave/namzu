@@ -676,6 +676,28 @@ export class AgentManager {
 				}
 			}
 
+			// The screens in force for the parent run, stamped onto the child
+			// the way the trace parent and the review handler are — and after
+			// both branches, because the bare-config branch builds its whole
+			// config by hand and would otherwise omit this one field.
+			//
+			// A child run builds its own executor, which installs
+			// `DEFAULT_TOOL_RESULT_GUARDRAILS` when nothing said otherwise — so
+			// without this a parent that turned the screens off, or exempted a
+			// tool it knows, had that decision revert the moment it delegated,
+			// in the half of its work it does not watch. `BaseAgentConfig`'s
+			// own docblock has claimed this inheritance since the screens
+			// shipped; until this existed it was a claim the kernel did not
+			// implement. An explicit `configOverrides` still wins, so a host
+			// can hand one child a different set — which is also why the test
+			// is against `undefined` rather than truthiness: `[]` is a
+			// decision ("no screens"), not an absence.
+			const inheritedScreens =
+				options.configOverrides?.toolResultGuardrails ?? context.toolResultGuardrails
+			if (inheritedScreens !== undefined) {
+				childConfig.toolResultGuardrails = inheritedScreens
+			}
+
 			// Lineage is assigned by the spawning manager, not proposed by the
 			// child definition. A fixed configBuilder can ignore its inputs and
 			// configOverrides is caller-authored; neither may turn a child back

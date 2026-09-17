@@ -165,8 +165,23 @@ export function buildAgentTool(opts: AgentToolOptions): ToolDefinition {
 					// one: a delegate that cannot see it runs against different
 					// services than the run that launched it, silently.
 					// `ToolContext.env` is the parent's own resolved map, per run.
-					...(Object.keys(context.env ?? {}).length > 0
-						? { configOverrides: { env: context.env } }
+					//
+					// The run's screens ride the same channel for the same
+					// reason: the child's executor installs the shipped default
+					// unless the spawn says otherwise, so a parent that turned
+					// the screens off had that decision revert on the far side
+					// of every delegation. Merged into ONE `configOverrides`
+					// rather than spread twice — the second spread would replace
+					// the first and drop the environment.
+					...(Object.keys(context.env ?? {}).length > 0 || context.toolResultGuardrails
+						? {
+								configOverrides: {
+									...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+									...(context.toolResultGuardrails
+										? { toolResultGuardrails: context.toolResultGuardrails }
+										: {}),
+								},
+							}
 						: {}),
 				},
 				onCreated: (handle) =>

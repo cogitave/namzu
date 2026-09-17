@@ -291,6 +291,34 @@ describe('semantic validation of known file settings', () => {
 			'telemetry.sessionExport.eventTypes[1]',
 		],
 		[{ tui: { notifications: true, notificationMethod: 'desktop' } }, 'tui.notificationMethod'],
+		[{ toolResultScreens: 'correspondence' }, 'toolResultScreens'],
+		[{ toolResultScreens: ['injection', 'nope'] }, 'toolResultScreens[1]'],
+		[{ toolResultScreens: [42] }, 'toolResultScreens[0]'],
+		[{ toolResultScreens: [{}] }, 'toolResultScreens[0].name'],
+		[{ toolResultScreens: [{ name: 'nope' }] }, 'toolResultScreens[0].name'],
+		// An option the named screen does not read. Refused rather than
+		// carried: it would parse, install, and exempt nothing, which reads to
+		// an operator as the exemption being in force.
+		[
+			{ toolResultScreens: [{ name: 'injection', passthroughTools: ['lookup'] }] },
+			'toolResultScreens[0].passthroughTools',
+		],
+		[
+			{ toolResultScreens: [{ name: 'correspondence', passthroughTools: 'lookup' }] },
+			'toolResultScreens[0].passthroughTools',
+		],
+		[
+			{ toolResultScreens: [{ name: 'correspondence', passthroughTools: [7] }] },
+			'toolResultScreens[0].passthroughTools[0]',
+		],
+		[
+			{ toolResultScreens: [{ name: 'correspondence', passthroughTools: ['  '] }] },
+			'toolResultScreens[0].passthroughTools[0]',
+		],
+		[
+			{ toolResultScreens: [{ name: 'correspondence', typo: ['lookup'] }] },
+			'toolResultScreens[0].typo',
+		],
 	] as const)('names the exact invalid config path %#', (body, settingPath) => {
 		expect(projectError(body).settingPath).toBe(settingPath)
 	})

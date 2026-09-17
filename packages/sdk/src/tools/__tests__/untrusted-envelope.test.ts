@@ -185,4 +185,45 @@ describe('the body can be read back out of a block', () => {
 		expect(body).toContain('inner')
 		expect(body).not.toContain('</namzu-untrusted>')
 	})
+
+	it('reads back a frame whose ATTRIBUTE carries the token', () => {
+		// Attribute values are escaped, not defanged — there is no content to
+		// defang — so a server or agent whose name contains the token puts it
+		// in the tag, and the tag also contains the `>` that used to end the
+		// opening match early. Both together made the reader return undefined
+		// for a frame this module produced, which is the one failure a reader
+		// written for a writer must not have.
+		const wrapped = wrapUntrusted(
+			{
+				kind: 'agent-result',
+				attributes: { agent: 'a>namzu-untrusted', task: 't>namzu-untrusted' },
+				provenance: 'p',
+			},
+			'the real content',
+		)
+
+		expect(untrustedEnvelopeBody(wrapped)).toBe('the real content')
+	})
+
+	it('escapes `>` in an attribute, which is what makes the tag findable', () => {
+		// `&`, `"` and `<` stop an attribute from ending the attribute;
+		// only `>` stops it from ending the tag.
+		const wrapped = wrapUntrusted(
+			{ kind: 'agent-result', attributes: { tool: 'a>b' }, provenance: 'p' },
+			'body',
+		)
+
+		expect(wrapped).toContain('tool="a&gt;b"')
+		expect(wrapped.slice(0, wrapped.indexOf('>\n'))).not.toContain('a>b')
+	})
+
+	it('returns an empty body for a frame around empty content', () => {
+		// `wrapUntrusted` frames empty content like anything else; the branch
+		// that skips a zero-length body belongs to `frameServerResult`, which
+		// is a different caller making a different decision. So this is empty,
+		// not unreadable.
+		expect(
+			untrustedEnvelopeBody(wrapUntrusted({ kind: 'agent-result', provenance: 'p' }, '')),
+		).toBe('')
+	})
 })

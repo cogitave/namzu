@@ -470,6 +470,26 @@ export interface ToolContext {
 	maxToolOutputChars?: number
 
 	/**
+	 * Screens the RUN asked for, applied to results this call produces.
+	 *
+	 * Worth having because a run usually does not build its registry: a host
+	 * assembles one and hands it to `runAgent`, so a registry-construction
+	 * option alone is the host's to write and the kernel's default reaches
+	 * nobody.
+	 *
+	 * The registry's own {@link ToolRegistryConfig.resultGuardrails} WIN when
+	 * the registry was built with them — including an empty array, which means
+	 * none — because a registry that stated its policy has stated it. These
+	 * apply to a registry that declared none, which is the ordinary case: a
+	 * host assembles a registry and hands it to a run it does not own.
+	 *
+	 * `undefined` means the run declared none; an empty array means the run
+	 * declared none ON PURPOSE, which is how a caller turns off a screen the
+	 * executor would otherwise install by default.
+	 */
+	toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
+
+	/**
 	 * Run another tool through the same dispatch this call came through.
 	 *
 	 * For `run_code`, whose whole purpose is calling tools in a loop. NOT

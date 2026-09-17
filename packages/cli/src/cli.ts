@@ -356,6 +356,15 @@ export async function runCli(opts: RunCliOptions): Promise<number> {
 					...(resolvedCtx.config.memory ? { memory: resolvedCtx.config.memory } : {}),
 					...(resolvedCtx.config.limits ? { limits: resolvedCtx.config.limits } : {}),
 					...(resolvedCtx.config.sandbox ? { sandbox: resolvedCtx.config.sandbox } : {}),
+					// `!== undefined`, never `??`: an empty list is the operator
+					// switching the screens off, and it is the answer this key
+					// exists for. A truthiness test would drop it and the run
+					// would install the kernel default instead — the opposite
+					// of what was asked for, in the one case the operator was
+					// explicit about.
+					...(resolvedCtx.config.toolResultScreens !== undefined
+						? { toolResultScreens: resolvedCtx.config.toolResultScreens }
+						: {}),
 					...(resolvedCtx.config.tui ? { tui: resolvedCtx.config.tui } : {}),
 				}
 			}

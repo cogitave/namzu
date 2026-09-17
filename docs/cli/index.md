@@ -31,3 +31,5 @@ The operator application.
 * [Google accounts and model access](google.md) - Existing Gemini CLI Google sign-in, explicit API-key routing and read-only credential refresh.
 
 * [CLI release validation](release-validation.md) - Live terminal acceptance evidence and boundaries for the pending release.
+
+* [Tool-result screens](tool-result-screens.md) - The toolResultScreens config key: which screens judge a tool result before the model reads it, the empty list that turns the default off, and the per-tool `passthroughTools` exception.

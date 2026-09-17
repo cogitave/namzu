@@ -364,6 +364,20 @@ export interface QueryParams {
 	 */
 	maxToolOutputChars?: number
 	/**
+	 * Screens to run against every tool result, where the registry was not
+	 * built with its own.
+	 *
+	 * This is the run's half of a boundary whose only other door is the
+	 * registry constructor — and a registry is usually the HOST's, assembled
+	 * before the run exists, so a run-config option is the only way a run
+	 * screens a registry it did not build. A registry built WITH
+	 * `resultGuardrails` states its own policy and wins, `[]` included.
+	 *
+	 * Absent installs {@link DEFAULT_TOOL_RESULT_GUARDRAILS}; an empty array
+	 * installs none, which is how a caller turns the default off.
+	 */
+	toolResultGuardrails?: readonly import('../../types/guardrail/index.js').ToolResultGuardrailSpec[]
+	/**
 	 * Smaller preview for text that exceeded maxToolOutputChars, after its full
 	 * host output and integrity manifest have been saved. Unset/0 keeps the old
 	 * preview size. Does not change the spill threshold, rich blocks or ordinary
@@ -1840,6 +1854,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				: {}),
 			...(params.maxToolOutputChars !== undefined
 				? { maxToolOutputChars: params.maxToolOutputChars }
+				: {}),
+			...(params.toolResultGuardrails !== undefined
+				? { toolResultGuardrails: params.toolResultGuardrails }
 				: {}),
 			...(params.retainedToolPreviewChars !== undefined
 				? { retainedToolPreviewChars: params.retainedToolPreviewChars }

@@ -92,6 +92,30 @@ export interface BaseAgentConfig {
 	allowedTools?: readonly string[]
 
 	/**
+	 * Screens to run against every tool result, in this agent and in the
+	 * agents it delegates to.
+	 *
+	 * See {@link import('../../runtime/query/index.js').QueryParams.toolResultGuardrails}.
+	 * On the BASE config rather than one agent's, because a delegated child is
+	 * a fresh run with its own executor: a switch that reached this agent and
+	 * not its children would leave the default on in exactly the half a host
+	 * would be trying to change. Absent installs the shipped default; an empty
+	 * array installs none.
+	 *
+	 * **The inheritance is the manager's, not the child definition's.** A
+	 * `configBuilder` is written by whoever registered the agent and cannot be
+	 * expected to forward a field it was never told about, so `AgentManager`
+	 * stamps this onto the child config after the builder returns — the same
+	 * shape as `parentSpan`, `resumeHandler` and `env`. The value it stamps is
+	 * the spawning context's (`AgentTaskContext.toolResultGuardrails`), which
+	 * `SupervisorAgent` fills from this field and the delegation tools fill
+	 * from the run's own `ToolContext`; a spawn that supplies
+	 * `configOverrides.toolResultGuardrails` replaces it rather than merging,
+	 * so a host can still hand one child a different set — including none.
+	 */
+	toolResultGuardrails?: readonly import('../guardrail/index.js').ToolResultGuardrailSpec[]
+
+	/**
 	 * Tools this run may NOT use, subtracted from whatever it would
 	 * otherwise have.
 	 *

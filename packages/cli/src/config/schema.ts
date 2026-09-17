@@ -12,6 +12,7 @@ import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { FormatName } from '../output/index.js'
 import type { PermissionChecksConfig } from '../permissions/checks.js'
 import type { PermissionsConfig } from '../permissions/rules.js'
+import type { ToolResultScreenConfig } from './tool-result-screens.js'
 
 /**
  * What one profile may set.
@@ -236,6 +237,29 @@ export interface NamzuCliConfig {
 	 * `--add-dir` and `/add-dir` add to this list for one launch or session.
 	 */
 	readonly additionalDirectories?: readonly string[]
+	/**
+	 * Screens to run against every tool result, by name.
+	 *
+	 * Absent runs the kernel's default: a result FRAMED as untrusted — a
+	 * connected server's answer, or any tool that marked its own answer that
+	 * way — that restates the request is refused before the model reads it.
+	 * That default is deliberately narrow: this process's own unframed tools
+	 * are left alone, because a tool whose answer is what it was handed is a
+	 * working tool, and `web_fetch` returning a page whose body is its own URL
+	 * is the case that named the rule.
+	 *
+	 * An empty list runs none, which is how an operator turns the default off.
+	 * `correspondence` and `injection` are the names; see
+	 * `config/tool-result-screens.ts`, which is the one place a name becomes a
+	 * screen.
+	 *
+	 * An entry may also be written as an object — `{ "name":
+	 * "correspondence", "passthroughTools": [...] }` — carrying that screen's
+	 * options. `passthroughTools` names the tools whose answer IS the request
+	 * and which must not be refused for saying so; it is the difference
+	 * between a screen an operator keeps and one they switch off.
+	 */
+	readonly toolResultScreens?: readonly ToolResultScreenConfig[]
 	/**
 	 * How the kernel keeps a long conversation inside the model's window.
 	 * File-only: a strategy is a property of a project's runs, not of a

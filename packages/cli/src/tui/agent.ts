@@ -138,6 +138,12 @@ import type {
 	SandboxConfig,
 	WebConfig,
 } from '../config/schema.js'
+import {
+	type ToolResultScreenConfig,
+	configuredPassthroughTools,
+	resolveToolResultScreens,
+	unmatchedPassthroughTools,
+} from '../config/tool-result-screens.js'
 import { type CapabilityProbe, probeCapabilities } from '../context/capabilities.js'
 import {
 	NAMZU_DELEGATION_DOCTRINE,
@@ -1292,8 +1298,17 @@ function buildToolRegistry(
 	backgroundJobs = true,
 	checkpoints?: FileCheckpointStore,
 	projectId?: ProjectId,
+	screens?: readonly ToolResultScreenConfig[],
 ): BuiltTools {
-	const registry = new ToolRegistry()
+	// Configured here rather than on the run, so every registry this CLI
+	// builds for a run carries the operator's choice — including the sub-agent
+	// registries below, which a run-level option would reach only if each
+	// child's config were threaded as well. An absent key stays absent, so the
+	// kernel's default applies exactly as it does for any other host.
+	const screensConfig = resolveToolResultScreens(screens)
+	const registry = new ToolRegistry(
+		screensConfig === undefined ? undefined : { resultGuardrails: screensConfig },
+	)
 	registry.register(builtinTools(backgroundJobs))
 	// The file tools take a checkpoint before they write, so `/restore` can
 	// put the tree back. Only the session's own registry: a sub-agent's
@@ -1423,6 +1438,13 @@ export interface AgentSessionOptions {
 	readonly hooks?: HooksConfig
 	/** See `NamzuCliConfig.additionalDirectories`, absolute. `/add-dir` extends it for the session. */
 	readonly additionalDirectories?: readonly string[]
+	/**
+	 * See `NamzuCliConfig.toolResultScreens`. Absent leaves the kernel's
+	 * default in place, which is NOT the same as an empty list: this is the
+	 * operator's off switch for a screen that refuses results, so the two
+	 * have to stay distinguishable.
+	 */
+	readonly toolResultScreens?: readonly ToolResultScreenConfig[]
 	/** See `NamzuCliConfig.compaction`. Absent means the kernel's structured strategy. */
 	readonly compaction?: CompactionCliConfig
 	readonly memory?: MemoryCliConfig
@@ -1927,6 +1949,7 @@ export async function createAgentSession(
 		backgroundJobs,
 		checkpoints,
 		options.stateRoot ? scope.projectId : undefined,
+		options.toolResultScreens,
 	)
 	// Package presence is not tool reachability. The CLI used to probe and
 	// report @namzu/computer-use without ever constructing its host or mounting
@@ -2303,6 +2326,7 @@ export async function createAgentSession(
 					backgroundJobs,
 					undefined,
 					options.stateRoot ? scope.projectId : undefined,
+					options.toolResultScreens,
 				).registry
 				// Search owns its provider connection per call, so it is safe to share
 				// with a child. Preserve the parent's configured backend/off choice.
@@ -2505,6 +2529,32 @@ export async function createAgentSession(
 			'namzu.discovery.skill_count': pluginRuntime.skills.size,
 		})
 	}
+	// Here rather than in `buildToolRegistry`, because the roster is only
+	// complete once the connected servers and the plugins above have
+	// registered theirs — a `passthroughTools` entry naming a connector's
+	// tool is exactly the case that would otherwise be reported as matching
+	// nothing.
+	//
+	// Reported rather than ignored, and reported ONCE per launch, on the same
+	// channel as the other configuration an operator has to know about: an
+	// exemption that names no tool parses, installs, changes nothing, and
+	// leaves the refusal the operator was trying to stop coming back with no
+	// explanation anywhere in the transcript.
+	const unmatchedPassthrough = unmatchedPassthroughTools(
+		configuredPassthroughTools(options.toolResultScreens),
+		registry.listNames().map((name) => {
+			const server = registry.get(name)?.provenance?.server
+			return server === undefined ? { name } : { name, server }
+		}),
+	)
+	const passthroughNotice =
+		unmatchedPassthrough.length === 0
+			? undefined
+			: `toolResultScreens: ${unmatchedPassthrough.map((name) => `"${name}"`).join(', ')} ${
+					unmatchedPassthrough.length === 1 ? 'names' : 'name'
+				} no tool this session mounts, so ${
+					unmatchedPassthrough.length === 1 ? 'it exempts' : 'they exempt'
+				} nothing. A tool answers to its registered name, the server's own name for it, and "server:tool"; check the roster with /tools.`
 	// The one terminal POSITIVE event on this path, emitted exactly once —
 	// every early return above goes through `emptySession`, which emits
 	// `namzu.boot.refused` instead, and the `resolveSandbox` throw path above
@@ -2945,6 +2995,7 @@ export async function createAgentSession(
 		configNotices: [
 			...(capabilityNotice ? [capabilityNotice] : []),
 			...(effortNotice ? [effortNotice] : []),
+			...(passthroughNotice ? [passthroughNotice] : []),
 			...(computerUseError
 				? [`Computer use is unavailable on this device: ${describeError(computerUseError)}`]
 				: []),

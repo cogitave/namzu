@@ -10,6 +10,7 @@ import { DEFAULT_STREAM_IDLE_TIMEOUT_MS } from '../provider/idle-timeout.js'
 import { MOCK_CAPABILITIES } from '../provider/mock-register.js'
 import { DEFAULT_PROVIDER_RETRY } from '../provider/retry.js'
 import { DEFAULT_TOOL_CONCURRENCY, DEFAULT_TOOL_TIMEOUT_MS } from '../runtime/query/executor.js'
+import { DEFAULT_TOOL_RESULT_GUARDRAILS } from '../runtime/query/guardrail-presets.js'
 import { DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES } from '../runtime/query/request-rich-content.js'
 import { DEFAULT_MAX_TOOL_OUTPUT_CHARS } from '../runtime/query/tool-output-budget.js'
 import { DEFAULT_ATTACHMENT_RESOLVE_TIMEOUT_MS } from '../store/attachment/index.js'
@@ -128,5 +129,26 @@ describe('the shipped test model can exercise the tool loop', () => {
 		// the loop calls their tool — and namzu hand-rolled eight fakes.
 		expect(MOCK_CAPABILITIES.supportsTools).toBe(true)
 		expect(MOCK_CAPABILITIES.supportsFunctionCalling).toBe(true)
+	})
+})
+
+describe('a run screens what a connected server answers', () => {
+	it('installs exactly one screen, and it is the correspondence one', () => {
+		// The default is a control that can refuse a result, so which screen
+		// it is and how many there are is a fact worth pinning rather than
+		// reading out of the executor. `scope` stays the preset's own: a
+		// second screen arriving here by accident would change what every run
+		// refuses, which is the kind of default drift this file exists for.
+		expect(DEFAULT_TOOL_RESULT_GUARDRAILS).toHaveLength(1)
+		expect(DEFAULT_TOOL_RESULT_GUARDRAILS[0]).toMatchObject({
+			name: 'tool-result-correspondence',
+		})
+	})
+
+	it('is frozen, because callers are invited to extend it', () => {
+		// `[...DEFAULT_TOOL_RESULT_GUARDRAILS, mine()]`. A caller able to
+		// mutate it would be mutating the default for every other run in the
+		// process.
+		expect(Object.isFrozen(DEFAULT_TOOL_RESULT_GUARDRAILS)).toBe(true)
 	})
 })

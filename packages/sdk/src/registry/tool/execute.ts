@@ -679,6 +679,7 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 				try {
 					this.log.debug('Executing tool', { 'namzu.tool.name': toolName })
 					const startedAt = Date.now()
+					const runResultGuardrails = context.toolResultGuardrails
 					const produced = await tool.execute(finalInput, context)
 					// Screened here, which is the only place a result can be
 					// examined before anything acts on it: the executor applies
@@ -689,7 +690,14 @@ Executable tool names, descriptions, and JSON input schemas are attached through
 					// the server's name, and a screen reading only the value
 					// cannot use that.
 					const result = await screenToolResult(
-						this.resultGuardrails,
+						// Explicit configuration wins, at whichever boundary it
+						// was made. A registry built WITH `resultGuardrails`
+						// has stated its policy — including `[]`, which means
+						// none — and a run must not overrule it. A registry
+						// built without one declared none, so the run's apply;
+						// that is the ordinary case, since a host assembles a
+						// registry and hands it to a run it does not own.
+						this.resultGuardrails ?? runResultGuardrails,
 						produced,
 						{
 							toolName,

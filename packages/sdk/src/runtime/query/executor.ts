@@ -13,6 +13,7 @@ import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { SKILL_TOOL_NAME } from '../../tools/builtins/skill.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
+import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type { RunId, ToolUseId } from '../../types/ids/index.js'
 import type { InvocationState } from '../../types/invocation/index.js'
 import {
@@ -52,6 +53,7 @@ import { compressShellOutput } from '../../utils/shell-compress.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
+import { DEFAULT_TOOL_RESULT_GUARDRAILS } from './guardrail-presets.js'
 import { skippedToolResultText } from './plugin-hooks.js'
 import type { ToolResultObservation } from './project-instructions.js'
 import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
@@ -392,6 +394,12 @@ export interface ToolExecutorConfig {
 	maxToolOutputChars?: number
 	/** See QueryParams.retainedToolPreviewChars; applies to the recorded host output. */
 	retainedToolPreviewChars?: number
+
+	/**
+	 * See QueryParams.toolResultGuardrails. Absent installs
+	 * {@link DEFAULT_TOOL_RESULT_GUARDRAILS}; an empty array installs none.
+	 */
+	toolResultGuardrails?: readonly ToolResultGuardrailSpec[]
 
 	/**
 	 * Cap on the RICH channel of a single tool result, in base64
@@ -1335,6 +1343,11 @@ export class ToolExecutor {
 				this.skillScope = { ...scope, adoptedInBatch: this.batchCounter }
 			},
 			maxToolOutputChars: this.config.maxToolOutputChars ?? DEFAULT_MAX_TOOL_OUTPUT_CHARS,
+			// The run's screens, defaulted HERE rather than on the registry: a
+			// host builds the registry and hands it over, so a registry-side
+			// default is the host's to write and the shipped one reaches
+			// nobody. `[]` survives the `??` and is how a run says "none".
+			toolResultGuardrails: this.config.toolResultGuardrails ?? DEFAULT_TOOL_RESULT_GUARDRAILS,
 			...(this.config.skills ? { skills: this.config.skills } : {}),
 			...(this.config.web ? { web: this.config.web } : {}),
 			// The SAME registry and the SAME context a model-issued call

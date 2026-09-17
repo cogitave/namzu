@@ -65,6 +65,26 @@ export interface AgentTaskContext {
 	resumeHandler?: ResumeHandler
 
 	/**
+	 * The tool-result screens in force for the parent run, handed down so a
+	 * delegated child screens its results the same way.
+	 *
+	 * A child is a fresh run with its own executor, so without this it
+	 * installs `DEFAULT_TOOL_RESULT_GUARDRAILS` whatever the parent decided —
+	 * and a host that turned the screens off with `[]` (or substituted a
+	 * `passthroughTools` exemption for a tool it knows) would find the
+	 * default back on in exactly the half a delegation is made of. Same
+	 * shape as `resumeHandler` above and for the same reason: the child's
+	 * `configBuilder` is written by whoever registered the agent and cannot
+	 * be expected to forward a field it was never told about, so the manager
+	 * stamps this onto the child config after the builder runs.
+	 *
+	 * Absent means the parent stated no policy of its own, and the child
+	 * installs the shipped default — which is what every run does when its
+	 * host configured nothing.
+	 */
+	toolResultGuardrails?: readonly import('../guardrail/index.js').ToolResultGuardrailSpec[]
+
+	/**
 	 * The tool denies in force for the actor that owns this context — the
 	 * union of every `toolScope.deny` recorded along its actor chain.
 	 *

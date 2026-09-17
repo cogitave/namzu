@@ -17,8 +17,14 @@ export { defineTool } from './tools/defineTool.js'
 // this file needed them.
 export { isWithin, resolveWithin, resolveWithinReal } from './tools/paths.js'
 // A host that surfaces its own untrusted content to a model needs the same
-// framing the kernel applies to connector prompts and delegated results.
-export { neutralizeEnvelopeDelimiter, wrapUntrusted } from './tools/untrusted-envelope.js'
+// framing the kernel applies to connector prompts and delegated results — and
+// the reader for it, because a screen that judges a result has to reach past
+// the frame without re-spelling the tag.
+export {
+	neutralizeEnvelopeDelimiter,
+	untrustedEnvelopeBody,
+	wrapUntrusted,
+} from './tools/untrusted-envelope.js'
 export { filterReadOnlyTools, filterToolsNamed } from './tools/roster.js'
 export type { UntrustedEnvelope } from './tools/untrusted-envelope.js'
 

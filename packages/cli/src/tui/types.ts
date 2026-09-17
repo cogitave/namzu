@@ -17,6 +17,7 @@ import type {
 	TuiConfig,
 	WebConfig,
 } from '../config/schema.js'
+import type { ToolResultScreenConfig } from '../config/tool-result-screens.js'
 import type { McpServersConfig } from '../integrations/mcp/servers.js'
 import type { ResolvedLogging } from '../logging.js'
 
@@ -97,6 +98,17 @@ export interface TuiContext {
 	readonly memory?: MemoryCliConfig
 	/** Configured per-run limits, also applied when rebuilding a session. */
 	readonly limits?: RunLimitsConfig
+	/**
+	 * See `NamzuCliConfig.toolResultScreens`.
+	 *
+	 * Optional for the same reason as `logging` below — the App fixtures under
+	 * `tui/__tests__/` build a context by hand and should not have to grow a
+	 * field to keep compiling — but the standalone CLI always supplies it once
+	 * the config file sets the key, because a screen that refuses results is a
+	 * policy the operator stated, and the interactive session is the surface
+	 * most of them use.
+	 */
+	readonly toolResultScreens?: readonly ToolResultScreenConfig[]
 	/** See `NamzuCliConfig.additionalDirectories`, resolved absolute, plus `--add-dir`. */
 	readonly additionalDirectories?: readonly string[]
 	/**

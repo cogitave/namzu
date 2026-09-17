@@ -795,6 +795,19 @@ export async function createSubagentRuntime(
 				...resolveRunGuards(opts, opts.resolveLimits?.(context.runId)),
 				...(selection ? { model: selection.model, effort: selection.effort } : {}),
 				...(Object.keys(context.env ?? {}).length > 0 ? { env: context.env } : {}),
+				// The parent run's tool-result screens, so a sub-agent judges a
+				// connected answer the way the run that asked for the work
+				// does. Without it the child's executor installs the shipped
+				// default, and `toolResultScreens: []` — the operator's off
+				// switch — would hold for the parent and not for anything it
+				// delegated to, which is the half an operator does not watch.
+				//
+				// `[]` is carried rather than skipped: empty is a decision, and
+				// a `length` test — which is the shape that gets this wrong,
+				// since `[]` is truthy — would turn it back into absent.
+				...(context.toolResultGuardrails
+					? { toolResultGuardrails: context.toolResultGuardrails }
+					: {}),
 				resumeHandler,
 			}
 			let taskOwnsCleanup = false

@@ -597,9 +597,23 @@ export function buildCoordinatorTools(opts: CoordinatorToolsOptions): ToolDefini
 				...(_context.parentSpan ? { parentSpan: _context.parentSpan } : {}),
 				// Same as the `Agent` tool: a delegate inherits the environment
 				// its parent was given, or it runs against different services
-				// than the run that asked for the work.
-				...(Object.keys(_context.env ?? {}).length > 0
-					? { configOverrides: { env: _context.env } }
+				// than the run that asked for the work — and the run's screens,
+				// for the same reason: the child's executor installs the shipped
+				// default unless the spawn says otherwise, so a parent that
+				// turned them off had that decision revert behind every
+				// delegation. One merged `configOverrides`, because a second
+				// spread of the key would replace this one.
+				...(Object.keys(_context.env ?? {}).length > 0 || _context.toolResultGuardrails
+					? {
+							configOverrides: {
+								...(_context.env && Object.keys(_context.env).length > 0
+									? { env: _context.env }
+									: {}),
+								...(_context.toolResultGuardrails
+									? { toolResultGuardrails: _context.toolResultGuardrails }
+									: {}),
+							},
+						}
 					: {}),
 			})
 

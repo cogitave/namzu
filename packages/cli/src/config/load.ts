@@ -50,6 +50,12 @@ import {
 	type NamzuCliConfig,
 	type WebConfig,
 } from './schema.js'
+import {
+	TOOL_RESULT_SCREEN_NAMES,
+	TOOL_RESULT_SCREEN_OPTION_KEYS,
+	type ToolResultScreenConfig,
+	isToolResultScreenName,
+} from './tool-result-screens.js'
 
 export interface LoadConfigOptions {
 	/** Override the user's home dir (testing). */
@@ -635,6 +641,63 @@ const CONFIG_READERS: ConfigReaders = {
 		}
 		return v as readonly string[]
 	},
+	toolResultScreens: (v, context) => {
+		if (!Array.isArray(v)) {
+			return invalidConfigValue(context, [], 'must be a list of screen names')
+		}
+		const names = TOOL_RESULT_SCREEN_NAMES.join(', ')
+		for (const [index, entry] of v.entries()) {
+			if (typeof entry === 'string') {
+				if (!isToolResultScreenName(entry)) {
+					return invalidConfigValue(context, [index], `must be one of: ${names}`)
+				}
+				continue
+			}
+			if (!isConfigMapping(entry)) {
+				return invalidConfigValue(
+					context,
+					[index],
+					'must be a screen name, or a mapping with a `name`',
+				)
+			}
+			const { name, ...options } = entry
+			if (typeof name !== 'string' || !isToolResultScreenName(name)) {
+				return invalidConfigValue(context, [index, 'name'], `must be one of: ${names}`)
+			}
+			// An option the named screen does not read is refused rather than
+			// carried: `{ "name": "injection", "passthroughTools": [...] }`
+			// would otherwise install, parse, and exempt nothing, which reads
+			// to an operator as the exemption being in force.
+			for (const key of Object.keys(options)) {
+				if (!TOOL_RESULT_SCREEN_OPTION_KEYS[name].includes(key)) {
+					return invalidConfigValue(
+						context,
+						[index, key],
+						`is not an option of the "${name}" screen`,
+					)
+				}
+			}
+			const passthroughTools = entry.passthroughTools
+			if (passthroughTools === undefined) continue
+			if (!Array.isArray(passthroughTools)) {
+				return invalidConfigValue(
+					context,
+					[index, 'passthroughTools'],
+					'must be a list of tool names',
+				)
+			}
+			for (const [position, toolName] of passthroughTools.entries()) {
+				if (typeof toolName !== 'string' || toolName.trim().length === 0) {
+					return invalidConfigValue(
+						context,
+						[index, 'passthroughTools', position],
+						'must be a tool name',
+					)
+				}
+			}
+		}
+		return v as readonly ToolResultScreenConfig[]
+	},
 	hooks: (v, context) => {
 		if (!isConfigMapping(v))
 			return invalidConfigValue(context, [], 'must be a mapping of event → list')
@@ -1027,6 +1090,10 @@ export const ENV_VARIABLE_NAMES: EnvVariableNames = {
 	// place one may be declared.
 	hooks: undefined,
 	additionalDirectories: undefined,
+	// Absent here for the reason `additionalDirectories` is: the environment
+	// carries scalars, and a screen is a list of names whose meaning belongs
+	// where a project's runs are reviewed.
+	toolResultScreens: undefined,
 	// A strategy is a property of a project's runs, declared where they are reviewed.
 	compaction: undefined,
 	memory: undefined,

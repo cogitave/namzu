@@ -2967,6 +2967,14 @@ export function App({
 				...(activeCtx.memory ? { memory: activeCtx.memory } : {}),
 				...(activeCtx.limits ? { limits: activeCtx.limits } : {}),
 				...(activeCtx.sandbox ? { sandbox: activeCtx.sandbox } : {}),
+				// The operator's screens, on the same terms as every other
+				// config field the App forwards. `!== undefined` rather than a
+				// length test: `[]` is the off switch, and dropping it here
+				// would leave the kernel's default in force in the interactive
+				// session — always on, for the one operator who said otherwise.
+				...(activeCtx.toolResultScreens !== undefined
+					? { toolResultScreens: activeCtx.toolResultScreens }
+					: {}),
 				// Somebody is at this terminal, so the model may ask them one
 				// question when a decision is genuinely theirs.
 				askUser: true,

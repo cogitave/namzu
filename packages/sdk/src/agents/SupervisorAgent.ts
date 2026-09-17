@@ -171,6 +171,14 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 				// same person. It does not grant the root-only question tool.
 				// Without the handler, workers silently auto-approved themselves.
 				...(config.resumeHandler ? { resumeHandler: config.resumeHandler } : {}),
+				// Handed down for the same reason: a worker is a fresh run whose
+				// executor installs the shipped screens unless the spawn says
+				// otherwise, so the supervisor's own choice — including an
+				// empty list, which `config.toolResultGuardrails` distinguishes
+				// from absent by being an array at all.
+				...(config.toolResultGuardrails
+					? { toolResultGuardrails: config.toolResultGuardrails }
+					: {}),
 				tenantId,
 				topicId,
 				sessionId,
@@ -317,6 +325,9 @@ export class SupervisorAgent extends AbstractAgent<SupervisorAgentConfig, Superv
 					skills: config.skills,
 					provider: config.provider,
 					tools,
+					...(config.toolResultGuardrails !== undefined
+						? { toolResultGuardrails: config.toolResultGuardrails }
+						: {}),
 					...(input.attachmentStore ? { attachmentStore: input.attachmentStore } : {}),
 					...(config.attachmentResolveTimeoutMs !== undefined
 						? { attachmentResolveTimeoutMs: config.attachmentResolveTimeoutMs }
