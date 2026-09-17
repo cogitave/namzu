@@ -167,6 +167,16 @@ computes and verifies, which `egress-check.mjs` still does not probe (see
 below): the mechanism enforcing any of these three options is a single CNI's
 own L7 proxy, and nothing in this repo has measured it.
 
+`manifests/rbac.yaml` also grants `get` on `persistentvolumeclaims` (the core
+group). A workspace handle reads each of its own PVCs once, by the name the
+controller derives from the `volumeClaimTemplates` entry
+(`<entry name>-<sandbox name>`), so it can report the disk's uid alongside the
+Sandbox's — which is how a host tells the disk its records describe from a
+different disk standing under the same deterministic workspace name. It is
+never listed, never created and never deleted. **Re-applying this file is
+optional**: a Role from an earlier release simply leaves those uids out of the
+reported identity, and nothing else changes.
+
 If a workspace's disk needs a `storageClassName` other than one that
 provisions `volumeMode: Block`, fix that in
 `manifests/sandboxtemplate-workspace.yaml` too — the default StorageClass on

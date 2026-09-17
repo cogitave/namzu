@@ -266,8 +266,22 @@ would open precisely the hole the variable was set to close.
 Neither the framed wire nor its version changes when the agent grows a
 capability. `healthz` carries a `features` list instead, and a host uses an op
 or a field only when it sees the string there: `write-file-parts` for a body
-written to a temporary sibling in parts and finished with an atomic rename, and
-`stream-heartbeat` for the per-stream liveness frame. A heartbeat is negotiated
+written to a temporary sibling in parts and finished with an atomic rename,
+`stream-heartbeat` for the per-stream liveness frame, and `guest-boot-id` for
+the agent process's own identity.
+
+`guest-boot-id` is a field rather than an op. The agent mints one opaque id at
+startup and stamps it on every reply a caller has already authenticated —
+`reserve-execution`, `cancel-execution` including its `unknown_execution`
+refusal, `read-file`, `write-file`, and the `ready` frame that opens a terminal,
+a session attachment or a `tcp-connect` stream. `healthz`, which is
+unauthenticated, carries only the feature string and no id. It exists because a
+per-instance token cannot answer "is this the same agent": on a container
+orchestrator the token is the pod's uid, and a container restarted in place
+keeps its pod — so the token still works, every call still succeeds, and every
+process the caller started is gone with nothing on the wire saying so. An agent
+that predates the field sends none and a host must read that as "this guest
+cannot tell me", never as a change. A heartbeat is negotiated
 per stream and in both directions — the `terminal` or `tcp-connect` open body
 carries the interval, the agent echoes the interval it will use in its `ready`
 event and only then starts sending, and the host only starts once that echo

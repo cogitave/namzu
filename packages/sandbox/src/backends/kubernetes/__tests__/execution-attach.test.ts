@@ -362,8 +362,10 @@ describe('the wire the guest speaks', () => {
 		const health = await sendFramedRequest(agentPort, { op: 'healthz' })
 		expect(health.reply.features).toContain('execution-attach')
 
-		// A reserve with no caller id is byte-for-byte the call it always
-		// was: no `state`, no retention fields.
+		// A reserve with no caller id carries none of the ATTACH fields it
+		// always lacked: no `state`, no retention fields. `guestBootId` is
+		// beside them and is not one of them — it rides on every
+		// authenticated reply in this agent, whatever the op asked for.
 		const plain = await sendFramedRequest(agentPort, {
 			op: 'reserve-execution',
 			token: POD_UID,
@@ -372,6 +374,7 @@ describe('the wire the guest speaks', () => {
 		expect(plain.reply.state).toBeUndefined()
 		expect(Object.keys(plain.reply).sort()).toEqual([
 			'executionId',
+			'guestBootId',
 			'leaseExpiresAt',
 			'ok',
 			'protocolVersion',

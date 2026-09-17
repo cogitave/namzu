@@ -892,6 +892,25 @@ export function sandboxTemplatePath(namespace: string, name: string): string {
 	return `/apis/${SANDBOX_EXTENSIONS_API_GROUP}/${SANDBOX_API_VERSION}/namespaces/${segment(namespace)}/sandboxtemplates/${segment(name)}`
 }
 
+/**
+ * The PVC the controller creates for one `volumeClaimTemplates` entry:
+ * `<entry name>-<sandbox name>`, in the Sandbox's own namespace.
+ *
+ * Written out here rather than derived at each call site because it is a
+ * NAME the controller owns, not one this backend chooses — a release that
+ * changes it breaks every read of it at once, and the one place to notice
+ * that is a function whose whole body is the convention.
+ */
+export function persistentVolumeClaimPath(
+	namespace: string,
+	sandboxName: string,
+	claimTemplateName: string,
+): string {
+	return `/api/v1/namespaces/${segment(namespace)}/persistentvolumeclaims/${segment(
+		`${claimTemplateName}-${sandboxName}`,
+	)}`
+}
+
 export function podPath(namespace: string, name: string): string {
 	return `/api/v1/namespaces/${segment(namespace)}/pods/${segment(name)}`
 }

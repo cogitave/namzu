@@ -120,6 +120,37 @@ const path = require('node:path')
 
 const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
 
+// This agent PROCESS's identity, minted once at startup and never again.
+//
+// The pod uid is the bind token, and it is the wrong thing to ask "is the
+// guest I was talking to still there": under a container restart the kubelet
+// brings the image back up inside the SAME pod, so the uid — and the token —
+// are unchanged while every process the caller started is gone. Nothing in
+// the old replies revealed that. This does, because it dies with the process
+// that minted it.
+//
+// The kernel's `/proc/sys/kernel/random/boot_id` cannot serve: under a VM
+// runtime it belongs to the pod's VM and survives exactly the restart this
+// exists to expose.
+//
+// It is carried as an OPTIONAL field on the replies a host has already
+// authenticated (see `guestIdentity`), never required, and advertised as
+// `guest-boot-id` in {@link AGENT_FEATURES} for a host that wants to insist
+// on it. A host that predates it ignores the field, as every host does with
+// every field it does not name.
+const GUEST_BOOT_ID = randomUUID()
+
+/**
+ * The optional identity fields every authenticated reply carries.
+ *
+ * One spread rather than a literal per reply site, so the set can only grow
+ * in one place — and so a reply that forgets it is visible as a missing
+ * spread rather than as a field nobody notices is absent.
+ */
+function guestIdentity() {
+	return { guestBootId: GUEST_BOOT_ID }
+}
+
 // Capabilities this agent has that the protocol VERSION does not announce.
 //
 // The version is a compatibility fence — a host that speaks 2 requires a
@@ -157,6 +188,11 @@ const FIRECRACKER_AGENT_PROTOCOL_VERSION = 2
 //    shape: an agent that predates them would IGNORE `offset`/`length`
 //    and answer with the WHOLE file, which the caller would read as its
 //    slice.
+//  - `guest-boot-id` — every authenticated reply carries a `guestBootId`
+//    naming THIS agent process, so a host can tell a container that was
+//    restarted inside the same pod (same pod uid, same bind token, new boot
+//    id, every guest process gone) from a guest that has been serving all
+//    along. See `GUEST_BOOT_ID`.
 //  - `sessions` — `terminal` accepts `{ sessionId, persistent: true }`, and
 //    the `attach-session`, `start-detached`, `list-sessions` and
 //    `kill-session` ops name, read, start and end a program that outlives
@@ -172,6 +208,7 @@ const AGENT_FEATURES = [
 	'read-file-stream',
 	'sessions',
 	'quiesce',
+	'guest-boot-id',
 ]
 
 // --- config (mirrors worker/server.js env contract) -----------------------
@@ -1085,6 +1122,7 @@ function broadcastTerminal(execution) {
 function terminalPayload(execution) {
 	return {
 		ok: true,
+		...guestIdentity(),
 		state: execution.outcome,
 		started: execution.started === true,
 		...(execution.result ? { result: execution.result } : {}),
@@ -1243,6 +1281,7 @@ function handleReserveExecution(socket, body) {
 	if (existing !== undefined) {
 		writeFrame(socket, {
 			ok: true,
+			...guestIdentity(),
 			protocolVersion: FIRECRACKER_AGENT_PROTOCOL_VERSION,
 			executionId: requested,
 			// Meaningless once a command has started — the lease is what
@@ -1271,6 +1310,7 @@ function handleReserveExecution(socket, body) {
 	})
 	writeFrame(socket, {
 		ok: true,
+		...guestIdentity(),
 		protocolVersion: FIRECRACKER_AGENT_PROTOCOL_VERSION,
 		executionId,
 		leaseExpiresAt,
@@ -1376,7 +1416,11 @@ async function handleCancelExecution(socket, body) {
 	pruneExecutions()
 	const execution = executions.get(body.executionId)
 	if (!execution) {
-		writeFrame(socket, { ok: false, error: 'unknown_execution' })
+		// The boot id rides on THIS refusal above all: an agent that restarted
+		// inside its pod answers a cancel for a command the previous process
+		// started with exactly this, and the changed id is the only thing on
+		// the wire that says the command died with that process.
+		writeFrame(socket, { ok: false, ...guestIdentity(), error: 'unknown_execution' })
 		return
 	}
 	if (execution.state === 'reserved' || execution.state === 'starting') {
@@ -1393,6 +1437,7 @@ async function handleCancelExecution(socket, body) {
 	} catch (error) {
 		writeFrame(socket, {
 			ok: false,
+			...guestIdentity(),
 			error: 'cancellation_unconfirmed',
 			message: error instanceof Error ? error.message : String(error),
 		})
@@ -1751,6 +1796,7 @@ async function handleReadFile(socket, body) {
 			const buf = await fs.readFile(real)
 			writeFrame(socket, {
 				ok: true,
+				...guestIdentity(),
 				content: buf.toString(encoding),
 				sizeBytes: buf.length,
 				encoding,
@@ -1781,6 +1827,7 @@ async function handleReadFile(socket, body) {
 		}
 		writeFrame(socket, {
 			ok: true,
+			...guestIdentity(),
 			content: slice.toString(encoding),
 			sizeBytes,
 			encoding,
@@ -2191,7 +2238,12 @@ async function handleWriteFilePart(socket, body, part) {
 			// moment the target changes at all.
 			await fs.rename(real, realTarget)
 		}
-		writeFrame(socket, { ok: true, bytesWritten: written.bytesWritten, sizeBytes })
+		writeFrame(socket, {
+			ok: true,
+			...guestIdentity(),
+			bytesWritten: written.bytesWritten,
+			sizeBytes,
+		})
 	} catch (err) {
 		writeFrame(socket, { ok: false, error: err.message })
 	} finally {
@@ -2228,7 +2280,7 @@ async function handleWriteFile(socket, body) {
 		const real = await realpathWithinWorkspace(target, root)
 		const buf = decodeWriteBody(body)
 		await fs.writeFile(real, buf)
-		writeFrame(socket, { ok: true, bytesWritten: buf.length })
+		writeFrame(socket, { ok: true, ...guestIdentity(), bytesWritten: buf.length })
 	} catch (err) {
 		writeFrame(socket, { ok: false, error: err.message })
 	}
@@ -2660,6 +2712,10 @@ function sessionSummary(record) {
 function readyFrame(record, extra) {
 	return {
 		type: 'ready',
+		// The stream's half of `guest-boot-id`: a terminal or an attach is
+		// authenticated exactly as a request is, and its opening frame is the
+		// only reply it ever sends that a host can read an identity off.
+		...guestIdentity(),
 		...(record !== undefined
 			? {
 					sessionId: record.sessionId,
@@ -3741,7 +3797,11 @@ function handleTcpConnect(socket, body) {
 	upstream.once('connect', () => {
 		// The echo carries the CLAMPED interval, and arms the host; a host
 		// that asked for nothing gets the same bare `ready` it always got.
-		writeFrame(socket, { type: 'ready', ...(heartbeatMs !== undefined ? { heartbeatMs } : {}) })
+		writeFrame(socket, {
+			type: 'ready',
+			...guestIdentity(),
+			...(heartbeatMs !== undefined ? { heartbeatMs } : {}),
+		})
 		if (heartbeatMs !== undefined) {
 			// Destroying the socket runs `onClose` below — the same cleanup a
 			// host that simply went away already triggers.
@@ -4440,6 +4500,7 @@ module.exports = {
 	AGENT_FEATURES,
 	sessions,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
+	GUEST_BOOT_ID,
 	MAX_TIMEOUT_MS,
 	OutputLog,
 	frame,

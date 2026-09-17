@@ -126,7 +126,11 @@ describe('agent listen modes', () => {
 				encoding: 'base64',
 			},
 		})
-		expect(written.reply).toEqual({ ok: true, bytesWritten: 11 })
+		expect(written.reply).toEqual({
+			ok: true,
+			guestBootId: expect.any(String),
+			bytesWritten: 11,
+		})
 
 		const read = await sendFramedRequest(port, {
 			op: 'read-file',
@@ -182,7 +186,9 @@ describe('agent listen modes', () => {
 		await delay(200)
 		socket.destroy()
 
-		expect(frames.map((f) => JSON.parse(f))).toEqual([{ ok: true, bytesWritten: 18 }])
+		expect(frames.map((f) => JSON.parse(f))).toEqual([
+			{ ok: true, guestBootId: expect.any(String), bytesWritten: 18 },
+		])
 	})
 
 	it('rejects startup naming all three listen variables when none is set', async () => {

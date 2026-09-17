@@ -42,6 +42,7 @@ import {
 	EXECUTION_ATTACH_FEATURE,
 	type ExecRequest,
 	ExecResultAccumulator,
+	type GuestReplyIdentity,
 	QUIESCE_FEATURE,
 	type QuiesceScope,
 	type QuiescedProcess,
@@ -68,6 +69,7 @@ import {
 	RemoteResultIncompleteError,
 	type RemoteTerminalMetadata,
 } from '../remote-execution-controller.js'
+import { KubernetesWorkspaceReplacedError } from './identity.js'
 
 /** The one {@link SandboxAgentHandle} arm this backend ever constructs. */
 export type KubernetesAgentHandle = Extract<SandboxAgentHandle, { kind: 'tcp' }>
@@ -81,9 +83,10 @@ export type KubernetesAgentHandle = Extract<SandboxAgentHandle, { kind: 'tcp' }>
  */
 export class KubernetesAgentUnauthorizedError extends Error {
 	constructor(
-		message = 'kubernetes tcp transport: the guest agent rejected this connection’s token (unauthorized)',
+		message = 'kubernetes tcp transport: the guest agent rejected this connection’s token (unauthorized). The token is the bound pod’s metadata.uid and the guest checks it BEFORE dispatch, so the request ran nothing at all; a handle that can re-read its pod follows the replacement and retries once, and this error is what stands when there is nothing to follow — the same pod is still there and still refusing, or the re-read could not be made.',
+		options?: ErrorOptions,
 	) {
-		super(message)
+		super(message, options)
 		this.name = 'KubernetesAgentUnauthorizedError'
 	}
 }
@@ -328,6 +331,103 @@ function refusedWith(response: unknown, error: string): boolean {
 }
 
 /**
+ * The guest REFUSED this handle's token — whichever of the two shapes that
+ * refusal happens to arrive in.
+ *
+ * `reserve-execution` and `cancel-execution` come through
+ * {@link requestChecked}, so their refusal is already a
+ * {@link KubernetesAgentUnauthorizedError}. Nothing else does:
+ * `writeFile`, `readFile`, `openTerminal` and `openTcpConnection` are the
+ * shared Firecracker transport's own paths, and each of them throws the
+ * guest's error NAME as a plain `Error` — `unauthorized` and nothing more.
+ * Two shapes for one fact is why a host could never hang a single recovery
+ * off it, and this is where they become one.
+ *
+ * The message test is exact, never a substring, and that is deliberate: the
+ * guest's refusal envelope carries the bare token `unauthorized` as its whole
+ * `error` field, while a read whose PATH contains the word, or an exec whose
+ * output is quoted into a message, does not equal it. The chain is walked
+ * because the retry wrapper and the stream paths wrap rather than replace.
+ */
+function isUnauthorizedRefusal(error: unknown): boolean {
+	let current: unknown = error
+	for (let depth = 0; depth < 8 && current instanceof Error; depth += 1) {
+		if (current instanceof KubernetesAgentUnauthorizedError) return true
+		if (current.message === 'unauthorized') return true
+		current = current.cause
+	}
+	return false
+}
+
+/**
+ * The one shape a refused call ends in when no rebind could fix it.
+ *
+ * An error that is already the named class travels unchanged — replacing it
+ * would lose its `cause` chain for nothing — and every other shape is wrapped
+ * with the original on `cause`, so the plain `Error('unauthorized')` a
+ * `writeFile` used to end with is still readable underneath.
+ */
+function asUnauthorized(error: unknown): Error {
+	if (error instanceof KubernetesAgentUnauthorizedError) return error
+	return new KubernetesAgentUnauthorizedError(undefined, { cause: error })
+}
+
+/** The optional boot id on one guest reply, and nothing read from any other shape. */
+function guestBootIdOf(reply: unknown): string | undefined {
+	if (!reply || typeof reply !== 'object') return undefined
+	const value = (reply as { guestBootId?: unknown }).guestBootId
+	return typeof value === 'string' && value !== '' ? value : undefined
+}
+
+/**
+ * The GUEST that RESERVED each execution whose cancellation could not be
+ * confirmed: the pod its reservation was accepted by, and the agent PROCESS
+ * inside that pod.
+ *
+ * Per EXECUTION and never per session, which is the whole reason it is kept
+ * here rather than read off the handle when the diagnosis runs. A workspace
+ * handle outlives many commands and follows a replaced pod, so what it is
+ * bound to when a diagnosis runs is not what a command that failed minutes
+ * ago was running in: a container the kubelet restarted an hour ago says
+ * nothing about a command started after it, and a pod ANOTHER call already
+ * rebound to is not the pod this command's processes died with. A handle-wide
+ * baseline would report both as "the guest your command was running in is
+ * gone", about a command that is very likely still running, and would name
+ * the replacement as the guest that died.
+ *
+ * What is recorded is the bind token this attempt presented — which IS the
+ * pod's `metadata.uid`, the same value the handle reports as
+ * `identity.podUid` — and the boot id the `reserve-execution` reply carried,
+ * because the guest that accepted the reservation is the guest that ran the
+ * command. Both are stamped onto the error on its way out of {@link
+ * KubernetesAgentTransport.exec}, the last frame that still knows which
+ * execution an error belongs to.
+ *
+ * Weak, so an error nobody kept takes its entry with it. The boot id is
+ * absent for a guest too old to report one, and the whole entry is absent for
+ * an error no `exec()` produced: the diagnosis then falls back to what the
+ * handle itself is bound to, which is the honest answer rather than a guess.
+ */
+const executionGuest = new WeakMap<Error, KubernetesReservedGuest>()
+
+/** The pod and process one execution reserved on — see {@link executionGuest}. */
+export interface KubernetesReservedGuest {
+	/** The bind token the attempt presented, which is the pod's uid. */
+	readonly podUid?: string
+	/** The boot id the `reserve-execution` reply carried, when it carried one. */
+	readonly guestBootId?: string
+}
+
+/**
+ * The guest that reserved the execution this error came from — see
+ * {@link executionGuest}. `undefined` when the error is not an execution
+ * failure this transport produced.
+ */
+export function guestWhenReserved(error: unknown): KubernetesReservedGuest | undefined {
+	return error instanceof Error ? executionGuest.get(error) : undefined
+}
+
+/**
  * One framed control request, with the guest's two NAMED refusals turned
  * into errors a caller can catch by class: {@link
  * KubernetesAgentUnauthorizedError} for a rejected token, and {@link
@@ -419,10 +519,12 @@ export interface KubernetesAgentHealth {
 /**
  * `permanentDialFailure` is deliberately NOT inherited: this transport sets
  * its own (see the constructor), so advertising the field would be offering a
- * caller a predicate that is silently overwritten.
+ * caller a predicate that is silently overwritten. `onGuestReply` is
+ * re-declared rather than inherited, with the pod the reply came FROM — see
+ * below.
  */
 export interface KubernetesTransportOptions
-	extends Omit<VsockTransportOptions, 'permanentDialFailure'> {
+	extends Omit<VsockTransportOptions, 'permanentDialFailure' | 'onGuestReply'> {
 	/**
 	 * Fires once per completed `exec()` call (success or failure) with
 	 * the four phase durations above. The payload is exactly those four
@@ -440,6 +542,27 @@ export interface KubernetesTransportOptions
 	 * failed at connect — see {@link KubernetesAgentTransport}.
 	 */
 	readonly refreshHandle?: (signal?: AbortSignal) => Promise<KubernetesAgentHandle>
+	/**
+	 * {@link VsockTransportOptions.onGuestReply}, plus the one thing the
+	 * shared transport cannot say and this one always can: the bind token of
+	 * the WIRE the reply arrived on, which is the uid of the pod that
+	 * answered.
+	 *
+	 * A rebind builds a replacement wire and does not close the wire it
+	 * leaves, so a call dispatched to the outgoing pod can still be answered
+	 * BY it — a long `write-file`, a `read-file`, a pod inside its
+	 * termination grace period — minutes after this transport has followed
+	 * the replacement. That reply is a true statement about a pod this
+	 * transport is no longer bound to, and a listener that could not tell the
+	 * two apart would pair the departed pod's agent process with the
+	 * replacement's uid: an identity naming a process that never ran there.
+	 *
+	 * Bound per wire, so the token is the one the reply's own connection
+	 * presented and never the one the transport happens to hold now —
+	 * `undefined` on a handle carrying no token at all, which is a wire that
+	 * cannot name the pod that answered and so proves nothing about it.
+	 */
+	readonly onGuestReply?: (reply: GuestReplyIdentity, podUid: string | undefined) => void
 }
 
 // --- detachable executions (#479) -----------------------------------------
@@ -994,6 +1117,17 @@ function sessionNumber(value: unknown, fallback = 0): number {
 const SESSION_READ_TIMEOUT_MS = 30_000
 
 /**
+ * How long the SHARED re-read behind a rebind may take before it is given up
+ * on — two API GETs on a client that sets no per-request timeout.
+ *
+ * It replaces the caller's signal rather than joining it, because the read is
+ * shared: see {@link KubernetesAgentTransport.rebind}. Generous enough that a
+ * busy API server still answers, short enough that a call refused by a
+ * replacement is not held behind a hung one.
+ */
+const REBIND_READ_TIMEOUT_MS = 10_000
+
+/**
  * The same shape the guest enforces, checked here so a bad id is a local
  * error naming the rule rather than a round trip that comes back
  * `invalid_session_id`.
@@ -1211,21 +1345,41 @@ function quiesceReport(reply: Record<string, unknown>): KubernetesQuiesceReport 
 
 export class KubernetesAgentTransport {
 	/**
-	 * Mutable, and the ONLY mutable state on this class: a `pod-ip` handle
-	 * follows a replaced pod — see {@link rebind}. A `service` handle is
-	 * written once in the constructor and never again, which is why the
-	 * default mode's behaviour is untouched by any of this.
+	 * Mutable: the handle follows a replaced pod — see {@link rebind}.
+	 *
+	 * Under `'pod-ip'` both the address and the token move, because the
+	 * address is a literal that died with its pod. Under the default
+	 * `'service'` mode the host is a Service FQDN that outlives the pod and
+	 * resolves to the replacement on its own, so what moves is the TOKEN
+	 * alone — which is the entire reason a `service` handle needed a rebind
+	 * at all: the dial keeps working and the guest refuses every call.
 	 */
 	private handle: KubernetesAgentHandle
+	/** The re-read currently in flight, so concurrent refusals share one. */
+	private rebinding?: Promise<boolean>
+	/**
+	 * How many times this transport has moved to a different pod. Captured
+	 * before every attempt and compared after it fails, so a call refused by
+	 * the pod it was bound to — arriving after ANOTHER call's rebind already
+	 * installed the replacement — retries on the handle that has moved
+	 * instead of re-reading to be told nothing changed.
+	 */
+	private rebindSeq = 0
 	private readonly transportOptions: VsockTransportOptions
+	/** Bound to each wire's own pod by {@link wireOptions}. */
+	private readonly onGuestReply?: (reply: GuestReplyIdentity, podUid: string | undefined) => void
 	private readonly onTiming?: (timing: KubernetesTransportTiming) => void
 	private readonly refreshHandle?: (signal?: AbortSignal) => Promise<KubernetesAgentHandle>
 	/** Simple pass-through operations share one transport instance. */
 	private wire: VsockAgentTransport
 
 	constructor(handle: KubernetesAgentHandle, options: KubernetesTransportOptions = {}) {
-		const { onTiming, refreshHandle, ...transportOptions } = options
+		const { onTiming, refreshHandle, onGuestReply, ...transportOptions } = options
 		this.handle = handle
+		// Held apart from the options the wires are built from: it is the one
+		// hook whose payload depends on WHICH wire read the reply, so
+		// {@link wireOptions} binds it per wire rather than spreading it.
+		this.onGuestReply = onGuestReply
 		this.transportOptions = {
 			...transportOptions,
 			// A NAME the resolver says does not EXIST is the one connect
@@ -1247,7 +1401,30 @@ export class KubernetesAgentTransport {
 		}
 		this.onTiming = onTiming
 		this.refreshHandle = refreshHandle
-		this.wire = new VsockAgentTransport(handle, this.transportOptions)
+		this.wire = new VsockAgentTransport(handle, this.wireOptions(handle))
+	}
+
+	/**
+	 * The shared transport's options for ONE wire, with the reply observer
+	 * bound to the pod that wire is talking to.
+	 *
+	 * Every `VsockAgentTransport` this class builds goes through here — the
+	 * first one, the one a rebind installs, and the per-attempt one `exec()`
+	 * times — because a wire outlives the moment it was current: the pod it
+	 * dials can answer a call after a rebind has already moved
+	 * {@link handle} on, and the observer has to be told the pod that
+	 * ANSWERED rather than the pod this transport now holds. Capturing the
+	 * handle in the closure is what makes the two different values.
+	 */
+	private wireOptions(handle: KubernetesAgentHandle): VsockTransportOptions {
+		const observe = this.onGuestReply
+		if (observe === undefined) return this.transportOptions
+		return {
+			...this.transportOptions,
+			onGuestReply: (reply) => {
+				observe(reply, handle.token)
+			},
+		}
 	}
 
 	/**
@@ -1261,61 +1438,102 @@ export class KubernetesAgentTransport {
 	}
 
 	/**
-	 * Run one operation, and give a `pod-ip` handle exactly one chance to
-	 * follow a pod that was replaced underneath it.
+	 * Run one operation, and give the handle exactly one chance to follow a
+	 * pod that was replaced underneath it.
 	 *
-	 * The first question is always the same one, and everything else hangs
-	 * off it: did the failure come out of the DIAL? A failure that did not is
-	 * the guest's answer to a request it received, and nothing here may
-	 * reinterpret it — not as a resolver problem, and not as a reason to
-	 * repeat work the guest has already begun. Only a dial failure reaches the
-	 * two branches below:
+	 * TWO failures reach a rebind, and they are the only two, because they
+	 * are the only two that prove the operation ran NOTHING in the guest:
 	 *
-	 *  - The handle's host is a NAME and the dial failed at resolution, so
-	 *    this is a Service FQDN and this host has no resolver for it.
-	 *    Re-reading the pod would change nothing — the next dial would ask the
-	 *    same resolver the same question — so the error is replaced with one
-	 *    that names the FQDN and the configuration field that fixes it. The
-	 *    name check is not decoration: a `pod-ip` handle must keep its one
-	 *    re-read however an unrelated error happens to be worded.
-	 *  - Otherwise, if this transport can re-read the pod, read it once. A
-	 *    DIFFERENT uid means the controller replaced the pod (a resume, an
-	 *    eviction, a node drain), so the handle takes the new address AND the
-	 *    new token together — the same uid-change check the resume path makes
-	 *    — and the operation is retried once. The retry is safe precisely
-	 *    because the failure was at connect: nothing reached the guest, so
-	 *    there is no half-applied write or reserved execution in the pod this
-	 *    connection never opened.
+	 *  - **the dial failed.** No socket was ever established, so no byte was
+	 *    sent. This is the trigger the `'pod-ip'` mode was built on: the
+	 *    address is a literal that dies with its pod.
+	 *  - **the guest REFUSED the token** (`unauthorized`, in either of the
+	 *    shapes {@link isUnauthorizedRefusal} unifies). The agent checks the
+	 *    token before `dispatch`, so a refused request reached the guest and
+	 *    was thrown away unread. This is the trigger that matters under the
+	 *    DEFAULT `'service'` mode, where the Service FQDN outlives the pod
+	 *    and keeps resolving: the dial SUCCEEDS against the replacement and
+	 *    the refusal is the only thing that says the pod moved.
+	 *
+	 * Everything else is the guest's answer to a request it did receive, and
+	 * nothing here may reinterpret it — not as a resolver problem, and not as
+	 * a reason to repeat work the guest has already begun.
+	 *
+	 * From there both arms run the SAME routine, which is the whole of this
+	 * change to it: {@link rebind} reads the pod once, and a DIFFERENT uid
+	 * means the controller replaced it (a resume, an eviction, a node drain),
+	 * so the handle takes the new address AND the new token together and the
+	 * operation is retried once.
+	 *
+	 * One branch belongs to the dial arm alone, and is taken before the
+	 * re-read: the handle's host is a NAME and the dial gave up at
+	 * resolution, so this is a Service FQDN and this host has no resolver for
+	 * it. Re-reading the pod would change nothing — the next dial would ask
+	 * the same resolver the same question — so the error is replaced with one
+	 * that names the FQDN and the configuration field that fixes it. It is
+	 * never asked of a refusal, which came back over a connection that
+	 * plainly worked, and the name check is not decoration either: a
+	 * `pod-ip` handle must keep its one re-read however an unrelated error
+	 * happens to be worded.
 	 *
 	 * Anything else — a re-read that finds the SAME pod, or one that fails —
 	 * leaves the original error standing. A pod that is still there and still
-	 * refusing connections is a guest problem, and replacing that error with a
-	 * second, later one would hide it.
+	 * refusing is a guest problem, and replacing that error with a second,
+	 * later one would hide it. The one exception is a re-read that comes back
+	 * with a verdict about the OBJECT rather than a failed diagnosis
+	 * ({@link KubernetesWorkspaceReplacedError}): the disk behind the name is
+	 * not this handle's disk, which outranks whatever uncovered it.
 	 *
-	 * `signal` is the caller's own, where the operation has one: the re-read is
-	 * an API round trip on a client that sets no per-request timeout, and a
-	 * cancelled call must not go on to park on it.
+	 * `signal` is the caller's own, and it decides one thing only: a call that
+	 * has ALREADY been cancelled is not owed a re-read, because the retry it
+	 * would buy would abort before it left. It is never handed to the re-read
+	 * itself, which is shared and runs under a bound of its own — see
+	 * {@link rebind}.
 	 *
 	 * `dials` is how `exec()` answers the first question at all. Its failure
 	 * can arrive as a bare timeout from the execution controller's own bound,
 	 * with the dial's error discarded rather than wrapped, so that path
 	 * watches its dials instead of reading its error — see {@link DialWatch}.
 	 * Every other operation hands back the dial's own error and passes none.
+	 *
+	 * A refusal that no rebind could fix leaves as {@link
+	 * KubernetesAgentUnauthorizedError} whichever shape it arrived in — the
+	 * unification the whole recovery hangs off, applied at the one point
+	 * where "nothing else can be done about it" is known.
 	 */
 	private async withRebind<T>(
 		run: () => Promise<T>,
 		signal?: AbortSignal,
 		dials?: DialWatch,
 	): Promise<T> {
+		// Read BEFORE the attempt: everything below asks whether the handle
+		// has moved SINCE this call was dispatched.
+		const boundAt = this.rebindSeq
 		try {
 			return await run()
 		} catch (err) {
 			if (isUnretryableOutcome(err)) throw err
-			const fromTheDial = isConnectFailure(err) || neverConnected(dials)
-			if (!fromTheDial) throw err
-			if (this.dialsAName() && this.failedToResolve(err, dials)) throw this.unresolvable(err)
-			if (!(await this.rebind(signal))) throw err
-			return await run()
+			const refused = isUnauthorizedRefusal(err)
+			// A refusal came back over a connection that was made, so it is
+			// never also a dial failure; asking both questions of one error
+			// and letting the dial arm win would send it to the resolver
+			// branch, which is about a connection that was never attempted.
+			const fromTheDial = !refused && (isConnectFailure(err) || neverConnected(dials))
+			if (!refused && !fromTheDial) throw err
+			if (fromTheDial && this.dialsAName() && this.failedToResolve(err, dials)) {
+				throw this.unresolvable(err)
+			}
+			// See above: nothing to buy with a re-read here, and the shared
+			// one must not be started on behalf of a call that is gone.
+			if (signal?.aborted === true) throw refused ? asUnauthorized(err) : err
+			if (!(await this.rebind(boundAt))) throw refused ? asUnauthorized(err) : err
+			try {
+				return await run()
+			} catch (retryErr) {
+				// The retry is the last attempt either way; a second refusal
+				// (the replacement is refusing too) still leaves as one shape.
+				throw refused && isUnauthorizedRefusal(retryErr) ? asUnauthorized(retryErr) : retryErr
+			}
 		}
 	}
 
@@ -1342,23 +1560,73 @@ export class KubernetesAgentTransport {
 		return this.dialsAName() && isMissingNameFailure(error)
 	}
 
-	/** One re-read. True only when it landed on a DIFFERENT pod. */
-	private async rebind(signal?: AbortSignal): Promise<boolean> {
+	/**
+	 * One re-read, shared by every call that needs one at the same moment.
+	 * True when the handle now points at a DIFFERENT pod than the one the
+	 * caller's attempt was dispatched on — whether this call's own re-read
+	 * moved it or another call's already had.
+	 *
+	 * Single-flight, and that is not an optimisation. A pod replaced
+	 * underneath a busy handle refuses EVERY call in flight at once, and one
+	 * re-read per refused call would be a burst of Sandbox and pod GETs, each
+	 * one racing the others to install a handle — with the last to finish
+	 * winning, which is not necessarily the last to read. Sharing the promise
+	 * makes the burst one round trip and one installation, in the order the
+	 * API answered.
+	 *
+	 * The slot is cleared inside the shared run, before the promise settles,
+	 * so a caller that awaits it and is refused AGAIN gets a fresh re-read
+	 * rather than the answer to the previous question.
+	 *
+	 * Because it is shared it runs under {@link REBIND_READ_TIMEOUT_MS} and
+	 * under NO caller's signal. A caller that aborts while the shared read is
+	 * in flight would otherwise abort it for everyone, and every call the
+	 * replacement refused would fail with its original refusal although the
+	 * handle could have followed the pod. Its own bound is what the aborting
+	 * caller was owed — nobody waits on a re-read for longer than that — and
+	 * the read is two GETs nobody is billed for twice.
+	 */
+	private async rebind(boundAt?: number): Promise<boolean> {
+		// Another call already followed the replacement while this one was in
+		// flight, so the pod that refused this call is the pod it was bound
+		// to and the answer a re-read would give is already installed. Asking
+		// again would compare the new token against itself, conclude nothing
+		// moved, and fail a call the handle can now serve.
+		if (boundAt !== undefined && this.rebindSeq !== boundAt) return true
 		const refresh = this.refreshHandle
 		if (refresh === undefined) return false
-		let next: KubernetesAgentHandle
+		this.rebinding ??= this.runRebind(refresh, AbortSignal.timeout(REBIND_READ_TIMEOUT_MS))
+		return await this.rebinding
+	}
+
+	private async runRebind(
+		refresh: (signal?: AbortSignal) => Promise<KubernetesAgentHandle>,
+		signal?: AbortSignal,
+	): Promise<boolean> {
 		try {
-			next = await refresh(signal)
-		} catch {
-			// The re-read is a diagnosis, not an operation: a pod that cannot
-			// be read is not a better error than the connect failure the
-			// caller is already holding.
-			return false
+			let next: KubernetesAgentHandle
+			try {
+				next = await refresh(signal)
+			} catch (err) {
+				// A verdict about the OBJECT is not a failed diagnosis and
+				// must not be swallowed: it says the disk behind the name is
+				// not this handle's disk, which is a far more important thing
+				// to report than the refusal that uncovered it — and it is the
+				// one answer that must never be followed by a retry.
+				if (err instanceof KubernetesWorkspaceReplacedError) throw err
+				// Everything else: the re-read is a diagnosis, not an
+				// operation. A pod that cannot be read is not a better error
+				// than the failure the caller is already holding.
+				return false
+			}
+			if (next.token === this.handle.token) return false
+			this.rebindSeq += 1
+			this.handle = next
+			this.wire = new VsockAgentTransport(next, this.wireOptions(next))
+			return true
+		} finally {
+			this.rebinding = undefined
 		}
-		if (next.token === this.handle.token) return false
-		this.handle = next
-		this.wire = new VsockAgentTransport(next, this.transportOptions)
-		return true
 	}
 
 	/** Whether the current handle's host goes through a resolver at all. */
@@ -1464,11 +1732,14 @@ export class KubernetesAgentTransport {
 	 * not once per large write.
 	 *
 	 * Wrapped in {@link withRebind} like every other guest-dialling op,
-	 * the multi-part route included: a retry starts a fresh sequence under
-	 * a new temp name (`writeFilePartTempPath` mints a UUID per call), so
-	 * a sequence abandoned mid-way on the replaced pod cannot collide with
-	 * the retry's offsets and never touched the target — at worst it
-	 * leaves one orphan temp file behind on the workspace volume.
+	 * the multi-part route included, and for both of its triggers: a retry
+	 * starts a fresh sequence under a new temp name
+	 * (`writeFilePartTempPath` mints a UUID per call), so a sequence
+	 * abandoned mid-way on the replaced pod — because the dial failed, or
+	 * because the replacement refused this handle's token before reading a
+	 * byte — cannot collide with the retry's offsets and never touched the
+	 * target. At worst it leaves one orphan temp file behind on the
+	 * workspace volume.
 	 */
 	async writeFile(path: string, content: Buffer, signal?: AbortSignal): Promise<void> {
 		return await this.withRebind(
@@ -1714,9 +1985,13 @@ export class KubernetesAgentTransport {
 		let exitSignal: number | undefined
 		let refusal: KubernetesSessionRefusedError | undefined
 		// Accumulating INSIDE a `withRebind` is safe for the one reason that
-		// matters: the wrapper retries only a DIAL failure, and a dial that
-		// failed delivered no frame, so a retry starts from an untouched
-		// chunk and the offset the caller asked for.
+		// matters: the wrapper retries only a failure that delivered no
+		// session frame. A dial that failed sent nothing at all, and a token
+		// the guest REFUSED is answered before `dispatch` with that refusal
+		// as the connection's first and only frame — which the handler above
+		// turns into an error rather than accumulating. Either way a retry
+		// starts from an untouched chunk and the offset the caller asked
+		// for.
 		await this.withRebind(
 			async () =>
 				await this.wire.streamFramedRequest(
@@ -1868,6 +2143,14 @@ export class KubernetesAgentTransport {
 		let reserveMs = 0
 		let executeMs = 0
 		let executeSettledAt = 0
+		// The guest that ACCEPTED the reservation, which is the guest that
+		// runs the command: its pod (the bind token this attempt presented)
+		// and its process (the boot id the reply carried). Written per
+		// ATTEMPT, so a retry that followed a replaced pod is remembered
+		// against the pod it actually reserved on and not the one that
+		// refused it — see {@link executionGuest}.
+		let reservedIn: string | undefined
+		let reservedOn: string | undefined
 
 		// What this attempt's dials did, for the one classification `exec()`
 		// cannot make from its error: the controller bounds `reserve` at 2s
@@ -1887,8 +2170,12 @@ export class KubernetesAgentTransport {
 			dials.failed = false
 			dials.connected = false
 			dials.lastError = undefined
-			const timedWire = new VsockAgentTransport(this.handle, {
-				...this.transportOptions,
+			// The handle as it stands NOW, read once: the attempt dials this
+			// address with this token, and another call's rebind must not
+			// change what this attempt records it reserved on.
+			const boundTo = this.handle
+			const timedWire = new VsockAgentTransport(boundTo, {
+				...this.wireOptions(boundTo),
 				// Fires before each connect, so an attempt the controller's
 				// bound aborts mid-connect is still on the record — see
 				// {@link DialWatch}.
@@ -1914,7 +2201,14 @@ export class KubernetesAgentTransport {
 				reserve: async (signal) => {
 					const startedAt = Date.now()
 					try {
-						return await requestChecked(timedWire, { op: 'reserve-execution' }, signal)
+						const reply = await requestChecked(timedWire, { op: 'reserve-execution' }, signal)
+						// Overwritten, never merged: the LAST reservation is the
+						// one the command ran under, and a replacement guest
+						// that reports no boot id must leave no evidence
+						// behind rather than inherit its predecessor's.
+						reservedIn = guestBootIdOf(reply)
+						reservedOn = boundTo.token
+						return reply
 					} finally {
 						reserveMs += Date.now() - startedAt
 					}
@@ -1957,6 +2251,22 @@ export class KubernetesAgentTransport {
 
 		try {
 			return await this.withRebind(buildAttempt, opts?.signal, dials)
+		} catch (error) {
+			// Stamped here and nowhere else. The retirement hook one frame up
+			// is handed the error ALONE, so this is the last point at which
+			// "which execution is this" is still known — and the question the
+			// hook has to answer is about this command's guest, not the
+			// handle's.
+			if (
+				error instanceof RemoteCancellationUnknownError &&
+				(reservedOn !== undefined || reservedIn !== undefined)
+			) {
+				executionGuest.set(error, {
+					...(reservedOn !== undefined ? { podUid: reservedOn } : {}),
+					...(reservedIn !== undefined ? { guestBootId: reservedIn } : {}),
+				})
+			}
+			throw error
 		} finally {
 			this.onTiming?.({
 				dialMs,

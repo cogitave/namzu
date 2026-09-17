@@ -68,6 +68,17 @@ rules:
   - apiGroups: ['']
     resources: [pods]
     verbs: [get, list]
+  # `get`, and nothing else, on the PVCs a workspace's volumeClaimTemplates
+  # produce: the handle reports each one's uid as part of its identity, so a
+  # host can tell the disk its records describe from a different disk behind
+  # the same deterministic workspace name. Read once per handle, by the name
+  # the controller gives them (`<entry name>-<sandbox name>`) — never listed,
+  # never created, never deleted. A Role WITHOUT this rule still works:
+  # the uids are simply left out of the identity and every other verb behaves
+  # exactly as it did.
+  - apiGroups: ['']
+    resources: [persistentvolumeclaims]
+    verbs: [get]
   # `list`, not `get`, is what BOTH enumerating checks need: each has to read
   # every policy in the namespace and evaluate its selector against the pod's
   # own labels, because a GET by name proves an object exists and not that it

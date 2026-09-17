@@ -174,6 +174,7 @@ import type {
 
 import { OperationDeadline, OperationDeadlineExpired, runFailureCleanup } from '../readiness.js'
 import type { SandboxRetirementObservation } from '../remote-execution-controller.js'
+import { RemoteCancellationUnknownError } from '../remote-execution-controller.js'
 import {
 	type EgressProfileLabel,
 	assertEgressPolicyIsEnforceable,
@@ -181,6 +182,13 @@ import {
 	composeAdditionalPodLabels,
 	egressProfileLabel,
 } from './egress-policy.js'
+import {
+	type KubernetesGuestEvidence,
+	type KubernetesGuestRestart,
+	KubernetesWorkspaceGuestGoneError,
+	type KubernetesWorkspaceIdentity,
+	KubernetesWorkspaceReplacedError,
+} from './identity.js'
 import {
 	DEFAULT_AGENT_PORT,
 	type KubernetesAgentAddress,
@@ -191,7 +199,6 @@ import {
 	ReadinessPollTimeout,
 	type SandboxTemplateCopy,
 	bindingFromSandbox,
-	buildAgentAddressRefresh,
 	buildEgressBoundary,
 	buildIngressVerifier,
 	buildSandboxBody,
@@ -229,6 +236,7 @@ import {
 	buildHolderEpochPatch,
 	holderEpochAllows,
 	isPodStopped,
+	persistentVolumeClaimPath,
 	podPath,
 	podTemplateHash,
 	readHolderEpoch,
@@ -251,11 +259,13 @@ import {
 	KubernetesQuiesceUnconfirmedError,
 	KubernetesQuiesceUnsupportedError,
 	type KubernetesReadSessionOptions,
+	type KubernetesReservedGuest,
 	type KubernetesSessionOutput,
 	type KubernetesSessionSummary,
 	type KubernetesSessionTerminal,
 	type KubernetesStartDetachedOptions,
 	type KubernetesWorkspaceTerminal,
+	guestWhenReserved,
 } from './transport.js'
 
 /**
@@ -556,6 +566,21 @@ export interface KubernetesWorkspaceCancellationNotice {
 	readonly error: Error
 	/** See {@link KubernetesWorkspaceAgentState}. */
 	readonly agent: KubernetesWorkspaceAgentState
+	/**
+	 * What a bounded look at the pod and the agent process found — see
+	 * {@link KubernetesGuestEvidence}.
+	 *
+	 * It answers the question `agent` cannot: `healthz` says whether SOME
+	 * agent is serving at that address, and this says whether it is the same
+	 * one the command was running in. Anything but `same-guest` means the
+	 * command cannot still be running, because the process tree it belonged
+	 * to is gone — and that a suspend would take a pod nobody's command is in.
+	 */
+	readonly guest: KubernetesGuestEvidence
+	/** The guest the command was started on. */
+	readonly previous: KubernetesWorkspaceIdentity
+	/** The guest standing under the workspace's name now. */
+	readonly current: KubernetesWorkspaceIdentity
 }
 
 /**
@@ -823,6 +848,64 @@ export interface KubernetesWorkspace extends Sandbox {
 	 * one nothing is going to be compared to.
 	 */
 	readonly templateCurrent: boolean
+	/**
+	 * The four objects this handle is bound to RIGHT NOW — see
+	 * {@link KubernetesWorkspaceIdentity}.
+	 *
+	 * Read fresh on every access rather than snapshotted, because it moves:
+	 * `podUid` changes across a suspend/resume and across a pod this handle
+	 * rebound to, `guestBootId` changes when the kubelet restarts the
+	 * container, and both are `undefined` while this handle holds no pod — a
+	 * suspended or destroyed workspace. A resume that has BOUND its pod names
+	 * it from that moment, probe included, so a listener reading this from
+	 * inside a `pod-replaced` event raised during a resume is answered with
+	 * the pod it was just told about rather than with nothing.
+	 * `sandboxUid` and `volumeClaimUids` do not move for the life of a handle
+	 * — a handle whose object was replaced refuses rather than following it.
+	 *
+	 * A host that keeps per-workspace state compares this across calls, or
+	 * (better) subscribes with {@link onGuestRestart} and is told.
+	 */
+	readonly identity: KubernetesWorkspaceIdentity
+	/**
+	 * Be told when the guest behind this handle is replaced, and get back the
+	 * function that stops being told.
+	 *
+	 * This is the honest half of the rebind. A handle that follows a replaced
+	 * pod keeps WORKING, which is what a caller wants; what it cannot do is
+	 * keep the caller's guest state, because every process that pod was
+	 * running died with it. A host that remembers what it started — a dev
+	 * server, a watcher, a shell — must subscribe, or it will go on believing
+	 * in processes that no longer exist while every call succeeds.
+	 *
+	 * It fires for a pod the handle rebound to (`pod-replaced`) and for an
+	 * agent process that was restarted inside the same pod
+	 * (`container-restarted`, recognised only against a guest that reports a
+	 * `guestBootId`). It does NOT fire across the caller's own `suspend()`
+	 * and `resume()`: that pod change was asked for, and a host that issued
+	 * it already knows its processes are gone. The one exception is a pod
+	 * replaced by somebody else DURING a resume — between the pod this
+	 * handle bound and the privilege probe that follows it — where the probe
+	 * is refused, the handle rebinds, and a `pod-replaced` event is
+	 * announced. That is a pod change the caller did not ask for, arriving
+	 * inside a transition it did; reporting it is the point.
+	 *
+	 * Every event names both pods, that one included. The payload is built
+	 * from the uids the routine announcing the move is holding — not read
+	 * back off a handle whose transition has not finished — so there is no
+	 * path on which a listener is told its guest moved and not told where
+	 * from or where to.
+	 *
+	 * On a `pod-replaced` event `current.guestBootId` is `undefined`: the
+	 * replacement has not answered yet, so there is no process to name.
+	 * `current.podUid` is what moved, and `identity` names the process that
+	 * answered from there once the call that rebound has returned.
+	 *
+	 * Listeners are called synchronously, in subscription order, and a
+	 * listener that throws is swallowed — the event is a notification and
+	 * must not fail the call that discovered it.
+	 */
+	onGuestRestart(listener: (event: KubernetesGuestRestart) => void): () => void
 	/**
 	 * True from the moment `suspend()` starts until `resume()` finishes.
 	 *
@@ -2865,6 +2948,29 @@ interface WorkspaceHandleOptions {
 const CANCELLATION_DIAGNOSIS_TIMEOUT_MS = 5_000
 
 /**
+ * The identity evidence gathered about one unconfirmed cancellation, keyed
+ * by the error the caller is about to receive.
+ *
+ * A WeakMap rather than a field, because the error class belongs to the
+ * shared execution controller and this is one backend's evidence ABOUT it:
+ * adding a Kubernetes-shaped property to `RemoteCancellationUnknownError`
+ * would put a field on the Firecracker tier's errors that nothing there can
+ * ever fill. Weak, so an error nobody kept takes its entry with it.
+ *
+ * It is written where the diagnosis happens ({@link
+ * KubernetesWorkspace.exec}'s retirement hook) and read once, where the error
+ * passes back through the handle, which is the only place that can rename it.
+ */
+const guestGoneEvidence = new WeakMap<
+	Error,
+	{
+		readonly evidence: KubernetesGuestEvidence
+		readonly previous: KubernetesWorkspaceIdentity
+		readonly current: KubernetesWorkspaceIdentity
+	}
+>()
+
+/**
  * The `reason` an unconfirmed cancellation reports on a workspace — see
  * {@link SandboxRetirementObservation.reason}. Not "the patch failed": no
  * patch was attempted, and the pod is standing on purpose.
@@ -2929,11 +3035,21 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * Which session `podUid` belongs to. Bumped when a session starts AND
 	 * when one is dropped ({@link dropSession}), so the number identifies the
 	 * LIVE session and nothing else — a transport whose session has been
-	 * retired never matches it again. Read only by
-	 * {@link followReplacedPod}, which is where the desync it prevents is
-	 * described.
+	 * retired never matches it again. Read by {@link refreshBoundPod}, which
+	 * is where the desync it prevents is described, and by
+	 * {@link boundToPod}.
 	 */
 	let sessionSeq = 0
+	/**
+	 * The session `podUid` was written for — see {@link boundToPod}.
+	 *
+	 * Deliberately NOT `sessionSeq` itself: a dropped session bumps that
+	 * counter and writes nothing else, so "the pod belongs to the session
+	 * that is live" is a comparison rather than a flag anybody has to
+	 * remember to clear. It starts before the first session so that a handle
+	 * which has not bound anything yet is bound to nothing.
+	 */
+	let podSession = -1
 	/**
 	 * The uid of the pod a suspend patch that LANDED took away, cleared once a
 	 * resume has bound its replacement.
@@ -2951,7 +3067,224 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * it would time out a resume whose workspace was perfectly usable.
 	 */
 	let retiredPodUid: string | undefined
+	/**
+	 * The Sandbox object this handle was opened on, and the disks behind it.
+	 *
+	 * `sandboxUid` is taken from the readiness GET the first bind already
+	 * makes — the object was read, its uid was in the reply, and until now it
+	 * was thrown away. It is what a rebind compares against: the workspace
+	 * name is DETERMINISTIC, so an object deleted and recreated stands under
+	 * the same name with an empty disk, and following a pod behind a
+	 * different uid would hand a caller a stranger's workspace.
+	 *
+	 * `volumeClaimUids` is read ONCE, at the first bind, and not again. The
+	 * PVCs belong to the Sandbox: while `sandboxUid` has not moved they have
+	 * not either, so re-reading them on every resume would be a GET per
+	 * volume per transition for an answer that cannot have changed. It stays
+	 * empty when the Role does not grant `get` on `persistentvolumeclaims` —
+	 * an existing deployment upgrading into this release must not have every
+	 * `createKubernetesWorkspace` start failing on a verb its Role has never
+	 * had.
+	 */
+	let sandboxUid: string | undefined
+	let volumeClaimUids: Record<string, string> = {}
+	let volumeClaimsRead = false
+	/**
+	 * The agent PROCESS the handle is talking to: the boot id of the last
+	 * reply that carried one.
+	 *
+	 * Cleared whenever the pod changes — a session start, and a rebind that
+	 * followed a replacement — which is what keeps the caller's own
+	 * `suspend()`/`resume()` from being reported as a restart: the new pod's
+	 * first reply establishes a baseline instead of being compared against
+	 * the old pod's.
+	 *
+	 * It is deliberately NOT a baseline for the cancellation diagnosis.
+	 * Whether the guest a COMMAND was running in is gone is a question about
+	 * that command, and the boot id it reserved against is kept per execution
+	 * by the transport ({@link guestBootIdWhenReserved}); a handle-wide
+	 * baseline would answer "restarted" for every command started after a
+	 * restart the handle survived.
+	 *
+	 * Against a guest too old to report one it stays `undefined` for ever,
+	 * and nothing here fires. That is the interop contract: a missing boot id
+	 * is "this guest cannot tell me", never "it changed".
+	 */
+	let guestBootId: string | undefined
+	/** Subscribers to {@link KubernetesWorkspace.onGuestRestart}. */
+	const restartListeners = new Set<(event: KubernetesGuestRestart) => void>()
 	const terminals = new Set<KubernetesWorkspaceTerminal>()
+
+	/**
+	 * This handle's disk, around ONE named pod and the process inside it.
+	 *
+	 * Every identity this file hands out is built here, which is what keeps a
+	 * payload from being blanked by a state the handle happens to be in: a
+	 * routine that is HOLDING a pod uid reports that uid, and the only
+	 * question left is which pod it holds.
+	 */
+	const identityOn = (
+		pod: string | undefined,
+		boot: string | undefined,
+	): KubernetesWorkspaceIdentity => ({
+		sandboxUid,
+		volumeClaimUids: { ...volumeClaimUids },
+		podUid: pod,
+		guestBootId: boot,
+	})
+
+	/**
+	 * Whether `podUid` still names the pod this handle is TALKING to.
+	 *
+	 * The question is about the SESSION and never about `state`, and the
+	 * difference is not academic: a transition is not the absence of a pod.
+	 * {@link startSession} binds one, records it and runs the privilege probe
+	 * against it while `state` is still `'suspended'`, so a handle that
+	 * answered "no pod" for the length of a resume would blank exactly the
+	 * announcement this backend exists to make — a pod somebody else replaced
+	 * underneath a resume, discovered when that probe is refused.
+	 *
+	 * Every path that gives a pod back drops the session first
+	 * ({@link dropSession}), which bumps `sessionSeq` and leaves this false;
+	 * every path that takes one binds through `startSession`, which sets both
+	 * together. So there is no window in which this says yes about a pod
+	 * nothing is talking to.
+	 */
+	const boundToPod = (): boolean => podUid !== undefined && podSession === sessionSeq
+
+	/** This handle's four objects, read fresh — see {@link KubernetesWorkspaceIdentity}. */
+	const identityNow = (): KubernetesWorkspaceIdentity =>
+		// A handle with no session has no pod and so no agent process.
+		// Reporting the ones it HAD would be the single most misleading thing
+		// this object could say: the pod is deleted and those ids name nothing.
+		boundToPod() ? identityOn(podUid, guestBootId) : identityOn(undefined, undefined)
+
+	/**
+	 * This handle's identity with the pod a LOOK actually FOUND, naming an
+	 * agent process only when that pod is the one the handle's boot id came
+	 * from.
+	 *
+	 * The two halves have to come from the same pod or the answer is a
+	 * fabrication: the boot id of the pod this handle is bound to, printed
+	 * beside the uid of a replacement nobody has heard a word from, names a
+	 * process that pod never ran. `undefined` is what "nothing has answered
+	 * from there yet" looks like, and it is the only honest thing to say.
+	 */
+	const guestSeen = (uid: string | undefined): KubernetesWorkspaceIdentity => {
+		const live = identityNow()
+		return {
+			...live,
+			podUid: uid,
+			guestBootId: uid !== undefined && uid === live.podUid ? live.guestBootId : undefined,
+		}
+	}
+
+	/**
+	 * This handle's identity as one COMMAND saw it: the pod its reservation
+	 * was accepted by and the process inside it, where the transport kept
+	 * them ({@link guestWhenReserved}), and the handle's own where it did not.
+	 *
+	 * What a diagnosis compares against has to be the command's guest and not
+	 * the handle's. The handle moves — it follows a replaced pod, and the
+	 * failing call's own `cancel-execution` refusal already advanced its boot
+	 * id on the way in — so reading it here would report the guest that is
+	 * running NOW as the guest that died.
+	 */
+	const identityWhenReserved = (
+		reserved: KubernetesReservedGuest | undefined,
+	): KubernetesWorkspaceIdentity => {
+		const live = identityNow()
+		if (reserved === undefined) return live
+		const pod = reserved.podUid ?? live.podUid
+		return {
+			...live,
+			podUid: pod,
+			// Never the handle's boot id for a DIFFERENT pod than the one
+			// being named — see {@link guestSeen}.
+			guestBootId: reserved.guestBootId ?? (pod === live.podUid ? live.guestBootId : undefined),
+		}
+	}
+
+	/**
+	 * Tell every subscriber, and let none of them fail the call that noticed.
+	 *
+	 * Synchronous and in subscription order, so a host can keep its own book
+	 * up to date before the call that discovered the restart returns. A
+	 * listener that throws is swallowed for the reason every notification
+	 * callback in this file is: the caller's result is already decided, and a
+	 * host's bookkeeping bug must not become the workspace's error.
+	 */
+	const announceGuestRestart = (event: KubernetesGuestRestart): void => {
+		for (const listener of [...restartListeners]) {
+			try {
+				listener(event)
+			} catch {
+				// See above.
+			}
+		}
+	}
+
+	/**
+	 * Follow the agent PROCESS behind every authenticated reply.
+	 *
+	 * Installed on the transport for both address modes, because this is the
+	 * one thing no address and no token can reveal: the kubelet restarts a
+	 * crashed container INSIDE the same pod, so the uid — and therefore the
+	 * bind token — is unchanged and every call keeps working, while every
+	 * process the caller started is gone. Only the guest's own boot id says
+	 * so, and only on replies it was already sending.
+	 *
+	 * It never fires for the FIRST reply after the pod changed: `guestBootId`
+	 * is undefined then, and the first value is the baseline rather than a
+	 * change. That is what makes the caller's own suspend/resume silent.
+	 *
+	 * `generation` guards it exactly as {@link refreshBoundPod}'s does, and
+	 * for the same reason: a reply from a session this handle has already let
+	 * go says nothing about the guest it is bound to now. A late frame from a
+	 * retired transport would otherwise set the boot id back to the dead
+	 * pod's, announce a restart nobody had, and make the live pod's next
+	 * reply announce a second one.
+	 *
+	 * `from` — the bind token of the wire the reply arrived on — is the same
+	 * guard one level down, and a REBIND needs it because it does not retire
+	 * the session: it swaps the pod under a session that goes on. The
+	 * transport keeps no lock on the wire it leaves, so the outgoing pod can
+	 * still answer a call dispatched to it (a `write-file` mid-flight, a pod
+	 * inside its termination grace period) after this handle has followed the
+	 * replacement. Taken as this session's, that reply would seed the
+	 * replacement's baseline with the DEPARTED pod's process — so
+	 * `workspace.identity`, and the `container-restarted` event the next real
+	 * reply then fires, would name a process that never ran in the pod beside
+	 * it. A pod the handle has left says nothing at all, which is exactly
+	 * what a retired session's reply says.
+	 */
+	const observeGuestReply = (
+		generation: number,
+		from: string | undefined,
+		reply: { readonly guestBootId?: string },
+	): void => {
+		if (generation !== sessionSeq) return
+		if (from !== podUid) return
+		const seen = reply.guestBootId
+		if (typeof seen !== 'string' || seen === '') return
+		if (guestBootId === undefined) {
+			guestBootId = seen
+			return
+		}
+		if (seen === guestBootId) return
+		// Both halves name the pod this reply came from, taken from the
+		// variable rather than from {@link identityNow}: the two guards above
+		// have already established that `podUid` IS the pod that answered,
+		// and an announcement about a guest must not be able to come out
+		// naming no guest at all.
+		const previous = identityOn(podUid, guestBootId)
+		guestBootId = seen
+		announceGuestRestart({
+			reason: 'container-restarted',
+			previous,
+			current: identityOn(podUid, seen),
+		})
+	}
 
 	/**
 	 * Let go of one terminal this handle handed out, on the way to giving the
@@ -3051,17 +3384,79 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// Already gone is the state DELETE was asking for, fenced or not.
 		await deleteSandboxObject(target, 'destroy', epoch, signal, gate)
 
+	/**
+	 * The last Sandbox object a readiness poll read, kept for the two facts
+	 * {@link bindingFromSandbox} does not carry: `metadata.uid` and the
+	 * `volumeClaimTemplates` entry names.
+	 *
+	 * Kept rather than re-read. Every bind already GETs this object, both
+	 * fields were in the reply and were being discarded, and asking for them
+	 * again would be a second GET of a thing already in hand — and a second
+	 * answer that could disagree with the one the bind acted on.
+	 */
+	let lastSandbox: SandboxResource | undefined
+
 	const readBinding = async (
 		pollSignal: AbortSignal,
-	): Promise<KubernetesSandboxBinding | undefined> =>
-		bindingFromSandbox(
-			await client.request<SandboxResource>(
-				'GET',
-				sandboxPath(namespace, name),
-				undefined,
-				pollSignal,
-			),
+	): Promise<KubernetesSandboxBinding | undefined> => {
+		const sandbox = await client.request<SandboxResource>(
+			'GET',
+			sandboxPath(namespace, name),
+			undefined,
+			pollSignal,
 		)
+		lastSandbox = sandbox
+		return bindingFromSandbox(sandbox)
+	}
+
+	/**
+	 * Read the uid of each `volumeClaimTemplates` entry's PVC, once per
+	 * handle, and never fail the workspace over it.
+	 *
+	 * The disk is the thing a workspace IS, and a host whose records say "id
+	 * X holds a month of work" needs to be able to tell that disk from a
+	 * different disk behind the same name. `sandboxUid` already catches the
+	 * ordinary case (delete and recreate takes the PVCs with it, because the
+	 * Sandbox owns them); this is what makes the claim checkable
+	 * independently, and what a host compares across processes.
+	 *
+	 * Best-effort ON PURPOSE. It needs `get` on `persistentvolumeclaims`,
+	 * which this release adds to the shipped Role and which no Role from an
+	 * earlier release has. A 403 here must cost a deployment nothing but this
+	 * one report — refusing to open a workspace because an OPTIONAL identity
+	 * field could not be read would turn a documentation change into an
+	 * outage.
+	 */
+	const readVolumeClaimUids = async (signal?: AbortSignal): Promise<void> => {
+		if (volumeClaimsRead) return
+		const entries = lastSandbox?.spec?.volumeClaimTemplates ?? []
+		const uids: Record<string, string> = {}
+		for (const entry of entries) {
+			const claimName = entry?.metadata?.name
+			if (typeof claimName !== 'string' || claimName === '') continue
+			try {
+				const claim = await client.request<{ metadata?: { uid?: string } }>(
+					'GET',
+					persistentVolumeClaimPath(namespace, name, claimName),
+					undefined,
+					signal,
+				)
+				const uid = claim?.metadata?.uid
+				if (typeof uid === 'string' && uid !== '') uids[claimName] = uid
+			} catch {
+				// See above: an unreadable PVC leaves the entry out and
+				// nothing else. `volumeClaimUids` says what could be read,
+				// never what was guessed.
+			}
+		}
+		// Both written only once the loop has finished, and in this order. The
+		// per-PVC `catch` above covers the request and nothing else, so an
+		// abort — or a claim name the path builder refuses — leaves through
+		// here; latching the flag on the way IN would have left the uids
+		// empty for the handle's life with no read left that could fill them.
+		volumeClaimUids = uids
+		volumeClaimsRead = true
+	}
 
 	/**
 	 * The budget ran out with no pod this handle was allowed to bind, worded
@@ -3239,38 +3634,127 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	}
 
 	/**
-	 * The re-read a `'pod-ip'` transport follows a replaced pod with, plus the
-	 * one thing the WORKSPACE has to do when it does.
+	 * The ONE re-read behind every rebind: the routine the transport runs
+	 * when a call failed in a way that proves it ran nothing in the guest.
 	 *
-	 * The transport adopts a refreshed handle whenever its token differs, and
-	 * that token is the new pod's uid — so `podUid` has to move with it. A
-	 * session that followed a pod and left `podUid` pointing at the old one
-	 * would have the next `suspend()` stamp `retiredPodUid` with a pod this
-	 * session had already stopped using, and the resume after that would
-	 * exclude the wrong uid and bind the pod the controller is taking away:
-	 * precisely the race `retiredPodUid` exists to prevent.
+	 * It serves both triggers and both address modes, and generalising it is
+	 * the whole of this workstream's transport change. `'pod-ip'` needed it
+	 * first, for a dial that could not connect because the address died with
+	 * its pod. The DEFAULT `'service'` mode needs it for the opposite
+	 * symptom: the Service FQDN outlives the pod and resolves to the
+	 * replacement, so the dial succeeds and the new agent refuses the old
+	 * pod's uid — a flat `unauthorized` that used to be the end of the
+	 * handle.
 	 *
-	 * Only the LIVE session writes, and `generation` is what says so:
-	 * {@link dropSession} bumps `sessionSeq` when a session goes as well as
-	 * when one arrives, so a transport whose session has been retired — a
-	 * terminal being reaped, a request that has not unwound — never matches
-	 * again. Letting one of those report a pod would recreate the same desync
-	 * from the other end.
+	 * What it decides, in order, and why each answer is the only safe one:
+	 *
+	 *  - **A different Sandbox uid, or no Sandbox at all** ⇒
+	 *    {@link KubernetesWorkspaceReplacedError}, and never a rebind. The
+	 *    name is deterministic, so this is a workspace somebody deleted and
+	 *    created again: an EMPTY disk behind a name whose records say
+	 *    otherwise. The transport rethrows this one rather than swallowing
+	 *    it, because it is a verdict about the object and not a failed
+	 *    diagnosis.
+	 *  - **Suspended** ⇒ the current handle, unchanged. There is no pod to
+	 *    bind and nothing here to say about it; the failing call's own
+	 *    {@link admitted} re-read is what turns this into a
+	 *    `KubernetesWorkspaceSuspendedError` naming the foreign suspend.
+	 *  - **Running, same uid, a live pod** ⇒ that pod's address and token.
+	 *    The transport installs it only if the token actually moved, so an
+	 *    unchanged pod leaves the caller's original error standing — a pod
+	 *    that is still there and still refusing is a guest problem, and
+	 *    replacing that error with a later one would hide it.
+	 *
+	 * `generation` is what serialises this with the transitions WITHOUT
+	 * taking their queue — which it must not, because the privilege probe
+	 * runs inside a transition and a rebind that waited on the queue would
+	 * deadlock the resume holding it. Every transition bumps `sessionSeq`
+	 * before it changes the pod ({@link dropSession}, and `startSession`
+	 * itself), so a re-read that lands after a suspend or a resume no longer
+	 * matches and writes nothing: the transport may still swap the handle of
+	 * a session nothing is using, which costs nobody anything, and the
+	 * handle's own `podUid` — which `retiredPodUid` is stamped from — is
+	 * never written by a session that has been retired.
 	 */
-	const followReplacedPod = (
+	const refreshBoundPod = (
 		binding: KubernetesSandboxBinding,
 		generation: number,
+		opened: KubernetesAgentAddress,
 	): ((signal?: AbortSignal) => Promise<KubernetesAgentAddress>) => {
-		const refresh = buildAgentAddressRefresh(
-			client,
-			namespace,
-			binding,
-			options.agentPort,
-			'pod-ip',
-		)
+		/**
+		 * What the transport is dialing right now, so "nothing changed" can
+		 * be said by handing back exactly that.
+		 *
+		 * It must be the CURRENT one and not the one this session opened
+		 * with: the transport rebinds whenever the token it is given differs
+		 * from the token it holds, so answering a later re-read with the
+		 * original address would drag a handle that has already followed a
+		 * replacement back onto the pod it left.
+		 */
+		let dialing = opened
 		return async (signal) => {
-			const next = await refresh(signal)
-			if (generation === sessionSeq) podUid = next.token
+			let sandbox: SandboxResource | undefined
+			try {
+				sandbox = await readSandboxObject(target, signal)
+			} catch (err) {
+				// A DELETE cascades to the disk, so a name with no object
+				// behind it is not "not yet" — it is the end of this
+				// workspace, and the one answer that must never be followed.
+				if (err instanceof KubernetesAlreadyGoneError) {
+					throw new KubernetesWorkspaceReplacedError(workspaceId, name, sandboxUid, undefined, {
+						cause: err,
+					})
+				}
+				throw err
+			}
+			const standing = sandbox?.metadata?.uid
+			// Read before anything else, and refused before anything else: a
+			// disk that is not this handle's disk is the one answer no retry
+			// and no rebind may follow.
+			if (sandbox === undefined || (sandboxUid !== undefined && standing !== sandboxUid)) {
+				throw new KubernetesWorkspaceReplacedError(workspaceId, name, sandboxUid, standing)
+			}
+			// Somebody else suspended it. There is no pod, and saying so here
+			// would be a worse error than the one `admitted` is about to
+			// produce, which names the suspension and what to do about it.
+			if (operatingModeOf(sandbox) === 'Suspended') return dialing
+			const refreshed = bindingFromSandbox(sandbox) ?? binding
+			const pod = await readBoundPod(client, namespace, refreshed, signal)
+			const next = resolveAgentAddress(refreshed, options.agentPort, pod.uid, {
+				mode: options.agentAddress,
+				...(pod.podIP !== undefined ? { podIP: pod.podIP } : {}),
+			})
+			dialing = next
+			if (generation === sessionSeq && pod.uid !== podUid) {
+				// The pod this handle was bound to a moment ago, and the last
+				// process heard from INSIDE it — read out of the variables
+				// this routine is holding rather than assembled from the
+				// handle's state. That is the whole difference on the one
+				// path this announcement matters most: a pod replaced during
+				// a RESUME is discovered by the privilege probe, which runs
+				// while `state` is still `'suspended'`, and an identity built
+				// from a state gate would announce a pod replacement while
+				// naming neither pod.
+				const previous = identityOn(podUid, guestBootId)
+				podUid = next.token
+				podSession = sessionSeq
+				// A new pod is a new agent process, and the boot id it will
+				// report is not the one the handle has been comparing
+				// against. Clearing it is what stops the first reply from the
+				// replacement being announced a second time as a container
+				// restart — and it is why `current.guestBootId` on the event
+				// below is `undefined`: the replacement has not answered yet,
+				// and naming a process nobody has heard from would be a
+				// guess. A listener reads `current.podUid` for what moved,
+				// and `workspace.identity` once its own call has returned for
+				// the process that answered from there.
+				guestBootId = undefined
+				announceGuestRestart({
+					reason: 'pod-replaced',
+					previous,
+					current: identityOn(next.token, undefined),
+				})
+			}
 			return next
 		}
 	}
@@ -3296,11 +3780,26 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// whose pod is being deleted.
 		const { binding, pod } = await acquireBoundPod(deadline, policy)
 		const token = pod.uid
+		// From the readiness GET the bind just made, not from a read of its
+		// own — see `lastSandbox`. Fixed for the handle's life: a later bind
+		// that found a DIFFERENT object would have been refused by
+		// `refreshBoundPod` long before it got here.
+		sandboxUid ??= lastSandbox?.metadata?.uid
 		// Recorded before the probe, not after: a probe that refuses suspends
 		// this pod, and the resume that follows has to know which pod it is
 		// waiting to see replaced.
 		podUid = token
+		// A new pod is a new agent process. Clearing it is what makes the
+		// caller's own suspend/resume silent: the first reply from the new
+		// guest establishes an identity rather than differing from the old
+		// one's.
+		guestBootId = undefined
 		sessionSeq += 1
+		// Written together with the counter, so that `podUid` belongs to THIS
+		// session for as long as this session is the live one — which is what
+		// {@link boundToPod} asks, and what makes a handle mid-resume report
+		// the pod it has just bound rather than nothing at all.
+		podSession = sessionSeq
 		const generation = sessionSeq
 		const address = resolveAgentAddress(binding, options.agentPort, token, {
 			mode: options.agentAddress,
@@ -3314,9 +3813,17 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// The backend opts in to the stream heartbeat; the transport
 			// option it sets stays undefined for every other tier.
 			heartbeatMs: options.streamHeartbeatMs,
-			...(options.agentAddress === 'pod-ip'
-				? { refreshHandle: followReplacedPod(binding, generation) }
-				: {}),
+			// Installed for BOTH address modes now. Under `'pod-ip'` it
+			// follows an address that died with its pod; under the default
+			// `'service'` mode the address is fine and the TOKEN is what
+			// moved — see {@link refreshBoundPod}.
+			refreshHandle: refreshBoundPod(binding, generation, address),
+			// And the one fact no address and no token can carry: which
+			// agent PROCESS answered. The two values beside it say whose
+			// answer it is — this session's, and this session's CURRENT pod's
+			// — because neither a retired session's transport nor the wire a
+			// rebind left behind stops answering when it stops counting.
+			onGuestReply: (reply, from) => observeGuestReply(generation, from, reply),
 		})
 		const inner = buildKubernetesSandbox({
 			name,
@@ -3342,6 +3849,10 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		// create — a resumed pod is a new pod, from a possibly re-pulled image,
 		// and "it was deprivileged last week" is not a check.
 		await probeSandboxPrivileges(inner, name, resolveProbeTimeoutMs(readiness.timeoutMs), signal)
+		// After the probe, so a workspace that is about to be refused never
+		// spends a round trip per volume on an identity nobody will read; and
+		// only once per handle, for the reason `readVolumeClaimUids` gives.
+		await readVolumeClaimUids(signal)
 		return inner
 	}
 
@@ -3349,7 +3860,7 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * Drop the live session, and with it the right of anything still holding
 	 * that session's transport to report a pod.
 	 *
-	 * The two happen together or the guard in {@link followReplacedPod} is a
+	 * The two happen together or the guard in {@link refreshBoundPod} is a
 	 * lie: a retired session's transport can still be unwinding a call, and a
 	 * re-read that lands after the drop would write `podUid` for a session
 	 * nothing is using — including in the window before a suspend stamps
@@ -3399,15 +3910,132 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		transport: KubernetesAgentTransport,
 		error: Error,
 	): Promise<SandboxRetirementObservation> => {
+		// The guest THIS command reserved against, kept per execution by the
+		// transport. Never the handle's own pod and process: a restart the
+		// handle survived an hour ago is not evidence about a command started
+		// after it, and a pod another call has ALREADY rebound to is not the
+		// pod this command's processes died with. Reading the handle would
+		// answer `container-restarted` for every later unconfirmed
+		// cancellation in the session and would name the replacement as the
+		// guest that died.
+		const reserved = guestWhenReserved(error)
+		const previous = identityWhenReserved(reserved)
 		const agent = await diagnoseAgent(transport)
+		const { evidence, current } = await diagnoseGuest(previous, reserved?.guestBootId)
+		// Recorded against the error itself, so the call that is about to
+		// receive it can name the diagnosis rather than repeat the work —
+		// see {@link admitted}. A WeakMap rather than a field on the error:
+		// the class belongs to the shared controller and this is one
+		// backend's evidence about it.
+		if (evidence !== 'same-guest' && evidence !== 'unknown') {
+			guestGoneEvidence.set(error, { evidence, previous, current })
+		}
 		try {
-			options.onCancellationUnconfirmed?.({ error, agent })
+			options.onCancellationUnconfirmed?.({ error, agent, guest: evidence, previous, current })
 		} catch {
 			// A host's callback is not allowed to change the error the caller
 			// is already receiving, and a throwing one must not become an
 			// unaccepted retirement carrying somebody else's failure.
 		}
 		return { accepted: false, reason: WORKSPACE_KEPT_REASON }
+	}
+
+	/**
+	 * Was the guest the command was running in replaced while it ran?
+	 *
+	 * This is the DIAGNOSIS half of the unconfirmed-cancellation rule, and it
+	 * is deliberately only that. Nothing here patches, deletes or suspends
+	 * anything — a `Suspended` patch cannot stop a command whose pod is
+	 * already gone, and sending one would take the replacement pod away from
+	 * every other holder. What the host gets instead is the evidence:
+	 * `healthz` (beside this, in {@link diagnoseAgent}) says whether SOME
+	 * agent is serving at that address; this says whether it is the same one.
+	 *
+	 * The boot id is asked first because it is free — it rode in on replies
+	 * the handle already received, the `cancel-execution` refusal included —
+	 * and because it is the only evidence for the case no API read can see: a
+	 * container restarted in place keeps the pod, the uid and the token, and
+	 * changes nothing an API server would report. `reservedIn` is the guest
+	 * THIS command reserved against, not the one this session opened on: the
+	 * question is whether the command's own guest went away, so a restart the
+	 * handle survived before the command started is not evidence about it.
+	 *
+	 * Bounded by its own short deadline and run WITHOUT the caller's signal,
+	 * for the reason {@link diagnoseAgent} gives: the caller's signal is
+	 * quite possibly what started the cancellation.
+	 *
+	 * Every failure answers `unknown`, never a guess. This evidence decides
+	 * whether the caller is told its guest is gone, and saying so on the
+	 * strength of one 500 on a pod GET would be worse than saying nothing.
+	 */
+	const diagnoseGuest = async (
+		previous: KubernetesWorkspaceIdentity,
+		reservedIn: string | undefined,
+	): Promise<{ evidence: KubernetesGuestEvidence; current: KubernetesWorkspaceIdentity }> => {
+		// A handle that is not RUNNING is inside a transition it asked for:
+		// the pod going away IS that transition, and a caller who typed
+		// `suspend()` under a command of their own is not being told their
+		// guest vanished. Only a handle that still believes it is running has
+		// a question here — which is the case the whole diagnosis is for.
+		if (state !== 'running') return { evidence: 'unknown', current: identityNow() }
+		const bound = previous.podUid
+		if (bound === undefined) return { evidence: 'unknown', current: identityNow() }
+		// The one piece of evidence that needs no API read: the handle has
+		// heard from a DIFFERENT agent process than the one this command
+		// reserved against. Computed here and CONSULTED below, after the pod
+		// read, because it cannot tell a container restarted in place from a
+		// pod another call rebound to — both leave the handle talking to a
+		// process the command never reserved against, and only the pod read
+		// says which happened. It is the answer when no read succeeds at all.
+		const restartedInPlace =
+			reservedIn !== undefined && guestBootId !== undefined && guestBootId !== reservedIn
+		try {
+			return await new OperationDeadline(
+				CANCELLATION_DIAGNOSIS_TIMEOUT_MS,
+				`kubernetes workspace ${name} guest diagnosis`,
+			).run(async (deadlineSignal) => {
+				const sandbox = await readSandboxObject(target, deadlineSignal)
+				// No object, or one somebody replaced: not this workspace any
+				// more, and not something to claim a verdict about here — the
+				// next call's rebind refuses it by name.
+				if (sandbox === undefined || sandbox.metadata?.uid !== previous.sandboxUid) {
+					return { evidence: 'unknown' as const, current: identityNow() }
+				}
+				// Somebody suspended it, so there is genuinely no pod — but
+				// naming the mode is #473's job and not this one's. The
+				// evidence is reported to the host's callback; the ERROR the
+				// caller receives is decided by {@link admitted}, which asks
+				// about a foreign suspend BEFORE it renames anything, so this
+				// answer never pre-empts `KubernetesWorkspaceSuspendedError`.
+				if (operatingModeOf(sandbox) === 'Suspended') {
+					return { evidence: 'pod-gone' as const, current: guestSeen(undefined) }
+				}
+				const binding = bindingFromSandbox(sandbox)
+				if (binding === undefined) {
+					return { evidence: 'pod-gone' as const, current: guestSeen(undefined) }
+				}
+				const pod = await readBoundPod(client, namespace, binding, deadlineSignal)
+				// A DIFFERENT pod outranks the boot id. Both say the command's
+				// guest is gone; only this one says where it went, and calling
+				// a replacement a restarted container would tell a host the
+				// address and the token still work when neither does.
+				if (pod.uid !== bound) {
+					return { evidence: 'pod-replaced' as const, current: guestSeen(pod.uid) }
+				}
+				if (restartedInPlace) {
+					return { evidence: 'container-restarted' as const, current: guestSeen(pod.uid) }
+				}
+				return { evidence: 'same-guest' as const, current: guestSeen(pod.uid) }
+			})
+		} catch {
+			// Including `readBoundPod`'s own refusal, which means "no live pod
+			// AND no pod its selector matched" but is also what an API server
+			// returning 500 produces. One error for two facts is not evidence
+			// — but a boot id that already moved is evidence of its own, and
+			// it was never the API server's to confirm.
+			if (restartedInPlace) return { evidence: 'container-restarted', current: identityNow() }
+			return { evidence: 'unknown', current: identityNow() }
+		}
 	}
 
 	/**
@@ -4027,6 +4655,14 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 	 * (which is quite possibly what aborted the call in the first place), and
 	 * a re-read that itself fails hands back the caller's own error rather
 	 * than replacing it with a second one about the API server.
+	 *
+	 * That question is asked BEFORE the unconfirmed-cancellation diagnosis is
+	 * turned into an error, and the order is load-bearing. A foreign suspend
+	 * takes the pod away, so it looks exactly like a gone guest and produces
+	 * that diagnosis too — but only one of the two answers lets the caller
+	 * recover: `KubernetesWorkspaceSuspendedError` says what happened and
+	 * leaves the handle suspended, so `resume()` brings a pod back. The
+	 * diagnosis is the answer for a workspace that is still Running.
 	 */
 	const admitted = async <T>(
 		operation: string,
@@ -4036,17 +4672,52 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 		try {
 			return await run(current)
 		} catch (err) {
-			if (state !== 'running') throw err
-			let suspended = false
-			try {
-				suspended = await noticeSuspendedElsewhere()
-			} catch {
-				throw err
+			// The diagnosis, if one was taken — read here and ACTED ON last.
+			// A foreign suspend is also a gone guest, and it is the answer
+			// that outranks: #473 promises a caller that somebody else
+			// suspended the workspace hears it by name, and that the handle
+			// adopts the suspension so `resume()` works. Renaming first would
+			// leave the handle marked running with no pod, `suspended` false
+			// and `resume()` a silent no-op. So the suspend question is asked
+			// first, and this is the answer when it comes back `false`.
+			const diagnosis = err instanceof Error ? guestGoneEvidence.get(err) : undefined
+			if (diagnosis !== undefined && err instanceof Error) guestGoneEvidence.delete(err)
+			if (state === 'running') {
+				let suspended = false
+				try {
+					suspended = await noticeSuspendedElsewhere()
+				} catch {
+					// A re-read that itself fails is not a better error than
+					// the one the caller is already holding: fall through and
+					// give them that, named if a diagnosis was taken.
+					suspended = false
+				}
+				if (suspended) {
+					throw new KubernetesWorkspaceSuspendedError(operation, workspaceId, name, 'transport', {
+						cause: err,
+					})
+				}
 			}
-			if (!suspended) throw err
-			throw new KubernetesWorkspaceSuspendedError(operation, workspaceId, name, 'transport', {
-				cause: err,
-			})
+			// An unconfirmed cancellation whose guest is demonstrably gone
+			// leaves as an error that SAYS so and carries both identities. It
+			// is a subclass of the error it replaces, so nothing that catches
+			// the base class stops catching it, and the rule is unchanged —
+			// the outcome is still unknown and still must not be retried.
+			// Nothing was patched to get here and nothing is patched on the
+			// way out.
+			if (diagnosis !== undefined) {
+				const named = new KubernetesWorkspaceGuestGoneError(
+					workspaceId,
+					name,
+					diagnosis.evidence,
+					diagnosis.previous,
+					diagnosis.current,
+					{ cause: err },
+				)
+				if (err instanceof RemoteCancellationUnknownError) named.retirement = err.retirement
+				throw named
+			}
+			throw err
 		}
 	}
 
@@ -4232,6 +4903,15 @@ async function openWorkspaceHandle(options: WorkspaceHandleOptions): Promise<Kub
 			// nothing to refresh on exactly the workspaces created before
 			// anything recorded what they were built from.
 			return templateRevision !== undefined && templateRevision === currentTemplateHash
+		},
+		get identity(): KubernetesWorkspaceIdentity {
+			return identityNow()
+		},
+		onGuestRestart(listener: (event: KubernetesGuestRestart) => void): () => void {
+			restartListeners.add(listener)
+			return () => {
+				restartListeners.delete(listener)
+			}
 		},
 		get status(): SandboxStatus {
 			// A suspended workspace reports 'destroyed' because that is the only

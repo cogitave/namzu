@@ -253,7 +253,15 @@ async function writeSecret(token?: string): Promise<void> {
 			encoding: 'base64',
 		},
 	})
-	expect(written.reply).toEqual({ ok: true, bytesWritten: 17 })
+	expect(written.reply).toEqual({
+		ok: true,
+		// Additive and optional, on every authenticated reply — see the
+		// agent's `guest-boot-id` feature. It names the agent PROCESS, so a
+		// host can tell a container restarted in place from one that has
+		// been serving all along.
+		guestBootId: expect.any(String),
+		bytesWritten: 17,
+	})
 }
 
 describe('preset per-instance token', () => {
@@ -609,7 +617,11 @@ describe('bounds on an unauthenticated connection', () => {
 			},
 		})
 
-		expect(written.reply).toEqual({ ok: true, bytesWritten: body.length })
+		expect(written.reply).toEqual({
+			ok: true,
+			guestBootId: expect.any(String),
+			bytesWritten: body.length,
+		})
 	})
 
 	// And the ceiling itself, pinned with the cap turned down so the case
@@ -834,7 +846,11 @@ describe('bounds with neither variable set (the Firecracker vsock and unix path)
 			},
 		})
 
-		expect(written.reply).toEqual({ ok: true, bytesWritten: body.length })
+		expect(written.reply).toEqual({
+			ok: true,
+			guestBootId: expect.any(String),
+			bytesWritten: body.length,
+		})
 	})
 
 	// The global ceiling is not a token-mode bound: the 8-hex prefix lets

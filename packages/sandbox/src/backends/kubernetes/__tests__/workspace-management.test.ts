@@ -429,7 +429,21 @@ describe('a suspend performed by another process', () => {
 		expect(held.status).toBe('ready')
 	}, 20_000)
 
-	it('re-reads the object once per failed call and never on one that worked', async () => {
+	it('re-reads the object a fixed number of times per failed call, and never on one that worked', async () => {
+		// TWO reads per refused call, and the count is the point: a call that
+		// SUCCEEDS costs none, and a call that fails costs a bounded, fixed
+		// number rather than a retry loop.
+		//
+		//  - the rebind's, which asks whether the guest refused because the
+		//    pod was replaced underneath this handle. Here it was not — the
+		//    fixture changed the guest's token without changing the pod — so
+		//    nothing is rebound and the original refusal stands;
+		//  - the suspended-elsewhere diagnosis, which asks whether the object
+		//    was suspended out from under this handle.
+		//
+		// They are different questions and neither can answer the other: the
+		// first reads the POD behind the object, the second reads the
+		// object's own `spec.operatingMode`.
 		const held = await openWorkspace()
 		if (!server) throw new Error('fixtures not started')
 		const reads = () => server?.matching('GET', `/sandboxes/${WORKSPACE_NAME}`).length ?? 0
@@ -440,9 +454,9 @@ describe('a suspend performed by another process', () => {
 
 		agent?.setToken('somebody-elses-pod')
 		await held.exec('true').catch(() => undefined)
-		expect(reads()).toBe(afterSuccess + 1)
-		await held.exec('true').catch(() => undefined)
 		expect(reads()).toBe(afterSuccess + 2)
+		await held.exec('true').catch(() => undefined)
+		expect(reads()).toBe(afterSuccess + 4)
 	}, 20_000)
 })
 

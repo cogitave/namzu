@@ -298,6 +298,11 @@ describe('rbac.yaml', () => {
 		expect(byResource.get('sandboxtemplates')).toEqual(new Set(['get']))
 		expect(byResource.get('sandboxwarmpools')).toEqual(new Set(['get']))
 		expect(byResource.get('pods')).toEqual(new Set(['get', 'list']))
+		// `get` and nothing more: a workspace handle reads each of its PVCs
+		// once, by the name the controller gives it, to report the disk's uid
+		// as part of its identity. Never listed — a host that had to
+		// enumerate PVCs would be reading other workspaces' disks.
+		expect(byResource.get('persistentvolumeclaims')).toEqual(new Set(['get']))
 		// `get` is the egress NAMED-object check's (one object, by name);
 		// `list` is what both enumerating checks need — ingress coverage of the
 		// agent port, and the egress union — because a name proves existence
@@ -317,6 +322,17 @@ describe('rbac.yaml', () => {
 			expect(rule, `no rule grants ${resource}`).toBeDefined()
 			expect(rule?.verbs, `${resource} is not listable`).toContain('list')
 		}
+	})
+
+	it('grants get on persistentvolumeclaims in the core apiGroup', () => {
+		// The core group, because that is where PVCs live, and separately from
+		// the pods rule so the verb sets cannot drift into each other: a `list`
+		// added to pods must never silently become a `list` on disks.
+		const rules = role.rules as Record<string, unknown>[]
+		const rule = rules.find((r) => (r.resources as string[]).includes('persistentvolumeclaims'))
+		expect(rule, 'no rule grants persistentvolumeclaims').toBeDefined()
+		expect(rule?.apiGroups).toEqual([''])
+		expect(rule?.verbs).toEqual(['get'])
 	})
 
 	it('grants get AND list on ciliumnetworkpolicies in the cilium.io apiGroup, for engine: "cilium"', () => {

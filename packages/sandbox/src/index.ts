@@ -408,6 +408,28 @@ export type {
 	KubernetesWorkspaceSuspensionNotice,
 	KubernetesWorkspaceTransitionOptions,
 } from './backends/kubernetes/workspace.js'
+// What a workspace handle is bound to, what it says when the guest behind it
+// is replaced, and the two errors that identity produces. A host that keeps
+// per-workspace state — which processes it started, what is on the disk —
+// subscribes to `onGuestRestart` and compares `identity`; both are useless to
+// a host that cannot name their types.
+export type {
+	KubernetesGuestEvidence,
+	KubernetesGuestRestart,
+	KubernetesGuestRestartReason,
+	KubernetesWorkspaceIdentity,
+} from './backends/kubernetes/identity.js'
+export {
+	// The command's outcome is unknown AND the guest it ran in is gone. A
+	// subclass of `RemoteCancellationUnknownError`, so a host catching the
+	// base class keeps catching it; what it adds is which guest the command
+	// started on and which one is there now.
+	KubernetesWorkspaceGuestGoneError,
+	// A different Sandbox now stands under the workspace's deterministic
+	// name, or none does. The handle refuses rather than following it — the
+	// disk behind the name is not the disk it was opened on.
+	KubernetesWorkspaceReplacedError,
+} from './backends/kubernetes/identity.js'
 export {
 	KubernetesWorkspaceDiskError,
 	KubernetesWorkspaceMismatchError,

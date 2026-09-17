@@ -79,6 +79,7 @@ import {
 	type AttachSessionRequest,
 	type ExecRequest,
 	ExecResultAccumulator,
+	type GuestReplyIdentity,
 	type KillSessionRequest,
 	MIN_STREAM_HEARTBEAT_MS,
 	type QuiesceRequest,
@@ -305,6 +306,24 @@ export interface VsockTransportOptions {
 	 * vsock/mtls/unix arms are free to ignore it.
 	 */
 	readonly onDialAttempt?: () => void
+	/**
+	 * Fires once for every reply this transport reads that the guest
+	 * answered on an AUTHENTICATED basis — one control/file reply per
+	 * `request`, and the opening `ready` frame of a terminal, a session
+	 * attachment or a TCP stream.
+	 *
+	 * It carries the reply itself, read only for the optional identity
+	 * fields `protocol.ts` documents ({@link GUEST_BOOT_ID_FEATURE}), and it
+	 * is an OBSERVER: it cannot change the reply, it is called after the
+	 * reply has been accepted, and a listener that throws is that listener's
+	 * problem — never the caller's, whose result is already decided.
+	 *
+	 * Absent by default, which is what keeps this shared transport's
+	 * behaviour identical for the Firecracker tier. The kubernetes backend
+	 * sets it to follow the guest PROCESS behind a handle whose pod uid — its
+	 * bind token — cannot change when the container is restarted in place.
+	 */
+	readonly onGuestReply?: (reply: GuestReplyIdentity) => void
 	/**
 	 * The largest `writeFile` body this transport will accept, in raw
 	 * bytes. Default {@link DEFAULT_MAX_WRITE_FILE_BYTES} (1 GiB).
@@ -696,6 +715,7 @@ export class VsockAgentTransport {
 	private readonly heartbeatMs?: number
 	private readonly onDial?: (durationMs: number) => void
 	private readonly onDialAttempt?: () => void
+	private readonly onGuestReply?: (reply: GuestReplyIdentity) => void
 	private readonly maxWriteFileBytes: number
 	private readonly writeFilePartBytes?: number
 	/**
@@ -723,6 +743,7 @@ export class VsockAgentTransport {
 		}
 		this.onDial = options.onDial
 		this.onDialAttempt = options.onDialAttempt
+		this.onGuestReply = options.onGuestReply
 		this.maxWriteFileBytes = options.maxWriteFileBytes ?? DEFAULT_MAX_WRITE_FILE_BYTES
 		if (options.writeFilePartBytes !== undefined) {
 			this.writeFilePartBytes = Math.max(1, Math.floor(options.writeFilePartBytes))
@@ -1044,6 +1065,26 @@ export class VsockAgentTransport {
 	}
 
 	/**
+	 * Hand one accepted reply to {@link VsockTransportOptions.onGuestReply},
+	 * and never let the listener's failure reach the caller.
+	 *
+	 * The caller's result is already decided by the time this runs — the
+	 * reply parsed, the frame accounted for — so a hook that throws must not
+	 * turn a successful read into a failed one. Swallowing is the only
+	 * behaviour that keeps an optional observer optional.
+	 */
+	private observeGuestReply(reply: unknown): void {
+		const observe = this.onGuestReply
+		if (observe === undefined) return
+		if (reply === null || typeof reply !== 'object') return
+		try {
+			observe(reply as GuestReplyIdentity)
+		} catch {
+			// See above: an observer cannot fail an operation.
+		}
+	}
+
+	/**
 	 * Send one framed request and read one framed JSON reply (file-IO +
 	 * healthz). Applies the read-idle timeout so a post-resume hung read
 	 * is torn down rather than wedging the caller.
@@ -1093,6 +1134,7 @@ export class VsockAgentTransport {
 				if (first !== undefined) {
 					try {
 						response = JSON.parse(first) as T
+						this.observeGuestReply(response)
 						if (reader.bufferedBytes > 0) {
 							finish(new Error('vsock transport: control reply has trailing partial data'))
 							return
@@ -2335,6 +2377,7 @@ export class VsockAgentTransport {
 						if (!ready) {
 							ready = true
 							readyEvent = event
+							this.observeGuestReply(event)
 							if (typeof event.nextOffset === 'number') nextOffset = event.nextOffset
 							// Once ready, an interactive shell may legitimately sit silent
 							// for hours. Runtime/session TTL owns idle cleanup; a transport
@@ -2551,6 +2594,7 @@ export class VsockAgentTransport {
 					if (event.type === 'ready') {
 						if (!ready) {
 							ready = true
+							this.observeGuestReply(event)
 							idle.clear()
 							const beat = negotiatedHeartbeatMs(askedHeartbeatMs, event.heartbeatMs)
 							if (beat !== undefined) {

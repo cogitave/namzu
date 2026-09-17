@@ -326,6 +326,12 @@ export type TerminalOutputEvent =
 export interface TerminalReadyEvent {
 	readonly type: 'ready'
 	readonly heartbeatMs?: number
+	/**
+	 * The guest agent PROCESS this stream reached — see
+	 * {@link GUEST_BOOT_ID_FEATURE}. Absent from a guest that predates it, so
+	 * nothing may require it.
+	 */
+	readonly guestBootId?: string
 	readonly sessionId?: string
 	readonly kind?: SessionKind
 	readonly state?: SessionState
@@ -356,6 +362,32 @@ export interface TerminalReadyEvent {
  * nobody.
  */
 export const SESSIONS_FEATURE = 'sessions'
+
+/**
+ * `healthz.features` entry: every authenticated reply and every stream
+ * `ready` frame carries a `guestBootId` naming the agent PROCESS that
+ * answered.
+ *
+ * The field is optional on every shape that carries it and a host must treat
+ * an absent one as "this guest cannot tell me" rather than as a change — an
+ * image built before this existed answers exactly as it always did. The
+ * feature string is here for the one host that wants to REQUIRE the evidence
+ * (a Kubernetes workspace deciding whether a command's guest is still the
+ * one it started on) and needs to know before it relies on it.
+ */
+export const GUEST_BOOT_ID_FEATURE = 'guest-boot-id'
+
+/**
+ * The identity fields an authenticated reply may carry, and the whole of
+ * what an observer of one is allowed to read.
+ *
+ * Deliberately not the reply itself: an observer exists to follow the GUEST,
+ * and widening it to the payload would make every reply's content reachable
+ * from a hook whose job is a single opaque id.
+ */
+export interface GuestReplyIdentity {
+	readonly guestBootId?: string
+}
 
 /** A PTY, or a program started with no terminal at all. */
 export type SessionKind = 'terminal' | 'detached'
@@ -492,7 +524,7 @@ export type TcpInputEvent =
 	| StreamHeartbeat
 
 export type TcpOutputEvent =
-	| { readonly type: 'ready'; readonly heartbeatMs?: number }
+	| { readonly type: 'ready'; readonly heartbeatMs?: number; readonly guestBootId?: string }
 	| { readonly type: 'data'; readonly data: string }
 	| { readonly type: 'end' }
 	| { readonly type: 'error'; readonly error: string }

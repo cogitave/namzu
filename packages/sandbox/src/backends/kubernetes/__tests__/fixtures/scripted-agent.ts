@@ -114,6 +114,17 @@ export interface ScriptedAgentOptions {
 	 * unobservable.
 	 */
 	readonly quiesceDelayMs?: number
+	/**
+	 * The `guestBootId` every authenticated reply and every stream `ready`
+	 * frame carries.
+	 *
+	 * Omitted by default, which is a guest built before the field existed:
+	 * the host must then report the boot id as `undefined` and go on working,
+	 * which is the interop half of the contract. A case that needs a
+	 * container RESTART moves it with {@link ScriptedAgent.setGuestBootId} —
+	 * the pod, and therefore the token, staying exactly as it was.
+	 */
+	readonly guestBootId?: string
 }
 
 /** One accepted connection: where the client aimed it. */
@@ -137,6 +148,14 @@ export interface ScriptedAgent {
 	 * the real one.
 	 */
 	setToken(token: string | undefined): void
+	/**
+	 * Become a different agent PROCESS inside the SAME pod: the token and the
+	 * address are untouched, so every call keeps working and only the boot id
+	 * on the replies says the guest changed. That is what the kubelet
+	 * restarting a container in place looks like from the host, and nothing
+	 * in the Kubernetes API reports it.
+	 */
+	setGuestBootId(guestBootId: string | undefined): void
 	/**
 	 * Change the canned stdout every later `execute` replies with.
 	 *
@@ -209,6 +228,28 @@ export interface ScriptedAgent {
 	 * of its own, and none of them is "this agent has retired".
 	 */
 	setHealthzRefusal(error: string | undefined): void
+	/**
+	 * Hold every token REFUSAL for this long before sending it.
+	 *
+	 * A replacement pod refuses each call it is given the old pod's uid for,
+	 * and nothing says those refusals arrive in the order the calls left, or
+	 * faster than the host can re-read the Sandbox. A slow one is how a case
+	 * reaches the interleaving where another call's rebind has ALREADY
+	 * installed the replacement's token by the time this refusal lands.
+	 */
+	setUnauthorizedDelayMs(ms: number): void
+	/**
+	 * Hold every FILE answer — `read-file`, `write-file` — for this long
+	 * before sending it, with the reply built when the request ARRIVED.
+	 *
+	 * The mirror image of {@link setUnauthorizedDelayMs}, and the only way a
+	 * case can reach the pod replacement's other interleaving: a call the
+	 * OUTGOING pod accepted and is still working on when the handle follows
+	 * its replacement. Real bodies take real time, a rebind closes no socket,
+	 * and a pod inside its termination grace period goes on answering — so
+	 * that reply lands carrying the identity of the pod the host has left.
+	 */
+	setReplyDelayMs(ms: number): void
 	close(): Promise<void>
 }
 
@@ -250,14 +291,45 @@ export async function startScriptedAgent(
 	let retiring = false
 	let unreachable = false
 	let executeHangs = false
+	let guestBootId = options.guestBootId
+	/** The optional identity fields, spread into every authenticated reply. */
+	const identity = (): Record<string, string> => (guestBootId === undefined ? {} : { guestBootId })
 	let healthzRefusal: string | undefined
+	let unauthorizedDelayMs = 0
+	let replyDelayMs = 0
 	const open = new Set<Socket>()
+	/**
+	 * Send one single-shot answer and close the connection, after
+	 * {@link ScriptedAgent.setReplyDelayMs}.
+	 *
+	 * The payload is the caller's, built at ARRIVAL: a delayed answer
+	 * carries the token and the boot id this agent had when the request
+	 * landed, not the ones it has when the frame finally goes out. That is
+	 * what a reply from a pod the host has since left actually looks like.
+	 */
+	const answer = (socket: Socket, value: unknown): void => {
+		const flush = () => {
+			if (socket.destroyed) return
+			send(socket, value)
+			socket.end()
+		}
+		if (replyDelayMs > 0) setTimeout(flush, replyDelayMs).unref?.()
+		else flush()
+	}
 
 	const server: Server = createServer((socket) => {
 		connections.push({ localAddress: socket.localAddress ?? '' })
 		open.add(socket)
 		socket.on('close', () => open.delete(socket))
 		const reader = new __framing.FrameReader()
+		/**
+		 * Once a `terminal` or `tcp-connect` has been answered, every later
+		 * frame on THIS connection is a stream event rather than a request —
+		 * the host writes `input`, `kill`, `resize`, `end`, `destroy` down
+		 * the same socket. Parsing those as ops would answer a keystroke with
+		 * `unknown_op` and take the stream down mid-case.
+		 */
+		let streaming: 'terminal' | 'tcp' | undefined
 		socket.on('error', () => {
 			// A caller that destroys its socket mid-reply is normal here; the
 			// real agent tolerates it too.
@@ -270,6 +342,20 @@ export async function startScriptedAgent(
 			for (const payload of reader.push(chunk)) {
 				if (payload.length === 0) continue
 				const request = JSON.parse(payload) as Record<string, unknown>
+				if (streaming !== undefined) {
+					// The only event a case needs answered: a host reaping a
+					// terminal waits on `exited`, and the real agent's PTY
+					// reports the exit rather than leaving the host on its
+					// five-second kill grace.
+					if (streaming === 'terminal' && request.type === 'kill') {
+						send(socket, { type: 'exit', exitCode: 0 })
+						socket.end()
+					}
+					if (streaming === 'tcp' && (request.type === 'end' || request.type === 'destroy')) {
+						socket.end()
+					}
+					continue
+				}
 				requests.push(request)
 				const op = request.op
 				if (op === 'healthz' && healthzRefusal !== undefined) {
@@ -295,8 +381,16 @@ export async function startScriptedAgent(
 					continue
 				}
 				if (token !== undefined && request.token !== token) {
-					send(socket, UNAUTHORIZED)
-					socket.end()
+					if (unauthorizedDelayMs > 0) {
+						setTimeout(() => {
+							if (socket.destroyed) return
+							send(socket, UNAUTHORIZED)
+							socket.end()
+						}, unauthorizedDelayMs).unref?.()
+					} else {
+						send(socket, UNAUTHORIZED)
+						socket.end()
+					}
 					continue
 				}
 				// `dispatch`'s own gate: `cancel-execution` goes through a
@@ -310,6 +404,7 @@ export async function startScriptedAgent(
 				if (op === 'reserve-execution') {
 					send(socket, {
 						ok: true,
+						...identity(),
 						protocolVersion: 2,
 						// The controller validates this against a v4-UUID shape.
 						executionId: `exec_${randomUUID()}`,
@@ -326,7 +421,7 @@ export async function startScriptedAgent(
 						// reaches `ensureTermination`, so `retireAgent` is not
 						// called and no fence goes up — the host is left with an
 						// unconfirmed cancellation and a perfectly healthy agent.
-						send(socket, { ok: false, error: 'unknown_execution' })
+						send(socket, { ok: false, ...identity(), error: 'unknown_execution' })
 						socket.end()
 						continue
 					}
@@ -337,11 +432,14 @@ export async function startScriptedAgent(
 						// the real agent FENCES itself on exactly this answer, so
 						// the fixture does too.
 						retiring = true
-						send(socket, { ok: false, error: 'cancellation_unconfirmed' })
+						send(socket, { ok: false, ...identity(), error: 'cancellation_unconfirmed' })
 						socket.end()
 						continue
 					}
-					send(socket, options.cancelReply ?? { ok: true, state: 'cancelled', started: false })
+					send(
+						socket,
+						options.cancelReply ?? { ok: true, ...identity(), state: 'cancelled', started: false },
+					)
 					socket.end()
 					continue
 				}
@@ -383,20 +481,39 @@ export async function startScriptedAgent(
 					continue
 				}
 				if (op === 'write-file') {
-					send(socket, { ok: true })
-					socket.end()
+					answer(socket, { ok: true, ...identity() })
+					continue
+				}
+				// A connection-bound PTY, reduced to its handshake: the host's
+				// terminal resolves on `ready` and ends on `exit`, and those
+				// two frames are the whole of what an identity/rebind case
+				// needs from a terminal. No pty, no shell — see the file
+				// comment.
+				if (op === 'terminal') {
+					streaming = 'terminal'
+					send(socket, { type: 'ready', ...identity() })
+					continue
+				}
+				// And the TCP stream's handshake, for the same reason: a host
+				// that got `ready` has an open connection, which is what a
+				// rebind case is asserting reached the replacement pod.
+				if (op === 'tcp-connect') {
+					streaming = 'tcp'
+					send(socket, { type: 'ready', ...identity() })
 					continue
 				}
 				if (op === 'read-file') {
 					if (options.readFileError !== undefined) {
-						send(socket, { ok: false, error: options.readFileError })
-						socket.end()
+						answer(socket, { ok: false, error: options.readFileError })
 						continue
 					}
 					const file = options.readFileContent
 					if (file === undefined) {
-						send(socket, { ok: true, content: Buffer.from('').toString('base64') })
-						socket.end()
+						answer(socket, {
+							ok: true,
+							...identity(),
+							content: Buffer.from('').toString('base64'),
+						})
 						continue
 					}
 					const range = (request.body ?? {}) as { offset?: number; length?: number }
@@ -405,8 +522,9 @@ export async function startScriptedAgent(
 					const slice = whole
 						? file
 						: file.subarray(from, range.length === undefined ? undefined : from + range.length)
-					send(socket, {
+					answer(socket, {
 						ok: true,
+						...identity(),
 						content: slice.toString('base64'),
 						// The WHOLE file, in both shapes — it is how a ranged
 						// caller knows where the file ends.
@@ -414,7 +532,6 @@ export async function startScriptedAgent(
 						encoding: 'base64',
 						...(whole ? {} : { offset: from, bytesRead: slice.length }),
 					})
-					socket.end()
 					continue
 				}
 				if (op === 'read-file-stream') {
@@ -467,6 +584,9 @@ export async function startScriptedAgent(
 			token = next
 			retiring = false
 		},
+		setGuestBootId: (next) => {
+			guestBootId = next
+		},
 		setStdout: (next) => {
 			stdout = next
 		},
@@ -481,6 +601,12 @@ export async function startScriptedAgent(
 		},
 		setHealthzRefusal: (next) => {
 			healthzRefusal = next
+		},
+		setUnauthorizedDelayMs: (next) => {
+			unauthorizedDelayMs = next
+		},
+		setReplyDelayMs: (next) => {
+			replyDelayMs = next
 		},
 		setUnreachable: (next) => {
 			unreachable = next

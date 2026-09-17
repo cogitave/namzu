@@ -1408,6 +1408,34 @@ the part that can outlive its host.
 into, not what state the workspace is in now, which is what `suspended` is
 for; a later `suspend()`/`resume()` cycle does not rewrite it.
 
+**`identity` says what the handle is bound to**, which is the question
+`origin` cannot answer twice. A name is deterministic, so "workspace
+`acme-checkout-7`" is not a fact about an object — it is a fact about a
+string, and the object behind it can have been deleted and created again since
+this host last wrote its records.
+
+| Field | What it names | When it moves |
+|---|---|---|
+| `sandboxUid` | The `Sandbox` object — and therefore the disk behind it | Never, for the life of a handle: a handle whose object was replaced [refuses rather than following it](#a-handle-follows-a-replaced-pod-and-says-so) |
+| `volumeClaimUids` | Each `volumeClaimTemplates` entry's PVC, keyed by the entry's name | Never, for the same reason — the PVCs belong to the `Sandbox` |
+| `podUid` | The live pod, which is also the agent's [bind token](#the-agent-credential) | Across a `suspend()`/`resume()`, and across a pod the handle rebound to. `undefined` only while the handle holds no pod — a suspended or destroyed workspace — and NOT for the length of a transition: a resume names its pod from the moment it binds it |
+| `guestBootId` | The agent PROCESS inside that pod | When the kubelet restarts the container in place. `undefined` wherever `podUid` is, until the pod it names has answered once, and against a guest that does not report one |
+
+The first two answer "is the work I did still there"; the last two answer "are
+the processes I started still there". They move independently, and each moving
+means something different.
+
+`volumeClaimUids` needs `get` on `persistentvolumeclaims` in the [Role](#rbac),
+which this release adds to the shipped one. A Role without it is not an error:
+the map is left empty, every other field is reported, and nothing else about
+the workspace changes. `sandboxUid` is read from the readiness `GET` the bind
+already makes, so it costs nothing at all.
+
+`guestBootId` needs a guest that advertises `guest-boot-id` in its `healthz`
+features. An older image reports `undefined`, which means "this guest cannot
+tell me" and never "it changed" — a host holding the new code against an old
+image loses the container-restart signal and keeps everything else.
+
 ### The disk is fixed at creation, and must be `Block`
 
 `Sandbox.spec.volumeClaimTemplates` is CEL-immutable ("volumeClaimTemplates is
@@ -1517,6 +1545,106 @@ before and after — the pod behind it, and the token, are what changed. Under
 and is re-read from the same `GET` the new token comes from. The handle
 re-resolves either way; an operator debugging a resume should expect the token
 to be new, the FQDN not to be, and a pod IP to be.
+
+### A handle follows a replaced pod, and says so
+
+`resume()` is not the only thing that replaces a pod. An eviction, a node
+drain, a `suspend()` another process typed, or the controller reconciling one
+away all put a NEW pod under the same name while the `Sandbox` stays `Running`
+— and the new pod has a new uid, which is the agent's bind token.
+
+Under the default `agentAddress: 'service'` nothing about that failure looks
+like a pod problem. The Service outlives the pod and goes on resolving, so the
+dial SUCCEEDS against the replacement and the guest refuses the request,
+because the handle is presenting the retired pod's uid. Every call on the
+handle met that refusal and nothing recovered from it.
+
+**A refused call now re-reads the object once and, if it is safe, follows the
+pod.** The re-read is the same routine a `'pod-ip'` handle already used for a
+dial that could not connect; what changed is that a response-level refusal
+reaches it too, under both address modes. What it decides:
+
+| What the re-read finds | What happens |
+|---|---|
+| `Running`, the same `sandboxUid`, a live pod with a DIFFERENT uid | The handle takes the new address and token, fires `onGuestRestart` with `reason: 'pod-replaced'`, and retries the refused call **once** |
+| `Running`, the same `sandboxUid`, the same pod uid | Nothing. The pod is still there and still refusing, which is a guest problem; the original error stands |
+| `Suspended` | Nothing here. The [suspended-elsewhere re-read](#a-handle-notices-a-suspend-it-did-not-perform) names it and tells the caller to `resume()` |
+| A DIFFERENT `sandboxUid`, or no `Sandbox` at all | `KubernetesWorkspaceReplacedError`, carrying both uids or naming the deletion. **Never** a rebind |
+
+The retry is safe for exactly one reason: the guest checks the token **before**
+`dispatch`, so a refused request ran nothing at all — no half-applied write, no
+reserved execution. That is also why exactly one retry is attempted and no
+more.
+
+The last row is the one worth reading twice. The workspace name is
+deterministic, so an object somebody deleted and created again stands under it
+with an **empty** disk. Following a pod behind a different `sandboxUid` would
+hand the caller a stranger's workspace while its records still said the old
+one's work was on it, so the handle refuses instead, and stays refused: open a
+new handle and decide what the new disk is worth.
+
+A rebind sends **no** patch and deletes nothing. Concurrent refused calls share
+one re-read rather than each making their own, and the re-read never takes the
+transition lock, so a refusal inside a `resume()`'s own privilege probe cannot
+deadlock the resume holding it.
+
+**The other half: a container the kubelet restarted in place.** If the agent
+exits, the container exits, and the default `restartPolicy: Always` brings it
+back up **inside the same pod**. The uid does not move, so the token still
+works and every call still succeeds — while every process the caller started
+is gone. Nothing in the Kubernetes API reports this; the pod object is
+unchanged. So the agent stamps a `guestBootId` on the replies it was already
+sending (`reserve-execution`, `cancel-execution` including its
+`unknown_execution` refusal, `read-file`, `write-file`, and the terminal and
+TCP `ready` frames), and a value that differs from the one the handle has been
+seeing is exactly that restart.
+
+```ts
+import type { KubernetesWorkspace } from '@namzu/sandbox'
+
+function trackGuest(workspace: KubernetesWorkspace): () => void {
+  return workspace.onGuestRestart((event) => {
+    // `pod-replaced` or `container-restarted` — either way every process
+    // this host started in that guest is gone, and the disk is not.
+    console.warn(event.reason, event.previous.podUid, event.current.podUid)
+  })
+}
+```
+
+`onGuestRestart` is not a nicety. A handle that follows a replaced pod keeps
+**working**, which is what a caller wants, and it cannot keep the caller's
+guest state, which is what a caller must not assume. A host that remembers
+what it started — a dev server, a watcher, a shell — subscribes, or it goes on
+believing in processes that no longer exist while every call succeeds.
+
+It does **not** fire across the caller's own `suspend()`/`resume()`. That pod
+change was asked for, and a host that issued it already knows its processes are
+gone; announcing it would train callers to ignore the event that matters. The
+one exception is a pod somebody ELSE replaced during a resume — between the
+pod the resume bound and the privilege probe that follows it — where the probe
+is refused, the handle rebinds, and a `pod-replaced` event is announced. That
+is a pod change the caller did not ask for, arriving inside a transition it
+did.
+
+**Every event names both pods, that one included.** The payload is built from
+the uids the routine announcing the move is holding, never read back off a
+handle whose transition has not finished — so there is no path on which a
+listener is told its guest moved and not told where from or where to. The same
+goes for `workspace.identity` read from inside a listener: a resume that has
+BOUND its pod names that pod from the moment it binds it, probe included, and
+reports `podUid: undefined` only when the handle holds no pod at all (a
+suspended or destroyed workspace, and the window between a `suspend()` giving
+its pod back and a `resume()` binding the next one).
+
+On a `pod-replaced` event `current.guestBootId` is `undefined`: the
+replacement has not answered yet, so there is no agent process to name.
+`current.podUid` is the field that moved, and `workspace.identity.guestBootId`
+names the process that answered from there once the call that rebound has
+returned. On `container-restarted` the pod did not move and both boot ids are
+present.
+
+Listeners are called synchronously in subscription order, a listener that
+throws is swallowed, and the returned function unsubscribes.
 
 The pod read skips any pod carrying a `deletionTimestamp` or in a terminal
 phase. For as long as the outgoing pod is still terminating, a `GET` by name
@@ -2666,8 +2794,9 @@ What happens instead:
   failed, and `error` is absent because nothing was attempted;
 - the handle is **not** retired: `suspended` stays `false` and the next call is
   admitted;
-- one bounded `healthz` goes out over a fresh connection, and its result is
-  reported to `onCancellationUnconfirmed({ error, agent })`.
+- one bounded `healthz` goes out over a fresh connection, and one bounded look
+  at the pod and the agent process goes with it; both are reported to
+  `onCancellationUnconfirmed({ error, agent, guest, previous, current })`.
 
 `agent` is the fact the error cannot carry, and the reason the probe is not
 the transport's boolean `healthz()` — that answers `false` both for a fenced
@@ -2682,6 +2811,61 @@ agent and for one that never replied:
 A host that wants the old behaviour calls `suspend()` from that callback. One
 that wants it only for a genuinely wedged pod calls it when `agent` is
 `'retiring'`.
+
+**And `guest` answers the question `agent` cannot**: whether the agent that
+answered is the same one the command was running in. `healthz` only says that
+*some* agent is serving at that address.
+
+| `guest` | What was found | What it means for the command |
+|---|---|---|
+| `'same-guest'` | The bound pod is still the live pod, and — against a guest that reports a boot id — the agent process is the one this command RESERVED against. An older guest can only be identified down to its pod | The command genuinely may still be running |
+| `'pod-replaced'` | A live pod stands under the name with a different uid | The pod that ran it is gone, and its whole pid namespace with it |
+| `'pod-gone'` | No live pod stands under the name | The same, with no replacement up yet |
+| `'container-restarted'` | The same pod, but a `guestBootId` different from the one this command reserved against | The container was restarted in place: the address and token still work and the process tree is gone |
+| `'unknown'` | The look could not be completed | Nothing may be concluded, and nothing is |
+
+The boot-id comparison is per **command**, not per handle. The baseline is the
+`guestBootId` the command's own `reserve-execution` reply carried — the guest
+that accepted the reservation is the guest that ran the command — so a
+container restart the handle survived an hour ago is not evidence about a
+command started after it. A handle-wide baseline would answer
+`'container-restarted'` for every unconfirmed cancellation for the rest of the
+session, about commands that are very likely still running.
+
+The **pod read decides first**, and the boot id only settles what it leaves
+open. A pod with a different uid is `'pod-replaced'` even when the boot id
+moved too: both say the command's guest is gone, and only one of them says the
+address and the token moved with it. A boot id that moved while the pod did
+not is `'container-restarted'`, and it is also the answer when the API read
+itself fails — that evidence rode in on a reply and was never the API server's
+to confirm.
+
+Anything but `'same-guest'` and `'unknown'` changes the error the caller
+receives: it becomes `KubernetesWorkspaceGuestGoneError`, carrying `evidence`,
+`previous` and `current`. Those two identities are the point of the class, so
+neither is allowed to be a guess: **`previous` is the guest the COMMAND
+reserved on** — the pod its `reserve-execution` was accepted by and the process
+inside it — and not whatever the handle is bound to by the time the diagnosis
+runs, which the failing call's own `cancel-execution` refusal or another
+call's rebind may already have moved. **`current` names an agent process only
+when that process belongs to the pod it names**: a replacement nobody has
+heard from, and a workspace with no pod at all, both report
+`guestBootId: undefined` rather than borrowing the value the handle happens to
+hold. That class **extends**
+`RemoteCancellationUnknownError`, so a host already catching the base class
+goes on catching it, `retirement` still rides on it, and the rule it states is
+unchanged — the outcome is unknown and the command must **not** be retried
+automatically. What it adds is the diagnosis, and this is the whole of what
+identity contributes to this path: no patch is sent here, no pod is taken away,
+`suspended` stays `false`, and the next call binds the live pod on its own.
+
+One case is named by the suspend rule instead. A workspace somebody else
+suspended has no pod either, so the look reports `'pod-gone'` on the callback —
+accurately — but the error the caller receives is
+`KubernetesWorkspaceSuspendedError`, because that is the only one of the two
+that offers a way back: the handle adopts the suspension, `suspended` reads
+`true`, and `resume()` brings a pod up. The guest-gone error is the answer for
+a workspace that is still `Running`.
 
 **A fenced agent is named rather than described as a wire fault.** A second
 holder's next `exec()` on a pod whose agent has fenced itself meets
@@ -3469,13 +3653,23 @@ deployment that sets `config.egress` fails every create with a
 'named-object-only'` is the supported answer for a host that cannot be
 granted it. No consumer role is published upstream. A `403` surfaces as an
 error naming the verb and the resource and never the token.
-[Workspaces](#persistent-workspaces) add exactly one verb to that list:
-`list` on `sandboxes`, which
-[`listKubernetesWorkspaces`](#managing-workspaces-without-waking-them) needs
-to read the collection. Every other read in this backend is a `GET` by a name
-it already knows, and the rest of what a workspace uses —
-`create`/`get`/`patch`/`delete` on `sandboxes`, `get` on `sandboxtemplates`,
-`get`/`list` on `pods` — the task path already required.
+[Workspaces](#persistent-workspaces) add exactly two verbs to that list:
+
+- `list` on `sandboxes`, which
+  [`listKubernetesWorkspaces`](#managing-workspaces-without-waking-them) needs
+  to read the collection;
+- `get` on `persistentvolumeclaims` (the core group), which a handle uses to
+  report each disk's uid in [`identity`](#calling-it-twice-reattaches). Read
+  once per handle, by the name the controller derives
+  (`<volumeClaimTemplates entry name>-<sandbox name>`) — never listed, never
+  created, never deleted. **A Role without it still works**: the uids are left
+  out of `identity` and nothing else changes, which is what keeps this release
+  from breaking a deployment whose Role predates it.
+
+Every other read in this backend is a `GET` by a name it already knows, and
+the rest of what a workspace uses — `create`/`get`/`patch`/`delete` on
+`sandboxes`, `get` on `sandboxtemplates`, `get`/`list` on `pods` — the task
+path already required.
 
 `list` on `sandboxclaims` is the task path's own crash-recovery verb:
 [`releaseKubernetesTaskSandboxes`](#a-crashed-hosts-claims-labels-release-and-capacity)
