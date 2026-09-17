@@ -60,6 +60,7 @@ import type { AgentRuntimeContext, RuntimeToolOverrides } from '../../types/agen
 import type { AgentContextLevel } from '../../types/agent/factory.js'
 import type { WorkingMemoryProvider } from '../../types/agent/working-memory.js'
 import type { AuthorizationGateConfig } from '../../types/authorization/index.js'
+import { isTerminalStatus } from '../../types/common/index.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type { InputGuardrailSpec, OutputGuardrailSpec } from '../../types/guardrail/index.js'
 import {
@@ -2142,7 +2143,12 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 
 	const tracer = getTracer()
 
-	return yield* (async function* (): AsyncGenerator<RunEvent, Run> {
+	// Whether the run reached its settle. Read by the `finally` below, and
+	// the only thing that distinguishes a run that finished from one whose
+	// consumer walked away — see `settleAbandonedRun`.
+	let settled = false
+
+	const runBody = (async function* (): AsyncGenerator<RunEvent, Run> {
 		// Parent explicitly when a caller supplied one. Without this every
 		// run starts its OWN root trace, so a supervisor delegating to three
 		// children produced four disconnected traces instead of one tree —
@@ -3069,8 +3075,75 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 			rootSpan.end()
 		}
 
+		// Reached only by a run that settled on its own terms. `finalize()` is
+		// the ONLY caller of `RunPersistence.persist()`, so everything after
+		// this line is the durable half of the run — and a `return` completion
+		// arriving from a consumer (`break` out of `for await`, `gen.return()`)
+		// runs the `finally` above and stops short of here. The flag is what
+		// tells the two apart; set before the await rather than after, because
+		// a store that throws on the way out must not send the abandonment
+		// path over the same broken ground.
+		settled = true
 		return await resultAssembler.finalize()
 	})()
+
+	try {
+		return yield* runBody
+	} finally {
+		if (!settled) await settleAbandonedRun(ctx.runMgr, ctx.log)
+	}
+}
+
+/**
+ * Write a terminal durable record for a run whose consumer walked away.
+ *
+ * `for await (… ) break` and an explicit `gen.return()` both end the run
+ * body early. Everything the run's `finally` owns still happens — background
+ * jobs are killed, the sandbox is destroyed, the span ends, the duration is
+ * recorded — and then the generator stops. `finalize()` never runs, so
+ * `persist()` never runs, and the store keeps whatever `init()` wrote: a
+ * non-terminal status for a run that no longer exists. `deriveRunStatus`
+ * reads that record back as `queued`, work waiting to start, and a host
+ * rebuilding its view from the store believes it.
+ *
+ * There is nothing to emit here and nothing to emit it to: the consumer
+ * that would have received the events is the one that left. This is about
+ * the durable record only.
+ *
+ * `cancelled` is the verdict, and it is chosen from the existing vocabulary
+ * because it is the one that is true. The run did not complete — no result
+ * was produced and no terminal event was ever delivered — and nothing
+ * failed, so `failed` would name an error that never happened; a run whose
+ * consumer stopped reading and whose processes were torn down under it is
+ * the same fact `markCancelled` already records when a run abort tears one
+ * down. It needs no new `RunExecutionStatus` and no new `StopReason`.
+ *
+ * A verdict the run already reached is left standing. A run that failed,
+ * or was cancelled, before the consumer left still says so; what the
+ * abandonment adds is that the record reaches the disk at all.
+ *
+ * Never throws. It runs while an exception may already be unwinding, and a
+ * store that cannot be written must not replace the run's real failure with
+ * its own.
+ */
+async function settleAbandonedRun(runMgr: RunPersistence, log: Logger): Promise<void> {
+	try {
+		if (!isTerminalStatus(runMgr.status)) {
+			runMgr.markCancelled()
+		}
+		// Exactly once: the `finally` that calls this runs once, and the run
+		// body sets `settled` before its own `persist()`, so the two can
+		// never both write.
+		await runMgr.persist()
+		log.info('Abandoned run recorded as cancelled', {
+			[NAMZU.RUN_ID]: runMgr.id,
+		})
+	} catch (err) {
+		log.error('Failed to record the terminal state of an abandoned run', {
+			[NAMZU.RUN_ID]: runMgr.id,
+			'exception.message': err instanceof Error ? err.message : String(err),
+		})
+	}
 }
 
 /**
