@@ -77,13 +77,22 @@
  * ## Egress
  *
  * `config.egress` is optional and, when set, translated and VERIFIED — never
- * created — by `egress-policy.ts`. Verification happens once, lazily, on the
- * first `create()`, so `buildKubernetesBackend` itself still contacts
- * nothing. Every Sandbox this file creates directly (`buildSandboxBody`)
- * carries {@link sandboxTemplateLabel} on its podTemplate specifically so
- * that translated policy's `podSelector` has something stable to match —
- * see `objects.ts`'s doc comment on that label for why agent-sandbox's own
- * controller-owned label does not cover this path.
+ * created — by `egress-policy.ts`, in two steps. The NAMED object is GETted
+ * and compared to the translation exactly, once, lazily, on the first
+ * `create()`, so `buildKubernetesBackend` itself still contacts nothing.
+ * Then, because the API server UNIONS every policy selecting a pod, every
+ * `NetworkPolicy` in the namespace (and, under `engine: 'cilium'`, every
+ * `CiliumNetworkPolicy`) is enumerated against the pod's real labels and the
+ * create is refused when any of them lets out more than the translation does
+ * — a second policy widens egress however exactly the named one matches, and
+ * a `SandboxTemplate`'s own `networkPolicy` block becomes exactly such a
+ * policy. `egress.verify: 'named-object-only'` is the opt-out and restores
+ * the first step alone. Every Sandbox this file creates directly
+ * (`buildSandboxBody`) carries {@link sandboxTemplateLabel} on its
+ * podTemplate specifically so that translated policy's `podSelector` has
+ * something stable to match — see `objects.ts`'s doc comment on that label
+ * for why agent-sandbox's own controller-owned label does not cover this
+ * path.
  *
  * ## Ingress
  *
@@ -108,10 +117,13 @@ import {
 } from '../readiness.js'
 import {
 	type KubernetesEgressConfig,
+	type KubernetesTranslatedEgressPolicy,
 	assertEgressPolicyIsEnforceable,
 	defaultEgressPolicyName,
+	egressUnionVerificationEnabled,
 	translateEgressPolicy,
 	verifyEgressPolicyApplied,
+	verifyEgressPolicyUnion,
 } from './egress-policy.js'
 import {
 	type KubernetesIngressConfig,
@@ -154,7 +166,13 @@ import { privilegeProbeTimedOut, runPrivilegeProbe } from './privilege-probe.js'
 import { buildKubernetesSandbox } from './sandbox.js'
 import { KubernetesAgentTransport } from './transport.js'
 
-export type { KubernetesEgressConfig, KubernetesEgressEngine } from './egress-policy.js'
+export type {
+	KubernetesEgressConfig,
+	KubernetesEgressEngine,
+	KubernetesEgressPolicy,
+	KubernetesEgressVerification,
+	KubernetesOnlyEgressPolicy,
+} from './egress-policy.js'
 export type { KubernetesIngressConfig, KubernetesIngressEngine } from './ingress-policy.js'
 
 /**
@@ -517,38 +535,32 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 	// Verify-not-trust runs once, lazily, on the first `create()` — never here,
 	// because `buildKubernetesBackend` is documented to contact nothing. A
 	// failed attempt is not cached: a transient API error should not wedge
-	// every later create() behind the same stale rejection forever.
-	let egressVerification: Promise<void> | undefined
+	// every later create() behind the same stale rejection forever. The
+	// boundary object holds both halves and both memos; it lives as long as
+	// this backend does, which is what makes the named-object check
+	// once-per-backend rather than once-per-create.
+	const egressBoundary = buildEgressBoundary(client, config, config.sandboxTemplateName)
 	// Ingress is cached PER LABEL SET rather than once per backend, because
-	// unlike egress it is a question about one pod: a pooled sandbox's labels
-	// come off the pool's template and a pool-less one's off this config, and
-	// a single memo would answer for a pod it never examined. Same
-	// failure handling as the egress memo — a failed attempt is dropped, so a
-	// transient API error does not wedge every later create() behind it.
+	// unlike the egress NAMED-object check it is a question about one pod: a
+	// pooled sandbox's labels come off the pool's template and a pool-less
+	// one's off this config, and a single memo would answer for a pod it never
+	// examined. Same failure handling as the egress memo — a failed attempt is
+	// dropped, so a transient API error does not wedge every later create()
+	// behind it. The egress UNION check is keyed the same way, for the same
+	// reason, and additionally expires: see {@link EGRESS_UNION_CACHE_TTL_MS}.
 	const ingressVerifier = buildIngressVerifier(client, config, new Map())
 	return {
 		tier: 'microvm',
 		name: 'kubernetes',
 		async create(options: SandboxBackendOptions): Promise<Sandbox> {
-			if (config.egress) {
-				egressVerification ??= verifyEgressPolicyConfigured(
-					client,
-					config.namespace,
-					config.sandboxTemplateName,
-					config.egress,
-					options.signal,
-				).catch((err: unknown) => {
-					egressVerification = undefined
-					throw err
-				})
-				await egressVerification
-			}
+			await egressBoundary?.verifyNamedObject(options.signal)
 			const acquisition = await acquireKubernetesSandbox(
 				client,
 				config,
 				options,
 				readiness,
 				ingressVerifier,
+				egressBoundary,
 			)
 			return await admitProbedSandbox(
 				acquisition,
@@ -561,32 +573,130 @@ export function buildKubernetesBackend(config: KubernetesBackendInternalConfig):
 }
 
 /**
- * Translate `egress.policy` and confirm an operator applied a matching
- * object — the whole verify-not-trust step, isolated so `create()` above
- * stays about ONE thing (memoize-once-per-backend) rather than two.
+ * The two egress checks a create path runs, with their memos.
  *
- * Exported because `workspace.ts` runs the identical step: a workspace does
+ * `undefined` when `config.egress` is unset — the whole boundary is one
+ * absent object rather than a flag every call site re-reads, the same shape
+ * {@link IngressVerifier} uses for its own opt-out.
+ *
+ * Exported because `workspace.ts` runs the identical steps: a workspace does
  * not go through `buildKubernetesBackend`, and a config `egress` honoured on
  * one entry point and ignored on the other would be a silent downgrade of the
- * boundary this backend calls primary. `sandboxTemplateName` is the template
- * the caller is actually building from — it decides both the default policy
- * name and the pod label the policy's selector has to match, and a workspace
- * may be built from a different template than the task path's.
+ * boundary this backend calls primary. It builds its own boundary per create,
+ * which is what makes its checks per-call rather than memoized — creating a
+ * workspace is a rare, explicit act with nothing to amortise, and a policy
+ * deleted since the last call must be noticed.
  */
-export async function verifyEgressPolicyConfigured(
+export interface KubernetesEgressBoundary {
+	/**
+	 * Translate `egress.policy` and confirm an operator applied a matching
+	 * object — the original verify-not-trust step, unchanged, including its
+	 * exact-match comparison and its once-per-boundary memo.
+	 */
+	verifyNamedObject(signal?: AbortSignal): Promise<void>
+	/**
+	 * Enumerate every policy selecting THIS pod and refuse when any of them
+	 * allows egress the translation does not. A no-op under
+	 * `egress.verify: 'named-object-only'`.
+	 */
+	verifyUnion(
+		podLabels: Readonly<Record<string, string>>,
+		subject: string,
+		signal?: AbortSignal,
+	): Promise<void>
+}
+
+/**
+ * How long a union pass is trusted for one label set.
+ *
+ * Five minutes rather than the backend's lifetime, which is what the
+ * named-object check alone used to get: an operator who applies a widening
+ * policy at 10:00 should not have it go unnoticed until the host restarts.
+ * It is a cache, not a watch — `k8s-client.ts`'s "no watch, no informers, no
+ * resourceVersion tracking" invariant is untouched, because the only thing
+ * kept across calls is "this exact label set passed at this time".
+ */
+export const EGRESS_UNION_CACHE_TTL_MS = 5 * 60 * 1_000
+
+/** One cached pass, and when it was taken. */
+interface CachedPass {
+	readonly at: number
+	readonly pending: Promise<void>
+}
+
+/**
+ * Build the egress boundary this config asks for, or nothing at all.
+ *
+ * `sandboxTemplateName` is the template the caller is actually building from
+ * — it decides both the default policy name and the pod label the policy's
+ * selector has to match, and a workspace may be built from a different
+ * template than the task path's.
+ *
+ * `now` is injected only so the TTL above can be tested without waiting five
+ * minutes; nothing else passes it.
+ */
+export function buildEgressBoundary(
 	client: KubernetesClient,
-	namespace: string,
+	config: KubernetesBackendInternalConfig,
 	sandboxTemplateName: string,
-	egress: KubernetesEgressConfig,
-	signal?: AbortSignal,
-): Promise<void> {
+	now: () => number = Date.now,
+): KubernetesEgressBoundary | undefined {
+	const egress = config.egress
+	if (egress === undefined) return undefined
 	const engine = egress.engine ?? 'core'
-	const translated = await translateEgressPolicy(egress.policy, engine, {
-		namespace,
+	const target = {
+		namespace: config.namespace,
 		name: egress.networkPolicyName ?? defaultEgressPolicyName(sandboxTemplateName),
 		sandboxTemplateName,
-	})
-	await verifyEgressPolicyApplied(client, translated, signal)
+	}
+	// Translated ONCE per boundary, not once per check: a `resolver` policy's
+	// `resolve()` is the host's own closure and may cost a network call, and
+	// running the two checks against two independently resolved allowlists
+	// would compare each against a different translation.
+	let translation: Promise<KubernetesTranslatedEgressPolicy> | undefined
+	const translate = (): Promise<KubernetesTranslatedEgressPolicy> => {
+		translation ??= translateEgressPolicy(egress.policy, engine, target).catch((err: unknown) => {
+			translation = undefined
+			throw err
+		})
+		return translation
+	}
+	let namedObject: Promise<void> | undefined
+	const passes = new Map<string, CachedPass>()
+	return {
+		async verifyNamedObject(signal) {
+			namedObject ??= (async () => {
+				await verifyEgressPolicyApplied(client, await translate(), signal)
+			})().catch((err: unknown) => {
+				namedObject = undefined
+				throw err
+			})
+			await namedObject
+		},
+		async verifyUnion(podLabels, subject, signal) {
+			if (!egressUnionVerificationEnabled(egress)) return
+			const translated = await translate()
+			const key = policyCacheKey(podLabels)
+			const cached = passes.get(key)
+			if (cached !== undefined && now() - cached.at < EGRESS_UNION_CACHE_TTL_MS) {
+				await cached.pending
+				return
+			}
+			const pending = verifyEgressPolicyUnion(
+				client,
+				translated,
+				{ namespace: config.namespace, podLabels, engine, subject },
+				signal,
+			).catch((err: unknown) => {
+				// A failed attempt is never cached — same rule the named-object
+				// memo has always had.
+				passes.delete(key)
+				throw err
+			})
+			passes.set(key, { at: now(), pending })
+			await pending
+		},
+	}
 }
 
 /**
@@ -601,7 +711,7 @@ export type IngressVerifier = (
 ) => Promise<void>
 
 /** Canonical key for one label set — order-independent, so two spellings of the same pod share a memo. */
-function ingressCacheKey(podLabels: Readonly<Record<string, string>>): string {
+function policyCacheKey(podLabels: Readonly<Record<string, string>>): string {
 	return JSON.stringify(Object.entries(podLabels).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
 }
 
@@ -627,7 +737,7 @@ export function buildIngressVerifier(
 			await verifyIngressPolicyApplied(client, target, signal)
 			return
 		}
-		const key = ingressCacheKey(podLabels)
+		const key = policyCacheKey(podLabels)
 		let pending = cache.get(key)
 		if (pending === undefined) {
 			pending = verifyIngressPolicyApplied(client, target, signal).catch((err: unknown) => {
@@ -666,6 +776,11 @@ export async function acquireKubernetesSandbox(
 	options: SandboxBackendOptions,
 	readiness: { readonly timeoutMs: number; readonly pollIntervalMs: number },
 	verifyIngress: IngressVerifier | undefined = buildIngressVerifier(client, config),
+	egressBoundary: KubernetesEgressBoundary | undefined = buildEgressBoundary(
+		client,
+		config,
+		config.sandboxTemplateName,
+	),
 ): Promise<KubernetesAcquisition> {
 	options.signal?.throwIfAborted()
 	assertEnforceable(options)
@@ -733,16 +848,21 @@ export async function acquireKubernetesSandbox(
 			readSandboxTemplate(client, namespace, config.sandboxTemplateName, signal),
 		)
 		// A direct Sandbox's pod labels are decided HERE, by the body below,
-		// so the ingress boundary is checked against the real labels before
+		// so both network boundaries are checked against the real labels before
 		// anything is created — a refusal leaves no Sandbox and no PVC behind
-		// rather than one of each to clean up.
+		// rather than one of each to clean up. This is EARLIER than the plan
+		// for the egress union check asked for (it said "after binding", for
+		// the bound pod's labels); a pool-less Sandbox's labels are knowable
+		// before the POST, and refusing with nothing created is strictly
+		// better than refusing with an object to clean up.
+		const directPodLabels = sandboxPodLabels(template, config.sandboxTemplateName)
+		const directSubject = `to create Sandbox ${objectName} in namespace ${namespace}`
 		if (verifyIngress !== undefined) {
+			await deadline.run((signal) => verifyIngress(directPodLabels, directSubject, signal))
+		}
+		if (egressBoundary !== undefined) {
 			await deadline.run((signal) =>
-				verifyIngress(
-					sandboxPodLabels(template, config.sandboxTemplateName),
-					`to create Sandbox ${objectName} in namespace ${namespace}`,
-					signal,
-				),
+				egressBoundary.verifyUnion(directPodLabels, directSubject, signal),
 			)
 		}
 		createBody = buildSandboxBody({
@@ -803,14 +923,20 @@ export async function acquireKubernetesSandbox(
 		// Checking here rather than not at all is the trade: a refusal
 		// releases the claim through the cleanup below, which is the same
 		// path a failed privilege probe takes.
-		if (config.warmPoolName !== undefined && verifyIngress !== undefined) {
-			await deadline.run((signal) =>
-				verifyIngress(
-					pod.labels ?? {},
-					`the pod bound to Sandbox ${binding.name} in namespace ${namespace}`,
-					signal,
-				),
-			)
+		if (config.warmPoolName !== undefined) {
+			const boundSubject = `the pod bound to Sandbox ${binding.name} in namespace ${namespace}`
+			if (verifyIngress !== undefined) {
+				await deadline.run((signal) => verifyIngress(pod.labels ?? {}, boundSubject, signal))
+			}
+			// The egress union check asks the same question of the same labels
+			// — which policies select THIS pod — so it runs at the same two
+			// points, and a refusal here releases the claim through the cleanup
+			// below, exactly as a failed privilege probe does.
+			if (egressBoundary !== undefined) {
+				await deadline.run((signal) =>
+					egressBoundary.verifyUnion(pod.labels ?? {}, boundSubject, signal),
+				)
+			}
 		}
 		return {
 			binding,

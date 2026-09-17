@@ -240,7 +240,7 @@ describe('a stalled API server no longer pins a workspace handle', () => {
 				readyTimeoutMs: 4_000,
 				readyPollIntervalMs: 5,
 				apiRequestTimeoutMs: BOUND_MS,
-				egress: { policy: { kind: 'deny-all' } },
+				egress: { policy: { kind: 'deny-all' }, verify: 'named-object-only' },
 			},
 		})
 		const started = Date.now()

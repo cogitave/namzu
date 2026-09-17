@@ -7,6 +7,12 @@
  * create()" half of the design — that the backend actually calls them,
  * exactly once, and that a missing or mismatched policy stops `create()`
  * before a sandbox is ever handed back.
+ *
+ * Every case here sets `verify: 'named-object-only'`, so this file is also
+ * the proof that the opt-out issues EXACTLY the requests this check issued
+ * before the union check existed: one GET of one named object, memoized for
+ * the backend's lifetime, and no collection read at all. The union check has
+ * its own file — `./egress-union-verification.test.ts`.
  */
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -101,7 +107,7 @@ function backend() {
 		readyTimeoutMs: 2_000,
 		readyPollIntervalMs: 5,
 		ingress: 'unverified' as const,
-		egress: { policy: { kind: 'deny-all' } },
+		egress: { policy: { kind: 'deny-all' }, verify: 'named-object-only' },
 	})
 }
 

@@ -31,9 +31,13 @@
 # by label existence rather than one template's specific value, and covers
 # ingress too. If you DO set `config.egress`, apply that second, narrower
 # object as well — NetworkPolicies selecting the same pods union their
-# allow-lists, they do not replace each other, so the two compose rather
-# than conflict. The union is also why the ingress check refuses on ONE open
-# rule however many closed ones sit beside it.
+# allow-lists, they do not replace each other. That union is why the ingress
+# check refuses on ONE open rule however many closed ones sit beside it, and
+# it cuts the same way outbound: the egress union check reads THIS file's
+# `egress` list too, and refuses the create if anything in it reaches
+# further than `config.egress.policy` allows. The placeholder rule below is
+# the usual first casualty — under `deny-all` or `no-network` it has to go,
+# and under `public-internet` it has to stay inside the public ranges.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:

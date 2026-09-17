@@ -11,11 +11,12 @@
 #     k8s-client.ts): sandboxclaims create/get/patch/delete, sandboxes
 #     create/get/list/patch/delete, sandboxtemplates get, pods get/list,
 #     networkpolicies list (the ingress check, on by default, before every
-#     create) plus networkpolicies get (only when a deployment configures
-#     `config.egress`), and the same two verbs on ciliumnetworkpolicies for
-#     a deployment that declares `engine: 'cilium'` — both are granted
-#     below; a cluster with no Cilium CRDs installed simply never matches
-#     that rule.
+#     create — and the egress UNION check, on by default whenever
+#     `config.egress` is set) plus networkpolicies get (the egress
+#     named-object check, also only when `config.egress` is set), and the
+#     same two verbs on ciliumnetworkpolicies for a deployment that declares
+#     `engine: 'cilium'` — both are granted below; a cluster with no Cilium
+#     CRDs installed simply never matches that rule.
 #   - ../scripts/acquire-p50.mjs's own diagnostic: it reads the
 #     SandboxWarmPool's `status.readyReplicas` before timing so a cold,
 #     still-warming pool cannot masquerade as a fast acquire. That read goes
@@ -56,12 +57,14 @@ rules:
   - apiGroups: ['']
     resources: [pods]
     verbs: [get, list]
-  # `list`, not `get`, is the ingress check's: it has to ENUMERATE every
-  # policy in the namespace and evaluate each selector against the pod's own
-  # labels, because a GET by name proves an object exists and not that it
-  # selects these pods. It runs before every create unless the deployment
-  # sets `ingress: 'unverified'`. `get` is the egress check's, and is
-  # exercised only when a deployment sets `config.egress`.
+  # `list`, not `get`, is what BOTH enumerating checks need: each has to read
+  # every policy in the namespace and evaluate its selector against the pod's
+  # own labels, because a GET by name proves an object exists and not that it
+  # selects these pods. The ingress check runs before every create unless the
+  # deployment sets `ingress: 'unverified'`; the egress union check runs
+  # whenever `config.egress` is set, unless the deployment sets
+  # `egress.verify: 'named-object-only'`. `get` is the egress NAMED-object
+  # check's, and is exercised only when a deployment sets `config.egress`.
   - apiGroups: [networking.k8s.io]
     resources: [networkpolicies]
     verbs: [get, list]

@@ -224,10 +224,17 @@ node scripts/capability-check.mjs \
 node scripts/ingress-check.mjs \
   --namespace namzu-sandboxes --template namzu-workspace \
   --task-template namzu-task --pool namzu-task-pool --in-cluster
+
+# Criterion 7: egress is bounded by the configured kind. Run it once per
+# kind you ship; --policy decides both what the backend verifies and what
+# the probes expect.
+node scripts/egress-check.mjs \
+  --namespace namzu-sandboxes --template namzu-task --pool namzu-task-pool \
+  --policy no-network --in-cluster
 ```
 
-**`ingress-check.mjs` is the one script whose result depends on the CNI, not
-only on the objects the API server accepted.** A cluster that accepts
+**`ingress-check.mjs` and `egress-check.mjs` are the two scripts whose result
+depends on the CNI, not only on the objects the API server accepted.** A cluster that accepts
 `NetworkPolicy` and enforces none of it — the stock local kind cluster is one
 — accepts `networkpolicy.yaml` and still answers the probe, so the script
 reports FAIL there. That is deliberate: a non-enforcing environment must fail
@@ -242,6 +249,16 @@ probe target and deletes it, disk included, however the run ends — including
 when the create itself fails, because a create that gets as far as POSTing the
 Sandbox and then fails suspends it rather than removing it and nothing in the
 cluster reaps that. Point `--workspace-id` at a name nobody's files live under.
+
+`egress-check.mjs` reads the same way and makes the same demand of its own
+controls: before any real probe it dials the pod's own agent port on
+`127.0.0.1` (which no policy governs) and resolves `localhost`, and refuses to
+report anything if either fails — without that, `--policy no-network`, where
+every real probe is SUPPOSED to come back closed, would pass on a guest with
+no working runtime at all. It creates task sandboxes rather than a workspace,
+so it leaves no disk behind. It does not probe the `static`/`resolver`
+hostname allowlist: that translation is enforced at L7 by one CNI's own agent
+and nothing in this repo has measured it.
 
 Record the printed numbers, with the date and the cluster's shape
 (node type, storage backend, Kata version), in

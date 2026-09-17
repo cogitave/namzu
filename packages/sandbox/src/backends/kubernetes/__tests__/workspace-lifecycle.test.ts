@@ -30,6 +30,7 @@ import { READ_FILE_STREAM_FEATURE } from '../../firecracker/protocol.js'
 import { AgentReadFileStreamUnsupportedError } from '../../firecracker/transport.js'
 import {
 	KubernetesEgressPolicyNotAppliedError,
+	KubernetesEgressPolicyUnionError,
 	KubernetesUnenforceableEgressPolicyError,
 } from '../egress-policy.js'
 import { buildKubernetesBackend } from '../index.js'
@@ -130,6 +131,11 @@ interface ClusterState {
 	/** The NetworkPolicy an operator applied. Absent = nobody applied one. */
 	networkPolicySpec?: Record<string, unknown>
 	/**
+	 * What the namespace's `networkpolicies` collection holds, for the union
+	 * check. Absent = the collection is not served, which is itself a refusal.
+	 */
+	networkPolicyItems?: Record<string, unknown>[]
+	/**
 	 * Statuses to answer the next DELETEs with, one per request, before the
 	 * normal success path resumes. A 500 is an API server that refused the
 	 * request; a 404 is an object somebody else already removed.
@@ -154,6 +160,12 @@ function startWorkspaceCluster(
 				return { status: 404, body: { message: 'not found' } }
 			}
 			return { status: 200, body: { spec: state.networkPolicySpec } }
+		}
+		if (req.method === 'GET' && req.path.endsWith('/networkpolicies')) {
+			if (state.networkPolicyItems === undefined) {
+				return { status: 404, body: { message: 'not found' } }
+			}
+			return { status: 200, body: { items: state.networkPolicyItems } }
 		}
 		if (req.method === 'POST' && req.path.endsWith('/sandboxes')) {
 			if (state.exists) {
@@ -441,7 +453,7 @@ describe('reattaching to a workspace that already exists', () => {
 			networkPolicySpec: denyAllNetworkPolicySpec('namzu-workspace'),
 		})
 		const failure = await createKubernetesWorkspace(
-			config({ egress: { policy: { kind: 'deny-all' } } }),
+			config({ egress: { policy: { kind: 'deny-all' }, verify: 'named-object-only' } }),
 			{ workspaceId: WORKSPACE_ID, workingDirectory: '/workspace' },
 		).catch((err: unknown) => err)
 
@@ -912,11 +924,21 @@ describe('the egress policy a workspace is covered by', () => {
 	// silent one: the same `config.egress` object refused on the provider
 	// entry point and ignored on this one, on the sandbox most likely to be
 	// pointed at a network and longest-lived when it is.
+	//
+	// Every case here declares `verify: 'named-object-only'` because what it
+	// is about is the NAMED-object check. The union check that now runs beside
+	// it by default — every policy selecting the pod, not one object by name —
+	// has its own file: `./egress-union-verification.test.ts`.
 
 	it('refuses a hostname allowlist the default engine cannot enforce, before contacting anything', async () => {
 		server = await startWorkspaceCluster(workspaceTemplate())
 		const failure = await createKubernetesWorkspace(
-			config({ egress: { policy: { kind: 'static', allowedHosts: ['registry.example'] } } }),
+			config({
+				egress: {
+					policy: { kind: 'static', allowedHosts: ['registry.example'] },
+					verify: 'named-object-only',
+				},
+			}),
 			{ workspaceId: WORKSPACE_ID, workingDirectory: '/workspace' },
 		).catch((err: unknown) => err)
 
@@ -929,7 +951,7 @@ describe('the egress policy a workspace is covered by', () => {
 	it('refuses a policy nobody applied, before anything is created', async () => {
 		server = await startWorkspaceCluster(workspaceTemplate())
 		const failure = await createKubernetesWorkspace(
-			config({ egress: { policy: { kind: 'deny-all' } } }),
+			config({ egress: { policy: { kind: 'deny-all' }, verify: 'named-object-only' } }),
 			{ workspaceId: WORKSPACE_ID, workingDirectory: '/workspace' },
 		).catch((err: unknown) => err)
 
@@ -939,6 +961,58 @@ describe('the egress policy a workspace is covered by', () => {
 		// policy is never created either.
 		expect(server.matching('POST', '/sandboxes')).toHaveLength(0)
 		expect(server.requests.filter((r) => r.method === 'POST')).toHaveLength(0)
+	})
+
+	it('runs the union check too, and refuses a second policy that widens egress', async () => {
+		// The workspace path never goes through `buildKubernetesBackend`, so
+		// this is the same silent-downgrade guard as the cases above, for the
+		// half of the check that reads the namespace rather than one object.
+		const applied = denyAllNetworkPolicySpec('namzu-workspace')
+		server = await startWorkspaceCluster(workspaceTemplate(), {
+			suspended: false,
+			deleted: false,
+			networkPolicySpec: applied,
+			networkPolicyItems: [
+				{ metadata: { name: 'namzu-workspace-egress' }, spec: applied },
+				{
+					metadata: { name: 'debug-egress' },
+					spec: {
+						podSelector: { matchLabels: { 'sandbox.namzu.ai/template': 'namzu-workspace' } },
+						policyTypes: ['Egress'],
+						egress: [{}],
+					},
+				},
+			],
+		})
+		const failure = await createKubernetesWorkspace(
+			config({ egress: { policy: { kind: 'deny-all' } } }),
+			{ workspaceId: WORKSPACE_ID, workingDirectory: '/workspace' },
+		).catch((err: unknown) => err)
+
+		expect(failure).toBeInstanceOf(KubernetesEgressPolicyUnionError)
+		expect((failure as Error).message).toContain('NetworkPolicy/debug-egress')
+		// Refused before the POST, so nothing was created and — on the adopt
+		// path — nothing was woken up on the way to being rejected.
+		expect(server.matching('POST', '/sandboxes')).toHaveLength(0)
+		expect(server.requests.filter((r) => r.method === 'PATCH')).toHaveLength(0)
+	})
+
+	it('opens the workspace when the applied policy is the only one selecting its pods', async () => {
+		const applied = denyAllNetworkPolicySpec('namzu-workspace')
+		server = await startWorkspaceCluster(workspaceTemplate(), {
+			suspended: false,
+			deleted: false,
+			networkPolicySpec: applied,
+			networkPolicyItems: [{ metadata: { name: 'namzu-workspace-egress' }, spec: applied }],
+		})
+		const workspace = await createKubernetesWorkspace(
+			config({ egress: { policy: { kind: 'deny-all' } } }),
+			{ workspaceId: WORKSPACE_ID, workingDirectory: '/workspace' },
+		)
+		expect(
+			server.requests.filter((r) => r.method === 'GET' && r.path.endsWith('/networkpolicies')),
+		).toHaveLength(1)
+		await workspace.destroy()
 	})
 
 	it('verifies the policy of the template the workspace is actually built from', async () => {
@@ -951,7 +1025,10 @@ describe('the egress policy a workspace is covered by', () => {
 			networkPolicySpec: denyAllNetworkPolicySpec('namzu-workspace'),
 		})
 		await createKubernetesWorkspace(
-			config({ sandboxTemplateName: 'namzu-task', egress: { policy: { kind: 'deny-all' } } }),
+			config({
+				sandboxTemplateName: 'namzu-task',
+				egress: { policy: { kind: 'deny-all' }, verify: 'named-object-only' },
+			}),
 			{
 				workspaceId: WORKSPACE_ID,
 				workingDirectory: '/workspace',

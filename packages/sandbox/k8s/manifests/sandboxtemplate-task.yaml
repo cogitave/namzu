@@ -160,12 +160,25 @@ spec:
           - protocol: TCP
             port: 1024
     egress:
-      # DNS only. `networkPolicyManagement: Managed`'s own baseline
-      # (RFC1918 + the cloud metadata address) still applies underneath
-      # this; this list is what a pod carrying this template's label is
-      # allowed to reach BEYOND that baseline. A deployment that reaches
-      # more than DNS from inside a sandbox adds those destinations here
-      # AND to networkpolicy.yaml's egress list.
+      # DNS only — and this list is the WHOLE of what the controller's
+      # managed policy allows, not an addition to a baseline underneath it.
+      # An earlier version of this comment said the managed default
+      # (RFC1918 + the cloud metadata address carved out of 0.0.0.0/0) still
+      # applied underneath; it does not. In agent-sandbox v1.0.2 a template
+      # that sets `networkPolicy` gets THIS egress verbatim, and a template
+      # that omits the block gets that default INSTEAD — so deleting this
+      # block opens the internet rather than falling back to something
+      # narrower. The controller-managed policy is also just another policy
+      # selecting these pods, which the API server unions with every other
+      # one: it is not a floor and it is not a ceiling.
+      #
+      # That is why `config.egress` now refuses a create when any policy
+      # selecting the sandbox pods — this one included — allows more than the
+      # configured translation. A deployment that reaches more than DNS from
+      # inside a sandbox adds those destinations here AND to
+      # networkpolicy.yaml's egress list AND keeps them inside whatever
+      # `config.egress.policy` names, or sets
+      # `egress.verify: 'named-object-only'` and says so out loud.
       - to:
           - namespaceSelector:
               matchLabels:

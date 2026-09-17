@@ -185,6 +185,7 @@ import {
 	ReadinessPollTimeout,
 	bindingFromSandbox,
 	buildAgentAddressRefresh,
+	buildEgressBoundary,
 	buildIngressVerifier,
 	buildSandboxBody,
 	clientAccess,
@@ -198,7 +199,6 @@ import {
 	resolveProbeTimeoutMs,
 	resolveStreamHeartbeatMs,
 	sandboxPodLabels,
-	verifyEgressPolicyConfigured,
 } from './index.js'
 import {
 	KubernetesAlreadyGoneError,
@@ -1166,17 +1166,15 @@ export async function createKubernetesWorkspace(
 	// policy's podSelector matches that label, so a workspace built from a
 	// separate workspace template needs its own policy — the task template's
 	// does not select it. Deliberately not memoized the way the backend's
-	// once-per-backend check is: creating a workspace is a rare, explicit act
-	// with nothing to amortise, and re-checking costs one GET.
+	// once-per-backend check is: the boundary object is built per create here,
+	// so both of its memos live exactly as long as this call — creating a
+	// workspace is a rare, explicit act with nothing to amortise, and a policy
+	// deleted since the last call has to be noticed. The union half runs
+	// further down, where the pod's labels are known.
+	const egressBoundary = buildEgressBoundary(client, config, templateName)
 	if (config.egress) {
 		assertEgressPolicyIsEnforceable(config.egress.policy, config.egress.engine ?? 'core')
-		await verifyEgressPolicyConfigured(
-			client,
-			namespace,
-			templateName,
-			config.egress,
-			options.signal,
-		)
+		await egressBoundary?.verifyNamedObject(options.signal)
 	}
 
 	// Read and validate BEFORE anything is created, so a template that cannot
@@ -1198,14 +1196,20 @@ export async function createKubernetesWorkspace(
 	// nobody creates. Not memoized, for the reason the egress check above is
 	// not: this is a rare, explicit act with nothing to amortise, and a policy
 	// deleted since the last call has to be noticed.
+	const workspacePodLabels = sandboxPodLabels(template, templateName)
+	const workspaceSubject = `to open workspace ${options.workspaceId} as Sandbox ${name} in namespace ${namespace}`
 	const verifyIngress = buildIngressVerifier(client, config)
 	if (verifyIngress !== undefined) {
-		await verifyIngress(
-			sandboxPodLabels(template, templateName),
-			`to open workspace ${options.workspaceId} as Sandbox ${name} in namespace ${namespace}`,
-			options.signal,
-		)
+		await verifyIngress(workspacePodLabels, workspaceSubject, options.signal)
 	}
+	// And the egress half of the same question, against the same labels: the
+	// named object matching exactly says nothing about what a SECOND policy
+	// selecting these pods lets out, and a long-lived workspace is the sandbox
+	// most likely to be pointed at a network. Checked before the POST for the
+	// reason the ingress check is, and on the adopt path before any resume
+	// patch — a workspace whose egress stopped being bounded is refused asleep
+	// rather than woken up to be refused.
+	await egressBoundary?.verifyUnion(workspacePodLabels, workspaceSubject, options.signal)
 
 	let adopted: AdoptedWorkspace | undefined
 	try {

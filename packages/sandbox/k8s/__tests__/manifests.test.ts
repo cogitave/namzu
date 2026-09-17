@@ -293,11 +293,25 @@ describe('rbac.yaml', () => {
 		expect(byResource.get('sandboxtemplates')).toEqual(new Set(['get']))
 		expect(byResource.get('sandboxwarmpools')).toEqual(new Set(['get']))
 		expect(byResource.get('pods')).toEqual(new Set(['get', 'list']))
-		// `get` is the egress check's (one object, by name); `list` is the
-		// ingress check's, which has to enumerate every policy in the
-		// namespace because a name proves existence and not selection.
+		// `get` is the egress NAMED-object check's (one object, by name);
+		// `list` is what both enumerating checks need — ingress coverage of the
+		// agent port, and the egress union — because a name proves existence
+		// and not selection.
 		expect(byResource.get('networkpolicies')).toEqual(new Set(['get', 'list']))
 		expect(byResource.get('ciliumnetworkpolicies')).toEqual(new Set(['get', 'list']))
+	})
+
+	it('grants list on both policy resources, which the egress union check enumerates too', () => {
+		// Asserted separately from the verb-set case above because these two
+		// verbs are now load-bearing for a SECOND default-on refusal: without
+		// `list`, a deployment that sets `config.egress` fails every create
+		// with a not-evaluable refusal naming the missing grant.
+		const rules = role.rules as Record<string, unknown>[]
+		for (const resource of ['networkpolicies', 'ciliumnetworkpolicies']) {
+			const rule = rules.find((r) => (r.resources as string[]).includes(resource))
+			expect(rule, `no rule grants ${resource}`).toBeDefined()
+			expect(rule?.verbs, `${resource} is not listable`).toContain('list')
+		}
 	})
 
 	it('grants get AND list on ciliumnetworkpolicies in the cilium.io apiGroup, for engine: "cilium"', () => {

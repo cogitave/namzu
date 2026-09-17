@@ -198,15 +198,19 @@ export interface ExaminedIngressPolicy {
 export type IngressPolicyRefusal = 'no-covering-policy' | 'port-open' | 'not-evaluable'
 
 /**
- * A policy collection this check could NOT read, and why.
+ * A policy collection a check could NOT read, and why.
  *
  * It exists because an empty `examined` list means two different things and
  * nothing else tells them apart: the namespace holds no policy of the kinds
  * read, which is a fact about the CLUSTER, or no list was read at all, which
  * is a fact about this CHECK. Reporting the first when the second happened is
  * the defect this whole module exists to delete, one layer down.
+ *
+ * Shared with the EGRESS direction — `egress-policy.ts`'s union check reads
+ * the same two collections through the same {@link listPolicies} and reports
+ * the same failure the same way. See "Shared with the egress direction".
  */
-export interface UnreadIngressPolicySource {
+export interface UnreadPolicySource {
 	readonly resource: 'networkpolicies' | 'ciliumnetworkpolicies'
 	readonly path: string
 	/**
@@ -222,6 +226,13 @@ export interface UnreadIngressPolicySource {
 }
 
 /**
+ * @deprecated Renamed to {@link UnreadPolicySource} when the egress union
+ * check began reporting the same record; this alias keeps the old name
+ * working and will be removed in a later major.
+ */
+export type UnreadIngressPolicySource = UnreadPolicySource
+
+/**
  * The named refusal. Distinct from every other refusal this backend can
  * raise on a create path, so a caller (or an operator reading a log line)
  * can tell an unprotected agent port from a slow API server or an
@@ -235,7 +246,7 @@ export interface UnreadIngressPolicySource {
  * Every sentence of the message is a claim the read actually supports. When a
  * collection could not be enumerated it lands in {@link unread} and the
  * message says so instead of describing a namespace nobody looked at — see
- * {@link UnreadIngressPolicySource}.
+ * {@link UnreadPolicySource}.
  */
 export class KubernetesIngressPolicyError extends Error {
 	override readonly name = 'KubernetesIngressPolicyError'
@@ -248,7 +259,7 @@ export class KubernetesIngressPolicyError extends Error {
 		readonly examined: readonly ExaminedIngressPolicy[],
 		summary: string,
 		/** Empty on every decision made from policies that WERE read. */
-		readonly unread: readonly UnreadIngressPolicySource[] = [],
+		readonly unread: readonly UnreadPolicySource[] = [],
 	) {
 		super(
 			`kubernetes: refusing ${subject} — ${summary} The pod's labels are ${formatLabels(podLabels)} and the agent port is TCP ${agentPort}. ${formatExamined(examined, unread)} Kubernetes UNIONS every policy selecting a pod, so the port is closed only when at least one ingress-enforcing policy selects it and none of them admits a wide-open peer on that port. ${formatRemedy(unread, examined)}`,
@@ -256,7 +267,11 @@ export class KubernetesIngressPolicyError extends Error {
 	}
 }
 
-function formatLabels(labels: Readonly<Record<string, string>>): string {
+/**
+ * One label set, rendered for a refusal message. Exported for the egress
+ * union check's refusal, which has to render the identical thing.
+ */
+export function formatLabels(labels: Readonly<Record<string, string>>): string {
 	const entries = Object.entries(labels)
 	if (entries.length === 0) return '(none)'
 	return entries
@@ -276,7 +291,7 @@ function formatLabels(labels: Readonly<Record<string, string>>): string {
  */
 function formatExamined(
 	examined: readonly ExaminedIngressPolicy[],
-	unread: readonly UnreadIngressPolicySource[],
+	unread: readonly UnreadPolicySource[],
 ): string {
 	let head: string
 	if (examined.length > 0) {
@@ -299,7 +314,7 @@ function formatExamined(
 }
 
 /**
- * What the operator does next. It branches on {@link UnreadIngressPolicySource}
+ * What the operator does next. It branches on {@link UnreadPolicySource}
  * because "apply the missing policy" is the wrong instruction for a check that
  * never got to look at one: the fix there is to make the list readable, or to
  * declare that the boundary lives where this check cannot see it.
@@ -313,7 +328,7 @@ function formatExamined(
  * delete.
  */
 function formatRemedy(
-	unread: readonly UnreadIngressPolicySource[],
+	unread: readonly UnreadPolicySource[],
 	examined: readonly ExaminedIngressPolicy[],
 ): string {
 	const unverified = `If this deployment closes the port somewhere a namespaced Role cannot read — a cluster-scoped policy, a service mesh, a cloud security group — set ingress: 'unverified' on the backend config to say so explicitly; see docs/sdk/kubernetes-sandbox.md's ingress section.`
@@ -376,7 +391,21 @@ function formatRemedy(
  * `typeof null === 'object'` and `typeof [] === 'object'` are the two ways a
  * check meaning "is this an object" gets written and stays wrong.
  */
-function isRecord(value: unknown): value is Record<string, unknown> {
+// ---------------------------------------------------------------------------
+// Shared with the egress direction
+// ---------------------------------------------------------------------------
+//
+// The exported helpers from here to the end of "Selector evaluation", plus
+// `listPolicies` in the I/O half below, are called by `egress-policy.ts`'s
+// union check as well as by this module's own decision. There is ONE
+// enumeration of the policies selecting a pod in this package and ONE reading
+// of what a peer is, serving both directions: two would be two definitions of
+// "wide open" and two ways to disagree with the cluster about which policies
+// apply. The egress check asks a different QUESTION of the same material —
+// "is this peer inside the configured translation" rather than "does this
+// rule open the agent port" — and so keeps its own verdict types there.
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
 
@@ -389,15 +418,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  *  - the array — present and readable.
  *  - `'unreadable'` — present as something that is not a list.
  */
-type ReadList = readonly unknown[] | undefined | 'unreadable'
+export type ReadList = readonly unknown[] | undefined | 'unreadable'
 
-function readList(value: unknown): ReadList {
+export function readList(value: unknown): ReadList {
 	if (value === undefined || value === null) return undefined
 	return Array.isArray(value) ? value : 'unreadable'
 }
 
 /** A policy's name, or a stable stand-in — never a non-string off the wire. */
-function policyName(item: unknown, index: number): string {
+export function policyName(item: unknown, index: number): string {
 	const metadata = isRecord(item) ? item.metadata : undefined
 	const name = isRecord(metadata) ? metadata.name : undefined
 	return typeof name === 'string' && name !== '' ? name : `(unnamed #${index})`
@@ -496,7 +525,7 @@ export interface IngressRuleVerdict {
  * also be the one holding its port open, so neither "matches" nor "does not
  * match" is available.
  */
-function selectorIsReadable(selector: unknown): boolean {
+export function selectorIsReadable(selector: unknown): boolean {
 	if (selector === undefined) return true
 	if (!isRecord(selector)) return false
 	const matchLabels = selector.matchLabels
@@ -671,7 +700,7 @@ function coreRuleCoversPort(ports: unknown, agentPort: number): boolean | 'unkno
 
 const WIDE_OPEN_CIDRS = new Set(['0.0.0.0/0', '::/0'])
 
-function corePeerIsWideOpen(peer: unknown): boolean | 'unknown' {
+export function corePeerIsWideOpen(peer: unknown): boolean | 'unknown' {
 	if (!isRecord(peer)) return 'unknown'
 	const { podSelector, namespaceSelector, ipBlock } = peer
 	if (ipBlock !== undefined) {
@@ -1186,19 +1215,26 @@ export function decideIngressCoverage(
  * turns it into a {@link KubernetesIngressPolicyError} that also reports
  * whatever WAS read before it.
  */
-class UnreadPolicyCollection extends Error {
+export class UnreadPolicyCollection extends Error {
 	constructor(
-		readonly source: UnreadIngressPolicySource,
+		readonly source: UnreadPolicySource,
 		readonly summary: string,
 	) {
 		super(summary)
 	}
 }
 
-async function listPolicies(
+/**
+ * Enumerate one policy collection, or report why it could not be read.
+ *
+ * Exported: `egress-policy.ts`'s union check lists exactly these two
+ * collections for exactly this reason, and a second enumerator would be a
+ * second answer to "which policies apply to this pod".
+ */
+export async function listPolicies(
 	client: KubernetesClient,
 	path: string,
-	resource: UnreadIngressPolicySource['resource'],
+	resource: UnreadPolicySource['resource'],
 	signal?: AbortSignal,
 ): Promise<readonly unknown[]> {
 	// No `limit` is sent, and the API server truncates a collection only when

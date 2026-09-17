@@ -1,7 +1,7 @@
 ---
 type: Guide
 title: Kubernetes sandboxes
-description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, persistent block-disk workspaces with suspend and resume, egress policy translation and verify-not-trust, and the default-on ingress check that refuses a sandbox whose agent port no applied policy closes.
+description: Claim VM-isolated sandboxes from an agent-sandbox warm pool on any Kubernetes cluster — the config shape, the pristine-claim rule that keeps the acquire sub-second, the per-instance agent credential, which Sandbox capabilities it serves and which it deliberately omits, the acquire-time privilege probe, the lease that keeps a long run's pod alive, persistent block-disk workspaces with suspend and resume, egress policy translation and verify-not-trust across every policy that selects the sandbox pods (including the no-network and public-internet kinds), and the default-on ingress check that refuses a sandbox whose agent port no applied policy closes.
 resource: packages/sandbox/src/backends/kubernetes/index.ts
 tags: [sdk, sandbox, kubernetes, kata, warm-pool]
 status: draft
@@ -96,7 +96,7 @@ reason the Firecracker backend does.
 | `claimTtlSeconds` | `3600` | Wall-clock lifetime written into every created object, and the amount each [lease renewal](#the-lease) pushes it forward. |
 | `onLeaseRenewalError` | unset | Where a failed lease renewal is reported. Changes no behaviour; see [the lease](#the-lease). |
 | `runtimeClassName` | unset | Pool-less path only — see [refusals](#what-it-refuses). |
-| `egress` | unset | Outbound policy this backend translates and verifies. Unset verifies nothing outbound — see [Egress](#egress). |
+| `egress` | unset | Outbound policy this backend translates and verifies. Unset verifies nothing outbound. Setting it verifies the named object **and** every policy selecting the sandbox pods; `verify: 'named-object-only'` is the opt-out — see [Egress](#egress). |
 | `ingress` | unset, **which means verify** | Whether the agent port's inbound boundary is proved before a sandbox is created. `'unverified'` is the explicit opt-out — see [Ingress](#ingress). |
 | `apiRequestTimeoutMs` | `30000` | How long one API request may take, end to end. Minimum `1000`; **no value disables it** — see [the two bounds this backend sets itself](#the-two-bounds-this-backend-sets-itself). |
 | `streamHeartbeatMs` | `15000` | Liveness heartbeat interval on `openTerminal` and `openTcpConnection` streams. `0` sends none, which is how every release before this one behaved. |
@@ -1957,13 +1957,17 @@ other backend — the Firecracker tier included — is exactly what it was.
 ### Egress covers a workspace too
 
 `config.egress` is not a provider-only knob. `createKubernetesWorkspace` runs
-the same two steps [`createSandboxProvider` runs](#egress): a hostname
-allowlist with no FQDN-capable `engine` declared is refused synchronously,
-before a single request, and the `NetworkPolicy` (or `CiliumNetworkPolicy`) an
-operator was supposed to apply is `GET` and matched against the translation
-before anything is created. A missing or drifted policy fails the call and no
-workspace is created — the network boundary on a long-lived sandbox is the
-policy, not the agent's bind token.
+the same steps [`createSandboxProvider` runs](#egress): a hostname allowlist
+with no FQDN-capable `engine` declared is refused synchronously, before a
+single request; the `NetworkPolicy` (or `CiliumNetworkPolicy`) an operator was
+supposed to apply is `GET` and matched against the translation; and every
+policy selecting the pod this call is about to create is enumerated and
+refused if it lets out more than the translation does. All of it before
+anything is created, and on the adopt path before any resume patch — a
+workspace whose egress stopped being bounded is refused asleep rather than
+woken up to be refused. A missing, drifted or over-wide policy fails the call
+and no workspace is created — the network boundary on a long-lived sandbox is
+the policy, not the agent's bind token.
 
 **It is verified against the template the workspace is built from**, which is
 `options.sandboxTemplateName` when given and `config.sandboxTemplateName`
@@ -1973,9 +1977,10 @@ separate workspace template needs its own policy object for it — named
 `<workspace template>-egress` by default, or whatever `networkPolicyName`
 says. The task template's policy does not select a workspace pod.
 
-Unlike the provider's once-per-backend check, this one runs on every
-`createKubernetesWorkspace` call: creating a workspace is a rare, explicit act
-and there is nothing to amortise.
+Unlike the provider's once-per-backend check, these run on every
+`createKubernetesWorkspace` call — neither memo outlives the call — because
+creating a workspace is a rare, explicit act with nothing to amortise, and a
+policy deleted or widened since the last call has to be noticed.
 
 ### There is no delete-compute-keep-disk verb
 
@@ -2202,13 +2207,63 @@ const provider = createSandboxProvider({
 
 Core Kubernetes `NetworkPolicy` has exactly three ways to name a destination —
 `ipBlock` (CIDR), `podSelector`, `namespaceSelector` — and no hostname or FQDN
-concept anywhere in the resource. Of the four `EgressPolicy` kinds:
+concept anywhere in the resource. Of the six kinds `policy` takes:
 
 | Kind | Under `engine: 'core'` (default) | Under `engine: 'cilium'` |
 |---|---|---|
 | `deny-all` | A `NetworkPolicy` allowing only the cluster's own DNS (UDP/TCP 53 to `kube-system`) and nothing else. | Same — `engine` only changes the outcome for `static`/`resolver`. |
+| `no-network` | A `NetworkPolicy` with `policyTypes: ['Egress']` and **no rule at all**. Nothing leaves the pod, the cluster resolver included. | Same. |
+| `public-internet` | A `NetworkPolicy` allowing DNS to the resolver's own pods, plus `0.0.0.0/0` and `::/0` minus the ranges that are not the public internet. | Same. |
 | `allow-all` | A `NetworkPolicy` with one unrestricted egress rule. | Same. |
 | `static` / `resolver` | **Refused at construction**, before any API call: core `NetworkPolicy` cannot express a hostname allowlist at all. | A `CiliumNetworkPolicy` with a `toFQDNs` entry for every allowed host, preceded by the DNS-visibility rule Cilium's own `toFQDNs` examples require. |
+
+`no-network` and `public-internet` are Kubernetes-only: they live on
+`KubernetesEgressConfig.policy`, and the tier-wide `EgressPolicy` union is
+unchanged, because no other backend can enforce either one.
+
+```ts
+import type { KubernetesEgressConfig } from '@namzu/sandbox'
+
+const nothingOut: KubernetesEgressConfig = { policy: { kind: 'no-network' } }
+
+const outButNotSideways: KubernetesEgressConfig = {
+  policy: {
+    kind: 'public-internet',
+    // Added to the built-in carve-outs, never replacing them.
+    exceptCidrs: ['203.0.113.0/24'],
+  },
+}
+```
+
+#### `deny-all` is not "no network", and is not being changed into one
+
+`deny-all` emits a rule allowing UDP/TCP 53 to `kube-system`, and a cluster
+resolver forwards outside names upstream — so a `deny-all` sandbox keeps a
+channel out through DNS. That is why `no-network` exists as a separate kind
+rather than as a tightening of `deny-all`: verification of the named object is
+an exact match, so changing what `deny-all` emits would stop every
+already-applied policy from verifying and fail every `create()` on every
+deployment until an operator re-applied it. **`deny-all` and `allow-all` emit
+byte-for-byte what they always have**, and a test pins both manifests by deep
+equality before anything else in that file is asserted.
+
+**A `no-network` sandbox has no resolver.** The guest agent needs none — the
+host dials in — but a workload that resolves anything fails, which is the
+point. Nothing carves out a name or a port: `policyTypes: ['Egress']` with an
+empty rule list is the API's own spelling of "sends nothing".
+
+#### What `public-internet` carves out, and why
+
+`0.0.0.0/0` except `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16` (RFC 1918 —
+the cluster network, the node network and every other sandbox pod),
+`100.64.0.0/10` (RFC 6598 carrier-grade NAT, which several managed offerings
+hand to pods or nodes), `169.254.0.0/16` (link-local, and with it the
+`169.254.169.254` instance-metadata address), `127.0.0.0/8` and
+`168.63.129.16/32` (one cloud's platform endpoint). Plus `::/0` except
+`fc00::/7`, `fe80::/10` and `::1/128`. `exceptCidrs` adds to that list and is
+routed to the block of its own address family; an entry that is not a CIDR is
+refused at construction with `KubernetesEgressPolicyConfigError` rather than
+emitted into a manifest the API server would reject on apply.
 
 The refusal is a limitation stated plainly, not a footnote: **do not read
 `engine: 'cilium'` as this package adding Cilium support in general** — it is
@@ -2247,19 +2302,102 @@ carries it; a hand-written `SandboxTemplate` must add it too.
 This backend never CREATES the `NetworkPolicy` (or `CiliumNetworkPolicy`) —
 like the docker backend's network, egress here is operator-applied so the
 network boundary gets reviewed by whoever has cluster-admin, not by whatever
-created the ServiceAccount token this backend runs with. Instead, the first
-`create()` after construction (never `createSandboxProvider` itself, which
-still contacts nothing) `GET`s the object named by `networkPolicyName`
-(default `${sandboxTemplateName}-egress`) and asserts its `podSelector` /
-`endpointSelector`, `policyTypes` and `egress` rules match the translation
-exactly. A missing object or a mismatched one fails that `create()` with a
-named error identifying which field is wrong, and no sandbox is claimed —
-this check never trusts that an object with the right name does what config
-says. It runs once per backend, not once per `create()`; a failed attempt is
+created the ServiceAccount token this backend runs with. What it does instead
+is two checks, and setting `config.egress` now runs both.
+
+**One: the named object, exactly.** The first `create()` after construction
+(never `createSandboxProvider` itself, which still contacts nothing) `GET`s the
+object named by `networkPolicyName` (default `${sandboxTemplateName}-egress`)
+and asserts its `podSelector` / `endpointSelector`, `policyTypes` and `egress`
+rules match the translation **exactly**. A missing object fails with
+`KubernetesEgressPolicyNotAppliedError`, a drifted one with
+`KubernetesEgressPolicyMismatchError` naming the field, and no sandbox is
+claimed. It runs once per backend, not once per `create()`; a failed attempt is
 not cached, so fixing the cluster and calling `create()` again retries it.
-[`createKubernetesWorkspace`](#egress-covers-a-workspace-too) runs the same
-check with its own timing — every call, against its own template's policy —
-because a workspace never passes through the provider.
+
+**Two: every policy that selects the pod.** A name proves an object exists. It
+does not prove that object is the only thing deciding what leaves the pod — and
+the API server **unions** every policy selecting a pod, so traffic leaves if
+*any* of them allows it. So the check also `LIST`s the namespace's
+`NetworkPolicy` objects (and, under `engine: 'cilium'`, that CNI's policy CRD
+too), evaluates each selector against the pod's **real labels**, and refuses
+with `KubernetesEgressPolicyUnionError` when:
+
+- any selecting policy allows a destination the translation does not — under
+  `no-network`, that is *any* egress rule at all (`refusal:
+  'policy-widens-egress'`);
+- nothing selecting the pod puts it in egress default-deny, so the translation
+  bounds nothing it sends (`refusal: 'no-enforcing-policy'`); this is skipped
+  under `allow-all`, which asks for no boundary;
+- a policy, a peer or a port cannot be read at all — a named container port, an
+  unreadable selector, or a collection this Role may not `list` (`refusal:
+  'not-evaluable'`).
+
+The refusal names the pod's labels and **every policy examined with a verdict
+each** (`within`, `widens-egress`, `does-not-select`, `not-egress-scoped`,
+`not-evaluable`), so "why does my policy not count?" is answered by the line
+saying it did not select these labels. A pass is cached per label set for **at
+most five minutes** — not for the backend's lifetime, so a widening policy
+applied at 10:00 is noticed without restarting the host — and a failure is
+never cached.
+
+**The template-managed policy counts like any other.** A `SandboxTemplate` that
+sets `networkPolicy` has it translated by the agent-sandbox controller into a
+policy of the controller's own, and a template that omits the block gets the
+controller's default (`0.0.0.0/0` minus RFC 1918 and `169.254/16`) **instead**.
+Neither is a baseline underneath anything: dropping `networkPolicy` from a
+template opens the internet while the named egress object still verifies
+perfectly. That is the hole this second check closes, and the shipped
+`k8s/manifests/sandboxtemplate-task.yaml` comment that claimed otherwise is
+corrected in the same change.
+
+**Whose subset is decided conservatively.** A second policy passes only when
+the check can *show* it is inside the translation — a narrower CIDR inside an
+allowed block whose carve-outs it also carves out, or a selector with every
+constraint the translation places plus more. Anything it cannot place inside
+refuses. That is deliberate: the alternative is a checker that reports "close
+enough" about a network boundary.
+
+```ts
+import type { KubernetesEgressConfig } from '@namzu/sandbox'
+
+// Restores exactly the single-object check of every release before this one:
+// one GET of one named object, memoized for the backend's lifetime, and no
+// enumeration at all. For a deployment whose other policies a namespaced Role
+// cannot read, or which accepts the union it has.
+const singleObject: KubernetesEgressConfig = {
+  policy: { kind: 'deny-all' },
+  verify: 'named-object-only',
+}
+```
+
+[`createKubernetesWorkspace`](#egress-covers-a-workspace-too) runs both checks
+with its own timing — every call, against its own template's policy — because a
+workspace never passes through the provider.
+
+### What no egress test here can prove
+
+That the cluster **enforces** the policies it accepted. The stock local `kind`
+cluster accepts every `NetworkPolicy` and enforces none of them, and it runs no
+Cilium data plane at all, so an "it was blocked" probe there passes for the
+wrong reason and no result from it is evidence. Everything above is proved
+against a fake API server: the emitted manifests, the union verdicts one shape
+per case, the cache and its expiry, and that a refusal leaves no claim and no
+`Sandbox` behind.
+
+`k8s/scripts/egress-check.mjs` is the live check, and it is the only thing that
+speaks to enforcement: it creates a sandbox under the configured kind and dials
+from inside the guest — a public address, the instance-metadata address, the
+platform endpoint, a private address, optionally the API server's service IP,
+and another sandbox pod. Two positive controls run first (a TCP dial of the
+pod's own agent port on loopback, which no policy governs, and a resolution of
+`localhost`) and the script refuses to report any real probe if either control
+fails, so a broken prober can never read as a perfect boundary. On a
+non-enforcing cluster it reports FAIL, which is the intended outcome.
+
+**The `static`/`resolver` hostname allowlist is not probed by anything.** It is
+enforced at L7 by one CNI's own agent; nothing in this repo has measured that,
+and this page does not claim it.
 
 ## Ingress
 
@@ -2499,12 +2637,17 @@ The ServiceAccount the host runs as needs, in the sandbox namespace:
 `create`/`get`/`list`/`patch`/`delete` on `sandboxes`, `get` on
 `sandboxtemplates`, `get`/`list` on `pods`, `list` on `networkpolicies`
 (`networking.k8s.io`) — which the default-on [ingress check](#ingress) issues
-before every create — and `get` on the same resource, only when `config.egress`
-is set. Under `engine: 'cilium'` on either check, the same two verbs on
-`ciliumnetworkpolicies` (`cilium.io`). `list` rather than `get` is what the
-ingress check needs, because it has to enumerate every policy in the namespace
-and evaluate each selector; a `get` by name would prove an object exists and
-not that it selects these pods. No consumer role is published upstream. A
+before every create, and which the [egress union check](#verify-never-trust)
+issues too whenever `config.egress` is set — and `get` on the same resource,
+for the egress named-object check, also only when `config.egress` is set. Under
+`engine: 'cilium'` on either check, the same two verbs on
+`ciliumnetworkpolicies` (`cilium.io`). `list` rather than `get` is what both
+enumerating checks need, because each has to read every policy in the namespace
+and evaluate its selector; a `get` by name would prove an object exists and not
+that it selects these pods. Without `list`, a deployment that sets
+`config.egress` fails every create with a `not-evaluable` refusal naming the
+missing grant — `egress.verify: 'named-object-only'` is the supported answer
+for a host that cannot be granted it. No consumer role is published upstream. A
 `403` surfaces as an error naming the verb and the resource and never the
 token.
 [Workspaces](#persistent-workspaces) add exactly one verb to that list:
@@ -2565,7 +2708,12 @@ each one.
 | 4. Small-file IO on the block PVC vs. host ext4 | `k8s/scripts/io-compare.mjs` | ≤ 1.5x | — | — | — |
 | 5. The guest is genuinely deprivileged | `k8s/scripts/capability-check.mjs` | pass | — | — | — |
 | 6. The agent port is shut to a pod that is not the host | `k8s/scripts/ingress-check.mjs` | the probe fails to connect | — | — | — |
+| 7. Egress is bounded by the configured kind | `k8s/scripts/egress-check.mjs` | every "must be closed" probe fails to connect, and `public-internet` reaches a public address | — | — | — |
 
-Row 6 needs a cluster whose CNI enforces `NetworkPolicy`. On one that does
-not — the stock local `kind` cluster — the script reports FAIL by design; see
-[Ingress](#what-no-test-here-can-prove).
+Rows 6 and 7 need a cluster whose CNI enforces `NetworkPolicy`. On one that
+does not — the stock local `kind` cluster — both scripts report FAIL by
+design; see [Ingress](#what-no-test-here-can-prove) and
+[Egress](#what-no-egress-test-here-can-prove). Row 7 also needs
+`config.egress` set to the kind being probed, and it does not cover the
+`static`/`resolver` hostname allowlist, which is enforced at L7 by one CNI's
+own agent and which nothing here has measured.

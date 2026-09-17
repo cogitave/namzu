@@ -149,10 +149,29 @@ export type {
 	KubernetesClusterAccess,
 } from './backends/kubernetes/index.js'
 // Egress translation types named by `KubernetesBackendConfig.egress` — see
-// `backends/kubernetes/egress-policy.ts` for what each engine can express.
+// `backends/kubernetes/egress-policy.ts` for what each engine can express,
+// and what the two Kubernetes-only kinds (`no-network`, `public-internet`)
+// mean that the shared `EgressPolicy` union has no word for.
 export type {
 	KubernetesEgressConfig,
 	KubernetesEgressEngine,
+	KubernetesEgressPolicy,
+	KubernetesEgressVerification,
+	KubernetesOnlyEgressPolicy,
+} from './backends/kubernetes/egress-policy.js'
+// The egress union check's refusal and the shapes it reports, so a host can
+// catch an over-wide policy by class and print which policy it was. Separate
+// from `KubernetesEgressPolicyMismatchError` (the ONE named object drifting)
+// and from `KubernetesIngressPolicyError` (the agent port being reachable):
+// three refusals on one create path, told apart by class.
+export type {
+	EgressPolicyRefusal,
+	EgressPolicyVerdict,
+	ExaminedEgressPolicy,
+} from './backends/kubernetes/egress-policy.js'
+export {
+	KubernetesEgressPolicyConfigError,
+	KubernetesEgressPolicyUnionError,
 } from './backends/kubernetes/egress-policy.js'
 // Ingress verification types named by `KubernetesBackendConfig.ingress`, plus
 // the refusal a create raises when no applied policy closes the agent port —
@@ -164,7 +183,9 @@ export type {
 	IngressPolicyVerdict,
 	KubernetesIngressConfig,
 	KubernetesIngressEngine,
+	/** @deprecated Renamed to `UnreadPolicySource`; both checks report it. */
 	UnreadIngressPolicySource,
+	UnreadPolicySource,
 } from './backends/kubernetes/ingress-policy.js'
 export { KubernetesIngressPolicyError } from './backends/kubernetes/ingress-policy.js'
 // The errors a caller of a kubernetes sandbox has to be able to catch BY
@@ -694,7 +715,22 @@ export interface KubernetesBackendConfig {
 	 * enforcement point is one object attached to the template and cannot be
 	 * rewritten per running sandbox. `static` and `resolver` — hostname
 	 * allowlists — throw a named error at construction unless `engine` is
-	 * `'cilium'`: core `NetworkPolicy` has no FQDN concept at all. See
+	 * `'cilium'`: core `NetworkPolicy` has no FQDN concept at all.
+	 *
+	 * `policy` also takes two kinds that exist only here, because only a
+	 * `NetworkPolicy` can express them: `{ kind: 'no-network' }` (nothing
+	 * leaves the pod, the cluster resolver included — which `'deny-all'` never
+	 * meant, since it allows DNS and a cluster resolver forwards outside
+	 * names) and `{ kind: 'public-internet', exceptCidrs? }` (the internet,
+	 * minus the private ranges, carrier-grade NAT, link-local and one cloud
+	 * platform endpoint). `'deny-all'` and `'allow-all'` emit exactly the
+	 * manifests they always have.
+	 *
+	 * **Setting this now checks the UNION.** Since every policy selecting a
+	 * pod is unioned by the API server, the check reads the named object AND
+	 * enumerates the namespace's policies, refusing when any of them lets out
+	 * more than `policy` does. `verify: 'named-object-only'` restores the
+	 * single-object check exactly. See
 	 * `docs/sdk/kubernetes-sandbox.md`'s egress section.
 	 */
 	readonly egress?: KubernetesEgressConfig
