@@ -30,8 +30,15 @@
 #   - Outbound goes through the egress proxy where one is configured.
 #     It allows by resolved address and brokers credentials outbound;
 #     it does not authenticate anything inbound.
-#   - Non-root user (`namzu:1001`) for the worker process. Host
-#     mounts `/workspace` writable to that uid.
+#   - Non-root user (`namzu:1001`) for the worker process, declared
+#     here as `USER` rather than passed as `--user`, so the docker
+#     backend's `runAsUser` stays unset by default and this image's
+#     choice survives it. The uid was never what made `/workspace`
+#     writable: the docker backend mounts it as tmpfs scratch, or a
+#     host layout binds something there instead — this line used to
+#     say "host mounts /workspace writable to that uid", which was
+#     true of neither the backend's default layout (outputs and
+#     scratch are bound under /mnt/user-data) nor a read-only rootfs.
 # =============================================================================
 
 ARG NODE_VERSION=22

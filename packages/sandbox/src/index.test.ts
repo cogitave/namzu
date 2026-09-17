@@ -108,6 +108,39 @@ describe('createSandboxProvider', () => {
 		},
 	)
 
+	it.each(['docker', 'runsc'] as const)(
+		'carries the hardening knobs into the %s backend rather than dropping them',
+		(runtime) => {
+			// The observable is a refusal, because the alternative is a running
+			// Docker daemon: `buildDockerBackend` validates both of these at
+			// construction, so a provider that throws for a value it cannot
+			// render is proof the field travelled out of the public config. A
+			// field dropped in one of `pickBackend`'s two container branches —
+			// they are separate object literals — would leave the provider
+			// standing here, and the operator would never see the limit they
+			// asked for.
+			expect(() =>
+				createSandboxProvider({
+					backend: { tier: 'container', runtime, image: 'worker:test', cpuLimit: 0 },
+					layout: validLayout(),
+				}),
+			).toThrow(/cpuLimit must be/)
+
+			expect(() =>
+				createSandboxProvider({
+					backend: {
+						tier: 'container',
+						runtime,
+						image: 'worker:test',
+						readOnlyRootfs: false,
+						writableRootfsPaths: ['/opt'],
+					},
+					layout: validLayout(),
+				}),
+			).toThrow(/readOnlyRootfs: false/)
+		},
+	)
+
 	it('refuses a tier it does not implement, by name', () => {
 		// Reachable only from untyped callers now that every shape in the
 		// union has an implementation — which is the point of keeping it: a

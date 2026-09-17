@@ -52,6 +52,7 @@ const provider = createSandboxProvider({
     image: 'namzu-sandbox:latest',
     network: 'namzu-tasks',
     labels: { 'example.task-id': taskId },
+    cpuLimit: 2,
   },
   layout: {
     outputs: { source: { type: 'hostDir', hostPath: `/srv/tasks/${taskId}/outputs` } },
@@ -62,6 +63,64 @@ const provider = createSandboxProvider({
   defaultMaxProcesses: 128,
 })
 ```
+
+## Container hardening baseline
+
+`container:docker` confines every container it starts, and the argv it builds is
+pinned by a test (`src/backends/docker/__tests__/hardening.test.ts`) so a change
+to the baseline has to get past it on purpose. Each flag carries its own
+argument in `src/backends/docker/index.ts`; in one line each:
+
+| Flag | Why |
+|---|---|
+| `--cap-drop=ALL` | No Linux capability, with no re-add list. `CAP_DAC_OVERRIDE` alone walks past the layout's read-only binds, and `NET_ADMIN` is what would put a default route back on a `deny-all` network. |
+| `--security-opt=no-new-privileges` | A setuid binary inside the image cannot re-escalate. |
+| `--ipc private` | This container's IPC namespace is not joinable. `shareable` (docker's other daemon default) hands every container a namespace of its own as well, but leaves it joinable by name with `--ipc container:<name>`. |
+| `--read-only` | The image is not a place the workload writes; the layout's `outputs` and `scratch` binds are separate mounts and stay writable. |
+| `--tmpfs <path>` | The paths inside the container that do stay writable — see below. |
+| `--memory`, `--pids-limit`, `--cpus` | Bounds the host sets through `defaultMemoryLimitMb`, `defaultMaxProcesses` and `cpuLimit`. All three are unset by default, because the right number is a property of the host's machine and of the workload. |
+
+**What stays writable under `--read-only`.** Four paths, all `--tmpfs`:
+`/tmp`, `/var/tmp`, `/workspace` and `/home/namzu`. The first three are where a
+workload's own scratch goes — `/tmp` is `TMPDIR`, where pip builds wheels and
+where a program compiled in the sandbox is run, so these mounts are deliberately
+executable (docker's own `--tmpfs` default is `noexec`, which would turn that
+into `Permission denied` on a file that is plainly executable). `/home/namzu` is
+the reference image's `HOME`: LibreOffice refuses a headless conversion without a
+writable user profile, and matplotlib, fontconfig, npm and `pip install --user`
+all keep caches there. A host that points `image` at its own build says what
+that image needs with `writableRootfsPaths` — the backend cannot read an image's
+writable set, and the alternative to asking is guessing. `readOnlyRootfs: false`
+turns that control off — the container filesystem is writable again — and turns
+off nothing else: `--cap-drop=ALL`, `--security-opt=no-new-privileges` and
+`--ipc private` are applied whatever it says.
+
+Because those four paths are tmpfs, they are RAM, not the container's writable
+layer: scratch larger than half the host's RAM (or than `--memory`, the tighter
+of the two when the host sets one) fails with `ENOSPC` rather than spilling onto
+the host's disk. A run that writes temp files bigger than its memory budget does
+not have to give up the baseline over it: `layout.scratch` is a bind to a host
+directory and stays disk-backed, so a host with room on disk mounts one there
+and points the workload at it — `TMPDIR` set to that container path through the
+per-call `env` option — which keeps the read-only root filesystem and the four
+paths above. `readOnlyRootfs: false` is the last resort rather than the first:
+it buys the container's own writable layer back at the cost of the control.
+
+**Three controls are deliberately absent.** A seccomp profile: docker applies
+its built-in one to every container and nothing here asks for anything looser,
+so what is missing is a *tighter* profile, and a hand-written one cannot be
+verified here against the reference image's toolchain — a profile that blocks a
+syscall chromium or LibreOffice needs breaks the sandbox, which is worse than
+the gap it closes. Set `seccomp-profile` in the daemon's `daemon.json` if you
+want one. `--userns-remap`: it is a daemon property (`userns-remap` in
+`daemon.json`), not a `docker run` flag — a container only chooses between the
+namespaces the daemon already made (`--userns=host|private`), so whether a
+remapped mapping exists is settled before this backend's argv is read and no
+flag here could settle it. Enable it on the host and every container in this
+tier gets uid 0 mapped to an unprivileged uid outside.
+`--user`: supported through `runAsUser` and unset by default, because `--user`
+overrides the image's own choice and the reference image already ends with
+`USER namzu`.
 
 ## Protocol readiness and cancellation
 

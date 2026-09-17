@@ -1,6 +1,14 @@
+import type { ResolvedContainerSandboxLayout } from '@namzu/sdk'
 import { describe, expect, it } from 'vitest'
 
-import { egressProxyOptions, resolveNetwork } from '../index.js'
+import type { DockerBackendInternalConfig } from '../index.js'
+import {
+	assertCpuLimitIsRenderable,
+	buildDockerRunArgs,
+	egressProxyOptions,
+	renderWritableRootfsArgs,
+	resolveNetwork,
+} from '../index.js'
 
 /**
  * `EgressPolicy` was accepted by the type, threaded through the options,
@@ -84,5 +92,362 @@ describe('egressProxyOptions', () => {
 		expect(await options.allowedHosts()).toEqual(['first.example'])
 		hosts = ['second.example']
 		expect(await options.allowedHosts()).toEqual(['second.example'])
+	})
+})
+
+/**
+ * The container tier's hardening baseline, pinned as argv.
+ *
+ * Every one of these flags is a claim about a container nobody in the test
+ * suite starts. Before this, the baseline was reachable only through
+ * `spawnDockerSandbox`, so the way to find out what this backend confines was
+ * to read the file — and the way to lose a flag was to edit it and watch
+ * production. An argv comparison is not a substitute for starting a container;
+ * it is the part that a change to the baseline has to get past on purpose.
+ */
+
+const layout: ResolvedContainerSandboxLayout = {
+	outputs: {
+		source: { type: 'hostDir', hostPath: '/h/out' },
+		containerPath: '/mnt/user-data/outputs',
+	},
+	uploads: {
+		source: { type: 'hostDir', hostPath: '/h/up' },
+		containerPath: '/mnt/user-data/uploads',
+	},
+	scratch: {
+		source: { type: 'hostDir', hostPath: '/h/scratch' },
+		containerPath: '/mnt/user-data/scratch',
+	},
+}
+
+function backendConfig(
+	overrides: Partial<DockerBackendInternalConfig> = {},
+): DockerBackendInternalConfig {
+	return { image: 'namzu-sandbox:latest', layout, ...overrides }
+}
+
+function argv(
+	config: DockerBackendInternalConfig = backendConfig(),
+	options: Parameters<typeof buildDockerRunArgs>[0]['options'] = { workingDirectory: '/workspace' },
+): string[] {
+	return buildDockerRunArgs({
+		config,
+		options,
+		containerName: 'namzu-sandbox-abc',
+		network: 'namzu-tasks',
+		hostReachability: 'host-port',
+	})
+}
+
+const SCRATCH_OPTIONS = 'nosuid,nodev,exec,mode=1777'
+
+describe('buildDockerRunArgs — the baseline', () => {
+	it('pins the whole argv for a default config', () => {
+		// Exact equality on purpose. `expect.arrayContaining` would let a flag
+		// be added and another dropped in the same edit; this fails on both.
+		expect(argv()).toEqual([
+			'run',
+			'--detach',
+			'--rm',
+			'--name',
+			'namzu-sandbox-abc',
+			'--network',
+			'namzu-tasks',
+			'--cap-drop=ALL',
+			'--security-opt=no-new-privileges',
+			'--ipc',
+			'private',
+			'--read-only',
+			'--tmpfs',
+			`/tmp:${SCRATCH_OPTIONS}`,
+			'--tmpfs',
+			`/var/tmp:${SCRATCH_OPTIONS}`,
+			'--tmpfs',
+			`/workspace:${SCRATCH_OPTIONS}`,
+			'--tmpfs',
+			`/home/namzu:${SCRATCH_OPTIONS}`,
+			'--volume',
+			'/h/out:/mnt/user-data/outputs:rw',
+			'--volume',
+			'/h/up:/mnt/user-data/uploads:ro',
+			'--volume',
+			'/h/scratch:/mnt/user-data/scratch:rw',
+			'--env',
+			'NAMZU_SANDBOX_WORKSPACE=/mnt/user-data/outputs',
+			'--env',
+			'NAMZU_SANDBOX_READ_ROOTS=/mnt/user-data/outputs:/mnt/user-data/uploads:/mnt/user-data/scratch',
+			'--env',
+			'NAMZU_SANDBOX_WRITE_ROOTS=/mnt/user-data/outputs:/mnt/user-data/scratch',
+			'--publish',
+			'127.0.0.1::2024',
+			'namzu-sandbox:latest',
+		])
+	})
+
+	it('pins the whole argv for a writable root filesystem, which is not the old argv', () => {
+		// `readOnlyRootfs: false` is the only switch here, and what it switches
+		// off is `--read-only` and the tmpfs list beside it. Pinned as the whole
+		// array rather than as "does not contain --read-only", because the
+		// failure worth catching is not that flag coming back: it is
+		// `--cap-drop=ALL`, `no-new-privileges` or `--ipc private` being moved
+		// into the branch that renders it, which would hand a host that asked
+		// only for a writable filesystem an argv with no capability drop in it.
+		// So all three are asserted present, in place, exactly as the default
+		// case asserts them.
+		expect(argv(backendConfig({ readOnlyRootfs: false }))).toEqual([
+			'run',
+			'--detach',
+			'--rm',
+			'--name',
+			'namzu-sandbox-abc',
+			'--network',
+			'namzu-tasks',
+			'--cap-drop=ALL',
+			'--security-opt=no-new-privileges',
+			'--ipc',
+			'private',
+			'--volume',
+			'/h/out:/mnt/user-data/outputs:rw',
+			'--volume',
+			'/h/up:/mnt/user-data/uploads:ro',
+			'--volume',
+			'/h/scratch:/mnt/user-data/scratch:rw',
+			'--env',
+			'NAMZU_SANDBOX_WORKSPACE=/mnt/user-data/outputs',
+			'--env',
+			'NAMZU_SANDBOX_READ_ROOTS=/mnt/user-data/outputs:/mnt/user-data/uploads:/mnt/user-data/scratch',
+			'--env',
+			'NAMZU_SANDBOX_WRITE_ROOTS=/mnt/user-data/outputs:/mnt/user-data/scratch',
+			'--publish',
+			'127.0.0.1::2024',
+			'namzu-sandbox:latest',
+		])
+	})
+
+	it('passes --runtime only when the host named one, with its value', () => {
+		// `--runtime` is the flag that decides which container runtime creates
+		// the sandbox at all — `runsc` is gVisor — and the value is asserted in
+		// position rather than by containment, because a `--runtime` whose value
+		// went missing is a docker invocation that reads the image name as the
+		// runtime and the next token as the image.
+		expect(argv()).not.toContain('--runtime')
+		const withRuntime = argv(backendConfig({ runtime: 'runsc' }))
+		expect(withRuntime[withRuntime.indexOf('--runtime') + 1]).toBe('runsc')
+	})
+
+	it('never renders a privilege grant, whatever the config carries', () => {
+		const rendered = argv(backendConfig({ labels: { 'vandal.task-id': 't1' }, cpuLimit: 2 }), {
+			workingDirectory: '/workspace',
+			memoryLimitMb: 512,
+			maxProcesses: 64,
+			env: { FOO: 'bar' },
+		})
+		// The two flags that would undo the baseline, and the one that would
+		// look like hardening while removing it. `seccomp=unconfined` is the
+		// shape this backend must never emit by accident: docker's default
+		// profile is what filters a container's syscalls, and the only way to
+		// lose it is to ask.
+		expect(rendered).not.toContain('--privileged')
+		expect(rendered.filter((arg) => arg.includes('seccomp'))).toEqual([])
+		expect(rendered.filter((arg) => arg.includes('cap-add'))).toEqual([])
+		expect(rendered.join(' ')).not.toContain('--userns')
+		// The one `--security-opt` is the baseline's, not a `seccomp=` that
+		// rode in on it. It is rendered `=`-joined, which is how it has always
+		// been passed, so the assertion is on the whole token.
+		expect(rendered.filter((arg) => arg.startsWith('--security-opt'))).toEqual([
+			'--security-opt=no-new-privileges',
+		])
+	})
+
+	it('renders the three resource bounds together, and only when asked', () => {
+		const bounded = argv(backendConfig({ cpuLimit: 1.5 }), {
+			workingDirectory: '/workspace',
+			memoryLimitMb: 512,
+			maxProcesses: 64,
+		})
+		expect(bounded.slice(bounded.indexOf('--memory'))).toEqual([
+			'--memory',
+			'512m',
+			'--pids-limit',
+			'64',
+			'--cpus',
+			'1.5',
+			'namzu-sandbox:latest',
+		])
+
+		// A fraction is not rounded, and an unset limit is not a default bound
+		// nobody chose: the same argv without the knobs has none of the three.
+		const unbounded = argv()
+		expect(unbounded.join(' ')).not.toContain('--cpus')
+		expect(unbounded.join(' ')).not.toContain('--memory')
+		expect(unbounded.join(' ')).not.toContain('--pids-limit')
+	})
+
+	it('passes --user only when the host named one', () => {
+		expect(argv()).not.toContain('--user')
+		// The default is the image's own `USER` — the reference image runs as
+		// namzu — so an unset field is not "running as root".
+		const asUser = argv(backendConfig({ runAsUser: '1000:1000' }))
+		expect(asUser[asUser.indexOf('--user') + 1]).toBe('1000:1000')
+	})
+
+	it('keeps the image last, so nothing after it is read as a flag', () => {
+		const rendered = argv(backendConfig({ cpuLimit: 1 }), {
+			workingDirectory: '/workspace',
+			env: { Z: '1' },
+		})
+		expect(rendered[rendered.length - 1]).toBe('namzu-sandbox:latest')
+		expect(rendered.slice(0, -1).every((arg) => arg !== 'namzu-sandbox:latest')).toBe(true)
+	})
+
+	it('renders the proxy boundary as environment when a proxy is running', () => {
+		const rendered = buildDockerRunArgs({
+			config: backendConfig(),
+			options: { workingDirectory: '/workspace' },
+			containerName: 'namzu-sandbox-abc',
+			network: 'namzu-tasks',
+			hostReachability: 'container-network',
+			egressProxyPort: 41234,
+		})
+		expect(rendered).toContain('--add-host')
+		expect(rendered).toContain('namzu-egress:host-gateway')
+		expect(rendered).toContain('--env')
+		expect(rendered).toContain('HTTP_PROXY=http://namzu-egress:41234')
+		expect(rendered).toContain('https_proxy=http://namzu-egress:41234')
+		// container-network publishes no host port, and an absent proxy leaves
+		// no proxy environment behind — the two omissions are different facts.
+		expect(rendered).not.toContain('--publish')
+		expect(argv().join(' ')).not.toContain('HTTP_PROXY')
+	})
+})
+
+describe('renderWritableRootfsArgs — what stays writable', () => {
+	it('mounts the documented set, in a stable order', () => {
+		expect(renderWritableRootfsArgs(backendConfig())).toEqual([
+			'--tmpfs',
+			`/tmp:${SCRATCH_OPTIONS}`,
+			'--tmpfs',
+			`/var/tmp:${SCRATCH_OPTIONS}`,
+			'--tmpfs',
+			`/workspace:${SCRATCH_OPTIONS}`,
+			'--tmpfs',
+			`/home/namzu:${SCRATCH_OPTIONS}`,
+		])
+	})
+
+	it('skips a path the layout already mounts, rather than mounting it twice', () => {
+		// Docker refuses two mounts at one destination ("Duplicate mount
+		// point"), and the bind the host asked for is the one that has to win.
+		const mounted = backendConfig({
+			layout: {
+				...layout,
+				outputs: { source: { type: 'hostDir', hostPath: '/h/in' }, containerPath: '/workspace' },
+			},
+		})
+		const rendered = renderWritableRootfsArgs(mounted)
+		expect(rendered).not.toContain(`/workspace:${SCRATCH_OPTIONS}`)
+		expect(rendered).toContain(`/tmp:${SCRATCH_OPTIONS}`)
+	})
+
+	it('adds the paths a host names, and does not repeat a default it names twice', () => {
+		expect(renderWritableRootfsArgs(backendConfig({ writableRootfsPaths: ['/opt'] }))).toContain(
+			`/opt:${SCRATCH_OPTIONS}`,
+		)
+		// A host that names /tmp gets one mount, not two.
+		const repeated = renderWritableRootfsArgs(backendConfig({ writableRootfsPaths: ['/tmp'] }))
+		expect(repeated.filter((arg) => arg.startsWith('/tmp:'))).toHaveLength(1)
+	})
+
+	it('refuses a host path the layout mounts, because two requests contradict', () => {
+		expect(() =>
+			renderWritableRootfsArgs(backendConfig({ writableRootfsPaths: ['/mnt/user-data/outputs'] })),
+		).toThrow(/Duplicate mount point/)
+	})
+
+	it('refuses a path that is not a normalised absolute path', () => {
+		// The last three are the same directory as a default this backend
+		// mounts, spelled so that the collision check cannot see it — docker
+		// would then refuse the container at spawn over a duplicate mount.
+		for (const path of ['workspace', '/', '/tmp/../etc', '', '/tmp/', '//tmp', '/tmp/.']) {
+			expect(() =>
+				renderWritableRootfsArgs(backendConfig({ writableRootfsPaths: [path] })),
+			).toThrow(/not a normalised absolute path/)
+		}
+	})
+
+	it('sees a layout path spelled another way as the directory it is', () => {
+		// The concrete break: `containerPath: '/tmp/'` and the `/tmp` tmpfs
+		// default are ONE destination to moby, which cleans a mount target before
+		// it compares it, so an exact-string check that let this through would
+		// emit `--tmpfs /tmp:...` and a bind at `/tmp/` both, and the daemon
+		// would refuse the container at create with `Duplicate mount point:
+		// /tmp` — the failure this guard is here to prevent, arriving at spawn on
+		// the one path no test in this repository can reach. Nothing here is
+		// refused: the default is what gives way, since the host's own bind is
+		// the mount that has to win.
+		const spelled = (containerPath: string) =>
+			backendConfig({
+				layout: {
+					...layout,
+					outputs: { source: { type: 'hostDir', hostPath: '/h/out' }, containerPath },
+				},
+			})
+		for (const spelling of ['/tmp/', '//tmp', '/tmp/.', '/tmp//', '/tmp/./']) {
+			const rendered = renderWritableRootfsArgs(spelled(spelling))
+			expect(rendered).not.toContain(`/tmp:${SCRATCH_OPTIONS}`)
+			expect(rendered).toContain(`/var/tmp:${SCRATCH_OPTIONS}`)
+		}
+
+		// The same fact from the other side: a host entry naming the directory a
+		// layout mount reduces to is the collision, whatever the layout wrote.
+		expect(() =>
+			renderWritableRootfsArgs(
+				backendConfig({
+					layout: {
+						...layout,
+						outputs: { source: { type: 'hostDir', hostPath: '/h/out' }, containerPath: '/opt/' },
+					},
+					writableRootfsPaths: ['/opt'],
+				}),
+			),
+		).toThrow(/Duplicate mount point/)
+	})
+
+	it('is empty when the read-only root filesystem is off, and so is --read-only', () => {
+		const writableRoot = backendConfig({ readOnlyRootfs: false })
+		expect(renderWritableRootfsArgs(writableRoot)).toEqual([])
+		expect(argv(writableRoot)).not.toContain('--read-only')
+		expect(argv(writableRoot).join(' ')).not.toContain('--tmpfs')
+	})
+
+	it('refuses writable paths beside a writable root filesystem', () => {
+		// Accepting them would be a control that is silently not applied.
+		expect(() =>
+			renderWritableRootfsArgs(
+				backendConfig({ readOnlyRootfs: false, writableRootfsPaths: ['/opt'] }),
+			),
+		).toThrow(/readOnlyRootfs: false/)
+	})
+})
+
+describe('assertCpuLimitIsRenderable', () => {
+	it('accepts what docker accepts', () => {
+		expect(() => assertCpuLimitIsRenderable(undefined)).not.toThrow()
+		expect(() => assertCpuLimitIsRenderable(1)).not.toThrow()
+		expect(() => assertCpuLimitIsRenderable(0.5)).not.toThrow()
+	})
+
+	it('refuses a bound the daemon would reject or misread', () => {
+		// Each of these renders into the argv as text, and none of them means
+		// what a host writing it would have meant: moby reads `NanoCPUs` of `0`
+		// as NO limit, the opposite of a bound of zero, and a negative, `NaN` or
+		// `Infinity` is refused by the daemon or turned into a bound nobody asked
+		// for. What is deliberately NOT checked here is the daemon's upper bound
+		// — above its own host's CPU count — because it is not knowable from
+		// this process; the function's own comment says why.
+		for (const limit of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+			expect(() => assertCpuLimitIsRenderable(limit)).toThrow(/cpuLimit must be/)
+		}
 	})
 })

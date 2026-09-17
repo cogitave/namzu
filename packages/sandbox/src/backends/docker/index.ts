@@ -97,13 +97,69 @@ export interface DockerBackendInternalConfig {
 	/**
 	 * `--user` value for the container, e.g. `'1000:1000'` or `'nobody'`.
 	 *
-	 * Left unset by default because the correct uid depends on the image's
-	 * own filesystem ownership, and forcing one would break every image
-	 * that expects root at startup. Set it whenever the image supports a
-	 * non-root user — a container running as root is one bind-mount
-	 * misconfiguration away from writing the host.
+	 * Left unset by default because `--user` does not ADD a non-root user, it
+	 * OVERRIDES the image's own choice of one. The reference image ends with
+	 * `USER namzu` (uid 1001, its `/workspace` chowned to match), so this
+	 * backend's default is already non-root for the image it ships — a
+	 * hard-coded uid here would replace that with a guess, and the guess is
+	 * wrong for any image whose files are owned by someone else, which
+	 * surfaces as `EACCES` on a path the workload was told it could write.
+	 * Set it when the image does not declare a user of its own, or when the
+	 * host wants a different one than it declares.
 	 */
 	readonly runAsUser?: string
+
+	/**
+	 * CPU cores the container may use, rendered as `--cpus`. Unset by default.
+	 *
+	 * `--memory` and `--pids-limit` bound what a workload can take from the
+	 * host, and CPU had no equivalent at all — no default, no knob — which
+	 * reads as an oversight rather than a decision. It stays unset for the
+	 * same reason neither of those two has a numeric default: the right value
+	 * is a property of the host's machine and of what the workload is for, and
+	 * any number this backend picked would silently throttle a run that
+	 * finishes inside its timeout today. A host that wants the bound says what
+	 * it is; the value is a decimal (`--cpus 1.5` is one and a half cores'
+	 * worth of time, not a rounding).
+	 *
+	 * It lives on this config rather than beside `memoryLimitMb` on the
+	 * per-call options because the documented deployment constructs one
+	 * provider per task, so construction time IS per-task — and a control
+	 * added to the tier-agnostic per-call shape would have to be refused by
+	 * the ACI and kubernetes backends, which cannot apply a per-sandbox CPU
+	 * limit any more than they can apply the memory and process ones.
+	 */
+	readonly cpuLimit?: number
+
+	/**
+	 * Mount the container's root filesystem read-only. Default `true`.
+	 *
+	 * See {@link HARDENING_ARGS} for why the default is on and
+	 * {@link renderWritableRootfsArgs} for the paths that stay writable while
+	 * it is. Set it to `false` to make every path inside the container
+	 * writable again, which is what a host whose image writes somewhere the
+	 * writable set cannot describe needs, and which is why the switch exists
+	 * instead of an unwritten rule that the baseline is absolute. It turns off
+	 * that one control and nothing else: `--cap-drop=ALL`,
+	 * `--security-opt=no-new-privileges` and `--ipc private` are applied
+	 * whatever this says. It is a config field rather than an argument so that
+	 * turning it off is a line somebody wrote on purpose, and not the default
+	 * anyone gets by not looking.
+	 */
+	readonly readOnlyRootfs?: boolean
+
+	/**
+	 * Extra paths to keep writable under `--read-only`, each mounted `--tmpfs`.
+	 *
+	 * The default set ({@link DEFAULT_WRITABLE_ROOTFS_PATHS}) is the reference
+	 * image's needs, read off its Dockerfile; this is how a host that points
+	 * `image` somewhere else says what ITS image needs, because the backend
+	 * cannot read that out of an image and guessing is what these paths would
+	 * otherwise be. A path the layout already mounts is refused rather than
+	 * mounted twice (`Duplicate mount point`), and setting this at all beside
+	 * `readOnlyRootfs: false` is refused as a contradiction.
+	 */
+	readonly writableRootfsPaths?: readonly string[]
 
 	/**
 	 * Credentials the egress proxy stamps on, per host.
@@ -188,6 +244,13 @@ const WORKER_PORT_INSIDE_CONTAINER = 2024
  * `create()` call.
  */
 export function buildDockerBackend(config: DockerBackendInternalConfig): SandboxBackend {
+	// Refused here rather than at the first spawn, so a config that cannot be
+	// rendered — a CPU limit that cannot mean anything, or writable paths
+	// beside a writable root filesystem — surfaces during host wiring instead
+	// of as a container that failed to come up. The same checks run where the
+	// argv is built, because that is the only place a caller cannot skip them.
+	assertCpuLimitIsRenderable(config.cpuLimit)
+	assertRootfsOptionsAreCoherent(config)
 	const readiness = resolveReadinessOptions(
 		'docker',
 		config.readyTimeoutMs,
@@ -363,9 +426,11 @@ export function egressProxyOptions(
  * are the defaults every container runtime hardening guide starts with,
  * and none of them were present.
  *
- * `--cap-drop=ALL` is deliberately not softened by a re-add list: a
- * workload that genuinely needs a capability should say so through
- * `extraRunArgs` and be visible in review.
+ * `--cap-drop=ALL` is deliberately not softened by a re-add list, and there is
+ * no config field that could soften it either: a workload that genuinely needs
+ * a capability needs a change to this file, where the diff says which
+ * capability and why. A re-add list on the config would grant it to every
+ * sandbox the host spawns, quietly, which is how a baseline stops being one.
  *
  * **It carries a second, independent load, and this is the one that would
  * survive being forgotten.** An egress policy of `deny-all` is enforced by
@@ -390,11 +455,526 @@ export function egressProxyOptions(
  *
  * Recorded here because the first justification above would survive
  * softening this flag and the second would not.
+ *
+ * `--ipc private` closes a door that is not the one its name suggests, and the
+ * difference is worth being exact about. Moby runs `private`, `shareable` and
+ * `none` through the SAME branch (`daemon/oci_linux.go`, `WithNamespaces`), so
+ * `shareable` already gives every container an IPC namespace of its own: a
+ * daemon whose `default-ipc-mode` is `shareable` does not merge anybody's
+ * namespaces, and what an unset flag buys on such a daemon is not a shared one
+ * either. What separates the modes is reachability. Docker's run reference
+ * defines `shareable` as "Own private IPC namespace, with a possibility to
+ * share it with other containers", and that possibility is `--ipc
+ * container:<name>`, which joins another container's IPC namespace — and what
+ * that join needs from the target is a shared-memory directory to enter:
+ * `daemon.getIPCContainer` resolves the target by name and is gated on its
+ * `ShmPath`, which a container created `private` does not have. So on a
+ * daemon defaulting to `shareable` this container's namespace, and the System V
+ * shared memory, semaphores and message queues namespaced with it, are joinable
+ * by anything else on that host which knows the container's name; `--ipc
+ * private` removes that reachability. Creating the joining container still takes
+ * access to the same daemon, so this is not a boundary against an unprivileged
+ * attacker, and it is not claimed as one here. What it buys is that the answer
+ * is in THIS argv rather than in the host's `daemon.json`, which is the only
+ * place the daemon's default is written down. `--ipc none` is deliberately not
+ * used: it takes `/dev/shm` away, and chromium — which the reference image
+ * ships for browser automation — uses it for every renderer process.
+ *
+ * `--read-only` makes the image itself not a place the workload can write. It
+ * is rendered by {@link renderHardeningArgs} rather than listed below, because
+ * it is the one flag here a host can turn off (`readOnlyRootfs: false`), and a
+ * flag in this array would keep being applied after the field said it was not —
+ * a control accepted and not applied, which is the failure this file refuses
+ * everywhere else. The layout's own RW binds (`outputs`, `scratch`) are
+ * separate mounts and are unaffected; what stays writable inside the
+ * container's filesystem is named, path by path and with the reason, in
+ * {@link renderWritableRootfsArgs}. A host whose image needs a path that list
+ * does not name adds it through `writableRootfsPaths`.
+ *
+ * Three controls from the published container-hardening guidance are
+ * deliberately absent, and the reason is here rather than implied:
+ *
+ *  - **A seccomp profile.** Docker already applies its built-in profile to
+ *    every container unless something passes `seccomp=unconfined`, and nothing
+ *    in this backend does — so the tier is filtered, and what is missing is a
+ *    profile TIGHTER than docker's default. Shipping one means shipping a
+ *    hand-written file whose deny list has to be correct for whatever image
+ *    the host names, and this repository cannot test it against the reference
+ *    image's own toolchain (chromium, LibreOffice, the numpy/scipy/duckdb
+ *    stack). A profile that blocks a syscall one of those needs breaks the
+ *    sandbox at a point no test here would catch, which is worse than the gap
+ *    it closes. A host that needs a tighter profile sets `seccomp-profile` in
+ *    the daemon's `daemon.json`, where it applies to this container and every
+ *    other one; `--security-opt seccomp=<file>` is the per-container form, and
+ *    it is not offered as a config field because a path in a config field is a
+ *    file the daemon reads from the HOST, which is a different machine from
+ *    the one this backend runs on whenever it drives a remote daemon.
+ *  - **`--userns-remap`.** It is not a `docker run` flag at all: it is a
+ *    daemon property (`userns-remap` in `daemon.json`, or `dockerd
+ *    --userns-remap=`), and per container the CLI only chooses between the
+ *    namespaces the daemon already made (`--userns=host|private`). Whether a
+ *    remapped namespace exists is therefore settled before this argv is read,
+ *    and a flag here could not settle it — which is the whole reason the
+ *    control is absent rather than configurable: this backend has nothing to
+ *    say about a mapping that belongs to the machine the daemon runs on.
+ *    Enabling it on the host is a real upgrade to this tier (uid 0 inside maps
+ *    to an unprivileged uid outside) and costs this backend nothing; the README
+ *    says so.
+ *  - **`--user`.** Supported, and unset by default on purpose — see the
+ *    `runAsUser` field, which is where a host that knows its image sets it.
  */
-const HARDENING_ARGS: readonly string[] = ['--cap-drop=ALL', '--security-opt=no-new-privileges']
+const HARDENING_ARGS: readonly string[] = [
+	'--cap-drop=ALL',
+	'--security-opt=no-new-privileges',
+	'--ipc',
+	'private',
+]
 
 /** Name the container reaches the host-side egress proxy by. */
 const PROXY_HOST_ALIAS = 'namzu-egress'
+
+/**
+ * Mount options for every scratch mount this backend creates.
+ *
+ * `exec` is the load-bearing one and the reason this is a named constant
+ * rather than a literal at the call site. Docker does NOT default a `--tmpfs`
+ * mount to a usable scratch directory: `withMounts` in moby's
+ * `daemon/oci_linux.go` starts every user tmpfs from
+ * `["noexec", "nosuid", "nodev", <propagation>]` and appends whatever the
+ * caller passed, so `--tmpfs /tmp` on its own is **noexec**. A workload that
+ * compiles a program into `/tmp` and runs it — `gcc -o /tmp/a.out … &&
+ * /tmp/a.out`, or a python `ctypes.CDLL` of a library it just built there —
+ * would meet `Permission denied` on an executable file, an error that reads
+ * as a broken sandbox rather than as a mount option. Scratch here is as
+ * executable as it was before this backend mounted a tmpfs over it.
+ *
+ * `nosuid` and `nodev` are kept from docker's defaults: the tmpfs is the one
+ * place inside the container a workload can write an arbitrary file to, and
+ * neither a setuid binary nor a device node there has any use that is worth
+ * the escalation path — with `--cap-drop=ALL` no device node could be created
+ * there anyway.
+ *
+ * `mode=1777` is stated rather than inherited from the kernel's tmpfs default
+ * (which is the same value): the mounts have to be writable by whichever uid
+ * the image runs as, and the backend does not know that uid. A sticky,
+ * world-writable scratch directory is what `/tmp` is, and `--read-only` here
+ * is about the image, not about the uid.
+ */
+const TMPFS_MOUNT_OPTIONS = 'nosuid,nodev,exec,mode=1777'
+
+/**
+ * Paths the reference image needs writable under `--read-only`, as `--tmpfs`.
+ *
+ * `--read-only` says the image is not the workload's disk. It does not say
+ * nothing may be written, and the difference is the sandbox: the layout's own
+ * RW binds (`outputs`, `scratch`) are separate mounts and are unaffected, but
+ * the image's toolchain writes inside the container's own filesystem, and a
+ * `--read-only` that stops it is worse than the gap it closes. Read off
+ * `worker/Dockerfile`, whose whole purpose is producing DOCX/XLSX/PPTX/PDF
+ * deliverables:
+ *
+ *  - `/tmp` — `TMPDIR` for python's `tempfile`, for LibreOffice's extraction
+ *    and for pip's wheel builds, and the conventional place to build and run
+ *    something disposable. Every scratch mount takes
+ *    {@link TMPFS_MOUNT_OPTIONS}, which is where the `exec` docker would not
+ *    have given us is argued for.
+ *  - `/var/tmp` — the second location the temp-file conventions fall back to,
+ *    for a temp file that is meant to outlive an interrupted run.
+ *  - `/home/namzu` — the image's `HOME` (`useradd --create-home namzu`, uid
+ *    1001; docker sets `HOME` from the image's passwd entry). LibreOffice
+ *    refuses a headless conversion without a writable user profile
+ *    (`~/.config/libreoffice`), matplotlib builds a font cache in
+ *    `~/.cache/matplotlib`, fontconfig keeps a user cache, npm's cache is
+ *    `~/.npm`, and `pip install --user` needs `~/.local`.
+ *  - `/workspace` — the image's `WORKDIR`, chowned to `namzu` on purpose
+ *    (`chown -R namzu:namzu /workspace`). Leaving it out would make the
+ *    Dockerfile's own guarantee false.
+ *
+ * These four are the REFERENCE image's needs, not a claim about anyone else's.
+ * A host that points `image` at its own build names what that image needs in
+ * `writableRootfsPaths`, which is why the field exists at all: the backend
+ * cannot read an image's writable set, and the alternative to asking is
+ * guessing. A path a root-running image wants (its `HOME` is `/root`) is a
+ * `writableRootfsPaths` entry for exactly that reason — `/root` is not in this
+ * list, because the shipped image does not run as root and a tmpfs nobody
+ * writes to is a claim that something does.
+ *
+ * A path the LAYOUT already mounts is skipped rather than mounted twice:
+ * docker refuses two mounts at one destination (`Duplicate mount point`), and
+ * the bind the host asked for is the one that must win. A path the HOST names
+ * that the layout also mounts is refused instead of skipped, because there the
+ * two requests contradict each other and nothing should choose between them
+ * silently.
+ *
+ * No `size=` is set. The kernel caps a tmpfs at half the host's RAM, and tmpfs
+ * pages are accounted to the container's memory cgroup, so a run that sets
+ * `--memory` already bounds scratch with the limit the host chose — while any
+ * number picked here would fail a workload that writes a bigger temp file than
+ * we guessed, with `ENOSPC` rather than a diagnosis.
+ *
+ * **The other half of that trade, said out loud because a host will meet it.**
+ * Scratch now lives in RAM instead of on the container's writable layer, so a
+ * temp file larger than half the host's RAM — or larger than `--memory`, which
+ * is the tighter of the two whenever the host set one — fails with `ENOSPC` or
+ * is OOM-killed, where writing it to disk used to succeed. That is the cost of
+ * not leaving the root filesystem writable, and it is not a bug to be reported.
+ * The remedy that keeps the baseline is the layout's own `scratch`, which is a
+ * bind to a host directory and therefore still disk-backed: a host with room on
+ * disk gives the layout one there and points `TMPDIR` at its container path
+ * through the per-call `env` option, so the spill lands on that disk instead of
+ * on a tmpfs. `readOnlyRootfs: false` is the other way, and the one to reach for
+ * second: it puts scratch back on the container's writable layer and gives up
+ * the rest of the baseline with it.
+ */
+const DEFAULT_WRITABLE_ROOTFS_PATHS: readonly string[] = [
+	'/tmp',
+	'/var/tmp',
+	'/workspace',
+	'/home/namzu',
+]
+
+/** The backend config the hardening flags are rendered from. */
+export type DockerHardeningConfig = Pick<
+	DockerBackendInternalConfig,
+	'cpuLimit' | 'layout' | 'readOnlyRootfs' | 'writableRootfsPaths'
+>
+
+/**
+ * The spelling docker compares a container path by.
+ *
+ * Docker cleans a mount destination before it uses it, so `/tmp/`, `//tmp` and
+ * `/tmp/.` are one directory to it and to the kernel. The check below is an
+ * exact-string comparison, so without this a layout that spelled one of its
+ * mounts any of those ways would not match the tmpfs default at the same
+ * directory: the argv would carry both a `--tmpfs /tmp:...` and a bind at
+ * `/tmp/`, and moby would clean the two destinations into one and refuse the
+ * container at spawn with `Duplicate mount point: /tmp` — the failure the check
+ * exists to prevent, on the one path no test in this repository can reach.
+ * `resolveLayout` does not normalise these (it fills in defaults and compares
+ * spellings as written), so the cleaning has to happen here, where the
+ * comparison does.
+ */
+function cleanContainerPath(path: string): string {
+	const kept: string[] = []
+	for (const segment of path.split('/')) {
+		// Empty segments are `//`, `.` is the directory itself; `..` cancels the
+		// segment before it, which is what the kernel does with it too.
+		if (segment === '' || segment === '.') continue
+		if (segment === '..') kept.pop()
+		else kept.push(segment)
+	}
+	return `/${kept.join('/')}`
+}
+
+/**
+ * Every destination the layout mounts something at, in the spelling docker
+ * itself compares them by.
+ *
+ * The collision check below is exact-string, so a layout path spelled `/tmp/`
+ * would slip past it and docker would then refuse the container with
+ * `Duplicate mount point` — a failure at spawn, on the one path that cannot be
+ * tested without a daemon. Cleaning each path to the spelling moby reduces it
+ * to is what makes the check cover every way of writing the same directory;
+ * see {@link cleanContainerPath}.
+ */
+function mountedContainerPaths(layout: ResolvedContainerSandboxLayout): string[] {
+	return [
+		layout.outputs.containerPath,
+		layout.uploads?.containerPath,
+		layout.scratch?.containerPath,
+		layout.toolResults?.containerPath,
+		layout.transcripts?.containerPath,
+		...(layout.skills?.map((skill) => skill.containerPath) ?? []),
+	]
+		.filter((path): path is string => Boolean(path))
+		.map(cleanContainerPath)
+}
+
+/**
+ * Refuse rootfs options that cannot both be honoured.
+ *
+ * `writableRootfsPaths` beside `readOnlyRootfs: false` is a contradiction: with
+ * a writable root filesystem every path is already writable, so the tmpfs
+ * mounts would either be dropped (a control accepted and not applied) or take a
+ * directory off the image for no reason. Refusing is the honest answer, and it
+ * is the same one the sibling backends give a per-sandbox control they cannot
+ * express.
+ *
+ * Called at construction and again where the argv is built, so a config that
+ * reaches `create()` by some path other than `buildDockerBackend` is refused
+ * too.
+ */
+export function assertRootfsOptionsAreCoherent(config: DockerHardeningConfig): void {
+	const paths = config.writableRootfsPaths
+	if (config.readOnlyRootfs !== false || paths === undefined || paths.length === 0) return
+	throw new Error(
+		'writableRootfsPaths was set on a docker backend configured with readOnlyRootfs: false. With a writable root filesystem every path inside the container is already writable, so these --tmpfs mounts would add nothing and take the named directories off the image. Refusing rather than accepting a control that cannot be applied: drop the paths, or drop readOnlyRootfs: false and let the read-only baseline stand.',
+	)
+}
+
+/**
+ * Refuse a `--cpus` value that cannot mean what it says.
+ *
+ * This covers non-finite and non-positive values and does NOT claim to cover
+ * every bound the daemon would refuse. The difference is worth stating, because
+ * the two classes fail in different places and only one of them is decidable
+ * here. A negative, `NaN` or `Infinity` renders into the argv as text the
+ * daemon either rejects or turns into a bound nobody asked for, and `0` is the
+ * opposite of a bound (`NanoCPUs` of zero is how a container says "no CPU
+ * limit"), so a host that wrote one of those hears about it during wiring
+ * rather than as a container that never came up.
+ *
+ * The upper bound is not ours to check. Moby's `verifyPlatformContainerResources`
+ * refuses `NanoCPUs` above the DAEMON host's CPU count (`"range of CPUs is from
+ * 0.01 to N.00, as there are only N CPUs available"`), and the same function
+ * deliberately sets no floor of its own on Linux, leaving that to the kernel.
+ * Neither number is knowable from here: the `docker` binary this backend drives
+ * can be pointed at a daemon on another machine (`DOCKER_HOST`), and even
+ * locally `os.cpus().length` is this machine's view rather than the daemon's
+ * own `runtime.NumCPU()`. Refusing on a guess at it would break a host whose
+ * daemon has more cores than the process driving it, which is a worse failure
+ * than the one it would catch — those arrive from the daemon with its own
+ * message, at spawn, where every other daemon-side refusal arrives too.
+ */
+export function assertCpuLimitIsRenderable(cpuLimit: number | undefined): void {
+	if (cpuLimit === undefined) return
+	if (!Number.isFinite(cpuLimit) || cpuLimit <= 0) {
+		throw new Error(
+			`cpuLimit must be a finite number greater than 0 (docker's --cpus takes a decimal, e.g. 1.5); got ${String(cpuLimit)}. Refusing rather than rendering an argv whose value means something other than what was written.`,
+		)
+	}
+}
+
+/**
+ * `--tmpfs` flags for the paths that stay writable under `--read-only`.
+ *
+ * See {@link DEFAULT_WRITABLE_ROOTFS_PATHS} for the paths themselves and why
+ * each is there. Returns nothing when the read-only root filesystem is off, and
+ * the two ways a host names paths that cannot be mounted — a contradiction with
+ * `readOnlyRootfs: false`, or a path the layout already mounts — are refusals
+ * rather than a silently shorter list.
+ */
+export function renderWritableRootfsArgs(config: DockerHardeningConfig): string[] {
+	assertRootfsOptionsAreCoherent(config)
+	if (config.readOnlyRootfs === false) return []
+
+	const mounted = new Set(mountedContainerPaths(config.layout))
+	const requested = config.writableRootfsPaths ?? []
+	for (const path of requested) {
+		// Every segment non-empty and none of them `.` or `..`: an absolute path
+		// with at least one component. Anything else is refused because each
+		// rejected shape is a directory this file's exact-string checks could
+		// hold two spellings of — `/tmp/`, `//tmp` and `/tmp/.` are all `/tmp` to
+		// the kernel, so a default that mounted `/tmp` and a host entry that
+		// mounted `/tmp/` would each pass the duplicate-mount check and then be
+		// refused by docker at spawn, on the one path no test here can reach.
+		// `/` itself is refused as well, and for its own reason: it would make
+		// the whole read-only root filesystem writable again.
+		const segments = path.split('/')
+		const wellFormed =
+			path.startsWith('/') &&
+			segments.length > 1 &&
+			segments.slice(1).every((segment) => segment !== '' && segment !== '.' && segment !== '..')
+		if (!wellFormed) {
+			throw new Error(
+				`writableRootfsPaths entry ${JSON.stringify(path)} is not a normalised absolute path inside the container. Docker requires an absolute mount path with no empty, '.' or '..' segment and no trailing slash, and '/' would make the whole filesystem writable again rather than adding a scratch directory.`,
+			)
+		}
+		if (mounted.has(path)) {
+			throw new Error(
+				`writableRootfsPaths names ${path}, which this layout already mounts. Docker refuses two mounts at one destination ("Duplicate mount point"), so which one won would be decided by argument order rather than by anyone's intent. Drop the entry, or change the layout's own mount to the mode you want.`,
+			)
+		}
+	}
+
+	// The set collapses a host entry that repeats a default, which would
+	// otherwise emit the same destination twice and be refused by docker.
+	const paths = [
+		...new Set([
+			...DEFAULT_WRITABLE_ROOTFS_PATHS.filter((path) => !mounted.has(path)),
+			...requested,
+		]),
+	]
+	return paths.flatMap((path) => ['--tmpfs', `${path}:${TMPFS_MOUNT_OPTIONS}`])
+}
+
+/**
+ * The confinement preamble for one container, in argv order.
+ *
+ * A function rather than a bare constant because `--read-only` is switchable
+ * and the flags that follow it describe what stays writable while it is on:
+ * `readOnlyRootfs: false` removes both the flag and the mounts. That is the only
+ * thing it removes. Everything in {@link HARDENING_ARGS} is applied
+ * unconditionally and no field can turn one of those off, so the argv for
+ * `readOnlyRootfs: false` is the argv this backend produced before any of this
+ * existed PLUS `--ipc private` — those two flags are the whole previous argv,
+ * and `--ipc private` is now unconditional. `--ipc` is not folded under this
+ * switch, because the field names the root filesystem: a host that turned the
+ * read-only rootfs off would be turning IPC isolation off as well, silently,
+ * for a reason the name of the field does not say. A switch has to mean one
+ * thing.
+ */
+export function renderHardeningArgs(config: DockerHardeningConfig): string[] {
+	return [
+		...HARDENING_ARGS,
+		...(config.readOnlyRootfs === false ? [] : ['--read-only']),
+		...renderWritableRootfsArgs(config),
+	]
+}
+
+/**
+ * Everything {@link buildDockerRunArgs} renders, as a value.
+ *
+ * The pieces that come from the daemon or from the host are inputs rather than
+ * lookups: which network the container attaches to, and whether an egress proxy
+ * is listening and on which port. Both are already resolved by the caller, and
+ * reading them here would put a daemon call back inside the function whose
+ * whole point is that it needs none.
+ */
+export interface DockerRunArgvInput {
+	readonly config: DockerBackendInternalConfig
+	readonly options: SandboxBackendOptions
+	readonly containerName: string
+	readonly network: string
+	readonly hostReachability: 'host-port' | 'container-network'
+	/**
+	 * Port the host-side egress proxy listens on, when one is running. Absent
+	 * means no proxy, and no proxy environment is passed in — which is not the
+	 * same fact as a proxy that was configured and is unreachable.
+	 */
+	readonly egressProxyPort?: number
+}
+
+/**
+ * The complete `docker run` argv, as a value.
+ *
+ * Extracted for the same reason {@link resolveNetwork} and
+ * {@link egressProxyOptions} were: everything downstream of it needs a running
+ * Docker daemon, so a confinement flag that never reached the argv — or one
+ * that reached it in an order that cancels another — could only be caught by an
+ * operator noticing its effect missing in production. Spawning a fake `docker`
+ * and reading back what it was handed proves what the fake was told and nothing
+ * about the container the daemon would build. Here the whole baseline is one
+ * array, and an edit that drops a flag fails a test rather than a deployment.
+ *
+ * Order matters in exactly two places, and both are asserted by the test that
+ * pins this: the image is the last argument, because everything after it is a
+ * command for the container rather than a flag for docker; and every flag that
+ * takes a value is pushed as two argv entries rather than one string, so no
+ * value is ever re-split by anything downstream.
+ */
+export function buildDockerRunArgs(input: DockerRunArgvInput): string[] {
+	const { config, options, containerName, network, hostReachability, egressProxyPort } = input
+	const layout = config.layout
+	assertRootfsOptionsAreCoherent(config)
+	assertCpuLimitIsRenderable(config.cpuLimit)
+
+	const args: string[] = [
+		'run',
+		'--detach',
+		'--rm',
+		'--name',
+		containerName,
+		'--network',
+		network,
+		...renderHardeningArgs(config),
+	]
+	if (config.runAsUser) {
+		args.push('--user', config.runAsUser)
+	}
+
+	// `--label key=value` flags. Validate first — an empty key or
+	// a key containing `=` would silently produce a malformed
+	// label that downstream `docker ps --filter label=…` queries
+	// could not match reliably. Throw before the spawn so misuse
+	// surfaces during construction, not as a mysterious "container
+	// has no labels" later.
+	if (config.labels) {
+		for (const [key, value] of Object.entries(config.labels)) {
+			if (!key || key.includes('=')) {
+				throw new Error(
+					`docker label key ${JSON.stringify(key)} is invalid (empty or contains '=')`,
+				)
+			}
+			args.push('--label', `${key}=${value}`)
+		}
+	}
+
+	args.push(...renderLayoutMountArgs(layout))
+	// Forward only the workspace root so the worker's lexical
+	// resolver agrees with the bind target. The full layout used
+	// to ride along as `NAMZU_SANDBOX_LAYOUT`, but the worker
+	// never branched on it; the manifest's only consumer was a
+	// log line. A skill loader that needs the manifest will
+	// write it to a bind path the worker reads at startup —
+	// avoids env-size limits, keeps the wire shape minimal.
+	if (egressProxyPort !== undefined) {
+		// `host-gateway` is docker's own portable name for the host from
+		// inside a container; hard-coding a bridge address would break on
+		// every platform whose bridge is numbered differently. The proxy
+		// itself binds loopback, so this alias is the only way in.
+		args.push('--add-host', `${PROXY_HOST_ALIAS}:host-gateway`)
+		const proxyUrl = `http://${PROXY_HOST_ALIAS}:${egressProxyPort}`
+		// Both spellings: tooling is split between them, and a workload
+		// that reads only the one that is missing bypasses the boundary
+		// entirely — which would look exactly like the policy working.
+		for (const key of ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy']) {
+			args.push('--env', `${key}=${proxyUrl}`)
+		}
+		// Loopback must not be proxied, or the worker cannot talk to
+		// itself.
+		args.push('--env', 'NO_PROXY=localhost,127.0.0.1')
+		args.push('--env', 'no_proxy=localhost,127.0.0.1')
+	}
+
+	// `outputs` is required by validation, so its containerPath is always
+	// available — the worker uses it as its workspace root.
+	args.push('--env', `NAMZU_SANDBOX_WORKSPACE=${layout.outputs.containerPath}`)
+	args.push('--env', `NAMZU_SANDBOX_READ_ROOTS=${renderLayoutReadRootsEnv(layout)}`)
+	args.push('--env', `NAMZU_SANDBOX_WRITE_ROOTS=${renderLayoutWriteRootsEnv(layout)}`)
+
+	// Only publish a host port when the consumer is going to reach
+	// the worker through the docker host's loopback (CLI / direct
+	// dev). For `container-network` reachability we leave the port
+	// unpublished — sibling containers reach the worker by its DNS
+	// name on the shared bridge, no host port required.
+	//
+	// Let Docker pick the host port instead of pre-reserving one
+	// in this process. The reservePort()-then-publish-fixed-port
+	// pattern had a TOCTOU window: the OS could hand the port to
+	// another process between our `server.close()` and Docker's
+	// `bind()`. Letting Docker pick (`--publish-all`) and reading
+	// the mapping back via `docker inspect` removes the race.
+	if (hostReachability === 'host-port') {
+		args.push('--publish', `127.0.0.1::${WORKER_PORT_INSIDE_CONTAINER}`)
+	}
+
+	if (config.runtime) {
+		args.push('--runtime', config.runtime)
+	}
+
+	// The three bounds the host can set, together and in one order, so a
+	// reader of a `docker inspect` sees them side by side. `--memory` and
+	// `--pids-limit` keep their existing treatment (a non-positive or absent
+	// value means "not set"); `--cpus` refuses a value that would mean
+	// something else, which is why it is the one with a check in front of it.
+	if (options.memoryLimitMb && options.memoryLimitMb > 0) {
+		args.push('--memory', `${options.memoryLimitMb}m`)
+	}
+	if (options.maxProcesses && options.maxProcesses > 0) {
+		args.push('--pids-limit', String(options.maxProcesses))
+	}
+	if (config.cpuLimit !== undefined) {
+		args.push('--cpus', String(config.cpuLimit))
+	}
+
+	for (const [key, value] of Object.entries(options.env ?? {})) {
+		args.push('--env', `${key}=${value}`)
+	}
+
+	args.push(config.image)
+	return args
+}
 
 async function spawnDockerSandbox(
 	config: DockerBackendInternalConfig,
@@ -448,7 +1028,6 @@ async function spawnDockerSandbox(
 		await egressProxy?.close().catch(() => undefined)
 		throw err
 	}
-	const runtime = config.runtime
 	const containerName = `namzu-sandbox-${id}`
 
 	// All bind sources come from the consumer-supplied layout. The
@@ -487,97 +1066,14 @@ async function spawnDockerSandbox(
 	const rootDir = resolvedLayout.outputs.containerPath
 
 	try {
-		// Let Docker pick the host port instead of pre-reserving one
-		// in this process. The reservePort()-then-publish-fixed-port
-		// pattern had a TOCTOU window: the OS could hand the port to
-		// another process between our `server.close()` and Docker's
-		// `bind()`. Letting Docker pick (`--publish-all`) and reading
-		// the mapping back via `docker inspect` removes the race.
-		const args: string[] = [
-			'run',
-			'--detach',
-			'--rm',
-			'--name',
+		const args = buildDockerRunArgs({
+			config,
+			options,
 			containerName,
-			'--network',
 			network,
-			...HARDENING_ARGS,
-			...(config.runAsUser ? ['--user', config.runAsUser] : []),
-		]
-
-		// `--label key=value` flags. Validate first — an empty key or
-		// a key containing `=` would silently produce a malformed
-		// label that downstream `docker ps --filter label=…` queries
-		// could not match reliably. Throw before the spawn so misuse
-		// surfaces during construction, not as a mysterious "container
-		// has no labels" later.
-		if (config.labels) {
-			for (const [key, value] of Object.entries(config.labels)) {
-				if (!key || key.includes('=')) {
-					throw new Error(
-						`docker label key ${JSON.stringify(key)} is invalid (empty or contains '=')`,
-					)
-				}
-				args.push('--label', `${key}=${value}`)
-			}
-		}
-
-		args.push(...renderLayoutMountArgs(resolvedLayout))
-		// Forward only the workspace root so the worker's lexical
-		// resolver agrees with the bind target. The full layout used
-		// to ride along as `NAMZU_SANDBOX_LAYOUT`, but the worker
-		// never branched on it; the manifest's only consumer was a
-		// log line. A skill loader that needs the manifest will
-		// write it to a bind path the worker reads at startup —
-		// avoids env-size limits, keeps the wire shape minimal.
-		if (egressProxy) {
-			// `host-gateway` is docker's own portable name for the host from
-			// inside a container; hard-coding a bridge address would break on
-			// every platform whose bridge is numbered differently. The proxy
-			// itself binds loopback, so this alias is the only way in.
-			args.push('--add-host', `${PROXY_HOST_ALIAS}:host-gateway`)
-			const proxyUrl = `http://${PROXY_HOST_ALIAS}:${egressProxy.port}`
-			// Both spellings: tooling is split between them, and a workload
-			// that reads only the one that is missing bypasses the boundary
-			// entirely — which would look exactly like the policy working.
-			for (const key of ['HTTP_PROXY', 'http_proxy', 'HTTPS_PROXY', 'https_proxy']) {
-				args.push('--env', `${key}=${proxyUrl}`)
-			}
-			// Loopback must not be proxied, or the worker cannot talk to
-			// itself.
-			args.push('--env', 'NO_PROXY=localhost,127.0.0.1')
-			args.push('--env', 'no_proxy=localhost,127.0.0.1')
-		}
-
-		args.push('--env', `NAMZU_SANDBOX_WORKSPACE=${rootDir}`)
-		args.push('--env', `NAMZU_SANDBOX_READ_ROOTS=${renderLayoutReadRootsEnv(resolvedLayout)}`)
-		args.push('--env', `NAMZU_SANDBOX_WRITE_ROOTS=${renderLayoutWriteRootsEnv(resolvedLayout)}`)
-
-		// Only publish a host port when the consumer is going to reach
-		// the worker through the docker host's loopback (CLI / direct
-		// dev). For `container-network` reachability we leave the port
-		// unpublished — sibling containers reach the worker by its DNS
-		// name on the shared bridge, no host port required.
-		if (hostReachability === 'host-port') {
-			args.push('--publish', `127.0.0.1::${WORKER_PORT_INSIDE_CONTAINER}`)
-		}
-
-		if (runtime) {
-			args.push('--runtime', runtime)
-		}
-
-		if (options.memoryLimitMb && options.memoryLimitMb > 0) {
-			args.push('--memory', `${options.memoryLimitMb}m`)
-		}
-		if (options.maxProcesses && options.maxProcesses > 0) {
-			args.push('--pids-limit', String(options.maxProcesses))
-		}
-
-		for (const [key, value] of Object.entries(options.env ?? {})) {
-			args.push('--env', `${key}=${value}`)
-		}
-
-		args.push(config.image)
+			hostReachability,
+			...(egressProxy ? { egressProxyPort: egressProxy.port } : {}),
+		})
 
 		await runOnce(docker, args, options.signal)
 		if (hostReachability === 'host-port') {

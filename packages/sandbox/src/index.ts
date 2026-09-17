@@ -9,11 +9,29 @@
  *
  * Two tiers, each a trust boundary:
  *
- *  • `container` — one OCI container per task, seccomp on, tmpfs
- *    workdir, no network unless asked. The same path on a laptop and
- *    on a Linux replica anywhere. The tier for trusted prompts and
- *    contained workloads. Boundary: kernel namespaces, or a
- *    userspace-kernel runtime where one is installed.
+ *  • `container` — one OCI container per task, with the container itself
+ *    as the boundary: kernel namespaces, or a userspace-kernel runtime
+ *    where one is installed. The same path on a laptop and on a Linux
+ *    replica anywhere. The tier for trusted prompts and contained
+ *    workloads. What confines the workload INSIDE the container is
+ *    applied by each backend and documented where it is applied, not
+ *    promised here: `container:docker` drops every capability, sets
+ *    no-new-privileges, gives the container an IPC namespace nothing else can
+ *    join and mounts its root filesystem read-only over a named writable set
+ *    (see `backends/docker/index.ts`), while the ACI standby pool takes
+ *    its controls from the container-group profile its pool was built
+ *    from. This line used to claim "seccomp on, tmpfs workdir, no
+ *    network unless asked" on both their behalf, and none of the three
+ *    is a property this package establishes: nothing here passes a
+ *    seccomp flag, so what filters a container's syscalls is the daemon's
+ *    own profile rather than a default this package sets; the directory
+ *    the agent works in is the layout's `outputs` bind mount — a host
+ *    directory the run is collected from — rather than a tmpfs that would
+ *    lose it when the container exits; and the network a container is
+ *    attached to is a fact about
+ *    the backend's own configuration — a daemon network whose internals
+ *    the egress policy is checked against, or the container group's
+ *    subnet or public address.
  *
  *  • `microvm` — one hardware-virtualized guest per task. The boundary
  *    to reach for when the prompt itself is adversarial, at the cost
@@ -685,6 +703,46 @@ export interface ContainerBackendConfig {
 	 * collisions with Docker / orchestrator labels.
 	 */
 	readonly labels?: Readonly<Record<string, string>>
+	/**
+	 * CPU cores the container may use, rendered as `--cpus`. Unset by
+	 * default, like `memoryLimitMb` and `maxProcesses`, and for the same
+	 * reason: the value that is right is a property of the host's machine
+	 * and of the workload, and a number chosen here would silently throttle
+	 * runs that finish inside their timeout today.
+	 *
+	 * It is set at provider construction rather than per `create()` call,
+	 * because the documented deployment builds one provider per task — and
+	 * because the ACI and kubernetes backends cannot apply a per-sandbox CPU
+	 * limit, so a per-call field would be a control they would have to
+	 * refuse. See `backends/docker/index.ts` for what it renders.
+	 */
+	readonly cpuLimit?: number
+	/**
+	 * Mount the container's root filesystem read-only. Default `true`.
+	 *
+	 * On by default with the paths that stay writable named in
+	 * `backends/docker/index.ts` (`writableRootfsPaths` extends them). Set it
+	 * to `false` to make the whole container filesystem writable again, which a
+	 * host whose image writes somewhere the writable set cannot describe needs,
+	 * and which is why the switch exists rather than the baseline being
+	 * unconditional. It gives up that one control: the capability drop,
+	 * `no-new-privileges` and `--ipc private` are applied to every container
+	 * whatever this says, so it is not a way back to the previous argv.
+	 */
+	readonly readOnlyRootfs?: boolean
+	/**
+	 * Extra paths to keep writable under `--read-only`, each mounted
+	 * `--tmpfs`.
+	 *
+	 * The default set is the reference image's needs, read off its Dockerfile.
+	 * A host that points `image` at its own build says what that image needs
+	 * here, because the backend cannot read an image's writable set and the
+	 * alternative to asking is guessing. Setting this beside
+	 * `readOnlyRootfs: false` is refused: with a writable root filesystem the
+	 * mounts would add nothing, and accepting a control that is not applied is
+	 * the failure this package refuses everywhere else.
+	 */
+	readonly writableRootfsPaths?: readonly string[]
 }
 
 /**
@@ -1260,6 +1318,11 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.network !== undefined ? { network: backend.network } : {}),
 			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
+			...(backend.cpuLimit !== undefined ? { cpuLimit: backend.cpuLimit } : {}),
+			...(backend.readOnlyRootfs !== undefined ? { readOnlyRootfs: backend.readOnlyRootfs } : {}),
+			...(backend.writableRootfsPaths !== undefined
+				? { writableRootfsPaths: backend.writableRootfsPaths }
+				: {}),
 		})
 	}
 	if (backend.tier === 'container' && backend.runtime === 'runsc') {
@@ -1280,6 +1343,11 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.network !== undefined ? { network: backend.network } : {}),
 			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
 			...(backend.labels !== undefined ? { labels: backend.labels } : {}),
+			...(backend.cpuLimit !== undefined ? { cpuLimit: backend.cpuLimit } : {}),
+			...(backend.readOnlyRootfs !== undefined ? { readOnlyRootfs: backend.readOnlyRootfs } : {}),
+			...(backend.writableRootfsPaths !== undefined
+				? { writableRootfsPaths: backend.writableRootfsPaths }
+				: {}),
 		})
 	}
 	// `microvm:self-hosted` targeting the OWNED Azure Firecracker
