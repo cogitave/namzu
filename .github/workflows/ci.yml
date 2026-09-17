@@ -282,9 +282,20 @@ jobs:
       # Catches cross-package peer-range drift and package.json export shape
       # bugs before they reach a publish tag. Only runs on one node version
       # in the matrix to avoid quadrupling install work.
+      #
+      # The guard test runs first, in this step, for the reason spelled out at
+      # the log standard gate above: `scripts/__tests__/` has no package of its
+      # own for `pnpm -r test` to pick up, so a test no workflow names is a test
+      # that never runs. It costs milliseconds against a step that packs every
+      # publishable package, and it is the only thing holding the script to the
+      # three properties it was fixed for: the snapshot/restore contract, a
+      # refusal that says what it refused, and a `cleanup` that deletes only
+      # what the script created.
       - name: Pre-publish consumer install check
         if: matrix.gates
-        run: bash .github/scripts/verify-consumer-install.sh
+        run: |
+          node --import tsx --test scripts/__tests__/verify-consumer-install-snapshot.test.ts
+          bash .github/scripts/verify-consumer-install.sh
 
       # Public-surface regression guard (ses_011-sdk-public-surface).
       # Compares the runtime and declared exports of every publishable

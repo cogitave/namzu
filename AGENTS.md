@@ -60,7 +60,7 @@ Those four are a **subset**. The `Build & Test` job in `.github/workflows/ci.yml
 | SDK coverage floor gate | `node .github/scripts/check-sdk-module-coverage.mjs` |
 | SDK test-presence gate | `node .github/scripts/check-sdk-test-presence.mjs` |
 | Publish-metadata gate | `node .github/scripts/check-publish-metadata.mjs` |
-| Pre-publish consumer install check | `bash .github/scripts/verify-consumer-install.sh` |
+| Pre-publish consumer install check | `node --import tsx --test scripts/__tests__/verify-consumer-install-snapshot.test.ts && bash .github/scripts/verify-consumer-install.sh` |
 | Signature types are exported | `node .github/scripts/check-signature-types-exported.mjs` |
 | publint (package.json shape) | `npx -y publint@latest packages/<pkg>` |
 

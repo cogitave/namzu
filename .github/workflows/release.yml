@@ -118,9 +118,15 @@ jobs:
       # versions + CHANGELOG). For every other main-push the Changesets
       # action only refreshes the Version Packages PR and this gate is
       # skipped — no need to pack every publishable package on unrelated commits.
+      #
+      # Its guard test runs in the same step, ahead of it, exactly as in
+      # ci.yml: `scripts/__tests__/` belongs to no package, so `pnpm -r test`
+      # cannot reach it and a workflow that does not name it never runs it.
       - name: Pre-publish consumer install check
         if: "${{ startsWith(github.event.head_commit.message, 'chore(release): version packages') }}"
-        run: bash .github/scripts/verify-consumer-install.sh
+        run: |
+          node --import tsx --test scripts/__tests__/verify-consumer-install-snapshot.test.ts
+          bash .github/scripts/verify-consumer-install.sh
 
       - name: Create Release Pull Request or Publish
         id: changesets

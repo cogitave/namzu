@@ -33,14 +33,79 @@
 # release workflow's `changesets/action` just refreshes the Version
 # Packages PR and this script is not run.
 #
-# Runs locally too (for a pre-PR sanity check): just invoke it from repo root.
+# Runs locally too (for a pre-PR sanity check): invoke it from repo root.
+#
+# VERIFIED on Linux, which is what the gate itself runs on: every fixture below
+# has been executed there. macOS is expected to work and is not verified here.
+#
+# Git Bash is where #415 was filed and is repaired on the reasoning of the
+# failure, not by a run: no Windows host was used. `node_path` converts the one
+# path this script hands a native Node, and the three manifest reads are passed
+# as argv rather than spliced into a JavaScript string, so the two things a
+# `/c/Users/...` path broke are addressed. What no run here has reached under
+# MSYS, and what a Windows contributor is therefore still the first to exercise:
+# `test -x node_modules/.bin/namzu` and the `./node_modules/.bin/namzu` it runs
+# (the eval fixture), the three `tar` round trips — the `-T -` snapshot that
+# `find -print0` feeds, the `.changeset` snapshot, and the untar in
+# `restore_versions` — the fourth `tar` call, the `-tzf` listing that reads the
+# live tarball's contents, the `sed` that indents npm's output and the `awk`
+# that reads the package table, and `mktemp -d -t` (the three temp roots).
+#
+# When it refuses, it says why. Every `npm install` goes through `run_install`,
+# which keeps the install's output and prints it under the package that failed,
+# and an ERR trap names the step, the line and the command for anything else
+# that aborts the script. `--silent` was removed from those installs for
+# exactly this reason: it suppressed the resolution error this gate exists to
+# report, leaving CI with a bare exit code (#415).
 
-set -euo pipefail
+set -Eeuo pipefail
 
 WORKSPACE_ROOT="${GITHUB_WORKSPACE:-$(pwd)}"
 PACK_DIR=$(mktemp -d -t namzu-pack.XXXXXX)
 CONSUMER_DIR=$(mktemp -d -t namzu-consumer.XXXXXX)
 VERSION_SNAPSHOT=""
+
+# A shell path is not always a path Node can open.
+#
+# Under Git Bash / MSYS2 / Cygwin the shell sees `/c/Users/you/...`, and Node
+# is a native Windows binary that has never heard of it:
+# `require('/c/Users/you/.../package.json')` dies with "Cannot find module".
+# That is issue #415 — a Windows contributor got through every consumer
+# install and the sandbox fixture, then fell over in the telemetry fixture on
+# the way this script asked Node for a version. The gate most likely to fail
+# for reasons unrelated to a change was also the one they could not run before
+# pushing.
+#
+# `cygpath -m` maps the shell path onto the mixed `C:/Users/you/...` form Node
+# accepts. Off Windows there is no cygpath and this is the identity, so what
+# the gate verifies on Linux does not move.
+#
+# Under MSYS WITHOUT cygpath there is no conversion available, and returning
+# the path unchanged would hand `/c/Users/...` to Node after a header comment
+# promising Git Bash support — the original `Cannot find module` would come
+# back with nothing saying why. So that case says why and returns 1 with
+# NOTHING on stdout instead of guessing. The caller is a `node -p` that reads
+# the path from `$( )`: it is handed an empty argv and stops with Node's own
+# `ERR_INVALID_ARG_VALUE` (`The argument 'id' must be a non-empty string`), so
+# the run ends at that line rather than continuing with a path that was never
+# converted — with this function's three lines saying what was missing above
+# it. `cygpath` ships with MSYS2's base package; a Git Bash without it is a Git
+# Bash that cannot run this script.
+node_path() {
+  case "$(uname -s 2>/dev/null || true)" in
+    MINGW* | MSYS* | CYGWIN*)
+      if command -v cygpath >/dev/null 2>&1; then
+        cygpath -m "$1"
+        return 0
+      fi
+      echo "✗ $1 cannot be converted: this is an MSYS shell with no 'cygpath' on PATH." >&2
+      echo "  A native Node cannot open a /c/Users/... path. Install MSYS2's base" >&2
+      echo "  package (cygpath) or run this gate on Linux or macOS." >&2
+      return 1
+      ;;
+  esac
+  printf '%s\n' "$1"
+}
 
 restore_versions() {
   # Put back exactly the manifests and changesets that were here on entry.
@@ -65,11 +130,150 @@ restore_versions() {
   fi
 }
 
+# 0 when `$1` is one of the scratch directories this script created with
+# `mktemp -d -t`: an absolute path, directly under the temporary root `mktemp`
+# used, whose final component carries one of this script's three templates.
+#
+# The point is that the test is the PATTERN mktemp produced, not the value of
+# the variable holding it, so that a variable set to something else cannot turn
+# into a removal of something else.
+is_our_temp_dir() {
+  local path="$1" root="${TMPDIR:-/tmp}" base parent
+  [ -n "$path" ] || return 1
+  case "$path" in /*) ;; *) return 1 ;; esac
+
+  # `TMPDIR=/tmp/` and a path under it must still compare: strip the trailing
+  # slashes off both sides before comparing.
+  while [ "$root" != "/" ] && [ "${root%/}" != "$root" ]; do root="${root%/}"; done
+  base="${path##*/}"
+  parent="${path%/*}"
+  [ -n "$parent" ] || parent="/"
+  while [ "$parent" != "/" ] && [ "${parent%/}" != "$parent" ]; do parent="${parent%/}"; done
+  [ "$parent" = "$root" ] || return 1
+
+  case "$base" in
+    namzu-pack.* | namzu-consumer.* | namzu-preversion.*) return 0 ;;
+  esac
+  return 1
+}
+
+# Remove one scratch directory — the only kind of removal this function is
+# allowed to perform.
+#
+# `cleanup` is a function a reader can source on its own and hand any value to,
+# and one did: `PACK_DIR=/tmp` and `CONSUMER_DIR=/tmp`, followed by the
+# `rm -rf` that used to be in the caller. That deleted other people's scratch —
+# some 2180 unrelated entries, other sessions' task output among them — until a
+# timeout stopped it. The script had created its directories with
+# `mktemp -d -t namzu-pack.XXXXXX` and was not at fault; the shape is still one
+# a reader can repeat, and what it costs is not theirs to lose.
+#
+# So the path is checked against the pattern mktemp produced, and anything else
+# is reported and SKIPPED. Nothing here exits and nothing here fails: this runs
+# from an EXIT trap, after whatever already ended the run, and under `set -e` a
+# failing command here would replace that run's exit status with this one.
+remove_temp_dir() {
+  # `${2:-}`, not `$2`: a reader who sources this file and calls it with the
+  # variable's name alone aborts the EXIT trap with `$2: unbound variable`,
+  # which skips every removal after it and replaces the status of the run that
+  # had already ended — the same shape, one argument wide, as the incident this
+  # function exists for.
+  local path="${2:-}"
+  if [ -z "$path" ]; then
+    # `VERSION_SNAPSHOT` is empty until the changesets step creates it, which
+    # is the common path on a tree with nothing pending. Nothing to remove, and
+    # nothing worth a line of output.
+    return 0
+  fi
+  if ! is_our_temp_dir "$path"; then
+    echo "  ! cleanup: $1=$path is not a directory this script created — NOT removing it" >&2
+    return 0
+  fi
+  rm -rf "$path"
+}
+
 cleanup() {
+  # Nothing here FAILS on purpose. A failure while restoring state is a failure
+  # to report *after* whatever already ended the run, and with the ERR trap
+  # still armed it would print the previous command as the culprit. A refused
+  # removal is the one thing that speaks, and it speaks without failing — see
+  # `remove_temp_dir`, and note that it runs from an EXIT trap, where under
+  # `set -e` a failing command replaces the status of the run that just ended.
+  trap - ERR
   restore_versions
-  rm -rf "$PACK_DIR" "$CONSUMER_DIR" "$VERSION_SNAPSHOT"
+  remove_temp_dir PACK_DIR "$PACK_DIR"
+  remove_temp_dir CONSUMER_DIR "$CONSUMER_DIR"
+  remove_temp_dir VERSION_SNAPSHOT "$VERSION_SNAPSHOT"
 }
 trap cleanup EXIT
+
+# ---------------------------------------------------------------------------
+# A refusal has to be readable.
+# ---------------------------------------------------------------------------
+#
+# Under `set -e` a failing command ends the script, and with no trap that is
+# the entire report — a bare exit code. #415 is the CI run that motivated
+# this: a gate that packs every publishable package and installs them into a
+# throwaway consumer project, refusing with `Process completed with exit code
+# 1` and nothing else, so "the registry blipped" and "this change broke a peer
+# range" were indistinguishable. One of those is worth stopping a release for;
+# the other is worth a re-run, and telling them apart cost a full CI cycle.
+#
+# The failing command's line is `BASH_LINENO[0]`, not `LINENO`: inside the
+# trap function `LINENO` is the trap's own line. `set -E` is what lets the trap
+# reach inside functions at all — without it a failure in `run_install` or
+# `sibling_tarballs` would still abort silently.
+CURRENT_STEP="startup"
+
+on_error() {
+  local status=$?
+  # stderr, not stdout: the whole point is that it cannot be swallowed, and a
+  # caller redirecting this script's stdout would otherwise redirect away the
+  # one line that says what happened.
+  echo "" >&2
+  echo "✗ verify-consumer-install aborted (exit $status)" >&2
+  echo "  step:    $CURRENT_STEP" >&2
+  echo "  line:    ${BASH_LINENO[0]}" >&2
+  echo "  command: $BASH_COMMAND" >&2
+  return 0
+}
+trap on_error ERR
+
+# One npm install, with its output kept.
+#
+# `--silent` is gone on purpose. It does not quieten progress, it quietens the
+# ERROR: `npm install --silent /tmp/absent.tgz` prints nothing and exits 254,
+# so `set -e` aborted a gate that had said nothing about what it could not
+# resolve. `--no-fund --no-audit --no-save` are unchanged, and on success this
+# is no noisier than before — the output is only printed when it is the answer.
+run_install() {
+  local log="$CONSUMER_DIR/npm-install.log"
+  local status=0
+  npm install --no-fund --no-audit --no-save "$@" >"$log" 2>&1 || status=$?
+  if [ "$status" -eq 0 ]; then
+    # `|| true` on purpose: an rm that cannot unlink its log must not turn an
+    # install that just succeeded into an abort, and under `set -e` it would.
+    rm -f "$log" || true
+    return 0
+  fi
+  # stderr, with npm's own output beside it rather than somewhere else: this
+  # is the block a reader of a failed CI step is looking for.
+  echo "" >&2
+  echo "✗ npm install failed (exit $status) — $CURRENT_STEP" >&2
+  echo "  npm install --no-fund --no-audit --no-save $*" >&2
+  echo "  ---- npm output ----" >&2
+  if [ -s "$log" ]; then
+    sed 's/^/  /' "$log" >&2
+  else
+    echo "  (npm wrote nothing to stdout or stderr)" >&2
+  fi
+  echo "  --------------------" >&2
+  # npm's own status, not a generic 1, so 254 (npm itself could not run) stays
+  # distinguishable from 1. It does NOT separate a resolution error from a
+  # registry error: npm exits 1 for ERESOLVE and for an unreachable registry
+  # alike, and the block printed above is what tells those apart.
+  exit "$status"
+}
 
 # ---------------------------------------------------------------------------
 # Verify the versions that will SHIP, not the ones sitting in the tree.
@@ -100,6 +304,13 @@ trap cleanup EXIT
 # exiting silently at 141 the moment somebody did.
 #
 # Exactly the shape of failure this gate exists to catch, in the gate itself.
+#
+# The step is labelled BEFORE the command it labels. The trap reports
+# `CURRENT_STEP` as it stands when the failure happens, and `find` on a
+# `WORKSPACE_ROOT` with no `.changeset` exits 1 with its stderr discarded — so
+# with the label assigned on the next line, the one failure that produces no
+# other output was also reported as `step: startup`.
+CURRENT_STEP="applying pending changesets to preview the shipping versions"
 PENDING_CHANGESETS=$(find "$WORKSPACE_ROOT/.changeset" -maxdepth 1 -name '*.md' ! -name 'README.md' -print -quit 2>/dev/null)
 
 if [ -n "$PENDING_CHANGESETS" ]; then
@@ -140,6 +351,7 @@ fi
 # same release a second time. It looks harmless in the source branch and only
 # becomes visible in the release snapshot, so reject duplicate semver headings
 # before any package is packed.
+CURRENT_STEP="changelog release-heading check"
 node - "$WORKSPACE_ROOT" <<'NODE'
 const { readdirSync, readFileSync } = require('node:fs')
 const { join } = require('node:path')
@@ -172,6 +384,7 @@ console.log(`  ✓ ${changelogs.length} changelogs have unique release headings`
 NODE
 
 PACKAGE_TABLE="$PACK_DIR/workspaces.tsv"
+CURRENT_STEP="reading the shipping versions and package table"
 node - "$WORKSPACE_ROOT" "$PACKAGE_TABLE" <<'NODE'
 const { execFileSync } = require('node:child_process')
 const { readFileSync, writeFileSync } = require('node:fs')
@@ -214,8 +427,10 @@ for (const row of rows) {
 console.log('')
 NODE
 
+CURRENT_STEP="packing publishable Namzu packages"
 echo "=== Packing publishable Namzu packages ==="
 while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
+  CURRENT_STEP="packing $pkg_name"
   echo "  • $pkg_name"
   pnpm --dir "$WORKSPACE_ROOT" --filter "$pkg_name" pack --pack-destination "$PACK_DIR" >/dev/null
 done < "$PACKAGE_TABLE"
@@ -265,6 +480,7 @@ while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
   dep=${pkg_name#@namzu/}
   echo ""
   echo "  → $pkg_name + @namzu/sdk"
+  CURRENT_STEP="$pkg_name + @namzu/sdk consumer install"
   TARBALL=$(ls "$PACK_DIR"/namzu-${dep}-*.tgz | head -1)
   test -f "$TARBALL" || { echo "    ✗ Missing tarball for $dep"; exit 1; }
 
@@ -272,7 +488,7 @@ while IFS=$'\t' read -r pkg_name pkg_path sdk_dependent; do
 
   rm -rf node_modules package-lock.json
   # shellcheck disable=SC2086
-  npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$TARBALL" $SIBLING_TARBALLS
+  run_install "$SDK_TARBALL" "$TARBALL" $SIBLING_TARBALLS
 
   test -d "node_modules/$pkg_name" || { echo "    ✗ $pkg_name did not install"; exit 1; }
   test -d "node_modules/@namzu/sdk" || { echo "    ✗ @namzu/sdk did not install"; exit 1; }
@@ -307,10 +523,11 @@ EVALS_TARBALL=$(find "$PACK_DIR" -maxdepth 1 -name 'namzu-evals-*.tgz' -print -q
 test -f "$EVALS_TARBALL" || { echo "    ✗ Missing evals tarball in $PACK_DIR"; exit 1; }
 
 rm -rf node_modules package-lock.json eval-report.json
+CURRENT_STEP="@namzu/cli + @namzu/evals documented command fixture"
 CLI_PATH=$(awk -F'\t' '$1 == "@namzu/cli" { print $2 }' "$PACKAGE_TABLE")
 CLI_SIBLINGS=$(sibling_tarballs "$CLI_PATH")
 # shellcheck disable=SC2086
-npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$CLI_TARBALL" "$EVALS_TARBALL" $CLI_SIBLINGS
+run_install "$SDK_TARBALL" "$CLI_TARBALL" "$EVALS_TARBALL" $CLI_SIBLINGS
 
 test -x node_modules/.bin/namzu || { echo "    ✗ Packed CLI did not install an executable namzu binary"; exit 1; }
 test -d node_modules/@namzu/evals || { echo "    ✗ Packed eval suites did not install"; exit 1; }
@@ -369,7 +586,8 @@ test "$LIVE_ORPHANS" -eq 0 || exit 1
 echo "    ✓ $LIVE_RUNTIME_FILES packed runtime modules have source owners"
 
 rm -rf node_modules package-lock.json
-npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$LIVE_TARBALL"
+CURRENT_STEP="@namzu/live packed runtime → SDK query fixture"
+run_install "$SDK_TARBALL" "$LIVE_TARBALL"
 
 cat > assert-live-runtime.mjs <<'EOF'
 import { LiveAgent, LiveSession, NamzuModel } from '@namzu/live'
@@ -468,7 +686,13 @@ node assert-live-runtime.mjs
 # The peer range promises the first SDK version in the supported major too,
 # not only the workspace head. Exercise that exact lower bound with the same
 # packed live artifact so the declaration and runtime cannot drift apart.
-LIVE_SDK_RANGE=$(node -p "require('$WORKSPACE_ROOT/packages/live/package.json').peerDependencies['@namzu/sdk']")
+#
+# The manifest path is an ARGUMENT to node, never spliced into the JavaScript
+# string: on Git Bash a shell path handed over this way is one MSYS converts
+# for the native binary, and a Windows username containing an apostrophe or a
+# space cannot break the expression either. `node_path` converts it to the
+# form Node can open outright (#415).
+LIVE_SDK_RANGE=$(node -p "require(process.argv[1]).peerDependencies['@namzu/sdk']" "$(node_path "$WORKSPACE_ROOT/packages/live/package.json")")
 LIVE_MINIMUM_SDK=${LIVE_SDK_RANGE#>=}
 LIVE_MINIMUM_SDK=${LIVE_MINIMUM_SDK%% *}
 case "$LIVE_MINIMUM_SDK" in
@@ -476,7 +700,8 @@ case "$LIVE_MINIMUM_SDK" in
   *) echo "    ✗ Could not derive live's minimum SDK from peer range: $LIVE_SDK_RANGE"; exit 1 ;;
 esac
 echo "    → packed live + minimum supported SDK $LIVE_MINIMUM_SDK"
-SHIPPING_SDK_VERSION=$(node -p "require('$WORKSPACE_ROOT/packages/sdk/package.json').version")
+CURRENT_STEP="@namzu/live against the minimum supported SDK $LIVE_MINIMUM_SDK"
+SHIPPING_SDK_VERSION=$(node -p 'require(process.argv[1]).version' "$(node_path "$WORKSPACE_ROOT/packages/sdk/package.json")")
 if [ "$LIVE_MINIMUM_SDK" = "$SHIPPING_SDK_VERSION" ]; then
   # A package cannot be downloaded from the registry before this release has
   # published it. The shipping-tarball fixture immediately above already ran
@@ -485,7 +710,7 @@ if [ "$LIVE_MINIMUM_SDK" = "$SHIPPING_SDK_VERSION" ]; then
   echo "    ✓ minimum is the shipping SDK; packed fixture above covers it"
 else
   rm -rf node_modules package-lock.json
-  npm install --no-fund --no-audit --no-save --silent "$LIVE_TARBALL" "@namzu/sdk@$LIVE_MINIMUM_SDK"
+  run_install "$LIVE_TARBALL" "@namzu/sdk@$LIVE_MINIMUM_SDK"
   INSTALLED_LIVE_MINIMUM_SDK=$(node -p "require('./node_modules/@namzu/sdk/package.json').version")
   test "$INSTALLED_LIVE_MINIMUM_SDK" = "$LIVE_MINIMUM_SDK" || {
     echo "    ✗ Expected minimum SDK $LIVE_MINIMUM_SDK, installed $INSTALLED_LIVE_MINIMUM_SDK"
@@ -514,7 +739,8 @@ SANDBOX_TARBALL=$(ls "$PACK_DIR"/namzu-sandbox-*.tgz | head -1)
 test -f "$SANDBOX_TARBALL" || { echo "    ✗ Missing sandbox tarball in $PACK_DIR"; exit 1; }
 
 rm -rf node_modules package-lock.json
-npm install --no-fund --no-audit --no-save --silent "$SDK_TARBALL" "$SANDBOX_TARBALL"
+CURRENT_STEP="@namzu/sandbox public-surface fixture"
+run_install "$SDK_TARBALL" "$SANDBOX_TARBALL"
 
 cat > assert-sandbox-public-surface.mjs <<'EOF'
 import * as sandbox from '@namzu/sandbox'
@@ -587,7 +813,8 @@ echo "=== @namzu/telemetry single-api-instance + span-smoke fixture ==="
 # has already bumped SDK to its release target. For local dev runs against
 # the workspace state pre-bump, skip the fixture with a clear message —
 # it will exercise in CI.
-SDK_VERSION=$(node -p "require('$WORKSPACE_ROOT/packages/sdk/package.json').version")
+CURRENT_STEP="@namzu/telemetry single-api-instance + span-smoke fixture"
+SDK_VERSION=$(node -p 'require(process.argv[1]).version' "$(node_path "$WORKSPACE_ROOT/packages/sdk/package.json")")
 SDK_MAJOR_MINOR="${SDK_VERSION%.*}"
 case "$SDK_MAJOR_MINOR" in
   0.0|0.1|0.2|0.3)
@@ -598,7 +825,7 @@ case "$SDK_MAJOR_MINOR" in
 esac
 
 rm -rf node_modules package-lock.json
-npm install --no-fund --no-audit --no-save --silent \
+run_install \
   "$SDK_TARBALL" \
   "$TELEMETRY_TARBALL" \
   @opentelemetry/api@^1.9.0 \
