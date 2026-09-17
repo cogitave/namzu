@@ -17,7 +17,6 @@ import { restoreWorkingState, snapshotWorkingState } from '../../compaction/wire
 import { type CompactionConfig, CompactionConfigSchema } from '../../config/runtime.js'
 import { TOOL_OUTPUT_DIR_NAME } from '../../constants/tools/index.js'
 import { EmergencySaveManager } from '../../manager/run/emergency.js'
-import type { RunPersistence } from '../../manager/run/persistence.js'
 import { PromptContributionRegistry } from '../../prompt/contributions.js'
 import { resolveProviderCapabilities } from '../../provider/capabilities.js'
 import type { ProviderChainMember } from '../../provider/fallback.js'
@@ -69,7 +68,6 @@ import type { TaskRouterConfig } from '../../types/router/index.js'
 import type { ReviewAnswer } from '../../types/run/answer-review.js'
 import type { CheckpointStore, FencingToken } from '../../types/run/checkpoint-store.js'
 import type { RunEventCursor, RunEventReplay } from '../../types/run/event-cursor.js'
-import { resolveRunEventReplay } from '../../types/run/event-cursor.js'
 import type {
 	AgentRunConfig,
 	BeforeStep,
@@ -97,6 +95,7 @@ import { toErrorMessage } from '../../utils/error.js'
 import { errorAttributes } from '../../utils/log/exception.js'
 import { AwaitedJobs } from '../jobs/awaited-jobs.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
+import { catchUpFromCursor, settlePreStartCancellation } from './cancelled-before-start.js'
 import { CheckpointManager } from './checkpoint.js'
 import { GuardCoordinator } from './guard.js'
 import { runInputGuardrails, runOutputGuardrails } from './guardrails.js'
@@ -912,108 +911,7 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 	} = prepared
 
 	if (attachmentResolutionCancelled) {
-		// Attachment materialization happens before RunContext exists. Once it
-		// observes cancellation, do only the work required to leave an honest
-		// durable run: initialize the record, retain the unresolved references,
-		// and settle through the ordinary cancellation classifier. Prompt
-		// contributions/cache, host callbacks, tools, plugins, sandbox, guardrails,
-		// advisors, and providers are all authority-bearing work and stay out.
-		// The dedicated root interrupt notification is the sole plugin exception:
-		// it runs after cancellation under its own deadline and cannot regain model
-		// or tool authority.
-		if (params.resumeFromCheckpoint && !selectedResumeState) {
-			// The canonical resume surface hands query the checkpoint state it
-			// already selected. A raw resume query has no such snapshot; after
-			// cancellation, reading the store again could hang without a signal,
-			// while persisting without it would erase the existing transcript.
-			// Refuse before binding/persisting rather than choose either failure.
-			ctx.abortController.signal.throwIfAborted()
-		}
-
-		const cancelledPrompt = params.systemPrompt ?? ''
-		const cancelledAssembler = new ResultAssembler({
-			runMgr: ctx.runMgr,
-			planManager: ctx.planManager,
-			activityStore: ctx.activityStore,
-			log: ctx.log,
-			emitEvent: eventTranslator.emitEvent,
-			drainPending: () => eventTranslator.drainPending(),
-			signal: ctx.abortController.signal,
-		})
-		const rootSpan = getTracer().startSpan(
-			agentRunSpanName(params.agentName),
-			{},
-			parentContext(params.parentSpan ?? selectedResumeState?.traceContext),
-		)
-		rootSpan.setAttributes({
-			[NAMZU.RUN_ID]: ctx.runMgr.id,
-			[GENAI.AGENT_NAME]: params.agentName,
-			[GENAI.AGENT_ID]: params.agentId,
-			[GENAI.REQUEST_MODEL]: runConfig.model,
-			[GENAI.SYSTEM]: params.provider.id,
-		})
-
-		try {
-			await ctx.runMgr.init()
-			if (selectedResumeState) {
-				ctx.runMgr.restoreUsage(
-					selectedResumeState.tokenUsage,
-					selectedResumeState.costInfo,
-					selectedResumeState.currentIteration,
-				)
-				for (const message of selectedResumeState.messages) ctx.runMgr.pushMessage(message)
-				for (const queued of queuedForThisRun) ctx.runMgr.pushMessage(queued)
-			} else if (params.continuationMode) {
-				for (const message of initialMessages) ctx.runMgr.pushMessage(message)
-			} else {
-				ctx.runMgr.pushMessage(createSystemMessage(cancelledPrompt, 'cache'))
-				for (const message of initialMessages) ctx.runMgr.pushMessage(message)
-			}
-			if (params.eventCursor) {
-				yield* catchUpFromCursor(
-					ctx.runMgr,
-					params.eventCursor,
-					params.onEventReplay,
-					params.claimFence,
-					(error) => {
-						ctx.log.warn('Replay observer failed after attachment cancellation', {
-							'exception.message': toErrorMessage(error),
-						})
-					},
-				)
-			}
-			if (selectedResumeState) {
-				await eventTranslator.emitEvent({
-					type: 'run_resuming',
-					runId: ctx.runId,
-					fromCheckpointId: selectedResumeState.checkpointId,
-				})
-				yield* eventTranslator.drainPending()
-			}
-			ctx.runMgr.markRunning()
-			await eventTranslator.emitEvent({
-				type: 'run_started',
-				runId: ctx.runId,
-				systemPrompt: cancelledPrompt,
-			})
-			yield* eventTranslator.drainPending()
-			ctx.abortController.signal.throwIfAborted()
-		} catch (error) {
-			// Attachment resolution has already observed the caller's abort. A
-			// reconnect callback can still throw while replay is being reported,
-			// but it cannot replace that terminal cause or turn a cancelled run
-			// into an unpersisted rejection.
-			const terminalError = ctx.abortController.signal.aborted
-				? ctx.abortController.signal.reason
-				: error
-			await executeUserInterruptHooks(terminalError)
-			yield* eventTranslator.drainPending()
-			yield* cancelledAssembler.handleError(terminalError, rootSpan)
-		} finally {
-			rootSpan.end()
-		}
-
-		return await cancelledAssembler.finalize()
+		return yield* settlePreStartCancellation(params, prepared)
 	}
 
 	const unsubscribeTaskStore = params.taskStore
@@ -2603,16 +2501,6 @@ async function settleAbandonedRun(runMgr: RunPersistence, log: Logger): Promise<
 	}
 }
 
-/**
- * Hand a returning consumer what it missed, or tell it why it cannot have it.
- *
- * Yields NOTHING on a refusal. A partial catch-up is the failure this exists to
- * prevent: a consumer that receives some of the gap folds it into its state and
- * cannot tell the state is wrong, where one that receives an explicit
- * `unavailable` re-derives from the transcript and is right. The run continues
- * either way — a stale cursor belongs to the client, and must not be able to
- * stop the work.
- */
 /** The text of the newest user turn, which is what a prompt hook is asked about. */
 function lastUserPrompt(messages: readonly Message[]): string {
 	for (let i = messages.length - 1; i >= 0; i--) {
@@ -2620,40 +2508,6 @@ function lastUserPrompt(messages: readonly Message[]): string {
 		if (m?.role === 'user' && typeof m.content === 'string') return m.content
 	}
 	return ''
-}
-
-async function* catchUpFromCursor(
-	runMgr: RunPersistence,
-	cursor: RunEventCursor,
-	onEventReplay: ((replay: RunEventReplay) => void) | undefined,
-	generation: FencingToken | undefined,
-	onReplayObserverError: (error: unknown) => void,
-): AsyncGenerator<RunEvent, void> {
-	const missed = await runMgr.getRunStore().readEvents({ sinceSeq: cursor.sinceSeq })
-	const replay = resolveRunEventReplay(
-		cursor,
-		{
-			lastSeq: runMgr.lastEventSeq,
-			...(generation !== undefined ? { generation } : {}),
-		},
-		missed,
-	)
-
-	if (onEventReplay) {
-		try {
-			// A callback typed `void` may still be implemented with `async` in
-			// TypeScript. Observe that runtime Promise so a late rejection cannot
-			// become process-wide, but never await host code here: replay delivery
-			// and an already-cancelled run must not inherit observer liveness.
-			const settlement = onEventReplay(replay)
-			void Promise.resolve(settlement).catch(onReplayObserverError)
-		} catch (error) {
-			onReplayObserverError(error)
-		}
-	}
-
-	if (replay.status !== 'replayed') return
-	for (const event of replay.events) yield event
 }
 
 type DrainQueryParams = Omit<QueryParams, 'resumeHandler'> & {
