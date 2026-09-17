@@ -5,7 +5,7 @@ description: Findings and open composition options for provider-request cancella
 resource: packages/sdk/src/runtime/query/index.ts
 tags: [sdk, provider, cancellation, timeout, retry, fallback]
 status: draft
-generated: { by: process:claude-code, at: 2026-09-17T00:00:00Z }
+generated: { by: process:claude-code, at: 2026-09-18T00:00:00Z }
 ---
 
 # Cancellation and timeouts
@@ -28,8 +28,8 @@ mechanisms, composed in sequence:
   (`packages/sdk/src/runtime/query/context.ts:167-196`). The turn loop races
   each `it.next()` against this signal so a Stop can interrupt mid-token
   (`packages/sdk/src/runtime/query/iteration/stream-turn.ts:271-297`, driven
-  by `this.ctx.abortController.signal` at
-  `packages/sdk/src/runtime/query/iteration/index.ts:887`).
+  by `this.ctx.abortController.signal` on the `streamProviderTurn` call at
+  `packages/sdk/src/runtime/query/iteration/index.ts:788`).
 - **Kernel idle watchdog.** `withStreamIdleTimeout` enforces a per-chunk
   silence bound (default five minutes,
   `packages/sdk/src/provider/idle-timeout.ts:7`) by racing the same iterator
@@ -42,7 +42,7 @@ contrasts itself against it, saying plainly that `timeoutMs` "is checked
 between agent iterations and cannot settle a provider iterator whose pending
 `next()` never returns" (`packages/sdk/src/types/run/config.ts:17-18`), and
 the only two call sites that enforce it —
-`packages/sdk/src/runtime/query/iteration/index.ts:474` and `:2786` — are
+`packages/sdk/src/runtime/query/iteration/index.ts:375` and `:2435` — are
 both between-iteration checks in `GuardCoordinator.beforeIteration`
 (`packages/sdk/src/runtime/query/guard.ts:104-147`, confirmed as the only two
 call sites by a full-tree grep). A single turn that keeps producing chunks,
@@ -66,11 +66,11 @@ const withRecovery = (provider: LLMProvider): LLMProvider => {
   const metered = withTokenBudget(withIdleBound, budget)
   return params.retry === false ? metered : withProviderRetry(metered, { config, log, canRetry })
 }
-// packages/sdk/src/runtime/query/index.ts:1174-1187
+// packages/sdk/src/runtime/query/prepare-run.ts:370-383 — withRecovery
 const resilientProvider = withProviderFallback(
   chain.map((member) => ({ ...member, provider: withRecovery(member.provider) })),
   { log, canFallback, onSwap },
-) // packages/sdk/src/runtime/query/index.ts:1198-1214
+) // packages/sdk/src/runtime/query/prepare-run.ts:394-410 — resilientProvider
 ```
 
 Both `withProviderRetry` and `withProviderFallback` special-case one kind of
@@ -145,8 +145,8 @@ turn short. The kernel already had to learn this once for the idle watchdog:
 the ordering comment above `withRecovery` states it directly — "The idle
 layer cannot sit outside retry, because its timer would then count a
 legitimate backoff as provider silence. This order is not a preference."
-(`packages/sdk/src/runtime/query/index.ts:1148-1167`, with the quoted
-sentence at `index.ts:1159-1162`). A wall-clock deadline decorator has the
+(`packages/sdk/src/runtime/query/prepare-run.ts:344-363`, with the quoted
+sentence at `prepare-run.ts:355-358`). A wall-clock deadline decorator has the
 same failure mode in reverse if it sits *inside* retry: a backoff sleep
 between attempts would burn down a budget meant to bound provider work, not
 the kernel's own waiting. This is a constraint on the eventual composition,
@@ -163,12 +163,12 @@ has two working precedents in this exact codebase:
   `Math.max(0, timeoutMs - elapsed)`, or `+Infinity` when `timeoutMs === 0`
   (`packages/sdk/src/runtime/query/guard.ts:91-101`), and today feeds exactly
   one caller: sandbox acquisition's own `timeoutMs`
-  (`packages/sdk/src/runtime/query/index.ts:2684`).
+  (`packages/sdk/src/runtime/query/index.ts:1978`).
 - `resolveProviderContextWindow` clamps a caller-supplied `timeoutMs` against
   Node's 32-bit timer ceiling, arms a private `AbortController`, and fuses it
   with the caller's signal via `AbortSignal.any` before racing a
   context-window lookup against it
-  (`packages/sdk/src/runtime/query/index.ts:918-950`).
+  (`packages/sdk/src/runtime/query/prepare-run.ts:191-223`).
 
 The open work in point 1 is composition order relative to retry and
 fallback, not how to read a deadline or build a fused signal from it.
@@ -181,8 +181,9 @@ they are not one object reused three ways:
 - **Primary turns.** `resilientProvider` — the full
   idle → token-budget → retry chain, wrapped again in fallback — is what
   becomes `ctx.provider`: passed into `RunContext` at
-  `packages/sdk/src/runtime/query/index.ts:1369` and into
-  `IterationOrchestrator` at `index.ts:2046`.
+  `packages/sdk/src/runtime/query/prepare-run.ts:565` and into
+  `IterationOrchestrator` at
+  `packages/sdk/src/runtime/query/index.ts:1340`.
 - **Callback inference** (`preparation`/`review` phases) reads `ctx.provider`
   directly (`packages/sdk/src/runtime/query/callback-inference.ts:66`), so it
   gets the same `resilientProvider`. It also composes its own extra,
@@ -190,8 +191,9 @@ they are not one object reused three ways:
   seconds (`requestSchema.timeoutMs` max, `callback-inference.ts:13`), fused
   via `AbortSignal.any([ctx.abortController.signal, lifetime.signal,
   deadline.signal, ...requestedSignal])` at `callback-inference.ts:42-51`.
-- **Advisory calls** get neither retry nor fallback. `index.ts:1979-1988`
-  builds `boundedAdvisors` directly from `advisor.provider`:
+- **Advisory calls** get neither retry nor fallback.
+  `packages/sdk/src/runtime/query/index.ts:1273-1282` builds
+  `boundedAdvisors` directly from `advisor.provider`:
   `withTokenBudget(withStreamIdleTimeout(advisor.provider, {
   idleTimeoutMs, log }), budget)` — idle-timeout and token-budget only. They
   are protected from an unbounded stall but are not retried and never fail
