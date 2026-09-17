@@ -62,6 +62,7 @@ import type {
 import { buildAciStandbyPoolBackend } from './backends/aci-standby-pool/index.js'
 import { buildDockerBackend, resolveLayout } from './backends/docker/index.js'
 import { buildFirecrackerBackend } from './backends/firecracker/index.js'
+import type { FirecrackerTransportTiming } from './backends/firecracker/transport.js'
 import type { KubernetesEgressConfig } from './backends/kubernetes/egress-policy.js'
 import {
 	type KubernetesAgentAddressMode,
@@ -126,6 +127,7 @@ export {
 	AgentWriteFileTooLargeError,
 	DEFAULT_MAX_WRITE_FILE_BYTES,
 	FIRECRACKER_AGENT_PROTOCOL_VERSION,
+	type FirecrackerTransportTiming,
 	GUEST_FRAME_LIMIT_BYTES,
 	type SandboxAgentHandle,
 	TCP_PREAUTH_FRAME_LIMIT_BYTES,
@@ -797,6 +799,28 @@ export type MicroVMBackendConfig = {
 	/** Delay between guest-agent health probes. Default 250ms. */
 	readonly readyPollIntervalMs?: number
 	/**
+	 * Fires once per completed `exec()` on this provider's sandboxes with
+	 * that call's wall-time breakdown — the reserve round trip, the execute
+	 * round trip, the dials inside them, the first reply frame, the
+	 * terminator frame and the peer's own close. See
+	 * {@link FirecrackerTransportTiming} for what each number is and is not,
+	 * and {@link VsockTransportOptions.onExecTiming} for why the field is
+	 * named this rather than the kubernetes tier's `onTiming`.
+	 *
+	 * Opt-in and additive, with no default: a host that sets nothing sends,
+	 * receives and waits for exactly what it did before. The intended use is
+	 * attribution — a relay or a guest that adds a fixed cost to every call
+	 * moves a named phase, and one that adds none leaves the numbers at the
+	 * cost of a command's own runtime.
+	 *
+	 * It is an OBSERVER, not a control: it cannot change a command's result,
+	 * it is called after the call has settled, and a listener that throws is
+	 * that listener's problem. The payload is durations only — never the
+	 * agent token, a command, its arguments, or any output — so a host may
+	 * log it without leaking what the sandbox ran.
+	 */
+	readonly onExecTiming?: (timing: FirecrackerTransportTiming) => void
+	/**
 	 * NETWORK-mode mTLS client material (ses_051 P4 client-proxy
 	 * bridge). When present, the orchestrator returns an `mtls` agent
 	 * handle (host/port/sandboxId, NO cert material) and this CA/cert/key
@@ -1371,6 +1395,16 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 			...(backend.readyTimeoutMs !== undefined ? { readyTimeoutMs: backend.readyTimeoutMs } : {}),
 			...(backend.readyPollIntervalMs !== undefined
 				? { readyPollIntervalMs: backend.readyPollIntervalMs }
+				: {}),
+			// Forwarded into the transport's own options rather than onto the
+			// backend's config: the backend reads nothing here, and the phase
+			// numbers are the transport's to report — see
+			// `VsockTransportOptions.onExecTiming`, which is where a host that
+			// builds a `VsockAgentTransport` directly sets it too. Absent ⇒
+			// this spread adds no key at all and the transport is built with
+			// the options it was always built with.
+			...(backend.onExecTiming !== undefined
+				? { transport: { onExecTiming: backend.onExecTiming } }
 				: {}),
 			...(backend.mtls !== undefined ? { mtls: backend.mtls } : {}),
 			...(backend.controlPlaneMtls !== undefined

@@ -21,7 +21,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createSandboxProvider } from '../../../index.js'
 import { checkFileWalkOwnership, fileWalkExec } from '../../__tests__/fixtures/file-walk-exec.js'
 import { buildFirecrackerBackend, normalizeHandle } from '../index.js'
-import { VsockAgentTransport, type WireSandboxAgentHandle, __framing } from '../transport.js'
+import {
+	type FirecrackerTransportTiming,
+	VsockAgentTransport,
+	type WireSandboxAgentHandle,
+	__framing,
+} from '../transport.js'
 import { localIpcPath } from './fixtures/ipc-path.js'
 import {
 	CA_CRT,
@@ -271,6 +276,48 @@ describe.skipIf(IS_WINDOWS)('buildFirecrackerBackend (loopback agent)', () => {
 		const createCall = calls.find((call) => call.method === 'POST')
 		expect(createCall?.body).toEqual({ networkPolicy: { mode: 'open' } })
 		await sandbox.destroy()
+	})
+
+	it('carries per-exec timing from the public provider config into the transport', async () => {
+		// The observable here is the hook firing, because that is the only
+		// thing `onExecTiming` does. It proves the field travelled the whole
+		// way out of `MicroVMBackendConfig`: through `pickBackend`'s spread
+		// (into the internal `transport` options rather than onto the backend
+		// config, which is where a dropped field would silently stop) and into
+		// the `VsockAgentTransport` that reports. A field lost in that spread
+		// leaves this array empty and every other test in this file green.
+		server = await startAgent()
+		stubOrchestrator({ kind: 'unix', path: sockPath })
+		const timings: FirecrackerTransportTiming[] = []
+		const provider = createSandboxProvider({
+			backend: {
+				tier: 'microvm',
+				service: 'self-hosted',
+				orchestratorEndpoint: 'https://orchestrator.test/',
+				getToken: async () => 'tok',
+				readyTimeoutMs: 3_000,
+				readyPollIntervalMs: 50,
+				onExecTiming: (timing) => timings.push(timing),
+			},
+		})
+
+		const sandbox = await provider.create({ workingDirectory: workDir })
+		try {
+			await expect(sandbox.exec('/bin/sh', ['-c', 'printf timed'])).resolves.toMatchObject({
+				stdout: 'timed',
+			})
+		} finally {
+			await sandbox.destroy()
+		}
+
+		expect(timings).toHaveLength(1)
+		const timing = timings[0] as FirecrackerTransportTiming
+		expect(timing.reserveMs).toBeGreaterThanOrEqual(0)
+		expect(timing.executeMs).toBeGreaterThanOrEqual(0)
+		// The phases only this transport's own exec path can reach: proof the
+		// report came from a real round trip rather than from a default.
+		expect(timing.terminatorMs).toBeDefined()
+		expect(timing.peerCloseMs).toBeDefined()
 	})
 
 	it('tears down the microVM when the readiness fence times out (no orphan)', async () => {

@@ -250,6 +250,89 @@ export type AgentRequest = (
 	// {@link AgentRequestCredential}.
 	AgentRequestCredential
 
+/**
+ * One `exec()` call's wall-time breakdown on the Firecracker tier.
+ *
+ * The first four fields are the same four the kubernetes tier reports
+ * through `KubernetesTransportTiming` — this backend is the transport that
+ * tier WRAPS, so the phases are the same phases and deliberately carry the
+ * same names and the same meanings. The last three are what only this tier
+ * can see, because only this tier owns the socket that carries the execute
+ * round trip: the first reply frame, the zero-length terminator frame the
+ * guest writes when the command's process group is done, and the peer's own
+ * close after it.
+ *
+ * Durations are NOT a partition of a single total — `reserveMs` and
+ * `executeMs` each include their OWN dial, which is also folded into
+ * `dialMs`, and the three execute sub-phases are intervals INSIDE
+ * `executeMs`, all three measured from the moment the execute request was
+ * written to the socket. This is a diagnostic breakdown for attribution, not
+ * an accounting identity.
+ *
+ * The three sub-phases are ABSENT when the phase was never reached (a call
+ * that failed at the dial, or a stream that ended without a terminator),
+ * which is a different fact from a phase that measured 0 ms.
+ *
+ * Never carries a token, a command, its arguments, or any output.
+ */
+export interface FirecrackerTransportTiming {
+	/**
+	 * Total time spent establishing connections for this call.
+	 *
+	 * Counts ESTABLISHED connections only: a dial that never connected adds
+	 * nothing here, exactly as it never fires
+	 * {@link VsockTransportOptions.onDial}. The time such an attempt spent is
+	 * inside the phase that asked for the connection (`reserveMs`,
+	 * `executeMs`), and "a connection was never made" is what
+	 * {@link VsockTransportOptions.onDialAttempt} paired with `onDial` says —
+	 * not something this number can express.
+	 */
+	readonly dialMs: number
+	/** Time spent on the `reserve-execution` round trip (dial included). */
+	readonly reserveMs: number
+	/** Time spent on the `execute` round trip (dial included). */
+	readonly executeMs: number
+	/**
+	 * Time between the execute round trip settling and `exec()` itself
+	 * resolving — this transport's own post-execute bookkeeping (clearing
+	 * timers, tearing down the observation race). Always small on the happy
+	 * path; distinct from `executeMs` because it is spent locally, after the
+	 * peer has nothing left to do.
+	 */
+	readonly drainMs: number
+	/**
+	 * Request written → the guest FIRST SPOKE. The guest agent writes
+	 * nothing until the command it spawned produces output or ends, so this
+	 * interval carries the spawn and startup of the command plus whatever
+	 * the guest does before that — and for a command that prints NOTHING it
+	 * carries the command's whole runtime, because the first frame the host
+	 * sees is then the terminal one. Read it against a command that talks
+	 * early (`sh -c 'echo ok'`): the spawn latency lands here, and a wait on
+	 * the guest's side before the command starts moves this number without
+	 * moving `terminatorMs`' interval past it.
+	 */
+	readonly firstFrameMs?: number
+	/**
+	 * Request written → the zero-length terminator frame, which the guest
+	 * writes when the command's process group is done and its output is
+	 * flushed. The number that separates a cost the command paid from a cost
+	 * the path paid is THIS interval minus `firstFrameMs` — the time the
+	 * guest went on for after it first spoke. That is a fact about a command
+	 * that produced output near its start; for a silent command the two
+	 * intervals are nearly equal and both carry the runtime.
+	 */
+	readonly terminatorMs?: number
+	/**
+	 * Terminator seen → the peer's socket close. The host resolves an exec
+	 * only on that close, so time a relay in front of the guest spends
+	 * holding the FIN — buffering it, or waiting for its own idle timer —
+	 * lands here and nowhere else in this object. See
+	 * {@link POST_RESPONSE_CLOSE_TIMEOUT_MS} for what happens when the close
+	 * never comes at all.
+	 */
+	readonly peerCloseMs?: number
+}
+
 export interface VsockTransportOptions {
 	/** Per-attempt connect + handshake timeout. Default 5000ms. */
 	readonly connectTimeoutMs?: number
@@ -310,6 +393,31 @@ export interface VsockTransportOptions {
 	 * vsock/mtls/unix arms are free to ignore it.
 	 */
 	readonly onDialAttempt?: () => void
+	/**
+	 * Fires once per completed `exec()` (and {@link VsockAgentTransport.execute})
+	 * call — success or failure — with that call's wall-time breakdown, so a
+	 * host can attribute an exec's wall clock to a phase without patching this
+	 * package. The payload is exactly the numbers described on
+	 * {@link FirecrackerTransportTiming}: never the token, a command, its
+	 * arguments, or any output. An OBSERVER, like every other hook on these
+	 * options: it cannot change the call's result, it is called after the
+	 * call has settled, and a listener that throws is the listener's problem.
+	 *
+	 * Named `onExecTiming` rather than `onTiming` because these options are
+	 * the BASE of `KubernetesTransportOptions`, which already spends the name
+	 * `onTiming` on a payload of its own; one name for two different payloads
+	 * on two transports is the kind of footgun this package refuses
+	 * elsewhere. A consequence worth stating plainly: a wire belonging to the
+	 * kubernetes tier INHERITS this field and never fires it, because that
+	 * tier builds its own adapter and drives the shared transport through
+	 * {@link VsockAgentTransport.executeStreamed}, not through `exec()`.
+	 *
+	 * Absent by default, and a host that sets nothing pays nothing: the
+	 * ledger that carries these numbers is created only when this hook is
+	 * set, and the same check that skips creating it skips every measurement
+	 * that would have filled it.
+	 */
+	readonly onExecTiming?: (timing: FirecrackerTransportTiming) => void
 	/**
 	 * Fires once for every reply this transport reads that the guest
 	 * answered on an AUTHENTICATED basis — one control/file reply per
@@ -379,6 +487,45 @@ export interface VsockTransportOptions {
 	readonly permanentDialFailure?: (error: unknown) => boolean
 }
 
+/**
+ * The per-call accumulator behind {@link VsockTransportOptions.onExecTiming}.
+ *
+ * One instance per `exec()`/`execute()` call, closed over by that call's
+ * adapter and threaded into the dial and the execute round trip the adapter
+ * wraps — never a field on the transport, so two concurrent `exec()` calls
+ * on one transport cannot race on the same accumulator. That is the same
+ * reason the kubernetes tier builds its adapter per call rather than once.
+ *
+ * Every field is a millisecond duration except `executeSettledAt`, which is
+ * a `Date.now()` stamp the drain interval is measured back from, and `0`
+ * meaning "the execute round trip never settled".
+ */
+interface ExecTimingLedger {
+	dialMs: number
+	reserveMs: number
+	executeMs: number
+	executeSettledAt: number
+	firstFrameMs?: number
+	terminatorMs?: number
+	peerCloseMs?: number
+}
+
+/** The reportable view of a ledger — see {@link FirecrackerTransportTiming}. */
+function timingOf(ledger: ExecTimingLedger): FirecrackerTransportTiming {
+	return {
+		dialMs: ledger.dialMs,
+		reserveMs: ledger.reserveMs,
+		executeMs: ledger.executeMs,
+		drainMs: ledger.executeSettledAt > 0 ? Date.now() - ledger.executeSettledAt : 0,
+		// Spread conditionally, not set to a sentinel: "this phase was never
+		// reached" and "this phase took no measurable time" are different
+		// statements, and only an absent field says the first.
+		...(ledger.firstFrameMs !== undefined ? { firstFrameMs: ledger.firstFrameMs } : {}),
+		...(ledger.terminatorMs !== undefined ? { terminatorMs: ledger.terminatorMs } : {}),
+		...(ledger.peerCloseMs !== undefined ? { peerCloseMs: ledger.peerCloseMs } : {}),
+	}
+}
+
 const DEFAULT_CONNECT_TIMEOUT_MS = 5_000
 const DEFAULT_CONNECT_RETRY_BUDGET_MS = 30_000
 const DEFAULT_CONNECT_RETRY_INTERVAL_MS = 100
@@ -389,6 +536,33 @@ const DEFAULT_EXECUTION_TIMEOUT_MS = 5 * 60_000
 // bounded TERM -> KILL confirmation window so a quiet but correctly
 // terminating command can still deliver its terminal frame and output tail.
 const EXECUTION_TRANSPORT_GRACE_MS = 10_000
+/**
+ * How long a reply that has already TERMINATED (an exec's zero-length
+ * terminator frame, or a control reply) waits for the peer's own close
+ * before this transport gives up on it.
+ *
+ * **A reject-only guard, and deliberately not a budget to spend.** It can
+ * only turn a socket whose peer never closes into a named failure
+ * (`exec peer did not close after terminator`); it can never resolve a call,
+ * because every resolution path in this file requires the peer's `close`
+ * event. Raising it therefore buys no slow success — it delays a diagnosis —
+ * and lowering it fails a peer that was merely slow to close. It is not a
+ * wait any caller is expected to pay: an exec that resolves has paid a real
+ * close, and how long the peer took to deliver it is reported as
+ * {@link FirecrackerTransportTiming.peerCloseMs}.
+ *
+ * **The contract this states for a host-owned relay.** After writing the
+ * terminator frame the agent calls `socket.end()` — a half-close — and this
+ * transport resolves the call on the resulting `close`. A relay between the
+ * guest and this process that forwards the payload but holds the FIN (its
+ * own idle timer, a full-duplex buffering policy, a proxy that waits for the
+ * guest process to exit) transfers that wait onto every exec, and it lands in
+ * `peerCloseMs`. A relay that forwards the FIN promptly costs the guest's
+ * RTT and nothing else. A deployment whose execs pay a near-constant
+ * sub-second cost with no phase in this breakdown to show for it is spending
+ * it OUTSIDE this package — in that relay, or in the network between it and
+ * the guest — and this breakdown is what says so.
+ */
 const POST_RESPONSE_CLOSE_TIMEOUT_MS = 1_000
 const MAX_TIMER_DELAY_MS = 2_147_483_647
 
@@ -731,9 +905,7 @@ export class VsockAgentTransport {
 	 */
 	private guestFeatureList?: readonly string[]
 	private readonly permanentDialFailure?: (error: unknown) => boolean
-	private readonly executionController: RemoteExecutionController<
-		Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>
-	>
+	private readonly onExecTiming?: (timing: FirecrackerTransportTiming) => void
 
 	constructor(handle: SandboxAgentHandle, options: VsockTransportOptions = {}) {
 		this.handle = handle
@@ -753,29 +925,65 @@ export class VsockAgentTransport {
 			this.writeFilePartBytes = Math.max(1, Math.floor(options.writeFilePartBytes))
 		}
 		this.permanentDialFailure = options.permanentDialFailure
-		const adapter: RemoteExecutionAdapter<Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>> = {
+		this.onExecTiming = options.onExecTiming
+	}
+
+	/**
+	 * The reserve-before-admission triple this transport hands the shared
+	 * {@link RemoteExecutionController}, with `ledger` — when a timing hook
+	 * asked for one — accumulating the phases it wraps.
+	 *
+	 * A FACTORY rather than a constructor-built field, because the ledger is
+	 * per call: this transport holds no cross-call connection state (it dials
+	 * fresh every time), so building an adapter per `exec()` is free and
+	 * makes concurrent `exec()` calls correctly independent — each gets its
+	 * own accumulator, with no shared mutable field for two in-flight calls
+	 * to race on. Same arrangement, and the same reason, as the kubernetes
+	 * tier's `KubernetesAgentTransport.exec`.
+	 */
+	private executionAdapter(
+		ledger?: ExecTimingLedger,
+	): RemoteExecutionAdapter<Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>> {
+		return {
 			label: 'framed microVM agent',
-			reserve: async (signal) => await this.reserveExecution(signal),
-			cancel: async (executionId, signal) => await this.cancelExecution(executionId, signal),
-			execute: async (executionId, command, argv, opts, signal, context) =>
-				await this.executeRaw(
-					{
-						...(executionId ? { executionId } : {}),
-						command,
-						args: argv ?? [],
-						...(opts?.cwd !== undefined ? { cwd: opts.cwd } : {}),
-						...(opts?.env !== undefined ? { env: opts.env } : {}),
-						...(opts?.timeout !== undefined ? { timeoutMs: opts.timeout } : {}),
-						...(context?.stdin !== undefined ? { stdin: context.stdin } : {}),
-						...(context?.maxOutputBytes !== undefined
-							? { maxOutputBytes: context.maxOutputBytes }
-							: {}),
-					},
-					opts,
-					signal,
-				),
+			reserve: async (signal) => {
+				if (ledger === undefined) return await this.reserveExecution(signal)
+				const startedAt = Date.now()
+				try {
+					return await this.reserveExecution(signal, ledger)
+				} finally {
+					ledger.reserveMs += Date.now() - startedAt
+				}
+			},
+			cancel: async (executionId, signal) =>
+				await this.cancelExecution(executionId, signal, ledger),
+			execute: async (executionId, command, argv, opts, signal, context) => {
+				const body: ExecRequest = {
+					...(executionId ? { executionId } : {}),
+					command,
+					args: argv ?? [],
+					...(opts?.cwd !== undefined ? { cwd: opts.cwd } : {}),
+					...(opts?.env !== undefined ? { env: opts.env } : {}),
+					...(opts?.timeout !== undefined ? { timeoutMs: opts.timeout } : {}),
+					...(context?.stdin !== undefined ? { stdin: context.stdin } : {}),
+					...(context?.maxOutputBytes !== undefined
+						? { maxOutputBytes: context.maxOutputBytes }
+						: {}),
+				}
+				if (ledger === undefined) return await this.executeRaw(body, opts, signal)
+				const startedAt = Date.now()
+				try {
+					return await this.executeRaw(body, opts, signal, ledger)
+				} finally {
+					ledger.executeMs += Date.now() - startedAt
+					// Stamped in the `finally` so it is set on the failure path
+					// too: a drain interval is only worth reporting when the
+					// round trip settled, and "settled" includes "settled by
+					// rejecting".
+					ledger.executeSettledAt = Date.now()
+				}
+			},
 		}
-		this.executionController = new RemoteExecutionController(adapter)
 	}
 
 	/**
@@ -786,7 +994,7 @@ export class VsockAgentTransport {
 	 * {@link VsockTransportOptions.permanentDialFailure} says this particular
 	 * failure is not one waiting will cure.
 	 */
-	private async dial(signal?: AbortSignal): Promise<net.Socket> {
+	private async dial(signal?: AbortSignal, ledger?: ExecTimingLedger): Promise<net.Socket> {
 		const deadline = Date.now() + this.connectRetryBudgetMs
 		const dialStartedAt = Date.now()
 		let lastErr: unknown
@@ -799,7 +1007,13 @@ export class VsockAgentTransport {
 				// is precisely the case a watcher needs to hear about.
 				this.onDialAttempt?.()
 				const socket = await this.connectOnce(signal)
-				this.onDial?.(Date.now() - dialStartedAt)
+				const durationMs = Date.now() - dialStartedAt
+				this.onDial?.(durationMs)
+				// The same interval the hook above reports, folded into the
+				// call's own ledger: a caller asking where an exec's wall time
+				// went wants it as one number per call, and this dial belongs
+				// to that call.
+				if (ledger !== undefined) ledger.dialMs += durationMs
 				return socket
 			} catch (err) {
 				if (signal?.aborted) throw signal.reason
@@ -1094,10 +1308,26 @@ export class VsockAgentTransport {
 	 * is torn down rather than wedging the caller.
 	 */
 	async request<T>(req: AgentRequest, signal?: AbortSignal): Promise<T> {
+		return await this.requestFramed<T>(req, signal)
+	}
+
+	/**
+	 * {@link request}, with the one thing the public signature has no place
+	 * for: the exec call's timing ledger, so the reserve round trip that
+	 * reaches the guest through this method is counted against the call that
+	 * paid for its dial. Private rather than a third parameter, because a
+	 * public method whose extra argument exists only for internal
+	 * instrumentation is a parameter a caller can only misuse.
+	 */
+	private async requestFramed<T>(
+		req: AgentRequest,
+		signal?: AbortSignal,
+		ledger?: ExecTimingLedger,
+	): Promise<T> {
 		const envelope = this.withCredential(req)
 		const payload = JSON.stringify(envelope)
 		this.assertPreauthBudget(payload)
-		const socket = await this.dial(signal)
+		const socket = await this.dial(signal, ledger)
 		return await new Promise<T>((resolve, reject) => {
 			const reader = new FrameReader()
 			let settled = false
@@ -1178,12 +1408,22 @@ export class VsockAgentTransport {
 		body: ExecRequest,
 		opts?: SandboxExecOptions,
 		signal?: AbortSignal,
+		ledger?: ExecTimingLedger,
 	): Promise<SandboxExecResult> {
 		const envelope = this.withCredential({ op: 'execute', body } satisfies AgentRequest)
 		const payload = JSON.stringify(envelope)
 		this.assertPreauthBudget(payload)
-		const socket = await this.dial(signal)
+		const socket = await this.dial(signal, ledger)
 		const start = Date.now()
+		// The instant the request goes on the wire. The three execute
+		// sub-phases of {@link FirecrackerTransportTiming} are measured from
+		// here, so they answer "how long after the guest was asked" rather
+		// than "how long after this call began" — the dial that precedes it
+		// is already counted in `dialMs` and inside `executeMs`.
+		let writtenAt = 0
+		// Stamped once, when the terminator frame is parsed, so `peerCloseMs`
+		// measures the peer's close and not the whole round trip.
+		let terminatorAt = 0
 		return await new Promise<SandboxExecResult>((resolve, reject) => {
 			const reader = new FrameReader()
 			const acc = new ExecResultAccumulator(start, opts?.onOutput)
@@ -1230,6 +1470,12 @@ export class VsockAgentTransport {
 					finish(err instanceof Error ? err : new Error(String(err)))
 					return
 				}
+				// Recorded before the terminator check below and before any
+				// parsing: the first frame ARRIVED, which stays true even if
+				// this call goes on to reject over the frame's contents.
+				if (ledger !== undefined && ledger.firstFrameMs === undefined && frames.length > 0) {
+					ledger.firstFrameMs = Date.now() - writtenAt
+				}
 				for (const payload of frames) {
 					if (terminated) {
 						finish(new Error('vsock transport: exec stream emitted data after its terminator'))
@@ -1252,6 +1498,14 @@ export class VsockAgentTransport {
 					}
 				}
 				if (terminated) {
+					// The terminator WAS read, so it is reported even if this
+					// call is about to reject over what followed it: the
+					// question these numbers answer is where the time went,
+					// not whether the call ended well.
+					if (ledger !== undefined && ledger.terminatorMs === undefined) {
+						terminatorAt = Date.now()
+						ledger.terminatorMs = terminatorAt - writtenAt
+					}
 					if (reader.bufferedBytes > 0) {
 						finish(new Error('vsock transport: exec stream has trailing partial data'))
 						return
@@ -1266,14 +1520,19 @@ export class VsockAgentTransport {
 			})
 			socket.once('error', (err) => finish(err))
 			socket.once('close', () => {
-				if (terminated && terminalResult) finish(null, terminalResult)
-				else finish(new Error('vsock transport: socket closed before exec stream terminator'))
+				if (terminated && terminalResult) {
+					if (ledger !== undefined && terminatorAt > 0) {
+						ledger.peerCloseMs = Date.now() - terminatorAt
+					}
+					finish(null, terminalResult)
+				} else finish(new Error('vsock transport: socket closed before exec stream terminator'))
 			})
 			if (signal?.aborted) {
 				abort()
 				return
 			}
 			signal?.addEventListener('abort', abort, { once: true })
+			writtenAt = Date.now()
 			socket.write(frame(payload))
 		})
 	}
@@ -1294,7 +1553,7 @@ export class VsockAgentTransport {
 				'VsockAgentTransport.execute does not accept caller-owned execution ids',
 			)
 		}
-		return await this.executionController.exec(
+		return await this.runExec(
 			body.command,
 			body.args ? [...body.args] : undefined,
 			{
@@ -1316,7 +1575,69 @@ export class VsockAgentTransport {
 		argv?: string[],
 		opts?: SandboxExecOptions,
 	): Promise<SandboxExecResult> {
-		return await this.executionController.exec(command, argv, opts)
+		return await this.runExec(command, argv, opts)
+	}
+
+	/**
+	 * One command through a call-scoped adapter + controller, reporting the
+	 * call's phases to {@link VsockTransportOptions.onExecTiming} when a host
+	 * asked for them.
+	 *
+	 * The ledger is created HERE and nowhere else — because it is per call,
+	 * not per transport, so two concurrent `exec()` calls each get their own
+	 * accumulator. Constructing a controller per call costs an allocation and
+	 * nothing else: the controller's only per-instance state is its readonly
+	 * configuration, so a fresh one behaves exactly like a shared one, and
+	 * this transport dials fresh per request either way.
+	 *
+	 * The hook fires in a `finally`, on the failure paths as well as the
+	 * happy one: an exec that rejected after its reserve round trip is
+	 * precisely the call whose phase breakdown a host needs. Measuring into a
+	 * ledger that nobody reads is what "no hook, no cost" means here — with
+	 * no hook there is no ledger, and the `undefined` checks in `dial` and
+	 * `executeRaw` skip the clock reads entirely.
+	 */
+	private async runExec(
+		command: string,
+		argv: string[] | undefined,
+		opts: SandboxExecOptions | undefined,
+		context?: Pick<ExecRequest, 'stdin' | 'maxOutputBytes'>,
+	): Promise<SandboxExecResult> {
+		const hook = this.onExecTiming
+		if (hook === undefined) {
+			return await new RemoteExecutionController(this.executionAdapter()).exec(
+				command,
+				argv,
+				opts,
+				context,
+			)
+		}
+		const ledger: ExecTimingLedger = {
+			dialMs: 0,
+			reserveMs: 0,
+			executeMs: 0,
+			executeSettledAt: 0,
+		}
+		try {
+			return await new RemoteExecutionController(this.executionAdapter(ledger)).exec(
+				command,
+				argv,
+				opts,
+				context,
+			)
+		} finally {
+			// Caught, not propagated: this hook is an OBSERVER, and a listener
+			// that throws must not turn a command that ran into a caller's
+			// exception — the rule {@link VsockTransportOptions.onGuestReply}
+			// already states for this transport's other observers. A `finally`
+			// that let it through would replace the call's own error with the
+			// listener's, which is the worst version of that failure.
+			try {
+				hook(timingOf(ledger))
+			} catch {
+				// The listener's problem, and only the listener's.
+			}
+		}
 	}
 
 	/**
@@ -1340,10 +1661,11 @@ export class VsockAgentTransport {
 		return await this.executeRaw(body, opts, signal)
 	}
 
-	private async reserveExecution(signal: AbortSignal): Promise<unknown> {
-		const response = await this.request<Record<string, unknown>>(
+	private async reserveExecution(signal: AbortSignal, ledger?: ExecTimingLedger): Promise<unknown> {
+		const response = await this.requestFramed<Record<string, unknown>>(
 			{ op: 'reserve-execution' },
 			signal,
+			ledger,
 		)
 		if (
 			response.ok === false &&
@@ -1362,8 +1684,16 @@ export class VsockAgentTransport {
 		return response
 	}
 
-	private async cancelExecution(executionId: string, signal: AbortSignal): Promise<unknown> {
-		return await this.request<unknown>({ op: 'cancel-execution', body: { executionId } }, signal)
+	private async cancelExecution(
+		executionId: string,
+		signal: AbortSignal,
+		ledger?: ExecTimingLedger,
+	): Promise<unknown> {
+		return await this.requestFramed<unknown>(
+			{ op: 'cancel-execution', body: { executionId } },
+			signal,
+			ledger,
+		)
 	}
 
 	/** Readiness probe. A healthy guest must also speak the exact host protocol. */

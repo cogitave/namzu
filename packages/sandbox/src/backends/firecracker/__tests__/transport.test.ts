@@ -25,7 +25,7 @@ import { type TLSSocket, type Server as TlsServer, createServer as createTlsServ
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import { VsockAgentTransport, __framing } from '../transport.js'
+import { type FirecrackerTransportTiming, VsockAgentTransport, __framing } from '../transport.js'
 
 // The agent is a CommonJS module that reads NAMZU_SANDBOX_WORKSPACE at
 // require-time. Set the env, then require it through createRequire so
@@ -557,6 +557,153 @@ describe.skipIf(IS_WINDOWS)('VsockAgentTransport over a unix-socket loopback age
 		)
 		await expect(transport.healthz()).resolves.toBe(false)
 		await expect(transport.readFile('x')).rejects.toThrow(/could not connect to agent/)
+	})
+})
+
+/**
+ * `VsockTransportOptions.onExecTiming`, against the REAL guest agent over
+ * the same loopback socket the rest of this file uses.
+ *
+ * What is asserted is the shape of the report and the relations between its
+ * numbers — never a duration this machine happens to produce. The claims
+ * worth having in a test: the four base phases are always present, the three
+ * execute sub-phases are present only when their phase was reached, and
+ * `terminatorMs - firstFrameMs` carries the span a command went on for after
+ * the guest first spoke, which is what lets a host subtract a known command
+ * runtime from a call — a fact about a command that produces output at its
+ * start, which is why that case uses one.
+ */
+describe.skipIf(IS_WINDOWS)('per-phase exec timing', () => {
+	it('reports one exec as four phases and three execute sub-phases', async () => {
+		server = await startAgentServer(agent.handleConnection)
+		const timings: FirecrackerTransportTiming[] = []
+		const transport = new VsockAgentTransport(
+			{ kind: 'unix', path: sockPath },
+			{ onExecTiming: (timing) => timings.push(timing) },
+		)
+
+		const result = await transport.exec('/bin/sh', ['-c', 'printf out-line'])
+		expect(result.stdout).toBe('out-line')
+
+		expect(timings).toHaveLength(1)
+		const timing = timings[0] as FirecrackerTransportTiming
+		// Every field, and only these fields: the payload is the breakdown
+		// and nothing else — no command, no output, no credential.
+		expect(Object.keys(timing).sort()).toEqual([
+			'dialMs',
+			'drainMs',
+			'executeMs',
+			'firstFrameMs',
+			'peerCloseMs',
+			'reserveMs',
+			'terminatorMs',
+		])
+		expect(Object.values(timing).every((value) => typeof value === 'number')).toBe(true)
+
+		// The nesting the interface documents: the sub-phases are intervals
+		// inside the execute round trip, so they cannot sum past it, and the
+		// terminator cannot precede the first frame it ends.
+		expect(timing.terminatorMs as number).toBeGreaterThanOrEqual(timing.firstFrameMs as number)
+		expect(timing.executeMs).toBeGreaterThanOrEqual(
+			(timing.terminatorMs as number) + (timing.peerCloseMs as number),
+		)
+		expect(timing.firstFrameMs).toBeGreaterThanOrEqual(0)
+		expect(timing.peerCloseMs).toBeGreaterThanOrEqual(0)
+		expect(timing.drainMs).toBeGreaterThanOrEqual(0)
+	})
+
+	it('splits a known command runtime away from the path’s own cost', async () => {
+		server = await startAgentServer(agent.handleConnection)
+		const timings: FirecrackerTransportTiming[] = []
+		const transport = new VsockAgentTransport(
+			{ kind: 'unix', path: sockPath },
+			{ onExecTiming: (timing) => timings.push(timing) },
+		)
+
+		// Talks at once, then goes quiet for a known span — the shape the
+		// phase split is for. A SILENT command would put its whole runtime in
+		// `firstFrameMs` as well: the guest writes nothing until the command
+		// produces output or ends, which the interface's own doc states.
+		await transport.exec('/bin/sh', ['-c', "printf 'x'; sleep 0.15"])
+
+		const timing = timings[0] as FirecrackerTransportTiming
+		// A LOWER bound, and a slack one: the delta is wall clock, so a
+		// loaded machine only widens it. What it rules out is the failure
+		// this hook exists to catch — a phase breakdown that reports a
+		// command's runtime as fixed overhead, or a fixed cost as the
+		// command's own.
+		expect(
+			(timing.terminatorMs as number) - (timing.firstFrameMs as number),
+		).toBeGreaterThanOrEqual(120)
+	})
+
+	it('reports a call that never reached its execute round trip, inventing no phase', async () => {
+		// No server: the dial exhausts a small budget and `exec` rejects.
+		// The hook must still fire — an exec that failed is exactly the call
+		// whose breakdown a host is looking for — and it must say nothing
+		// about the phases that never happened rather than report them as 0.
+		const timings: FirecrackerTransportTiming[] = []
+		const transport = new VsockAgentTransport(
+			{ kind: 'unix', path: sockPath },
+			{
+				connectRetryBudgetMs: 100,
+				connectRetryIntervalMs: 25,
+				connectTimeoutMs: 100,
+				onExecTiming: (timing) => timings.push(timing),
+			},
+		)
+
+		await expect(transport.exec('/bin/true')).rejects.toThrow(/could not connect to agent/)
+
+		expect(timings).toHaveLength(1)
+		const timing = timings[0] as FirecrackerTransportTiming
+		expect(Object.keys(timing).sort()).toEqual(['dialMs', 'drainMs', 'executeMs', 'reserveMs'])
+		// The reserve round trip spent the whole connect budget and failed.
+		expect(timing.reserveMs).toBeGreaterThan(0)
+		// `executeMs` is 0 because execute never ran, and `dialMs` is 0
+		// because no connection was ever ESTABLISHED — the two facts the
+		// option's own documentation separates, and the reason a failed dial
+		// is visible through `onDialAttempt`/`onDial` rather than here.
+		expect(timing.executeMs).toBe(0)
+		expect(timing.dialMs).toBe(0)
+	})
+
+	it('reports each of two concurrent execs separately and completely', async () => {
+		server = await startAgentServer(agent.handleConnection)
+		const timings: FirecrackerTransportTiming[] = []
+		const transport = new VsockAgentTransport(
+			{ kind: 'unix', path: sockPath },
+			{ onExecTiming: (timing) => timings.push(timing) },
+		)
+
+		const [first, second] = await Promise.all([
+			transport.exec('/bin/sh', ['-c', 'printf first']),
+			transport.exec('/bin/sh', ['-c', 'printf second']),
+		])
+		expect(first.stdout).toBe('first')
+		expect(second.stdout).toBe('second')
+
+		// What is observable from here: one complete, internally consistent
+		// report per call, for a pair in flight at the same time. The
+		// isolation itself — a ledger per call rather than a field on the
+		// transport — is not falsifiable from outside; the code states why it
+		// is arranged that way, and the two execs have to be served
+		// concurrently at all for this to pass.
+		expect(timings).toHaveLength(2)
+		for (const timing of timings) {
+			expect(Object.keys(timing).sort()).toEqual([
+				'dialMs',
+				'drainMs',
+				'executeMs',
+				'firstFrameMs',
+				'peerCloseMs',
+				'reserveMs',
+				'terminatorMs',
+			])
+			expect(timing.executeMs).toBeGreaterThanOrEqual(
+				(timing.terminatorMs as number) + (timing.peerCloseMs as number),
+			)
+		}
 	})
 })
 
