@@ -152,18 +152,23 @@ routed. They are not bundled, `src/models.review.json` records that decision by
 name, and the gate fails if a served id is neither carried nor omitted, so this
 stays a decision rather than a gap nobody noticed.
 
-An id can also leave the catalogue while both upstreams still serve and route
-it, which is what happened to `union-alpha` on 2026-09-18: models.dev deleted
-its entry, and the catalogue derives limits, tool support and modalities from
-there rather than inventing them, so the id is omitted until that entry comes
-back. Both services still serve it and both pages still route it on Messages,
-and a caller who needs it in the meantime states the wire itself —
-`new ZenProvider({ apiKey, model: 'union-alpha', protocol: 'messages' })` —
-exactly as for any id whose protocol the host supplies. That requires a real
-credential: it is no longer one of the anonymous models above, because
-anonymous admission is a claim this catalogue only makes about models it
-carries, and an uncredentialed request for it is refused like any other model
-outside that set.
+An id can also leave the catalogue while the services still serve it, and
+`union-alpha` did that on 2026-09-18 in two steps worth telling apart. First
+models.dev deleted its entry: the catalogue derives limits, tool support and
+modalities from there rather than inventing them, so the id was omitted with
+that reason and a note that it returns when the entry does. Hours later the
+service stopped serving it and both pages stopped routing it, and the
+**omission itself expired** — the stale rule drops an omission once upstream
+neither documents nor serves the id, so a record made for a temporary absence
+does not outlive the model. That is the other half of the discipline the
+`served-but-undocumented` case above shows: a decision recorded here is
+re-examined on every run rather than left standing.
+
+While the absence was temporary the escape hatch was the ordinary one — state
+the wire, `new ZenProvider({ apiKey, model: 'union-alpha', protocol:
+'messages' })`, as for any id whose protocol the host supplies. That needs a
+real credential, because anonymous admission is a claim this catalogue makes
+only about models it carries.
 
 The driver does not infer public admission from an arbitrary model name or
 zero price: the bundled `ZenModel.supportsAnonymousAccess` flag must be
