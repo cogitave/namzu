@@ -4,6 +4,7 @@ import type { RunPersistence } from '../../manager/run/persistence.js'
 import { ToolExecutionCollector } from '../../store/run/tool-executions.js'
 import type {
 	CheckpointId,
+	HITLDecisionRequest,
 	HITLResumeDecision,
 	IterationCheckpoint,
 	ToolCallSummary,
@@ -198,6 +199,57 @@ export function isCarriedOutByContinue(decision: HITLResumeDecision): boolean {
 		case 'reject_tools':
 		case 'answer_question':
 			return true
+		default:
+			return false
+	}
+}
+
+/**
+ * Whether `decision` is a verdict on the question a `plan_approval` park asks.
+ *
+ * The plan arm was the one park `isCarriedOutByContinue` did not cover and
+ * nothing else did either, so a run resumed with `{action: 'approve_plan'}`
+ * completed with its park still outstanding: `findPendingCheckpoint` kept
+ * serving a plan nobody was waiting on, a second resume of the FINISHED run
+ * was refused `awaiting-decision`, and `prune`'s refusal to collect an
+ * unresolved park left the row uncollectable — with no `hitlParkTtlMs` there
+ * is no `deadlineAt`, so `expire` cannot reach it either.
+ *
+ * Both verdicts answer it, and that is the difference from `pause` (which
+ * HOLDS the park rather than answering it, on the live path and here) and
+ * from `abort` (which is not a verdict on the plan at all). What the resumed
+ * run can do about the answer afterwards is a separate question and not this
+ * predicate's: the record's `decision` is what the HUMAN answered, and a park
+ * is not made outstanding again by the new process having no plan to act on.
+ */
+export function isPlanVerdict(decision: HITLResumeDecision): boolean {
+	return decision.action === 'approve_plan' || decision.action === 'reject_plan'
+}
+
+/**
+ * Whether a park of `type` is ANSWERED by `decision` on the resume path.
+ *
+ * The map from park to the decision that answers it, in one place, because
+ * each arm was added by a different fix and the two that were missed were
+ * missed by being absent rather than wrong. `tool_review` and `user_question`
+ * are deliberately not here: their decisions have to REACH something —
+ * `planPendingResume` applies them to the parked batch — and their parks are
+ * resolved where that plan is applied, not by this predicate.
+ *
+ * "Answered" is the ordinary continue path carrying the decision out, which
+ * for the cadence arm means the loop going on and for the plan arm means the
+ * verdict having been given. It does not mean the run did everything the
+ * decision implies — see {@link isPlanVerdict}.
+ */
+export function answersParkOf(
+	parkType: HITLDecisionRequest['type'] | undefined,
+	decision: HITLResumeDecision,
+): boolean {
+	switch (parkType) {
+		case 'iteration_checkpoint':
+			return isCarriedOutByContinue(decision)
+		case 'plan_approval':
+			return isPlanVerdict(decision)
 		default:
 			return false
 	}

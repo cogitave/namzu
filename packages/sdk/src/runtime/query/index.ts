@@ -120,9 +120,9 @@ import { RepeatCallTracker } from './repeat-call.js'
 import { ResultAssembler } from './result.js'
 import {
 	type PendingResumePlan,
+	answersParkOf,
 	applyPendingResume,
 	interruptedToolCalls,
-	isCarriedOutByContinue,
 	planCrashResume,
 	planPendingResume,
 	recoverCompletedCalls,
@@ -1733,18 +1733,29 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				// collected by anything.
 				//
 				// The decision IS carried out here — continuing is exactly what
-				// the loop below does — so the park is resolved at the same point
-				// and with the same meaning "resolved" carries everywhere else:
-				// the record stays, and only its pending state ends. A `pause`
-				// is deliberately not resolved: it holds the park rather than
-				// answering it, which is how the live path treats it too.
+				// the loop below does, and a plan verdict is the answer to the
+				// question the plan park asked — so the park is resolved at the
+				// same point and with the same meaning "resolved" carries
+				// everywhere else: the record stays, and only its pending state
+				// ends. A `pause` is deliberately not resolved: it holds the
+				// park rather than answering it, which is how the live path
+				// treats it too. `answersParkOf` is the whole map, park type to
+				// answering decision, so an arm cannot go missing by being
+				// absent from a condition again — which is how the plan arm
+				// leaked a finished run's park.
+				//
+				// Resolving it does not depend on the resumed process being able
+				// to act on it, and that is deliberate: the plan's own fate is a
+				// separate defect (nothing restores a plan on the resume path at
+				// all, so the new process has none to approve, execute or
+				// reject) and making the resolution wait for it would leave the
+				// row outstanding for exactly the runs that need it cleared.
 				const parked = projectedCheckpoint.pending
 				answeredParkId =
 					params.pendingDecision &&
-					isCarriedOutByContinue(params.pendingDecision) &&
 					parked !== undefined &&
 					parked.resolvedAt === undefined &&
-					parked.request.type === 'iteration_checkpoint'
+					answersParkOf(parked.request.type, params.pendingDecision)
 						? projectedCheckpoint.id
 						: undefined
 
