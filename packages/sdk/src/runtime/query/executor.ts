@@ -9,7 +9,6 @@ import { buildProbeContext } from '../../probe/context.js'
 import { ProbeVetoError } from '../../probe/errors.js'
 import { probe as defaultProbeRegistry } from '../../probe/registry.js'
 import type { ProbeEnforcement } from '../../probe/registry.js'
-import { renderToolSchema } from '../../registry/tool/schema.js'
 import type { ActivityStore } from '../../store/activity/memory.js'
 import { SKILL_TOOL_NAME } from '../../tools/builtins/skill.js'
 import { createFileReadTracker } from '../../tools/file-read-tracker.js'
@@ -38,11 +37,7 @@ import type {
 	ToolRegistryContract,
 	ToolResult,
 } from '../../types/tool/index.js'
-import type {
-	RepairToolCall,
-	ToolCallRepair,
-	ToolCallRepairReason,
-} from '../../types/tool/repair.js'
+import type { RepairToolCall } from '../../types/tool/repair.js'
 import { abortReasonText } from '../../utils/abort.js'
 import { awaitWithAbort } from '../../utils/await-with-abort.js'
 import { type BackoffPolicy, backoffWithJitter, sleep } from '../../utils/backoff.js'
@@ -51,10 +46,18 @@ import { generateToolCallId } from '../../utils/id.js'
 import type { Logger } from '../../utils/logger.js'
 import { compressShellOutput } from '../../utils/shell-compress.js'
 import { type BackgroundJobRegistry, type JobProcess, bindOwner } from '../jobs/registry.js'
+import {
+	type ToolAdmissionHost,
+	formatFailedToolOutput,
+	prepareDirectCall,
+	repairTruncatedCall,
+	resolveCall,
+	runPreToolHook,
+	truncatedToolInputMessage,
+} from './executor/tool-call-admission.js'
 import { describeVisibleFileEvidence } from './file-evidence-context.js'
 import { seedObservationLedger } from './file-evidence-seed.js'
 import { DEFAULT_TOOL_RESULT_GUARDRAILS } from './guardrail-presets.js'
-import { skippedToolResultText } from './plugin-hooks.js'
 import type { ToolResultObservation } from './project-instructions.js'
 import { ToolCallBudget, assertMaxToolCalls } from './tool-call-budget.js'
 import {
@@ -67,7 +70,7 @@ import {
 
 export type EmitEvent = (event: RunEvent) => Promise<void>
 
-type PreparedDirectCall =
+export type PreparedDirectCall =
 	| {
 			readonly kind: 'ready'
 			readonly toolCall: ToolCall
@@ -287,14 +290,6 @@ export const DEFAULT_TOOL_RETRY_BACKOFF: BackoffPolicy = {
 	maxDelayMs: 16_000,
 }
 
-/**
- * An empty arguments string means "no arguments", not "malformed" — the
- * shape a no-parameter tool arrives in.
- */
-function parseArguments(raw: string): unknown {
-	return JSON.parse(raw || '{}')
-}
-
 export interface ToolExecutorConfig {
 	fileReadTracker?: FileReadTracker
 	tools: ToolRegistryContract
@@ -459,7 +454,7 @@ interface PostToolOverride {
 	readonly content?: ToolResultContent
 }
 
-type PreToolHookOutcome =
+export type PreToolHookOutcome =
 	| { kind: 'continue'; input: unknown; modified: boolean }
 	| { kind: 'skip'; input: unknown; output: string }
 	| { kind: 'error'; input: unknown; output: string }
@@ -763,7 +758,7 @@ export class ToolExecutor {
 		assertUniqueToolCallIds(response.message.toolCalls ?? [])
 		const calls = new Map<string, PreparedDirectCall>()
 		for (const toolCall of response.message.toolCalls ?? []) {
-			calls.set(toolCall.id, await this.prepareDirectCall(toolCall))
+			calls.set(toolCall.id, await prepareDirectCall(this.admissionHost(), toolCall))
 		}
 		return this.publishPreparedBatch(calls)
 	}
@@ -781,7 +776,7 @@ export class ToolExecutor {
 		const calls = new Map((previous as OwnedPreparedToolBatch).calls)
 		for (const toolCall of response.message.toolCalls ?? []) {
 			if (changedCallIds.has(toolCall.id)) {
-				calls.set(toolCall.id, await this.prepareDirectCall(toolCall))
+				calls.set(toolCall.id, await prepareDirectCall(this.admissionHost(), toolCall))
 			}
 		}
 		return this.publishPreparedBatch(calls)
@@ -1459,7 +1454,7 @@ export class ToolExecutor {
 			// unused. Offer it the partial buffer first.
 			const truncationRepair =
 				toolCall.metadata?.inputTruncated === true
-					? await this.repairTruncatedCall(toolCall, toolName)
+					? await repairTruncatedCall(this.admissionHost(), toolCall, toolName)
 					: null
 
 			if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
@@ -1491,7 +1486,8 @@ export class ToolExecutor {
 			// error went back as a `tool_result`, the model re-read the whole
 			// context and tried again. A host that can repair it locally turns
 			// that into nothing. No-op when no repairer is configured.
-			const resolved = await this.resolveCall(
+			const resolved = await resolveCall(
+				this.admissionHost(),
 				truncationRepair
 					? {
 							...toolCall,
@@ -1539,7 +1535,7 @@ export class ToolExecutor {
 
 			let preOutcome: PreToolHookOutcome
 			try {
-				preOutcome = await this.runPreToolHook(toolName, input)
+				preOutcome = await runPreToolHook(this.admissionHost(), toolName, input)
 			} catch (error) {
 				if (!this.config.abortSignal.aborted) throw error
 				// A later call's interrupted preparation must not reject the batch
@@ -2051,25 +2047,15 @@ export class ToolExecutor {
 		}
 	}
 
-	private async runPreToolHook(
-		toolName: string,
-		input: unknown,
-		signal: AbortSignal = this.config.abortSignal,
-	): Promise<PreToolHookOutcome> {
-		if (!this.config.pluginManager) return { kind: 'continue', input, modified: false }
-		const results = await this.config.pluginManager.executeHooks(
-			'pre_tool_use',
-			{
-				runId: this.config.runId,
-				toolName,
-				toolInput: input,
-				signal,
-			},
-			this.emitEvent,
-		)
-		return this.interpretPreToolResults(toolName, input, results)
+	/**
+	 * The three things the admission family reads off this executor.
+	 *
+	 * Built per call rather than held: `setSandbox` REPLACES `config`, so a
+	 * host captured once would hand the next admission a stale sandbox.
+	 */
+	private admissionHost(): ToolAdmissionHost {
+		return { config: this.config, emitEvent: this.emitEvent, log: this.log }
 	}
-
 	private async prepareNestedCall(
 		toolName: string,
 		input: unknown,
@@ -2086,7 +2072,7 @@ export class ToolExecutor {
 					isError: true,
 				}
 			}
-			const preOutcome = await this.runPreToolHook(toolName, input, signal)
+			const preOutcome = await runPreToolHook(this.admissionHost(), toolName, input, signal)
 			if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
 				return {
 					kind: 'synthetic',
@@ -2117,7 +2103,12 @@ export class ToolExecutor {
 				isError: true,
 			}
 		}
-		const preOutcome = await this.runPreToolHook(toolName, preparation.prepared.input, signal)
+		const preOutcome = await runPreToolHook(
+			this.admissionHost(),
+			toolName,
+			preparation.prepared.input,
+			signal,
+		)
 		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
 			return {
 				kind: 'synthetic',
@@ -2143,393 +2134,6 @@ export class ToolExecutor {
 			}
 		}
 		return { kind: 'ready', input: modified.prepared.input, prepared: modified.prepared }
-	}
-
-	private async prepareDirectCall(toolCall: ToolCall): Promise<PreparedDirectCall> {
-		let toolName = toolCall.function.name
-		const truncationRepair =
-			toolCall.metadata?.inputTruncated === true
-				? await this.repairTruncatedCall(toolCall, toolName)
-				: null
-		if (toolCall.metadata?.inputTruncated === true && !truncationRepair) {
-			return {
-				kind: 'synthetic',
-				toolCall,
-				toolName,
-				input: {},
-				message: truncatedToolInputMessage(toolName),
-				isError: true,
-			}
-		}
-
-		const prepare = this.config.tools.prepareExecution
-		const executePrepared = this.config.tools.executePrepared
-		if (typeof prepare !== 'function' || typeof executePrepared !== 'function') {
-			const resolved = await this.resolveCall(
-				truncationRepair
-					? {
-							...toolCall,
-							function: {
-								...toolCall.function,
-								name: truncationRepair.toolName ?? toolName,
-								arguments: truncationRepair.arguments,
-							},
-							metadata: {},
-						}
-					: toolCall,
-			)
-			toolName = resolved.toolName
-			if (!resolved.ok) {
-				return {
-					kind: 'synthetic',
-					toolCall,
-					toolName,
-					input: {},
-					message: resolved.message,
-					isError: true,
-				}
-			}
-			const preOutcome = await this.runPreToolHook(toolName, resolved.input)
-			if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
-				return {
-					kind: 'synthetic',
-					toolCall,
-					toolName,
-					input: preOutcome.input,
-					message: preOutcome.output,
-					isError: preOutcome.kind === 'error',
-				}
-			}
-			if (!this.config.authorizationGate) {
-				return {
-					kind: 'legacy',
-					toolCall,
-					toolName,
-					input: preOutcome.input,
-				}
-			}
-			return {
-				kind: 'synthetic',
-				toolCall,
-				toolName,
-				input: preOutcome.input,
-				message: `Tool "${toolName}" was not executed because its registry cannot bind authorization to one prepared input.`,
-				isError: true,
-			}
-		}
-
-		let raw = truncationRepair?.arguments ?? toolCall.function.arguments
-		toolName = truncationRepair?.toolName ?? toolName
-		let repairUsed = truncationRepair !== null
-		let preparation: ReturnType<typeof prepare>
-		for (;;) {
-			let parsed: unknown
-			try {
-				parsed = parseArguments(raw)
-			} catch {
-				const message = `Error: Invalid JSON in tool arguments for "${toolName}"`
-				const repair =
-					!repairUsed && this.config.repairToolCall
-						? await this.requestRepair(toolCall, toolName, {
-								reason: 'invalid_json',
-								message,
-							})
-						: null
-				if (repair) {
-					repairUsed = true
-					toolName = repair.toolName ?? toolName
-					raw = repair.arguments
-					continue
-				}
-				return { kind: 'synthetic', toolCall, toolName, input: {}, message, isError: true }
-			}
-
-			try {
-				preparation = prepare.call(this.config.tools, toolName, parsed)
-			} catch (err) {
-				const message = `Error: Unknown or unavailable tool "${toolName}": ${toErrorMessage(err)}`
-				const repair =
-					!repairUsed && this.config.repairToolCall
-						? await this.requestRepair(toolCall, toolName, {
-								reason: 'unknown_tool',
-								message,
-							})
-						: null
-				if (repair) {
-					repairUsed = true
-					toolName = repair.toolName ?? toolName
-					raw = repair.arguments
-					continue
-				}
-				return { kind: 'synthetic', toolCall, toolName, input: parsed, message, isError: true }
-			}
-
-			if (preparation.success) break
-			const message = formatFailedToolOutput(preparation.result.output, preparation.result.error)
-			const repair =
-				!repairUsed && this.config.repairToolCall
-					? await this.requestRepair(toolCall, toolName, {
-							reason: 'schema_validation',
-							message,
-						})
-					: null
-			if (repair) {
-				repairUsed = true
-				toolName = repair.toolName ?? toolName
-				raw = repair.arguments
-				continue
-			}
-			return {
-				kind: 'synthetic',
-				toolCall,
-				toolName,
-				input: parsed,
-				message,
-				isError: true,
-			}
-		}
-
-		const preOutcome = await this.runPreToolHook(toolName, preparation.prepared.input)
-		if (preOutcome.kind === 'skip' || preOutcome.kind === 'error') {
-			return {
-				kind: 'synthetic',
-				toolCall,
-				toolName,
-				input: preOutcome.input,
-				message: preOutcome.output,
-				isError: preOutcome.kind === 'error',
-			}
-		}
-
-		if (preOutcome.modified) {
-			const modified = prepare.call(this.config.tools, toolName, preOutcome.input)
-			if (!modified.success) {
-				return {
-					kind: 'synthetic',
-					toolCall,
-					toolName,
-					input: preOutcome.input,
-					message: formatFailedToolOutput(modified.result.output, modified.result.error),
-					isError: true,
-				}
-			}
-			preparation = modified
-		}
-
-		return {
-			kind: 'ready',
-			toolCall,
-			toolName,
-			input: preparation.prepared.input,
-			prepared: preparation.prepared,
-		}
-	}
-
-	private interpretPreToolResults(
-		toolName: string,
-		initialInput: unknown,
-		results: readonly PluginHookResult[],
-	): PreToolHookOutcome {
-		let currentInput = initialInput
-		let modified = false
-		for (const result of results) {
-			switch (result.action) {
-				case 'continue':
-					continue
-				case 'modify':
-					currentInput = result.input
-					modified = true
-					continue
-				case 'skip':
-					return {
-						kind: 'skip',
-						input: currentInput,
-						output: skippedToolResultText(toolName, result.reason),
-					}
-				case 'error':
-					return {
-						kind: 'error',
-						input: currentInput,
-						output: `Error: ${result.message}`,
-					}
-				case 'retry':
-				case 'annotate':
-				// There is no result to replace yet. Rejecting loudly beats
-				// silently ignoring it: a hook author who returned this here
-				// meant to redact something and would otherwise watch the secret
-				// go through.
-				case 'replace':
-					throw new Error(
-						`Plugin hook pre_tool_use returned unsupported action '${result.action}' for tool ${toolName}`,
-					)
-				default: {
-					const _exhaustive: never = result
-					throw new Error(`Unknown PluginHookResult: ${JSON.stringify(_exhaustive)}`)
-				}
-			}
-		}
-		return { kind: 'continue', input: currentInput, modified }
-	}
-
-	/**
-	 * Turn the call the model issued into a name and a parsed input, giving
-	 * a configured repairer one chance to fix it first.
-	 *
-	 * Exactly one chance: a repairer that produces a call which is still
-	 * broken will not do better on a second look, and an unbounded loop
-	 * here is a hang rather than a degradation.
-	 *
-	 * `invalid_json` is the ONLY failure that stops the call here, and it
-	 * stopped it before this function existed too. `unknown_tool` and
-	 * `schema_validation` merely OFFER the repair and otherwise fall
-	 * through to the registry, which reports both with better messages —
-	 * its schema error already ships a "Required: <field>: <type>" hint the
-	 * model can self-correct from. So with no repairer configured this is
-	 * behaviorally identical to the bare `JSON.parse` it replaced.
-	 */
-	private async resolveCall(
-		toolCall: ToolCall,
-	): Promise<
-		| { ok: true; toolName: string; input: unknown }
-		| { ok: false; toolName: string; message: string }
-	> {
-		let toolName = toolCall.function.name
-		let raw = toolCall.function.arguments
-
-		for (let attempt = 0; ; attempt++) {
-			const failure = this.inspectCall(toolName, raw)
-			if (!failure) return { ok: true, toolName, input: parseArguments(raw) }
-
-			const repair =
-				attempt === 0 && this.config.repairToolCall
-					? await this.requestRepair(toolCall, toolName, failure)
-					: null
-
-			if (!repair) {
-				if (failure.reason === 'invalid_json') {
-					return { ok: false, toolName, message: failure.message }
-				}
-				return { ok: true, toolName, input: parseArguments(raw) }
-			}
-
-			this.log.info('Repaired a malformed tool call', {
-				[NAMZU.RUN_ID]: this.config.runId,
-				[GENAI.TOOL_NAME]: toolName,
-				'namzu.runtime.reason': failure.reason,
-				...(repair.toolName && repair.toolName !== toolName
-					? { 'namzu.runtime.repaired_to': repair.toolName }
-					: {}),
-			})
-			toolName = repair.toolName ?? toolName
-			raw = repair.arguments
-		}
-	}
-
-	/**
-	 * What is wrong with this call, or `null` if nothing is.
-	 *
-	 * JSON is checked before the tool is looked up: an unparseable argument
-	 * string is broken regardless of which tool it was aimed at, and it is
-	 * the one problem the executor itself has to answer.
-	 */
-	private async repairTruncatedCall(
-		toolCall: ToolCall,
-		toolName: string,
-	): Promise<ToolCallRepair | null> {
-		if (!this.config.repairToolCall) return null
-
-		// Present the PARTIAL buffer, not the normalized `"{}"` — a repairer
-		// handed an empty object has nothing to work from.
-		const partial = toolCall.metadata?.partialArguments ?? ''
-		const repair = await this.requestRepair(
-			{ ...toolCall, function: { ...toolCall.function, arguments: partial } },
-			toolName,
-			{ reason: 'invalid_json', message: truncatedToolInputMessage(toolName) },
-		)
-		if (repair) {
-			this.log.info('Repaired a tool call whose input stream was truncated', {
-				[NAMZU.RUN_ID]: this.config.runId,
-				[GENAI.TOOL_NAME]: toolName,
-				'namzu.runtime.partial_length': partial.length,
-			})
-		}
-		return repair
-	}
-
-	private inspectCall(
-		toolName: string,
-		raw: string,
-	): { reason: ToolCallRepairReason; message: string } | null {
-		let parsed: unknown
-		try {
-			parsed = parseArguments(raw)
-		} catch {
-			return {
-				reason: 'invalid_json',
-				message: `Error: Invalid JSON in tool arguments for "${toolName}"`,
-			}
-		}
-
-		const tool = this.config.tools.get?.(toolName)
-		if (!tool) {
-			// Either the model named a tool that does not exist, or this
-			// registry does not implement `get`. Both are the registry's to
-			// answer; a repairer still gets offered the `unknown_tool` case.
-			return {
-				reason: 'unknown_tool',
-				message: `Error: Unknown tool "${toolName}"`,
-			}
-		}
-
-		// A registry that hands back a tool with no schema has nothing to
-		// validate against; that is not a repairable condition, just an
-		// unvalidatable one.
-		const validation = tool.inputSchema?.safeParse(parsed)
-		if (validation && !validation.success) {
-			return {
-				reason: 'schema_validation',
-				message: `Error: Invalid arguments for "${toolName}": ${validation.error.issues
-					.map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
-					.join('; ')}`,
-			}
-		}
-
-		return null
-	}
-
-	private async requestRepair(
-		toolCall: ToolCall,
-		toolName: string,
-		failure: { reason: ToolCallRepairReason; message: string },
-	): Promise<ToolCallRepair | null> {
-		const repairToolCall = this.config.repairToolCall
-		if (!repairToolCall) return null
-
-		const tool = this.config.tools.get(toolName)
-		try {
-			return await repairToolCall({
-				toolCall,
-				reason: failure.reason,
-				message: failure.message,
-				...(tool
-					? {
-							tool,
-							jsonSchema: tool.modelInputSchema ?? renderToolSchema(tool.inputSchema),
-						}
-					: {}),
-				availableTools: this.config.tools.listNames(),
-			})
-		} catch (err) {
-			// A broken repairer must not turn a recoverable tool error into a
-			// failed run: the original error is still a perfectly good answer
-			// to give the model.
-			this.log.error('repairToolCall threw — falling back to the original error', {
-				[NAMZU.RUN_ID]: this.config.runId,
-				[GENAI.TOOL_NAME]: toolName,
-				'exception.message': toErrorMessage(err),
-			})
-			return null
-		}
 	}
 
 	/**
@@ -2878,14 +2482,4 @@ class Semaphore {
 		if (next) next()
 		else this.available++
 	}
-}
-
-function formatFailedToolOutput(output: string | undefined, error: string | undefined): string {
-	const errorText = `Error: ${error ?? 'Tool execution failed'}`
-	if (!output || output.trim().length === 0) return errorText
-	return `${output}\n\n${errorText}`
-}
-
-function truncatedToolInputMessage(toolName: string): string {
-	return `Error: Tool "${toolName}" call was cut off while the model was streaming JSON arguments. The tool was NOT executed. Retry with a much shorter input. Self-budget content/new_string under 12000 characters before calling file tools. For long files, create a short opening with write and a deterministic marker, then advance that marker with bounded exact edit calls; for delegated work, pass a shared workspace filename/reference instead of embedding the content in the tool call.`
 }
