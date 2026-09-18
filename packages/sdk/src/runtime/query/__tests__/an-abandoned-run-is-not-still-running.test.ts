@@ -7,14 +7,17 @@ import { InMemoryCheckpointStore } from '../../../store/run/checkpoint-memory.js
 import { InMemoryRunStore } from '../../../store/run/memory.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import { isTerminalStatus } from '../../../types/common/index.js'
+import { deriveRunStatus } from '../../../types/run/derive-status.js'
 import type { Run, RunEvent } from '../../../types/run/index.js'
 import {
 	generateProjectId,
+	generateRunId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
 } from '../../../utils/id.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
+import { findPendingCheckpoint } from '../checkpoint.js'
 import { query } from '../index.js'
 
 /**
@@ -167,5 +170,100 @@ describe('a consumer that abandons the run', () => {
 		expect(settled.status).toBe('completed')
 		expect(run.writes.mock.calls.length).toBe(2)
 		expect(run.killOwner).toHaveBeenCalledTimes(1)
+	})
+})
+
+/**
+ * A park is a promise to a human, and it outlives the consumer that walked
+ * away: the run is resumable and somebody is still owed an answer.
+ *
+ * The abandonment path must not write a verdict over that. `deriveRunStatus`
+ * reads a terminal status FIRST and the park second, so a parked run recorded
+ * `cancelled` stops reporting `awaiting_hitl` — it reads as work somebody
+ * gave up on, while the unanswered question is still on the record and the
+ * checkpoint it belongs to is still the place a resume would start from.
+ *
+ * The race that produces it is one statement wide. `handleHITLDecision`
+ * answers `pause` by emitting `run_paused` and draining it BEFORE it calls
+ * `setStopReason('paused')`, so a consumer that breaks on that event leaves a
+ * run with an outstanding park, `status: 'running'` and no stop reason at
+ * all — the one instant where the in-memory state says nothing about the
+ * question the durable state has already recorded.
+ */
+describe('a consumer that walks away while a human is being asked', () => {
+	it('leaves the run parked, so the record still reads awaiting_hitl', async () => {
+		const runStore = new InMemoryRunStore()
+		const checkpointStore = new InMemoryCheckpointStore()
+		const scope = {
+			tenantId: generateTenantId(),
+			projectId: generateProjectId(),
+			sessionId: generateSessionId(),
+			runId: generateRunId(),
+		}
+
+		const tools = new ToolRegistry()
+		tools.register(
+			defineTool({
+				name: 'echo',
+				description: 'echoes its input',
+				inputSchema: z.object({ text: z.string() }),
+				category: 'shell',
+				permissions: [],
+				readOnly: true,
+				destructive: false,
+				concurrencySafe: true,
+				execute: async ({ text }) => ({ success: true, output: text }),
+			}),
+		)
+
+		const generator = query({
+			provider: new MockLLMProvider({
+				turns: [{ toolCalls: [{ name: 'echo', args: { text: 'ready' } }] }, { text: 'done' }],
+			} as never),
+			tools,
+			agentId: 'a',
+			agentName: 'A',
+			messages: [{ role: 'user', content: 'go' }],
+			workingDirectory: process.cwd(),
+			runStore,
+			checkpointStore,
+			runId: scope.runId,
+			tenantId: scope.tenantId,
+			projectId: scope.projectId,
+			sessionId: scope.sessionId,
+			topicId: generateTopicId(),
+			resumeHandler: async (request) =>
+				// The cadence reaches a human; the tool review is approved so the
+				// run gets to the phase that parks for one.
+				request.type === 'iteration_checkpoint'
+					? { action: 'pause', reason: 'not while I am reading this' }
+					: { action: 'continue' },
+			runConfig: RUN_CONFIG,
+		})
+
+		// Break where a host's socket dies. The park is already durable by
+		// then — `awaitDecisionDurably` writes a `pause` before it returns it,
+		// even when the answer arrived too fast for the park-record delay.
+		let sawPause = false
+		for await (const event of generator) {
+			if (event.type === 'run_paused') {
+				sawPause = true
+				break
+			}
+		}
+		expect(sawPause).toBe(true)
+
+		// The question is still open, and still the read an approval queue is
+		// built from.
+		const park = await findPendingCheckpoint(checkpointStore, scope)
+		expect(park?.pending?.request.type).toBe('iteration_checkpoint')
+
+		// So the record must not have been given a verdict. Written as the
+		// projection rather than as a status name, because the projection is
+		// what a host reads and what the fix has to preserve.
+		const status = runStore.snapshot().meta?.status ?? 'running'
+		expect(status).not.toBe('cancelled')
+		expect(isTerminalStatus(status)).toBe(false)
+		expect(deriveRunStatus({ status, park: park?.pending })).toBe('awaiting_hitl')
 	})
 })

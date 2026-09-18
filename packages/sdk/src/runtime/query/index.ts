@@ -95,7 +95,7 @@ import type { Logger } from '../../utils/logger.js'
 import { AwaitedJobs } from '../jobs/awaited-jobs.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { catchUpFromCursor, settlePreStartCancellation } from './cancelled-before-start.js'
-import { CheckpointManager } from './checkpoint.js'
+import { CheckpointManager, findPendingCheckpoint } from './checkpoint.js'
 import { finalizeRun } from './finalize-run.js'
 import { GuardCoordinator } from './guard.js'
 import { runInputGuardrails } from './guardrails.js'
@@ -2297,12 +2297,39 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
  * or was cancelled, before the consumer left still says so; what the
  * abandonment adds is that the record reaches the disk at all.
  *
+ * Neither is a verdict written over a PARK. A park is a promise to a human
+ * that outlives the consumer: the run is resumable and somebody is still owed
+ * an answer, and `deriveRunStatus` reads a terminal status BEFORE it reads the
+ * park — so recording `cancelled` turns `awaiting_hitl` into `cancelled` for a
+ * run nobody answered for, while the unanswered question stays on the record
+ * and the checkpoint it belongs to stays the place a resume starts from. The
+ * durable state is asked rather than the in-memory one because the in-memory
+ * one is the misleading half here: `handleHITLDecision` emits `run_paused` and
+ * drains it BEFORE it calls `setStopReason('paused')`, so a consumer that
+ * leaves on that event leaves a run whose status is `running` and whose stop
+ * reason is unset at the exact instant its park is already durable.
+ * `findPendingCheckpoint` is the same read an approval queue is built from,
+ * expired parks included in its judgement: a park nobody answered in time is
+ * not somebody still being asked.
+ *
  * Never throws. It runs while an exception may already be unwinding, and a
  * store that cannot be written must not replace the run's real failure with
  * its own.
  */
 async function settleAbandonedRun(runMgr: RunPersistence, log: Logger): Promise<void> {
 	try {
+		const parked = await findPendingCheckpoint(runMgr.getCheckpointStore(), runMgr.getRunScope())
+		if (parked) {
+			// Left exactly as it stands: no verdict, no write. The park row is
+			// this run's durable state, and `persist()` here would add a
+			// second claim — `running`, for a process that is gone — beside it.
+			log.info('Abandoned run left parked for a human to answer', {
+				[NAMZU.RUN_ID]: runMgr.id,
+				'namzu.checkpoint.id': parked.id,
+				'namzu.runtime.park_type': parked.pending?.request.type,
+			})
+			return
+		}
 		if (!isTerminalStatus(runMgr.status)) {
 			runMgr.markCancelled()
 		}
