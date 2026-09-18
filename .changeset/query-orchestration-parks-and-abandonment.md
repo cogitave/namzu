@@ -22,10 +22,13 @@ relying on a hang, which is exactly the defect the abort race was introduced
 to remove from the other two parks, and nothing about the parked state
 changes shape — same `HITLDecisionRequest`, same `CheckpointId`, same
 `HITLResumeDecision` union, and a `stopReason` that already existed. A parked
-plan is still recorded durably before the await, so a host that wants to
-approve a plan whose run was stopped can still find it and resume. A host
-that needs the old "wait for the answer regardless" behaviour can park the
-decision itself before calling `query()` and answer from its own queue.
+plan is still recorded durably before the await, and the Stop RESOLVES that
+row as `{action: 'abort'}` — so `findPendingCheckpoint` stops serving the
+plan, the run reads `cancelled`, and the park survives only as a resolved row
+in `listCheckpoints`, carrying the request and the `abort` that ended it. A
+host that needs the question to stay open must therefore park the decision
+itself before calling `query()` and answer from its own queue, which is the
+same posture this asks of a host on the other two parks.
 
 **An abandoned run's record is terminal — unless a human is still being
 asked.** A host that leaves the stream early — `for await (… ) break`, or
