@@ -130,7 +130,16 @@ describe('SDK test working-directory owner', () => {
 		const root = reportedRoot(result)
 		try {
 			expect(result.code, `${result.stdout}\n${result.stderr}`).toBe(1)
-			expect(result.stdout).toContain('deliberate SDK test-runner child failure')
+			// stderr, not stdout: Vitest 4 prints the "Failed Tests" diagnostic
+			// block — the assertion message, the source frame and the stack —
+			// on stderr, where Vitest 3 put it on stdout. The run summary
+			// above stays on stdout, which is why the passing case one test up
+			// still reads the summary from there and did not have to move.
+			//
+			// The claim is unchanged and is not weakened by the stream it
+			// reads: what this asserts is that the runner does not swallow a
+			// child's failure on its way to reporting the child's exit code.
+			expect(result.stderr).toContain('deliberate SDK test-runner child failure')
 			expect(existsSync(root)).toBe(false)
 		} finally {
 			await removeLeakedProbe(root)

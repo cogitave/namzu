@@ -14,21 +14,39 @@ const mockDisconnect = vi.fn(async (): Promise<void> => undefined)
 const mockListTools = vi.fn(async (): Promise<unknown[]> => [])
 
 vi.mock('../../connector/mcp/client.js', () => ({
-	MCPClient: vi.fn().mockImplementation((config: { serverName: string }) => ({
-		id: 'mcp-client-mock',
-		connect: mockConnect,
-		disconnect: mockDisconnect,
-		listTools: mockListTools,
-		// The real client has always had this; the mock did not, which went
-		// unnoticed while nothing on this path asked the client which server
-		// it was talking to. Admission does — a policy is per server name.
-		getState: () => ({ serverName: config.serverName }),
-		// Same shape of omission as `getState` above, one layer later: the
-		// reconnect supervisor subscribes through this, so a mock without it
-		// is a fixture unlike production and the wiring fails only at runtime.
-		isConnected: () => true,
-		onLifecycle: () => () => {},
-	})),
+	// `function`, not an arrow, and it has to stay that way: `lifecycle.ts`
+	// builds the client with `new MCPClient({…})`. Vitest 3 ran a mock's
+	// implementation through `mock.apply` even under `new`, so an arrow
+	// returning an object literal worked and this file never had to care.
+	// Vitest 4 constructs instead — an arrow has no `[[Construct]]`, so it now
+	// throws "(config) => (…) is not a constructor". A `function` is
+	// constructible, and because it returns an object that object is what `new`
+	// yields, which is the same value the arrow produced. The body is otherwise
+	// byte-for-byte the mock that was here.
+	//
+	// `lint/complexity/useArrowFunction` asks for the arrow back. It cannot have
+	// one: the rule is right that this function does not use `this`, and beside
+	// the point about `[[Construct]]`, which is the only property that matters
+	// here. Suppressed rather than exempted file-wide, so the rule keeps working
+	// everywhere else in this file.
+	// biome-ignore lint/complexity/useArrowFunction: a constructible mock implementation cannot be an arrow function.
+	MCPClient: vi.fn().mockImplementation(function (config: { serverName: string }) {
+		return {
+			id: 'mcp-client-mock',
+			connect: mockConnect,
+			disconnect: mockDisconnect,
+			listTools: mockListTools,
+			// The real client has always had this; the mock did not, which went
+			// unnoticed while nothing on this path asked the client which server
+			// it was talking to. Admission does — a policy is per server name.
+			getState: () => ({ serverName: config.serverName }),
+			// Same shape of omission as `getState` above, one layer later: the
+			// reconnect supervisor subscribes through this, so a mock without it
+			// is a fixture unlike production and the wiring fails only at runtime.
+			isConnected: () => true,
+			onLifecycle: () => () => {},
+		}
+	}),
 }))
 
 vi.mock('../../connector/mcp/adapter.js', () => ({

@@ -38,6 +38,7 @@ import type { ActorRef } from '../../../types/session/actor.js'
 import type { Session } from '../../../types/session/entity.js'
 import type { ProjectId, SummaryId, TopicId } from '../../../types/session/ids.js'
 import { ZERO_COST } from '../../../utils/cost.js'
+import type { Logger } from '../../../utils/logger.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
 import { SessionSummaryMaterializer } from '../../summary/materialize.js'
 import type { ExecFile, ExecFileResult } from '../../workspace/git-worktree.js'
@@ -47,7 +48,25 @@ import { WorkspaceBackendRegistry } from '../../workspace/registry.js'
 export const DEFAULT_TENANT = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId
 export const OTHER_TENANT = '87db2e41-8862-4b94-a8d0-9b6898ce8ba7' as TenantId
 
-export function stubLogger() {
+/**
+ * The return type is annotated rather than inferred, and `Logger` is what it
+ * is: every caller in this directory passes the result straight into a
+ * `logger` field typed `Logger | undefined`.
+ *
+ * Inferred, the type is `{ debug: Mock<Procedure>, …, child(): any }`, and
+ * `Procedure` is not a name this package can write. `@vitest/spy` 4 exports it
+ * (`@vitest/spy` 3 did not), so TypeScript stopped structurally expanding the
+ * helper type and started naming it — with the only name it could find, a
+ * relative path into pnpm's store: `import(".pnpm/@vitest+spy@4.1.11/…")`.
+ * Declaring this module therefore failed with TS2742 ("cannot be named without
+ * a reference to …; a type annotation is necessary"). The v3 spelling was not
+ * portable either, it was just silently inlined.
+ *
+ * `Logger` needs no import from the test framework and drops the mocks out of
+ * the emitted declaration entirely. Nothing here asserts on these mocks; they
+ * exist to keep a run quiet.
+ */
+export function stubLogger(): Logger {
 	return {
 		debug: vi.fn(),
 		info: vi.fn(),

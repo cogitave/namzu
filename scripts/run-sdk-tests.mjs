@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn } from "node:child_process";
+import { readFileSync } from "node:fs";
 import { lstat, mkdtemp, realpath, rm } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
@@ -17,7 +18,34 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(here, "..");
 const sdkRoot = join(repositoryRoot, "packages", "sdk");
 const requireFromSdk = createRequire(join(sdkRoot, "package.json"));
-const vitestEntry = requireFromSdk.resolve("vitest/vitest.mjs");
+
+/**
+ * The Vitest CLI entry point, read from Vitest's own `bin` field.
+ *
+ * This used to be `requireFromSdk.resolve("vitest/vitest.mjs")`, which worked
+ * because Vitest 3's `exports` map ended in a `"./*": "./*"` catch-all, so any
+ * file in the package was addressable. Vitest 4 removed that catch-all and the
+ * old specifier now dies with ERR_PACKAGE_PATH_NOT_EXPORTED before a single
+ * test is discovered.
+ *
+ * `./package.json` is still an exported subpath in both, and `bin` is the
+ * declaration npm itself launches the CLI from — so going through it tracks
+ * the entry point wherever it moves rather than hard-coding a filename that
+ * has already moved once. A manifest without a usable `bin.vitest` is a broken
+ * installation and is reported as one.
+ */
+const vitestManifestPath = requireFromSdk.resolve("vitest/package.json");
+const vitestEntry = (() => {
+	const manifest = JSON.parse(readFileSync(vitestManifestPath, "utf8"));
+	const bin = manifest.bin;
+	const entry = typeof bin === "string" ? bin : bin?.vitest;
+	if (typeof entry !== "string" || entry.length === 0) {
+		throw new Error(
+			`The installed vitest declares no \`bin.vitest\`: ${vitestManifestPath}`,
+		);
+	}
+	return join(dirname(vitestManifestPath), entry);
+})();
 
 const suites = new Map([
 	["unit", "vitest.config.ts"],
@@ -38,7 +66,11 @@ const forbiddenOverrides = new Set([
 	"--pool",
 	"--root",
 	"--setupFiles",
-	"--workspace",
+	// Vitest 4 renamed `--workspace` to `--project`; the old spelling is gone
+	// from the CLI, so guarding only it would leave the v4 name of the same
+	// escape hatch — one that can swap the project set the isolation invariant
+	// is declared in — unguarded.
+	"--project",
 ]);
 
 function usage(message) {

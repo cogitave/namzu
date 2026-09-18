@@ -49,15 +49,29 @@ export default defineConfig({
 				// the floor is measured against the 17 lines that actually
 				// decide something.
 				'src/pricing/catalogue.generated.ts',
-				// Not source, and the reason it is named: with `all: true` the v8
-				// provider globs the whole package root before it transforms
-				// anything, and a runtime state tree left here by an old,
-				// un-isolated test run (51,444 project directories on one
-				// machine) held that glob for forty minutes with every test
-				// already reported. Excluding it prunes the walk.
+				// Not source, and the reason it is named: under Vitest 3's
+				// `all: true` the v8 provider globbed the whole package root
+				// before it transformed anything, and a runtime state tree left
+				// here by an old, un-isolated test run (51,444 project
+				// directories on one machine) held that glob for forty minutes
+				// with every test already reported. Excluding it pruned the walk.
+				//
+				// Vitest 4 removed `all`, so the walk now starts from the
+				// `include` glob above (`src/**/*.ts`) and cannot reach a
+				// package-root `.namzu/` at all. The entry stays because it is
+				// still true — this is not source — and because a future change
+				// to `include` that widened it should not silently re-open the
+				// walk that cost forty minutes. It is redundant, not wrong.
 				'.namzu/**',
 			],
-			all: true,
+			// `all: true` was here and is gone: Vitest 4 removed the option and
+			// made its behaviour the only one — but only when `coverage.include`
+			// is set, which it is, ten lines up. The two were not independent
+			// spellings of one thing: `all` said "report every file that exists",
+			// `include` says "…matching this glob", and under v4 the second is
+			// what carries the floor. Removing `all` on its own was verified
+			// against the committed config: identical row set, 548 files, and
+			// identical percentages in `coverage-summary.json`.
 			clean: true,
 		},
 	},
