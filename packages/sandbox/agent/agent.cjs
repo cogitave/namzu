@@ -2518,45 +2518,234 @@ function terminalDimension(value, max, name) {
 	return parsed
 }
 
+/** `/dev/pts/<n>`, the only slave shape util-linux `script` allocates. */
+const PTY_SLAVE_PATH = /^\/dev\/pts\/\d+$/
+
+/**
+ * How long a terminal waits for `script` to fork its shell, and how often it
+ * looks. Measured in #512: the slave is there on attempt 0 or 1 (1-2ms) and
+ * within 101ms against a 100m CPU limit, so this budget is roughly ten times
+ * what any tested guest needed — the number is repeated in the failure the
+ * loop throws, which is where it is read from.
+ */
+const PTY_SLAVE_ATTEMPTS = 200
+const PTY_SLAVE_POLL_MS = 5
+
+/**
+ * The device major every devpts slave carries.
+ *
+ * `devpts` is registered under a FIXED major rather than a dynamically
+ * allocated one, so a controlling terminal whose device number decodes to
+ * this is a pty slave and nothing else. The name is the kernel's, and it is
+ * the same number on every kernel this agent can run on.
+ */
+const DEV_PTS_MAJOR = 136
+
+/** Whatever a failed proc read should be reported BY. */
+function probeErrorCode(error) {
+	if (typeof error?.code === 'string' && error.code) return error.code
+	return error instanceof Error ? error.message : String(error)
+}
+
+/**
+ * The children of one pid, from `/proc/<pid>/task/<pid>/children`.
+ *
+ * The error is RETURNED beside the list rather than swallowed into it. A
+ * caller that can live without the children reads `children` and moves on,
+ * but {@link findPtySlave} is about to tell a human that no slave appeared,
+ * and "which of these reads was refused, and with what" is the whole
+ * difference between an error someone can act on and one that costs a
+ * cluster and a debugger to find (#512).
+ */
 async function processChildren(pid) {
 	try {
 		const raw = await fs.readFile(`/proc/${pid}/task/${pid}/children`, 'utf8')
-		return raw
-			.trim()
-			.split(/\s+/)
-			.map(Number)
-			.filter((value) => Number.isInteger(value) && value > 0)
-	} catch {
-		return []
+		return {
+			children: raw
+				.trim()
+				.split(/\s+/)
+				.map(Number)
+				.filter((value) => Number.isInteger(value) && value > 0),
+			error: undefined,
+		}
+	} catch (error) {
+		return { children: [], error: probeErrorCode(error) }
 	}
+}
+
+/**
+ * Decode a `/proc/<pid>/stat` `tty_nr` into the device number it encodes.
+ *
+ * The kernel's own `new_decode_dev`, inverted: a 32-bit `dev_t` keeps the
+ * major in bits 8-19 and splits the minor across bits 0-7 and 20-31. This is
+ * ABI, not a guess about one kernel's layout.
+ */
+function decodeDeviceNumber(deviceNumber) {
+	return {
+		major: (deviceNumber & 0xfff00) >> 8,
+		minor: (deviceNumber & 0xff) | ((deviceNumber >> 12) & 0xfff00),
+	}
+}
+
+/**
+ * The `/dev/pts/<n>` one `tty_nr` names as its controlling terminal, or
+ * `undefined` — for `0` (no controlling terminal at all) as much as for a
+ * terminal on some other device.
+ */
+function controllingPtySlave(ttyNr) {
+	if (!Number.isInteger(ttyNr) || ttyNr === 0) return undefined
+	const { major, minor } = decodeDeviceNumber(ttyNr)
+	return major === DEV_PTS_MAJOR ? `/dev/pts/${minor}` : undefined
+}
+
+/**
+ * Both facts one candidate pid can be asked, and which of the two probes
+ * could not answer at all.
+ *
+ * `fd/0` is asked FIRST and keeps answering first where it can: it names the
+ * very file the shell reads and writes, and a terminal that resolved through
+ * it before must keep resolving through it, byte for byte.
+ */
+async function probePtySlave(pid) {
+	const probe = { slavePath: undefined, fdError: undefined, statError: undefined }
+	try {
+		const target = await fs.readlink(`/proc/${pid}/fd/0`)
+		if (PTY_SLAVE_PATH.test(target)) return { ...probe, slavePath: target }
+	} catch (error) {
+		probe.fdError = probeErrorCode(error)
+	}
+	// The second probe, and the reason this function has two. `/proc/<pid>/fd`
+	// is `dr-x------` owned by the target and answering a readlink from it is
+	// `ptrace_may_access`, which refuses a reader whose credentials do not
+	// match the target's — the one axis that differs between a guest that runs
+	// this agent as root and one that drops it to an unprivileged uid. The read
+	// is attempted anyway and simply fails there, so the walk depended on a
+	// privilege it never declared. `/proc/<pid>/stat` is world-readable, and
+	// its `tty_nr` is the kernel's own record of which terminal the process is
+	// attached to — the fact `fd/0` was being used as a proxy for.
+	try {
+		const stat = parseProcessStat(pid, await fs.readFile(`/proc/${pid}/stat`, 'utf8'))
+		if (stat?.ptySlave !== undefined) return { ...probe, slavePath: stat.ptySlave }
+	} catch (error) {
+		probe.statError = probeErrorCode(error)
+	}
+	return probe
+}
+
+/**
+ * What the kernel says about one pid's `/proc` entry: released, there, or
+ * neither — and the neither is a value, not a `false`.
+ *
+ * Only `ENOENT` says the kernel has RELEASED the entry. `EACCES` is this
+ * process being refused the read, a different fact about a process that is
+ * still there, and ending the walk on it would report an exit that never
+ * happened. Every other error — `EMFILE`, `EIO`, a descriptor this process
+ * could not spare — establishes NEITHER, and that is the answer this has to
+ * be able to give: the one place it is read is a failure message a human
+ * acts on, and the two-answer version of this turned a read that never
+ * happened into "script alive", a fact the walk never established.
+ */
+async function procEntryState(pid) {
+	try {
+		await fs.stat(`/proc/${pid}`)
+		return 'present'
+	} catch (error) {
+		if (error?.code === 'ENOENT') return 'gone'
+		return probeErrorCode(error)
+	}
+}
+
+/**
+ * What {@link findPtySlave} throws, naming everything the walk learned.
+ *
+ * Every field is the LAST OBSERVATION of the thing it names, not the last
+ * error it ever had: `fdError` and `statError` are assignments of what the
+ * probe just answered, so a candidate that was refused followed by one that
+ * read fine reports the read, and `probed` is what keeps a walk that never
+ * reached a candidate from claiming its probes were readable.
+ */
+function ptySlaveFailure(
+	attempts,
+	startedAt,
+	childrenError,
+	fdError,
+	statError,
+	probed,
+	scriptState,
+) {
+	const readable = (answer) => (probed > 0 ? answer : 'never read')
+	const facts = [
+		`${attempts} attempts, ${Date.now() - startedAt}ms`,
+		`last children(): ${childrenError ?? 'readable, none'}`,
+		`last fd/0: ${fdError ?? readable('readable, not a pty slave')}`,
+		`last stat: ${statError ?? readable('readable, no controlling pty')}`,
+		`script: ${scriptState === 'present' ? 'alive' : scriptState}`,
+	]
+	return new Error(`terminal PTY slave did not appear (${facts.join('; ')})`)
 }
 
 /**
  * Resolve the slave allocated by util-linux `script`, and the pid holding it.
  *
- * `script` owns the PTY master and the login shell is its child. The child's
- * fd 0 is therefore the authoritative slave path; discovering it through proc
- * lets resize use the real TIOCSWINSZ ioctl through `stty -F`, including the
- * SIGWINCH programs expect. No pipe is represented as a terminal.
+ * `script` owns the PTY master and the login shell is its child. The slave is
+ * where the terminal's resize lands, so it has to be the REAL slave path: the
+ * `stty -F` that sets the winsize is the TIOCSWINSZ ioctl, which is what
+ * raises the SIGWINCH programs expect, and no pipe is represented as a
+ * terminal. Two probes answer it — the shell's own fd 0, and its controlling
+ * terminal taken from `/proc/<pid>/stat` — and a candidate is accepted when
+ * EITHER does; see {@link probePtySlave} for why the second is not optional.
  *
- * The pid comes back with it because the shell is also the leader of the
- * kernel session `script` created for it — the unit a teardown has to signal,
- * and the one a process-group kill misses entirely.
+ * Both probes report the same pid, and that pid is not incidental. The shell
+ * is the leader of the kernel session `script` created for it — the unit a
+ * teardown has to signal, and the one a process-group kill misses entirely
+ * (a job backgrounded with `&` is reachable by nothing else).
+ *
+ * The second probe is strictly a FALLBACK, and the pid this returns is
+ * therefore the one the fd 0 probe alone used to return whenever that probe
+ * can answer at all, anywhere in the tree. The walk is breadth-first from
+ * `script` and returns on the first candidate that answers either probe; if
+ * that candidate answers fd 0, then every candidate before it answered
+ * neither, so it is exactly where the fd 0-only walk would have stopped. A
+ * candidate that answers only the second probe is reached exactly when the
+ * first probe answered `no` for every candidate there is — which is the case
+ * that used to end in `terminal PTY slave did not appear`.
  */
 async function findPtySlave(scriptPid) {
-	for (let attempt = 0; attempt < 200; attempt += 1) {
-		const queue = await processChildren(scriptPid)
+	const startedAt = Date.now()
+	let attempts = 0
+	let probed = 0
+	let childrenError
+	let fdError
+	let statError
+	let scriptState = 'present'
+	for (let attempt = 0; attempt < PTY_SLAVE_ATTEMPTS && scriptState !== 'gone'; attempt += 1) {
+		attempts = attempt + 1
+		const root = await processChildren(scriptPid)
+		childrenError = root.error
+		const queue = root.children
 		while (queue.length > 0) {
 			const pid = queue.shift()
-			try {
-				const target = await fs.readlink(`/proc/${pid}/fd/0`)
-				if (/^\/dev\/pts\/\d+$/.test(target)) return { slavePath: target, shellPid: pid }
-			} catch {}
-			queue.push(...(await processChildren(pid)))
+			probed += 1
+			const probe = await probePtySlave(pid)
+			fdError = probe.fdError
+			statError = probe.statError
+			if (probe.slavePath !== undefined) return { slavePath: probe.slavePath, shellPid: pid }
+			const kids = await processChildren(pid)
+			childrenError = kids.error
+			queue.push(...kids.children)
 		}
-		await delay(5)
+		// `script` is gone: the shell was its child, the kernel has released
+		// the tree the walk reads, and the remaining budget would be spent
+		// walking a pid that does not exist. What stopping here costs is the
+		// rest of that budget and nothing else — this terminal is over, and
+		// `handleTerminal` answers it with the EXIT frame its `close` handler
+		// writes rather than with this error. See the catch there: which of
+		// the two the host gets is decided by whether that handler has run.
+		scriptState = await procEntryState(scriptPid)
+		if (scriptState === 'gone') break
+		await delay(PTY_SLAVE_POLL_MS)
 	}
-	throw new Error('terminal PTY slave did not appear')
+	throw ptySlaveFailure(attempts, startedAt, childrenError, fdError, statError, probed, scriptState)
 }
 
 function resizePty(slavePath, cols, rows) {
@@ -2760,31 +2949,42 @@ function makeRoomForSession() {
 
 /**
  * One process's `/proc/<pid>/stat`, as much of it as anything here needs:
- * its name, its run state and its kernel session id.
+ * its name, its run state, its kernel session id and its controlling
+ * terminal.
  *
  * Parsed from the last `)` rather than by splitting on spaces: field 2 is
  * the executable's own name, in parentheses, and it may contain spaces and
  * parentheses of its own. `undefined` means the process is gone — which is
  * the answer a caller wants, not an error to handle.
  */
+function parseProcessStat(pid, raw) {
+	const open = raw.indexOf('(')
+	const close = raw.lastIndexOf(')')
+	if (open < 0 || close < open) return undefined
+	// state, ppid, pgrp, session, tty_nr — the five fields after the name.
+	const fields = raw.slice(close + 2).split(' ')
+	const sessionId = Number(fields[3])
+	const ttyNr = Number(fields[4])
+	return {
+		pid,
+		// The kernel's short name for the executable, and deliberately not
+		// `/proc/<pid>/cmdline`: a quiesce reports what it stopped to the
+		// HOST, and a command line carries the workload's own arguments.
+		command: raw.slice(open + 1, close),
+		state: fields[0] ?? '',
+		sessionId: Number.isInteger(sessionId) && sessionId > 0 ? sessionId : undefined,
+		// Field 7, the controlling terminal's device number (0 for none).
+		// Read here rather than through `/proc/<pid>/fd/0` because it is a
+		// READ of a world-readable file rather than a readlink answered by
+		// `ptrace_may_access` — see {@link probePtySlave}.
+		ttyNr: Number.isInteger(ttyNr) ? ttyNr : 0,
+		ptySlave: controllingPtySlave(ttyNr),
+	}
+}
+
 async function readProcessStat(pid) {
 	try {
-		const raw = await fs.readFile(`/proc/${pid}/stat`, 'utf8')
-		const open = raw.indexOf('(')
-		const close = raw.lastIndexOf(')')
-		if (open < 0 || close < open) return undefined
-		// state, ppid, pgrp, session — the four fields after the name.
-		const fields = raw.slice(close + 2).split(' ')
-		const sessionId = Number(fields[3])
-		return {
-			pid,
-			// The kernel's short name for the executable, and deliberately not
-			// `/proc/<pid>/cmdline`: a quiesce reports what it stopped to the
-			// HOST, and a command line carries the workload's own arguments.
-			command: raw.slice(open + 1, close),
-			state: fields[0] ?? '',
-			sessionId: Number.isInteger(sessionId) && sessionId > 0 ? sessionId : undefined,
-		}
+		return parseProcessStat(pid, await fs.readFile(`/proc/${pid}/stat`, 'utf8'))
 	} catch {
 		return undefined
 	}
@@ -4163,10 +4363,6 @@ function handleTerminal(socket, body) {
 	void start().catch((error) => {
 		if (settled) return
 		heartbeat?.stop()
-		writeFrame(socket, {
-			type: 'error',
-			error: error instanceof Error ? error.message : String(error),
-		})
 		// A terminal that failed to come up leaves nothing behind: the
 		// registry entry goes with it, so its id is free for the retry.
 		if (record && record.state !== 'exited') {
@@ -4174,6 +4370,21 @@ function handleTerminal(socket, body) {
 			record = undefined
 		}
 		kill('SIGKILL')
+		// A terminal whose `script` has already EXITED is owed the exit frame,
+		// not this error: whatever the walk could not find, the terminal is
+		// over, and the frame its `close` handler writes is the one that
+		// carries the exit code. That handler is the only construction site
+		// (`settled` is what keeps it single), so this hands the outcome to it
+		// rather than writing a second one — and the check is a check and not
+		// a guess: an `exitCode` or a `signalCode` is node having reaped the
+		// child, which is the same event as the `/proc/<pid>` entry the walk
+		// gave up on disappearing, seen from the other side. A tick between
+		// the two is exactly the race this would otherwise lose.
+		if (child && (child.exitCode !== null || child.signalCode !== null)) return
+		writeFrame(socket, {
+			type: 'error',
+			error: error instanceof Error ? error.message : String(error),
+		})
 		settled = true
 		socket.end()
 	})
