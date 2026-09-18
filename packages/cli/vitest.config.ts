@@ -58,5 +58,19 @@ export default defineConfig({
 		// this package quiet without editing any of them.
 		setupFiles: ['./src/test-setup.ts'],
 		globalSetup: ['./src/__fixtures__/test-home-run.ts'],
+		// Vitest 4's default `exclude` is `node_modules` and `.git` only, so
+		// this package's 358 compiled test files under `dist/` stopped being
+		// invisible and joined the 358 under `src/`: the run reported 716 files
+		// where it had 358, and eight of the compiled copies failed — not on
+		// assertions, but on fixtures that are not copied into `dist/`
+		// (`ENOENT ... dist/__fixtures__/workspace/a.ts`) and on process-level
+		// tests whose compiled copy cannot stand up the state it needs.
+		//
+		// The two names are spelled out rather than spread from
+		// `configDefaults.exclude` because `packages/files/vitest.config.ts`
+		// and `packages/sandbox/vitest.config.ts` already spell them this way,
+		// and one spelling across the workspace is worth more here than the
+		// two extra lines it would save.
+		exclude: ['**/node_modules/**', '**/dist/**'],
 	},
 })
