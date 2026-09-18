@@ -103,6 +103,52 @@ describe('picker provider operations', () => {
 		})
 	})
 
+	// The picker's `(free)` note reads these two numbers, and `ModelInfo` types
+	// both as required — so a driver with no price to give writes something. A
+	// number is carried as the provider's own answer; anything that is not a
+	// number is not a price, and arrives at the picker absent so that it reads
+	// as unknown rather than as zero.
+	it('carries a real price and drops every value that is not one', async () => {
+		provider = base({
+			listModels: async () => [
+				{
+					id: 'priced',
+					name: 'Priced',
+					inputPrice: 2.5,
+					outputPrice: 7.5,
+					supportsToolUse: true,
+					supportsStreaming: true,
+				},
+				{
+					id: 'nan',
+					name: 'Not a number',
+					inputPrice: Number.NaN,
+					outputPrice: 7.5,
+					supportsToolUse: true,
+					supportsStreaming: true,
+				},
+				{
+					id: 'infinite',
+					name: 'Infinite',
+					inputPrice: Number.POSITIVE_INFINITY,
+					outputPrice: Number.POSITIVE_INFINITY,
+					supportsToolUse: true,
+					supportsStreaming: true,
+				},
+			],
+		})
+
+		const listing = await describeProviderModels(providerId, detected)
+		expect(listing).toEqual({
+			kind: 'ok',
+			models: [
+				{ id: 'priced', name: 'Priced', inputPrice: 2.5, outputPrice: 7.5 },
+				{ id: 'nan', name: 'Not a number', outputPrice: 7.5 },
+				{ id: 'infinite', name: 'Infinite' },
+			],
+		})
+	})
+
 	it('does not construct a provider for an already-cancelled choice', async () => {
 		const controller = new AbortController()
 		const cause = new Error('choice was already cancelled')

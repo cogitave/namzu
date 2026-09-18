@@ -236,8 +236,10 @@ lower bound, and measured zero is shown distinctly.
 
 ## Picker navigation
 
-The model picker filters the current provider's catalogue by model ID and
-display name as you type. Search ignores case and matches every typed word.
+The model picker filters the current provider's catalogue by model ID, display
+name and the note shown beside the row, as you type. Search ignores case and
+matches every typed word, so `free` finds every row the picker marked `(free)`,
+including the ones whose ID never spells the word.
 Press `/` to start search explicitly, including a query beginning with `p` or
 a number. Before search starts, `p` changes provider and numbers select a row;
 while searching they are ordinary text. Left arrow always changes provider.
@@ -247,11 +249,16 @@ Arrows, PgUp/PgDn and Home/End move through the filtered results. Enter applies
 the highlighted model; an empty result cannot be applied. Esc retains its
 normal back or cancel behavior, including cancelling a pending selection.
 
-A row is marked `(free)` only when the provider reported both rates as zero. A
-provider that published no rate gets no marker, because an absent price is not a
-price of zero — see [Model prices](../sdk/model-prices.md). Under 70 columns the
-notes are rebuilt from a fixed vocabulary, and `(free)` joins `(default)` and
-`(image)` there rather than being dropped.
+A row is marked `(free)` when the price its listing carries is zero for both
+input and output. Both, because a free prompt and a paid completion is not a
+free model — the completion is where the tokens go. A price that is absent, or
+that is not a finite number, is not a price of zero, so such a row stays
+unmarked rather than being guessed at — see [Model prices](../sdk/model-prices.md).
+The note repeats the provider's own answer about its own catalogue; namzu does
+not re-price a model. The provider's order is preserved: the marker adds words
+to a row and neither sorts nor hides any. Under 70 columns the notes are rebuilt
+from a fixed vocabulary, and `(free)` joins `(default)` and `(image)` there
+rather than being dropped.
 
 In `/agents`, Enter opens the selected child's live transcript as a separate
 framed screen. Esc returns to the agent list; `q` or Ctrl+T returns to the main

@@ -3500,6 +3500,20 @@ export function constructProvider(
 }
 
 /**
+ * One row of a provider's catalogue, in the shape the picker can act on.
+ *
+ * Prices are per million tokens — `ModelInfo`'s own unit — and they are
+ * OPTIONAL here although `ModelInfo` requires them. That is the whole point:
+ * a required price is a price a driver has to invent when it does not have
+ * one, and a listing that reports a paid model as costing nothing is worse
+ * than one that reports no price at all. Absent means "this driver did not
+ * establish a price", which the picker reads as unknown and never as free.
+ * `publishedPrices` below is where value becomes presence.
+ */
+export type ListedModel = Pick<ModelInfo, 'id' | 'name' | 'inputModalities'> &
+	Partial<Pick<ModelInfo, 'inputPrice' | 'outputPrice'>>
+
+/**
  * What happened when we asked a provider for its models.
  *
  * A union rather than an array, because "the list is empty" had four causes and
@@ -3510,13 +3524,7 @@ export function constructProvider(
  * truth ("it did not answer in time") most changes what they should do next.
  */
 export type ModelListing =
-	| {
-			readonly kind: 'ok'
-			readonly models: readonly Pick<
-				ModelInfo,
-				'id' | 'name' | 'inputModalities' | 'inputPrice' | 'outputPrice'
-			>[]
-	  }
+	| { readonly kind: 'ok'; readonly models: readonly ListedModel[] }
 	/** The driver does not implement `listModels`. */
 	| { readonly kind: 'unsupported' }
 	| { readonly kind: 'timeout' }
@@ -3567,6 +3575,24 @@ async function runPickerProviderOperation<T>(
 }
 
 /**
+ * The price pair, and only the halves the driver gave a number for.
+ *
+ * `ModelInfo` types both as required, so a driver with no price to give writes
+ * *something*: `0` if it is being tidy, `NaN` if what it parsed was missing.
+ * `0` is carried through — it is what a genuinely free model costs, and the
+ * provider's listing is the only authority on that. A non-finite value is not
+ * a price at all, and the listing must not hand the picker a number it would
+ * then have to second-guess: dropped here, the field is absent, and absent is
+ * a thing the picker knows how to say nothing about.
+ */
+function publishedPrices(m: ModelInfo): Pick<ListedModel, 'inputPrice' | 'outputPrice'> {
+	const prices: { inputPrice?: number; outputPrice?: number } = {}
+	if (Number.isFinite(m.inputPrice)) prices.inputPrice = m.inputPrice
+	if (Number.isFinite(m.outputPrice)) prices.outputPrice = m.outputPrice
+	return prices
+}
+
+/**
  * Ask a detected provider what models it has.
  *
  * Instantiates the provider and calls its optional `listModels()`, inside a 3s
@@ -3604,8 +3630,7 @@ export async function describeProviderModels(
 				// published; `0` says the model is free, and the model step is
 				// entitled to print that as a fact. Collapsing the two at this
 				// projection would put the lie back one layer up.
-				...(m.inputPrice !== undefined ? { inputPrice: m.inputPrice } : {}),
-				...(m.outputPrice !== undefined ? { outputPrice: m.outputPrice } : {}),
+				...publishedPrices(m),
 			})),
 		}
 	} catch (err) {

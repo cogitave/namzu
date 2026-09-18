@@ -147,6 +147,108 @@ describe('modelStep', () => {
 		})
 	})
 
+	// Real rows from https://openrouter.ai/api/v1/models, unauthenticated, taken
+	// on 2026-09-18. Prices are in the driver's own unit — per million tokens,
+	// `pricing.prompt` × 1e6 as `@namzu/openrouter` converts it — so these are
+	// the numbers the picker is handed rather than numbers invented to fit.
+	describe('the free note', () => {
+		const FREE_ROW = {
+			// 25 of OpenRouter's 445 rows are zero-priced, and this one says so
+			// nowhere but in its price: neither the ID nor the display name
+			// carries the word.
+			id: 'google/lyria-3-pro-preview',
+			name: 'Google: Lyria 3 Pro Preview',
+			inputPrice: 0,
+			outputPrice: 0,
+		}
+		const PAID_ROW = {
+			id: 'unbiased/pareto',
+			name: 'Pareto',
+			inputPrice: 2.5, // pricing.prompt 0.0000025
+			outputPrice: 7.5, // pricing.completion 0.0000075
+		}
+
+		const noteFor = (models: Parameters<typeof modelStep>[1]): string | undefined =>
+			modelStep(DEFAULT, models).choices.find((choice) => choice.id !== DEFAULT)?.note
+
+		it('marks a model the provider prices at zero on both sides', () => {
+			expect(noteFor({ kind: 'ok', models: [FREE_ROW] })).toBe('(free)')
+			expect(
+				noteFor({ kind: 'ok', models: [{ id: 'a', name: 'A', inputPrice: 0, outputPrice: 0 }] }),
+			).toBe('(free)')
+		})
+
+		it('does not mark a paid model', () => {
+			expect(noteFor({ kind: 'ok', models: [PAID_ROW] })).toBeUndefined()
+		})
+
+		it('does not mark a model that is free to prompt and paid to complete', () => {
+			// OpenRouter served no model with one zero side on 2026-09-18 — every
+			// paid row it lists is paid on both. The id and the price are real;
+			// zeroing one side is the case, and the completion is the side that
+			// carries the tokens, so a free prompt is not a free model.
+			expect(
+				noteFor({
+					kind: 'ok',
+					models: [
+						{
+							id: '~deepseek/deepseek-flash-latest',
+							name: 'DeepSeek Flash',
+							inputPrice: 0,
+							outputPrice: 0.6,
+						},
+					],
+				}),
+			).toBeUndefined()
+			expect(
+				noteFor({
+					kind: 'ok',
+					models: [{ id: PAID_ROW.id, name: PAID_ROW.name, inputPrice: 2.5, outputPrice: 0 }],
+				}),
+			).toBeUndefined()
+		})
+
+		it('says nothing when the driver published no price', () => {
+			// The shape a listing takes when the driver established nothing. It
+			// must not read as free: that is the whole reason the picker type
+			// allows the fields to be absent instead of requiring a number.
+			expect(
+				noteFor({ kind: 'ok', models: [{ id: PAID_ROW.id, name: PAID_ROW.name }] }),
+			).toBeUndefined()
+		})
+
+		it('says nothing for a price that is not a usable number', () => {
+			for (const prices of [
+				{ inputPrice: Number.NaN, outputPrice: 0 },
+				{ inputPrice: 0, outputPrice: Number.NaN },
+				{ inputPrice: Number.POSITIVE_INFINITY, outputPrice: Number.POSITIVE_INFINITY },
+			]) {
+				expect(
+					noteFor({ kind: 'ok', models: [{ id: 'a', name: 'A', ...prices }] }),
+					JSON.stringify(prices),
+				).toBeUndefined()
+			}
+		})
+
+		it('carries the free note beside the other notes', () => {
+			const step = modelStep('nex-agi/nex-n2.5-mini:free', {
+				kind: 'ok',
+				models: [
+					{
+						// Also real, and also zero-priced.
+						id: 'nex-agi/nex-n2.5-mini:free',
+						name: 'Nex AGI: Nex-N2.5-Mini (free)',
+						inputModalities: ['text', 'image'],
+						inputPrice: 0,
+						outputPrice: 0,
+					},
+				],
+			})
+			expect(step.choices).toHaveLength(1)
+			expect(step.choices[0]?.note).toBe('(namzu default · image input · free)')
+		})
+	})
+
 	it('starts on the model already in force', () => {
 		const step = modelStep(
 			DEFAULT,
