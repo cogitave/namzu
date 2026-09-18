@@ -1,5 +1,98 @@
 # @namzu/sandbox
 
+## 17.0.1
+
+### Patch Changes
+
+- 27a1665: A kubernetes deployment with `egress.policy: { kind: 'no-network' }` can create
+  sandboxes again. It could not before: every `create()` was refused with
+  `KubernetesEgressPolicyMismatchError` — a host that maps that to a reason such
+  as `sandbox-egress-policy-unverified` fails the run closed — and no policy an
+  operator could apply would have cleared it.
+
+  The named-object check compared `spec.egress` to the translation with a
+  deep-equal, and a core `NetworkPolicy` never stores an empty rule list:
+  `egress` is `omitempty` on the wire struct, so an object applied with
+  `egress: []` reads back with no `egress` key at all, and a merge patch cannot
+  put one back.
+  `no-network`'s whole translation IS that empty list, so `undefined !== []` made
+  the check unsatisfiable by any object a cluster can store. `verifyEgressPolicyApplied`
+  now reads an absent `egress` as the empty list it is, in that one comparison.
+  They are one policy and not merely one shape, because the check has already
+  required `policyTypes` to include `'Egress'` on a core policy, and that alone
+  denies all egress.
+
+  Nothing else is loosened. A live object whose rule array is non-empty still
+  fails a translation that intended none, and a live object with no `egress` at
+  all still fails a translation that intended rules — an absent list means
+  deny-all, which is not what config asked for. The comparison still exists to
+  refuse an object enforcing anything other than what was intended.
+
+  `patch`, and the reason it is not a `major`: this is not a change to the public
+  surface. No export, field, option or default moved, and the accepted set grows
+  by exactly the object the API server stores for the intent the deployment had
+  already declared. The refusal that disappears is one no consumer could have
+  been relying on — `no-network` is configured in order to create sandboxes, and
+  the only thing the refusal ever did was prevent that — so no upgrade action is
+  required and no deployment that passes today starts failing.
+
+  There was also no setting that avoided the refusal, so nothing to unset:
+  `egress.verify: 'named-object-only'` opts out of the UNION check and nothing
+  else — `egressUnionVerificationEnabled` gates `verifyUnion`, while the
+  named-object check runs on every create path regardless — so a `no-network`
+  host was refused under either setting. The ways out were to configure no
+  `egress` at all, or to fall back to `deny-all`, which allows the cluster
+  resolver on port 53 and is therefore not the same boundary.
+
+  Verified against a live `kind` cluster (v1.37), not only against a fake API
+  server: the `no-network` manifest applied, the object read back with this
+  backend's own client (a core `NetworkPolicy` stored with no `egress` key, and
+  `kubectl patch --type=merge -p '{"spec":{"egress":[]}}'` does not restore one),
+  and the real `verifyEgressPolicyApplied` run on what came off the cluster —
+  refused before this change, verified after, with a live object carrying a rule
+  and a live object carrying none both still refused.
+
+- 9092a37: Nothing a consumer installs changes. The one edited file is
+  `k8s/__tests__/entrypoint.test.ts`, which `package.json#files` excludes from the
+  tarball; the harness only, and `entrypoint.sh` itself is deliberately untouched —
+  runtime behaviour, exports, types and defaults are the same.
+
+  `entrypoint.test.ts` has been intermittently red on `main`, twice in a release
+  run:
+
+  ```
+  FAIL entrypoint.test.ts > entrypoint.sh prestop: the flush a stopping pod gets
+     > returns rather than hanging when the init does not go
+  AssertionError: expected 6 to be greater than or equal to 900
+  ```
+
+  The mechanism is a race in the harness, not in the image. `entrypoint.sh` reads
+  `/proc/<pid>/comm` before it signals anything and exits 0 immediately when the
+  name is not the init it expects — a fail-closed refusal the image must keep, and
+  the reason `entrypoint.sh` is not what changed here. `spawnStandIn` echoed `$!`
+  for a child that had not `exec`'d yet, so inside that window the hook read `sh`
+  where the symlinked `tini` was intended, refused, and skipped its whole wait. The
+  case then measured the refusal — a few milliseconds of elapsed time and a handful
+  of ticks — instead of the flush it is about, and failed against a constant that
+  looks nothing like the number it got.
+
+  The fix is a bounded, loud-failing readiness poll, `awaitStandInExec`, routed
+  through `spawnStandIn` so every stand-in call site gets it: cases now wait for
+  the process to become the binary it was started as before they hand its pid to
+  the hook. It waits for the SPECIFIC name rather than for `sh` to disappear,
+  because the name is what the hook turns on and one call site deliberately wants a
+  plain `sleep` to stay a `sleep`. A stand-in that died during the wait says so
+  instead of waiting its bound out.
+
+  It also refuses up front an expected name longer than the kernel can report: the
+  kernel keeps at most 15 characters in `/proc/<pid>/comm`, so a longer name could
+  never match and the wait would fail on its deadline rather than on the truth.
+  Latent today — every stand-in this suite starts is named well inside the limit —
+  and the guard exists so a future one is a one-line failure that names the limit.
+
+  Verified: the race reproduced deterministically before the fix, 20/20 runs green
+  under load after it, and removing the wait restores the failure byte-identically.
+
 ## 17.0.0
 
 ### Major Changes
