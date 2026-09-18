@@ -163,7 +163,7 @@ has two working precedents in this exact codebase:
   `Math.max(0, timeoutMs - elapsed)`, or `+Infinity` when `timeoutMs === 0`
   (`packages/sdk/src/runtime/query/guard.ts:91-101`), and today feeds exactly
   one caller: sandbox acquisition's own `timeoutMs`
-  (`packages/sdk/src/runtime/query/index.ts:1978`).
+  (`packages/sdk/src/runtime/query/index.ts:2042`).
 - `resolveProviderContextWindow` clamps a caller-supplied `timeoutMs` against
   Node's 32-bit timer ceiling, arms a private `AbortController`, and fuses it
   with the caller's signal via `AbortSignal.any` before racing a
@@ -183,7 +183,7 @@ they are not one object reused three ways:
   becomes `ctx.provider`: passed into `RunContext` at
   `packages/sdk/src/runtime/query/prepare-run.ts:565` and into
   `IterationOrchestrator` at
-  `packages/sdk/src/runtime/query/index.ts:1340`.
+  `packages/sdk/src/runtime/query/index.ts:1362`.
 - **Callback inference** (`preparation`/`review` phases) reads `ctx.provider`
   directly (`packages/sdk/src/runtime/query/callback-inference.ts:66`), so it
   gets the same `resilientProvider`. It also composes its own extra,
@@ -192,7 +192,7 @@ they are not one object reused three ways:
   via `AbortSignal.any([ctx.abortController.signal, lifetime.signal,
   deadline.signal, ...requestedSignal])` at `callback-inference.ts:42-51`.
 - **Advisory calls** get neither retry nor fallback.
-  `packages/sdk/src/runtime/query/index.ts:1273-1282` builds
+  `packages/sdk/src/runtime/query/index.ts:1295-1304` builds
   `boundedAdvisors` directly from `advisor.provider`:
   `withTokenBudget(withStreamIdleTimeout(advisor.provider, {
   idleTimeoutMs, log }), budget)` — idle-timeout and token-budget only. They
