@@ -163,15 +163,25 @@ describe.skipIf(skipReason !== null)('docker smoke — leaf permissions', () => 
 		})
 		const sandbox = await provider.create()
 		try {
-			// The model trying to "create the missing leaf dir" hits
-			// the 0555 root-owned parent and is denied — exactly what
-			// distinguishes "not bound" from "writable empty dir".
+			// The model trying to "create the missing leaf dir" is
+			// denied — exactly what distinguishes "not bound" from
+			// "writable empty dir". The `--rc` assertion carries that
+			// distinction: a bound writable leaf would let mkdir
+			// succeed, and nothing here would.
 			const result = await sandbox.exec('sh', [
 				'-c',
 				'mkdir /mnt/user-data/fake 2>&1; echo --rc=$?',
 			])
 			expect(result.stdout).toMatch(/--rc=[1-9]/)
-			expect(result.stdout.toLowerCase()).toMatch(/permission denied/)
+			// Two refusals are legitimate and which arrives depends on
+			// the order the kernel consults them. The 0555 root-owned
+			// parent denies with EACCES; the read-only rootfs
+			// (HARDENING_ARGS, on by default since 481fb8ff) denies with
+			// EROFS, which is checked before DAC is reached, so the
+			// message changed without the property changing. Pinning
+			// only one spelling is how this case went red on `main` for
+			// a day while the contract it tests still held.
+			expect(result.stdout.toLowerCase()).toMatch(/permission denied|read-only file system/)
 		} finally {
 			await sandbox.destroy()
 		}
