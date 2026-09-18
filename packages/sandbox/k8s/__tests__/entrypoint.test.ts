@@ -835,6 +835,91 @@ describe('HOME for the guest agent and its children', () => {
 
 describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 	/**
+	 * How long {@link awaitStandInExec} waits for a stand-in this suite
+	 * started to become the binary it started as. An `exec` is a few
+	 * hundred microseconds of kernel work even on a loaded runner, so this
+	 * is roughly a thousand times the thing it waits for: long enough that
+	 * only a genuinely stuck stand-in reaches it, short enough that a
+	 * broken harness fails a case rather than hanging a suite.
+	 */
+	const STANDIN_EXEC_TIMEOUT_MS = 5_000
+
+	/**
+	 * The name the kernel records for a process — the basename of the path
+	 * handed to `execve`, so a `sleep` exec'd through a symlink called
+	 * `tini` answers `tini` — or `''` when there is no such process to read
+	 * it from. `''` is "cannot tell", never "close enough": the same
+	 * distinction entrypoint.sh's own check makes in its prestop section,
+	 * and for the same reason (a pid is a slot in a process table, not an
+	 * identity).
+	 */
+	function commOf(pid: number): string {
+		try {
+			return readFileSync(`/proc/${pid}/comm`, 'utf8').trim()
+		} catch {
+			return ''
+		}
+	}
+
+	/**
+	 * Wait until the process this call just started HAS BECOME the binary it
+	 * was started as, so a case can hand its pid to the script without
+	 * racing the `exec` that has not happened yet.
+	 *
+	 * The FORK is not the EXEC. `spawnStandIn`'s shell backgrounds the
+	 * stand-in and the pid it echoes is the forked child — which is still
+	 * that shell (`comm` reading `sh`) for however long the kernel takes to
+	 * load the new image. On an idle machine that is microseconds; on a
+	 * loaded CI runner it can be tens of milliseconds, and that is the whole
+	 * of this race. entrypoint.sh reads `/proc/<pid>/comm` and CORRECTLY
+	 * refuses to signal a pid whose name is not the init it expects (see its
+	 * prestop section — that fail-closed posture is the behaviour the image
+	 * must have). A case that runs the hook inside that window therefore
+	 * stops testing the hook's wait and measures the refusal instead: the
+	 * hook returns in a few milliseconds, having signalled nothing, and the
+	 * case's own elapsed/tick assertion fails with a number that looks
+	 * nothing like the constant it was compared against.
+	 *
+	 * The wait is for the SPECIFIC name, not merely for `sh` to disappear,
+	 * because the name is what the hook itself turns on and what the callers
+	 * mean: {@link spawnForeignProcess}'s stand-in is deliberately a plain
+	 * `sleep` — NOT named like the init — and its case needs that process to
+	 * be, and stay, exactly that. The name waited for is the basename of the
+	 * binary passed to {@link spawnStandIn}, which is what `execve` records,
+	 * so this waits for precisely "it became what it was started as".
+	 *
+	 * Bounded and loud: a stand-in still answering the wrong name at the
+	 * deadline is a broken harness, and the one outcome it must never
+	 * produce is a case that fails somewhere downstream (or passes) instead
+	 * of saying so. A stand-in that DIED during the wait says that instead
+	 * — a dead stand-in is a fact, not a slow one, and waiting its bound out
+	 * would report the wrong thing.
+	 */
+	function awaitStandInExec(pid: number, expectedName: string): void {
+		const deadline = Date.now() + STANDIN_EXEC_TIMEOUT_MS
+		for (let seen = commOf(pid); seen !== expectedName; seen = commOf(pid)) {
+			if (seen === '' && !alive(pid)) {
+				throw new Error(
+					`stand-in pid ${pid} died before it became '${expectedName}' (it is gone, not slow) — ` +
+						'the process this case was about to signal no longer exists',
+				)
+			}
+			if (Date.now() >= deadline) {
+				const answered = seen === '' ? 'unreadable' : `'${seen}'`
+				throw new Error(
+					`stand-in pid ${pid} is still ${answered} after ${STANDIN_EXEC_TIMEOUT_MS}ms, ` +
+						`never '${expectedName}' — the exec this case depends on did not happen`,
+				)
+			}
+			// Synchronous, like the rest of this file: `runEntrypoint` is a
+			// `spawnSync` that blocks the event loop for the whole of the
+			// hook's wait, so there is no tick to yield to and nothing to
+			// gain by pretending otherwise.
+			spawnSync(SLEEP_BIN, ['0.01'])
+		}
+	}
+
+	/**
 	 * Spawn one stand-in process and return its pid, having queued it for
 	 * the sweep below.
 	 *
@@ -852,6 +937,10 @@ describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 	 * to become, rather than interpolated into the command text, so the two
 	 * layers of shell quoting the unsignallable variant needs stay
 	 * readable.
+	 *
+	 * Returns only once that program really is the process holding the pid
+	 * — see {@link awaitStandInExec}, which every caller needs and none of
+	 * them should have to remember.
 	 */
 	function spawnStandIn(script: string, bin: string): number {
 		const started = spawnSync('sh', ['-c', script], {
@@ -862,8 +951,13 @@ describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 		if (!Number.isInteger(pid) || pid <= 1) throw new Error('could not spawn a stand-in init')
 		// The identity of the process that has this number NOW, recorded
 		// while it is certainly the one this call started — see
-		// {@link startTimeOf} and the sweep.
+		// {@link startTimeOf} and the sweep. Queued BEFORE the wait below,
+		// so a stand-in that never becomes its binary is still swept by
+		// `afterEach` rather than leaked onto the machine by the very
+		// failure that stopped the case. `exec` preserves both halves of
+		// that identity, so it survives the wait.
 		dummyInits.push({ pid, startedAt: startTimeOf(pid) })
+		awaitStandInExec(pid, basename(bin))
 		return pid
 	}
 
@@ -1050,6 +1144,26 @@ describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 		const deadline = Date.now() + 2_000
 		while (alive(pid) && Date.now() < deadline) spawnSync(SLEEP_BIN, ['0.05'])
 		expect(alive(pid)).toBe(false)
+	})
+
+	it('says so, naming the pid and the name, when a stand-in never becomes its binary', () => {
+		// {@link awaitStandInExec} IS A GUARD TOO, and this is the only case
+		// that can see it fire. Every other case in this block depends on it
+		// having waited, and the direction it can break in is the quiet one:
+		// a wait that compared the wrong name — or returned instead of
+		// throwing — would put every one of those cases back inside the race
+		// it was added to close, intermittently, exactly as before. So this
+		// case drives it with a stand-in that can never become what it was
+		// started as (there is no such binary) and requires the failure to
+		// be loud, immediate and specific.
+		//
+		// Nothing survives it: the exec fails, the stand-in is gone, and the
+		// pid `spawnStandIn` queued for the sweep before it started waiting
+		// is a number with no process behind it by the time this returns.
+		const missingBinary = join(mktempWorkDir(), 'not-an-init')
+		expect(() =>
+			spawnStandIn('"$NAMZU_TEST_INIT_BIN" 30 >/dev/null 2>&1 & echo $!', missingBinary),
+		).toThrow(/'not-an-init'/)
 	})
 
 	it('syncs the workspace mount, signals the init and waits for it to go', () => {
