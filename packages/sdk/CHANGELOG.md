@@ -1,5 +1,53 @@
 # Changelog
 
+## 42.0.2
+
+### Patch Changes
+
+- 175dab2: Nothing a consumer installs changes. These are devDependencies and toolchain
+  pins: no runtime dependency, export, type or default moved, and the published
+  surface is identical.
+
+  Four advisories, all dev-time, closed by moving the package that carried them
+  rather than by patching around them:
+
+  - `knip` `^6.4.1` → `^6.37.0`, which carries `smol-toml` ≥ 1.8.0 — the version
+    that fixes `GHSA-7w5x-hrqm-74c2` (a malformed-TOML denial of service).
+  - `tsx` `^4.19.0` → `^4.23.13`, which depends on `esbuild ~0.28.0`, fixing
+    `GHSA-g7r4-m6w7-qqqr` (arbitrary file read from the development server, and
+    only on Windows) — and collapsing two `esbuild` copies in the tree into one.
+  - `js-yaml`, twice, fixed by a workspace override rather than a parent upgrade,
+    because both copies arrive deep inside the Changesets CLI's own tree:
+    `^3.15.2` for the 3.x line and `^4.3.2` for the 4.x line, closing
+    `GHSA-2883-xcg3-v3hh` (a merge-key CPU exhaustion). Neither override widens
+    beyond what the parent already declared — `3.15.2` satisfies `^3.13.1` and
+    `4.3.2` satisfies `^4.1.0` — so no package is forced outside its range.
+
+- 8d5223b: Nothing a consumer installs or calls changes, and that is the whole of this
+  release. `vitest` moves from `^3.2.6` to `^4.1.11` in the `devDependencies` of
+  all nineteen packages that declared it, and `@vitest/coverage-v8` moves with it
+  in `@namzu/sdk`. Every occurrence is a devDependency — checked, not assumed —
+  so `dependencies`, `peerDependencies`, exports, types, defaults and the wire
+  shape are untouched, and the published tarballs differ from the previous
+  release only in `package.json#devDependencies`.
+
+  The reason is a security fix with no 3.x backport. `GHSA-82fw-gwwq-j7x9`
+  ("Path Traversal / Arbitrary File Read via `@vitest/mocker` Redirect Mock")
+  covers `vitest` and `@vitest/mocker` from `2.1.0` up to `4.1.11`, so `^3.2.6`
+  can only be resolved by leaving the 3.x line. `4.1.11` is the first patched
+  release and is what the lockfile now resolves for both.
+
+  What this costs anyone who works on the repository rather than with it: the
+  upgrade was not a version bump. Vitest 4 changed test discovery, coverage
+  configuration, mock construction and reporter output, and each of those broke
+  something here that had to be migrated rather than worked around. Those fixes
+  are all under `__tests__/`, `vitest.config.ts` files and `scripts/`, none of
+  which is published, which is why this is a patch and not a major.
+
+  You do not need to do anything. If you pin `vitest` yourself to run this
+  project's own suites, note that the config files it ships are now written for
+  `>= 4.1.11` and will not run under 3.x.
+
 ## 42.0.1
 
 ### Patch Changes
