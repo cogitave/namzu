@@ -2064,6 +2064,7 @@ export class ToolExecutor {
 	private admissionHost(): ToolAdmissionHost {
 		return { config: this.config, emitEvent: this.emitEvent, log: this.log }
 	}
+
 	private async prepareNestedCall(
 		toolName: string,
 		input: unknown,
