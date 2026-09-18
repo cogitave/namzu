@@ -22,7 +22,7 @@
  *    region, a session token, or a role the SDK assumes) rather than one
  *    string. A single API-key field cannot express it, so the picker does not
  *    offer it.
- *  - `http` is a generic OpenAI-compatible endpoint whose base URL is half the
+ *  - `http` is a generic endpoint whose base URL is half the
  *    credential. A key with nowhere to send it is not a setup.
  *  - `lmstudio` cannot be constructed by this build at all.
  *  - `ollama` needs a local server, not a secret.
@@ -132,7 +132,7 @@ export function credentialNeed(entry: ProviderRegistryEntry): string {
  * The middle case is why this is a function rather than one `findIndex`. A
  * saved provider with no credential is not on the machine, so it is not in
  * `detected`, so it used to fall through to row 1: the picker opened saying
- * "no credential found for OpenRouter" with the cursor on Anthropic. Now the
+ * "no credential found" for the saved provider with the cursor elsewhere. Now the
  * highlighted row IS the row that needs the key, which is also the row `k`
  * targets.
  */

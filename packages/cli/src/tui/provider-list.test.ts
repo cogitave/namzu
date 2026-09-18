@@ -119,7 +119,7 @@ describe('what a row says is missing', () => {
 
 	it('prints a sentence rather than "needs undefined" for an entry with no variable', () => {
 		const entry: ProviderRegistryEntry = {
-			...PROVIDER_REGISTRY.openai,
+			...PROVIDER_REGISTRY['openai'],
 			envVars: [],
 		}
 
@@ -140,7 +140,7 @@ describe('where the cursor starts', () => {
 	it('starts on the provider the picker was opened for, when it was not detected', () => {
 		// The saved provider with no credential is not on the machine, so it is
 		// not in `detected`, so this used to fall through to row 1: the screen
-		// said "No credential found for OpenRouter" with the cursor on Anthropic,
+		// said "No credential found" for the saved provider while the cursor sat elsewhere,
 		// and `k` acted on whatever was highlighted.
 		expect(initialProviderRow(rows, null, 'openrouter')).toBe(
 			rows.findIndex((row) => rowProviderId(row) === 'openrouter'),

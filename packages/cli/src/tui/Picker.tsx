@@ -294,7 +294,7 @@ export function Picker({
 	// here. An index resolved against one and read against the other selects
 	// nothing at all, which is how `/login` came up with no row highlighted and
 	// an Enter that did nothing on the machine below: a saved preference naming
-	// `openai` resolved to its row in the provider list, which is past the end
+	// a saved provider resolved to its row in the provider list, which is past the end
 	// of a three-row sign-in list.
 	const initialSelection =
 		initialView === 'subscriptions' ? 0 : initialProviderRow(rows, currentProvider, keyEntryFor)
