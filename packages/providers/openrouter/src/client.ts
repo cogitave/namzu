@@ -9,7 +9,6 @@ import type {
 } from '@namzu/sdk'
 import {
 	ProviderRequestError,
-	assertThinkingUnsupported,
 	isCallerAbortError,
 	isProviderRequestError,
 	providerHttpError,
@@ -47,11 +46,24 @@ interface RawUsage {
 	prompt_tokens_details?: {
 		cached_tokens?: number
 	}
+	completion_tokens_details?: {
+		reasoning_tokens?: number
+	}
 	cache_discount?: number
 	cache_read_input_tokens?: number
 	cache_creation_input_tokens?: number
 }
 
+/**
+ * The reasoning breakdown, when the vendor reports one.
+ *
+ * `completion_tokens` already includes these — OpenRouter bills thinking as
+ * output — so this is a SUBSET, never an addition. It is reported rather than
+ * dropped because it is the only measure of how much of a turn was spent
+ * thinking, which is what a reader of `/cost` is looking at when a reasoning
+ * model looks expensive. Absent stays absent: a vendor that does not report
+ * the split has not reported zero.
+ */
 function parseUsage(raw?: RawUsage): TokenUsage {
 	if (!raw) {
 		return {
@@ -62,12 +74,111 @@ function parseUsage(raw?: RawUsage): TokenUsage {
 			cacheWriteTokens: 0,
 		}
 	}
+	const reasoningTokens = raw.completion_tokens_details?.reasoning_tokens
 	return {
 		promptTokens: raw.prompt_tokens,
 		completionTokens: raw.completion_tokens,
 		totalTokens: raw.total_tokens,
 		cachedTokens: raw.prompt_tokens_details?.cached_tokens ?? raw.cache_read_input_tokens ?? 0,
 		cacheWriteTokens: raw.cache_creation_input_tokens ?? 0,
+		...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+	}
+}
+
+/**
+ * One entry of OpenRouter's unified `reasoning_details`.
+ *
+ * `reasoning.text` and `reasoning.summary` carry visible text; the encrypted
+ * form carries an opaque payload this driver must pass through unchanged, or
+ * a replaying caller loses the block it paid for.
+ */
+interface RawReasoningDetail {
+	type?: string
+	text?: string
+	signature?: string
+	data?: string
+	index?: number
+}
+
+type ReasoningDelta = NonNullable<StreamChunk['delta']['reasoning']>
+
+/**
+ * Map one frame's reasoning onto the kernel's channel.
+ *
+ * The wire sends the same text twice: a flat `delta.reasoning` string AND a
+ * `delta.reasoning_details` array. Emitting both would double every block, so
+ * the array wins whenever it is present — it is the one that carries the index
+ * and the signature — and the flat string is the fallback for a vendor that
+ * sends only that.
+ *
+ * An empty array means the frame carried no reasoning at all; it is not a
+ * statement that the flat field should be trusted.
+ */
+function parseReasoning(
+	details: readonly RawReasoningDetail[] | undefined,
+	flat: string | null | undefined,
+): ReasoningDelta[] {
+	if (details && details.length > 0) {
+		const mapped: ReasoningDelta[] = []
+		for (const [position, detail] of details.entries()) {
+			const index = typeof detail.index === 'number' ? detail.index : position
+			if (detail.type === 'reasoning.encrypted') {
+				if (detail.data) mapped.push({ index, type: 'redacted_thinking', encrypted: detail.data })
+				continue
+			}
+			if (typeof detail.text !== 'string' || detail.text.length === 0) continue
+			mapped.push({
+				index,
+				type: 'thinking',
+				text: detail.text,
+				...(detail.signature ? { signature: detail.signature } : {}),
+			})
+		}
+		return mapped
+	}
+	return typeof flat === 'string' && flat.length > 0
+		? [{ index: 0, type: 'thinking', text: flat }]
+		: []
+}
+
+/**
+ * The effort levels this wire can carry.
+ *
+ * OpenRouter's unified `reasoning.effort` publishes exactly these. The SDK's
+ * `max` and `ultra` are OpenAI-model-specific names with no equivalent here,
+ * and a driver must not send one and hope: an effort that arrives as a
+ * different depth is indistinguishable from one that was honoured.
+ */
+const OPENROUTER_REASONING_EFFORT = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh'] as const
+
+/**
+ * Map the SDK's thinking controls onto OpenRouter's unified `reasoning` object.
+ *
+ * `undefined` means "say nothing", which leaves the vendor's own default in
+ * place — the only correct answer for a driver that was asked for nothing.
+ */
+function formatReasoning(
+	thinking: ChatCompletionParams['thinking'],
+	effort: ChatCompletionParams['effort'],
+): Record<string, unknown> | undefined {
+	if (effort !== undefined) {
+		const carried = (OPENROUTER_REASONING_EFFORT as readonly string[]).includes(effort)
+		if (!carried) {
+			throw new Error(
+				`OpenRouterProvider cannot carry effort "${effort}". Its reasoning.effort accepts ${OPENROUTER_REASONING_EFFORT.join(', ')}. Sending a different level would return a perfectly ordinary completion that no caller could tell apart from the one that was asked for.`,
+			)
+		}
+		return { effort }
+	}
+	if (!thinking || thinking.type === undefined) return undefined
+	if (thinking.type === 'disabled') return { enabled: false }
+	// 'adaptive' has no separate spelling on this wire: the model decides its
+	// own depth, which is what `enabled: true` without a budget expresses.
+	// 'enabled' fixes the depth with budgetTokens, so it carries the cap.
+	const budgetTokens = thinking.type === 'enabled' ? thinking.budgetTokens : undefined
+	return {
+		enabled: true,
+		...(budgetTokens !== undefined ? { max_tokens: budgetTokens } : {}),
 	}
 }
 
@@ -182,6 +293,13 @@ export class OpenRouterProvider implements LLMProvider {
 			body.cache_control = params.cacheControl
 		}
 
+		// Refused, not dropped, when this wire cannot carry the level asked
+		// for — see `formatReasoning`.
+		const reasoning = formatReasoning(params.thinking, params.effort)
+		if (reasoning !== undefined) {
+			body.reasoning = reasoning
+		}
+
 		if (params.responseFormat) {
 			body.response_format = params.responseFormat
 		}
@@ -190,7 +308,6 @@ export class OpenRouterProvider implements LLMProvider {
 	}
 
 	async *chatStream(params: ChatCompletionParams): AsyncIterable<StreamChunk> {
-		assertThinkingUnsupported('OpenRouterProvider', params)
 		const body = this.buildRequestBody(params, true)
 
 		const timeout = AbortSignal.timeout(this.config.timeout ?? 120_000)
@@ -239,6 +356,9 @@ export class OpenRouterProvider implements LLMProvider {
 		const reader = response.body.getReader()
 		const decoder = new TextDecoder()
 		let buffer = ''
+		// Reasoning blocks this stream has opened and not yet closed, in the
+		// order the wire reported them.
+		const openReasoning = new Set<number>()
 
 		try {
 			while (true) {
@@ -263,6 +383,8 @@ export class OpenRouterProvider implements LLMProvider {
 							choices: Array<{
 								delta: {
 									content?: string
+									reasoning?: string | null
+									reasoning_details?: RawReasoningDetail[]
 									tool_calls?: Array<{
 										index: number
 										id?: string
@@ -285,19 +407,56 @@ export class OpenRouterProvider implements LLMProvider {
 						const choice = parsed.choices[0]
 						if (!choice) continue
 
-						yield {
-							id: parsed.id,
-							delta: {
-								content: choice.delta.content,
-								toolCalls: choice.delta.tool_calls?.map((tc) => ({
-									index: tc.index,
-									id: tc.id,
-									type: tc.type as 'function' | undefined,
-									function: tc.function,
-								})),
-							},
-							finishReason: choice.finish_reason as StreamChunk['finishReason'],
-							usage: parsed.usage ? parseUsage(parsed.usage) : undefined,
+						const fragments = parseReasoning(choice.delta.reasoning_details, choice.delta.reasoning)
+						const content = choice.delta.content
+						const toolCalls = choice.delta.tool_calls?.map((tc) => ({
+							index: tc.index,
+							id: tc.id,
+							type: tc.type as 'function' | undefined,
+							function: tc.function,
+						}))
+
+						// A block closes when output starts, which is the only boundary
+						// this wire gives: without it a consumer's reasoning pane never
+						// receives `done` and stays open for the life of the run. An
+						// empty `content` is NOT output — every reasoning frame on this
+						// wire carries `"content":""`, so treating it as the boundary
+						// would close each block on the frame that opened it.
+						if ((typeof content === 'string' && content.length > 0) || toolCalls?.length) {
+							for (const index of openReasoning) {
+								yield { id: parsed.id, delta: { reasoning: { index, done: true } } }
+							}
+							openReasoning.clear()
+						}
+
+						const [firstFragment, ...restFragments] = fragments
+						if (firstFragment) openReasoning.add(firstFragment.index)
+
+						if (
+							firstFragment ||
+							content !== undefined ||
+							toolCalls !== undefined ||
+							choice.finish_reason !== undefined ||
+							parsed.usage !== undefined
+						) {
+							yield {
+								id: parsed.id,
+								delta: {
+									...(firstFragment ? { reasoning: firstFragment } : {}),
+									content,
+									toolCalls,
+								},
+								finishReason: choice.finish_reason as StreamChunk['finishReason'],
+								usage: parsed.usage ? parseUsage(parsed.usage) : undefined,
+							}
+						}
+
+						// The delta shape carries one reasoning object per chunk, so a
+						// frame reporting several blocks rides in sequence rather than
+						// being collapsed into one — order is what replay echoes back.
+						for (const fragment of restFragments) {
+							openReasoning.add(fragment.index)
+							yield { id: parsed.id, delta: { reasoning: fragment } }
 						}
 					} catch (parseErr) {
 						if (isProviderRequestError(parseErr)) throw parseErr
