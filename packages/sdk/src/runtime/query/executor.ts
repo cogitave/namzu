@@ -2052,6 +2052,14 @@ export class ToolExecutor {
 	 *
 	 * Built per call rather than held: `setSandbox` REPLACES `config`, so a
 	 * host captured once would hand the next admission a stale sandbox.
+	 *
+	 * The one way this differs from the inline code it replaced, which
+	 * re-read `this.config` at every use: an admission that spans a
+	 * `setSandbox()` now finishes against the config it STARTED with rather
+	 * than against the new one. Distinguishing the two readings needs
+	 * `setSandbox` to be called from a hook awaited in the middle of one
+	 * admission — its only call site is the run's sandbox acquisition,
+	 * before the loop, so nothing in this tree can tell them apart.
 	 */
 	private admissionHost(): ToolAdmissionHost {
 		return { config: this.config, emitEvent: this.emitEvent, log: this.log }

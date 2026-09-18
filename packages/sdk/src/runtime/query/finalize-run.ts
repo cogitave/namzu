@@ -21,11 +21,27 @@ import type { ResultAssembler } from './result.js'
  *
  * It is a generator because it emits, and it is reached with `yield*` so
  * every one of those emits suspends the caller at exactly the point it did
- * when the code lived inline. Two positions are load-bearing and are stated
- * where they happen: `setSteps` runs BEFORE the assembler reads
- * `runMgr.getRun()`, or the returned `Run` loses the final turn's steps; and
+ * when the code lived inline.
+ *
+ * Two positions here are load-bearing, and they are stated where they happen.
+ * `markCancelled` runs before the assembler, because `completeRun` marks a
+ * `running` run `completed` — the reverse order would overwrite the
+ * cancellation the abort signal had already declared. And
  * `memory_consolidated` precedes `run_completed`, so a host folding the
  * stream in order has the memory before the run that produced it.
+ *
+ * `setSteps` keeps its position too, but on the move's terms rather than on
+ * its own. This file used to claim the assembler needed it first "or the
+ * returned `Run` loses the final turn's steps" — that is not true, and a
+ * mutation proves it: `completeRun` reads `result`, `stopReason` and the
+ * budget and never `steps`, the returned `Run` is built by `finalize()`
+ * (which runs after the whole `try`/`catch`/`finally`), and moving
+ * `setSteps` below the assembler leaves the suite green, including the test
+ * that asserts `run.steps` on a returned run. What holds `setSteps` where it
+ * is, is the byte-identity of this move: every position was preserved, not
+ * just the consequential ones. Its read is still deferred to the same
+ * moment — after the `run_end` hooks, immediately before the record is
+ * written — which is why the caller passes `takeSteps` rather than an array.
  */
 export interface RunFinalization {
 	readonly ctx: RunContext
