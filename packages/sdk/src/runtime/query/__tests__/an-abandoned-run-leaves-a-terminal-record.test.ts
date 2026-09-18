@@ -1,5 +1,7 @@
-// PINS CURRENT (DEFECTIVE) BEHAVIOUR — the run record is left running while its resources are gone.
-// Scheduled for fix; this test is what the fix will flip.
+// FLIPPED 2026-09-18, by the commit that fixed what this used to pin.
+// The record a walked-away run leaves behind is now terminal — `cancelled` —
+// where this case used to pin the `idle` row `init()` wrote and nothing
+// rewrote.
 
 import { mkdtemp, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -23,6 +25,7 @@ import { RunDiskStore } from '../../../store/run/disk.js'
 import { agentRunSpanName } from '../../../telemetry/attributes.js'
 import { resetRuntimeMetrics } from '../../../telemetry/metrics.js'
 import { defineTool } from '../../../tools/defineTool.js'
+import { type RunExecutionStatus, isTerminalStatus } from '../../../types/common/index.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { CheckpointId, UserQuestionData } from '../../../types/hitl/index.js'
 import type { RunEvent } from '../../../types/run/index.js'
@@ -36,26 +39,28 @@ import { type QueryParams, query } from '../index.js'
 import { QuestionParkBinding } from '../question-park.js'
 
 /**
- * A host that `break`s out of `for await (const event of query(...))` leaves
- * the two halves of the run disagreeing.
+ * A host that `break`s out of `for await (const event of query(...))` has to
+ * leave the two halves of the run agreeing.
  *
  * The generator's `finally` runs — Node calls `return()` on an abandoned
  * async generator — so every resource the run borrowed is released: the
  * crash-save handlers, the job registry's hold on its work, the sandbox, the
- * question channel, the task-store listener, the root span. The DURABLE
- * record is not touched, because the only thing that writes the terminal
- * state is `ResultAssembler.finalize()`, and that sits after the `finally`,
- * on the far side of a `yield` nobody pulled.
+ * question channel, the task-store listener, the root span.
  *
- * So the store keeps a run that says `running` — forever. A queue reader
- * sees an active run whose process is gone; a resume has no terminal state
- * to reconcile against; a dashboard counts it as in flight. Everything on
- * the record is consistent with work still happening, and nothing is.
+ * The DURABLE record is the half that used to be missed. `persist()` is
+ * reached from `ResultAssembler.finalize()`, which sits after the `finally`,
+ * on the far side of a `yield` nobody pulled — so the store kept whatever
+ * `init()` wrote: a non-terminal row for a run that no longer existed. A
+ * queue reader saw an active run whose process was gone; a resume had no
+ * terminal state to reconcile against; a dashboard counted it as in flight.
+ * `query()` now settles that record on the way out of an abandoned
+ * generator, marking the run cancelled and persisting it, and writes nothing
+ * else — there is no consumer left to emit an event to.
  *
- * Both halves are pinned here, because a fix could move either one: the
- * resources ARE released (asserted), and the record is NOT updated
- * (asserted). The refactor must not change this silently in either
- * direction.
+ * Both halves are pinned here, which is why this file survived the fix with
+ * its assertions flipped rather than replaced: the resources ARE released
+ * (asserted), and the record IS updated (asserted). A run never both
+ * persists and is abandoned, and a run never does neither.
  */
 
 const dirs: string[] = []
@@ -148,7 +153,7 @@ function echoRegistry(): ToolRegistry {
 }
 
 describe('a host that walks away from the generator', () => {
-	it('releases everything the run borrowed, and leaves the record saying running', async () => {
+	it('releases everything the run borrowed, and leaves the record saying cancelled', async () => {
 		const baseDir = await mkdtemp(join(tmpdir(), 'namzu-abandoned-'))
 		dirs.push(baseDir)
 		const workingDirectory = await mkdtemp(join(tmpdir(), 'namzu-abandoned-work-'))
@@ -213,8 +218,8 @@ describe('a host that walks away from the generator', () => {
 		// And it was the FIRST event of the run, so this host walked away after
 		// exactly one pull. That is what makes the assertions below assertions
 		// about abandonment: the `finally` released a run that had not yet
-		// reached its first iteration, and the record it left behind is the one
-		// `init()` wrote for a run that never started.
+		// finished an iteration, and the record it left behind is a terminal
+		// row for that run rather than the one `init()` wrote.
 		expect(pulled).toBe(1)
 
 		// ---- the `finally` ran ----
@@ -238,33 +243,46 @@ describe('a host that walks away from the generator', () => {
 		const recordedPark: CheckpointId | null = await parks.record(question)
 		expect(recordedPark).toBeNull()
 
-		// ---- the record was NOT updated ----
+		// ---- the record WAS updated ----
 		const runDir = store.getRunDir()
 		expect(runDir).not.toBeNull()
 		const meta = JSON.parse(await readFile(join(runDir as string, 'run.json'), 'utf8')) as Record<
 			string,
 			unknown
 		>
-		// `init()` writes this row before the first model call and
-		// `finalize()` is the only thing that ever rewrites it. Abandoned, the
-		// run stays on the record exactly as it was when it started.
-		// Measured, and worse than the summary above: the row is the one
-		// `init()` wrote BEFORE the first model call, and `markRunning()` does
-		// not rewrite it — so the record says `idle` while the run has in fact
-		// run a model call, executed a tool and released everything it held.
-		expect(meta.status).toBe('idle')
-		expect(meta.currentIteration).toBe(0)
-		expect(meta.messageCount).toBe(0)
-		expect(meta.endedAt).toBeUndefined()
+		// `init()` wrote this row before the first model call and nothing else
+		// rewrote it, so it used to say `idle` — which `deriveRunStatus` reads
+		// back as `queued`, a run waiting to start, for one that no longer
+		// exists. The abandonment now marks the run cancelled and persists it,
+		// so what a host rebuilds from the store is a run that is over.
+		// `cancelled` rather than `failed`: nothing failed, the work was torn
+		// down under a consumer that left, which is the same fact
+		// `markCancelled` already records when an abort tears a run down.
+		expect(meta.status).toBe('cancelled')
+		expect(isTerminalStatus(meta.status as RunExecutionStatus)).toBe(true)
+		// The verdict carries the moment it was reached...
+		expect(meta.endedAt).toBeGreaterThan(0)
+		// ...and names no error, because there was none to name.
 		expect(meta.lastError).toBeUndefined()
-		// And no terminal event was written either, so a log reader sees a run
-		// that started and never ended.
+		// The row is the one the abandonment wrote, not the one `init()` left:
+		// an `endedAt` exists only on a settled record, which is the precise
+		// thing `idle` could not have carried. It is written from live run
+		// state on the way out, so the loop had still not finished an
+		// iteration — which is what `run_started`, the event that made this
+		// host walk away, says about the run.
+		expect(meta.currentIteration).toBe(0)
+		// `messageCount` is deliberately no longer asserted. It read 0 only
+		// because the row was the untouched one `init()` had written, so
+		// pinning it would now pin an init-timing detail rather than the
+		// contract this file exists for.
+		// No terminal EVENT was written, and that stays true: there is no
+		// consumer left to receive one, so the stream is untouched and only
+		// the durable record moved.
 		const types = await store.readEvents()
 		expect(types.some((event) => event.type === 'run_completed')).toBe(false)
 		expect(types.some((event) => event.type === 'run_failed')).toBe(false)
-		// The span that DID close says the run finished, which is the other
-		// half of the disagreement: the telemetry says it is over and the
-		// durable record says it is not.
+		// The span that DID close and the row that WAS written now agree: both
+		// say the run is over, which is the whole of what the fix bought.
 		expect(ended()).toBeGreaterThan(0)
 	})
 })
