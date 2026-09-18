@@ -88,6 +88,11 @@ import {
 	suspendKubernetesWorkspace as suspendWorkspaceOnCluster,
 } from './backends/kubernetes/workspace.js'
 
+// Imported as well as re-exported below, because a re-export introduces no
+// local name and `ContainerBackendConfig.brokeredCredentials` needs one to
+// point at. The public export is unchanged and stays type-only.
+import type { BrokeredCredential } from './egress/index.js'
+
 // Re-export the layout types so consumers of `@namzu/sandbox` can
 // import them without also depending on `@namzu/sdk`. The canonical
 // home of the types is the SDK; this is a convenience pass-through.
@@ -718,6 +723,36 @@ export interface ContainerBackendConfig {
 	 * Default 100ms.
 	 */
 	readonly readyPollIntervalMs?: number
+	/**
+	 * Credentials the egress proxy stamps on, per host.
+	 *
+	 * This is the mechanism the container tier's boundary exists to provide:
+	 * the sandbox carries a placeholder, and the real value is applied at the
+	 * proxy as the request leaves. Any token the agent needs in order to reach
+	 * an allowed host would otherwise have to sit in the sandbox's own
+	 * environment, readable by the untrusted code it is meant to be isolated
+	 * from — via `/proc/self/environ`, or via a prompt injection that
+	 * exfiltrates it over the very egress the allowlist permits.
+	 *
+	 * Per host, matched by the allowlist's own rules so `.internal.example`
+	 * covers subdomains. Scoped per host on purpose: a credential attached to
+	 * every request is a credential handed to whichever host the agent was
+	 * talked into contacting.
+	 *
+	 * **Honoured only where an egress proxy exists**, which is this tier with a
+	 * `static` or `resolver` policy and an `egressProxyImage`: `deny-all` and
+	 * `allow-all` start no proxy, and the microVM and kubernetes tiers enforce
+	 * egress by other means and have none. That is why the field is here and
+	 * not on the cross-tier config — declared where it could never be honoured,
+	 * it would silently do nothing, and a host would learn it from an
+	 * unauthenticated request on the far side rather than from a refusal here.
+	 *
+	 * The value leaves this process: it travels to the proxy container in that
+	 * container's environment, so anything with access to the docker daemon
+	 * (or to that container) can read it. Treat daemon access as credential
+	 * access. See `docs/sdk/sandbox-egress.md`.
+	 */
+	readonly brokeredCredentials?: readonly BrokeredCredential[]
 	/**
 	 * Allowlisted hosts permitted to resolve to an inward address anyway.
 	 *
@@ -1383,6 +1418,9 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				? { hostReachability: backend.hostReachability }
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
+			...(backend.brokeredCredentials !== undefined
+				? { brokeredCredentials: backend.brokeredCredentials }
+				: {}),
 			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
 			...(backend.egressProxyImage !== undefined
 				? { egressProxyImage: backend.egressProxyImage }
@@ -1414,6 +1452,9 @@ function pickBackend(config: SandboxProviderConfig): SandboxBackend {
 				? { hostReachability: backend.hostReachability }
 				: {}),
 			...(backend.network !== undefined ? { network: backend.network } : {}),
+			...(backend.brokeredCredentials !== undefined
+				? { brokeredCredentials: backend.brokeredCredentials }
+				: {}),
 			...(backend.allowInwardFor !== undefined ? { allowInwardFor: backend.allowInwardFor } : {}),
 			...(backend.egressProxyImage !== undefined
 				? { egressProxyImage: backend.egressProxyImage }

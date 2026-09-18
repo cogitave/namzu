@@ -187,13 +187,22 @@ limit — a reader should not infer more than is true.
   the user that owns it. A host that runs the sandbox SDK as one user and
   shares the machine with untrusted local users should still prefer not to use
   credential brokering on it.
-- **`createSandboxProvider` does not forward `brokeredCredentials` at all.**
-  That is a pre-existing gap in the provider's plumbing, not a consequence of
-  anything above: the field is read by `egressProxyContainerConfig` and has
-  never been passed by `createSandboxProvider`, so credential brokering is
-  reachable today only by constructing the backend directly. It is recorded in
-  `src/egress/__tests__/exemption-reaches-the-backend.test.ts` and is not
-  altered by this change.
+- **Brokered credentials are stamped on only where a proxy is running**, which
+  is a property of the policy rather than of the field: `static` and `resolver`
+  start the proxy container, `deny-all` and `allow-all` start none, so
+  credentials set beside either of the last two are never applied — the requests
+  leave unauthenticated rather than refused. The microVM and kubernetes tiers
+  enforce egress by other means and have no proxy at all, which is why
+  `brokeredCredentials` is a field on the container tier's
+  `ContainerBackendConfig` rather than on the cross-tier provider config:
+  declared where it could never be honoured, it would silently do nothing. On
+  the container tier, `createSandboxProvider` forwards it to the backend that
+  builds the proxy, at both of that function's `buildDockerBackend` call sites,
+  so a host that constructs its provider the documented way reaches credential
+  brokering without building the backend directly.
+  `src/egress/__tests__/exemption-reaches-the-backend.test.ts` pins the
+  forwarding, and the internal configuration it reaches is pinned as the proxy
+  container's environment by `src/backends/docker/__tests__/egress-topology.test.ts`.
 - **A `resolver` policy is resolved at `create()` and at each
   `setNetworkPolicy()`**, not per request. The container has no channel back to
   the host's resolver, and a channel it could reach is one the sandbox could
