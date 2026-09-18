@@ -45,6 +45,30 @@ export interface ModelStep {
 }
 
 /**
+ * Whether the provider said, in as many words, that a model costs nothing.
+ *
+ * Both rates present AND zero — and the strict comparison is the whole fix. As
+ * `=== 0` on two required numbers this rule read "free" on the drivers that
+ * had no rates at all, because those drivers wrote `0` for a rate they never
+ * learned. On four of them that labelled every paid model on the menu free.
+ *
+ * Absence is not a price of zero. It is the absence of a rate, and the honest
+ * rendering of it beside a model is nothing at all: marking an unknown as free
+ * is worse than not marking it, because it is a claim about a bill made by a
+ * screen the operator has no reason to doubt.
+ *
+ * A rate of `0` still means free and still prints, because the drivers that
+ * write one are the drivers that know it — the local servers, and Zen's free
+ * tier. See `ModelInfo.inputPrice`.
+ */
+function isKnownFree(model: {
+	readonly inputPrice?: number
+	readonly outputPrice?: number
+}): boolean {
+	return model.inputPrice === 0 && model.outputPrice === 0
+}
+
+/**
  * Build the model step for one provider.
  *
  * @param defaultModel namzu's default for this provider, always offered.
@@ -119,6 +143,7 @@ export function modelStep(
 		const notes: string[] = []
 		if (m.id === defaultModel) notes.push('namzu default')
 		if (m.inputModalities?.includes('image')) notes.push('image input')
+		if (isKnownFree(m)) notes.push('free')
 		choices.push({
 			id: m.id,
 			label: m.name,

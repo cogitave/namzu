@@ -3512,7 +3512,10 @@ export function constructProvider(
 export type ModelListing =
 	| {
 			readonly kind: 'ok'
-			readonly models: readonly Pick<ModelInfo, 'id' | 'name' | 'inputModalities'>[]
+			readonly models: readonly Pick<
+				ModelInfo,
+				'id' | 'name' | 'inputModalities' | 'inputPrice' | 'outputPrice'
+			>[]
 	  }
 	/** The driver does not implement `listModels`. */
 	| { readonly kind: 'unsupported' }
@@ -3596,6 +3599,13 @@ export async function describeProviderModels(
 				id: m.id,
 				name: m.name || m.id,
 				...(m.inputModalities !== undefined ? { inputModalities: [...m.inputModalities] } : {}),
+				// Carried, and omitted when the driver did not know — the same
+				// distinction the driver made. `undefined` here says no rate was
+				// published; `0` says the model is free, and the model step is
+				// entitled to print that as a fact. Collapsing the two at this
+				// projection would put the lie back one layer up.
+				...(m.inputPrice !== undefined ? { inputPrice: m.inputPrice } : {}),
+				...(m.outputPrice !== undefined ? { outputPrice: m.outputPrice } : {}),
 			})),
 		}
 	} catch (err) {

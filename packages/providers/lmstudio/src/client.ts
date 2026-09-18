@@ -268,6 +268,10 @@ export class LMStudioProvider implements LLMProvider {
 				return {
 					id: identifier,
 					name: identifier,
+					// Known-free, like its sibling `ollama`: a local server bills
+					// per token never. Kept as `0` rather than omitted so a reader
+					// can still tell this driver from one that has no rates at
+					// all. See `ModelInfo.inputPrice`.
 					inputPrice: 0,
 					outputPrice: 0,
 					supportsToolUse: true,

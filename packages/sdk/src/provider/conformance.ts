@@ -149,6 +149,13 @@ export function defineProviderDriverConformance(options: ProviderDriverConforman
 		// window, and it reads to every consumer as a measurement of a model
 		// that can hold nothing.
 		//
+		// The same reasoning makes `inputPrice`/`outputPrice` optional, and a
+		// price is the more expensive of the two to get wrong: a zero window
+		// is a nonsensical measurement, where a zero PRICE is a plain claim
+		// that a model is free — one a menu will print, and one a `(free)`
+		// marker reads as a fact. Six drivers made that claim on every model
+		// they could not price.
+		//
 		// The obvious place to enforce that is here, reading `listModels`.
 		// It was here, and it was worse than nothing twice over. For every
 		// in-tree driver `listModels` needs a live service, so the rule
@@ -160,7 +167,12 @@ export function defineProviderDriverConformance(options: ProviderDriverConforman
 		//
 		// The reintroduction of a literal zero is caught by a source scan in
 		// `provider/__tests__/conformance-fails-a-wrong-driver.test.ts`,
-		// which depends on reaching nothing.
+		// which depends on reaching nothing. It holds two further cases for
+		// prices, and the sharper of them is not the literal: a price
+		// DEFAULTED to zero cannot be written without a `??` or a `||`, and
+		// that is catchable without deciding whether any particular `0` was
+		// meant — which a text scan never can, since ollama's honest zero and
+		// a placeholder zero are the same characters.
 
 		it('declares the retry defaults its conformance run says it does', async () => {
 			// The option above forces the decision; this asserts the answer is

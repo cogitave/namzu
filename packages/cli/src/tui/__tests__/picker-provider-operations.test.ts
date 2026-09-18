@@ -70,8 +70,36 @@ describe('picker provider operations', () => {
 					id: 'vision-model',
 					name: 'Vision Model',
 					inputModalities: ['text', 'image'],
+					// Carried as well, and carried FAITHFULLY: this fixture's
+					// driver reported a rate of zero, so the projection keeps a
+					// zero. The model step reads it as free, which is what the
+					// driver said. A projection that dropped these would take the
+					// picker's free marker away from the drivers entitled to it.
+					inputPrice: 0,
+					outputPrice: 0,
 				},
 			],
+		})
+	})
+
+	it('carries an absent rate as absent rather than as zero', async () => {
+		// The other half, and the one that used to be indistinguishable. A
+		// driver that published nothing must not reach the picker as a zero,
+		// because a zero there is the free marker.
+		provider = base({
+			listModels: async () => [
+				{
+					id: 'unpriced-model',
+					name: 'Unpriced Model',
+					supportsToolUse: true,
+					supportsStreaming: true,
+				},
+			],
+		})
+
+		await expect(describeProviderModels(providerId, detected)).resolves.toEqual({
+			kind: 'ok',
+			models: [{ id: 'unpriced-model', name: 'Unpriced Model' }],
 		})
 	})
 

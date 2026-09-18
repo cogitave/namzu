@@ -23,6 +23,7 @@ The kernel.
 * [Framework and computer-use gap audit](framework-gap-audit.md) - Verified boundaries against Pydantic AI, AG-UI and OpenBot, with next acceptance checks.
 
 * [Model-owned reasoning capabilities](model-reasoning.md) - Provider-neutral catalogue metadata and exact session effort menus.
+* [Model prices, and what an absent one means](model-prices.md) - Optional per-million rates on ModelInfo, why a driver omits a rate it never learned, and how a reader renders the absence.
 
 * [Tool execution barriers](tool-execution.md) - Explicit batch ordering while independent read segments remain parallel.
 * [OpenAI reasoning menus](openai-reasoning.md) - Model-specific API and subscription effort levels and validation.

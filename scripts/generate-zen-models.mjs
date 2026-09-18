@@ -812,6 +812,16 @@ export function derive(service, parsed, providerKey, provider, omissions, served
 			)
 			continue
 		}
+		// The page either prices the model or names it free; the guard above
+		// refused every model that is neither. So the zero written when there is
+		// no price row is a rate this script KNOWS — it came from the free list —
+		// and not a placeholder for one it could not find. Kept as a branch
+		// rather than `priceRow?.input ?? 0` because that shape reads as
+		// "default to zero", which is the defect the drivers carried: a price of
+		// zero is a claim that a model is free, and a default that produces one
+		// makes that claim on the reader's behalf.
+		const inputPrice = priceRow ? priceRow.input : 0
+		const outputPrice = priceRow ? priceRow.output : 0
 		models.push({
 			id: row.id,
 			name: row.name,
@@ -819,8 +829,8 @@ export function derive(service, parsed, providerKey, provider, omissions, served
 			contextWindow,
 			maxOutputTokens,
 			inputModalities,
-			inputPrice: priceRow?.input ?? 0,
-			outputPrice: priceRow?.output ?? 0,
+			inputPrice,
+			outputPrice,
 			supportsToolUse: metadata.tool_call === true,
 			effortLevels: effort ? [...effort.values] : [],
 			// Anonymous admission is a Zen concept: the Go constructor refuses an

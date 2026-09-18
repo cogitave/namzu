@@ -711,8 +711,6 @@ export class DeepSeekProvider implements LLMProvider {
 			return {
 				...model,
 				...(inputModalities !== undefined ? { inputModalities } : {}),
-				inputPrice: 0,
-				outputPrice: 0,
 				supportsToolUse: true,
 				supportsStreaming: true,
 			}

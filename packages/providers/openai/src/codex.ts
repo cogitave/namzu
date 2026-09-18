@@ -715,8 +715,6 @@ export class CodexProvider implements LLMProvider {
 					{
 						id: item.slug,
 						name: typeof item.display_name === 'string' ? item.display_name : item.slug,
-						inputPrice: 0,
-						outputPrice: 0,
 						supportsToolUse: true,
 						supportsStreaming: true,
 						...(profile ? { reasoningEffortLevels: profile.levels } : {}),

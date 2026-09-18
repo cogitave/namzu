@@ -17,6 +17,38 @@ import { defineProviderDriverConformance } from '../conformance.js'
  */
 
 const HERE = dirname(fileURLToPath(import.meta.url))
+const PROVIDERS_DIR = join(HERE, '..', '..', '..', '..', 'providers')
+
+/** Comments carry the docblocks that ARGUE for a zero, so they are not scanned. */
+function stripComments(raw: string): string {
+	return raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+}
+
+/** Every non-test TypeScript source in every provider package. */
+function driverSources(): string[] {
+	const files: string[] = []
+	for (const pkg of readdirSync(PROVIDERS_DIR)) {
+		const src = join(PROVIDERS_DIR, pkg, 'src')
+		if (!existsSync(src)) continue
+		for (const entry of readdirSync(src, { recursive: true, withFileTypes: true })) {
+			if (!entry.isFile() || !entry.name.endsWith('.ts')) continue
+			// `codex.ts` is the file this reaches that a `client.ts`-only scan
+			// did not, and it carried one of the six zeros.
+			if (entry.parentPath.includes('__tests__') || entry.name.endsWith('.test.ts')) continue
+			files.push(join(entry.parentPath, entry.name))
+		}
+	}
+	return files
+}
+
+/** The drivers the rate card says bill nothing by construction — local inference. */
+function unmeteredPackages(): Set<string> {
+	const raw = readFileSync(join(HERE, '..', '..', 'pricing', 'rates.source.json'), 'utf8')
+	const source = JSON.parse(raw) as { vendors: { providerId: string; unmetered?: boolean }[] }
+	return new Set(
+		source.vendors.filter((vendor) => vendor.unmetered === true).map((vendor) => vendor.providerId),
+	)
+}
 
 /** Runs the suite as code and returns the names of the cases that failed. */
 async function runSuite(makeProvider: () => LLMProvider, registryType = 'good'): Promise<string[]> {
@@ -132,15 +164,80 @@ describe('no driver writes a zero it does not mean', () => {
 		//
 		// This scan does not depend on reaching anything, so it is the half
 		// that actually holds the line.
-		const providersDir = join(HERE, '..', '..', '..', '..', 'providers')
 		const offenders: string[] = []
 
-		for (const pkg of readdirSync(providersDir)) {
-			const client = join(providersDir, pkg, 'src', 'client.ts')
+		for (const pkg of readdirSync(PROVIDERS_DIR)) {
+			const client = join(PROVIDERS_DIR, pkg, 'src', 'client.ts')
 			if (!existsSync(client)) continue
-			const raw = readFileSync(client, 'utf8')
-			const code = raw.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
+			const code = stripComments(readFileSync(client, 'utf8'))
 			if (/\b(contextWindow|maxOutputTokens):\s*0\b/.test(code)) offenders.push(pkg)
+		}
+
+		expect(offenders).toEqual([])
+	})
+
+	it('finds no price defaulted to zero in any driver', () => {
+		// The class that actually shipped. Six drivers wrote `0` for a rate they
+		// had never learned, and `?? 0` is how most of them said it — a shape
+		// that READS as "fall back to zero" and BEHAVES as "assert this model is
+		// free". A price of zero is a claim about a bill, so a default that
+		// produces one makes that claim on the reader's behalf.
+		//
+		// No exemption applies here, and that is the point of splitting it from
+		// the literal scan below. A driver that is genuinely unmetered does not
+		// need a default: it states `0` because it knows it, not because a
+		// lookup came back empty.
+		//
+		// The field name is matched with or without a `:` after it, and the
+		// first draft required the colon. That draft was tested by putting
+		// openrouter's `?? '0'` back and it passed — because the reintroduction
+		// does not have to be an object literal. `const inputPrice =
+		// pricePerMillion(m.pricing?.prompt ?? '0')` is the same defect one line
+		// up, and the colon requirement read straight past it.
+		const offenders: string[] = []
+		for (const file of driverSources()) {
+			const code = stripComments(readFileSync(file, 'utf8'))
+			if (/\b(inputPrice|outputPrice)\b[^\n]*(\?\?|\|\|)\s*['"]?0['"]?/.test(code)) {
+				offenders.push(file.slice(PROVIDERS_DIR.length + 1))
+			}
+		}
+		expect(offenders).toEqual([])
+	})
+
+	it('finds no literal zero price outside a driver that is unmetered', () => {
+		// A literal `0` is not decidable from the source alone — it is either a
+		// claim ("this bills nothing") or a placeholder ("I never found out"),
+		// and the two are identical text. So this reads the claim from the one
+		// place the repo already records it, `rates.source.json`'s
+		// `unmetered: true`, whose own prose is the argument this change
+		// extends: local inference "is priced at zero, which is KNOWN-free and
+		// therefore distinct from unknown".
+		//
+		// The generated Zen catalogue is exempt by name. Its zeros come from a
+		// reviewed source through a generator that refuses any model the page
+		// neither prices nor names free, and `generate-zen-models.mjs --check`
+		// with its own tests hold that line — a stronger guarantee than a text
+		// scan could give, and one this scan would only misreport as a defect.
+		//
+		// What this does NOT reach: a driver that hardcodes a literal zero it
+		// should have derived. That is syntactically indistinguishable from
+		// ollama's honest one, and no scan can separate them. The half that
+		// holds is the default above, because a derived price cannot be
+		// reintroduced without one.
+		const unmetered = unmeteredPackages()
+		const offenders: string[] = []
+
+		for (const file of driverSources()) {
+			const relative = file.slice(PROVIDERS_DIR.length + 1)
+			const pkg = relative.slice(0, relative.indexOf('/'))
+			if (unmetered.has(pkg)) continue
+			if (relative === 'zen/src/models.ts') continue
+			const code = stripComments(readFileSync(file, 'utf8'))
+			// `(?![\d.])` so `0.8` is a rate and not a zero. Without it the
+			// scan reported bedrock's Nova Pro row — a real published price —
+			// as a placeholder, which is the failure mode of a text scan that
+			// is too eager, and the reason the default above carries the weight.
+			if (/\b(inputPrice|outputPrice)\s*:\s*0(?![\d.])/.test(code)) offenders.push(relative)
 		}
 
 		expect(offenders).toEqual([])

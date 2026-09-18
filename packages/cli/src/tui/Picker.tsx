@@ -1143,6 +1143,17 @@ function ModelStepView({
 											c.id === currentModel ? '(current)' : '',
 											c.note?.includes('namzu default') ? '(default)' : '',
 											c.note?.includes('image input') ? '(image)' : '',
+											// Rebuilt from a fixed vocabulary, so a word
+											// missing from it is DROPPED rather than
+											// shortened — and a `(free)` that vanishes on a
+											// narrow terminal is a marker the operator
+											// cannot rely on. Listed here for the same
+											// reason the other two are: the note is prose
+											// the model step built, and this branch has to
+											// know which of it still fits. `free` is read
+											// off `c.note` rather than off the prices,
+											// which the choice does not carry.
+											c.note?.includes('free') ? '(free)' : '',
 										]
 									: [
 											c.note,

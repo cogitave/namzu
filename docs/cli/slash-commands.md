@@ -247,6 +247,12 @@ Arrows, PgUp/PgDn and Home/End move through the filtered results. Enter applies
 the highlighted model; an empty result cannot be applied. Esc retains its
 normal back or cancel behavior, including cancelling a pending selection.
 
+A row is marked `(free)` only when the provider reported both rates as zero. A
+provider that published no rate gets no marker, because an absent price is not a
+price of zero — see [Model prices](../sdk/model-prices.md). Under 70 columns the
+notes are rebuilt from a fixed vocabulary, and `(free)` joins `(default)` and
+`(image)` there rather than being dropped.
+
 In `/agents`, Enter opens the selected child's live transcript as a separate
 framed screen. Esc returns to the agent list; `q` or Ctrl+T returns to the main
 conversation. Completed children remain available while retained in this

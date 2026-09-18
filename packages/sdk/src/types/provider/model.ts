@@ -34,8 +34,32 @@ export interface ModelInfo {
 	contextWindow?: number
 	/** Same, and absent for the same reason. */
 	maxOutputTokens?: number
-	inputPrice: number
-	outputPrice: number
+	/**
+	 * USD per million input tokens, when the driver knows the rate.
+	 *
+	 * OPTIONAL, and the optionality is the fix — the same one `contextWindow`
+	 * got, applied to the field where a zero is most expensive. Six drivers
+	 * wrote `0` wherever the vendor listing carries no rate, and a price of
+	 * zero is not "I do not know", it is a billing fact: "this model is
+	 * free". A consumer summing these under-reports a bill; one offering a
+	 * `(free)` marker — the read that found this — labels every paid model
+	 * on a driver that never learned its rates.
+	 *
+	 * The distinction is not new here, only lost in transit.
+	 * `resolveModelPricing` already returns `undefined` for a rate nobody
+	 * has and `{0, 0}` for a driver that genuinely bills nothing, and says
+	 * in as many words that a caller flattening the two reproduces the
+	 * defect the pricing module exists to remove. This field carried the
+	 * flattened version to every consumer that never reached that module.
+	 *
+	 * Absent means unknown. `0` means free, and is only written by a driver
+	 * that knows it: the local servers, and a catalogue whose source names
+	 * the model as free. A caller that must show a number should render
+	 * "unknown" rather than `$0.00`, which is the conclusion being fixed.
+	 */
+	inputPrice?: number
+	/** Same, and absent for the same reason. */
+	outputPrice?: number
 	supportsToolUse: boolean
 	supportsStreaming: boolean
 }

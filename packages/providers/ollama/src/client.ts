@@ -254,6 +254,12 @@ export class OllamaProvider implements LLMProvider {
 		return resp.models.map((m) => ({
 			id: m.name,
 			name: m.name,
+			// A price this driver KNOWS, not a placeholder for one it does not.
+			// Ollama serves a server the operator runs locally and bills per
+			// token exactly never, so zero is the true rate. Absence would say
+			// "nobody knows" — the one thing that is untrue of it — and a
+			// consumer is right to read `0` here as free. See
+			// `ModelInfo.inputPrice`.
 			inputPrice: 0,
 			outputPrice: 0,
 			supportsToolUse: false,

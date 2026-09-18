@@ -77,6 +77,76 @@ describe('modelStep', () => {
 		expect(step.choices.find((choice) => choice.id === 'unknown')?.note).toBeUndefined()
 	})
 
+	// The read that found the defect. Every driver wrote `0` for a rate it
+	// never learned, so on four of them a rule reading "both prices are zero"
+	// labelled the whole menu free — a claim about a bill, printed as a fact,
+	// on a screen the operator has no reason to doubt.
+	describe('the free marker', () => {
+		it('marks a model the provider reported at zero', () => {
+			const step = modelStep(DEFAULT, {
+				kind: 'ok',
+				models: [{ id: 'free', name: 'Free', inputPrice: 0, outputPrice: 0 }],
+			})
+
+			expect(step.choices.find((choice) => choice.id === 'free')?.note).toBe('(free)')
+		})
+
+		it('says nothing about a model whose rate nobody published', () => {
+			// The regression this whole change exists to prevent. Absence is
+			// not a price of zero; marking an unknown as free is worse than
+			// marking nothing, because it is a quote.
+			const step = modelStep(DEFAULT, {
+				kind: 'ok',
+				models: [{ id: 'unpriced', name: 'Unpriced' }],
+			})
+
+			expect(step.choices.find((choice) => choice.id === 'unpriced')?.note).toBeUndefined()
+		})
+
+		it('does not mark a half-known rate free', () => {
+			// One rate published and not the other is not enough to call a
+			// model free, and the strict comparison is what says so.
+			const step = modelStep(DEFAULT, {
+				kind: 'ok',
+				models: [
+					{ id: 'half', name: 'Half', inputPrice: 0 },
+					{ id: 'other-half', name: 'Other', outputPrice: 0 },
+				],
+			})
+
+			expect(step.choices.find((choice) => choice.id === 'half')?.note).toBeUndefined()
+			expect(step.choices.find((choice) => choice.id === 'other-half')?.note).toBeUndefined()
+		})
+
+		it('does not mark a model that charges anything at all', () => {
+			const step = modelStep(DEFAULT, {
+				kind: 'ok',
+				models: [{ id: 'paid', name: 'Paid', inputPrice: 0, outputPrice: 15 }],
+			})
+
+			expect(step.choices.find((choice) => choice.id === 'paid')?.note).toBeUndefined()
+		})
+
+		it('keeps the free marker alongside the other notes', () => {
+			const step = modelStep(DEFAULT, {
+				kind: 'ok',
+				models: [
+					{
+						id: 'free-vision',
+						name: 'Free Vision',
+						inputModalities: ['text', 'image'],
+						inputPrice: 0,
+						outputPrice: 0,
+					},
+				],
+			})
+
+			expect(step.choices.find((choice) => choice.id === 'free-vision')?.note).toBe(
+				'(image input · free)',
+			)
+		})
+	})
+
 	it('starts on the model already in force', () => {
 		const step = modelStep(
 			DEFAULT,

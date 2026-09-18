@@ -20,6 +20,26 @@ import type { OpenRouterConfig } from './types.js'
 
 const OPENROUTER_BASE_URL = process.env.OPENROUTER_BASE_URL ?? 'https://openrouter.ai/api/v1'
 
+/**
+ * A rate OpenRouter published for a model, or nothing.
+ *
+ * This listing is the one place both answers arrive on the same field and
+ * only one of them used to survive. OpenRouter states each rate as a decimal
+ * string of USD per token and states `"0"` for the models it serves at no
+ * charge — so `?? '0'` did not default a missing price, it asserted one: every
+ * model whose pricing block was absent was reported as free, which is a claim
+ * about a bill. Absence now stays absent, a published `"0"` is still a real
+ * zero, and a value that does not parse is treated as absence rather than
+ * `NaN` — which would reach a consumer as a total nobody can read.
+ *
+ * See `ModelInfo.inputPrice`.
+ */
+function pricePerMillion(raw: string | undefined): number | undefined {
+	if (raw === undefined) return undefined
+	const parsed = Number.parseFloat(raw)
+	return Number.isFinite(parsed) ? parsed * 1_000_000 : undefined
+}
+
 interface RawUsage {
 	prompt_tokens: number
 	completion_tokens: number
@@ -403,16 +423,20 @@ export class OpenRouterProvider implements LLMProvider {
 		}
 		signal?.throwIfAborted()
 
-		return data.data.map((m) => ({
-			id: m.id,
-			name: m.name,
-			contextWindow: m.context_length,
-			maxOutputTokens: m.top_provider?.max_completion_tokens ?? 4096,
-			inputPrice: Number.parseFloat(m.pricing?.prompt ?? '0') * 1_000_000,
-			outputPrice: Number.parseFloat(m.pricing?.completion ?? '0') * 1_000_000,
-			supportsToolUse: true,
-			supportsStreaming: true,
-		}))
+		return data.data.map((m) => {
+			const inputPrice = pricePerMillion(m.pricing?.prompt)
+			const outputPrice = pricePerMillion(m.pricing?.completion)
+			return {
+				id: m.id,
+				name: m.name,
+				contextWindow: m.context_length,
+				maxOutputTokens: m.top_provider?.max_completion_tokens ?? 4096,
+				...(inputPrice !== undefined ? { inputPrice } : {}),
+				...(outputPrice !== undefined ? { outputPrice } : {}),
+				supportsToolUse: true,
+				supportsStreaming: true,
+			}
+		})
 	}
 
 	async healthCheck(): Promise<boolean> {

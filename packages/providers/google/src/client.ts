@@ -23,6 +23,20 @@ const PRICES: Record<string, readonly [number, number]> = {
 	'gemini-2.5-flash': [0.3, 2.5],
 	'gemini-2.5-pro': [1.25, 10],
 }
+/**
+ * The rates for a model, when the table above holds them.
+ *
+ * An absent row yields an absent price, NOT a price of zero. Two models are
+ * priced here and the listing carries many more, so the `?? 0` this replaces
+ * told every consumer that every unpriced Gemini was free — and a `(free)`
+ * marker reads both prices being zero as exactly that claim. Absence is the
+ * honest answer: gemini's rates are published, this driver just was not given
+ * them. See `ModelInfo.inputPrice`.
+ */
+function priceFor(id: string): Pick<ModelInfo, 'inputPrice' | 'outputPrice'> {
+	const row = PRICES[id]
+	return row ? { inputPrice: row[0], outputPrice: row[1] } : {}
+}
 export const GOOGLE_CAPABILITIES: ProviderCapabilities = {
 	supportsTools: true,
 	supportsStreaming: true,
@@ -159,8 +173,7 @@ export class GoogleProvider implements LLMProvider {
 			return Object.keys(PRICES).map((id) => ({
 				id,
 				name: id,
-				inputPrice: PRICES[id]?.[0] ?? 0,
-				outputPrice: PRICES[id]?.[1] ?? 0,
+				...priceFor(id),
 				supportsToolUse: true,
 				supportsStreaming: true,
 				reasoningEffortLevels: effortLevels(id),
@@ -191,8 +204,7 @@ export class GoogleProvider implements LLMProvider {
 						name: m.displayName ?? id,
 						contextWindow: m.inputTokenLimit,
 						maxOutputTokens: m.outputTokenLimit,
-						inputPrice: PRICES[id]?.[0] ?? 0,
-						outputPrice: PRICES[id]?.[1] ?? 0,
+						...priceFor(id),
 						supportsToolUse: true,
 						supportsStreaming: true,
 						reasoningEffortLevels: effortLevels(id),
