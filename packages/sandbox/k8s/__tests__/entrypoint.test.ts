@@ -845,6 +845,20 @@ describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 	const STANDIN_EXEC_TIMEOUT_MS = 5_000
 
 	/**
+	 * How much of a process's name the kernel keeps. `TASK_COMM_LEN` is 16
+	 * BYTES including the terminator, so `/proc/<pid>/comm` reports at most
+	 * 15 characters — measured, not assumed: a symlink named
+	 * `averyverylonginitname` (21) answers `averyverylongin` (15).
+	 *
+	 * This matters to {@link awaitStandInExec} and to nothing else here: it
+	 * compares the whole expected basename against what the kernel reports,
+	 * so a name longer than this can never match, and the wait would spend
+	 * its entire bound before failing on every prestop case. See the guard
+	 * that refuses one up front.
+	 */
+	const TASK_COMM_LEN = 15
+
+	/**
 	 * The name the kernel records for a process — the basename of the path
 	 * handed to `execve`, so a `sleep` exec'd through a symlink called
 	 * `tini` answers `tini` — or `''` when there is no such process to read
@@ -896,6 +910,19 @@ describe('entrypoint.sh prestop: the flush a stopping pod gets', () => {
 	 * would report the wrong thing.
 	 */
 	function awaitStandInExec(pid: number, expectedName: string): void {
+		// A name the kernel cannot report can never match, so refuse it HERE
+		// rather than letting the loop below run its bound out first. That
+		// failure is latent rather than live — every stand-in this suite
+		// starts today is named well inside the limit — but a future one
+		// called something longer would otherwise cost the full 5s on every
+		// prestop case and then blame the exec, which did happen.
+		if (expectedName.length > TASK_COMM_LEN) {
+			throw new Error(
+				`expected init name '${expectedName}' is ${expectedName.length} characters, and the kernel ` +
+					`keeps at most ${TASK_COMM_LEN} in /proc/<pid>/comm — no stand-in can ever answer it, ` +
+					'so this wait would fail on the deadline rather than on the truth',
+			)
+		}
 		const deadline = Date.now() + STANDIN_EXEC_TIMEOUT_MS
 		for (let seen = commOf(pid); seen !== expectedName; seen = commOf(pid)) {
 			if (seen === '' && !alive(pid)) {
