@@ -25,9 +25,74 @@ export type SdkProviderType = ProviderId
 
 export type SubscriptionProviderId = 'anthropic' | 'codex'
 
+/**
+ * What each vendor's row in the provider picker is called, keyed by the vendor
+ * an entry names.
+ *
+ * A vendor's name is written ONCE here rather than on every entry belonging to
+ * it. Two entries carrying the same string are two entries that can disagree,
+ * and which name a reader sees would then depend on which one a lookup reached
+ * first. `VendorId` is derived from these keys, so a `vendor` field naming a
+ * vendor that is not named here does not compile, and adding a vendor here is
+ * adding one the type system knows about in the same edit.
+ *
+ * ## What is one vendor, and what only looks like one
+ *
+ * `openai` and `codex` are one vendor. They are one product reached two ways —
+ * a subscription sign-in, or an API key — which is the shape `anthropic` has
+ * always had in this registry: one id taking an API key, a token variable, or a
+ * signed-in session. Two rows for it said the same vendor's name twice, and the
+ * one holding the key had to work out which of the two rows was theirs.
+ *
+ * `zen` and `zen-go` are NOT merged, and the reason is the rule above rather
+ * than a preference. They are one company's two services: separate catalogues,
+ * separate billing routes, and disjoint keys — a key for one is not a way in to
+ * the other. Merging them would put a product decision (which catalogue to run
+ * on) inside a chooser whose title is about how to authenticate, and would hide
+ * the one word — `Go` — that tells an operator they are choosing between two
+ * priced things. `ollama` and `lmstudio` are two different local servers and
+ * stay two rows for the same reason.
+ *
+ * A vendor with one member is a vendor too, and says so here: the field is
+ * required on every entry so that no provider can fall outside the grouping by
+ * omission.
+ */
+export const VENDOR_NAMES = Object.freeze({
+	anthropic: 'Anthropic (Claude)',
+	openai: 'OpenAI',
+	google: 'Google (Gemini)',
+	deepseek: 'DeepSeek',
+	openrouter: 'OpenRouter',
+	zen: 'Zen',
+	'zen-go': 'Zen Go',
+	ollama: 'Ollama (local)',
+	lmstudio: 'LM Studio (local)',
+	bedrock: 'AWS Bedrock',
+	http: 'Custom HTTP (OpenAI-compatible)',
+} as const)
+
+/** The vendor a registry entry belongs to. Derived from `VENDOR_NAMES`. */
+export type VendorId = keyof typeof VENDOR_NAMES
+
 export interface ProviderRegistryEntry {
 	readonly id: ProviderId
 	readonly label: string
+	/**
+	 * The vendor whose picker row this entry belongs to.
+	 *
+	 * One row per vendor, not one per id: `codex` and `openai` are two ways to
+	 * authenticate one product, and drawing them as two rows named the same
+	 * vendor twice — a subscription session on one line and the API key it
+	 * wanted on the next.
+	 *
+	 * A field rather than a table beside the picker, because which ids are one
+	 * vendor is a fact ABOUT THE PROVIDERS. The picker is only the first surface
+	 * to need it: the doctor, the chain validator and anything else that will
+	 * ever group providers reads this registry, and a table in the screen would
+	 * be a second list of providers — the thing `ALL_PROVIDER_IDS` is derived to
+	 * avoid. See `VENDOR_NAMES` for which ids are one vendor and why.
+	 */
+	readonly vendor: VendorId
 	/** Env vars searched in order for an API key. First non-empty wins. */
 	readonly envVars: readonly string[]
 	/** Default base URL if the provider has one (else SDK default). */
@@ -89,6 +154,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		anthropic: {
 			id: 'anthropic',
 			label: 'Anthropic (Claude)',
+			vendor: 'anthropic',
 			// Order: explicit anthropic key, then anthropic-token
 			// variant, then claude-code's OAuth env (often present when the user
 			// has claude-code installed).
@@ -103,6 +169,8 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		codex: {
 			id: 'codex',
 			label: 'OpenAI (Codex subscription)',
+			// The subscription side of the vendor below: one product, two ways in.
+			vendor: 'openai',
 			// A Codex subscription token is never accepted through an environment
 			// variable here. It is a Responses credential with account routing, not
 			// an OpenAI API key; discovery reads its complete owned envelope instead.
@@ -118,6 +186,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		google: {
 			id: 'google',
 			label: 'Google (Gemini)',
+			vendor: 'google',
 			envVars: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'],
 			defaultModel: 'gemini-2.5-flash',
 			requiresApiKey: true,
@@ -128,6 +197,9 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		openai: {
 			id: 'openai',
 			label: 'OpenAI',
+			// The key side of the vendor above. `VENDOR_NAMES` names the row this
+			// and `codex` share.
+			vendor: 'openai',
 			envVars: ['OPENAI_API_KEY'],
 			defaultModel: 'gpt-4o',
 			requiresApiKey: true,
@@ -138,6 +210,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		deepseek: {
 			id: 'deepseek',
 			label: 'DeepSeek',
+			vendor: 'deepseek',
 			envVars: ['DEEPSEEK_API_KEY'],
 			defaultBaseUrl: 'https://api.deepseek.com',
 			// The smaller of the two models the vendor serves. `deepseek-chat`
@@ -152,6 +225,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		openrouter: {
 			id: 'openrouter',
 			label: 'OpenRouter',
+			vendor: 'openrouter',
 			envVars: ['OPENROUTER_API_KEY'],
 			defaultBaseUrl: 'https://openrouter.ai/api/v1',
 			defaultModel: 'anthropic/claude-opus-5',
@@ -163,6 +237,8 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		zen: {
 			id: 'zen',
 			label: 'Zen',
+			// Deliberately NOT the vendor `zen-go` names: see `VENDOR_NAMES`.
+			vendor: 'zen',
 			envVars: ['OPENCODE_API_KEY', 'OPENCODE_ZEN_API_KEY'],
 			defaultBaseUrl: 'https://opencode.ai/zen/v1',
 			defaultModel: 'muse-spark-1.3-contributor-free',
@@ -174,6 +250,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		'zen-go': {
 			id: 'zen-go',
 			label: 'Zen Go',
+			vendor: 'zen-go',
 			// Go has its own billing route. A Zen key never opts an operator into it.
 			envVars: ['OPENCODE_GO_API_KEY'],
 			defaultBaseUrl: 'https://opencode.ai/zen/go/v1',
@@ -186,6 +263,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		ollama: {
 			id: 'ollama',
 			label: 'Ollama (local)',
+			vendor: 'ollama',
 			envVars: [],
 			defaultBaseUrl: 'http://localhost:11434',
 			probeUrl: 'http://localhost:11434/api/tags',
@@ -198,6 +276,9 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		lmstudio: {
 			id: 'lmstudio',
 			label: 'LM Studio (local)',
+			// A second local server, and not the vendor above: different software,
+			// different port, and neither is a credential for the other.
+			vendor: 'lmstudio',
 			envVars: [],
 			defaultBaseUrl: 'http://localhost:1234/v1',
 			probeUrl: 'http://localhost:1234/v1/models',
@@ -209,6 +290,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		bedrock: {
 			id: 'bedrock',
 			label: 'AWS Bedrock',
+			vendor: 'bedrock',
 			envVars: ['AWS_ACCESS_KEY_ID'], // SDK reads the rest from the AWS chain
 			// UNVERIFIED, and left as-is deliberately. This driver talks to the
 			// Converse API, whose ids are date-stamped and version-suffixed
@@ -227,6 +309,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 		http: {
 			id: 'http',
 			label: 'Custom HTTP (OpenAI-compatible)',
+			vendor: 'http',
 			// http is never auto-discovered; reserved for an explicit /provider
 			// flow that lets the user enter a base URL + key.
 			envVars: [],
@@ -258,6 +341,21 @@ export const PROVIDER_REGISTRY: Readonly<Record<ProviderId, ProviderRegistryEntr
 export const ALL_PROVIDER_IDS: readonly ProviderId[] = Object.freeze(
 	Object.keys(PROVIDER_REGISTRY) as ProviderId[],
 )
+
+/**
+ * The entries one vendor is made of, in registry order.
+ *
+ * Derived by filtering `ALL_PROVIDER_IDS`, never listed: a vendor's members are
+ * whatever says `vendor: <id>`, so an entry added to a vendor is a member of it
+ * with no second edit. Registry order and not a preferred order — a caller that
+ * needs "the first one that takes a typed credential" is asking a question
+ * about the registry, and the registry answers it in the order it is written.
+ */
+export function providerEntriesOfVendor(vendor: VendorId): readonly ProviderRegistryEntry[] {
+	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter(
+		(entry) => entry.vendor === vendor,
+	)
+}
 
 /**
  * The one sentence every refusal of an unbuildable provider uses.

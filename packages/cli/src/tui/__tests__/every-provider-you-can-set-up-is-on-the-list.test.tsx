@@ -133,35 +133,26 @@ describe('the provider list', () => {
 		unmount()
 	})
 
-	it('counts ten rows and says what the digit shortcut reaches', async () => {
-		// Three detected providers here take no typed credential, so the seven
-		// that do push the list past nine — which is where one keystroke per row
-		// runs out. Said out loud, because a tenth row that looks selectable and
-		// is not is worse than one that says so.
-		const many = open({ detected: [CODEX_DEVICE, LOCAL_OLLAMA, LOCAL_LMSTUDIO] })
-		expect(many.lastFrame()).toContain('Rows past 9 are ↑↓ only')
-		many.unmount()
-
-		const few = open()
-		expect(few.lastFrame()).not.toContain('Rows past 9')
-		few.unmount()
-	})
-
-	it('still reaches the rows past nine with the arrow keys', async () => {
+	it('numbers every row it can hold, so the digit shortcut reaches the last one', async () => {
+		// Three detected vendors and the six that can still be set up is nine rows,
+		// which is one per vendor and the most this screen can ever draw. Ten is
+		// where one keystroke per row runs out, so the sentence about the rows past
+		// nine has nothing to say here — it stayed in the screen for the day a
+		// tenth vendor arrives, and this asserts the state that makes it quiet.
 		const { lastFrame, stdin, unmount } = open({
 			detected: [CODEX_DEVICE, LOCAL_OLLAMA, LOCAL_LMSTUDIO],
 		})
 
-		// Ten rows: `1` then `0` is two presses, not a tenth row, so the cursor
-		// stays where the `1` put it and the rest is the arrows' job.
-		stdin.write('1')
-		await flush()
-		stdin.write('0')
-		await flush()
-		expect(highlighted(lastFrame())).toMatch(/› 1\. /)
+		expect(lastFrame()).not.toContain('Rows past 9')
 
 		await moveTo(lastFrame, stdin, PROVIDER_REGISTRY.openrouter.label)
 		expect(highlighted(lastFrame())).toContain(PROVIDER_REGISTRY.openrouter.label)
+
+		// The digit reaches the last row there is, which is the whole claim a
+		// one-keystroke-per-row shortcut can make.
+		stdin.write('9')
+		await flush()
+		expect(highlighted(lastFrame())).toContain(PROVIDER_REGISTRY['zen-go'].label)
 		unmount()
 	})
 })

@@ -27,6 +27,9 @@ const DETECTED = [
 		entry: {
 			id: 'openai',
 			label: 'A Provider',
+			// The picker names a row after its VENDOR, and a row with no name
+			// renders nothing at all.
+			vendor: 'openai',
 			defaultModel: 'model-default',
 			requiresApiKey: true,
 			envVars: ['A_KEY'],

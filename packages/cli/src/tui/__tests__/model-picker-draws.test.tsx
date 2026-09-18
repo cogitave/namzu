@@ -17,7 +17,7 @@ import { render } from 'ink-testing-library'
 import { describe, expect, it, vi } from 'vitest'
 
 import type { DetectedProvider } from '../../integrations/providers/index.js'
-import { PROVIDER_REGISTRY } from '../../integrations/providers/registry.js'
+import { PROVIDER_REGISTRY, VENDOR_NAMES } from '../../integrations/providers/registry.js'
 
 import type { ModelListing } from '../agent.js'
 import { Picker } from '../Picker.js'
@@ -39,6 +39,10 @@ function detected(): DetectedProvider[] {
 			entry: {
 				id: 'openai',
 				label: 'A Provider',
+				// The picker names a row after its VENDOR. A literal without one
+				// draws no row at all, which is the same lesson the comment above
+				// records about `constructible`, one field later.
+				vendor: 'openai',
 				defaultModel: DEFAULT_MODEL,
 				requiresApiKey: true,
 				envVars: ['A_KEY'],
@@ -311,6 +315,7 @@ describe('a detected provider with no bundled driver', () => {
 				entry: {
 					id: 'lmstudio',
 					label: 'A Local Server',
+					vendor: 'lmstudio',
 					defaultModel: DEFAULT_MODEL,
 					requiresApiKey: false,
 					envVars: [],
@@ -342,7 +347,10 @@ describe('a detected provider with no bundled driver', () => {
 		const { lastFrame } = open({ detected: unbuildable() })
 		await flush()
 
-		expect(lastFrame()).toContain('A Local Server')
+		// Named by its vendor, which is what a row is now: the entry's own label
+		// is what the row used to be titled, and one vendor with two ids made that
+		// two rows.
+		expect(lastFrame()).toContain(VENDOR_NAMES.lmstudio)
 		expect(lastFrame()).toMatch(/unavailable in this build/)
 	})
 

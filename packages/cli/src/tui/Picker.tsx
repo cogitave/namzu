@@ -21,6 +21,7 @@ import {
 	type SubscriptionProviderId,
 	signedInSubscriptionProviders,
 	unsupportedProviderMessage,
+	type VendorId,
 } from '../integrations/providers/index.js'
 import { type ModelListing, describeProviderModels, verifyCredential } from './agent.js'
 import {
@@ -35,9 +36,16 @@ import { filterModelChoices } from './model-search.js'
 import {
 	credentialNeed,
 	initialProviderRow,
+	pathProviderId,
 	providerListRows,
-	type ProviderListRow,
-	rowProviderId,
+	rowCredentialNeed,
+	rowHasProvider,
+	rowIndexOfProvider,
+	rowIsUsable,
+	rowNeedsChoice,
+	typedCredentialEntry,
+	type VendorPath,
+	type VendorRow,
 } from './provider-list.js'
 import { moveSelection, selectionWindow } from './selection-window.js'
 import {
@@ -181,37 +189,32 @@ function signInChoiceIndex(choices: readonly SubscriptionChoice[], provider: Pro
 /**
  * The provider `k` opens entry for.
  *
- * The highlighted row whenever it takes a typed credential — whichever row that
- * is, detected or not. This screen used to answer the question from the
- * registry instead: the saved provider if the picker was open because of one,
- * and otherwise the first key-capable entry, which is a provider the operator
- * may not have been looking at. A list you can move through is a list the key
+ * The highlighted row's own provider whenever the vendor takes a typed
+ * credential. This screen used to answer the question from the registry
+ * instead: the saved provider if the picker was open because of one, and
+ * otherwise the first key-capable entry, which is a provider the operator may
+ * not have been looking at. A list you can move through is a list the key
  * beside it has to follow.
  *
- * The rows that do not take one — a local server, a provider whose credential
- * arrives by sign-in — fall through to the saved provider this picker was
- * opened for: that route is why the notice above says `k`, and it must keep
- * working when the cursor happens to sit on a row that cannot use it.
+ * A row whose vendor takes none — a local server — falls through to the saved
+ * provider this picker was opened for: that route is why the notice above says
+ * `k`, and it must keep working when the cursor happens to sit on a row that
+ * cannot use it.
  *
  * Returns null when there is nothing here to enter a credential for, which the
  * caller says out loud rather than presenting a field that leads nowhere.
  */
 function keyEntryTarget(
-	row: ProviderListRow | undefined,
+	row: VendorRow | undefined,
 	keyEntryFor: ProviderId | null | undefined,
 ): ProviderRegistryEntry | null {
-	if (row?.kind === 'unconfigured') return row.entry
-	if (row?.kind === 'detected' && row.detected.entry.acceptsTypedCredential) return row.detected.entry
+	const onThisRow = typedCredentialEntry(row)
+	if (onThisRow) return onThisRow
 	if (keyEntryFor) {
 		const entry = PROVIDER_REGISTRY[keyEntryFor]
 		if (entry?.acceptsTypedCredential) return entry
 	}
 	return null
-}
-
-/** Name a row the way its own line does, for a sentence about it. */
-function rowLabel(row: ProviderListRow): string {
-	return row.kind === 'detected' ? row.detected.entry.label : row.entry.label
 }
 
 export function Picker({
@@ -340,6 +343,16 @@ export function Picker({
 		readonly status: 'typing' | 'checking'
 		readonly problem?: string
 	} | null>(null)
+	// The vendor whose ways in are being chosen, while that screen is up.
+	//
+	// Held as the vendor's id and resolved against `rows` on every render, not as
+	// a row object: `rows` is derived from the props on each render, and a stored
+	// row would be the list as it looked on the keystroke that opened this screen.
+	// The screen is only ever reached from a row, so the lookup cannot come back
+	// empty while it is up.
+	const [pathVendor, setPathVendor] = useState<VendorId | null>(null)
+	const pathRow =
+		pathVendor === null ? null : (rows.find((row) => row.vendor === pathVendor) ?? null)
 	const openModels = useCallback(
 		(current: DetectedProvider, returnToProviders = true) => {
 			const operation = beginOperation()
@@ -477,6 +490,82 @@ export function Picker({
 		}
 	}
 
+	/**
+	 * Start a subscription sign-in for one provider.
+	 *
+	 * Written once and reached from two places — the sign-in screen's own Enter,
+	 * and the sign-in path inside a vendor row — because two copies of this would
+	 * be two places for the device-code wording, the operation's ownership and the
+	 * failure sentence to drift apart. It is one operation either way, so an esc
+	 * from either leaves nothing running behind the screen.
+	 */
+	const startSignIn = (entry: ProviderRegistryEntry): void => {
+		if (!entry.subscriptionLogin) return
+		if (!onLogin) {
+			setErrorHint('Subscription sign-in is not available on this screen.')
+			return
+		}
+		const operation = beginOperation()
+		setPathVendor(null)
+		setLoginEntry({ entry, value: '', status: 'starting' })
+		void onLogin(entry.id as SubscriptionProviderId, operation.controller.signal)
+			.then((disposition) => {
+				if (!ownsOperation(operation)) return
+				if (disposition === 'awaiting-input') {
+					setLoginEntry({
+						entry,
+						value: '',
+						status: 'typing',
+					})
+					return
+				}
+				finishOperation(operation)
+				setLoginEntry(null)
+			})
+			.catch((error: unknown) => {
+				if (!ownsOperation(operation)) return
+				finishOperation(operation)
+				setLoginEntry(null)
+				setErrorHint(
+					`Could not start sign-in: ${error instanceof Error ? error.message : String(error)}`,
+				)
+			})
+	}
+
+	/**
+	 * Follow one way in to the flow that already exists for it.
+	 *
+	 * The three arms are the three flows this screen already had; nothing here
+	 * builds a credential. A detected path goes on to the model step exactly as
+	 * Enter on a detected row always has. A credential path opens the paste field
+	 * for its provider, so the value still travels `setKeyEntry` → `acceptKey` →
+	 * the session credential. A sign-in path starts the operation `l` starts.
+	 */
+	const takePath = (path: VendorPath): void => {
+		if (path.kind === 'detected') {
+			const current = path.detected
+			if (selectionKind === 'signed-in-subscription') {
+				const operation = beginOperation()
+				onSubmit({ provider: current.entry.id }, operation.controller.signal)
+				return
+			}
+			setPathVendor(null)
+			openModels(current)
+			return
+		}
+		if (path.kind === 'credential') {
+			if (!onCredential) {
+				setErrorHint(`No credential can be entered for ${path.entry.label} on this screen.`)
+				return
+			}
+			invalidateOperation()
+			setPathVendor(null)
+			setKeyEntry({ entry: path.entry, value: '', status: 'typing' })
+			return
+		}
+		startSignIn(path.entry)
+	}
+
 	useInput((input, key) => {
 		if (loginEntry) {
 			if (key.escape) {
@@ -528,6 +617,49 @@ export function Picker({
 			}
 			if (input && !key.ctrl && !key.meta) {
 				setKeyEntry((k) => (k ? { ...k, value: k.value + input, status: 'typing' } : k))
+			}
+			return
+		}
+
+		// One vendor's ways in. Modal like the two screens above: while it is up it
+		// owns the keyboard, so `k`, `l` and `s` cannot act on a list that is not
+		// the one on screen. Escape returns to the row that opened it rather than
+		// to the top, because the cursor here is an index into this vendor's paths
+		// and would otherwise be read as a position in the list.
+		if (pathRow) {
+			if (key.escape) {
+				invalidateOperation()
+				setPathVendor(null)
+				setCursor(Math.max(0, rows.findIndex((row) => row.vendor === pathRow.vendor)))
+				return
+			}
+			if (key.home || key.end || key.pageUp || key.pageDown) {
+				setCursor((current) =>
+					moveSelection(
+						current,
+						pathRow.paths.length,
+						key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
+					),
+				)
+				return
+			}
+			if (key.upArrow) {
+				setCursor((current) => moveSelection(current, pathRow.paths.length, 'previous'))
+				return
+			}
+			if (key.downArrow) {
+				setCursor((current) => moveSelection(current, pathRow.paths.length, 'next'))
+				return
+			}
+			if (key.return) {
+				const chosen = pathRow.paths[cursorRef.current]
+				if (!chosen) return
+				takePath(chosen)
+				return
+			}
+			const selected = Number.parseInt(input, 10)
+			if (Number.isFinite(selected) && selected >= 1 && selected <= pathRow.paths.length) {
+				setCursor(selected - 1)
 			}
 			return
 		}
@@ -587,7 +719,7 @@ export function Picker({
 			} else {
 				setErrorHint(
 					highlighted
-						? `${rowLabel(highlighted)} does not take a typed credential — choose a provider that does.`
+						? `${highlighted.label} does not take a typed credential — choose a provider that does.`
 						: 'No provider here takes a typed credential.',
 				)
 			}
@@ -599,12 +731,7 @@ export function Picker({
 			(key.leftArrow || (modelQueryRef.current === null && (input === 'p' || input === 'P')))
 		) {
 			invalidateOperation()
-			setCursor(
-				Math.max(
-					0,
-					rows.findIndex((row) => rowProviderId(row) === modelPhase.provider.entry.id),
-				),
-			)
+			setCursor(Math.max(0, rowIndexOfProvider(rows, modelPhase.provider.entry.id)))
 			setModelPhase(null)
 			return
 		}
@@ -624,12 +751,7 @@ export function Picker({
 					onCancel()
 					return
 				}
-				setCursor(
-					Math.max(
-						0,
-						rows.findIndex((row) => rowProviderId(row) === modelPhase.provider.entry.id),
-					),
-				)
+				setCursor(Math.max(0, rowIndexOfProvider(rows, modelPhase.provider.entry.id)))
 				setModelPhase(null)
 				return
 			}
@@ -666,35 +788,7 @@ export function Picker({
 					onSubmit({ provider: chosen.detected.entry.id }, operation.controller.signal)
 					return
 				}
-				if (!chosen.entry.subscriptionLogin) return
-				if (!onLogin) {
-					setErrorHint('Subscription sign-in is not available on this screen.')
-					return
-				}
-				const operation = beginOperation()
-				setLoginEntry({ entry: chosen.entry, value: '', status: 'starting' })
-				void onLogin(chosen.entry.id as SubscriptionProviderId, operation.controller.signal)
-					.then((disposition) => {
-						if (!ownsOperation(operation)) return
-						if (disposition === 'awaiting-input') {
-							setLoginEntry({
-								entry: chosen.entry,
-								value: '',
-								status: 'typing',
-							})
-							return
-						}
-						finishOperation(operation)
-						setLoginEntry(null)
-					})
-					.catch((error: unknown) => {
-						if (!ownsOperation(operation)) return
-						finishOperation(operation)
-						setLoginEntry(null)
-						setErrorHint(
-							`Could not start sign-in: ${error instanceof Error ? error.message : String(error)}`,
-						)
-					})
+				startSignIn(chosen.entry)
 				return
 			}
 			const selected = Number.parseInt(input, 10)
@@ -799,39 +893,30 @@ export function Picker({
 				setErrorHint('No provider available.')
 				return
 			}
-			// A row with no credential has no session to open and no catalogue to
-			// ask: accepting it would submit a provider this machine holds nothing
-			// for. Enter takes the operator to the field instead, which is the same
-			// thing `k` does on this row and the only thing that can move it
-			// forward.
-			if (row.kind === 'unconfigured') {
-				if (!onCredential) {
-					setErrorHint(`No credential can be entered for ${row.entry.label} on this screen.`)
-					return
-				}
+			// Nothing on this row can be constructed, so there is no session to open
+			// and no catalogue to ask. The row stays visible on purpose — see the
+			// list below — so this is the only place that can decline it, and
+			// declining with the reason is the point: accepting would write the
+			// choice to preferences and hand the operator a session that refuses to
+			// start.
+			if (!rowIsUsable(row)) {
+				setErrorHint(unsupportedProviderMessage(row.detected[0]?.entry.id ?? row.vendor))
+				return
+			}
+			// More than one provider behind this row: which of them the operator
+			// means is theirs to say. Skipping the question was the defect this
+			// screen was reported with — one row asked for a key while the session
+			// it could have used sat above it — so the row asks instead of picking.
+			if (rowNeedsChoice(row)) {
 				invalidateOperation()
-				setKeyEntry({ entry: row.entry, value: '', status: 'typing' })
+				setPathVendor(row.vendor)
+				setCursor(0)
 				return
 			}
-			const current = row.detected
-			// Detected, and still not choosable. The row stays visible on purpose
-			// — see the list below — so this is the only place that can decline
-			// it, and declining with the reason is the point: accepting would
-			// write the choice to preferences and hand the operator a session
-			// that refuses to start.
-			if (!current.entry.constructible) {
-				setErrorHint(unsupportedProviderMessage(current.entry.id))
-				return
-			}
-			if (selectionKind === 'signed-in-subscription') {
-				const operation = beginOperation()
-				onSubmit({ provider: current.entry.id }, operation.controller.signal)
-				return
-			}
-			// Ask the provider what it has, then show the model step. The list is
-			// raced against 3s inside `describeProviderModels`, so this resolves
-			// either way and the step always has at least the default.
-			openModels(current)
+			// One provider, so Enter means exactly what it has always meant: the
+			// detected session's models, or the field that takes the credential this
+			// row is missing. `takePath` is the same call the choice screen makes.
+			takePath(row.paths[0])
 			return
 		}
 		// Numeric quick-select, one keystroke per row and therefore the first nine.
@@ -971,6 +1056,41 @@ export function Picker({
 		)
 	}
 
+	// One vendor's ways in. Drawn only where the row's paths name more than one
+	// provider — every other row is answered by Enter as it always was — so this
+	// is the one screen this change adds, and it is reached one way.
+	if (pathRow) {
+		return (
+			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
+				{noticeBox}
+				<Text color={theme.accent.system} bold>
+					Choose a way to use {pathRow.label}
+				</Text>
+				<Text color={theme.text.muted}>
+					{pathRow.detected.length > 0
+						? `Already usable here — ${rowSourceText(pathRow)}.`
+						: 'Nothing on this device is set up for it yet.'}
+				</Text>
+				<Box flexDirection="column" paddingTop={1}>
+					{pathRow.paths.map((path, index) => (
+						<Text
+							key={`${path.kind}-${pathProviderId(path)}`}
+							color={index === cursor ? theme.text.primary : theme.text.muted}
+						>
+							{index === cursor ? '❯' : ' '} {index + 1}. {describePath(path)}
+						</Text>
+					))}
+				</Box>
+				<Box paddingTop={1} flexDirection="column">
+					<Text color={theme.text.muted}>
+						↑↓ or 1-{pathRow.paths.length} navigate · enter use · esc back
+					</Text>
+					{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
+				</Box>
+			</Box>
+		)
+	}
+
 	if (loginPhase) {
 		const choices = subscriptionChoices(detected)
 		const existingCount = choices.filter((choice) => choice.kind === 'existing').length
@@ -1024,7 +1144,7 @@ export function Picker({
 	// footer is one row, and the sentence with a label in it wraps.
 	const namesAnotherRow =
 		entryTarget !== null &&
-		(highlightedRow === undefined || rowProviderId(highlightedRow) !== entryTarget.id)
+		(highlightedRow === undefined || !rowHasProvider(highlightedRow, entryTarget.id))
 
 	if (detected.length === 0) {
 		return (
@@ -1289,50 +1409,55 @@ function ModelStepView({
  * rather than a catalogue, and a machine with six of them would otherwise push
  * the box past a 24-row terminal and scroll the top of it — the detected rows —
  * out of sight.
+ *
+ * Grouping by vendor only shortened this list, and it shortened it by exactly
+ * the duplicates: with one vendor drawn once instead of twice, nine
+ * vendors is the most this screen can ever draw, and the digit shortcut's
+ * nine-row limit is now a bound the list cannot pass rather than one it can
+ * reach and overshoot. The sentence below still guards it, because a tenth
+ * vendor in the registry would put the boundary back.
  */
 function ProviderSetupRows({
 	rows,
 	cursor,
 	currentProvider,
 }: {
-	readonly rows: readonly ProviderListRow[]
+	readonly rows: readonly VendorRow[]
 	readonly cursor: number
 	readonly currentProvider?: string | null
 }) {
-	// The two arms are contiguous by construction (`providerListRows` appends),
+	// The two blocks are contiguous by construction (`providerListRows` appends),
 	// so one boundary splits them and every row's number is its position in the
-	// whole list, whichever block it is drawn in.
-	const firstUnconfigured = rows.findIndex((row) => row.kind === 'unconfigured')
-	const detectedCount = firstUnconfigured === -1 ? rows.length : firstUnconfigured
+	// whole list, whichever block it is drawn in. The boundary is a row's own
+	// state now — whether this machine has anything for it — rather than which
+	// arm of a union it is in.
+	const firstUndetected = rows.findIndex((row) => row.detected.length === 0)
+	const detectedCount = firstUndetected === -1 ? rows.length : firstUndetected
 	return (
 		<>
 			<Box flexDirection="column">
-				{rows.slice(0, detectedCount).map((row, index) =>
-					row.kind === 'detected' ? (
-						<ProviderRow
-							key={row.detected.entry.id}
-							detected={row.detected}
-							index={index}
-							selected={index === cursor}
-							isCurrent={row.detected.entry.id === currentProvider}
-						/>
-					) : null,
-				)}
+				{rows.slice(0, detectedCount).map((row, index) => (
+					<DetectedVendorRow
+						key={row.vendor}
+						row={row}
+						index={index}
+						selected={index === cursor}
+						isCurrent={currentProvider != null && rowHasProvider(row, currentProvider)}
+					/>
+				))}
 			</Box>
-			{firstUnconfigured === -1 ? null : (
+			{firstUndetected === -1 ? null : (
 				<Box flexDirection="column" marginTop={1}>
 					<Text color={theme.text.muted}>Not detected — enter a credential to use these:</Text>
-					{rows.slice(firstUnconfigured).map((row, offset) =>
-						row.kind === 'unconfigured' ? (
-							<UnconfiguredProviderRow
-								key={row.entry.id}
-								entry={row.entry}
-								index={firstUnconfigured + offset}
-								selected={firstUnconfigured + offset === cursor}
-								isCurrent={row.entry.id === currentProvider}
-							/>
-						) : null,
-					)}
+					{rows.slice(firstUndetected).map((row, offset) => (
+						<UnconfiguredVendorRow
+							key={row.vendor}
+							row={row}
+							index={firstUndetected + offset}
+							selected={firstUndetected + offset === cursor}
+							isCurrent={currentProvider != null && rowHasProvider(row, currentProvider)}
+						/>
+					))}
 				</Box>
 			)}
 		</>
@@ -1340,22 +1465,22 @@ function ProviderSetupRows({
 }
 
 /**
- * A row for a provider nothing on this machine can serve yet.
+ * A row for a vendor nothing on this machine can serve yet.
  *
- * Deliberately a separate component from `ProviderRow` rather than one
+ * Deliberately a separate component from `DetectedVendorRow` rather than one
  * component with two modes: the detected row's shape is what operators read
  * every day, and a shared body is a body where a change for the new rows moves
  * the old ones. The columns line up because both pad the label to the same
  * width; what differs is the third one, which says what is missing instead of
  * where the credential came from.
  */
-function UnconfiguredProviderRow({
-	entry,
+function UnconfiguredVendorRow({
+	row,
 	index,
 	selected,
 	isCurrent,
 }: {
-	readonly entry: ProviderRegistryEntry
+	readonly row: VendorRow
 	readonly index: number
 	readonly selected: boolean
 	readonly isCurrent: boolean
@@ -1368,41 +1493,46 @@ function UnconfiguredProviderRow({
 			<Text color={selected ? theme.border.focus : theme.text.muted}>{cursor} </Text>
 			<Text color={theme.text.muted}>{number} </Text>
 			<Text color={selected ? theme.border.focus : theme.text.primary} bold={selected}>
-				{entry.label.padEnd(28)}
+				{row.label.padEnd(28)}
 			</Text>
 			{/* The variable, not "not configured": it is the one thing the operator
 			    has to act on, and it is what makes the credential durable. The colour
 			    marks the work still to do on a screen that is otherwise all
 			    done. */}
-			<Text color={theme.status.warn}>{credentialNeed(entry)}</Text>
+			<Text color={theme.status.warn}>{rowCredentialNeed(row)}</Text>
 			{isCurrent ? <Text color={theme.accent.system}>{currentMark}</Text> : null}
 		</Box>
 	)
 }
 
-function ProviderRow({
-	detected,
+/**
+ * A row for a vendor something on this machine can already serve.
+ *
+ * What was found stays what is shown. A provider this build cannot construct is
+ * still genuinely on the machine, and replacing "local · localhost:1234" with
+ * the refusal would hide the discovery that makes the refusal make sense. The
+ * reason goes in the source column, where the row says what namzu knows about
+ * it.
+ *
+ * The row's name is the vendor's, which is the same word the operator used to
+ * reach it — and the only place the two could differ is where one vendor is two
+ * registry ids, which is the case this screen was changed for.
+ */
+function DetectedVendorRow({
+	row,
 	index,
 	selected,
 	isCurrent,
 }: {
-	readonly detected: DetectedProvider
+	readonly row: VendorRow
 	readonly index: number
 	readonly selected: boolean
 	readonly isCurrent: boolean
 }) {
 	const cursor = selected ? '›' : ' '
 	const number = `${index + 1}.`
-	const label = detected.entry.label
-	// What was found stays what is shown. A provider this build cannot construct
-	// is still genuinely on the machine, and replacing "local · localhost:1234"
-	// with the refusal would hide the discovery that makes the refusal make
-	// sense. The reason goes in the source column, where the row says what namzu
-	// knows about it.
-	const usable = detected.entry.constructible
-	const sourceLabel = usable
-		? describeSource(detected)
-		: `${describeSource(detected)} · unavailable in this build`
+	const usable = rowIsUsable(row)
+	const sourceLabel = rowSourceText(row)
 	const currentMark = isCurrent ? '  ← current' : ''
 	return (
 		<Box>
@@ -1413,7 +1543,7 @@ function ProviderRow({
 				bold={usable && selected}
 				dimColor={!usable}
 			>
-				{label.padEnd(28)}
+				{row.label.padEnd(28)}
 			</Text>
 			<Text color={usable ? theme.text.muted : theme.status.warn} dimColor={!usable}>
 				{sourceLabel}
@@ -1421,6 +1551,42 @@ function ProviderRow({
 			{isCurrent ? <Text color={theme.accent.system}>{currentMark}</Text> : null}
 		</Box>
 	)
+}
+
+/**
+ * What a detected row's third column says: where what it found came from.
+ *
+ * Every source is named, not the first one. A vendor reached two ways at once —
+ * an exported key and a signed-in session — has two usable credentials, and
+ * naming one of them would be the row choosing for an operator who has not
+ * chosen anything yet. `+` joins them because the sources are joined by ` · `
+ * internally, and a list of four items reads as four discoveries.
+ */
+function rowSourceText(row: VendorRow): string {
+	const text = row.detected.map(describeSource).join(' + ')
+	return rowIsUsable(row) ? text : `${text} · unavailable in this build`
+}
+
+/**
+ * One way in, as the line that offers it.
+ *
+ * Each line borrows the wording of the screen it leads to — "Use existing …" is
+ * the sign-in screen's phrase for a session already on the device, "Sign in to …
+ * · device code" is its phrase for a new one, "a credential for …" is the paste
+ * field's title — so the operator recognises where a line goes before pressing
+ * enter on it.
+ */
+function describePath(path: VendorPath): string {
+	switch (path.kind) {
+		case 'detected':
+			return `Use existing ${path.detected.entry.label} · ${describeSource(path.detected)}`
+		case 'credential':
+			return `Enter a credential for ${path.entry.label} · ${credentialNeed(path.entry)}`
+		case 'sign-in':
+			return `Sign in to ${path.entry.label} · ${
+				path.entry.subscriptionLogin === 'device' ? 'device code' : 'browser'
+			}`
+	}
 }
 
 function describeSource(d: DetectedProvider): string {

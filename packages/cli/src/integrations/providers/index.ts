@@ -90,11 +90,14 @@ export {
 	ALL_PROVIDER_IDS,
 	missingCredentialMessage,
 	PROVIDER_REGISTRY,
+	providerEntriesOfVendor,
 	type ProviderId,
 	type ProviderRegistryEntry,
 	type SubscriptionProviderId,
 	type SdkProviderType,
 	unsupportedProviderMessage,
+	VENDOR_NAMES,
+	type VendorId,
 } from './registry.js'
 export {
 	ensureRegistered,

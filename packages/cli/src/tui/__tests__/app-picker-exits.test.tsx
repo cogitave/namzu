@@ -28,6 +28,7 @@ import {
 	type DetectedProvider,
 	PROVIDER_REGISTRY,
 	type Preferences,
+	VENDOR_NAMES,
 } from '../../integrations/providers/index.js'
 import * as memoryStore from '../../memory/store.js'
 import * as userCommandStore from '../../user-commands/store.js'
@@ -66,6 +67,10 @@ const DETECTED = [
 		entry: {
 			id: 'openai',
 			label: 'A Provider',
+			// The picker names a row after its VENDOR, so this fixture names one —
+			// a literal that omits it renders no row at all, which is the same
+			// lesson `constructible` taught this file one field earlier.
+			vendor: 'openai',
 			defaultModel: 'a-default-model',
 			requiresApiKey: true,
 			envVars: ['A_KEY'],
@@ -81,6 +86,7 @@ const DETECTED_B = {
 	entry: {
 		id: 'deepseek',
 		label: 'B Provider',
+		vendor: 'deepseek',
 		defaultModel: 'b-default-model',
 		requiresApiKey: true,
 		envVars: ['B_KEY'],
@@ -449,7 +455,11 @@ describe('first-run signed-in subscriptions', () => {
 		await frameShows(harness.lastFrame, 'Choose a signed-in subscription')
 		const choiceFrame = harness.lastFrame() ?? ''
 		expect(choiceFrame).toContain('Anthropic (Claude)')
-		expect(choiceFrame).toContain('OpenAI (Codex subscription)')
+		// One row per vendor, named for the vendor. The subscription this row
+		// stands for is named by its source column instead, which is where a row
+		// has always said what it found.
+		expect(choiceFrame).toContain('OpenAI')
+		expect(choiceFrame).toContain('Codex session · this device')
 		expect(choiceFrame).not.toContain('A Provider')
 
 		// The frame can be committed before Ink's input effect is installed. Let
@@ -1165,7 +1175,9 @@ describe('publishing a picker selection', () => {
 		await screenShows(screen, 'Choose a provider')
 		screen.press('\x1B[B')
 		await screen.waitForRender()
-		expect(screen.viewport().join('\n')).toMatch(/›\s+2\.\s+B Provider/)
+		// Row two by its VENDOR name: the row is the vendor's, whichever of its
+		// provider ids discovery happened to find.
+		expect(screen.viewport().join('\n')).toContain(`› 2. ${VENDOR_NAMES.deepseek}`)
 		screen.press('\r')
 		await screenShows(screen, 'b-default-model')
 		screen.press('\r')
