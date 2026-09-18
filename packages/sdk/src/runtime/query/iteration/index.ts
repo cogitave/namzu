@@ -1,10 +1,8 @@
 import { type Span, SpanStatusCode } from '@opentelemetry/api'
-import { resolveContextWindow } from '../../../compaction/context-window.js'
 import {
 	extractFromAssistantMessage,
 	extractFromUserMessage,
 } from '../../../compaction/extractor.js'
-import { estimateMessageTokens } from '../../../compaction/token-estimate.js'
 import { AUTO_CONTINUATION_USER_MESSAGE } from '../../../constants/continuation.js'
 import {
 	DEFAULT_STRUCTURED_OUTPUT_RETRIES,
@@ -14,7 +12,6 @@ import { renderSkillsSection } from '../../../persona/assembler.js'
 import { resolveProviderCapabilities } from '../../../provider/capabilities.js'
 import { collectChatCompletion } from '../../../provider/collect-chat-completion.js'
 import { renderToolSchema } from '../../../registry/tool/schema.js'
-import { PreparationContextError } from '../../../run/preparation-context-error.js'
 import { formatCompletionNotification } from '../../../scheduler/completion-inbox.js'
 import {
 	GENAI,
@@ -34,21 +31,16 @@ import {
 	createRuntimeContextMessage,
 	createSystemMessage,
 } from '../../../types/message/index.js'
-import type { ToolChoice } from '../../../types/provider/chat.js'
 import { classifyProviderError } from '../../../types/provider/errors.js'
 import type { ChatCompletionResponse } from '../../../types/provider/index.js'
 import type { AnswerReview, AnswerReviewContext } from '../../../types/run/answer-review.js'
 import type {
-	PrepareStepContext,
-	PrepareStepResult,
 	RunEvent,
 	StepFailure,
 	StepProvenance,
 	StepResult,
-	StepVeto,
 	StopReason,
 } from '../../../types/run/index.js'
-import type { Skill } from '../../../types/skills/index.js'
 import type { LLMToolSchema, ToolRegistryContract } from '../../../types/tool/index.js'
 import { toErrorMessage } from '../../../utils/error.js'
 import { stableDigest } from '../../../utils/hash.js'
@@ -84,6 +76,14 @@ import { runPlanGate } from './phases/plan.js'
 import { runToolReview } from './phases/tool-review.js'
 import { refreshWorkingMemory } from './phases/working-memory.js'
 import { streamWithProviderRejectedImageRecovery } from './provider-rejected-image.js'
+import {
+	type StepShaping,
+	appendWorkContext,
+	beforeStep,
+	prepareStep,
+	selectContextModel,
+	stepContextMessage,
+} from './step-shaping.js'
 import { streamProviderTurn } from './stream-turn.js'
 
 type ReviewRequest = Pick<AnswerReviewContext, 'requestMessages' | 'latestUserMessage'>
@@ -404,7 +404,7 @@ export class IterationOrchestrator {
 				// and so can only speak after the step it disliked has already
 				// run and been paid for; this is the seam a host with a live
 				// rate limit or a revoked tenant actually needs.
-				const veto = await this.beforeStep(runMgr.currentIteration + 1)
+				const veto = await beforeStep(this.stepShaping(), runMgr.currentIteration + 1)
 				// The hook may settle because its run signal was aborted. Stop
 				// before interpreting that settlement as a policy refusal or
 				// counting an iteration that will never reach the provider.
@@ -535,12 +535,12 @@ export class IterationOrchestrator {
 					// whether to keep going; this decides HOW. No-op when the host
 					// supplied no hook.
 					const contextModelBeforePreparation = this.ctx.contextModel ?? model
-					const step = await this.prepareStep(iterationNum)
+					const step = await prepareStep(this.stepShaping(), iterationNum)
 					// Preparation inference belongs to the run, not the main-model step.
 					usageBefore = { ...runMgr.tokenUsage }
 					costBefore = { ...runMgr.costInfo }
 					stepModel = step.model ?? model
-					await this.selectContextModel(stepModel)
+					await selectContextModel(this.stepShaping(), stepModel)
 					// Preserve post-compaction preparation/recall semantics. A changed
 					// model needs a second check against its own window; never replay
 					// host preparation effects merely to rebuild its request guidance.
@@ -624,12 +624,12 @@ export class IterationOrchestrator {
 					const requestHistory = stepPreamble
 						? [...baseMessages, createSystemMessage(stepPreamble)]
 						: [...baseMessages]
-					if (step.context) requestHistory.push(this.stepContextMessage(step.context))
+					if (step.context) requestHistory.push(stepContextMessage(step.context))
 					const messages = projectRequestRichContent(
 						this.projectObservations(requestHistory),
 						this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 					)
-					this.appendWorkContext(messages, iterationNum, step)
+					appendWorkContext(this.stepShaping(), messages, iterationNum, step)
 					await this.reportUnsupportedToolResults(messages)
 					yield* this.ctx.drainPending()
 
@@ -1741,214 +1741,19 @@ export class IterationOrchestrator {
 		}
 	}
 
-	private stepContextMessage(content: string) {
-		return createRuntimeContextMessage(
-			`Current step context (runtime-generated; not a new user request):\n${content}`,
-			'step-context',
-		)
-	}
-
-	/** Derived after request projection; never accumulates in canonical history or replaces operator intent. */
-	private appendWorkContext(
-		messages: Message[],
-		stepNumber: number,
-		prepared: PrepareStepResult,
-	): void {
-		const contributions = [
-			this.ctx.completionInbox?.describeOwnedWork(),
-			this.ctx.toolExecutor.describeFileEvidence(messages),
-		].filter((content): content is string => Boolean(content))
-		if (contributions.length === 0) return
-		let room = this.stepContext(stepNumber, prepared).contextBudget?.remainingTokens ?? 0
-		// Leave room for the actual task; admit whole contributions, never dangling partial references.
-		if (room < 1_500) return
-		for (const content of contributions) {
-			if (!content || content.length > 8_000) continue
-			const message = this.stepContextMessage(content)
-			const tokens = estimateMessageTokens(message)
-			if (tokens > Math.min(2_000, room - 1_000)) continue
-			messages.push(message)
-			room -= tokens
-		}
-	}
-
-	private stepContext(stepNumber: number, prepared: PrepareStepResult): PrepareStepContext {
-		const model = prepared.model ?? this.ctx.runConfig.model
-		const window = resolveContextWindow(
-			this.ctx.compactionConfig?.contextWindowTokens,
-			model,
-			model === this.ctx.runConfig.model
-				? this.ctx.providerContextWindow
-				: model === this.ctx.contextModel
-					? this.ctx.activeProviderContextWindow
-					: undefined,
-		)
-		const skills = prepared.skills ? renderSkillsSection([...prepared.skills]) : null
-		const preamble = [prepared.system, skills].filter(Boolean).join('\n\n')
-		const preparedTokens =
-			(preamble ? estimateMessageTokens(createSystemMessage(preamble)) : 0) +
-			(prepared.context ? estimateMessageTokens(this.stepContextMessage(prepared.context)) : 0)
-		const responseReserve = Math.min(
-			prepared.maxResponseTokens ??
-				this.ctx.runConfig.maxResponseTokens ??
-				Math.floor(window.tokens / 4),
-			Math.floor(window.tokens / 4),
-		)
+	/**
+	 * The context and the two live reads the step-shaping helpers share.
+	 *
+	 * Built per call rather than held: `latestUserMessage` is replaced on
+	 * every operator turn and `steps` grows by one per step, so a captured
+	 * value would describe an earlier return.
+	 */
+	private stepShaping(): StepShaping {
 		return {
-			runId: this.ctx.runMgr.id,
-			stepNumber,
-			messages: this.ctx.runMgr.messages,
-			...(this.ctx.captureRunEvidence ? { captureRunEvidence: this.ctx.captureRunEvidence } : {}),
-			...(this.latestUserMessage ? { latestUserMessage: this.latestUserMessage } : {}),
-			signal: this.ctx.abortController.signal,
-			contextBudget: {
-				windowTokens: window.tokens,
-				remainingTokens: Math.max(
-					0,
-					Math.floor(
-						window.tokens - measureContext(this.ctx).tokens - preparedTokens - responseReserve,
-					),
-				),
-			},
-			steps: this.steps,
-			prepared,
+			ctx: this.ctx,
+			latestUserMessage: () => this.latestUserMessage,
+			steps: () => this.steps,
 		}
-	}
-
-	/** Refuse the next call on a veto or hook error; do not skip a failed admission check. */
-	private async beforeStep(stepNumber: number): Promise<StepVeto | undefined> {
-		const configured = this.ctx.beforeStep
-		if (!configured) return undefined
-		try {
-			return (await configured(this.stepContext(stepNumber, {}))) ?? undefined
-		} catch (err) {
-			return { reason: `beforeStep threw: ${toErrorMessage(err)}` }
-		}
-	}
-
-	/** Shape the next request. A failed tuning stage is skipped; admission belongs to beforeStep. */
-	private async prepareStep(stepNumber: number): Promise<{
-		allowedTools?: string[]
-		toolChoice?: ToolChoice
-		model?: string
-		system?: string
-		context?: string
-		skills?: readonly Skill[]
-		temperature?: number
-		maxResponseTokens?: number
-	}> {
-		const configured = this.ctx.prepareStep
-		if (!configured) return {}
-		const stages = Array.isArray(configured) ? configured : [configured]
-
-		// Folded in DECLARATION order, each stage seeing what the ones
-		// before it decided. A later stage overriding a field is last-writer
-		// wins — visibly, because the order is a line in the host's code
-		// rather than an accident of install history.
-		let result: PrepareStepResult = {}
-		for (const stage of stages) {
-			const inference = createCallbackInference(
-				this.ctx,
-				result.model ?? this.ctx.runConfig.model,
-				'preparation',
-			)
-			try {
-				const decided = await stage({
-					...this.stepContext(stepNumber, result),
-					generateText: inference.generateText,
-				})
-				if (decided) result = { ...result, ...decided }
-				await this.selectContextModel(result.model ?? this.ctx.runConfig.model)
-			} catch (err) {
-				// Skipped, and the rest still run: one broken concern must
-				// not silently disable the others it was declared beside.
-				this.ctx.log.error('a prepareStep stage threw — skipping it', {
-					[NAMZU.RUN_ID]: this.ctx.runMgr.id,
-					'namzu.runtime.step_number': stepNumber,
-					'exception.message': toErrorMessage(err),
-				})
-				// An SDK stage may report availability and validated fallback evidence
-				// without exposing its error. Preserve prior decisions and the context budget;
-				// ordinary exceptions still contribute nothing to the model request.
-				if (err instanceof PreparationContextError && !this.ctx.abortController.signal.aborted) {
-					const room = this.stepContext(stepNumber, result).contextBudget?.remainingTokens ?? 0
-					if (
-						typeof err.context === 'string' &&
-						err.context.length > 0 &&
-						err.context.length + (result.context ? 2 : 0) <= Math.min(12_000, Math.floor(room))
-					)
-						result = {
-							...result,
-							context: [result.context, err.context].filter(Boolean).join('\n\n'),
-						}
-				}
-			} finally {
-				inference.close()
-			}
-		}
-
-		const prepared: {
-			allowedTools?: string[]
-			toolChoice?: ToolChoice
-			model?: string
-			system?: string
-			context?: string
-			skills?: readonly Skill[]
-			temperature?: number
-			maxResponseTokens?: number
-		} = {}
-
-		if (result.activeTools) {
-			const known = result.activeTools.filter((name: string) => this.ctx.tools.has(name))
-			const unknown = result.activeTools.filter((name: string) => !this.ctx.tools.has(name))
-			if (unknown.length > 0) {
-				// The all-unknown case gets its own sentence because it has its
-				// own consequence. Some names dropped narrows the step; ALL of
-				// them dropped leaves it able to call nothing — which is the
-				// honest reading of "only these tools" when none of them exist,
-				// and is not what a reader of "ignoring them" would expect.
-				//
-				// Widening back to the run's list would be worse: it grants
-				// exactly the tools the caller asked to exclude, on the grounds
-				// that their own list failed. A step that can call nothing is
-				// constrained; a step that can call everything is a control
-				// that stopped applying.
-				const message =
-					known.length === 0
-						? 'prepareStep named only tools that are not registered — this step can call nothing'
-						: 'prepareStep named tools that are not registered — ignoring them'
-				this.ctx.log.warn(message, {
-					[NAMZU.RUN_ID]: this.ctx.runMgr.id,
-					'namzu.runtime.step_number': stepNumber,
-					'namzu.runtime.unknown': unknown,
-					'namzu.runtime.remaining': known.length,
-				})
-			}
-			prepared.allowedTools = known
-		}
-		if (result.toolChoice !== undefined) prepared.toolChoice = result.toolChoice
-		if (result.model !== undefined) prepared.model = result.model
-		if (result.system !== undefined) prepared.system = result.system
-		if (result.context !== undefined) prepared.context = result.context
-		if (result.skills !== undefined) prepared.skills = result.skills
-		if (result.temperature !== undefined) prepared.temperature = result.temperature
-		if (result.maxResponseTokens !== undefined) {
-			prepared.maxResponseTokens = result.maxResponseTokens
-		}
-
-		return prepared
-	}
-
-	private async selectContextModel(model: string | undefined): Promise<void> {
-		if (model !== (this.ctx.contextModel ?? this.ctx.runConfig.model)) {
-			// A measurement from another tokenizer cannot price the new request.
-			this.ctx.runMgr.clearLastPromptTokens()
-		}
-		this.ctx.contextModel = model
-		this.ctx.activeProviderContextWindow =
-			model && model !== this.ctx.runConfig.model && !this.ctx.compactionConfig?.contextWindowTokens
-				? await this.ctx.resolveModelContextWindow?.(model)
-				: undefined
 	}
 
 	/** Steps completed so far, exposed on the returned `Run`. */
@@ -2454,7 +2259,7 @@ export class IterationOrchestrator {
 				this.projectObservations(finalHistory),
 				this.ctx.runConfig.maxRequestRichContentBytes ?? DEFAULT_MAX_REQUEST_RICH_CONTENT_BYTES,
 			)
-			this.appendWorkContext(finalMessages, this.steps.length + 1, { model })
+			appendWorkContext(this.stepShaping(), finalMessages, this.steps.length + 1, { model })
 			await this.reportUnsupportedToolResults(finalMessages)
 
 			// Same cache discipline as the forced-final iteration: keep the

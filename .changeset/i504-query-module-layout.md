@@ -3,12 +3,15 @@
 ---
 
 Internal module layout only. `query()`'s prelude, its pre-start cancellation
-path, the iteration loop's outstanding-work helpers and the run's cleanup now
-live in their own modules — `runtime/query/prepare-run.ts`,
-`runtime/query/cancelled-before-start.ts`,
-`runtime/query/iteration/outstanding-work.ts` and
-`runtime/query/release-run.ts` — instead of inside `index.ts` and the
-`IterationOrchestrator` class.
+path, its post-loop settlement and its cleanup, the iteration loop's
+outstanding-work and step-shaping helpers, and the executor's tool-call
+admission family now live in their own modules —
+`runtime/query/prepare-run.ts`, `runtime/query/cancelled-before-start.ts`,
+`runtime/query/finalize-run.ts`, `runtime/query/release-run.ts`,
+`runtime/query/iteration/outstanding-work.ts`,
+`runtime/query/iteration/step-shaping.ts` and
+`runtime/query/executor/tool-call-admission.ts` — instead of inside
+`index.ts`, `iteration/index.ts` and `executor.ts`.
 
 Nothing a consumer observes changes, so taking the upgrade requires no code
 change: no export is added, removed or renamed; the `RunEvent` stream carries
