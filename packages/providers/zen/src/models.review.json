@@ -10,7 +10,6 @@
 		"go/minimax-m2.5": "Superseded on Go by MiniMax M2.7 and M3, which are both carried. The page still lists it.",
 		"go/omen-alpha": "Served by Go and no longer routed by the Go page, which is why this release dropped it from the catalogue. No source states a wire for it any more, so a caller that needs it must name the protocol itself.",
 		"go/qwen3.5-plus": "Served by Go and absent from the Go page, which routes Qwen 3.6 Plus and later. The Zen page routes this id on Messages, and one service's route is not the other's, so none is taken from it.",
-		"go/union-alpha": "Still served by Go and still routed by the Go page, on the Messages wire. models.dev deleted its entry on 2026-09-18, so its limits, tool support and modalities are no longer derivable and are never invented; it returns to the catalogue when models.dev restores the entry, and a caller who needs it meanwhile states the wire itself (`protocol: 'messages'`).",
 		"zen/claude-sonnet-4": "Served by Zen and named by no route row on either page: the Zen page routes Claude Sonnet 4.5 and 4.6. models.dev states an npm package for it, and that field is deliberately not used as a route, so none is carried.",
 		"zen/deepseek-v4-flash-free": "Served by Zen and absent from the Zen page, which routes DeepSeek V4 Flash. models.dev states a name and limits for this free id and no wire, so none is carried.",
 		"zen/glm-5": "Superseded by GLM 5.1, 5.2 and 5.3, which are all carried. The page still lists it.",
@@ -23,7 +22,6 @@
 		"zen/minimax-m2.5": "Superseded by MiniMax M2.7 and M3, which are both carried.",
 		"zen/muse-spark-1.2-contributor-free": "Served by Zen under an id no page routes: the Zen page's free-model list names the 1.3 contributor model, and Go's 1.2 contributor row is a different id on the other service. models.dev states an npm package for it, and that field is deliberately not used as a route, so none is carried.",
 		"zen/qwen3.7-max": "models.dev carries no entry for it, so its context window, limits and tool support cannot be derived and are never invented.",
-		"zen/qwen3.7-plus": "models.dev carries no entry for it, so its context window, limits and tool support cannot be derived and are never invented.",
-		"zen/union-alpha": "Still served by Zen and still routed by the Zen page, on the Messages wire. models.dev deleted its entry on 2026-09-18, so its limits, tool support and modalities are no longer derivable and are never invented; it returns to the catalogue when models.dev restores the entry, and a caller who needs it meanwhile states the wire itself (`protocol: 'messages'`)."
+		"zen/qwen3.7-plus": "models.dev carries no entry for it, so its context window, limits and tool support cannot be derived and are never invented."
 	}
 }
