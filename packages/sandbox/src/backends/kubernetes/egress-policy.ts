@@ -2081,7 +2081,10 @@ export class KubernetesEgressPolicyMismatchError extends Error {
  *  - `NetworkPolicy` additionally declares `policyTypes` including
  *    `'Egress'` — a `NetworkPolicy` with an `egress` array but no `'Egress'`
  *    in `policyTypes` enforces nothing on egress at all;
- *  - the `egress` rule array matches the translation exactly;
+ *  - the `egress` rule array matches the translation exactly, where an ABSENT
+ *    array is the empty one — the only form a cluster stores it in, and the
+ *    same policy either way. See the comparison itself for where that
+ *    equivalence stops;
  *  - and, ONLY when the translation carries `metadata.ownerReferences` (the
  *    per-sandbox policies of `per-sandbox-policy.ts`, never the operator's
  *    own object), that the live object still carries each of them — an owner
@@ -2167,11 +2170,48 @@ export async function verifyEgressPolicyApplied(
 		}
 	}
 
-	if (!isDeepStrictEqual(actualSpec.egress, expectedSpec.egress)) {
+	// An absent `spec.egress` is read as the empty list it IS, because that is
+	// the only form a cluster keeps. The API server never STORES an empty one:
+	// `egress` is `omitempty` on the wire struct, so an object applied with
+	// `egress: []` reads back with no `egress` key at all, and a merge patch
+	// cannot put one there — it is dropped again on the way in (measured
+	// against a live cluster; see `docs/sdk/kubernetes-sandbox.md`). The two
+	// spellings are one policy, and not only in shape: `policyTypes` has
+	// already been required to include `'Egress'` a few lines up, and that
+	// alone denies every egress — which is exactly what an empty rule list
+	// says. So this is not the comparison suddenly accepting something
+	// looser; it is the only way the intent it checks can be READ BACK at
+	// all. `'no-network'`, whose whole translation IS that empty list,
+	// otherwise has no object any cluster could store that this check could
+	// pass, and every `create()` against it is refused.
+	//
+	// Nothing else is forgiven, since what the comparison is FOR — an object
+	// enforcing something other than what config asked for — is untouched: a
+	// live list with a rule in it is still compared rule for rule, so a
+	// translation that meant `[]` and an object that lets something out is
+	// refused; and a translation that meant rules over a live object carrying
+	// none is refused too, because an absent list means deny-all, which is not
+	// what config asked for when it asked for rules.
+	//
+	// Read narrowly, on purpose: only the translation's OWN list being empty
+	// makes the two readings differ, and only `'no-network'` translates to an
+	// empty list — `buildCoreNetworkPolicy` always emits a core `NetworkPolicy`
+	// for it, under either engine, which is the kind the `policyTypes` check
+	// above just covered.
+	const liveEgress = actualSpec.egress
+	// `null` included, which is how a serialiser spells absent — the same
+	// reading `readList` gives the field everywhere else in this module.
+	const egressIsAbsent = liveEgress === undefined || liveEgress === null
+	const actualEgress = egressIsAbsent ? [] : liveEgress
+	if (!isDeepStrictEqual(actualEgress, expectedSpec.egress)) {
 		throw new KubernetesEgressPolicyMismatchError(
 			translated.kind,
 			path,
-			`spec.egress is ${JSON.stringify(actualSpec.egress)}, expected ${JSON.stringify(expectedSpec.egress)}`,
+			`spec.egress is ${
+				egressIsAbsent
+					? 'absent — the API server stores an empty rule list as no field at all'
+					: JSON.stringify(liveEgress)
+			}, expected ${JSON.stringify(expectedSpec.egress)}`,
 		)
 	}
 

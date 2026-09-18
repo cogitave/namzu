@@ -2030,6 +2030,88 @@ describe('verifyEgressPolicyApplied — verify, never trust', () => {
 		}
 		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow('boom')
 	})
+
+	/**
+	 * The empty rule list as a cluster stores it — issue #507.
+	 *
+	 * `egress` is `omitempty` on the wire struct, so a `NetworkPolicy` applied
+	 * with `egress: []` reads back with no `egress` key at all, and a merge
+	 * patch cannot put one back. This check compares `spec.egress` to the
+	 * translation, so with the two spellings held apart the one object a
+	 * `no-network` deployment CAN have was refused on every `create()` —
+	 * `undefined !== []` — and no policy an operator could apply would satisfy
+	 * it. Measured against a live cluster, not only shaped by hand: see
+	 * `docs/sdk/kubernetes-sandbox.md`.
+	 *
+	 * The three cases below are the whole rule. The first fails against the
+	 * comparison as it stood before #507; the last two are what keeps the fix
+	 * from being a loosening, and each fails against a plausible BLUNTER
+	 * spelling of the equivalence — skipping the comparison whenever the
+	 * translation's list is empty, and substituting the expected list for an
+	 * absent one.
+	 */
+	it('accepts the live object a cluster stores for an empty translation (#507)', async () => {
+		const translated = await translateEgressPolicy({ kind: 'no-network' }, 'core', TARGET)
+		const expectedSpec = (translated.manifest as { spec: Record<string, unknown> }).spec
+		// The premise of the case: the translation really does say `[]`.
+		expect(expectedSpec.egress).toStrictEqual([])
+		// What the cluster stores for that manifest, which is the spec WITHOUT
+		// the `egress` key: `kubectl get networkpolicy -o jsonpath='{.spec}'`
+		// answers `{"podSelector":…,"policyTypes":["Egress"]}` and nothing
+		// else. Held as the literal shape rather than derived, so the case is
+		// the document the API server returns and not a copy of the manifest.
+		const asStored = {
+			podSelector: expectedSpec.podSelector,
+			policyTypes: expectedSpec.policyTypes,
+		}
+		// ...and the two differ by exactly that one key, so this case cannot
+		// drift into testing something else if the manifest gains a field.
+		expect(Object.keys(expectedSpec).filter((key) => !Object.hasOwn(asStored, key))).toStrictEqual([
+			'egress',
+		])
+
+		const client = fakeClient(() => ({ spec: asStored }))
+		await expect(verifyEgressPolicyApplied(client, translated)).resolves.toBeUndefined()
+	})
+
+	it('still refuses a live rule array when the translation intended none', async () => {
+		const translated = await translateEgressPolicy({ kind: 'no-network' }, 'core', TARGET)
+		const expectedSpec = (translated.manifest as { spec: Record<string, unknown> }).spec
+		// One rule letting a private range out of a policy that denies
+		// everything — the drift this comparison exists to catch, and the one
+		// thing the equivalence must not swallow.
+		const client = fakeClient(() => ({
+			spec: { ...expectedSpec, egress: [{ to: [{ ipBlock: { cidr: '10.0.0.0/8' } }] }] },
+		}))
+
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(
+			KubernetesEgressPolicyMismatchError,
+		)
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(/spec\.egress/)
+	})
+
+	it('still refuses a live object with no rules when the translation intended some', async () => {
+		// The same absent form, read the other way round: `deny-all` translates
+		// to DNS egress, so an object carrying no `egress` key at all denies
+		// what config asked to allow. Absent means deny-all, which is not what
+		// was intended here — so the equivalence above may not be applied to it.
+		const translated = await translateEgressPolicy({ kind: 'deny-all' }, 'core', TARGET)
+		const expectedSpec = (translated.manifest as { spec: Record<string, unknown> }).spec
+		const asStored = {
+			podSelector: expectedSpec.podSelector,
+			policyTypes: expectedSpec.policyTypes,
+		}
+
+		const client = fakeClient(() => ({ spec: asStored }))
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(
+			KubernetesEgressPolicyMismatchError,
+		)
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(/spec\.egress/)
+		// The refusal says which form it read, so an operator who applied the
+		// object they were handed is not told the field holds a value it holds
+		// no form of.
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(/absent/)
+	})
 })
 
 describe('the engine type is exactly two values', () => {

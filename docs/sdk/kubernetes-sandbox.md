@@ -3318,7 +3318,10 @@ equality before anything else in that file is asserted.
 **A `no-network` sandbox has no resolver.** The guest agent needs none — the
 host dials in — but a workload that resolves anything fails, which is the
 point. Nothing carves out a name or a port: `policyTypes: ['Egress']` with an
-empty rule list is the API's own spelling of "sends nothing".
+empty rule list is the API's own spelling of "sends nothing" — and the form the
+API server stores that as is no `egress` field at all, which the named-object
+check reads as the empty list it is (see [Verify, never
+trust](#verify-never-trust)).
 
 #### What `public-internet` carves out, and why
 
@@ -3927,7 +3930,24 @@ and asserts its `podSelector` / `endpointSelector`, `policyTypes` and `egress`
 rules match the translation **exactly**. A missing object fails with
 `KubernetesEgressPolicyNotAppliedError`, a drifted one with
 `KubernetesEgressPolicyMismatchError` naming the field, and no sandbox is
-claimed. An object carrying a **`specs` list** is a mismatch too: that is a
+claimed. An **absent `egress` is read as the empty list**, which is the only
+form a cluster keeps: `egress` is `omitempty` on the wire struct, so a policy
+applied with `egress: []` reads back with no `egress` key at all, and a merge
+patch cannot put one back. Measured on a live `kind` cluster at v1.37, with
+this backend's own client: an object applied from the `no-network` manifest
+answers `GET` with `{"podSelector":…,"policyTypes":["Egress"]}` and no
+`egress` key, and `kubectl patch --type=merge -p '{"spec":{"egress":[]}}'`
+does not restore one. Refusing that spelling was #507 —
+`'no-network'`'s whole translation IS the empty list, so no object any cluster
+could store satisfied the check and every `create()` against such a deployment
+was refused. They are one policy and not only in shape: under
+`policyTypes: ['Egress']`, which the check requires of a core policy a few
+lines earlier, an absent rule list denies exactly what the empty one does.
+**Nothing else is forgiven.** A live object with a rule in it still fails a
+translation that meant none, and a live object with no `egress` still fails a
+translation that meant rules — an absent list means deny-all, which is not what
+config asked for when it asked for rules. An object carrying a **`specs` list**
+is a mismatch too: that is a
 `CiliumNetworkPolicy`'s other spelling of the same policy, a rule in either one
 enforces, and this check reads `spec` and nothing else — so a `specs` entry is
 enforcement it would never compare, and half a comparison reported as a match
@@ -3979,8 +3999,9 @@ refused by name.
 
 **What check ONE reads, since the exemption is only as wide as it is.** It
 compares `spec.podSelector` (`spec.endpointSelector` for a
-`CiliumNetworkPolicy`), `spec.policyTypes` on a core policy and `spec.egress`,
-plus any `metadata.ownerReferences` the translation carries — and it REFUSES a
+`CiliumNetworkPolicy`), `spec.policyTypes` on a core policy and `spec.egress` —
+where an absent rule array reads as the empty one, and nothing else — plus any
+`metadata.ownerReferences` the translation carries, and it REFUSES a
 live object carrying a `specs` list outright, because a `CiliumNetworkPolicy`
 carries EITHER one `spec` or a `specs` list, a rule in either one enforces,
 and no check there reads a `specs` entry. That refusal is what makes this
@@ -4035,6 +4056,17 @@ wrong reason and no result from it is evidence. Everything above is proved
 against a fake API server: the emitted manifests, the union verdicts one shape
 per case, the cache and its expiry, and that a refusal leaves no claim and no
 `Sandbox` behind.
+
+**The one live measurement this page reports is a statement about the API
+server's storage, never about a data plane.** The #507 round trip applied the
+`no-network` manifest to a `kind` cluster, read the object back with this
+backend's own `createKubernetesClient`, and ran the real
+`verifyEgressPolicyApplied` on what came off the cluster — for the manifest
+(`[]` intended, absent live: verified), for a live object carrying a rule
+(refused) and for a translation that intended rules over the absent form
+(refused). It shows the round trip and the comparison agree; it says nothing
+about whether anything enforced the object afterwards, which the paragraph
+above still governs.
 
 `k8s/scripts/egress-check.mjs` is the live check, and it is the only thing that
 speaks to enforcement: it creates a sandbox under the configured kind and dials
