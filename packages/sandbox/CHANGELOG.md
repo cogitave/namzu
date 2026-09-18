@@ -1,5 +1,243 @@
 # @namzu/sandbox
 
+## 17.0.0
+
+### Major Changes
+
+- 1722448: **A `container:docker` sandbox with an egress allowlist now needs an internal
+  network, a proxy image, and `container-network` reachability. Take this version
+  if you use one; otherwise nothing you install changes shape.**
+
+  The allowlist tier used to be enforced by `HTTP_PROXY` and nothing else. The
+  proxy ran in the process that created the sandbox, on the host's loopback, and
+  the sandbox kept ordinary bridge networking with full outbound reachability —
+  `--add-host namzu-egress:host-gateway` was the only thing pointing traffic at
+  it. Anything inside the container that opened a socket directly reached the
+  network with the allowlist unconsulted. It is now a sibling container on an
+  `--internal` network the sandbox is also on, which has no route off it: the
+  sandbox's traffic reaches the internet only through that container, and
+  everything else a host attaches to that network is a container on the sandbox's
+  own subnet.
+
+  **What a host using `EgressPolicy` of `static` or `resolver` must now do**, all
+  three refused at `create()` rather than downgraded:
+
+  1. `network` must be an `--internal` network: `docker network create
+--internal <name>`. The network's `Internal` flag is read back from the
+     daemon; the name is never trusted.
+  2. `hostReachability` must be `'container-network'`. A published host port
+     needs a route out and an internal network has none — the refusal names the
+     mode to move to. **A host-side consumer (the CLI, direct dev) that reached
+     the worker on `127.0.0.1:<port>` under an allowlist policy must move to a
+     consumer on the internal network.**
+  3. `egressProxyImage` must name the proxy image:
+
+     ```bash
+     pnpm --filter @namzu/sandbox build
+     docker build -f packages/sandbox/egress-proxy/Dockerfile -t <tag> packages/sandbox
+     ```
+
+     It is a second image because the sandbox image is a string this backend
+     cannot read, and the bind-mount alternative breaks on the remote-daemon
+     deployment `container-network` exists for.
+
+  `HTTP_PROXY` and friends are still set and now direct traffic rather than
+  permit it: a tool that honours them goes through the boundary, one that ignores
+  them fails `Network unreachable` instead of bypassing the policy.
+
+  **Four behaviour changes to know about, all of them consequences of the
+  boundary existing:**
+
+  - A `resolver` policy is resolved at `create()` and at each
+    `setNetworkPolicy()`, not per request. A resolver that rotates between those
+    moments is not picked up until the next one.
+  - `setNetworkPolicy()` replaces the proxy container rather than swapping the
+    allowlist in place. The window between the two has no proxy in it and fails
+    **closed** — no request is permitted that the new policy would refuse.
+  - `brokeredCredentials` are passed to the proxy container's environment. They
+    still never enter the sandbox; they are now readable by anything with access
+    to the docker daemon, which should be treated as credential access. (On the
+    way there the value goes through the `docker` CLI child's ENVIRONMENT, not its
+    argv — an argv is world-readable in `/proc/<pid>/cmdline` on Linux.) Note also
+    that `createSandboxProvider` has never forwarded `brokeredCredentials` at all;
+    that pre-existing gap is unchanged.
+  - `egressProxyUpstreamNetwork` (default `bridge`) is where the proxy reaches
+    the internet. Anything else attached to that network can reach the proxy and
+    use it, so name a dedicated one on a shared daemon. `'none'`, and the internal
+    network itself, are refused: either leaves the proxy with no route out.
+  - Everything else on the SANDBOX's internal network is reachable from the
+    sandbox — a second sandbox, a second sandbox's proxy. That is a property of
+    the network rather than of this tier; give each sandbox its own internal
+    network when they should not see one another.
+
+  `deny-all` and `allow-all` are unaffected beyond the internal network
+  `deny-all` already required. `EgressProxy` gains two optional options
+  (`bindHost`, `selfNames`) and the container entrypoint sets them; the class is
+  otherwise unchanged.
+
+- f1fd331: The container backend's worker now authenticates its caller, and a worker that
+  cannot refuses to start on a routable bind. This is a `major` because the wire
+  shape of a public surface changed: every route but `GET /healthz` now requires
+  `Authorization: Bearer <NAMZU_SANDBOX_TOKEN>`, a missing or wrong token is
+  `401 {"error":"unauthorized"}`, and a worker with no token will not listen on
+  anything but loopback. A token that is set but cannot be answered — empty,
+  padded, or carrying a character an HTTP header cannot hold — now refuses to
+  start rather than leaving a worker that looks authenticated and refuses its own
+  host.
+
+  Nothing in the package's TypeScript API changed — no export was removed,
+  renamed or narrowed, and `HttpWorkerClient` and `execViaHttpWorker` only gained
+  an optional token parameter. What changed is the contract between this backend
+  and the worker process it runs, and that contract is deployed separately: the
+  worker lives in `packages/sandbox/worker/server.js`, which the tarball does not
+  ship, so the image is built from whatever checkout the operator has.
+
+  **What breaks, and for whom.**
+
+  - **A worker image rebuilt from this release, paired with a host that predates
+    it.** The old host injects no token, so the new worker refuses to start on
+    the default `0.0.0.0` bind and every `create()` fails at readiness with the
+    container already exited. The refusal names the variable. Bring the host up
+    in the same step, or set the escape below.
+  - **Anything that talks to the worker without going through this backend.** The
+    route contract is now authenticated; a probe, a health-check script that
+    calls `/execute`, or a hand-rolled client must present the token.
+  - **The standby-pool backend.** A pooled worker built from this release will
+    refuse to boot on its routable default bind, because this backend has no way
+    to hand it a credential. The claim API admits exactly one property override,
+    and it is not `env` — it is a config map, which on Linux reaches the container
+    as a file mount under `/mnt/configmap/<containername>/<key>`, not as an
+    environment variable, while the worker reads its token from `process.env` at
+    startup. The platform does not validate config-map values either, and its own
+    guidance is that a value affecting application security belongs in an
+    environment variable. So the per-instance credential for this backend is NOT
+    implemented here, and the change that would close the gap — a per-claim value
+    in the config map, read by the worker — is written down in
+    `docs/sdk/container-sandbox-worker.md` rather than half-built. A token on the
+    shared profile does not fix it either: the worker would boot and then `401`
+    every call the backend makes, because this backend's client is constructed
+    without a token and it has no field to carry one.
+
+  **A host and a worker from the same release need no configuration.** The
+  container backend mints 32 random bytes per `create()`, hands the value to the
+  docker CLI in its own environment (resolved by a valueless
+  `--env NAMZU_SANDBOX_TOKEN`, so it is in no argv), and sends it as a bearer
+  header on every call it makes. Upgrading both together is the whole migration.
+  The token is per instance, never written to disk, and dies with the container.
+  It is readable where a peer in the same container or a caller who can already
+  talk to the docker daemon could read it — `docker inspect` shows it on the
+  container config for the container's life — which is why it is per-instance
+  rather than shared, and why it is a defence in depth behind network placement
+  rather than a replacement for it.
+
+  **The standby pool: place it first, decide about the credential second.** If you
+  run that backend, the control that actually carries the exposure is the network,
+  and it is the one to get right before anything else — `aci-standby-pool` already
+  refuses to claim a container group without `subnetId` (unless you set
+  `allowPublicAddress: true` and mean it), so the group sits on a private address
+  and that network is what stands in front of the worker. The refusal is unchanged
+  by this release; what has changed is that it is now the first half of the answer
+  rather than the whole of it. The second half is the escape below, which is what
+  makes a pooled worker start at all today: put
+  `NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED=1` on the container group profile, with the
+  group on a private address. It is needed there only because this backend cannot
+  present a credential, and it turns a worker that cannot boot into one that
+  serves inside that address. Read the standby-pool bullet under "What breaks"
+  before taking that step, and note that a token on the shared profile is not an
+  alternative to it.
+
+  **For a deployment the container backend creates**, the escape is a migration
+  tool rather than a destination: it is what keeps you running while the host and
+  the worker image are brought up in the same step.
+
+  **To keep the old behaviour on purpose**, set
+  `NAMZU_SANDBOX_ALLOW_UNAUTHENTICATED=1` in the worker's environment — the
+  container backend's `options.env` for a sandbox it creates, or the standby
+  pool's container group profile for a pooled one. That gives the credential up
+  rather than deferring it: with it set and no token, every route but `/healthz`
+  is open to whoever can route to the container, which is exactly what the
+  default used to be. On the pool, the address comes first and this second; on
+  every other backend, both the host and the image should be upgraded in one step
+  instead. Only `1`, `true`, `yes` and `on` count, in any case and with no
+  surrounding whitespace; everything else — `= 0`, `= false`, `= " yes "` — means
+  off, so the flag cannot turn itself on.
+
+  Also unchanged, and worth repeating from the README: the transport is plain
+  HTTP, so this is a bearer token over the wire and it is defence in depth behind
+  network placement, not a replacement for it. See
+  `docs/sdk/container-sandbox-worker.md`.
+
+### Minor Changes
+
+- 01fbc9b: Three additive declarations, no default changed and nothing removed:
+
+  - `MicroVMBackendConfig.onExecTiming` — the owned Firecracker tier's provider
+    config gains an optional per-exec timing hook.
+  - `FirecrackerTransportTiming` — exported from the package entry point, the
+    shape that hook is called with.
+  - `VsockTransportOptions.onExecTiming` — the same hook at the transport level,
+    for a host that builds a `VsockAgentTransport` itself.
+
+  A host that sets none of them sends, receives and waits for exactly what it did
+  before: the timing accumulator is created only when the hook is set, and the
+  `undefined` checks that skip creating it skip every clock read that would have
+  filled it.
+
+  The hook reports one `exec()`'s wall clock as named phases — `dialMs`,
+  `reserveMs`, `executeMs` and `drainMs`, the four the Kubernetes tier's
+  `onTiming` already reports, plus `firstFrameMs`, `terminatorMs` and
+  `peerCloseMs` for the intervals inside the execute round trip. The three
+  sub-phases are absent, rather than zero, when their phase was never reached; the
+  four base phases are always present and use `0` for "this never happened" (a
+  call that failed at the dial reports `executeMs: 0`). The payload is durations
+  only: never the agent token, a command, its arguments, or any output.
+
+  One behaviour change worth naming, because it is the reason the hook is useful:
+  the transport's execution adapter and its `RemoteExecutionController` are now
+  built per call instead of once per transport. That controller holds no per-call
+  state, so nothing observable changes — but an adapter built once had nowhere
+  per-call to accumulate into, and a single accumulator on the transport would
+  have two concurrent `exec()` calls writing each other's phases. The Kubernetes
+  tier's own transport has been arranged this way since it was written.
+
+  `POST_RESPONSE_CLOSE_TIMEOUT_MS` (1 s) is unchanged and its behaviour is
+  unchanged; it is now documented as what it always was — a reject-only guard
+  that fails a socket whose peer never closes, never a wait a successful call
+  pays. If your host puts a relay between this process and the guest, `peerCloseMs`
+  is the number that tells you whether that relay holds the FIN: a hold **under**
+  a second is reported there on a call that resolved, and a hold **at or past**
+  a second fails the call with `vsock transport: exec peer did not close after
+terminator`, reporting no `peerCloseMs` at all — the close in that case is the
+  one this transport causes itself when the guard fires, and its own constant is
+  not published as an elapsed time. So a resolved exec's fixed cost cannot be
+  hiding in that window: whichever way the window goes, it is either reported or
+  it is a rejection, and never a silent second.
+
+### Patch Changes
+
+- 656598a: Nothing a consumer installs changes. The one edited file is
+  `src/backends/docker/__tests__/leaf-permissions.smoke.test.ts`, which
+  `package.json#files` excludes from the tarball; runtime behaviour, exports, types
+  and defaults are untouched.
+
+  The `Sandbox smoke` workflow has been red on `main` since the docker hardening
+  landed (`481fb8ff`, `--read-only` on by default). That case asserts that uid 1001
+  cannot `mkdir` into the unbound `/mnt/user-data`, and it pinned the refusal to
+  one spelling — `permission denied`. With a read-only rootfs the kernel answers
+  `read-only file system` instead, because EROFS is consulted before the DAC check
+  that would have produced EACCES. The property the case exists for never changed
+  (a bound writable leaf would let the `mkdir` succeed, and the `--rc` assertion
+  still catches that); only the kernel's wording did.
+
+  The assertion now accepts either refusal and says why both are legitimate, so the
+  next change to which check fires first is a one-line read rather than a day of
+  red. `dash` and Docker are both absent from the machine this was written on, so
+  the fix is verified by the workflow that runs this file, not locally.
+
+- Updated dependencies [4e8cf5c]
+- Updated dependencies [19abb2c]
+  - @namzu/sdk@42.0.0
+
 ## 16.0.0
 
 ### Major Changes
