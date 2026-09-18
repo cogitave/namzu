@@ -131,10 +131,17 @@ and await the capability. A later correction receives a fresh capability.
 Only the callback's explicit `system` and `prompt` strings are sent. Candidate,
 request snapshot, conversation, tools, native output schema and private reasoning
 are not attached automatically. Together the strings are limited to 12,000
-UTF-16 units. `maxTokens` defaults to 256 and is capped at 1,024; `timeoutMs`
-defaults to and cannot exceed 10,000ms. Returned visible text is limited to 8,192
-units. A local signal may shorten the run/callback lifetime. These are input,
-output and admission bounds, not a guaranteed provider billing ceiling.
+UTF-16 units. `maxTokens` defaults to 256 and is capped at 1,024. Returned visible
+text is limited to 8,192 units. A local signal may shorten the run/callback
+lifetime. These are input, output and admission bounds, not a guaranteed provider
+billing ceiling.
+
+`timeoutMs` is accepted and validated and no longer bounds the request, for the
+reason [bounded preparation inference](step-context.md#bounded-preparation-inference)
+states: an auxiliary request that ends without its usage receipt leaves the shared
+ledger unresolved, and an unresolved request admits nothing further, so a deadline
+that fired in normal use ended the run instead of the call. The call is bounded by
+the provider's request timeout and by the run's cancellation.
 
 The callback's completion, error or cancellation revokes the capability.
 Await every admitted call before returning a verdict. Invalid tool-bearing or

@@ -39,15 +39,19 @@ export function createCallbackInference(
 					`${phase === 'preparation' ? 'A' : 'An'} ${owner} may make only one inference call.`,
 				)
 			used = true
-			const deadline = new AbortController()
-			const timer = setTimeout(
-				() => deadline.abort(new Error(`${label} inference timed out.`)),
-				input.timeoutMs,
-			)
+			// No deadline of our own on the request — see the note on
+			// `PreparationTextRequest.timeoutMs`. The two bounds that remain are
+			// the ones every other model request in the run has: the run's own
+			// cancellation, and the provider's request timeout. An expired local
+			// deadline here would abort a CONTACTED request, and a request that
+			// ends without its usage receipt leaves the shared ledger unresolved,
+			// which stops the whole run — so a stage that gave up on its own
+			// optional inference would take the operator's turn with it. That is
+			// not hypothetical: it is what a 10s deadline did to every turn
+			// against a reasoning model slower than 10s per auxiliary answer.
 			const signal = AbortSignal.any([
 				ctx.abortController.signal,
 				lifetime.signal,
-				deadline.signal,
 				...(requestedSignal ? [requestedSignal] : []),
 			])
 			const requested = ctx.servingMember?.() ?? { index: 0, providerId: ctx.provider.id }
@@ -86,7 +90,6 @@ export function createCallbackInference(
 				if (invalidOutput) throw new Error(invalidOutput)
 				return { text: text.text, usage, servedBy: route() }
 			} finally {
-				clearTimeout(timer)
 				if (usage) ctx.runMgr.accumulateUsage(usage, route())
 			}
 		},

@@ -227,9 +227,19 @@ The model is the one selected by preceding stages, with the run's effort setting
 `timeoutMs` and `signal`. No conversation, tool definitions, private reasoning or
 other request state is implicitly attached. The two input strings together may
 contain at most 12,000 UTF-16 units. The output limit defaults to 256 tokens and
-cannot exceed 1,024; the deadline defaults to and cannot exceed 10,000ms. A caller
-signal can shorten the stage/run lifetime. These limits do not guarantee a
-provider billing ceiling.
+cannot exceed 1,024. A caller signal can shorten the stage/run lifetime. These
+limits do not guarantee a provider billing ceiling.
+
+`timeoutMs` is accepted and validated and no longer bounds the request. It cannot:
+an auxiliary request that ends without its final usage receipt leaves the run's
+shared ledger unresolved, and an unresolved request admits nothing further, so a
+deadline that fired in normal use did not bound the call — it ended the run that
+made it. Against a reasoning model whose auxiliary answer took 17 s, a 10 s
+deadline stopped every turn after the first before the model was asked. The call
+is bounded instead by the provider's own request timeout and by the run's
+cancellation, the same two bounds every other model request in the run has; a
+run-level `timeoutMs` on `runConfig` bounds the turn that contains it. The field
+is deprecated and will be removed in a later major.
 
 `PreparationTextResult` returns `text` (at most 8,192 units), `usage` and
 `servedBy`. Only visible text is collected. Tool calls are rejected without

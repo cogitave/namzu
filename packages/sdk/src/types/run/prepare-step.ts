@@ -12,7 +12,18 @@ export interface PreparationTextRequest {
 	readonly prompt: string
 	/** Default 256; maximum 1,024. A provider limit, not a hard billing ceiling. */
 	readonly maxTokens?: number
-	/** Default and maximum 10,000ms, shortened by stage/run cancellation. */
+	/**
+	 * Accepted and validated; no longer bounds the request.
+	 *
+	 * @deprecated An auxiliary request that ends without its final usage
+	 * receipt leaves the run's shared ledger with unresolved spend, which stops
+	 * the run — so a deadline short enough to fire in normal use does not bound
+	 * the call, it ends the run that made it. The call is bounded by the
+	 * provider's own request timeout and by the run's cancellation instead, the
+	 * same two bounds every other model request in the run has. Passing this
+	 * field changes nothing; it is retained so an existing caller keeps
+	 * compiling until it is removed in a later major.
+	 */
 	readonly timeoutMs?: number
 	readonly signal?: AbortSignal
 }
