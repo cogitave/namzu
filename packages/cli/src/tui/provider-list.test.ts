@@ -59,6 +59,22 @@ const FREE_ZEN: DetectedProvider = {
 	alternatives: [],
 }
 
+/** A signed-in session, which is a different way in from a key. */
+const CLAUDE_DEVICE: DetectedProvider = {
+	entry: PROVIDER_REGISTRY['anthropic'],
+	source: { kind: 'claude-file', path: '/device/.claude/.credentials.json' },
+	apiKey: 'claude-device-token',
+	alternatives: [],
+}
+
+/** The same, from the CLI Google ships — discovery reports it as a session. */
+const GEMINI_SESSION: DetectedProvider = {
+	entry: PROVIDER_REGISTRY.google,
+	source: { kind: 'gemini-file', path: '/device/.gemini/oauth.json' },
+	apiKey: 'gemini-session-token',
+	alternatives: [],
+}
+
 /**
  * The row a provider is on, whichever id of it is asked about.
  *
@@ -208,27 +224,94 @@ describe('one vendor is one row', () => {
 		])
 	})
 
-	it('asks which provider when the row names more than one, and not before', () => {
-		// The question is about PROVIDERS, not about credentials. A row whose ways
-		// in all belong to one provider has an answer Enter can give — the detected
-		// session, or the field that takes the key — and an intermediate screen
-		// there would cost every operator a keystroke to answer a question nobody
-		// asked.
+	it('asks how the row is meant to be used when it has more than one way in', () => {
+		// The question is about WAYS, and it is asked exactly when there is more
+		// than one — in both directions. A row with two ways that come from one id
+		// is asked (a session AND a key on one entry); a row with one way is not,
+		// whatever it took to declare it.
 		const rows = providerListRows([CODEX_DEVICE, LOCAL_OLLAMA])
 
 		expect(rowNeedsChoice(rowOf(rows, 'codex'))).toBe(true)
 		expect(rowNeedsChoice(rowOf(rows, 'ollama'))).toBe(false)
 		expect(rowNeedsChoice(rowOf(providerListRows([LOCAL_OLLAMA]), 'deepseek'))).toBe(false)
+		expect(rowNeedsChoice(rowOf(providerListRows([]), 'openrouter'))).toBe(false)
 	})
 
-	it('keeps a detected provider out of the ways in, since it is already usable', () => {
-		// One provider, named once. Offering a detected session again under
-		// "enter a credential" would put the same provider on the same row twice,
-		// which is the shape this grouping exists to remove.
-		const rows = providerListRows([CODEX_DEVICE])
-		const codexPaths = rowOf(rows, 'codex').paths.filter((path) => pathProviderId(path) === 'codex')
+	it('offers the key beside a signed-in session, which is a different way in', () => {
+		// The gap the owner's rule closed. One entry takes a session and a key, so
+		// a machine with the session found has two real choices: keep using it, or
+		// enter a key of one's own. The row asked nothing before, because both ways
+		// came from one id.
+		const rows = providerListRows([CLAUDE_DEVICE])
+		const bothWays = rowOf(rows, 'anthropic')
 
-		expect(codexPaths).toHaveLength(1)
+		expect(bothWays.paths.map((path) => `${path.kind}:${pathProviderId(path)}`)).toEqual([
+			'detected:anthropic',
+			'credential:anthropic',
+		])
+		expect(rowNeedsChoice(bothWays)).toBe(true)
+	})
+
+	it('offers the key beside a free catalogue, which works without one', () => {
+		// `zen` declares `requiresApiKey: false`: the free models are a way in on
+		// their own, and a key is a second one. The row says so, and the free way
+		// is first because it is what discovery found.
+		const rows = providerListRows([FREE_ZEN])
+		const zen = rowOf(rows, 'zen')
+
+		expect(zen.paths.map((path) => `${path.kind}:${pathProviderId(path)}`)).toEqual([
+			'detected:zen',
+			'credential:zen',
+		])
+		expect(rowNeedsChoice(zen)).toBe(true)
+	})
+
+	it('does not offer a key beside the key it already has', () => {
+		// The other half of the same rule, and the one that keeps the common case
+		// a single keystroke: a vendor whose credential discovery already hands
+		// over has ONE way in, and entering another key is that way twice.
+		const aKey: DetectedProvider = {
+			entry: PROVIDER_REGISTRY.openrouter,
+			source: { kind: 'env', envName: 'OPENROUTER_API_KEY' },
+			apiKey: 'not-a-real-key',
+			alternatives: [],
+		}
+		const rows = providerListRows([aKey])
+		const openrouter = rowOf(rows, 'openrouter')
+
+		expect(openrouter.paths.map((path) => path.kind)).toEqual(['detected'])
+		expect(rowNeedsChoice(openrouter)).toBe(false)
+	})
+
+	it('counts a token in an environment variable as a session, the way the sign-in screen does', () => {
+		// `signedInSubscriptionProviders` is the one place that decides this, and
+		// it says an OAuth token in an environment variable is a signed-in
+		// session. Reading it any other way here would make the two screens
+		// disagree about the same machine — and the key would look like the same
+		// way in as the session it is not.
+		const token: DetectedProvider = {
+			entry: PROVIDER_REGISTRY['anthropic'],
+			source: { kind: 'env', envName: 'CLAUDE_CODE_OAUTH_TOKEN' },
+			apiKey: 'a-session-token',
+			alternatives: [],
+		}
+		const rows = providerListRows([token])
+
+		expect(rowOf(rows, 'anthropic').paths.map((path) => path.kind)).toEqual([
+			'detected',
+			'credential',
+		])
+	})
+
+	it('asks nothing when the key it found is the only way in', () => {
+		const key: DetectedProvider = {
+			entry: PROVIDER_REGISTRY['anthropic'],
+			source: { kind: 'env', envName: 'ANTHROPIC_API_KEY' },
+			apiKey: 'not-a-real-key',
+			alternatives: [],
+		}
+
+		expect(providerListRows([key]).find((row) => row.vendor === 'anthropic')?.paths).toHaveLength(1)
 	})
 
 	it('keeps a vendor this build cannot construct visible, and unusable', () => {
@@ -286,6 +369,21 @@ describe('the ways in a vendor offers', () => {
 		expect(
 			vendorPaths([PROVIDER_REGISTRY.ollama], [LOCAL_OLLAMA], true).map((p) => p.kind),
 		).toEqual(['detected'])
+	})
+
+	it('offers the key beside the session discovery found for a vendor with its own', () => {
+		// `google` declares a typed credential and no sign-in of its own, and
+		// discovery reports the session its CLI keeps as a session. Two ways again,
+		// from one id, and the row has to say both rather than choosing for the
+		// operator.
+		const rows = providerListRows([GEMINI_SESSION])
+		const google = rowOf(rows, 'google')
+
+		expect(google.paths.map((path) => `${path.kind}:${pathProviderId(path)}`)).toEqual([
+			'detected:google',
+			'credential:google',
+		])
+		expect(rowNeedsChoice(google)).toBe(true)
 	})
 
 	it('drops the ways in that only make sense on a screen of usable sessions', () => {

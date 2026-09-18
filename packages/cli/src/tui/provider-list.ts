@@ -30,14 +30,13 @@
  *
  * Every way in that this build can offer is below in `paths`, in the order the
  * screen offers them: what is already detected, then the API key, then — where
- * nothing works yet — a sign-in the registry declares. A row whose paths name
- * ONE provider id leads straight to that provider's flow, exactly as it did
- * before this file grouped anything — Enter on an unconfigured row opens its
- * paste field, Enter on a detected one opens its models. A row whose paths name
- * SEVERAL ids cannot answer Enter by itself, so the screen asks which one; that
- * is the only place this change added a step to, and in the registry as it
- * stands it is one row: the vendor whose subscription session and API key are
- * two ids.
+ * nothing works yet — a sign-in the registry declares. A row with ONE way in
+ * leads straight to that way's flow, exactly as it did before this file grouped
+ * anything — Enter on an unconfigured row opens its paste field, Enter on a
+ * detected one opens its models. A row with SEVERAL cannot answer Enter by
+ * itself, so the screen asks how the operator means to use it; that is the only
+ * place this change added a step to, and it is a count of WAYS rather than of
+ * ids — see `rowNeedsChoice` and `vendorPaths`.
  *
  * ## What is added, and what is deliberately not
  *
@@ -79,6 +78,7 @@ import {
 	VENDOR_NAMES,
 	type VendorId,
 	providerEntriesOfVendor,
+	signedInSubscriptionProviders,
 } from '../integrations/providers/index.js'
 
 /**
@@ -150,9 +150,21 @@ export function settableProviders(): readonly ProviderRegistryEntry[] {
  * the flags, and the alternative is a rule only checkable by editing the
  * registry.
  *
- * An id that was already detected is never offered a second time as a way in.
- * It is already usable, and listing it twice would put the same provider on the
- * row under two headings, which is the shape this file exists to remove.
+ * ## What counts as a second way in
+ *
+ * Not a second id — a second WAY. One entry can take an API key AND be found as
+ * a signed-in session, and a machine in that state has two genuinely different
+ * ways to use it: keep using the session discovery found, or enter a key of
+ * one's own. The same is true of a vendor whose free catalogue works without a
+ * credential. So the key path is offered beside what was found whenever what was
+ * found is not itself a key — a signed-in session is a different way in, and a
+ * key that discovery already hands over is the same way twice.
+ *
+ * "Is what was found a key?" is asked with the predicate the sign-in screen
+ * already decides it by (`signedInSubscriptionProviders`), rather than a second
+ * opinion written here: an OAuth token in an environment variable is a session
+ * on that screen and must be one here too, or the two screens would disagree
+ * about the same machine.
  *
  * ## Why a sign-in is offered only where nothing works yet
  *
@@ -175,7 +187,6 @@ export function vendorPaths(
 	includeUnconfigured: boolean,
 ): readonly VendorPath[] {
 	const paths: VendorPath[] = []
-	const found = new Set(detected.map((provider) => provider.entry.id))
 	for (const provider of detected) {
 		// A provider this build cannot construct is not a way in. It stays in the
 		// row's `detected` so the row can say what it found and refuse with the
@@ -184,15 +195,20 @@ export function vendorPaths(
 		paths.push({ kind: 'detected', detected: provider })
 	}
 	if (!includeUnconfigured) return paths
-	const alreadyUsable = paths.length > 0
+	// What is on this machine UNDER a signed-in session, as opposed to a key.
+	const signedIn = new Set(signedInSubscriptionProviders(detected).map((p) => p.entry.id))
+	const aKeyIsAlreadyHere = detected.some(
+		(provider) =>
+			!signedIn.has(provider.entry.id) &&
+			(provider.source.kind === 'env' || provider.source.kind === 'opencode-file'),
+	)
 	for (const entry of entries) {
-		if (found.has(entry.id)) continue
 		if (!entry.constructible || !entry.acceptsTypedCredential) continue
+		if (aKeyIsAlreadyHere) continue
 		paths.push({ kind: 'credential', entry })
 	}
-	if (alreadyUsable) return paths
+	if (paths.some((path) => path.kind === 'detected')) return paths
 	for (const entry of entries) {
-		if (found.has(entry.id)) continue
 		if (!entry.constructible || entry.subscriptionLogin === undefined) continue
 		paths.push({ kind: 'sign-in', entry })
 	}
@@ -257,19 +273,23 @@ export function rowIsUsable(row: VendorRow): boolean {
 }
 
 /**
- * Whether entering the row has to ask which provider it means.
+ * Whether entering the row has to ask how the operator means to use it.
  *
- * True exactly when the row's paths name more than one provider id, which in
- * the current registry is the one vendor whose two ids are a subscription and a
- * key: those are different providers with different catalogues, so which one
- * the operator wants is theirs to say and not the screen's to assume. A row
- * whose paths all name ONE provider is not asked: the paths there are
- * alternative credentials for the same provider, `k` and `l` already reach the
- * ones Enter does not, and an intermediate menu would cost every operator a
- * keystroke to answer a question that has one answer.
+ * True exactly when the row has more than one way in — by the ways that exist,
+ * and not by how many registry ids they come from. One id can have two ways (a
+ * signed-in session beside an API key) and two ids can share one way, so
+ * counting ids answered the wrong question in both directions: it asked nothing
+ * about a vendor that had a session AND a key to choose between, and it would
+ * have asked twice about two ids that were one and the same key.
+ *
+ * A row with ONE way is not asked. That is the common case and the one the
+ * owner's rule protects: nothing stands between the operator and their model
+ * list when there is nothing to choose, and Enter goes on meaning what it has
+ * always meant — the detected session's models, or the field that takes the
+ * credential this row is missing.
  */
 export function rowNeedsChoice(row: VendorRow): boolean {
-	return new Set(row.paths.map(pathProviderId)).size > 1
+	return row.paths.length > 1
 }
 
 /**

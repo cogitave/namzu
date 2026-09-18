@@ -17,8 +17,11 @@
  * paste field whose value travels the session-credential path, and the model
  * step a detected provider has always gone to.
  *
- * It also pins what did NOT change: a row whose ways in belong to one provider
- * is not asked about, so Enter there means exactly what it always did.
+ * It also pins what did NOT change: a row with ONE way in is not asked about, so
+ * Enter there means exactly what it always did. One way is a count of ways and
+ * not of registry ids — a key discovery already hands over is one way, and a
+ * session beside a key is two — so the vendor with both is asked about here and
+ * an exported OpenRouter key is not.
  */
 
 import { afterEach, expect, it, vi } from 'vitest'
@@ -52,6 +55,29 @@ const CODEX_DEVICE: DetectedProvider = {
 	entry: PROVIDER_REGISTRY.codex,
 	source: { kind: 'codex-file', path: '/device/.codex/auth.json' },
 	apiKey: 'never-render-this-token',
+	alternatives: [],
+}
+
+/** One id with a session and a key, which is two ways in all the same. */
+const CLAUDE_DEVICE: DetectedProvider = {
+	entry: PROVIDER_REGISTRY['anthropic'],
+	source: { kind: 'claude-file', path: '/device/.claude/.credentials.json' },
+	apiKey: 'claude-device-token',
+	alternatives: [],
+}
+
+/** A key discovery already hands over: one way in, and not a question. */
+const OPENROUTER_KEY: DetectedProvider = {
+	entry: PROVIDER_REGISTRY.openrouter,
+	source: { kind: 'env', envName: 'OPENROUTER_API_KEY' },
+	apiKey: 'not-a-real-key',
+	alternatives: [],
+}
+
+/** One id whose free catalogue is a way in on its own. */
+const FREE_ZEN: DetectedProvider = {
+	entry: PROVIDER_REGISTRY.zen,
+	source: { kind: 'public' },
 	alternatives: [],
 }
 
@@ -203,6 +229,56 @@ it('keeps Enter going straight through where a row has one provider behind it', 
 	await press(unconfigured, '\r')
 	expect(unconfigured.viewport().join('\n')).toContain('Paste a credential for DeepSeek')
 	expect(unconfigured.viewport().join('\n')).not.toContain('Choose a way to use')
+	// And a key discovery already hands over is that one way: the row it found is
+	// the answer, and nothing asks how the operator meant to use it.
+	const withKey = await open({ detected: [OPENROUTER_KEY], describeModels: vi.fn(async () => ONE_MODEL) })
+	await press(withKey, '\r')
+	await vi.waitFor(async () => {
+		await withKey.waitForRender()
+		expect(withKey.viewport().join('\n')).toContain('Choose a model · OpenRouter')
+	})
+	expect(withKey.viewport().join('\n')).not.toContain('Choose a way to use')
+})
+
+it('asks how a one-id vendor is meant to be used, when it has two ways in', async () => {
+	// The owner's rule: the chooser follows the WAYS, not the ids. This vendor is
+	// ONE id with a session on this machine and a key it can take, so the row has
+	// something to ask — and each answer leads where that way in always led.
+	const screen = await open({ detected: [CLAUDE_DEVICE], describeModels: vi.fn(async () => ONE_MODEL) })
+	await press(screen, '\r')
+	const chooser = screen.viewport().join('\n')
+
+	expect(chooser).toContain('Choose a way to use Anthropic (Claude)')
+	expect(chooser).toContain('1. Use existing Anthropic (Claude) · Claude session · this device')
+	expect(chooser).toContain('2. Enter a credential for Anthropic (Claude) · needs ANTHROPIC_API_KEY')
+
+	// The key answer opens the field, the same field every other row opens.
+	await press(screen, '2')
+	await press(screen, '\r')
+	expect(screen.viewport().join('\n')).toContain('Paste a credential for Anthropic (Claude)')
+})
+
+it('leads to the models from the session answer of that same row', async () => {
+	const describeModels = vi.fn(async () => ONE_MODEL)
+	const screen = await open({ detected: [CLAUDE_DEVICE], describeModels })
+	await press(screen, '\r')
+	await press(screen, '\r')
+
+	await vi.waitFor(async () => {
+		await screen.waitForRender()
+		expect(screen.viewport().join('\n')).toContain('Choose a model · Anthropic (Claude)')
+	})
+	expect(describeModels).toHaveBeenCalledWith('anthropic', expect.anything(), expect.anything())
+})
+
+it('offers the free catalogue and a key as the two ways into a free vendor', async () => {
+	const screen = await open({ detected: [FREE_ZEN], describeModels: vi.fn(async () => ONE_MODEL) })
+	await press(screen, '\r')
+	const chooser = screen.viewport().join('\n')
+
+	expect(chooser).toContain('Choose a way to use Zen')
+	expect(chooser).toContain('1. Use existing Zen · free models · no API key')
+	expect(chooser).toContain('2. Enter a credential for Zen · OPENCODE_API_KEY optional')
 })
 
 it('returns to the row it came from when the ways-in screen is left', async () => {

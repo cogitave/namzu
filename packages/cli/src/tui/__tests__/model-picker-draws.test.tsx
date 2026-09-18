@@ -84,7 +84,7 @@ function selectedRow(frame: string): string | undefined {
 }
 
 describe('the model step', () => {
-	it('offers public Zen directly and removes an old paid pin from the model screen', async () => {
+	it('reaches the model screen through the free way and drops an old paid pin there', async () => {
 		const entry = PROVIDER_REGISTRY.zen
 		const { lastFrame, stdin, onSubmit, unmount } = open({
 			detected: [{ entry, source: { kind: 'public' }, alternatives: [] }],
@@ -100,6 +100,12 @@ describe('the model step', () => {
 		})
 		try {
 			expect(lastFrame()).toContain('free models · no API key')
+			// Two ways in, because a public Zen catalogue is one and an API key is
+			// another — so the row asks, and the free way it found is the first
+			// answer.
+			stdin.write('\r')
+			await flush()
+			expect(lastFrame()).toContain('Choose a way to use Zen')
 			stdin.write('\r')
 			await flush()
 			expect(lastFrame()).toContain('Muse Spark Free')

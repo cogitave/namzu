@@ -57,6 +57,23 @@ telling an operator they are choosing between two priced things. Ollama and LM
 Studio are two different local servers. AWS Bedrock and `http` remain absent
 from the list entirely, for the reasons recorded beside them.
 
+**The sub-menu asks about ways, not about ids.** It was gated on a row's ways
+coming from more than one registry id, which answered the wrong question in both
+directions. `anthropic` is ONE id that takes a signed-in session and an API key,
+so a machine with the Claude session found had two real choices — keep using
+that session, or enter a key of one's own — and was asked nothing; two ids that
+happened to be the same key would have been asked twice. The gate is the number
+of ways in, and the key is offered beside what discovery found whenever what was
+found is not itself a key (asked with `signedInSubscriptionProviders`, the
+predicate the sign-in screen already decides that by, so an OAuth token in an
+environment variable counts as the session it is on both screens). A vendor
+whose free catalogue works without a credential gets the same treatment: the
+free models are one way in and the key is another. Everything else is unchanged
+— what follows each answer, the wording and the ordering — and a row with one
+way in keeps the keystroke it always had, so an exported key, a local server or
+an unconfigured vendor still goes straight to its models or its paste field with
+nothing in between.
+
 **Four more things, found by running it on a real terminal at 60x20 and 50x20** —
 sizes no rendering test used, which is why the tests were green. The text area
 was computed as `columns - 4` and the app's own one-column inset on each side

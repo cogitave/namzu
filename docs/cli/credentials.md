@@ -38,13 +38,24 @@ Nothing else changed about how a credential is taken: the paste field still
 feeds the session-credential path, and a typed credential is still held in
 memory for that session and written nowhere.
 
-Enter asks a question only where the row has more than one provider behind it.
-A row whose ways in all belong to one provider keeps the keystroke it always
-had — an unconfigured row opens its paste field, a detected one opens its models
-— and `k` opens the paste field for whichever row the cursor is on. A row whose
-vendor takes no typed credential leaves `k` addressing the saved provider the
-picker was opened for, which is the provider whose key is missing, and `l`
-starts a Namzu-owned sign-in from any screen in the picker.
+**The choice follows the ways, not the ids.** What makes a row worth asking
+about is that it has more than one way in — a machine that found a session *and*
+can take an API key has two, whether or not they were declared on the same
+registry entry. So an Anthropic row with a Claude session on the device offers
+both: keep using that session, or enter a key of one's own. So does a vendor
+whose free catalogue works without a credential, beside the key that catalogue
+does not need. And a key discovery already hands over is ONE way: the row went
+and found it, and entering another is that way twice, so that row goes straight
+on.
+
+Enter asks a question only where there is more than one answer. A row with one
+way in keeps the keystroke it always had — an unconfigured row opens its paste
+field, a detected one opens its models — and nothing stands between an operator
+and their model list when there is nothing to choose. `k` opens the paste field
+for whichever row the cursor is on. A row whose vendor takes no typed credential
+leaves `k` addressing the saved provider the picker was opened for, which is the
+provider whose key is missing, and `l` starts a Namzu-owned sign-in from any
+screen in the picker.
 
 Two vendors that look like one keep two rows, because they are two products
 rather than two credentials for one. Zen and Zen Go have separate catalogues,
