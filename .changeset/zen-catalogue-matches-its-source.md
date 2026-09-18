@@ -20,10 +20,26 @@ model: 'omen-alpha', protocol: 'chat' })` — and the driver will route it, as
 That is the only way to keep it, and it is a statement about a model nothing
 upstream documents any more.
 
-**Three models are new**, and selectable once your key admits them:
-`union-alpha` on Zen and on Go (an Anthropic-Messages wire on both, advertised
-free, so on Zen it is one of the anonymous models), and `deepseek-v4.1-flash`
-on Go (Chat Completions, $0.15/$0.60 per million off-peak).
+**One model is new**, and selectable once your key admits it:
+`deepseek-v4.1-flash` on Go (Chat Completions, $0.15/$0.60 per million
+off-peak).
+
+**`union-alpha` is not in this catalogue, and not for our reasons.** It was
+added to the roster while this release was being prepared, and upstream removed
+it before the release shipped: models.dev — where the catalogue derives limits,
+tool support, modalities and effort options — deleted its entry on 2026-09-18,
+from every provider that carried it and not only from ours. Nothing about the
+service changed, and nothing here is invented to compensate: a model whose
+limits cannot be derived is omitted rather than carried with made-up numbers.
+**You lose nothing by it.** The published `@namzu/zen` 1.0.2 does not carry this
+id either, and the roster this release ships is back to 86 models (59 Zen, 27
+Go); if the free-model list in the docs made you expect it, that is the
+explanation. Both services still serve it and both pages still route it on the
+Messages wire, so you can call it the same way as any id whose wire the host
+supplies — `new ZenProvider({ apiKey, model: 'union-alpha', protocol: 'messages' })`
+— which needs a real credential, since anonymous admission is only claimed for
+models the catalogue carries. It comes back on its own, at `minor`, when
+models.dev restores the entry.
 
 **Two Go prices are lower**, because upstream repriced them: `deepseek-v4-flash`
 and `deepseek-v4-flash-vision-exp` move from $0.22/$0.66 to $0.15/$0.60 per

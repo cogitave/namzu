@@ -129,7 +129,6 @@ Anonymous access is restricted to these explicit bundled model IDs:
 
 - `muse-spark-1.3-contributor-free`
 - `big-pickle`
-- `union-alpha`
 - `mimo-v2.5-free`
 - `ling-3.0-flash-fin-free`
 - `nemotron-3-ultra-free`
@@ -152,6 +151,19 @@ free ids on Zen — `deepseek-v4-flash-free` and `muse-spark-1.2-contributor-fre
 routed. They are not bundled, `src/models.review.json` records that decision by
 name, and the gate fails if a served id is neither carried nor omitted, so this
 stays a decision rather than a gap nobody noticed.
+
+An id can also leave the catalogue while both upstreams still serve and route
+it, which is what happened to `union-alpha` on 2026-09-18: models.dev deleted
+its entry, and the catalogue derives limits, tool support and modalities from
+there rather than inventing them, so the id is omitted until that entry comes
+back. Both services still serve it and both pages still route it on Messages,
+and a caller who needs it in the meantime states the wire itself —
+`new ZenProvider({ apiKey, model: 'union-alpha', protocol: 'messages' })` —
+exactly as for any id whose protocol the host supplies. That requires a real
+credential: it is no longer one of the anonymous models above, because
+anonymous admission is a claim this catalogue only makes about models it
+carries, and an uncredentialed request for it is refused like any other model
+outside that set.
 
 The driver does not infer public admission from an arbitrary model name or
 zero price: the bundled `ZenModel.supportsAnonymousAccess` flag must be

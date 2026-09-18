@@ -5,9 +5,21 @@ import { type ZenProtocol, findZenModel, getZenModels } from '../models.js'
 import type { ZenGoConfig, ZenGoProviderConfig } from '../types.js'
 
 const freeMuse = 'muse-spark-1.3-contributor-free'
+/**
+ * Every id the catalogue flags `supportsAnonymousAccess`, which is deliberately
+ * a list rather than a filter over the roster: the flag is a claim about what
+ * the service admits, and re-deriving it from the roster would assert that the
+ * roster equals itself.
+ *
+ * `union-alpha` was here until 2026-09-18, when models.dev deleted its entry
+ * and the catalogue stopped carrying it for want of limits to derive — so no
+ * anonymous model is left on the Messages wire, and the `messages` branch of
+ * the fixture below now runs for nobody in this list. It stays because the
+ * branch is chosen by the ROSTER, not by this list: a free model on Messages
+ * would need it again, and `wirePath` is what says so.
+ */
 const anonymousIds = [
 	'big-pickle',
-	'union-alpha',
 	'mimo-v2.5-free',
 	'ling-3.0-flash-fin-free',
 	'nemotron-3-ultra-free',
