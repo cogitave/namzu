@@ -271,10 +271,14 @@ describe('a host that walks away from the generator', () => {
 		// iteration — which is what `run_started`, the event that made this
 		// host walk away, says about the run.
 		expect(meta.currentIteration).toBe(0)
-		// `messageCount` is deliberately no longer asserted. It read 0 only
-		// because the row was the untouched one `init()` had written, so
-		// pinning it would now pin an init-timing detail rather than the
-		// contract this file exists for.
+		// The count is pinned rather than dropped, and at the value the
+		// abandonment actually writes. It read 0 before only because the row
+		// was the untouched one `init()` had written; the row is built from
+		// live run state now, so a bare "it is a number" would leave the one
+		// field this fix moved free to drift. Three is what the run had
+		// recorded by the time its consumer left — the same three the
+		// pre-fix row's `messageCount` disagreed with by saying 0.
+		expect(meta.messageCount).toBe(3)
 		// No terminal EVENT was written, and that stays true: there is no
 		// consumer left to receive one, so the stream is untouched and only
 		// the durable record moved.
