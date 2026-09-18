@@ -1,5 +1,70 @@
 # @namzu/cli
 
+## 26.1.0
+
+### Minor Changes
+
+- 9b920fd: The model picker marks a zero-priced model `(free)`, and its search finds the
+  word.
+
+  OpenRouter's public catalogue serves 445 models and 25 of them are priced at
+  zero for both input and output. The picker listed all 445 and could not tell
+  you which: the listing it built dropped the price the driver had already
+  parsed. A row now carries `(free)` when its listing reported `0` for both
+  prices, and `free` in the search box returns those rows — including the ones
+  whose ID and display name never spell the word, which is how
+  `google/lyria-3-pro-preview` becomes findable at all. Nothing is reordered or
+  hidden: the provider's order is the screen's order, and the marker only adds
+  words to a row that was already there.
+
+  **This changes what the search matches**, and that is why it is not a patch.
+  The filter is documented as matching a row's ID and display name; it now also
+  matches the note beside the row. Everything that matched before still matches
+  identically — the same words, the same order, the same rows returned by
+  identity — but a query can return more than it did. Typing `default` finds the
+  row marked `(namzu default)`, and `free` finds every row marked `(free)`,
+  where before both matched only rows whose ID or name happened to contain the
+  word. Nothing needs to be done about it unless you drive this screen from a
+  script that assumed a query's result set; if you do, the new matches are
+  additive, so a result you were using is still in it.
+
+  It is not a `major` because no exported symbol, CLI flag, config key, default
+  or wire shape moved. `ModelListing`'s `ok` arm gained two optional fields —
+  optional deliberately, since `ModelInfo` requires both prices and a required
+  price is one a driver has to invent — and the picker is a screen, not an API.
+
+  One thing to know before you trust the badge. The note reports what the
+  provider's own listing said about its own catalogue, and a driver that reports
+  zero for every model it lists gets a list marked free wholesale. Four drivers
+  in this repository do exactly that today (`anthropic`'s live path, `openai`,
+  `codex`, `deepseek`); the fix is to make the price optional in `ModelInfo` and
+  have those drivers omit it, the way `9d6c482c` did for `contextWindow`, and
+  that is an SDK change with its own bump rather than part of this one.
+
+### Patch Changes
+
+- e83dfe5: The model picker marks a row `(free)` only when the provider reported both rates as zero, and says nothing about a model whose rate nobody published.
+
+  Both halves are the fix. Reading `0` as free is right, and it is now readable: `ModelInfo`'s two price fields are optional, so a driver with no rate omits them rather than writing the zero that made every paid model on four provider menus look free.
+
+  The catalogue block under `agent_models` prints a price fact: the rates when the driver published them, `Free` when it reported zero, and `Price unknown` when it published nothing. `Price unknown` is the rendering that did not exist — had absence been given the obvious one it would have printed `$0.00`, which is the same sentence as `Free` to a reader.
+
+  The `(free)` marker also survives a narrow terminal. `Picker` rebuilds a row's notes from a fixed vocabulary under 70 columns and drops any word missing from it, so `(free)` had to be added there or it would have been silently discarded on exactly the screens where the row is hardest to read.
+
+- Updated dependencies [e83dfe5]
+- Updated dependencies [e83dfe5]
+- Updated dependencies [e83dfe5]
+- Updated dependencies [e5411cc]
+- Updated dependencies [9661d16]
+  - @namzu/ollama@2.2.4
+  - @namzu/sdk@43.0.0
+  - @namzu/anthropic@6.0.0
+  - @namzu/openai@4.0.0
+  - @namzu/deepseek@2.0.0
+  - @namzu/google@1.0.0
+  - @namzu/openrouter@3.0.0
+  - @namzu/computer-use@1.4.3
+
 ## 26.0.1
 
 ### Patch Changes

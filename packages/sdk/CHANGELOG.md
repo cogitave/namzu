@@ -1,5 +1,39 @@
 # Changelog
 
+## 43.0.0
+
+### Major Changes
+
+- e83dfe5: `ModelInfo.inputPrice` and `ModelInfo.outputPrice` are now optional. Six drivers wrote `0` wherever the vendor listing carries no rate; they omit the field instead.
+
+  A price of zero is not "I do not know" — it is a billing fact. It says the model is free, and it reaches every consumer as a quote: a menu prints `(free)`, a total reports the model as costing nothing, and an operator believes both. The drivers had no way to say anything else, because the type required a number.
+
+  This is the defect `9d6c482c` removed from `contextWindow`, in the field where a wrong value is money rather than a compaction pass. The distinction was already the house rule one level down: `resolveModelPricing` returns `undefined` for a rate nobody has and `{ inputCostPer1M: 0, outputCostPer1M: 0 }` for a driver that genuinely bills nothing, and its own docblock says a caller that flattens the two reproduces the defect the module exists to remove. `ModelInfo` carried the flattened version to every consumer that never reached that module.
+
+  **What breaks.** Code reading `model.inputPrice` or `model.outputPrice` as a `number` must handle `undefined`. That is the point — the value was already absent in fact, and the type was asserting otherwise. Treat `undefined` as unknown rather than as free: a caller that renders a price should say "unknown" rather than `$0.00`, and only `0` means the model is free.
+
+  **What does not change.** A driver that knows a rate of zero still writes `0`. `ollama` and `lmstudio` bill nothing by construction, and the Zen catalogue's free tier is priced from a source that names those models free. Values that were genuinely known are untouched.
+
+### Minor Changes
+
+- 9661d16: Stop an optional inference from ending the run that made it.
+
+  `PreparationTextRequest.timeoutMs` is deprecated and no longer bounds the request. An
+  auxiliary provider request that ends without its final usage receipt leaves the run's shared
+  token ledger unresolved, and an account with unresolved spend admits nothing further — so a
+  deadline that fired in normal use did not bound the call, it stopped the run. Against a
+  reasoning model whose auxiliary answer took 17 s, every turn after the first ended with
+  "usage for a model request could not be confirmed" before the model was ever asked, so no
+  tool call in the run could ever execute.
+
+  What a host observes: a run that used to stop after its first turn now continues. A
+  preparation or review inference is bounded by the provider's own request timeout and by the
+  run's cancellation — the same two bounds every other model request in the run has — instead
+  of by a 10 s deadline of its own; set `runConfig.timeoutMs` to bound the whole turn. Stop
+  still cancels an in-flight auxiliary call, and a cancelled call still leaves its unresolved
+  receipt visible in `/cost`. Passing `timeoutMs` changes nothing and is still validated; the
+  field will be removed in a later major.
+
 ## 42.0.2
 
 ### Patch Changes
