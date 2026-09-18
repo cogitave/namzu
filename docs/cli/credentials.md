@@ -1,7 +1,7 @@
 ---
 type: Reference
 title: Provider credentials and private state
-description: How Namzu discovers existing provider sessions and verifies private credential and CLI state storage on Windows and POSIX systems.
+description: How Namzu discovers existing provider sessions, which providers the picker offers to set up with a credential, and how private credential and CLI state storage is verified on Windows and POSIX systems.
 resource: packages/cli/src/integrations/providers/credential-store.ts
 tags: [cli, providers, credentials, windows, storage]
 status: stable
@@ -13,6 +13,36 @@ Namzu discovers usable sessions independently of whether the corresponding
 external CLI executable is installed. `/setup` reports installation and
 credential availability separately. `namzu doctor --category providers`
 reports discovered source kinds and paths without printing credential values.
+
+## Choosing a provider, and entering a credential
+
+The provider picker lists every provider this build can construct that takes a
+credential you can type — not only the ones discovery found on the machine. The
+rows it detected come first, each naming the source it came from (`Claude
+session · this device`, `env · GEMINI_API_KEY`, `local · localhost:11434`). The
+rest follow under `Not detected — enter a credential to use these:`, and each
+names the environment variable it needs (`needs OPENROUTER_API_KEY`), because
+that variable is both what makes the provider work now and what keeps it
+working after a restart.
+
+Enter on one of those rows opens the paste field for that provider, and `k`
+does the same for whichever row the cursor is on. A provider that takes no typed
+credential — a local server, or one whose credential arrives by sign-in —
+leaves `k` addressing the provider the picker was opened for, which is the saved
+provider whose key is missing. `l` starts a Namzu-owned subscription sign-in
+instead. A typed credential is held in memory for that session: nothing is
+written to disk, and the variable named on the row is how it becomes durable.
+Rows past the ninth are reachable with the arrow keys; the digit shortcut is one
+keystroke per row and the screen says so when the list grows past nine.
+
+Four providers are deliberately absent from that second block, each for a
+reason the screen would otherwise have to explain after the fact. AWS Bedrock
+needs a credential chain — an access key, a secret, a region, or a role the SDK
+assumes — which one field cannot express. `http` is an endpoint whose base URL
+is half the credential. LM Studio is not constructible in this build. Codex is
+offered instead as a device-code sign-in under `l`, so that one provider is not
+set up two different ways. Ollama is never listed there either: what it needs is
+a running server, and a running server is how discovery finds it.
 
 ## Existing Claude sessions
 

@@ -32,6 +32,13 @@ import {
 } from './credential-entry.js'
 import { type ModelStep, modelStep } from './model-choices.js'
 import { filterModelChoices } from './model-search.js'
+import {
+	credentialNeed,
+	initialProviderRow,
+	providerListRows,
+	type ProviderListRow,
+	rowProviderId,
+} from './provider-list.js'
 import { moveSelection, selectionWindow } from './selection-window.js'
 import {
 	choiceDisplayWidth,
@@ -136,11 +143,6 @@ export interface PickerProps {
 	readonly notice?: string | null
 }
 
-/** Providers that take a typed credential. Local servers do not. */
-function keyCapableProviders(): ProviderRegistryEntry[] {
-	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter((e) => e.acceptsTypedCredential)
-}
-
 function subscriptionProviders(): ProviderRegistryEntry[] {
 	return ALL_PROVIDER_IDS.map((id) => PROVIDER_REGISTRY[id]).filter(
 		(entry) => entry.subscriptionLogin !== undefined,
@@ -179,16 +181,37 @@ function signInChoiceIndex(choices: readonly SubscriptionChoice[], provider: Pro
 /**
  * The provider `k` opens entry for.
  *
- * The saved one when this picker is open because its credential is missing;
- * otherwise the first key-capable provider, which is what the empty screen has
- * always done. Returns null when nothing here takes a typed credential.
+ * The highlighted row whenever it takes a typed credential — whichever row that
+ * is, detected or not. This screen used to answer the question from the
+ * registry instead: the saved provider if the picker was open because of one,
+ * and otherwise the first key-capable entry, which is a provider the operator
+ * may not have been looking at. A list you can move through is a list the key
+ * beside it has to follow.
+ *
+ * The rows that do not take one — a local server, a provider whose credential
+ * arrives by sign-in — fall through to the saved provider this picker was
+ * opened for: that route is why the notice above says `k`, and it must keep
+ * working when the cursor happens to sit on a row that cannot use it.
+ *
+ * Returns null when there is nothing here to enter a credential for, which the
+ * caller says out loud rather than presenting a field that leads nowhere.
  */
-function keyEntryTarget(keyEntryFor: ProviderId | null | undefined): ProviderRegistryEntry | null {
+function keyEntryTarget(
+	row: ProviderListRow | undefined,
+	keyEntryFor: ProviderId | null | undefined,
+): ProviderRegistryEntry | null {
+	if (row?.kind === 'unconfigured') return row.entry
+	if (row?.kind === 'detected' && row.detected.entry.acceptsTypedCredential) return row.detected.entry
 	if (keyEntryFor) {
 		const entry = PROVIDER_REGISTRY[keyEntryFor]
 		if (entry?.acceptsTypedCredential) return entry
 	}
-	return keyCapableProviders()[0] ?? null
+	return null
+}
+
+/** Name a row the way its own line does, for a sentence about it. */
+function rowLabel(row: ProviderListRow): string {
+	return row.kind === 'detected' ? row.detected.entry.label : row.entry.label
 }
 
 export function Picker({
@@ -249,15 +272,37 @@ export function Picker({
 		[],
 	)
 	useEffect(() => invalidateOperation, [invalidateOperation])
-	const initialIndex =
-		(currentProvider !== null && currentProvider !== undefined
-			? detected.findIndex((d) => d.entry.id === currentProvider)
-			: 0) || 0
+	// The list this screen draws: what was detected, then every provider this
+	// build could construct if the operator supplied a credential.
+	//
+	// `detected` is still the discovery result and is still what the header
+	// counts, what the sign-in screen offers and what a submitted choice is
+	// built from. This is the screen, not the machine.
+	//
+	// The signed-in-subscription screen takes the detected rows alone: it asks
+	// which already-usable session to use, and a row that needs a key first
+	// makes that sentence false.
+	const rows = providerListRows(detected, selectionKind !== 'signed-in-subscription')
+	// Whether `k` is offered at all, read once so the hint below and the key
+	// handler cannot disagree about it. The handler adds the phase guards,
+	// because it runs on every screen this picker draws and this expression is
+	// computed only for the list.
+	const keyEntryOffered = onCredential !== undefined && selectionKind !== 'signed-in-subscription'
+	// The cursor is an index into whichever list the screen is drawing, and the
+	// sign-in screen draws `subscriptionChoices` while the provider list draws
+	// these rows, which is longer by however many providers can be set up from
+	// here. An index resolved against one and read against the other selects
+	// nothing at all, which is how `/login` came up with no row highlighted and
+	// an Enter that did nothing on the machine below: a saved preference naming
+	// `openai` resolved to its row in the provider list, which is past the end
+	// of a three-row sign-in list.
+	const initialSelection =
+		initialView === 'subscriptions' ? 0 : initialProviderRow(rows, currentProvider, keyEntryFor)
 	const {
 		selection: cursor,
 		selectionRef: cursorRef,
 		setSelection: setCursor,
-	} = useSelectionIndex(Math.max(0, initialIndex))
+	} = useSelectionIndex(initialSelection)
 	const [errorHint, setErrorHint] = useState<string | null>(null)
 	// The ref makes a pasted query followed immediately by Enter use the new
 	// filtered list, even before React has drawn another frame. Null keeps the
@@ -487,19 +532,22 @@ export function Picker({
 			return
 		}
 
-		// `k` opens credential entry. Two screens offer it, for two reasons.
+		// `k` opens credential entry for the highlighted row — see
+		// `keyEntryTarget` for which provider that resolves to when the row takes
+		// no typed credential. The empty screen has always offered it (there,
+		// entering a credential is the only thing that can happen), and the
+		// populated one used to offer it only when `keyEntryFor` was set: someone
+		// with a working credential was not the person this was for. True then,
+		// and false for the operator this screen was opened for, who has a saved
+		// provider with no credential and a local server that happens to be
+		// running — they arrived at a list that named every provider except a way
+		// to fix the one they chose. The letter does not collide with anything:
+		// navigation is arrows and digits, and the model step owns its own keys.
 		//
-		// The empty one always has: with nothing detected, entering a credential
-		// is the only thing that can happen here.
-		//
-		// The POPULATED one offers it when `keyEntryFor` is set, which was the
-		// gap. The old rule was "empty screen only", reasoned as "someone with a
-		// working credential is not the person this is for" — true then, and false
-		// for the person this change routes here, who has a saved provider with no
-		// credential and a local server that happens to be running. They arrived
-		// at a list that named every provider except a way to fix the one they
-		// chose. The letter does not collide with anything: navigation is arrows
-		// and digits.
+		// Two phases are guarded out. The model step types into search, so `k`
+		// there is a character and not a shortcut. The sign-in screen numbers its
+		// own choices, so the cursor indexes those rather than these rows, and a
+		// key read through it would name a provider nobody chose.
 		// `l` starts a Namzu-owned subscription sign-in from the general provider
 		// screen as well as the empty one. The already-signed-in choice deliberately
 		// omits it: external auth exists there, and a newly stored credential would
@@ -525,18 +573,23 @@ export function Picker({
 
 		if (!modelPhase && !loginPhase && input === 's' && onSetup) { invalidateOperation(); onSetup(); return }
 
+		const highlighted = rows[cursorRef.current]
 		if (
+			!loginPhase &&
 			modelPhase === null &&
-			(detected.length === 0 || keyEntryFor) &&
-			onCredential &&
+			keyEntryOffered &&
 			(input === 'k' || input === 'K')
 		) {
-			const target = keyEntryTarget(keyEntryFor)
+			const target = keyEntryTarget(highlighted, keyEntryFor)
 			if (target) {
 				invalidateOperation()
 				setKeyEntry({ entry: target, value: '', status: 'typing' })
 			} else {
-				setErrorHint('No provider here takes a typed credential.')
+				setErrorHint(
+					highlighted
+						? `${rowLabel(highlighted)} does not take a typed credential — choose a provider that does.`
+						: 'No provider here takes a typed credential.',
+				)
 			}
 			return
 		}
@@ -549,7 +602,7 @@ export function Picker({
 			setCursor(
 				Math.max(
 					0,
-					detected.findIndex((provider) => provider.entry.id === modelPhase.provider.entry.id),
+					rows.findIndex((row) => rowProviderId(row) === modelPhase.provider.entry.id),
 				),
 			)
 			setModelPhase(null)
@@ -574,7 +627,7 @@ export function Picker({
 				setCursor(
 					Math.max(
 						0,
-						detected.findIndex((provider) => provider.entry.id === modelPhase.provider.entry.id),
+						rows.findIndex((row) => rowProviderId(row) === modelPhase.provider.entry.id),
 					),
 				)
 				setModelPhase(null)
@@ -726,26 +779,41 @@ export function Picker({
 			setCursor((current) =>
 				moveSelection(
 					current,
-					detected.length,
+					rows.length,
 					key.home ? 'first' : key.end ? 'last' : key.pageUp ? 'previous-page' : 'next-page',
 				),
 			)
 			return
 		}
 		if (key.upArrow) {
-			setCursor((current) => moveSelection(current, detected.length, 'previous'))
+			setCursor((current) => moveSelection(current, rows.length, 'previous'))
 			return
 		}
 		if (key.downArrow) {
-			setCursor((current) => moveSelection(current, detected.length, 'next'))
+			setCursor((current) => moveSelection(current, rows.length, 'next'))
 			return
 		}
 		if (key.return) {
-			const current = detected[cursorRef.current]
-			if (!current) {
+			const row = rows[cursorRef.current]
+			if (!row) {
 				setErrorHint('No provider available.')
 				return
 			}
+			// A row with no credential has no session to open and no catalogue to
+			// ask: accepting it would submit a provider this machine holds nothing
+			// for. Enter takes the operator to the field instead, which is the same
+			// thing `k` does on this row and the only thing that can move it
+			// forward.
+			if (row.kind === 'unconfigured') {
+				if (!onCredential) {
+					setErrorHint(`No credential can be entered for ${row.entry.label} on this screen.`)
+					return
+				}
+				invalidateOperation()
+				setKeyEntry({ entry: row.entry, value: '', status: 'typing' })
+				return
+			}
+			const current = row.detected
 			// Detected, and still not choosable. The row stays visible on purpose
 			// — see the list below — so this is the only place that can decline
 			// it, and declining with the reason is the point: accepting would
@@ -766,9 +834,14 @@ export function Picker({
 			openModels(current)
 			return
 		}
-		// Numeric quick-select.
+		// Numeric quick-select, one keystroke per row and therefore the first nine.
+		// A tenth row would need two digits, and two digits cannot be told from
+		// two presses without a timer between them — a wait the screen would have
+		// to add to every `1` before it knew whether a `0` was coming. The list
+		// says so when it grows past nine rather than leaving the rest looking
+		// selectable and being unreachable.
 		const n = Number.parseInt(input, 10)
-		if (Number.isFinite(n) && n >= 1 && n <= detected.length) {
+		if (Number.isFinite(n) && n >= 1 && n <= Math.min(rows.length, 9)) {
 			setCursor(n - 1)
 		}
 	})
@@ -937,10 +1010,21 @@ export function Picker({
 		)
 	}
 
-	// Non-null exactly when `k` is live on the populated list — the same
-	// condition the key handler uses, read from one place so the hint and the
-	// keyboard cannot drift apart.
-	const entryTarget = keyEntryFor && onCredential ? keyEntryTarget(keyEntryFor) : null
+	// Non-null exactly when `k` is live on this list and has somewhere to go —
+	// the same resolution the key handler performs, read from one place so the
+	// hint and the keyboard cannot drift apart. It follows the highlighted row,
+	// so the sentence changes as the cursor moves: a hint that kept naming the
+	// saved provider while `k` acted on another row would be the defect this
+	// screen's other messages are written to avoid.
+	const highlightedRow = rows[cursor]
+	const entryTarget = keyEntryOffered ? keyEntryTarget(highlightedRow, keyEntryFor) : null
+	// The label is named only when `k` reaches past the highlighted row to the
+	// provider this screen was opened for. On the ordinary path the row under
+	// the cursor is the answer, and saying so again costs the line its tail: the
+	// footer is one row, and the sentence with a label in it wraps.
+	const namesAnotherRow =
+		entryTarget !== null &&
+		(highlightedRow === undefined || rowProviderId(highlightedRow) !== entryTarget.id)
 
 	if (detected.length === 0) {
 		return (
@@ -998,9 +1082,14 @@ export function Picker({
 						You can also set one of the env vars above (or start a local server) and restart.
 					</Text>
 				</Box>
+				{/* The same list the populated screen draws, and it is here for the
+				    same reason: nothing was detected, so every row is one this
+				    operator can still supply a credential for. */}
+				<ProviderSetupRows rows={rows} cursor={cursor} currentProvider={currentProvider} />
 				<Box paddingTop={1}>
 					<Text color={theme.text.muted}>
-						{onLogin ? 'l: sign in · ' : ''}k: enter a credential · esc: exit picker
+						{onLogin ? 'l: sign in · ' : ''}↑↓ or 1-9 navigate · enter or k: enter a credential ·
+						esc: exit picker
 					</Text>
 				</Box>
 			</Box>
@@ -1022,29 +1111,29 @@ export function Picker({
 						: `${detected.length} detected · device sessions / Namzu sign-ins / optional keys / local probes`}
 				</Text>
 			</Box>
-			<Box flexDirection="column">
-				{detected.map((d, i) => (
-					<ProviderRow
-						key={d.entry.id}
-						detected={d}
-						index={i}
-						selected={i === cursor}
-						isCurrent={d.entry.id === currentProvider}
-					/>
-				))}
-			</Box>
+			<ProviderSetupRows rows={rows} cursor={cursor} currentProvider={currentProvider} />
 			<Box flexDirection="column" paddingTop={1}>
 				{/* Named only when the key actually does something. A hint that
 				    advertises a key this screen ignores is the same defect as a
 				    message whose advice cannot be followed, one size down. */}
 				<Text color={theme.text.muted}>
 					↑↓ or 1-9 navigate · enter {selectionKind === 'signed-in-subscription' ? 'use' : 'accept'}
-					{entryTarget ? ` · k enter a credential for ${entryTarget.label}` : ''}
+					{entryTarget
+						? ` · k enter a credential${namesAnotherRow ? ` for ${entryTarget.label}` : ''}`
+						: ''}
 					{onLogin && selectionKind !== 'signed-in-subscription'
 						? ' · l create a Namzu sign-in'
 						: ''}{' '}
 					· esc cancel
 				</Text>
+				{/* The digit shortcut is one keystroke per row, so it stops at nine
+				    whatever the list does. Said out loud only once there is a row
+				    behind the boundary and the sentence is worth a line. */}
+				{rows.length > 9 ? (
+					<Text color={theme.text.muted}>
+						Rows past 9 are ↑↓ only: two digits cannot be told from two presses.
+					</Text>
+				) : null}
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>
 		</Box>
@@ -1183,6 +1272,110 @@ function ModelStepView({
 				</Text>
 				{errorHint ? <Text color={theme.status.warn}>{errorHint}</Text> : null}
 			</Box>
+		</Box>
+	)
+}
+
+/**
+ * The list, in the two blocks it is built as.
+ *
+ * Detected first and untouched: same rows, same order, same numbering, same
+ * source column. The second block is appended below a heading rather than
+ * merged into the first, because merging is the one thing that would move a row
+ * the operator already knows the position of — and every row above this line is
+ * one they may already be using.
+ *
+ * The appended rows carry no blank line between them. They are a work list
+ * rather than a catalogue, and a machine with six of them would otherwise push
+ * the box past a 24-row terminal and scroll the top of it — the detected rows —
+ * out of sight.
+ */
+function ProviderSetupRows({
+	rows,
+	cursor,
+	currentProvider,
+}: {
+	readonly rows: readonly ProviderListRow[]
+	readonly cursor: number
+	readonly currentProvider?: string | null
+}) {
+	// The two arms are contiguous by construction (`providerListRows` appends),
+	// so one boundary splits them and every row's number is its position in the
+	// whole list, whichever block it is drawn in.
+	const firstUnconfigured = rows.findIndex((row) => row.kind === 'unconfigured')
+	const detectedCount = firstUnconfigured === -1 ? rows.length : firstUnconfigured
+	return (
+		<>
+			<Box flexDirection="column">
+				{rows.slice(0, detectedCount).map((row, index) =>
+					row.kind === 'detected' ? (
+						<ProviderRow
+							key={row.detected.entry.id}
+							detected={row.detected}
+							index={index}
+							selected={index === cursor}
+							isCurrent={row.detected.entry.id === currentProvider}
+						/>
+					) : null,
+				)}
+			</Box>
+			{firstUnconfigured === -1 ? null : (
+				<Box flexDirection="column" marginTop={1}>
+					<Text color={theme.text.muted}>Not detected — enter a credential to use these:</Text>
+					{rows.slice(firstUnconfigured).map((row, offset) =>
+						row.kind === 'unconfigured' ? (
+							<UnconfiguredProviderRow
+								key={row.entry.id}
+								entry={row.entry}
+								index={firstUnconfigured + offset}
+								selected={firstUnconfigured + offset === cursor}
+								isCurrent={row.entry.id === currentProvider}
+							/>
+						) : null,
+					)}
+				</Box>
+			)}
+		</>
+	)
+}
+
+/**
+ * A row for a provider nothing on this machine can serve yet.
+ *
+ * Deliberately a separate component from `ProviderRow` rather than one
+ * component with two modes: the detected row's shape is what operators read
+ * every day, and a shared body is a body where a change for the new rows moves
+ * the old ones. The columns line up because both pad the label to the same
+ * width; what differs is the third one, which says what is missing instead of
+ * where the credential came from.
+ */
+function UnconfiguredProviderRow({
+	entry,
+	index,
+	selected,
+	isCurrent,
+}: {
+	readonly entry: ProviderRegistryEntry
+	readonly index: number
+	readonly selected: boolean
+	readonly isCurrent: boolean
+}) {
+	const cursor = selected ? '›' : ' '
+	const number = `${index + 1}.`
+	const currentMark = isCurrent ? '  ← current' : ''
+	return (
+		<Box>
+			<Text color={selected ? theme.border.focus : theme.text.muted}>{cursor} </Text>
+			<Text color={theme.text.muted}>{number} </Text>
+			<Text color={selected ? theme.border.focus : theme.text.primary} bold={selected}>
+				{entry.label.padEnd(28)}
+			</Text>
+			{/* The variable, not "not configured": it is the one thing the operator
+			    has to act on, and it is what makes the credential durable. The colour
+			    marks the work still to do on a screen that is otherwise all
+			    done. */}
+			<Text color={theme.status.warn}>{credentialNeed(entry)}</Text>
+			{isCurrent ? <Text color={theme.accent.system}>{currentMark}</Text> : null}
 		</Box>
 	)
 }

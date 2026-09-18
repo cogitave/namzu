@@ -159,7 +159,11 @@ labelled `Use existing`, while new credentials are labelled `Sign in to`. An
 expired or signed-out owner session is not offered as reusable.
 API keys remain optional alternatives through environment variables or the
 session-only credential picker, and detecting one does not hide the subscription
-sign-in action.
+sign-in action. That picker lists every provider this build can construct that
+accepts a typed credential, not only the ones found on the machine: the rest are
+listed below the detected rows under `Not detected — enter a credential to use
+these:`, each marked with the variable that sets it up (`needs
+OPENROUTER_API_KEY`), and selecting one opens the paste field for that provider.
 
 Zen and Zen Go appear as separate providers in `/model` (press
 `p` to change providers). Zen works without an account key or an OpenCode
