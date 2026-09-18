@@ -163,7 +163,7 @@ has two working precedents in this exact codebase:
   `Math.max(0, timeoutMs - elapsed)`, or `+Infinity` when `timeoutMs === 0`
   (`packages/sdk/src/runtime/query/guard.ts:91-101`), and today feeds exactly
   one caller: sandbox acquisition's own `timeoutMs`
-  (`packages/sdk/src/runtime/query/index.ts:2042`).
+  (`packages/sdk/src/runtime/query/index.ts:2053`).
 - `resolveProviderContextWindow` clamps a caller-supplied `timeoutMs` against
   Node's 32-bit timer ceiling, arms a private `AbortController`, and fuses it
   with the caller's signal via `AbortSignal.any` before racing a
