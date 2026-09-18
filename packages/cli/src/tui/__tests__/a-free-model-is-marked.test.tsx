@@ -82,9 +82,12 @@ it('marks the zero-priced rows (free) and leaves the paid one unmarked', async (
 	// The strong one. Neither this row's ID nor its display name carries the
 	// word, so `(free)` here can only have come from its price.
 	expect(rowWith(screen, 'Lyria 3 Pro Preview')).toContain('(free)')
-	// The word is in this model's own display name, so this assertion is its
-	// place in the notes: after the capability, and only once.
-	expect(rowWith(screen, 'Nex-N2.5-Mini')).toContain('(image input · free)')
+	// The word is in this model's own display name, so the marker beside it would
+	// say it twice — and did, on 22 of the 25 zero-priced rows: this asserts the
+	// capability note is still built and that `(free)` appears exactly once in
+	// the row, where the name put it.
+	expect(rowWith(screen, 'Nex-N2.5-Mini')).toContain('(image input)')
+	expect(rowWith(screen, 'Nex-N2.5-Mini').split('(free)')).toHaveLength(2)
 	expect(rowWith(screen, 'Pareto')).toContain('(namzu default)')
 	expect(rowWith(screen, 'Pareto')).not.toContain('(free)')
 })

@@ -69,6 +69,26 @@ function isKnownFree(model: {
 }
 
 /**
+ * Whether the row's own label already says it, so the marker would say it twice.
+ *
+ * A free variant is often NAMED free — the catalogue this was measured against
+ * writes `NVIDIA: Nemotron 3.5 Lightning (free)` as the display name of
+ * `nvidia/nemotron-3.5-lightning:free` — and appending the marker beside that
+ * name printed `(free) (free)` on 22 of its 25 zero-priced rows. The marker is
+ * what makes a row scannable and what the search matches, so it stays; what is
+ * dropped is the second occurrence.
+ *
+ * The word and not the spelling: this asks whether the label contains `free` as
+ * a word, case-insensitively, so it neither depends on one vendor's punctuation
+ * — `(free)`, `[Free]`, `- free`, `Free tier` all count — nor fires on a word
+ * that merely contains the letters (`Freehand`, `freeware` is a word but not
+ * what a product name says).
+ */
+function labelAlreadySaysFree(label: string): boolean {
+	return /\bfree\b/i.test(label)
+}
+
+/**
  * Build the model step for one provider.
  *
  * @param defaultModel namzu's default for this provider, always offered.
@@ -143,7 +163,7 @@ export function modelStep(
 		const notes: string[] = []
 		if (m.id === defaultModel) notes.push('namzu default')
 		if (m.inputModalities?.includes('image')) notes.push('image input')
-		if (isKnownFree(m)) notes.push('free')
+		if (isKnownFree(m) && !labelAlreadySaysFree(m.name)) notes.push('free')
 		choices.push({
 			id: m.id,
 			label: m.name,

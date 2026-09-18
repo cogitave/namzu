@@ -7733,6 +7733,11 @@ export function App({
 						onLoginComplete={finishLoginFromPicker}
 						keyEntryFor={keyEntryFor}
 						notice={pickerNotice}
+						// The same condition `handlePickerCancel` branches on, read
+						// where it is decided rather than guessed on the screen: with no
+						// session behind the picker, esc exits namzu and the footer says
+						// so instead of offering a cancel nobody will see.
+						cancelExits={!session?.hasProvider}
 					/>
 				) : (
 					<>

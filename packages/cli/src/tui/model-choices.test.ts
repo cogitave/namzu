@@ -85,10 +85,10 @@ describe('modelStep', () => {
 		it('marks a model the provider reported at zero', () => {
 			const step = modelStep(DEFAULT, {
 				kind: 'ok',
-				models: [{ id: 'free', name: 'Free', inputPrice: 0, outputPrice: 0 }],
+				models: [{ id: 'zero', name: 'Nothing Model', inputPrice: 0, outputPrice: 0 }],
 			})
 
-			expect(step.choices.find((choice) => choice.id === 'free')?.note).toBe('(free)')
+			expect(step.choices.find((choice) => choice.id === 'zero')?.note).toBe('(free)')
 		})
 
 		it('says nothing about a model whose rate nobody published', () => {
@@ -132,8 +132,8 @@ describe('modelStep', () => {
 				kind: 'ok',
 				models: [
 					{
-						id: 'free-vision',
-						name: 'Free Vision',
+						id: 'zero-vision',
+						name: 'Vision Model',
 						inputModalities: ['text', 'image'],
 						inputPrice: 0,
 						outputPrice: 0,
@@ -141,7 +141,7 @@ describe('modelStep', () => {
 				],
 			})
 
-			expect(step.choices.find((choice) => choice.id === 'free-vision')?.note).toBe(
+			expect(step.choices.find((choice) => choice.id === 'zero-vision')?.note).toBe(
 				'(image input · free)',
 			)
 		})
@@ -235,9 +235,9 @@ describe('modelStep', () => {
 				kind: 'ok',
 				models: [
 					{
-						// Also real, and also zero-priced.
+						// Real, zero-priced, and its name says nothing about it.
 						id: 'nex-agi/nex-n2.5-mini:free',
-						name: 'Nex AGI: Nex-N2.5-Mini (free)',
+						name: 'Nex AGI: Nex-N2.5-Mini',
 						inputModalities: ['text', 'image'],
 						inputPrice: 0,
 						outputPrice: 0,
@@ -246,6 +246,42 @@ describe('modelStep', () => {
 			})
 			expect(step.choices).toHaveLength(1)
 			expect(step.choices[0]?.note).toBe('(namzu default · image input · free)')
+		})
+
+		it('does not repeat a marker the model name already carries', () => {
+			// The real row this was measured on: OpenRouter names its free
+			// variants `... (free)`, so the marker beside that name printed
+			// `(free) (free)` on 22 of the 25 zero-priced rows. The word is in the
+			// name, the marker adds nothing, and the note keeps the rest.
+			const step = modelStep('nex-agi/nex-n2.5-mini:free', {
+				kind: 'ok',
+				models: [
+					{
+						id: 'nex-agi/nex-n2.5-mini:free',
+						name: 'Nex AGI: Nex-N2.5-Mini (free)',
+						inputModalities: ['text', 'image'],
+						inputPrice: 0,
+						outputPrice: 0,
+					},
+				],
+			})
+
+			expect(step.choices[0]?.note).toBe('(namzu default · image input)')
+		})
+
+		it('reads the word rather than one vendor’s punctuation for it', () => {
+			const noteForName = (name: string): string | undefined =>
+				modelStep(DEFAULT, {
+					kind: 'ok',
+					models: [{ id: 'zero', name, inputPrice: 0, outputPrice: 0 }],
+				}).choices.find((choice) => choice.id === 'zero')?.note
+
+			expect(noteForName('Free')).toBeUndefined()
+			expect(noteForName('Model [FREE]')).toBeUndefined()
+			expect(noteForName('Model — free tier')).toBeUndefined()
+			// A word that merely contains the letters is not the word.
+			expect(noteForName('Freehand Sketch')).toBe('(free)')
+			expect(noteForName('Nothing Model')).toBe('(free)')
 		})
 	})
 

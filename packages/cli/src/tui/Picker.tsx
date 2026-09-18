@@ -8,7 +8,7 @@
  */
 
 import { Box, Text, useInput, useWindowSize } from 'ink'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
 
 import { canSelectModel } from '../integrations/providers/access.js'
 
@@ -47,11 +47,17 @@ import {
 	type VendorPath,
 	type VendorRow,
 } from './provider-list.js'
-import { moveSelection, selectionWindow } from './selection-window.js'
 import {
+	moveSelection,
+	type SelectionWindow,
+	selectionWindow,
+} from './selection-window.js'
+import {
+	capChoiceLines,
 	choiceDisplayWidth,
 	eraseLastChoiceGrapheme,
 	truncateChoiceText,
+	wrapChoiceText,
 } from './terminal-choice-text.js'
 import { terminalDisplayText } from './terminal-display.js'
 import { theme } from './theme.js'
@@ -149,6 +155,130 @@ export interface PickerProps {
 	 * down: an explanation delivered somewhere it cannot be read.
 	 */
 	readonly notice?: string | null
+	/**
+	 * Whether `esc` leaves namzu itself rather than returning to a session.
+	 *
+	 * True exactly when the picker is the startup screen and nothing behind it
+	 * can be returned to: `handlePickerCancel` exits the program in that case,
+	 * and the footers used to say `esc cancel` — naming something the operator
+	 * would not see happen, because the whole screen closes. The default is the
+	 * ordinary case (a session is running behind the picker), so no existing
+	 * caller changes.
+	 */
+	readonly cancelExits?: boolean
+}
+
+/**
+ * Columns this screen's text area has, given the terminal's width.
+ *
+ * Derived rather than written down, because the number this replaces was a
+ * literal that counted two of the three things that take columns and forgot the
+ * third. In order:
+ *
+ *  - `HOST_INSET_X` — the app draws every screen inside a box with one column
+ *    of padding on each side (`App.tsx`'s root), so this picker's own box starts
+ *    one column in and ends one column short of the terminal.
+ *  - `BORDER_X` — this box's round border, one column per side.
+ *  - `BOX_PADDING_X` — this box's `paddingX={1}`, one column per side.
+ *
+ * The old arithmetic was `columns - 4`: the border and the padding, minus the
+ * host's inset. At 60 columns that budgeted 56 columns of text for an area of
+ * 54 — measured from a 60-column capture, where the two borders sit at columns
+ * 1 and 58, leaving 56 between them and 54 inside the padding. Every row the
+ * screen measured as fitting therefore wrapped, and the text it wrapped was the
+ * row the cursor was on.
+ */
+const HOST_INSET_X = 2
+const BORDER_X = 2
+const BOX_PADDING_X = 2
+
+/** Columns a row of this screen's content may occupy. */
+export function pickerContentWidth(columns: number): number {
+	return Math.max(1, columns - HOST_INSET_X - BORDER_X - BOX_PADDING_X)
+}
+
+/**
+ * Columns a row spends before its source: the marker, the number and the
+ * vendor's name, each written over its own width.
+ *
+ * Derived from the three, because 32 was written down here once and was the
+ * width of the BROKEN row — the one whose marker had lost the space beside it.
+ * A source measured against a row one column narrower than it is a source that
+ * wraps in the renderer after the screen has counted it as one line, which is
+ * the defect this whole window exists to prevent.
+ */
+const ROW_MARKER_WIDTH = 2
+const ROW_NUMBER_WIDTH = 3
+const ROW_LABEL_WIDTH = 28
+const ROW_PREFIX_WIDTH = ROW_MARKER_WIDTH + ROW_NUMBER_WIDTH + ROW_LABEL_WIDTH
+/** What a wrapped source line is indented by, so it lines up under the name. */
+const ROW_INDENT = ' '.repeat(ROW_PREFIX_WIDTH)
+
+/**
+ * Lines a row's source column may take before the rest is cut.
+ *
+ * Three is what a variable name needs at the width this was measured against
+ * (54 columns leaves 22 for the source, so `env · OPENROUTER_API_KEY` wraps to
+ * two). It is a cap rather than a measurement because a row's height is part of
+ * the box's height: without one, a forty-column terminal could make a single
+ * source a dozen lines and no window could keep the header on screen.
+ */
+const MAX_SOURCE_LINES = 3
+
+/** The words above the not-detected block, which the row window reserves lines for. */
+const NOT_DETECTED_HEADING = 'Not detected — enter a credential to use these:'
+
+/**
+ * The line above the box that is not the box's.
+ *
+ * Ink draws this screen below whatever the app has already written — the boot
+ * banner, on the run that shows this picker first — and a terminal keeps the
+ * last `rows` lines of all of it. A box that fills the terminal exactly
+ * therefore loses its own top border, and under that border is the notice the
+ * screen exists to deliver.
+ */
+const TRANSCRIPT_LINE_ABOVE = 1
+
+/** The mark a row carries when it is the provider in force. */
+const CURRENT_MARK = '  ← current'
+
+/**
+ * Columns a row's source must keep before it shares its line with that mark.
+ *
+ * Twenty is the shortest this column can be and still be read: an environment
+ * variable name (`DEEPSEEK_API_KEY` is sixteen, with the word `needs` before it
+ * and the `←` mark is twelve columns of its own. Below twenty the mark moves
+ * down a line rather than cutting the answer in half.
+ */
+const MIN_SOURCE_COLUMNS = 20
+
+/** What `s` does, printed above the list on the screens that offer it. */
+const SETUP_HINT = 's provider setup · check installations and access'
+
+/**
+ * What the screen that found nothing says, and the reason it says it.
+ *
+ * Here rather than inline because the row window counts these lines before it
+ * draws a single row: they are the operator's only way off that screen, so they
+ * are reserved first and a row is drawn with what is left over.
+ */
+const EMPTY_SCREEN_INTRO = 'namzu scans these sources, in order, for an LLM credential:'
+const EMPTY_SCREEN_HINTS = {
+	signIn: 'to sign in with a subscription — no API key, and namzu keeps it for next time.',
+	paste: 'to paste a credential now and use it for this session.',
+	durable: 'You can also set one of the env vars above (or start a local server) and restart.',
+} as const
+
+/** The sources the empty screen lists — the same set the summary line names. */
+function emptyScreenSourceLines(): readonly string[] {
+	return [
+		` · existing ${subscriptionProviders()
+			.map((entry) => entry.label)
+			.join(' and ')} sessions on this device`,
+		' · subscriptions signed in to from namzu (~/.namzu/credentials.json)',
+		' · env vars / API keys (optional alternatives: ANTHROPIC_API_KEY, OPENAI_API_KEY, …)',
+		' · local servers (Ollama localhost:11434, LM Studio localhost:1234)',
+	]
 }
 
 function subscriptionProviders(): ProviderRegistryEntry[] {
@@ -233,6 +363,7 @@ export function Picker({
 	verify = verifyCredential,
 	keyEntryFor,
 	notice,
+	cancelExits = false,
 }: PickerProps) {
 	/**
 	 * The one foreign operation still allowed to publish into this picker.
@@ -306,6 +437,11 @@ export function Picker({
 		selectionRef: cursorRef,
 		setSelection: setCursor,
 	} = useSelectionIndex(initialSelection)
+	// How wide this screen's text is, and how many lines its notice takes, both
+	// of which the row window is sized against — see the list below.
+	const terminal = useWindowSize()
+	const contentWidth = pickerContentWidth(terminal.columns ?? 80)
+	const noticeLines = notice ? wrapChoiceText(notice, contentWidth).length : 0
 	const [errorHint, setErrorHint] = useState<string | null>(null)
 	// The ref makes a pasted query followed immediately by Enter use the new
 	// filtered list, even before React has drawn another frame. Null keeps the
@@ -932,12 +1068,22 @@ export function Picker({
 	})
 
 	// Above every screen this picker draws, so the reason is on the same frame as
-	// the choice it is asking for.
-	const noticeBox = notice || onSetup ? (
-		<Box paddingBottom={1}>
-			<Box flexDirection="column">{notice ? <Text color={theme.status.warn}>{notice}</Text> : null}{onSetup && !modelPhase && !loginPhase && !loginEntry && !keyEntry ? <Text dimColor>s provider setup · check installations and access</Text> : null}</Box>
-		</Box>
-	) : null
+	// the choice it is asking for. Whether the setup hint fits beside it is
+	// decided below, where the screen's line budget is; the screens that return
+	// early cannot be showing it in any case, so they ask for it unconditionally.
+	const buildNoticeBox = (withSetupHint: boolean) =>
+		notice || onSetup ? (
+			<Box paddingBottom={1}>
+				<Box flexDirection="column">
+					{notice ? (
+						<WrappedLines text={notice} width={contentWidth} color={theme.status.warn} />
+					) : null}
+					{onSetup && withSetupHint && !modelPhase && !loginPhase && !loginEntry && !keyEntry ? (
+						<Text dimColor>{SETUP_HINT}</Text>
+					) : null}
+				</Box>
+			</Box>
+		) : null
 
 	if (loginEntry) {
 		const waitsForDeviceApproval = loginEntry.entry.subscriptionLogin === 'device'
@@ -946,7 +1092,7 @@ export function Picker({
 			: '(nothing pasted yet)'
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-				{noticeBox}
+				{buildNoticeBox(true)}
 				<Text color={theme.accent.system} bold>
 					Complete {loginEntry.entry.label} sign-in
 				</Text>
@@ -992,7 +1138,7 @@ export function Picker({
 		const kind = classifyCredential(entry, keyEntry.value)
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-				{noticeBox}
+				{buildNoticeBox(true)}
 				<Box flexDirection="column" paddingBottom={1}>
 					<Text color={theme.accent.system} bold>
 						Paste a credential for {entry.label}
@@ -1031,7 +1177,7 @@ export function Picker({
 	if (modelPhase) {
 		return (
 			<Box flexDirection="column">
-				{noticeBox}
+				{buildNoticeBox(true)}
 				<ModelStepView
 					providerLabel={modelPhase.provider.entry.label}
 					otherProviders={detected
@@ -1062,7 +1208,7 @@ export function Picker({
 	if (pathRow) {
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-				{noticeBox}
+				{buildNoticeBox(true)}
 				<Text color={theme.accent.system} bold>
 					Choose a way to use {pathRow.label}
 				</Text>
@@ -1096,7 +1242,7 @@ export function Picker({
 		const existingCount = choices.filter((choice) => choice.kind === 'existing').length
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-				{noticeBox}
+				{buildNoticeBox(true)}
 				<Text color={theme.accent.system} bold>
 					Choose a subscription session
 				</Text>
@@ -1146,71 +1292,166 @@ export function Picker({
 		entryTarget !== null &&
 		(highlightedRow === undefined || !rowHasProvider(highlightedRow, entryTarget.id))
 
+	// The lines this screen spends on everything that is not a row, counted from
+	// the very words it is about to draw rather than estimated, then the rows get
+	// what is left.
+	//
+	// Two defects met here. The box used to be drawn at whatever height its rows
+	// needed, and on a 60x20 terminal it was taller than the terminal: Ink
+	// scrolled it, so the top border, the title, the count and the notice — the
+	// sentence telling the operator what to do about a missing credential — were
+	// above the top of the screen. And counting rows rather than lines was not
+	// enough either, because a row whose source column wraps is two lines: the
+	// count has to be the height the row actually draws, which is why the sources
+	// are wrapped here rather than by the renderer.
+	const oneLine = (text: string) => wrapChoiceText(text, contentWidth).length
+	const emptyScreenFooter = `${onLogin ? 'l: sign in · ' : ''}↑↓ or 1-9 navigate · enter or k: enter a credential · ${
+		cancelExits ? 'esc: exit namzu' : 'esc: exit picker'
+	}`
+	// Everything the screen draws that is not a row, in the order it is drawn:
+	// the box's two borders, the notice and its blank, the title, the blank and
+	// the intro, the sources, then the two or three ways off the screen with the
+	// blank each one sits under, the footer with its blank, the app's status bar
+	// underneath, and the line above the box that belongs to what the app has
+	// already written — Ink draws this box below that, and a terminal shows the
+	// last `rows` of it, so a box that fills the screen exactly loses its own top
+	// border to the transcript above it. Measured at 60x20, where the boot banner
+	// is two lines and the reserved line is what keeps the notice on screen.
+	const emptyScreenChromeRows =
+		2 +
+		(notice ? noticeLines : 0) +
+		(notice || onSetup ? 1 : 0) +
+		(onSetup ? oneLine(SETUP_HINT) : 0) +
+		1 +
+		1 +
+		oneLine(EMPTY_SCREEN_INTRO) +
+		emptyScreenSourceLines().reduce((rows, line) => rows + oneLine(line), 0) +
+		(onLogin ? 1 + oneLine(`Press l ${EMPTY_SCREEN_HINTS.signIn}`) : 0) +
+		1 +
+		oneLine(`Or press k ${EMPTY_SCREEN_HINTS.paste}`) +
+		1 +
+		oneLine(EMPTY_SCREEN_HINTS.durable) +
+		1 +
+		oneLine(emptyScreenFooter) +
+		1 +
+		TRANSCRIPT_LINE_ABOVE
+	// The same, for the screen that found something: two borders, the notice and
+	// its blank, the title, the subtitle and the blank under the header, the
+	// heading above the not-detected block and the blank above that, the footer's
+	// blank and its line, and the status bar. The heading is reserved whenever
+	// the list has a not-detected block, even if the window does not reach it: a
+	// row too few visible is a scroll the arrows fix, and a line too many is the
+	// header scrolled away.
+	const listSubtitle =
+		selectionKind === 'signed-in-subscription'
+			? `${detected.length} already usable · no API key required`
+			: `${detected.length} detected · device sessions / Namzu sign-ins / optional keys / local probes`
+	const listFooter = `↑↓ or 1-9 navigate · enter ${
+		selectionKind === 'signed-in-subscription' ? 'use' : 'accept'
+	}${
+		entryTarget
+			? ` · k enter a credential${namesAnotherRow ? ` for ${entryTarget.label}` : ''}`
+			: ''
+	}${
+		onLogin && selectionKind !== 'signed-in-subscription' ? ' · l create a Namzu sign-in' : ''
+	} · ${cancelExits ? 'esc exit namzu' : 'esc cancel'}`
+	// What the screen keeps, in the order it gives things up.
+	//
+	// Overflow cuts the TOP of the box, and the top is where the notice sits —
+	// the sentence that says why this screen is open and what to do about it.
+	// Everything below is ranked against that: the title and the rows are the
+	// screen, the footer is how it is left, and the two blocks that only describe
+	// the screen are what go when the terminal is too short to hold them all.
+	// `5 detected · device sessions / Namzu sign-ins / optional keys / local
+	// probes` is a summary of what is already listed beneath it, and
+	// `s provider setup` advertises a key that works from other screens too.
+	const headingRows =
+		rows.some((row) => row.detected.length === 0) ? 1 + oneLine(NOT_DETECTED_HEADING) : 0
+	// Everything above and below the rows except those two blocks.
+	const listCoreRows =
+		2 +
+		(notice ? noticeLines : 0) +
+		(notice || onSetup ? 1 : 0) +
+		1 +
+		headingRows +
+		1 +
+		oneLine(listFooter) +
+		1 +
+		TRANSCRIPT_LINE_ABOVE
+	const subtitleRows = 1 + oneLine(listSubtitle)
+	const setupHintRows = onSetup ? oneLine(SETUP_HINT) : 0
+	const screenRows = terminal.rows ?? 24
+	// The row under the cursor is the one the window will not drop, so it is the
+	// height the gives-way tests are measured against — a row is one line only
+	// while its source column fits, and at 50 columns a variable name is three.
+	const cursorRow = rows[Math.max(0, Math.min(cursor, rows.length - 1))]
+	const mustKeep = cursorRow ? rowHeight(cursorRow, contentWidth, CURRENT_MARK) : 1
+	const showSubtitle = screenRows - listCoreRows - setupHintRows - subtitleRows >= mustKeep
+	const showSetupHint =
+		screenRows - listCoreRows - (showSubtitle ? subtitleRows : 0) - setupHintRows >= mustKeep
+	const listChromeRows =
+		listCoreRows + (showSubtitle ? subtitleRows : 0) + (showSetupHint ? setupHintRows : 0)
+	const rowBudget = Math.max(
+		1,
+		screenRows - (detected.length === 0 ? emptyScreenChromeRows : listChromeRows),
+	)
+	const listWindow = rowWindow(rows, cursor, rowBudget, contentWidth)
+
 	if (detected.length === 0) {
 		return (
 			<Box flexDirection="column" borderStyle="round" borderColor={theme.status.warn} paddingX={1}>
-				{noticeBox}
+				{buildNoticeBox(showSetupHint)}
 				<Text color={theme.status.warn} bold>
 					No providers detected
 				</Text>
 				<Box paddingTop={1} flexDirection="column">
-					<Text color={theme.text.primary}>
-						namzu scans these sources, in order, for an LLM credential:
-					</Text>
+					<WrappedLines text={EMPTY_SCREEN_INTRO} width={contentWidth} color={theme.text.primary} />
 					{/* The summary line on the populated screen names the same sources;
 					    this list is the same set and must not name fewer. It is the
 					    screen shown to the person with no credential, so an omission
 					    here is a source they are never told to try — which is exactly
 					    what happened to the store below when the sign-in shipped. */}
-					<Text color={theme.text.muted}>
-						{' '}
-						· existing{' '}
-						{subscriptionProviders()
-							.map((entry) => entry.label)
-							.join(' and ')}{' '}
-						sessions on this device
-					</Text>
-					<Text color={theme.text.muted}>
-						{' '}
-						· subscriptions signed in to from namzu (~/.namzu/credentials.json)
-					</Text>
-					<Text color={theme.text.muted}>
-						{' '}
-						· env vars / API keys (optional alternatives: ANTHROPIC_API_KEY, OPENAI_API_KEY, …)
-					</Text>
-					<Text color={theme.text.muted}>
-						{' '}
-						· local servers (Ollama localhost:11434, LM Studio localhost:1234)
-					</Text>
+					{emptyScreenSourceLines().map((line) => (
+						<WrappedLines key={line} text={line} width={contentWidth} color={theme.text.muted} />
+					))}
 				</Box>
 				{onLogin ? (
-					<Box paddingTop={1}>
-						<Text color={theme.text.primary}>
-							Press <Text color={theme.accent.system}>l</Text> to sign in with a subscription — no
-							API key, and namzu keeps it for next time.
-						</Text>
+					<Box paddingTop={1} flexDirection="column">
+						<HintLines
+							text={`Press l ${EMPTY_SCREEN_HINTS.signIn}`}
+							keyLetter="l"
+							width={contentWidth}
+							color={theme.text.primary}
+						/>
 					</Box>
 				) : null}
-				<Box paddingTop={1}>
-					<Text color={theme.text.primary}>
-						Or press <Text color={theme.accent.system}>k</Text> to paste a credential now and use it
-						for this session.
-					</Text>
+				<Box paddingTop={1} flexDirection="column">
+					<HintLines
+						text={`Or press k ${EMPTY_SCREEN_HINTS.paste}`}
+						keyLetter="k"
+						width={contentWidth}
+						color={theme.text.primary}
+					/>
 				</Box>
 				<Box paddingTop={1}>
-					<Text color={theme.text.secondary}>
-						You can also set one of the env vars above (or start a local server) and restart.
-					</Text>
+					<WrappedLines
+						text={EMPTY_SCREEN_HINTS.durable}
+						width={contentWidth}
+						color={theme.text.secondary}
+					/>
 				</Box>
 				{/* The same list the populated screen draws, and it is here for the
 				    same reason: nothing was detected, so every row is one this
 				    operator can still supply a credential for. */}
-				<ProviderSetupRows rows={rows} cursor={cursor} currentProvider={currentProvider} />
+				<ProviderSetupRows
+					rows={rows}
+					cursor={cursor}
+					currentProvider={currentProvider}
+					visible={listWindow}
+					contentWidth={contentWidth}
+				/>
 				<Box paddingTop={1}>
-					<Text color={theme.text.muted}>
-						{onLogin ? 'l: sign in · ' : ''}↑↓ or 1-9 navigate · enter or k: enter a credential ·
-						esc: exit picker
-					</Text>
+					<Text color={theme.text.muted}>{emptyScreenFooter}</Text>
 				</Box>
 			</Box>
 		)
@@ -1218,34 +1459,32 @@ export function Picker({
 
 	return (
 		<Box flexDirection="column" borderStyle="round" borderColor={theme.border.focus} paddingX={1}>
-			{noticeBox}
+			{buildNoticeBox(showSetupHint)}
 			<Box flexDirection="column" paddingBottom={1}>
 				<Text color={theme.accent.system} bold>
 					{selectionKind === 'signed-in-subscription'
 						? 'Choose a signed-in subscription'
 						: 'Choose a provider'}
 				</Text>
-				<Text color={theme.text.muted}>
-					{selectionKind === 'signed-in-subscription'
-						? `${detected.length} already usable · no API key required`
-						: `${detected.length} detected · device sessions / Namzu sign-ins / optional keys / local probes`}
-				</Text>
+				{/* The same string the row window measured, so the line it reserves is
+				    the line drawn — and the line it gave up when the terminal could
+				    not hold both it and the notice above. */}
+				{showSubtitle ? (
+					<WrappedLines text={listSubtitle} width={contentWidth} color={theme.text.muted} />
+				) : null}
 			</Box>
-			<ProviderSetupRows rows={rows} cursor={cursor} currentProvider={currentProvider} />
+			<ProviderSetupRows
+				rows={rows}
+				cursor={cursor}
+				currentProvider={currentProvider}
+				visible={listWindow}
+				contentWidth={contentWidth}
+			/>
 			<Box flexDirection="column" paddingTop={1}>
 				{/* Named only when the key actually does something. A hint that
 				    advertises a key this screen ignores is the same defect as a
 				    message whose advice cannot be followed, one size down. */}
-				<Text color={theme.text.muted}>
-					↑↓ or 1-9 navigate · enter {selectionKind === 'signed-in-subscription' ? 'use' : 'accept'}
-					{entryTarget
-						? ` · k enter a credential${namesAnotherRow ? ` for ${entryTarget.label}` : ''}`
-						: ''}
-					{onLogin && selectionKind !== 'signed-in-subscription'
-						? ' · l create a Namzu sign-in'
-						: ''}{' '}
-					· esc cancel
-				</Text>
+				<WrappedLines text={listFooter} width={contentWidth} color={theme.text.muted} />
 				{/* The digit shortcut is one keystroke per row, so it stops at nine
 				    whatever the list does. Said out loud only once there is a row
 				    behind the boundary and the sentence is worth a line. */}
@@ -1283,7 +1522,9 @@ function ModelStepView({
 }) {
 	const terminal = useWindowSize()
 	const columns = terminal.columns ?? 80
-	const width = Math.max(1, columns - 4)
+	// The same area the provider list measures against — see `pickerContentWidth`
+	// for the three deductions and what counting only two of them cost.
+	const width = pickerContentWidth(columns)
 	const choices = step ? filterModelChoices(step.choices, query ?? '') : []
 	const noticeRows = step?.notice ? Math.ceil(choiceDisplayWidth(step.notice) / width) : 0
 	const window = selectionWindow(
@@ -1408,7 +1649,9 @@ function ModelStepView({
  * The appended rows carry no blank line between them. They are a work list
  * rather than a catalogue, and a machine with six of them would otherwise push
  * the box past a 24-row terminal and scroll the top of it — the detected rows —
- * out of sight.
+ * out of sight. That argument is now the behaviour: `visible` is the slice that
+ * fits, and when the whole list does not, the block boundary travels with the
+ * window so the heading stays on screen wherever the operator has scrolled to.
  *
  * Grouping by vendor only shortened this list, and it shortened it by exactly
  * the duplicates: with one vendor drawn once instead of twice, nine
@@ -1421,10 +1664,15 @@ function ProviderSetupRows({
 	rows,
 	cursor,
 	currentProvider,
+	visible,
+	contentWidth,
 }: {
 	readonly rows: readonly VendorRow[]
 	readonly cursor: number
 	readonly currentProvider?: string | null
+	/** The slice of `rows` that fits the screen, with the index it starts at. */
+	readonly visible: SelectionWindow<VendorRow>
+	readonly contentWidth: number
 }) {
 	// The two blocks are contiguous by construction (`providerListRows` appends),
 	// so one boundary splits them and every row's number is its position in the
@@ -1432,35 +1680,45 @@ function ProviderSetupRows({
 	// state now — whether this machine has anything for it — rather than which
 	// arm of a union it is in.
 	const firstUndetected = rows.findIndex((row) => row.detected.length === 0)
-	const detectedCount = firstUndetected === -1 ? rows.length : firstUndetected
 	return (
-		<>
-			<Box flexDirection="column">
-				{rows.slice(0, detectedCount).map((row, index) => (
-					<DetectedVendorRow
-						key={row.vendor}
-						row={row}
-						index={index}
-						selected={index === cursor}
-						isCurrent={currentProvider != null && rowHasProvider(row, currentProvider)}
-					/>
-				))}
-			</Box>
-			{firstUndetected === -1 ? null : (
-				<Box flexDirection="column" marginTop={1}>
-					<Text color={theme.text.muted}>Not detected — enter a credential to use these:</Text>
-					{rows.slice(firstUndetected).map((row, offset) => (
-						<UnconfiguredVendorRow
-							key={row.vendor}
-							row={row}
-							index={firstUndetected + offset}
-							selected={firstUndetected + offset === cursor}
-							isCurrent={currentProvider != null && rowHasProvider(row, currentProvider)}
-						/>
-					))}
-				</Box>
-			)}
-		</>
+		<Box flexDirection="column">
+			{visible.items.map((row, offset) => {
+				const index = visible.start + offset
+				// The heading is drawn above the first not-detected row, or at the
+				// top when the window has scrolled past that boundary — so the words
+				// that explain the block below are never scrolled away from it.
+				const heading =
+					firstUndetected !== -1 &&
+					(index === firstUndetected || (offset === 0 && index > firstUndetected)) ? (
+						<Box key="heading" marginTop={offset === 0 ? 0 : 1}>
+							<Text color={theme.text.muted}>{NOT_DETECTED_HEADING}</Text>
+						</Box>
+					) : null
+				const detected = row.detected.length > 0
+				return (
+					<Fragment key={row.vendor}>
+						{heading}
+						{detected ? (
+							<DetectedVendorRow
+								row={row}
+								index={index}
+								selected={index === cursor}
+								isCurrent={currentProvider != null && rowHasProvider(row, currentProvider)}
+								contentWidth={contentWidth}
+							/>
+						) : (
+							<UnconfiguredVendorRow
+								row={row}
+								index={index}
+								selected={index === cursor}
+								isCurrent={currentProvider != null && rowHasProvider(row, currentProvider)}
+								contentWidth={contentWidth}
+							/>
+						)}
+					</Fragment>
+				)
+			})}
+		</Box>
 	)
 }
 
@@ -1479,29 +1737,99 @@ function UnconfiguredVendorRow({
 	index,
 	selected,
 	isCurrent,
+	contentWidth,
 }: {
 	readonly row: VendorRow
 	readonly index: number
 	readonly selected: boolean
 	readonly isCurrent: boolean
+	readonly contentWidth: number
 }) {
-	const cursor = selected ? '›' : ' '
-	const number = `${index + 1}.`
-	const currentMark = isCurrent ? '  ← current' : ''
+	// The variable, not "not configured": it is the one thing the operator has
+	// to act on, and it is what makes the credential durable. The colour marks
+	// the work still to do on a screen that is otherwise all done.
+	const mark = isCurrent ? CURRENT_MARK : ''
+	const source = rowSourceLines(row, contentWidth, mark)
+	const markInline = rowMarkPlacement(contentWidth, mark).inline
 	return (
-		<Box>
-			<Text color={selected ? theme.border.focus : theme.text.muted}>{cursor} </Text>
-			<Text color={theme.text.muted}>{number} </Text>
-			<Text color={selected ? theme.border.focus : theme.text.primary} bold={selected}>
-				{row.label.padEnd(28)}
-			</Text>
-			{/* The variable, not "not configured": it is the one thing the operator
-			    has to act on, and it is what makes the credential durable. The colour
-			    marks the work still to do on a screen that is otherwise all
-			    done. */}
-			<Text color={theme.status.warn}>{rowCredentialNeed(row)}</Text>
-			{isCurrent ? <Text color={theme.accent.system}>{currentMark}</Text> : null}
+		<Box flexDirection="column">
+			<RowLine
+				cursor={selected ? '›' : ' '}
+				number={`${index + 1}.`}
+				label={row.label}
+				labelColor={selected ? theme.border.focus : theme.text.primary}
+				labelBold={selected}
+				numberColor={selected ? theme.border.focus : theme.text.muted}
+				source={source[0] ?? ''}
+				sourceColor={theme.status.warn}
+				currentMark={mark}
+				markInline={markInline}
+			/>
+			{source.slice(1).map((line, at) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
+				<Text key={at} color={theme.status.warn}>
+					{`${ROW_INDENT}${line}`}
+				</Text>
+			))}
+			{mark !== '' && !markInline ? (
+				<Text color={theme.accent.system}>{`${ROW_INDENT}${mark.trimStart()}`}</Text>
+			) : null}
 		</Box>
+	)
+}
+
+/**
+ * One row's first line: marker, number, name and source.
+ *
+ * The segments are children of ONE `<Text>` rather than siblings in a `<Box>`,
+ * and that is load-bearing rather than stylistic. A row that reaches the edge of
+ * the box is compressed, and a compressed row loses the trailing whitespace of
+ * the nodes it is built from — so the cursor row, which is one column wider
+ * than every other row because of its marker, came out as `› 6.DeepSeek` while
+ * the rows below kept their `6. `. Children of a text node are squashed into
+ * one string before anything measures or wraps them, so the space between the
+ * marker and the number is not trailing anything, and neither is the gap the
+ * padded name leaves before the source.
+ */
+function RowLine({
+	cursor,
+	number,
+	label,
+	labelColor,
+	labelBold,
+	numberColor,
+	source,
+	sourceColor,
+	currentMark,
+	markInline = true,
+	dim = false,
+}: {
+	readonly cursor: string
+	readonly number: string
+	readonly label: string
+	readonly labelColor: string
+	readonly labelBold: boolean
+	readonly numberColor: string
+	readonly source: string
+	readonly sourceColor: string
+	readonly currentMark: string
+	/** False when the mark is drawn on a line of its own, below the source. */
+	readonly markInline?: boolean
+	readonly dim?: boolean
+}) {
+	return (
+		<Text>
+			<Text color={numberColor}>{cursor}</Text> <Text color={numberColor}>{number}</Text>{' '}
+			<Text color={labelColor} bold={labelBold} dimColor={dim}>
+				{label.padEnd(ROW_LABEL_WIDTH)}
+			</Text>
+			<Text color={sourceColor} dimColor={dim}>
+				{source}
+			</Text>
+			{currentMark && markInline ? (
+				<Text color={theme.accent.system}>{currentMark}</Text>
+			) : null}
+		</Text>
 	)
 }
 
@@ -1523,34 +1851,215 @@ function DetectedVendorRow({
 	index,
 	selected,
 	isCurrent,
+	contentWidth,
 }: {
 	readonly row: VendorRow
 	readonly index: number
 	readonly selected: boolean
 	readonly isCurrent: boolean
+	readonly contentWidth: number
 }) {
-	const cursor = selected ? '›' : ' '
-	const number = `${index + 1}.`
 	const usable = rowIsUsable(row)
-	const sourceLabel = rowSourceText(row)
-	const currentMark = isCurrent ? '  ← current' : ''
+	const mark = isCurrent ? CURRENT_MARK : ''
+	const source = rowSourceLines(row, contentWidth, mark)
+	const markInline = rowMarkPlacement(contentWidth, mark).inline
 	return (
-		<Box>
-			<Text color={selected ? theme.border.focus : theme.text.muted}>{cursor} </Text>
-			<Text color={theme.text.muted}>{number} </Text>
-			<Text
-				color={usable ? (selected ? theme.border.focus : theme.text.primary) : theme.text.muted}
-				bold={usable && selected}
-				dimColor={!usable}
-			>
-				{row.label.padEnd(28)}
-			</Text>
-			<Text color={usable ? theme.text.muted : theme.status.warn} dimColor={!usable}>
-				{sourceLabel}
-			</Text>
-			{isCurrent ? <Text color={theme.accent.system}>{currentMark}</Text> : null}
+		<Box flexDirection="column">
+			<RowLine
+				cursor={selected ? '›' : ' '}
+				number={`${index + 1}.`}
+				label={row.label}
+				labelColor={usable ? (selected ? theme.border.focus : theme.text.primary) : theme.text.muted}
+				labelBold={usable && selected}
+				numberColor={selected ? theme.border.focus : theme.text.muted}
+				source={source[0] ?? ''}
+				sourceColor={usable ? theme.text.muted : theme.status.warn}
+				currentMark={mark}
+				markInline={markInline}
+				dim={!usable}
+			/>
+			{source.slice(1).map((line, at) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
+				<Text key={at} color={usable ? theme.text.muted : theme.status.warn} dimColor={!usable}>
+					{`${ROW_INDENT}${line}`}
+				</Text>
+			))}
+			{mark !== '' && !markInline ? (
+				<Text color={theme.accent.system} dimColor={!usable}>
+					{`${ROW_INDENT}${mark.trimStart()}`}
+				</Text>
+			) : null}
 		</Box>
 	)
+}
+
+/**
+ * Text this screen wraps before the renderer sees it.
+ *
+ * Every sentence whose line count the box is sized against goes through here,
+ * for two reasons that are the same reason. Ink's wrapping keeps the space it
+ * broke at, so a sentence that ran onto a second line began it one column to
+ * the right of the first — inside a box whose whole point is that its left edge
+ * is straight. And a line count the screen reserved has to be the line count
+ * the screen draws, which it is only if the screen is the one wrapping.
+ */
+function WrappedLines({
+	text,
+	width,
+	color,
+}: {
+	readonly text: string
+	readonly width: number
+	readonly color: string
+}) {
+	return (
+		<>
+			{wrapChoiceText(text, width).map((line, at) => (
+				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
+				<Text key={at} color={color}>
+					{line || ' '}
+				</Text>
+			))}
+		</>
+	)
+}
+
+/**
+ * The same, for a sentence that names a key the operator presses.
+ *
+ * The key is picked out in the accent colour wherever the wrap puts it, which
+ * is why this splits the line it wrapped rather than the text it was given: a
+ * span placed before wrapping is a span the wrap can move.
+ */
+function HintLines({
+	text,
+	keyLetter,
+	width,
+	color,
+}: {
+	readonly text: string
+	readonly keyLetter: string
+	readonly width: number
+	readonly color: string
+}) {
+	return (
+		<>
+			{wrapChoiceText(text, width).map((line, at) => {
+				const words = line.split(' ')
+				const key = words.indexOf(keyLetter)
+				if (key < 0) {
+					// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
+					return (
+						<Text key={at} color={color}>
+							{line}
+						</Text>
+					)
+				}
+				// biome-ignore lint/suspicious/noArrayIndexKey: wrapped lines have no identity beyond their order.
+				return (
+					<Text key={at} color={color}>
+						{`${words.slice(0, key).join(' ')}${key > 0 ? ' ' : ''}`}
+						<Text color={theme.accent.system}>{keyLetter}</Text>
+						{key < words.length - 1 ? ` ${words.slice(key + 1).join(' ')}` : ''}
+					</Text>
+				)
+			})}
+		</>
+	)
+}
+
+/**
+ * A row's third column, wrapped to the columns the row has left for it.
+ *
+ * Wrapped here rather than by the renderer because a row's height is part of
+ * the box's height, and the row window budgets in lines: Ink wrapping a row the
+ * screen had measured as one line tall is exactly how the box grew past the
+ * terminal and pushed its own header off the top. The count below draws the
+ * same lines it measures, so the two cannot disagree.
+ */
+function rowSourceLines(
+	row: VendorRow,
+	contentWidth: number,
+	currentMark = '',
+): readonly string[] {
+	const text = row.detected.length > 0 ? rowSourceText(row) : (rowCredentialNeed(row) ?? '')
+	const available = Math.max(1, rowMarkPlacement(contentWidth, currentMark).sourceColumns)
+	return capChoiceLines(wrapChoiceText(text, available), MAX_SOURCE_LINES, available)
+}
+
+/**
+ * Where a row's `← current` mark goes at this width, and what it leaves the
+ * source.
+ *
+ * Inline while the source keeps enough columns to be readable, and on a line of
+ * its own when it does not. The mark is twelve columns, and at 60 columns
+ * sharing the line with it left the source nine — which broke
+ * `DEEPSEEK_API_KEY` across three lines to say what the operator already knew
+ * from choosing this row.
+ */
+function rowMarkPlacement(
+	contentWidth: number,
+	currentMark: string,
+): { readonly inline: boolean; readonly sourceColumns: number } {
+	const width = contentWidth - ROW_PREFIX_WIDTH
+	if (currentMark === '') return { inline: false, sourceColumns: width }
+	const shares = width - choiceDisplayWidth(currentMark) >= MIN_SOURCE_COLUMNS
+	return {
+		inline: shares,
+		sourceColumns: Math.max(1, width - (shares ? choiceDisplayWidth(currentMark) : 0)),
+	}
+}
+
+/**
+ * The lines one row occupies at this width.
+ *
+ * A row that carries the mark on a line below its source is one line taller,
+ * which is why the placement is decided by a function both the measurement and
+ * the renderer call: a height the box did not reserve is the header scrolled off
+ * the top of the terminal.
+ */
+function rowHeight(row: VendorRow, contentWidth: number, currentMark = ''): number {
+	const lines = rowSourceLines(row, contentWidth, currentMark).length
+	const below = currentMark !== '' && !rowMarkPlacement(contentWidth, currentMark).inline
+	return below ? lines + 1 : lines
+}
+
+/**
+ * The rows that fit a line budget, with the row under the cursor among them.
+ *
+ * A window over ROWS and a budget in LINES, because a row is one line only
+ * while its source column fits beside the label. The cursor's row is always
+ * drawn whole — a cursor scrolled out of its own window is a screen the arrows
+ * cannot explain — and the rows around it fill what is left, half the budget
+ * above it when there is that much to show.
+ */
+function rowWindow(
+	rows: readonly VendorRow[],
+	cursor: number,
+	budget: number,
+	contentWidth: number,
+): SelectionWindow<VendorRow> {
+	if (rows.length === 0) return { start: 0, items: [] }
+	// The row under the cursor is the marked one when a provider is in force, and
+	// a marked row may be a line taller: see `rowHeight`.
+	const marked = rows[Math.max(0, Math.min(cursor, rows.length - 1))]
+	const heights = rows.map((row) =>
+		rowHeight(row, contentWidth, row === marked ? CURRENT_MARK : ''),
+	)
+	const at = Math.max(0, Math.min(cursor, rows.length - 1))
+	let start = at
+	let used = heights[at] ?? 1
+	const half = Math.max(1, Math.floor(budget / 2))
+	while (start > 0 && used < half && used + (heights[start - 1] ?? 1) <= budget) {
+		start -= 1
+		used += heights[start] ?? 1
+	}
+	let end = at + 1
+	while (end < rows.length && used + (heights[end] ?? 1) <= budget) {
+		used += heights[end] ?? 1
+		end += 1
+	}
+	return { start, items: rows.slice(start, end) }
 }
 
 /**

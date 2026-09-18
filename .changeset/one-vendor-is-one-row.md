@@ -56,3 +56,25 @@ under a heading about authentication, and the word `Go` is the only thing
 telling an operator they are choosing between two priced things. Ollama and LM
 Studio are two different local servers. AWS Bedrock and `http` remain absent
 from the list entirely, for the reasons recorded beside them.
+
+**Four more things, found by running it on a real terminal at 60x20 and 50x20** —
+sizes no rendering test used, which is why the tests were green. The text area
+was computed as `columns - 4` and the app's own one-column inset on each side
+was not counted, so a row was measured two columns wider than it was drawn and
+the note beside the model just marked `(current)` wrapped onto a line of its
+own; the width is derived from all three terms now. A row wider than the box is
+squeezed by the renderer and loses the trailing space of the text nodes it is
+built from, which is how the cursor row came out as `›6. DeepSeek` — the row's
+segments are children of one text node now, and its source column is wrapped by
+the screen so it stays inside the box. The box was as tall as its rows wanted,
+so on a 20-row terminal Ink scrolled it and the notice explaining the screen —
+the first thing an operator needs — was above the top of it; the height is
+counted from the lines the screen will draw, and the list is windowed to fit
+with the window following the cursor. And `(free)` printed twice on 22 of the
+25 zero-priced rows of the catalogue this was measured against, whose own names
+end in `(free)`: the marker stays, the repetition goes, and the rule reads the
+word rather than one vendor's punctuation. Two smaller ones: the sentences the
+box is sized against are wrapped by the screen, so a continuation no longer
+begins with the space Ink broke at, and the footer says what `esc` does —
+`esc cancel` returns to the session behind the picker, `esc exit namzu` closes
+the program, which is what it did all along with nothing behind it.

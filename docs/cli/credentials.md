@@ -55,6 +55,22 @@ list can draw — the seven that can be set up with a typed credential plus the
 two local servers discovery can add — so the digit shortcut reaches every row
 there can be, one keystroke each, and the arrows reach the rest of what fits.
 
+On a terminal too short for the whole screen, the list is scrolled rather than
+drawn past the bottom of it: the rows that do not fit are reached with the arrow
+keys, and the window follows the cursor. What stays put is the notice at the top
+— the sentence saying why this screen is open and what to do about it — then the
+title, the heading above the not-detected block, and the keys at the foot. The
+one line that gives way when there is still not enough room is the
+`N detected · …` summary, which says nothing the rows below it do not. A row
+whose source column is longer than the space beside its name wraps under it
+rather than being cut, and the `← current` mark does the same when sharing the
+line would leave the source too narrow to read.
+
+The footer says what `esc` does on the screen it is on, because those are two
+different things: with a session running behind the picker it returns to that
+session (`esc cancel`), and on the startup screen, where there is nothing to
+return to, it closes namzu (`esc exit namzu`).
+
 Four providers are deliberately absent from that second block, each for a
 reason the screen would otherwise have to explain after the fact. AWS Bedrock
 needs a credential chain — an access key, a secret, a region, or a role the SDK
