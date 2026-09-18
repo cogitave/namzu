@@ -40,6 +40,25 @@ import { drainQuery } from '../index.js'
  *
  * The runs below are real `query()` calls: the guardrail fires inside the
  * settlement, between the loop's last event and the run's terminal one.
+ *
+ * The six branch edges these runs still leave untaken are all inside the two
+ * announcements, and each is named here rather than left as a percentage:
+ *
+ *   - `...(outputVerdict.name ? { guardrail } : {})` in the BLOCK branch: its
+ *     empty side needs a block with no name, and `nameOf` synthesises one for
+ *     every outcome, so the empty side is the untaken one;
+ *   - the same expression in the REWRITE branch: a rewrite outcome carries no
+ *     name at all, so there the POPULATED side is the untaken one;
+ *   - `...(outputVerdict.reason ? { reason } : {})` and the two
+ *     `outputVerdict.reason ?? …` fallbacks in the BLOCK branch: untaken
+ *     because `GuardrailVerdict` REQUIRES a reason on a block;
+ *   - `...(outputVerdict.reason ? { reason } : {})` in the REWRITE branch:
+ *     untaken in its populated arm, because a rewrite outcome carries no
+ *     reason either.
+ *
+ * A caller that bypasses the types could take all six. Nothing in this tree
+ * does, and a test asserting them would assert a distinction the code cannot
+ * exhibit.
  */
 
 const workdirs: string[] = []
