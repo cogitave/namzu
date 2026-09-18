@@ -255,12 +255,13 @@ describe('the context window is asked for once per run', () => {
 			// stream was cut). Under a fake clock the deadline is the only
 			// thing that elapses here, and it elapses exactly once.
 			//
-			// The guard is built AFTER the fallback — `resolveProviderContextWindow`
-			// is awaited at `index.ts:1223` and `new GuardCoordinator` follows at
-			// `index.ts:1933` — so the run's own budget starts at this
+			// The guard is built AFTER the fallback — `query()` awaits
+			// `resolveProviderContextWindow` before `new GuardCoordinator`, both
+			// in the same function — so the run's own budget starts at this
 			// post-fallback instant and keeps reading zero for the rest of the
 			// case. Nothing below can time the run out, in either direction,
-			// and nothing below consults a wall clock.
+			// and nothing below consults a wall clock. Named rather than cited
+			// by line: a number here drifted once already.
 			await vi.advanceTimersByTimeAsync(20)
 
 			// Read BEFORE anything waits on the run. This is what a mutation

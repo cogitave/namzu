@@ -101,11 +101,18 @@ export interface AgentRunConfig {
 
 	/**
 	 * After creating an iteration checkpoint, prune the run's checkpoint
-	 * set down to the newest N (oldest-first deletion across ALL of the
-	 * run's checkpoints, including tool-review/plan ones). Default
-	 * `undefined` — never prune, today's behavior. Each checkpoint copies
-	 * the full message array, so long tool-heavy runs grow O(iterations ×
-	 * history) without this.
+	 * set down to the newest N. Default `undefined` — never prune, today's
+	 * behavior. Each checkpoint copies the full message array, so long
+	 * tool-heavy runs grow O(iterations × history) without this.
+	 *
+	 * Oldest-first by `createdAt`, across all of the run's checkpoints — but
+	 * a checkpoint whose park is UNRESOLVED is never collected, whatever its
+	 * age. Those rows are what `findPendingCheckpoint` serves to an approval
+	 * queue and what `listExpiredParks` enumerates for a sweep, so pruning
+	 * briefly holds more than N while a park is outstanding; the next prune
+	 * after the park resolves — by `unpark`, or by `expire` for one that ran
+	 * out of time — collects them. A host that needs the bound to hold
+	 * regardless should sweep expired parks itself.
 	 */
 	pruneKeepLast?: number
 

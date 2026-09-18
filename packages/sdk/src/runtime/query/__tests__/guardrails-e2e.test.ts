@@ -1,7 +1,7 @@
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 
 import { MockLLMProvider } from '../../../provider/mock.js'
@@ -93,6 +93,30 @@ describe('input guardrails through query()', () => {
 
 		const triggered = events.find((e) => e.type === 'guardrail_triggered')
 		expect(triggered).toMatchObject({ stage: 'input', action: 'block' })
+	})
+
+	it('writes the refusal down on its way out, exactly once', async () => {
+		// This return used to hand back `getRun()` WITHOUT persisting, so the
+		// blocked run's terminal state reached the disk only because the
+		// abandoned-consumer path found the run unsettled and settled it — a
+		// branch that exists for runs whose consumer walked away, carrying a
+		// run whose consumer was still reading.
+		const runStore = new InMemoryRunStore()
+		const writes = vi.spyOn(runStore, 'writeRunMeta')
+
+		const { result } = await run({
+			responseText: 'should never be produced',
+			inputGuardrails: [
+				{ name: 'no-secrets-asked', check: () => ({ action: 'block', reason: 'asked for a key' }) },
+			],
+			runStore,
+		})
+
+		expect(result.status).toBe('completed')
+		expect(result.stopReason).toBe('input_guardrail')
+		// `init()` and this run's own settle, and no third write from anywhere.
+		expect(writes.mock.calls.length).toBe(2)
+		expect(runStore.snapshot().meta?.stopReason).toBe('input_guardrail')
 	})
 
 	it('is inert when nothing objects', async () => {

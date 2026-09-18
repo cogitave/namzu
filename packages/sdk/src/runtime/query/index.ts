@@ -2086,6 +2086,9 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 						})
 					}
 					yield* resultAssembler.completeRun(rootSpan)
+					// The run HAS settled, so the outer `finally` must not read
+					// this as an abandonment — it would persist a second time.
+					settled = true
 					return await resultAssembler.finalize()
 				}
 				sandbox = acquisition.sandbox
@@ -2156,7 +2159,15 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 				ctx.runMgr.setStopReason('input_guardrail')
 				ctx.runMgr.setLastError(inputVerdict.reason ?? 'blocked by an input guardrail')
 				yield* resultAssembler.completeRun(rootSpan)
-				return ctx.runMgr.getRun()
+				// Same two lines as the sandbox path above, and for the same
+				// reasons — with one that path does not have. This return used to
+				// hand back `getRun()` without persisting, so the terminal state
+				// reached the disk only because the abandonment path found
+				// `settled` false and settled it a second time. A branch that
+				// exists for runs which did NOT settle must not be the reason a
+				// settled one is written down.
+				settled = true
+				return await resultAssembler.finalize()
 			}
 
 			// Honor the approval a human already gave, before the loop's
@@ -2262,13 +2273,14 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
 		}
 
 		// Reached only by a run that settled on its own terms. `finalize()` is
-		// the ONLY caller of `RunPersistence.persist()`, so everything after
-		// this line is the durable half of the run — and a `return` completion
-		// arriving from a consumer (`break` out of `for await`, `gen.return()`)
-		// runs the `finally` above and stops short of here. The flag is what
-		// tells the two apart; set before the await rather than after, because
-		// a store that throws on the way out must not send the abandonment
-		// path over the same broken ground.
+		// the only thing in this body that writes the durable half of the run,
+		// and a `return` completion arriving from a consumer (`break` out of
+		// `for await`, `gen.return()`) runs the `finally` above and stops short
+		// of here. The flag is what tells the two apart, and this is one of
+		// three sites that set it — the sandbox-acquisition and input-guardrail
+		// returns settle early and set it there. Set before the await rather
+		// than after, because a store that throws on the way out must not send
+		// the abandonment path over the same broken ground.
 		settled = true
 		return await resultAssembler.finalize()
 	})()
@@ -2329,24 +2341,29 @@ export async function* query(params: QueryParams): AsyncGenerator<RunEvent, Run>
  */
 async function settleAbandonedRun(runMgr: RunPersistence, log: Logger): Promise<void> {
 	try {
-		const parked = await findPendingCheckpoint(runMgr.getCheckpointStore(), runMgr.getRunScope())
-		if (parked) {
-			// Left exactly as it stands: no verdict, no write. The park row is
-			// this run's durable state, and `persist()` here would add a
-			// second claim — `running`, for a process that is gone — beside it.
-			log.info('Abandoned run left parked for a human to answer', {
-				[NAMZU.RUN_ID]: runMgr.id,
-				'namzu.checkpoint.id': parked.id,
-				'namzu.runtime.park_type': parked.pending?.request.type,
-			})
-			return
-		}
+		// A terminal verdict is written whatever the park says: `deriveRunStatus`
+		// settles a run that finished, failed or was cancelled BEFORE it looks at
+		// a park ("terminal beats parked"), so a settled run is not waiting for
+		// anybody and the row it already wrote must reach the disk. This ordering
+		// is also what keeps a stale park from suppressing the write.
 		if (!isTerminalStatus(runMgr.status)) {
+			const parked = await findPendingCheckpoint(runMgr.getCheckpointStore(), runMgr.getRunScope())
+			if (parked) {
+				// Left exactly as it stands: no verdict, no write. The park row is
+				// this run's durable state, and `persist()` here would add a
+				// second claim — `running`, for a process that is gone — beside it.
+				log.info('Abandoned run left parked for a human to answer', {
+					[NAMZU.RUN_ID]: runMgr.id,
+					'namzu.checkpoint.id': parked.id,
+					'namzu.runtime.park_type': parked.pending?.request.type,
+				})
+				return
+			}
 			runMgr.markCancelled()
 		}
-		// Exactly once: the `finally` that calls this runs once, and the run
-		// body sets `settled` before its own `persist()`, so the two can
-		// never both write.
+		// Once: the `finally` that calls this runs once, and every site in the
+		// run body that settles through `finalize()` sets `settled` before it
+		// returns, so the two can never both write.
 		await runMgr.persist()
 		log.info('Abandoned run recorded as cancelled', {
 			[NAMZU.RUN_ID]: runMgr.id,

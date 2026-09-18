@@ -21,6 +21,7 @@ import {
 } from '../../../utils/id.js'
 import { findPendingCheckpoint } from '../checkpoint.js'
 import { type QueryParams, drainQuery } from '../index.js'
+import { isSupersededByRecovery } from '../resume-pending.js'
 import { type ResumeRunParams, resumeRun } from '../resume-run.js'
 import type { RunStateScope } from '../run-state.js'
 
@@ -245,9 +246,14 @@ describe('a resume whose decision the runtime cannot apply', () => {
 		// `pause` is the vocabulary `expire` already uses for "this park ended
 		// and no decision was carried out", chosen there over `abort` because
 		// an abort would read as somebody having refused it.
-		const decision = recorded?.pending?.decision as { action?: string; reason?: string } | undefined
+		const decision = recorded?.pending?.decision
 		expect(decision?.action).toBe('pause')
-		expect(String(decision?.reason)).toMatch(/recovery/i)
+		// The marker a consumer compares against, not a regex over prose: the
+		// tail of the reason names the superseded decision, so the whole string
+		// is unstable by design. See `PARK_SUPERSEDED_BY_RECOVERY`.
+		expect(isSupersededByRecovery(decision)).toBe(true)
+		// …and the answer the human actually gave is still on the record.
+		expect(String((decision as { reason?: string }).reason)).toContain('continue')
 		// What was asked stays on the record, so the evidence of the question
 		// survives the answer that superseded it.
 		expect(recorded?.pending?.request.type).toBe('tool_review')

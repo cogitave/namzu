@@ -147,6 +147,34 @@ export function planPendingResume(
 }
 
 /**
+ * The stable marker `supersededByRecovery` puts at the head of its reason.
+ *
+ * `resolvedAt` says a park ENDED; it does not say HOW, and `pause` is the
+ * action both endings share — `CheckpointManager.expire` records one for a
+ * park that ran out of time, this one records another for a park whose
+ * question crash recovery answered instead. A reader that tests
+ * `pending.decision.action` alone can tell neither from a run still holding
+ * the park, and the reason is the only field left to carry the difference.
+ *
+ * A constant rather than a sentence written at the call site, and a PREFIX
+ * rather than the whole string, because the sentence names which decision was
+ * superseded — informative to a person, unstable to a comparison. A consumer
+ * tests this; the tail is prose.
+ *
+ * Exported for the SDK's own readers. It is not on the package's public
+ * surface: a new field on the recorded decision would be, and this branch
+ * ships as a `patch`.
+ */
+export const PARK_SUPERSEDED_BY_RECOVERY = 'crash-recovery-superseded'
+
+/** Whether a recorded decision is the supersede marker rather than an answer. */
+export function isSupersededByRecovery(decision: HITLResumeDecision | undefined): boolean {
+	return (
+		decision?.action === 'pause' && (decision.reason ?? '').startsWith(PARK_SUPERSEDED_BY_RECOVERY)
+	)
+}
+
+/**
  * What to record on a park whose batch crash recovery answered instead of the
  * decision.
  *
@@ -160,14 +188,15 @@ export function planPendingResume(
  * The vocabulary already has one shape for "this park ended and no decision
  * was carried out": `CheckpointManager.expire` records a `pause` carrying the
  * reason, and says why it is not an `abort` ("that would read as somebody
- * having refused it"). This is that shape, with a reason naming what actually
- * ended the park — and which decision it superseded, so the answer a human
- * gave is still on the record.
+ * having refused it"). This is that shape, with
+ * {@link PARK_SUPERSEDED_BY_RECOVERY} at the head of the reason so the fact is
+ * comparable rather than prose, and the decision it superseded after it so the
+ * answer a human gave is still on the record.
  */
 export function supersededByRecovery(decision: HITLResumeDecision): HITLResumeDecision {
 	return {
 		action: 'pause',
-		reason: `Crash recovery answered the tool batch this park asked about, so the decision that was given (${decision.action}) was not applied.`,
+		reason: `${PARK_SUPERSEDED_BY_RECOVERY}: crash recovery answered the tool batch this park asked about, so the decision that was given (${decision.action}) was not applied.`,
 	}
 }
 

@@ -27,23 +27,50 @@ approve a plan whose run was stopped can still find it and resume. A host
 that needs the old "wait for the answer regardless" behaviour can park the
 decision itself before calling `query()` and answer from its own queue.
 
-**An abandoned run's record is terminal.** A host that leaves the stream
-early — `for await (… ) break`, or `gen.return()` — ran the run's teardown
-and stopped short of `finalize()`. Since `finalize()` is the only caller of
-`RunPersistence.persist()`, the durable record was whatever `init()` wrote,
-which is not a terminal state: `deriveRunStatus` read it back as `queued`,
-work waiting to start, for a run whose jobs were killed and whose sandbox was
-destroyed. Such a run is now recorded `cancelled`. There is no new
-`RunExecutionStatus`, no new `StopReason` and no new event — there is no
-consumer left to emit one to, and the run did not fail, so `failed` would
-name an error that never happened.
+**An abandoned run's record is terminal — unless a human is still being
+asked.** A host that leaves the stream early — `for await (… ) break`, or
+`gen.return()` — ran the run's teardown and stopped short of `finalize()`.
+Since `finalize()` is the only caller of `RunPersistence.persist()`, the
+durable record was whatever `init()` wrote, which is not a terminal state:
+`deriveRunStatus` read it back as `queued`, work waiting to start, for a run
+whose jobs were killed and whose sandbox was destroyed. Such a run is now
+recorded `cancelled`. There is no new `RunExecutionStatus`, no new
+`StopReason` and no new event — there is no consumer left to emit one to, and
+the run did not fail, so `failed` would name an error that never happened.
+
+A run whose consumer left while a park was OUTSTANDING is the exception, and
+deliberately so: a park is a promise to a human, that run is resumable, and
+`deriveRunStatus` reads a terminal status before it reads the park — so
+writing `cancelled` there would have turned `awaiting_hitl` into `cancelled`
+for a run somebody still owes an answer. The durable state decides, not the
+in-memory state, because `handleHITLDecision` emits `run_paused` and drains it
+BEFORE it sets its stop reason: a consumer that leaves on that event leaves a
+run whose status is `running` and whose stop reason is unset at the instant
+its park is already durable. Such a run is left exactly as it stands — no
+verdict and no write, since the park row is its durable state — and a host
+clears it by answering the park or by `expire`-ing an expired one.
 
 What is durable here is the STATUS: measured against a real `RunDiskStore`,
 `run.json` goes from `status: 'idle'` to `status: 'cancelled'` with an
-`endedAt`. `run.json` carries neither `stopReason` nor `result` for any run
-today, so the `stopReason: 'cancelled'` that `markCancelled()` sets in memory
-is not written there either: that is a separate defect, fixed separately, and
-nothing in this change depends on it.
+`endedAt` for the mid-flight case, and stays non-terminal for the parked one.
+`run.json` carries neither `stopReason` nor `result` for any run today, so the
+`stopReason: 'cancelled'` that `markCancelled()` sets in memory is not written
+there either: that is a separate defect, fixed separately, and nothing in this
+change depends on it.
+
+**A park answered by a resumed run is resolved, for the plan arm too.** The
+resume path resolves the park its decision answers; the set of park/decision
+pairs it covered named one park per condition, and the `plan_approval` arm was
+missing — a run resumed with `{action: 'approve_plan'}` COMPLETED with its
+park still outstanding, so a host was told a human still owed it an answer, a
+second resume of the finished run was refused `awaiting-decision`, and with no
+`hitlParkTtlMs` no `deadlineAt` existed either, leaving the row beyond
+`expire` and beyond prune. Both plan verdicts now answer the park, through one
+map from park type to answering decision so an arm cannot go missing by being
+absent from a condition again. Resolving it does not depend on the resumed
+process being able to act on it: nothing restores a plan on the resume path,
+which is its own defect, and gating this on it would leave the row outstanding
+for exactly the runs that need it cleared.
 
 **Pruning no longer deletes a checkpoint a host is still waiting on.** With
 `runConfig.pruneKeepLast` set, `CheckpointManager.prune` deleted the oldest
