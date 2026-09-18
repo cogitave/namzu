@@ -3930,14 +3930,19 @@ and asserts its `podSelector` / `endpointSelector`, `policyTypes` and `egress`
 rules match the translation **exactly**. A missing object fails with
 `KubernetesEgressPolicyNotAppliedError`, a drifted one with
 `KubernetesEgressPolicyMismatchError` naming the field, and no sandbox is
-claimed. An **absent `egress` is read as the empty list**, which is the only
-form a cluster keeps: `egress` is `omitempty` on the wire struct, so a policy
-applied with `egress: []` reads back with no `egress` key at all, and a merge
-patch cannot put one back. Measured on a live `kind` cluster at v1.37, with
-this backend's own client: an object applied from the `no-network` manifest
-answers `GET` with `{"podSelector":…,"policyTypes":["Egress"]}` and no
-`egress` key, and `kubectl patch --type=merge -p '{"spec":{"egress":[]}}'`
-does not restore one. Refusing that spelling was #507 —
+claimed. An **absent `egress` is read as the empty list**, which for a core
+`NetworkPolicy` is the only form a cluster keeps: `egress` is `omitempty` on
+the wire struct, so a policy applied with `egress: []` reads back with no
+`egress` key at all, and a merge patch cannot put one back. Measured on a live
+`kind` cluster at v1.37, with this backend's own client: an object applied from
+the `no-network` manifest answers `GET` with
+`{"podSelector":…,"policyTypes":["Egress"]}` and no `egress` key, and
+`kubectl patch --type=merge -p '{"spec":{"egress":[]}}'` does not restore one.
+A `CiliumNetworkPolicy` is a CRD rather than a typed object, and DOES keep the
+empty array — also measured, on a `SandboxTemplate` applied with
+`networkPolicy.egress: []` — but the equivalence is only ever effectual for
+`'no-network'`, which always translates to a core `NetworkPolicy`, so the
+comparison reads both kinds the same way. Refusing that spelling was #507 —
 `'no-network'`'s whole translation IS the empty list, so no object any cluster
 could store satisfied the check and every `create()` against such a deployment
 was refused. They are one policy and not only in shape: under

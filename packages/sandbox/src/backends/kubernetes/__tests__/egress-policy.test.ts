@@ -2107,10 +2107,14 @@ describe('verifyEgressPolicyApplied — verify, never trust', () => {
 			KubernetesEgressPolicyMismatchError,
 		)
 		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(/spec\.egress/)
-		// The refusal says which form it read, so an operator who applied the
-		// object they were handed is not told the field holds a value it holds
-		// no form of.
-		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(/absent/)
+		// The refusal says which form it read AND why it is that form: against
+		// a translation that meant rules, the reason is the operator's object
+		// carrying none. The API-server-storage clause belongs to the
+		// empty-translation arm and would explain this refusal with a fact
+		// about storage that had nothing to do with it.
+		await expect(verifyEgressPolicyApplied(client, translated)).rejects.toThrow(
+			/absent — the object carries no egress rule at all/,
+		)
 	})
 })
 

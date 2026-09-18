@@ -2082,9 +2082,9 @@ export class KubernetesEgressPolicyMismatchError extends Error {
  *    `'Egress'` — a `NetworkPolicy` with an `egress` array but no `'Egress'`
  *    in `policyTypes` enforces nothing on egress at all;
  *  - the `egress` rule array matches the translation exactly, where an ABSENT
- *    array is the empty one — the only form a cluster stores it in, and the
- *    same policy either way. See the comparison itself for where that
- *    equivalence stops;
+ *    array is the empty one — for a core `NetworkPolicy` the only form a
+ *    cluster stores an empty list in, and the same policy either way. See the
+ *    comparison itself for where that equivalence stops;
  *  - and, ONLY when the translation carries `metadata.ownerReferences` (the
  *    per-sandbox policies of `per-sandbox-policy.ts`, never the operator's
  *    own object), that the live object still carries each of them — an owner
@@ -2170,12 +2170,16 @@ export async function verifyEgressPolicyApplied(
 		}
 	}
 
-	// An absent `spec.egress` is read as the empty list it IS, because that is
-	// the only form a cluster keeps. The API server never STORES an empty one:
-	// `egress` is `omitempty` on the wire struct, so an object applied with
-	// `egress: []` reads back with no `egress` key at all, and a merge patch
-	// cannot put one there — it is dropped again on the way in (measured
-	// against a live cluster; see `docs/sdk/kubernetes-sandbox.md`). The two
+	// An absent `spec.egress` is read as the empty list it IS, because for a
+	// core `NetworkPolicy` that is the only form a cluster keeps. The API
+	// server never STORES an empty one: `egress` is `omitempty` on the wire
+	// struct, so an object applied with `egress: []` reads back with no
+	// `egress` key at all, and a merge patch cannot put one there — it is
+	// dropped again on the way in (measured against a live cluster; see
+	// `docs/sdk/kubernetes-sandbox.md`). A `CiliumNetworkPolicy` is a CRD and
+	// DOES keep the empty array — also measured — but the equivalence is only
+	// ever effectual for `'no-network'`, which always translates to a core
+	// `NetworkPolicy`, so the two kinds need no separate reading here. The two
 	// spellings are one policy, and not only in shape: `policyTypes` has
 	// already been required to include `'Egress'` a few lines up, and that
 	// alone denies every egress — which is exactly what an empty rule list
@@ -2203,15 +2207,24 @@ export async function verifyEgressPolicyApplied(
 	// reading `readList` gives the field everywhere else in this module.
 	const egressIsAbsent = liveEgress === undefined || liveEgress === null
 	const actualEgress = egressIsAbsent ? [] : liveEgress
+	// Why the live list holds no rules is the translation's business, not the
+	// field's: against an empty translation, absence is how the API server
+	// STORES that empty list; against any other, the operator's object simply
+	// carries no rules, and saying otherwise would explain a refusal with a
+	// fact about storage that had nothing to do with it.
+	const expectedIsEmpty = Array.isArray(expectedSpec.egress) && expectedSpec.egress.length === 0
+	const liveEgressText = egressIsAbsent
+		? `absent — ${
+				expectedIsEmpty
+					? 'the API server stores an empty rule list as no field at all'
+					: 'the object carries no egress rule at all'
+			}`
+		: JSON.stringify(liveEgress)
 	if (!isDeepStrictEqual(actualEgress, expectedSpec.egress)) {
 		throw new KubernetesEgressPolicyMismatchError(
 			translated.kind,
 			path,
-			`spec.egress is ${
-				egressIsAbsent
-					? 'absent — the API server stores an empty rule list as no field at all'
-					: JSON.stringify(liveEgress)
-			}, expected ${JSON.stringify(expectedSpec.egress)}`,
+			`spec.egress is ${liveEgressText}, expected ${JSON.stringify(expectedSpec.egress)}`,
 		)
 	}
 
