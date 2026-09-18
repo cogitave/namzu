@@ -23,6 +23,13 @@ vi.mock('../../connector/mcp/client.js', () => ({
 	// constructible, and because it returns an object that object is what `new`
 	// yields, which is the same value the arrow produced. The body is otherwise
 	// byte-for-byte the mock that was here.
+	//
+	// `lint/complexity/useArrowFunction` asks for the arrow back. It cannot have
+	// one: the rule is right that this function does not use `this`, and beside
+	// the point about `[[Construct]]`, which is the only property that matters
+	// here. Suppressed rather than exempted file-wide, so the rule keeps working
+	// everywhere else in this file.
+	// biome-ignore lint/complexity/useArrowFunction: a constructible mock implementation cannot be an arrow function.
 	MCPClient: vi.fn().mockImplementation(function (config: { serverName: string }) {
 		return {
 			id: 'mcp-client-mock',
