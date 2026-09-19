@@ -577,7 +577,7 @@ const ZEN_MODELS = freezeModels([
 		outputPrice: 4.25,
 		supportsToolUse: true,
 		supportsStreaming: true,
-		effortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+		effortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
 	},
 	{
 		id: 'muse-spark-1.2',
