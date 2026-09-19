@@ -115,10 +115,15 @@ const net = require('node:net')
 const { spawn } = require('node:child_process')
 const { createHash, randomUUID, timingSafeEqual } = require('node:crypto')
 const fs = require('node:fs/promises')
-// Synchronous, and used for exactly one thing: looking for the program the
-// flush runs before `healthz` promises a host that this guest can flush.
-// See `canFlush`.
-const { accessSync, constants: fsConstants } = require('node:fs')
+// Synchronous, and used for exactly two things. `accessSync` looks for the
+// program the flush runs before `healthz` promises a host that this guest can
+// flush (see `canFlush`). `readFileSync` is the `/proc` scan that stands in
+// for a kernel without a `children` file, which runs inside a poll loop and
+// is the one reader in this file whose cost multiplies — it is linear in the
+// machine's process count, and the scan yields to the event loop every 64
+// reads so that cost is the pass's and not a stall's (see
+// `readProcessStatSync` and `PTY_SCAN_READS_PER_YIELD`).
+const { accessSync, constants: fsConstants, readFileSync } = require('node:fs')
 const { constants: osConstants } = require('node:os')
 const path = require('node:path')
 
@@ -2532,6 +2537,18 @@ const PTY_SLAVE_ATTEMPTS = 200
 const PTY_SLAVE_POLL_MS = 5
 
 /**
+ * How many `/proc/<pid>/stat` reads one scan makes before handing the event
+ * loop back.
+ *
+ * {@link readProcessStatSync} is the one synchronous reader in this file, and
+ * the pass it runs in walks every pid on the machine, so a pass that never
+ * yielded would hold the loop — and with it every terminal, exec, stream and
+ * `healthz` this agent serves — for as long as the guest has processes. See
+ * {@link scanChildrenByParent} for the measurement this number is read from.
+ */
+const PTY_SCAN_READS_PER_YIELD = 64
+
+/**
  * The device major every devpts slave carries.
  *
  * `devpts` is registered under a FIXED major rather than a dynamically
@@ -2556,6 +2573,11 @@ function probeErrorCode(error) {
  * and "which of these reads was refused, and with what" is the whole
  * difference between an error someone can act on and one that costs a
  * cluster and a debugger to find (#512).
+ *
+ * This is the FAST PATH and not the only one: the file is a build option
+ * (`CONFIG_PROC_CHILDREN`) and some guests do not have it at all. See
+ * {@link discoverChildren} for the read that tells a kernel without it from
+ * a pid the kernel has released, and what stands in for it.
  */
 async function processChildren(pid) {
 	try {
@@ -2656,6 +2678,184 @@ async function procEntryState(pid) {
 }
 
 /**
+ * Every pid on this machine, grouped by the parent it names — the relation
+ * `/proc/<pid>/task/<pid>/children` reports, built without that file (#516).
+ *
+ * WHY IT EXISTS. `/proc/<pid>/task/<pid>/children` is not part of the
+ * kernel's base `/proc` support: it is `CONFIG_PROC_CHILDREN`, and a guest
+ * built without the option has no such entry at all — the reporter's did
+ * not, which is why `cat /proc/108/task/108/children` came back `No such
+ * file or directory` for a `script` that was alive and had forked a shell.
+ * Every read of it answered `ENOENT`, so `findPtySlave`'s frontier was
+ * empty on every attempt and its `tty_nr` fallback, which is per pid the
+ * walk has already DEQUEUED, was unreachable: it never dequeued one. Field
+ * 4 of `/proc/<pid>/stat` is `ppid`, that file is world-readable on every
+ * kernel this agent can run on, and one pass over `/proc` therefore
+ * rebuilds the parent→child relation by a route that no build option gates.
+ *
+ * WHAT IT REBUILDS IS NOT THE FILE'S RELATION EXACTLY, and that is worth
+ * stating rather than glossing: the two agree on every edge this walk
+ * traverses, and a caller who read "the same relation" would have been told
+ * something false. `ppid` is the parent's THREAD-GROUP id — field 4 is the
+ * group leader of `task->real_parent` — so the map this builds is the
+ * thread-group-COLLAPSED graph. The file is per TASK — the `children` of
+ * `/proc/<S>/task/<S>/` names the tasks whose `real_parent` is S itself —
+ * and a child forked by a non-leader thread W of S is therefore in
+ * `/proc/S/task/W/children` and NOT in the leader's `children`, while this
+ * scan lists it under S. Verified here rather than reasoned about: a `sleep`
+ * forked by a worker thread of a probe process reported `ppid` = that
+ * process's tgid, appeared in the worker tid's `children` file alone, and
+ * `readdir('/proc')` listed no non-leader tid at all.
+ *
+ * So there are two differences, and neither NARROWS the walk. It is WIDER
+ * than the file at a leader node, where it lists what every thread of the
+ * group forked rather than the leader's own children alone — and a child
+ * forked by a thread of a node the walk has already dequeued is one the
+ * file's own walk would have MISSED. And it is EMPTY at a non-leader tid, a
+ * node the walk never asks about: `readdir('/proc')` yields group leaders
+ * only, so every pid this map can hand back is one. The file's listing at a
+ * leader is a subset of this one's, and every node this walk visits is a
+ * process — `script`, the shell under it and the jobs under that are
+ * processes, not threads — so nothing it would have found is lost; the
+ * breadth-first order, the pid the walk returns and the early stop are
+ * unchanged. What a scan cannot do is ACCEPT a candidate: only
+ * {@link probePtySlave} does that, and the scan widens discovery alone.
+ * That is what keeps this small enough to be safe on a kernel that never
+ * asked for it.
+ *
+ * WHAT IT COSTS, because the walk polls: 200 attempts at 5ms. The pass is
+ * taken once per ATTEMPT and shared by every pid that attempt visits (see
+ * {@link discoverChildren}), so a walk over K candidates costs one pass, not
+ * K — and on a kernel that HAS the file the pass is never taken. Where it is
+ * taken, the per-pid read is the whole cost and {@link readProcessStatSync}
+ * is why it is a synchronous one: measured at ~12µs per pid against ~276µs
+ * for the promisified read, so a guest of 60 processes spends about 0.7ms
+ * per pass rather than 15ms. The listing is left asynchronous — it is one
+ * call per pass rather than P — and the bound is therefore one listing plus
+ * one read per live pid per 5ms poll, for as long as the walk is looking.
+ *
+ * AND THE STALL IS BOUNDED BY CONSTRUCTION, which is the other half of the
+ * cost and not the walk's own. That per-pid read is synchronous, and this
+ * agent serves every terminal, exec, stream and `healthz` on ONE event loop:
+ * a pass that never yielded would hold all of them for as long as the guest
+ * has processes, in one lump per attempt. The loop therefore hands the loop
+ * back every {@link PTY_SCAN_READS_PER_YIELD} reads, which caps the
+ * uninterrupted stretch at that many reads and NOT at the size of the
+ * machine. Measured by driving this function — the real one, extracted from
+ * this file — over a `/proc` holding a copy of `sleep` per spawned process,
+ * on this machine: the longest gap between two yields, which is the longest
+ * stretch the loop went without a turn, was 0.97-1.05ms at 4041 live pids
+ * and 0.69-0.93ms at 1041, against 40.1-42.9ms and 10.6-11.8ms for the same
+ * passes with the yield removed. The pass itself is linear either way and
+ * the turns are what it pays for the bound — 41.7ms to 45.1ms at 4041 pids
+ * (median of five, ~8%) for 63 turns — and at 41 pids no yield fires at all,
+ * because the pass is shorter than the stretch it is allowed. The yield is a
+ * `setImmediate`: one event-loop turn per 64 reads, no timer, and the loop
+ * is free between turns.
+ *
+ * PID 1 and this process are skipped, as in every other `/proc` scan in
+ * this file. Neither can be the shell: `script` is this process's child and
+ * never its parent, so this pid is not under the pid being walked, and a
+ * walk must never be able to hand back the agent's own.
+ */
+async function scanChildrenByParent() {
+	const byParent = new Map()
+	let entries
+	try {
+		entries = await fs.readdir('/proc')
+	} catch (error) {
+		// A `/proc` that could not be listed found no children — and says
+		// WHICH error, rather than answering like a pass that ran over an
+		// empty machine. {@link discoverChildren} reports the two as the
+		// different facts they are: a scan that listed nothing is not a scan
+		// that found nothing, and a message that said the scan found nothing
+		// here would be the misreading this fallback exists to remove.
+		return { byParent, listError: probeErrorCode(error) }
+	}
+	// `reads` counts the per-pid reads ATTEMPTED, not the entries seen: the
+	// yield below is a claim about how long this loop has held the event
+	// loop, and what holds it is `readProcessStatSync`.
+	let reads = 0
+	for (const entry of entries) {
+		const pid = Number(entry)
+		if (!Number.isInteger(pid) || pid <= 1 || pid === process.pid) continue
+		if (reads > 0 && reads % PTY_SCAN_READS_PER_YIELD === 0) {
+			// Hand the loop back; see the stall bound in this function's doc.
+			// Before the read rather than after, so a stretch is exactly
+			// PTY_SCAN_READS_PER_YIELD reads.
+			await new Promise((resolve) => setImmediate(resolve))
+		}
+		reads += 1
+		const parent = readProcessStatSync(pid)?.ppid
+		if (parent === undefined) continue
+		const siblings = byParent.get(parent)
+		if (siblings === undefined) byParent.set(parent, [pid])
+		else siblings.push(pid)
+	}
+	return { byParent, listError: undefined }
+}
+
+/**
+ * What {@link findPtySlave} puts in its frontier: the `children` file where
+ * the kernel has it, and a `/proc` scan where it does not (#516). The two are
+ * the same relation over the nodes this walk visits and NOT the same listing
+ * in general — see {@link scanChildrenByParent}, which keys by the parent's
+ * thread-group id and says there what that widens, what it leaves empty, and
+ * why neither costs the walk a candidate.
+ *
+ * `ENOENT` from that read is AMBIGUOUS on its own, and telling the two apart
+ * is the whole decision here. It means the kernel has RELEASED this pid when
+ * `/proc/<pid>` is gone, and the kernel was built without the option when
+ * `/proc/<pid>` is still there — a file can only be missing for a live pid
+ * if it was never built. {@link procEntryState} is what answers which, and
+ * it answers in three values rather than two, so a read that was REFUSED
+ * (`EACCES`, `EMFILE`) takes the path it always did: no scan, and the errno
+ * reported as it was. That also keeps the early stop intact — a `script`
+ * that is gone is not scanned for, and the walk ends on the same
+ * observation it always did.
+ *
+ * A scanned answer is reported as the children read's own errno with what
+ * stood in for it. The message this lands in exists to say which reads did
+ * not happen and what came back, and `last children(): ENOENT` alone reads
+ * as a broken walk instead of as a kernel that has no such file — which is
+ * the reading that cost the reporter a cluster to correct.
+ *
+ * A scan whose LISTING failed is reported as that instead — the errno of a
+ * `readdir('/proc')` that never answered, beside the `ENOENT` that sent it
+ * there — and never as `discovered by a /proc scan`. That phrase says a
+ * scan ran and found nothing under this pid; a listing that never happened
+ * is not one, and a caller told otherwise would be handed the same kind of
+ * misreading, one level down, that this fallback exists to remove.
+ *
+ * `scan` is the ATTEMPT's cache, owned by the caller: one `/proc` pass
+ * answers every pid that attempt visits, so a walk dequeuing K candidates
+ * costs one pass and not K. It holds the whole pass — the map and the
+ * listing's own error — so a failed listing is answered the same way twice
+ * rather than attempted again per candidate. See {@link findPtySlave} for
+ * why the pass is per attempt rather than per walk.
+ */
+async function discoverChildren(pid, scan) {
+	const direct = await processChildren(pid)
+	if (direct.error !== 'ENOENT') return direct
+	if ((await procEntryState(pid)) !== 'present') return direct
+	scan.pass ??= await scanChildrenByParent()
+	const { byParent, listError } = scan.pass
+	if (listError !== undefined) {
+		// The scan never listed anything, so what is in hand is a `/proc` it
+		// could not read — and NOT a machine with nothing under this pid.
+		// Both facts go in the message; neither can stand for the other.
+		return {
+			children: [],
+			error: `${direct.error}, and the /proc scan that stands in for it could not list /proc: ${listError}`,
+		}
+	}
+	return {
+		children: byParent.get(pid) ?? [],
+		error: `${direct.error}, discovered by a /proc scan`,
+	}
+}
+
+/**
  * What {@link findPtySlave} throws, naming everything the walk learned.
  *
  * Every field is the LAST OBSERVATION of the thing it names, not the last
@@ -2695,6 +2895,19 @@ function ptySlaveFailure(
  * terminal taken from `/proc/<pid>/stat` — and a candidate is accepted when
  * EITHER does; see {@link probePtySlave} for why the second is not optional.
  *
+ * There are two ways to DISCOVER a candidate, for the same reason there are
+ * two ways to accept one: `/proc/<pid>/task/<pid>/children` is gated on a
+ * kernel build option and some guests do not have it. The walk reads it
+ * first and always, and falls back to a `/proc` scan only where a live pid
+ * answers `ENOENT` for it — see {@link discoverChildren}, which decides
+ * that and is the only thing this loop uses in place of the file. The two
+ * are not the same listing, and {@link scanChildrenByParent} states where
+ * they part: the scan keys by the parent's thread-group id, which is what
+ * `/proc/<pid>/stat` carries, so it is wider at a leader node and empty at
+ * a non-leader tid. Neither difference takes a candidate away from this
+ * walk, which only ever asks about leaders — and the file is still read
+ * first, so where it answers, the scan is never consulted at all.
+ *
  * Both probes report the same pid, and that pid is not incidental. The shell
  * is the leader of the kernel session `script` created for it — the unit a
  * teardown has to signal, and the one a process-group kill misses entirely
@@ -2720,9 +2933,27 @@ async function findPtySlave(scriptPid) {
 	let scriptState = 'present'
 	for (let attempt = 0; attempt < PTY_SLAVE_ATTEMPTS && scriptState !== 'gone'; attempt += 1) {
 		attempts = attempt + 1
-		const root = await processChildren(scriptPid)
+		// One `/proc` scan per ATTEMPT, built at most once and only where the
+		// kernel has no `children` file — see {@link discoverChildren} for
+		// the read that decides that. Deliberately not one per walk: what is
+		// being waited for is the fork the tree has not made yet, so a scan
+		// taken once and reused would answer about a tree that has since
+		// grown. And deliberately not one per dequeued candidate either,
+		// because a guest that needs the scan at all would then pay a full
+		// `/proc` pass for every pid it visits. What that buys: on any
+		// kernel WITH the file — every guest this agent has been measured in
+		// — the scan never runs at all, and where it does run, a walk over K
+		// candidates costs one pass per 5ms poll rather than K.
+		const scan = { pass: undefined }
+		const root = await discoverChildren(scriptPid, scan)
 		childrenError = root.error
-		const queue = root.children
+		// A COPY, because `root.children` is the per-attempt cache's own array
+		// wherever the scan answered: pushing a grandchild into the queue would
+		// be pushing it into the map that answered, and a pid that two nodes
+		// both claimed would be walked twice. Unreachable today — each attempt
+		// asks about the root once and no task has two parents — and one copy
+		// is cheaper than resting on that staying true.
+		const queue = [...root.children]
 		while (queue.length > 0) {
 			const pid = queue.shift()
 			probed += 1
@@ -2730,7 +2961,7 @@ async function findPtySlave(scriptPid) {
 			fdError = probe.fdError
 			statError = probe.statError
 			if (probe.slavePath !== undefined) return { slavePath: probe.slavePath, shellPid: pid }
-			const kids = await processChildren(pid)
+			const kids = await discoverChildren(pid, scan)
 			childrenError = kids.error
 			queue.push(...kids.children)
 		}
@@ -2949,8 +3180,8 @@ function makeRoomForSession() {
 
 /**
  * One process's `/proc/<pid>/stat`, as much of it as anything here needs:
- * its name, its run state, its kernel session id and its controlling
- * terminal.
+ * its name, its parent, its run state, its kernel session id and its
+ * controlling terminal.
  *
  * Parsed from the last `)` rather than by splitting on spaces: field 2 is
  * the executable's own name, in parentheses, and it may contain spaces and
@@ -2963,6 +3194,7 @@ function parseProcessStat(pid, raw) {
 	if (open < 0 || close < open) return undefined
 	// state, ppid, pgrp, session, tty_nr — the five fields after the name.
 	const fields = raw.slice(close + 2).split(' ')
+	const ppid = Number(fields[1])
 	const sessionId = Number(fields[3])
 	const ttyNr = Number(fields[4])
 	return {
@@ -2972,6 +3204,15 @@ function parseProcessStat(pid, raw) {
 		// HOST, and a command line carries the workload's own arguments.
 		command: raw.slice(open + 1, close),
 		state: fields[0] ?? '',
+		// Field 4, the parent, and the parent's THREAD-GROUP id rather than
+		// the task that forked this one. Read here for the `/proc` scan that
+		// stands in where a kernel has no `children` file; see
+		// {@link scanChildrenByParent}, which is its only reader and states
+		// what that difference does and does not change. A pid with no
+		// parent — PID 1, a kernel thread — reports 0, and that is
+		// `undefined` here because no scan asks about it: a walk always
+		// searches for the children of a positive pid.
+		ppid: Number.isInteger(ppid) && ppid > 0 ? ppid : undefined,
 		sessionId: Number.isInteger(sessionId) && sessionId > 0 ? sessionId : undefined,
 		// Field 7, the controlling terminal's device number (0 for none).
 		// Read here rather than through `/proc/<pid>/fd/0` because it is a
@@ -2991,12 +3232,49 @@ async function readProcessStat(pid) {
 }
 
 /**
+ * The same line, read without the event loop — for the one caller whose cost
+ * multiplies.
+ *
+ * {@link scanChildrenByParent} runs inside {@link findPtySlave}'s poll loop:
+ * up to once per 5ms poll, for as long as the walk is looking, over every pid
+ * on the machine. That loop is the whole reason this exists. Measured on a
+ * 56-process `/proc`: `readFileSync` answers in ~12µs per pid where the
+ * promisified read costs ~276µs, so a pass is 0.7ms rather than 15ms. What
+ * the synchronous call costs is syscall time and nothing else — procfs
+ * builds this line in kernel memory and copies it out, so there is no device
+ * behind it to block on — while the async read costs an event-loop round
+ * trip per pid, P times over. The listing that precedes the loop stays
+ * asynchronous: that is one call per pass, not P.
+ *
+ * The cost is LINEAR IN P and there is no small-P ceiling to assume: 0.58ms
+ * at 42 pids, 11ms at 1041, 45ms at 4041, all measured by driving
+ * {@link scanChildrenByParent} here. A busier guest therefore spends more,
+ * in proportion — what keeps that from being a stall of its own is the yield
+ * the scan takes every {@link PTY_SCAN_READS_PER_YIELD} reads, which bounds
+ * the loop's wait rather than the pass's total. See that function for the
+ * numbers and why this reader is the one that needed them.
+ *
+ * Parsed by {@link parseProcessStat} like every other reader of this line:
+ * there is still exactly one place in this file that knows its format. The
+ * bare `catch` is the one {@link readProcessStat} has, for the same reason —
+ * a pid that exited between the listing and this read is `undefined`, which
+ * is the answer the caller wants rather than an error to handle.
+ */
+function readProcessStatSync(pid) {
+	try {
+		return parseProcessStat(pid, readFileSync(`/proc/${pid}/stat`, 'utf8'))
+	} catch {
+		return undefined
+	}
+}
+
+/**
  * The kernel session id (`/proc/<pid>/stat` field 6) of one process.
  *
  * Parsed from the last `)` rather than by splitting on spaces: field 2 is
  * the executable's own name, in parentheses, and it may contain spaces and
- * parentheses of its own. See {@link readProcessStat}, which is the one
- * place in this file that parses that line.
+ * parentheses of its own. See {@link parseProcessStat}, the one place in
+ * this file that parses that line.
  */
 async function readUnixSessionId(pid) {
 	return (await readProcessStat(pid))?.sessionId

@@ -59,6 +59,36 @@
  *    a tick later, and measured, it wins that race on its own: this case
  *    passes with `handleTerminal`'s deferral to it removed as well. What the
  *    deferral does is close the window where it does not win.
+ *  - **There is no `children` file to read.** The walk's frontier came from
+ *    `/proc/<pid>/task/<pid>/children` and from nothing else, so a guest
+ *    whose kernel was built without `CONFIG_PROC_CHILDREN` — the reporter's,
+ *    #516 — had an empty frontier on every attempt and never dequeued a
+ *    single candidate: the `tty_nr` fallback above is per pid the walk has
+ *    already dequeued, and no pid ever was. **The absence cannot be produced
+ *    here** — this machine's kernel has the option, and the reporter's guest
+ *    is a cluster — so it is arranged the way this suite arranges what it
+ *    cannot reproduce: a copy of the shipped agent with its one `children`
+ *    read pointed at a path that is not there, patched by anchored edits that
+ *    assert each anchor occurs exactly once, so a rename fails loudly here
+ *    instead of turning the patch into a no-op (see
+ *    `writeAgentWithoutChildrenFile`). Two cases drive it: the
+ *    discovery-only shape, where fd 0 answers as it did for the reporter, and
+ *    the shape where the scan and the `tty_nr` fallback both carry the walk,
+ *    `fd/0` refused for every pid. Both fail against the pre-fix source — the
+ *    terminal answers with the walk error it never used to survive — and both
+ *    prove the same two contracts as every case above: the resize lands on
+ *    the real pty, and the pid that came with it is the shell's own session.
+ *  - **The scan is not what a healthy guest pays for.** The same
+ *    instrumentation with the shipped agent, asserting that a walk which
+ *    CAN read the file never runs the fallback at all — and the two cases
+ *    above assert the mirror image, that the counter sees the fallback
+ *    when there IS one. The pair is deliberate: a renamed scan would make
+ *    the none-run assertion pass for free, and the counter beside it is
+ *    what fails loudly instead. The bound is a bound rather than a
+ *    regression — it passes against the pre-fix source too, which has no
+ *    scan to run — and what it holds is the decision that the fallback is
+ *    reached only from an absent file, against an implementation that
+ *    scans unconditionally.
  *
  * Two things are checked in every case that comes up, because they are the
  * contract this change cannot break. The slave is compared against the real
@@ -89,6 +119,7 @@ import {
 	readlinkSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 } from 'node:fs'
 import { createRequire } from 'node:module'
 import { type AddressInfo, type Server, type Socket, connect } from 'node:net'
@@ -104,6 +135,7 @@ import { decodeFrames, encodeFrame } from './fixtures/framed-agent-client.js'
 const IS_WINDOWS = process.platform === 'win32'
 const require_ = createRequire(import.meta.url)
 const AGENT_PATH = '../../../../agent/agent.cjs'
+const AGENT_ENTRY_FILE = require_.resolve(AGENT_PATH)
 
 /** A pod uid is what the downward API actually delivers; shaped like one. */
 const POD_UID = '3d9a51c7-08b2-4e6f-9a41-2c5d7e8f0b13'
@@ -166,9 +198,55 @@ function clearEnv(): void {
 }
 
 /** Load a FRESH agent module, so module-level registry state never leaks. */
-function loadAgent(): AgentModule {
-	delete require_.cache[require_.resolve(AGENT_PATH)]
-	return require_(AGENT_PATH) as AgentModule
+function loadAgent(entryFile: string = AGENT_ENTRY_FILE): AgentModule {
+	delete require_.cache[require_.resolve(entryFile)]
+	return require_(entryFile) as AgentModule
+}
+
+/**
+ * Swap this case onto another copy of the agent — the shipped one is what
+ * `beforeEach` started — and answer nothing until it is listening.
+ *
+ * A case that needs a patched copy has to run it, and running it beside the
+ * one `beforeEach` started would leave a listener nobody closes and a port
+ * `agentPort` does not name. The copy is loaded in THIS process rather than
+ * spawned in a child, as every other case here uses the agent: what is under
+ * test is the walk's own reads, and the pids it reads about belong to
+ * whichever process the `terminal` op was dialled on.
+ */
+async function useAgent(entryFile: string): Promise<void> {
+	listener?.close()
+	listener = undefined
+	agent = loadAgent(entryFile)
+	listener = await agent.startListening()
+	agentPort = (listener.address() as AddressInfo).port
+}
+
+/**
+ * A copy of the shipped agent whose `children` read is pointed at a path that
+ * is not there (#516).
+ *
+ * **The absence this arranges cannot be produced here.** It is a kernel built
+ * without `CONFIG_PROC_CHILDREN`, which is the reporter's sandbox guest and
+ * not this machine, so the guest's condition is arranged at the one line that
+ * reads the file: the shipped source, patched in place, with the anchor
+ * asserted to occur EXACTLY ONCE before anything runs — a rename that made
+ * this patch a no-op would make the case green for free, which is the failure
+ * mode the anchor assertion exists to catch. Everything else in the copy is
+ * the shipped agent, byte for byte: what the walk does with the `ENOENT` that
+ * comes back is the thing under test, and it is the only thing changed.
+ */
+function writeAgentWithoutChildrenFile(): string {
+	const shipped = readFileSync(AGENT_ENTRY_FILE, 'utf8')
+	// The path alone, and not the line around it: the read is the seam, and
+	// an edit that also rewrote the assignment would be patching the wrong
+	// thing when the surrounding code moves.
+	const anchor = '`/proc/${pid}/task/${pid}/children`'
+	expect(shipped.split(anchor)).toHaveLength(2)
+	const broken = shipped.replace(anchor, '`/proc/${pid}/task/${pid}/children-absent`')
+	const path = join(workDir, 'agent-without-children-file.cjs')
+	writeFileSync(path, broken)
+	return path
 }
 
 /**
@@ -493,10 +571,22 @@ function errno(code: string, path: string): NodeJS.ErrnoException {
 	return Object.assign(new Error(`${code}: proc read refused, ${path}`), { code, path })
 }
 
+/**
+ * The function the walk's fallback scan runs in, which is what a listing is
+ * attributed to.
+ *
+ * The name is load-bearing in one direction only: a rename makes
+ * `fallbackScans()` stop counting, which fails the two cases that assert it
+ * DID count a scan — the positive control beside the bound. A name that
+ * silently stopped matching could not pass both.
+ */
+const SCAN_FRAME = 'scanChildrenByParent'
+
 interface PatchedFs {
 	readlink: (...args: unknown[]) => Promise<unknown>
 	readFile: (...args: unknown[]) => Promise<unknown>
 	stat: (...args: unknown[]) => Promise<unknown>
+	readdir: (...args: unknown[]) => Promise<unknown>
 }
 
 interface Seams {
@@ -513,6 +603,12 @@ interface Seams {
 	 * so rather than on the end of its budget.
 	 */
 	hideProcEntries(afterObservations: number): void
+	/**
+	 * How many times the walk's fallback scan has run since this seam was
+	 * taken — see `SCAN_FRAME` for why a listing is attributed to a stack
+	 * frame rather than to the path it reads.
+	 */
+	fallbackScans(): number
 	restore(): void
 }
 
@@ -521,17 +617,24 @@ interface Seams {
  *
  * The agent requires that module at load, so the object patched here IS the
  * one its calls go through. Each patch answers only for the exact `/proc`
- * paths it names — a workspace read, a `readdir` or the terminal's own
- * `mkdir` is passed straight to the original — and `restore` puts every one
- * back, because the module is shared with the rest of this suite.
+ * paths it names — a workspace read, a `stat` of a file inside it or the
+ * terminal's own `mkdir` is passed straight to the original — and `restore`
+ * puts every one back, because the module is shared with the rest of this
+ * suite.
  */
 function seams(): Seams {
 	const fsp = require_('node:fs/promises') as unknown as PatchedFs
-	const original = { readlink: fsp.readlink, readFile: fsp.readFile, stat: fsp.stat }
+	const original = {
+		readlink: fsp.readlink,
+		readFile: fsp.readFile,
+		stat: fsp.stat,
+		readdir: fsp.readdir,
+	}
 	let deniedFd = false
 	let answeredFd: string | undefined
 	let deniedStat = false
 	let hiddenAfter: number | undefined
+	let listings = 0
 	const observed = new Map<number, number>()
 	fsp.readlink = async (...args: unknown[]) => {
 		const path = String(args[0])
@@ -560,6 +663,24 @@ function seams(): Seams {
 		}
 		return await original.stat(...args)
 	}
+	// Counted rather than denied: what the fallback costs is the number of
+	// listings it takes, and the case that asserts on this one never denies
+	// a read at all.
+	//
+	// Counted BY FRAME, not by path, because `/proc` is listed by readers
+	// with nothing to do with the walk. The teardown's own scan is one —
+	// `processesInSessions` lists `/proc` on every kill — and it is
+	// ASYNCHRONOUS and unawaited by design, so a case that fails leaves one
+	// in flight and it can land inside the next case's window. Measured:
+	// with a plain path-count, the bound case fails on a stray listing from
+	// the case before it. Attributing to the scan's own frame is what makes
+	// the count a statement about the walk.
+	fsp.readdir = async (...args: unknown[]) => {
+		if (String(args[0]) === '/proc' && String(new Error().stack).includes(SCAN_FRAME)) {
+			listings += 1
+		}
+		return await original.readdir(...args)
+	}
 	return {
 		denyFdZero: () => {
 			deniedFd = true
@@ -573,10 +694,12 @@ function seams(): Seams {
 		hideProcEntries: (afterObservations) => {
 			hiddenAfter = afterObservations
 		},
+		fallbackScans: () => listings,
 		restore: () => {
 			fsp.readlink = original.readlink
 			fsp.readFile = original.readFile
 			fsp.stat = original.stat
+			fsp.readdir = original.readdir
 		},
 	}
 }
@@ -828,6 +951,111 @@ describe.skipIf(IS_WINDOWS)('finding the PTY slave of a terminal', () => {
 			expect(terminal.outcome()).toEqual({})
 			expect(terminal.ended()).toMatchObject({ type: 'exit', exitCode: 0 })
 			expect(await waitsForTreeGone([script, shell])).toEqual([])
+		} finally {
+			patch.restore()
+		}
+	}, 20_000)
+
+	it('finds the slave where the kernel has no children file to read', async () => {
+		const patch = seams()
+		try {
+			await useAgent(writeAgentWithoutChildrenFile())
+			const before = childrenOf(process.pid)
+			const opening = openTerminal({
+				...SIZE,
+				command: '/bin/sh',
+				args: ['-c', JOB],
+				env: {},
+			})
+			const script = await newChild(before)
+			const shell = await firstChildOf(script)
+			trees.push({ script, shell, job: await firstChildOf(shell) })
+			const terminal = await opening
+
+			// The premise, from THIS kernel: the file the copy cannot see is
+			// a file this machine answers, and what it answers is the very
+			// child the scan has to find. This case is arranged and never
+			// reproduced — the absence is a build option and the reporter's
+			// guest is a cluster — so the arrangement is asserted here
+			// rather than assumed.
+			expect(childrenOf(script)).toContain(shell)
+
+			const slave = fdTarget(shell, 0).target
+			expect(slave).toMatch(SLAVE_PATH)
+			expect(terminal.error()).toBeUndefined()
+			expect(terminal.outcome()).toMatchObject({ type: 'ready' })
+			// And the path the `ready` came by, rather than only the fact of
+			// it: the fallback ran, which is also this file's proof that the
+			// counter the bound case reads is a counter and not a constant.
+			expect(patch.fallbackScans()).toBeGreaterThan(0)
+			terminal.resize(RESIZED)
+			expect(await waitForPtySize(slave as string, '40 100')).toBe('40 100')
+			// The discovery changed and nothing else: the pid beside that
+			// slave is still the shell, so the teardown still reaches what a
+			// backgrounded job hides in — the shell's own kernel session.
+			await provesSessionTeardown(terminal)
+		} finally {
+			patch.restore()
+		}
+	}, 20_000)
+
+	it('scans for the tree when fd 0 is refused as well', async () => {
+		const patch = seams()
+		try {
+			patch.denyFdZero()
+			await useAgent(writeAgentWithoutChildrenFile())
+			const before = childrenOf(process.pid)
+			const opening = openTerminal({
+				...SIZE,
+				command: '/bin/sh',
+				args: ['-c', JOB],
+				env: {},
+			})
+			const script = await newChild(before)
+			const shell = await firstChildOf(script)
+			trees.push({ script, shell, job: await firstChildOf(shell) })
+			const terminal = await opening
+
+			// Both halves of the walk are on their fallback here — no
+			// `children` file to discover from, and no `fd/0` to accept
+			// through. The seam answers only the agent's `readlink` of
+			// `/proc/<pid>/fd/0`, so fd 1 is still this kernel's own answer
+			// and the slave this must land on is known independently of
+			// either probe.
+			const slave = fdTarget(shell, 1).target
+			expect(slave).toMatch(SLAVE_PATH)
+			expect(terminal.error()).toBeUndefined()
+			expect(terminal.outcome()).toMatchObject({ type: 'ready' })
+			expect(patch.fallbackScans()).toBeGreaterThan(0)
+			terminal.resize(RESIZED)
+			expect(await waitForPtySize(slave as string, '40 100')).toBe('40 100')
+			await provesSessionTeardown(terminal)
+		} finally {
+			patch.restore()
+		}
+	}, 20_000)
+
+	it('never runs the fallback scan where the kernel has the children file', async () => {
+		const patch = seams()
+		try {
+			const before = childrenOf(process.pid)
+			const opening = openTerminal({
+				...SIZE,
+				command: '/bin/sh',
+				args: ['-c', JOB],
+				env: {},
+			})
+			const script = await newChild(before)
+			const shell = await firstChildOf(script)
+			trees.push({ script, shell, job: await firstChildOf(shell) })
+			const terminal = await opening
+
+			expect(terminal.outcome()).toMatchObject({ type: 'ready' })
+			// Read before the close rather than after, so the case is about
+			// the walk and not about the teardown — which lists `/proc` too,
+			// for its own reason, and is a reader the seam does not count
+			// (see `SCAN_FRAME` for what a listing is attributed to).
+			expect(patch.fallbackScans()).toBe(0)
 		} finally {
 			patch.restore()
 		}
