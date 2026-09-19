@@ -58,6 +58,7 @@ const IS_WINDOWS = process.platform === 'win32'
 const TOKEN = 'e7c1d9a2-0b64-4f2d-9d0e-4a3b6c5d8e91'
 
 let workDir: string
+let flushPidFile: string
 let child: ChildProcess | undefined
 let agentPort = 0
 
@@ -198,15 +199,75 @@ function pidAlive(pid: number): boolean {
 	}
 }
 
+/**
+ * Whether a pid is still RUNNING — a zombie is not, exactly as it is not in
+ * `terminal-pty-slave.test.ts`'s `isAlive`. What is waited for below is that
+ * a signal took effect, and a reparented pid sits as a zombie for only as
+ * long as the init that inherited it takes to reap it.
+ */
+function pidRunning(pid: number): boolean {
+	if (!pidAlive(pid)) return false
+	try {
+		const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+		return stat.slice(stat.lastIndexOf(')') + 2).split(' ')[0] !== 'Z'
+	} catch {
+		// No `/proc` to read (macOS): `kill(pid, 0)` is all this can say.
+		return true
+	}
+}
+
+/**
+ * A flush that blocks, and hands this test the pid doing the blocking.
+ *
+ * `NAMZU_AGENT_FLUSH_COMMAND` is run as `/bin/sh -c <command>` (see
+ * `flushCommand()` in `agent/agent.cjs`), so `$$` is that shell's own pid —
+ * and `exec` brings the sleeper up in its place instead of forking one, so
+ * the pid written here is the one still running when the case ends. A bare
+ * `sleep 600` is a process this test never learned the pid of: the agent's
+ * exit at its own deadline reparents it to the machine's init, `afterEach`
+ * knows only the agent and finds it already gone, and it goes on holding a
+ * process for ten minutes after the suite has finished.
+ */
+function blockingFlush(seconds: number): string {
+	return `echo $$ > ${flushPidFile}; exec sleep ${seconds}`
+}
+
+/**
+ * Kill whatever a case's flush left blocking, and wait for it to actually go.
+ *
+ * Unasserted and bounded on purpose, the way `reapTrees` in
+ * `terminal-pty-slave.test.ts` is: the budget exists so that a signal which
+ * has not landed yet is not read as one that never will, and a loaded machine
+ * must not turn the reaping into a red run. It runs whether or not the case
+ * reached its end — an agent that exits at its deadline is exactly what a
+ * failing case can leave behind too — and it reads the pid file here, before
+ * `afterEach` removes the workspace the file lives in.
+ */
+async function reapFlush(): Promise<void> {
+	if (!existsSync(flushPidFile)) return
+	const pid = Number(readFileSync(flushPidFile, 'utf8').trim())
+	if (!Number.isSafeInteger(pid) || pid <= 0 || !pidRunning(pid)) return
+	try {
+		process.kill(pid, 'SIGKILL')
+	} catch {
+		// It went between the check and the call.
+	}
+	const deadline = Date.now() + 1_000
+	while (pidRunning(pid) && Date.now() < deadline) await delay(10)
+}
+
 beforeEach(() => {
 	workDir = mkdtempSync(join(tmpdir(), 'k8s-agent-sigterm-'))
+	// Inside the workspace, so it is fresh for every case and gone with it.
+	flushPidFile = join(workDir, 'flush.pid')
 })
 
-afterEach(() => {
+afterEach(async () => {
 	if (child && child.exitCode === null && child.signalCode === null) {
 		child.kill('SIGKILL')
 	}
 	child = undefined
+	await reapFlush()
 	rmSync(workDir, { recursive: true, force: true })
 })
 
@@ -318,7 +379,7 @@ describe.skipIf(IS_WINDOWS)('agent SIGTERM handling', () => {
 
 	it('exits at its own deadline even when the flush will not finish', async () => {
 		const agent = await startAgent({
-			NAMZU_AGENT_FLUSH_COMMAND: 'sleep 600',
+			NAMZU_AGENT_FLUSH_COMMAND: blockingFlush(600),
 			NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '1500',
 			NAMZU_AGENT_FLUSH_TIMEOUT_MS: '600000',
 		})
@@ -382,7 +443,7 @@ describe.skipIf(IS_WINDOWS)('agent SIGTERM handling', () => {
 		// truncation, which is the exit code #484's acceptance criteria read
 		// as a clean stop. The bound is the deadline and nothing else.
 		const agent = await startAgent({
-			NAMZU_AGENT_FLUSH_COMMAND: 'sleep 600',
+			NAMZU_AGENT_FLUSH_COMMAND: blockingFlush(600),
 			NAMZU_AGENT_SHUTDOWN_DEADLINE_MS: '4000',
 			NAMZU_AGENT_FLUSH_TIMEOUT_MS: '600000',
 		})
