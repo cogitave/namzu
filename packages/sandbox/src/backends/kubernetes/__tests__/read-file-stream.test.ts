@@ -807,14 +807,85 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('a peer that hangs up before the open r
 		await writer.close()
 	}
 
-	/** Poll until `pid` holds no descriptor for `path`, or give up. */
-	async function settleDescriptorsFor(pid: number, path: string): Promise<string[]> {
+	/**
+	 * The bound both descriptor waits below share: 100 samples, 50 ms
+	 * apart, the same five seconds the other descriptor polls in this file
+	 * allow. It is a bound and not a duration — nothing sleeps before the
+	 * first sample, so a state that is already true costs one `readdir`
+	 * and no wall time at all.
+	 */
+	const DESCRIPTOR_WAIT_ATTEMPTS = 100
+	const DESCRIPTOR_WAIT_INTERVAL_MS = 50
+
+	/**
+	 * Sample `descriptorsPointingAt` until `reached` holds of what `pid`
+	 * holds for `path`, or the bound is reached, and return what was seen
+	 * last — which is what makes both callers below able to FAIL: running
+	 * out of attempts returns the last observation rather than throwing,
+	 * so the assertion that asked is the one that reports, at the
+	 * observation rather than at the wait.
+	 *
+	 * One wait and two names for what it is waiting for, rather than two
+	 * loops that differ in one comparison. The mechanism — the observable
+	 * it samples, the bound, and the return-it-anyway convention that lets
+	 * a caller assert either state — is the thing both duties have to get
+	 * right, and the defect this case exists for was one of them quietly
+	 * not being able to see what it was asserting. Stated once, a wait that
+	 * cannot fail is not something a later edit can introduce into one half
+	 * only.
+	 */
+	async function waitForDescriptors(
+		pid: number,
+		path: string,
+		reached: (held: readonly string[]) => boolean,
+	): Promise<string[]> {
 		let held = descriptorsPointingAt(pid, path)
-		for (let attempt = 0; attempt < 100 && held.length > 0; attempt += 1) {
-			await new Promise((resolve) => setTimeout(resolve, 50))
+		for (let attempt = 0; attempt < DESCRIPTOR_WAIT_ATTEMPTS && !reached(held); attempt += 1) {
+			await new Promise((resolve) => setTimeout(resolve, DESCRIPTOR_WAIT_INTERVAL_MS))
 			held = descriptorsPointingAt(pid, path)
 		}
 		return held
+	}
+
+	/**
+	 * Poll until `pid` holds no descriptor for `path`, or give up. Giving up
+	 * returns the descriptors it was still holding, so the shipped agent's
+	 * `toEqual([])` is what fails when it leaks.
+	 *
+	 * This predicate is satisfied by the state the process is in BEFORE the
+	 * guest's `fs.open` resolves, which is what it is for — the assertion
+	 * above asks that nothing is left behind, and nothing being there yet is
+	 * that question answered, not a sample missed. Measured: against an agent
+	 * that genuinely leaks, this waits out its whole bound and returns the
+	 * descriptor. What it does NOT do is prove the open was ever observed to
+	 * release; the control beside it is what makes the pair mean something,
+	 * and the control cannot stand in for this half.
+	 */
+	function settleDescriptorsFor(pid: number, path: string): Promise<string[]> {
+		return waitForDescriptors(pid, path, (held) => held.length === 0)
+	}
+
+	/**
+	 * The mirror of `settleDescriptorsFor`, because this wait is for the
+	 * opposite state: poll until `pid` HOLDS a descriptor for `path`, or
+	 * give up. Giving up returns the empty list, so a control that never
+	 * saw the descriptor fails on `toHaveLength(1)` — it does not hang, and
+	 * it cannot pass.
+	 *
+	 * Waiting is the point rather than a longer read. The round trip in
+	 * `raceAnOpenAgainstAHangUp` proves the hang-up's `close` callback has
+	 * run; it proves nothing about whether the guest's `fs.open` has
+	 * resolved. So the read this replaces was really asking whether the
+	 * guest had been scheduled since the writer end opened, and on a loaded
+	 * runner the answer was no: the list came back empty, the loop standing
+	 * in front of it never ran an attempt because its guard was already
+	 * false, and the control failed with `expected [] to have a length of
+	 * 1` — the runner's timing, reported as a missing leak. The descriptor
+	 * does arrive, once the guest's thread finishes the open the writer end
+	 * has already let through; it arrives after that first look.
+	 */
+	function retainedDescriptorsFor(pid: number, path: string): Promise<string[]> {
+		return waitForDescriptors(pid, path, (held) => held.length > 0)
 	}
 
 	it('closes the descriptor its open was still waiting for', async () => {
@@ -828,10 +899,13 @@ describe.skipIf(IS_WINDOWS || !IS_LINUX)('a peer that hangs up before the open r
 
 		// The control. Same race, same fifo, an agent that only lacks the
 		// ownership this case exists for — and it keeps the descriptor,
-		// which is what makes the assertion above mean something.
+		// which is what makes the assertion above mean something. It WAITS
+		// for the descriptor rather than reading once: see
+		// `retainedDescriptorsFor` for what a single read was really
+		// measuring, and why the wait is still a wait that can fail.
 		const brokenAgent = await startChildAgent({}, broken)
 		await raceAnOpenAgainstAHangUp(brokenAgent.port, fifo)
-		expect(await settleDescriptorsFor(brokenAgent.pid, fifo)).toHaveLength(1)
+		expect(await retainedDescriptorsFor(brokenAgent.pid, fifo)).toHaveLength(1)
 	}, 120_000)
 
 	/**
