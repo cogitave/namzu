@@ -1,5 +1,59 @@
 # @namzu/sandbox
 
+## 18.1.0
+
+### Minor Changes
+
+- ef570fe: `createSandboxProvider` now forwards `brokeredCredentials`, and
+  `ContainerBackendConfig` carries the field.
+
+  What this makes possible is the thing the container tier's egress boundary was
+  built for. A host can now name credentials the sandbox never holds: the sandbox
+  carries a placeholder, and the real value is stamped onto outbound requests at
+  the egress proxy, so a prompt injection that exfiltrates the sandbox's
+  environment does not carry the token with it. Until now the field could only be
+  read from `DockerBackendInternalConfig`, which is not part of this package's
+  public surface, so brokering was reachable only by calling `buildDockerBackend`
+  directly — not by building a provider the documented way.
+
+  Nothing existing changes behaviour. The field is optional and unset by default,
+  and it is forwarded in the guarded style its neighbours use, so a config that
+  does not set it produces a backend config with no such key at all rather than
+  one with an explicit `undefined`; `egressProxyContainerConfig` reads either as
+  "no credentials to stamp". A provider built without the field starts exactly the
+  proxy container it started before. The one caller whose behaviour does change is
+  the one that was passing the field through a type cast: it now takes effect.
+
+  **Set it where it can be honoured, and not elsewhere.** The field is on
+  `ContainerBackendConfig` — the docker and gVisor (`runsc`) tier — because that
+  is the only tier with an egress proxy to stamp a credential at. The microVM tier
+  hands its allowlist to its guest orchestrator and the kubernetes tier writes
+  `NetworkPolicy`/`CiliumNetworkPolicy`; neither has a proxy, so the field is not
+  on their configs. Within the container tier it is applied only where a proxy is
+  actually started, which is a `static` or `resolver` policy with an
+  `egressProxyImage`: `deny-all` and `allow-all` run no proxy, and credentials set
+  beside either are never applied.
+
+  Each entry names one host (`host`, matched by the allowlist's own rules so
+  `.internal.example` covers subdomains), the header to set, and the value. The
+  value leaves this process on its way to the proxy container, so anything with
+  access to the docker daemon can read it — treat daemon access as credential
+  access. See `docs/sdk/sandbox-egress.md`.
+
+### Patch Changes
+
+- a52727a: The Kubernetes/Firecracker guest agent now finds a terminal's PTY slave without `readlink('/proc/<pid>/fd/0')`, which was the one probe it had and was answered by a kernel permission check it never declared (#512).
+
+  **What was wrong.** `handleTerminal` spawns util-linux `script`, then walks `/proc` for the shell `script` forked, looking for a candidate whose fd 0 readlinks to `/dev/pts/<n>`. That path is used for three things — the `stty -F` resize, the pid whose kernel session a teardown signals, and never mistaking a pipe for a terminal — and the probe behind it is `ptrace_may_access`, which refuses a reader whose credentials do not match the target's. `/proc/<pid>/fd` is `dr-x------` owned by the target; `/proc/<pid>/stat` is world readable.
+
+  Measured in a real kind cluster: with the reader's uid differing from the target's, `readlink` fails `EACCES` every attempt for the whole one-second budget while `script` is still alive, and the terminal answers `{"type":"error","error":"terminal PTY slave did not appear"}` — the reported symptom, reproduced byte for byte. With a root reader and a uid-1001 shell: `fd/0 = <EACCES>` while `/proc/<pid>/stat` reads and names `136:3 -> /dev/pts/3`, which is exactly the slave root sees through `fd/0` for the same live process.
+
+  **What changed.** `readProcessStat` now also carries field 7, `tty_nr`, decoded with the kernel's own `new_decode_dev` (major 136 is devpts). `findPtySlave` still asks `fd/0` FIRST and behaves identically wherever it can answer — the fallback is only reached when the readlink fails or answers with something that is not a PTY slave, and the walk still returns the first candidate in breadth-first order, so the pid it reports is the one the fd 0 probe alone returned whenever that probe can answer at all. It also stops as soon as `/proc/<script>` is gone rather than spending the remaining budget on a released pid — and a terminal whose `script` has already exited is answered with its own `exit` frame instead of with this error, since the walk's failure there is a claim about a terminal that had already ended. The failure names what it could not read, and names only what it read: `terminal PTY slave did not appear (200 attempts, 1002ms; last children(): EACCES; last fd/0: EACCES; last stat: EACCES; script: alive)`. Every field is the LAST OBSERVATION of the probe it names rather than the last error that probe ever had, and `script`'s own line is a third value — `alive`, `gone`, or the errno that stopped it being read, so a host is never told `script alive` by a read that never happened. The leading phrase is unchanged, so anything matching on it still matches.
+
+  **What is not proven.** Which condition in the reporter's cluster made the readlink fail for the whole budget. The uid-mismatch shape reproduced here looks impossible in the shipped image, where the agent, `script` and the shell are all uid 1001, and no run of the unmodified agent in a kind cluster (task-pod or workspace-pod shape) reproduced the failure. This release removes the dependency and makes the failure legible; it does not claim to have found the trigger.
+
+  **Redeploy the guest image to get it.** `agent/agent.cjs` is baked into the guest images (`k8s/Dockerfile`, `packages/sandbox/agent/`), not shipped in the published tarball, so a deployment keeps the old agent until its image is rebuilt. `agent.cjs`, `entrypoint.sh`, the `Dockerfile` and the worker are all guest/deployment files outside the published tarball: no public type, export, wire shape, or documented default changes here, which is why this is a **patch**.
+
 ## 18.0.0
 
 ### Patch Changes
