@@ -18,6 +18,8 @@
 		"zen/gpt-5.1-codex-max": "Superseded Codex generation; gpt-5.3-codex and gpt-5.3-codex-spark are carried.",
 		"zen/gpt-5.1-codex-mini": "Superseded Codex generation; gpt-5.3-codex and gpt-5.3-codex-spark are carried.",
 		"zen/gpt-5.2-codex": "Superseded Codex generation; gpt-5.3-codex and gpt-5.3-codex-spark are carried.",
+		"zen/jev-1.13": "Routed by the Zen page on an endpoint whose AI SDK package column carries a dash, the marker that page uses for a cell with no value: no wire is stated for it, so none can be carried. The service serves the id, and models.dev carries a name and limits for it and no package either.",
+		"zen/jev-1.13-free": "Routed by the Zen page on an endpoint whose AI SDK package column carries a dash, the marker that page uses for a cell with no value: no wire is stated for it, so none can be carried. The service serves the id and the page's free-model list names it, and models.dev carries a name and limits for it and no package either.",
 		"zen/kimi-k2.5": "Superseded by Kimi K2.6, K2.7 Code and K3, which are all carried.",
 		"zen/minimax-m2.5": "Superseded by MiniMax M2.7 and M3, which are both carried.",
 		"zen/muse-spark-1.2-contributor-free": "Served by Zen under an id no page routes: the Zen page's free-model list names the 1.3 contributor model, and Go's 1.2 contributor row is a different id on the other service. models.dev states an npm package for it, and that field is deliberately not used as a route, so none is carried.",

@@ -238,6 +238,24 @@ outstanding; exit 2 means a source was unreachable, no longer has the shape the
 script parses, or the formatter the module is rendered through is not installed.
 Neither is a skip.
 
+A route row can also state no wire. The Zen page routes `jev-1.13` and
+`jev-1.13-free` on an endpoint whose AI SDK package column carries the dash
+that page gives a cell with no value, and a row shaped like that is read rather
+than refused — it names a model, an id and an endpoint, which is the page
+saying something rather than a row this script lost. Such a model reaches the
+same decision list, because the package column is one of the two halves a route
+is made of and no source states the other: `models.dev` carries an entry for
+both ids and no package either. Neither is carried, both are omitted by name in
+`src/models.review.json`, and the second is also named on the page's free-model
+list, which grants nothing here — anonymous admission comes from the flag on a
+model the catalogue carries, and this one is not carried.
+
+The guard is unchanged around the new shape, which is what makes reading it
+safe: a row that has LOST that column, or carries a marker the page does not
+use, is still a page that moved and still stops the run at exit 2. What
+separates the two is that one is a statement the page makes and the other is a
+row the script no longer reads.
+
 Keeping it fresh is one command, or the scheduled refresh workflow
 (`.github/workflows/zen-catalogue-refresh.yml`), which re-derives the catalogue
 daily and opens a pull request when upstream has moved — carrying the

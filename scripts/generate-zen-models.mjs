@@ -59,7 +59,12 @@
  * and required to agree, because a page that changed shape must stop the run
  * rather than have one half guessed: the wire a model is served on is a
  * routing fact, and the wrong one is a request to the wrong endpoint rather
- * than a clean failure.
+ * than a clean failure. A row may state its endpoint and no package, with the
+ * `-` the page's own tables use for a cell that has no value: that is a row
+ * the page publishes rather than one it lost, so it is read and recorded with
+ * no wire, and `derive` reports it as the decision it is. Losing a column, or
+ * carrying a marker that is not `-`, is still the page moving and still stops
+ * the run.
  *
  * Prices come from the same page's per-1M-token table, at the base tier: the
  * unqualified row when a model has one, the "(Off-Peak)" row for the Go
@@ -396,6 +401,37 @@ export function parsePage(text, { page, service }) {
 			routes.push({ name: route[1].trim(), id: route[2], endpoint: route[3], npm: route[4] })
 			continue
 		}
+		// A route row may state NO wire. The page names the model, its id and
+		// its endpoint, and marks the package column with the `-` its own tables
+		// use for a cell that has no value. That is a row this page publishes
+		// rather than one it lost, so it is read — carrying no package, which is
+		// what `derive` reports as a decision.
+		//
+		// Narrow on purpose: the marker is the page's own and the fourth cell
+		// has to be exactly it, because what separates a page that STATES there
+		// is no wire from a row this script no longer reads is the statement and
+		// not the shape. An empty cell and a column that is gone carry no
+		// statement, and both are still the source failures below.
+		//
+		// The name cell is `[^|]+?` rather than the route pattern's `.+?`, and
+		// that difference is the point: `.+?` can swallow a `|`, so a five-cell
+		// line whose extra cell sits in the middle would be read here as a
+		// wireless route with a name made of two cells. Refusing the `|` keeps
+		// that line where it belongs — the source failure below — without
+		// touching the route pattern beside it, where the looser cell is
+		// established and pinned.
+		const wireless = line.match(
+			/^\|\s*([^|]+?)\s*\|\s*([a-z0-9][a-z0-9.\-]*)\s*\|\s*`([^`]+)`\s*\|\s*-\s*\|$/,
+		)
+		if (wireless) {
+			routes.push({
+				name: wireless[1].trim(),
+				id: wireless[2],
+				endpoint: wireless[3],
+				npm: undefined,
+			})
+			continue
+		}
 		const price = line.match(/^\|\s*(.+?)\s*\|\s*([^|]*?)\s*\|\s*([^|]*?)\s*\|/)
 		if (price) {
 			// A price cell is a dollar figure or the word "Free". Nothing else is
@@ -493,6 +529,17 @@ export function protocolFor({ id, endpoint, npm }, service) {
 		throw new UnusableSourceError(
 			`"${id}" is documented as ${npm} on ${endpoint}, ${why}. A model whose wire is not\n` +
 				'  known cannot be routed, so the run stops rather than picking one.',
+		)
+	}
+	// A row the page states no wire for never reaches here — `derive` reports it
+	// as a decision instead — and this is what says so out loud: the refusal
+	// below would otherwise print the package as `undefined`, which reads as a
+	// broken script rather than as a page that never stated one.
+	if (npm === undefined) {
+		throw new UnusableSourceError(
+			`"${id}" is documented on ${endpoint} with no AI SDK package stated, so no wire is\n` +
+				'  known. A model whose wire is not known cannot be routed, so the run stops\n' +
+				'  rather than picking one.',
 		)
 	}
 	let url
@@ -774,8 +821,12 @@ export function derive(service, parsed, providerKey, provider, omissions, served
 	const models = []
 	const undecided = []
 	const incomplete = []
-	// How many rows were actually put to models.dev, which is what "all of
-	// them" has to mean: an omitted row is never asked about.
+	// How many rows were actually put to models.dev. An omitted row is never
+	// asked about, and neither is one that states no wire — no answer there
+	// could make it carryable. So this is the count of rows an answer could
+	// still change, and the message below says exactly that rather than
+	// "every documented": a wireless row would otherwise make that phrase
+	// false while the count still matched.
 	let considered = 0
 	// Of those, the ones whose models.dev entry exists but does not say whether
 	// the model takes tools. Read as a count rather than a boolean because the
@@ -786,6 +837,18 @@ export function derive(service, parsed, providerKey, provider, omissions, served
 	let modelsDevEntries = 0
 	for (const row of parsed.routes) {
 		if (omissions[`${service}/${row.id}`] !== undefined) continue
+		// A row that states no wire cannot be carried however complete the rest
+		// of its metadata is, so it is not put to models.dev at all: `considered`
+		// counts the rows that were, and the reason this one is reported with is
+		// the page's own absence, because a wire taken from anywhere else would
+		// be one this script invented.
+		if (row.npm === undefined) {
+			undecided.push([
+				`${service}/${row.id}`,
+				'the page states no AI SDK package for it, so no wire is known',
+			])
+			continue
+		}
 		considered += 1
 		const metadata = provider.models[row.id]
 		if (!metadata) {
@@ -845,7 +908,7 @@ export function derive(service, parsed, providerKey, provider, omissions, served
 	if (incomplete.length > 0) {
 		const all = incomplete.length === considered
 		throw new UnusableSourceError(
-			`${incomplete.length}${all ? ' — every documented —' : ` of ${considered}`} model(s) on the\n` +
+			`${incomplete.length}${all ? ' — every one put to models.dev —' : ` of ${considered}`} model(s) on the\n` +
 				`  ${service} page have an entry in models.dev that is missing the fields the catalogue\n` +
 				'  needs. An entry that exists and has lost its limits is models.dev having changed\n' +
 				'  shape, not a curation decision, so this is reported as drift in the SOURCE:\n' +

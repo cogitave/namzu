@@ -35,7 +35,7 @@ export interface ZenModel {
  * derived is an edit to the script. Both survive regeneration; a hand edit here
  * does not, and the CI gate "Zen catalogue matches its source" fails on one.
  *
- * Refreshed: 2026-09-18
+ * Refreshed: 2026-09-19
  *
  * Routes come from each service's own documentation page, as the pair
  * (endpoint, AI SDK package) that page states per model; both halves must agree
@@ -593,6 +593,19 @@ const ZEN_MODELS = freezeModels([
 		effortLevels: ['minimal', 'low', 'medium', 'high', 'xhigh'],
 	},
 	{
+		id: 'qwen3.8-flash',
+		name: 'Qwen3.8 Flash',
+		protocol: 'messages',
+		contextWindow: 1000000,
+		maxOutputTokens: 131072,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0.15,
+		outputPrice: 0.47,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'medium', 'xhigh'],
+	},
+	{
 		id: 'qwen3.6-plus',
 		name: 'Qwen3.6 Plus',
 		protocol: 'messages',
@@ -617,6 +630,19 @@ const ZEN_MODELS = freezeModels([
 		supportsToolUse: true,
 		supportsStreaming: true,
 		effortLevels: [],
+	},
+	{
+		id: 'deepseek-v4.1-flash',
+		name: 'DeepSeek V4.1 Flash',
+		protocol: 'chat',
+		contextWindow: 1000000,
+		maxOutputTokens: 384000,
+		inputModalities: ['text', 'image'],
+		inputPrice: 0.3,
+		outputPrice: 1.2,
+		supportsToolUse: true,
+		supportsStreaming: true,
+		effortLevels: ['low', 'high', 'max'],
 	},
 	{
 		id: 'deepseek-v4-pro',

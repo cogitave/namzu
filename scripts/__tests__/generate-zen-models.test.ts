@@ -90,6 +90,15 @@ function routeRow(host: string, name: string, id: string, path: string, npm: str
 	return `| ${name} | ${id} | \`${host}${path}\` | \`${npm}\` |`
 }
 
+/**
+ * The other route-row shape the page publishes: the same row with the package
+ * column carrying the dash the pages give a cell that has no value, which is a
+ * model routed and no wire stated for it.
+ */
+function wirelessRow(host: string, name: string, id: string, path: string): string {
+	return `| ${name} | ${id} | \`${host}${path}\` | - |`
+}
+
 const CHAT = '@ai-sdk/openai-compatible'
 const RESPONSES = '@ai-sdk/openai'
 const MESSAGES = '@ai-sdk/anthropic'
@@ -742,12 +751,29 @@ describe('a row the script did not read', () => {
 				`| Empty Pkg | empty-pkg | \`${ZEN_HOST}/chat/completions\` |  |`,
 			],
 			[
+				// The page's own no-value dash is a statement and is read as one. A
+				// marker that is not the page's is not, and this is the line that
+				// keeps the new shape from being "any fourth cell at all" — the
+				// widening nobody could see the edge of.
+				'a package cell carrying a marker the page does not use',
+				`| Gappy Newcomer | gappy-newcomer | \`${ZEN_HOST}/chat/completions\` | n/a |`,
+			],
+			[
 				// The dropped COLUMN, which is the same class as the empty cell
 				// above and was still passing: three cells carrying one code span.
 				// The shape test read that as prose, so the model left the roster
 				// with no message and the run still reported agreement.
 				'a package column that is gone rather than empty',
 				`| Phi Newcomer | phi-newcomer | \`${ZEN_HOST}/chat/completions\` |`,
+			],
+			[
+				// Five cells rather than four, with the extra one in the middle.
+				// The name cell of the wireless pattern is `[^|]+?` precisely so
+				// it cannot swallow this pipe; written as the route pattern's
+				// `.+?` it reads as a wireless route NAMED "Notes | extra", which
+				// is a mis-read row rather than a stopped run.
+				'a fifth cell sitting in the middle of the row',
+				`| Notes | extra | omega | \`${ZEN_HOST}/systemone\` | - |`,
 			],
 		]
 		for (const [why, row] of rows) {
@@ -778,6 +804,47 @@ describe('a row the script did not read', () => {
 })
 
 describe('derive reports what it will not carry', () => {
+	/**
+	 * A route row may state its endpoint and no package, with the dash the pages
+	 * give a cell that has no value. That is a row the page publishes rather than
+	 * one this script lost, so it is read — and it is then a DECISION rather than
+	 * a source failure, because the page has stated the model and the wire is the
+	 * half no source states.
+	 *
+	 * What this pins is both halves at once, and honestly: the row arrives with
+	 * its name, its id and its endpoint, and it is reported with the unstated
+	 * package as its reason even though models.dev holds a complete entry for it.
+	 * The entry is deliberately complete — the point is that no answer there
+	 * could make the row carryable, so a run that reported this model as anything
+	 * other than a missing wire would be reporting a reason it does not have.
+	 *
+	 * What it does not pin: the service's own answer. A live id that no page
+	 * documents is a different absence and is covered beside this.
+	 */
+	test('reads a route row that states no wire, and reports it as a decision', () => {
+		const page = `${ZEN_PAGE_DECIDED}\n${wirelessRow(ZEN_HOST, 'Omega Wireless', 'omega-wireless', '/systemone')}\n`
+		const read = zenPage(page).routes
+		const row = read[read.length - 1]
+		assert.equal(row?.id, 'omega-wireless')
+		assert.equal(row?.endpoint, `${ZEN_HOST}/systemone`)
+		assert.equal(row?.npm, undefined)
+
+		const dev = structuredClone(MODELS_DEV)
+		dev.opencode.models['omega-wireless'] = {
+			limit: { context: 64000, output: 8192 },
+			modalities: { input: ['text'] },
+			tool_call: true,
+		}
+		const { models, undecided } = derive('zen', zenPage(page), 'opencode', dev.opencode, {}, ZEN_SERVED)
+		assert.equal(
+			models.some((m: { id: string }) => m.id === 'omega-wireless'),
+			false,
+		)
+		assert.deepEqual(undecided, [
+			['zen/omega-wireless', 'the page states no AI SDK package for it, so no wire is known'],
+		])
+	})
+
 	test('names a price row the route table does not', () => {
 		const page = `${ZEN_PAGE}\n| Ghost Model | $1.00 | $2.00 | $0.00 |\n`
 		const { orphanPrices } = derive('zen', zenPage(page), 'opencode', MODELS_DEV.opencode, {}, ZEN_SERVED)
