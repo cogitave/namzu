@@ -60,8 +60,8 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	replaceConversation: async () => {},
 	loadConversation: async () => [],
 	loadResumableConversation: async () => [],
-	titleOf: () => titleState.current,
-	setTitle: (_sessions: unknown, _sessionId: string, title: string) => {
+	titleOf: async () => titleState.current,
+	setTitle: async (_sessions: unknown, _sessionId: string, title: string) => {
 		titleState.current = title.trim() || undefined
 		titleState.writes.push(title)
 	},

@@ -27,7 +27,7 @@ const PERSISTED_SUMMARY_TEXT =
 	'[COMPACTED CONTEXT] The following is a structured summary of the conversation so far.\n\nSUMMARY_LOADED_FROM_DISK'
 const sent: Message[][] = []
 const replacements: Message[][] = []
-const appended: Message[][] = []
+const recorded: Message[] = []
 let mentionExpansion: { readonly sendText: string; readonly attached: readonly string[] } | null = null
 let loadedConversation: Message[] = []
 let recentConversations: Array<{
@@ -39,16 +39,12 @@ let recentConversations: Array<{
 let compactCalls = 0
 let compactReturnsNull = false
 let archiveShouldFail = false
-let appendCalls = 0
 let replaceShouldFail = false
 let holdReplacement = false
 let replaceEntered = 0
 let replacementWait: Promise<void> = Promise.resolve()
 let releaseReplacement: () => void = () => {}
 let rejectReplacement: (reason?: unknown) => void = () => {}
-let holdAppend = false
-let appendWait: Promise<void> = Promise.resolve()
-let releaseAppend: () => void = () => {}
 let turnWait: Promise<void> | null = null
 let releaseTurn: () => void = () => {}
 let reportContextUsage = false
@@ -64,12 +60,6 @@ const ZERO_USAGE = {
 	cacheWriteTokens: 0,
 }
 let compactionUsage = ZERO_USAGE
-
-function resetAppendGate(): void {
-	appendWait = new Promise<void>((resolve) => {
-		releaseAppend = resolve
-	})
-}
 
 function resetReplacementGate(): void {
 	replacementWait = new Promise<void>((resolve, reject) => {
@@ -98,17 +88,6 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'conv',
 	requireWritableConversation: async () => {},
-	appendMessages: async (_s: unknown, _id: string, messages: readonly Message[]) => {
-		appendCalls += 1
-		appended.push([...messages])
-		if (holdAppend) await appendWait
-	},
-	replaceConversation: async (_s: unknown, _id: string, messages: readonly Message[]) => {
-		replaceEntered += 1
-		if (holdReplacement) await replacementWait
-		if (replaceShouldFail) throw new Error('REPLACEMENT_DID_NOT_LAND')
-		replacements.push([...messages])
-	},
 	listRecent: async () => recentConversations,
 	loadConversation: async () => loadedConversation,
 }))
@@ -154,11 +133,19 @@ vi.mock('../agent.js', async (importOriginal) => {
 				if (archiveShouldFail) throw new Error('ORIGINALS_COULD_NOT_BE_RETAINED')
 				compactCalls += 1
 				if (compactReturnsNull) return null
-				// The SDK pins host-triggered summaries because no run-scoped
+				// For a conversation in a log this call IS the durable replacement:
+				// the kernel appends the `compaction` record before it returns, so
+				// the gates below stand where the log write stands.
+				replaceEntered += 1
+				if (holdReplacement) await replacementWait
+				if (replaceShouldFail) throw new Error('REPLACEMENT_DID_NOT_LAND')
+				// The SDK pins host-triggered summaries because no turn-scoped
 				// WorkingStateManager exists between turns to reproduce them.
 				const summary = { ...createSystemMessage(SUMMARY_TEXT), retain: true }
+				const compacted = [summary, ...messages.slice(-2)]
+				replacements.push([...compacted])
 				return {
-					messages: [summary, ...messages.slice(-2)],
+					messages: compacted,
 					shed: 1,
 					summary,
 					usage: compactionUsage,
@@ -166,6 +153,10 @@ vi.mock('../agent.js', async (importOriginal) => {
 			},
 			send: async function* (messages): AsyncIterable<AgentEvent> {
 				sent.push([...messages])
+				// What the kernel records as the turn's user message: the last one
+				// it was handed, in the form the model receives.
+				const user = messages.at(-1)
+				if (user) recorded.push(user)
 				if (reportAutomaticCompaction && sent.length === 2) {
 					// Use the production SessionEvent -> AgentEvent mapper. The App-level
 					// observer below therefore covers both hops that must remain intact:
@@ -235,20 +226,17 @@ const mountedScreens: Screen[] = []
 beforeEach(() => {
 	sent.length = 0
 	replacements.length = 0
-	appended.length = 0
+	recorded.length = 0
 	mentionExpansion = null
 	loadedConversation = []
 	recentConversations = []
 	compactCalls = 0
 	compactReturnsNull = false
 	archiveShouldFail = false
-	appendCalls = 0
 	replaceShouldFail = false
 	holdReplacement = false
 	replaceEntered = 0
 	resetReplacementGate()
-	holdAppend = false
-	resetAppendGate()
 	turnWait = null
 	releaseTurn = () => {}
 	reportContextUsage = false
@@ -259,7 +247,6 @@ beforeEach(() => {
 })
 
 afterEach(async () => {
-	releaseAppend()
 	releaseReplacement()
 	releaseTurn()
 	releaseAutomaticFailure()
@@ -318,27 +305,27 @@ function fullScreen(screen: Screen): string {
 }
 
 it('puts the compacted summary in the next model request and the durable conversation', async () => {
-	holdAppend = true
+	holdReplacement = true
 	const harness = render(<App ctx={ctx} />)
 	mounted.push(harness)
 	await frameShows(harness, 'a-model')
 
 	await submit(harness, 'first question')
 	await frameShows(harness, 'answer-1')
-	await waitUntil(() => appendCalls === 1)
 	await submit(harness, '/compact')
-	await tick(80)
-	expect(replacements, 'compaction overtook the turn still being appended').toHaveLength(0)
+	await waitUntil(() => replaceEntered === 1)
 	await submit(harness, 'input while the compaction snapshot is owned')
-	expect(sent, 'input started a turn while compaction owned the history snapshot').toHaveLength(1)
-	releaseAppend()
-	await frameShows(harness, 'Compacted')
 	await tick(80)
-	expect(sent, 'input queued while compaction owned the history snapshot').toHaveLength(1)
+	expect(sent, 'input started a turn while compaction owned the history snapshot').toHaveLength(1)
+	releaseReplacement()
+	await frameShows(harness, 'Compacted')
 
 	expect(replacements, 'the durable conversation was not compacted').toHaveLength(1)
 	expect(replacements[0]?.some((message) => message.content === SUMMARY_TEXT)).toBe(true)
 	expect(replacements[0]?.find((message) => message.content === SUMMARY_TEXT)?.retain).toBe(true)
+
+	await tick(80)
+	expect(sent, 'input queued while compaction owned the history snapshot').toHaveLength(1)
 
 	await submit(harness, 'question after compaction')
 	await frameShows(harness, 'answer-2')
@@ -524,12 +511,11 @@ it('persists and reuses the model-visible form of a file mention', async () => {
 
 	await submit(harness, 'inspect @note.txt')
 	await frameShows(harness, 'answer-1')
-	await waitUntil(() => appended.length === 1)
 	mentionExpansion = null
 	await submit(harness, 'follow-up')
 	await frameShows(harness, 'answer-2')
 
-	expect(appended[0]?.[0]?.content, 'disk history kept only the readable transcript token').toBe(
+	expect(recorded[0]?.content, 'the turn recorded only the readable transcript token').toBe(
 		expanded,
 	)
 	expect(sent[1]?.[0]?.content, 'the next request rebuilt the user turn from the transcript').toBe(

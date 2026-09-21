@@ -53,7 +53,6 @@ let home: string
 let sendOld: AgentSession['send']
 let oldOverrides: Partial<AgentSession>
 let activate: (model: string) => Promise<AgentSession>
-let persist: () => Promise<void>
 let describe: () => Promise<ModelListing>
 
 function deferred<T>() {
@@ -86,8 +85,6 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: '29b3a0cc-469e-4536-8e4d-ac3301a586a6' }),
 	startConversation: async () => SESSION_ID,
 	requireWritableConversation: async () => {},
-	appendMessages: async () => persist(),
-	replaceConversation: async () => persist(),
 	listRecent: async () => [],
 	loadConversation: async () => [],
 }))
@@ -127,7 +124,6 @@ beforeEach(() => {
 	closeCandidate.mockClear()
 	oldOverrides = {}
 	activate = async (model) => makeSession(model)
-	persist = async () => {}
 	describe = async () => ({
 		kind: 'ok',
 		models: [OLD, NEXT, 'gpt-5.6-terra'].map((id) => ({ id, name: id })),
@@ -171,10 +167,10 @@ async function open() {
 	return screen
 }
 
-it('switches the queued next turn after settlement and durability, preserving history and saved preferences', async () => {
+// The turn is durable when it settles: the kernel records its messages in the
+// session log as the turn runs, so settlement is the one boundary to wait for.
+it('switches the queued next turn after settlement, preserving history and saved preferences', async () => {
 	const turn = deferred<void>()
-	const write = deferred<void>()
-	persist = () => write.promise
 	let projected: readonly Message[] = []
 	sendOld = async function* (messages, options) {
 		if (!options?.onModelSwitch) throw new Error('Model-switch callback missing')
@@ -205,16 +201,9 @@ it('switches the queued next turn after settlement and durability, preserving hi
 	await until(screen, () => outcomes.length === 1, 'Request was not reserved')
 	expect(outcomes[0]).toEqual({ kind: 'pending', selection: { id: 'codex', model: NEXT } })
 	expect(constructed).toHaveLength(1)
-	turn.resolve()
-	await until(
-		screen,
-		() => screen.viewport().join('\n').includes('Type a message'),
-		'Turn did not settle',
-	)
 	await submit(screen, 'continue with the same context')
-	expect(sent).toHaveLength(1)
-	expect(constructed).toHaveLength(1)
-	write.resolve()
+	expect(sent, 'the queued prompt ran before the turn settled').toHaveLength(1)
+	turn.resolve()
 	await until(screen, () => sent.length === 2, 'Queued prompt did not use replacement')
 	expect(sent.map((request) => request.model)).toEqual([OLD, NEXT])
 	expect(sent[1]?.messages.slice(0, projected.length)).toEqual(projected)

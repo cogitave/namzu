@@ -49,7 +49,6 @@ const gates: Array<{
 	readonly release: () => void
 }> = []
 const sent: Message[][] = []
-const persisted: Message[][] = []
 let sendCalls = 0
 let clipboard: import('../../integrations/clipboard/image.js').ClipboardRead = {
 	kind: 'empty',
@@ -107,10 +106,6 @@ vi.mock('../../integrations/sessions/store.js', () => ({
 	openSessions: async () => ({ tenantId: 't', root: '/tmp/.namzu' }),
 	startConversation: async () => 'current',
 	requireWritableConversation: async () => {},
-	appendMessages: async (_sessions: unknown, _id: string, messages: readonly Message[]) => {
-		persisted.push([...messages])
-	},
-	replaceConversation: async () => {},
 	listRecent: async () => recentConversations,
 	loadConversation: async () => [
 		createUserMessage('restored question'),
@@ -241,7 +236,6 @@ beforeEach(() => {
 	scripts.length = 0
 	gates.length = 0
 	sent.length = 0
-	persisted.length = 0
 	sendCalls = 0
 	clipboard = { kind: 'empty' }
 	recentConversations = []
@@ -437,7 +431,11 @@ it('lets a post-error human continuation release the earlier FIFO before finally
 	expect(harness.lastFrame()).not.toContain('paused after a failed turn')
 })
 
-it('pauses a pre-event throw, persists its attachment, and resumes FIFO on explicit input', async () => {
+// The durable half of a failed turn is the kernel's: a turn that began records
+// its user message, attachments included, at `turn_started`, and a throw before
+// the turn began records nothing. What the App owns is the live history the
+// next turn is built from, and that is what this holds.
+it('pauses a pre-event throw, keeps its attachment in the history, and resumes FIFO on explicit input', async () => {
 	const firstImage = { data: 'FIRST', mediaType: 'image/png' as const }
 	clipboard = { kind: 'image', image: firstImage }
 	scripts.push(
@@ -454,7 +452,6 @@ it('pauses a pre-event throw, persists its attachment, and resumes FIFO on expli
 	await submit(harness, 'queued before throw')
 	gates[0]?.release()
 	await frameShows(harness, 'paused after a failed turn')
-	await waitUntil(() => persisted.length === 1)
 
 	expect(sendCalls).toBe(1)
 	expect(requests).toEqual([
@@ -463,9 +460,6 @@ it('pauses a pre-event throw, persists its attachment, and resumes FIFO on expli
 			method: 'osc9',
 		},
 	])
-	const durableUser = persisted[0]?.[0]
-	expect(durableUser?.role === 'user' ? durableUser.attachments : undefined).toEqual([firstImage])
-
 	await submit(harness, 'continue explicitly')
 	await waitUntil(() => sendCalls === 3)
 	expect(sent.map(latestUserText)).toEqual([

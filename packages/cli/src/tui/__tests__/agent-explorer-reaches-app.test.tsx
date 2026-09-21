@@ -261,16 +261,16 @@ function agent(
 		prompt: input.prompt ?? `prompt for ${input.viewId}`,
 		batchId: input.batchId ?? 'batch-live',
 		...(input.toolUseId ? { toolUseId: input.toolUseId } : {}),
-		workflowId: input.workflowId ?? 'run-parent',
+		workflowId: input.workflowId ?? 'turn-parent',
 		workflowGroupId: input.workflowGroupId ?? JSON.stringify([
-			input.workflowId ?? 'run-parent',
+			input.workflowId ?? 'turn-parent',
 			input.workflow ? 'workflow' : 'batch',
 			input.workflow ?? input.batchId ?? 'batch-live',
 		]),
 		phaseId:
 			input.phaseId ??
 			JSON.stringify([
-				input.workflowId ?? 'run-parent',
+				input.workflowId ?? 'turn-parent',
 				input.workflow ?? input.batchId ?? 'batch-live',
 				input.phase ?? 'Work',
 			]),
@@ -1920,14 +1920,14 @@ describe('agent explorer projection', () => {
 		const working = agent({ viewId: 'working' })
 		const cancelled = agent({
 			viewId: 'cancelled',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 			phaseId: 'phase-two',
 			status: 'cancelled',
 			completedAt: 2,
 		})
 		const completed = agent({
 			viewId: 'completed',
-			workflowId: 'run-parent',
+			workflowId: 'turn-parent',
 			phaseId: 'phase-two',
 			status: 'completed',
 			completedAt: 2,
