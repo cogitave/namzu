@@ -17,7 +17,6 @@ pruned the next time that run writes one. If you inspect intermediate
 checkpoints by hand, copy them out while the run is still going.
 
 Checkpoints written by this version use the SDK's schema-3 format, which
-references one stored history. An older `namzu` refuses to resume them. Finish
-or drain paused runs before downgrading.
-
-`namzu state` now counts a run's checkpoint history logs as checkpoint files.
+references the run's one stored history, and `messages.json` is a reference
+too. An older `namzu` refuses to resume, export or show them. Finish or drain
+paused runs before downgrading.

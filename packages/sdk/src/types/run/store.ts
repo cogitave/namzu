@@ -320,6 +320,11 @@ export interface RunStore {
 	 * programmatic answer to "which runs are there" is
 	 * `CheckpointStore.listDurableRuns`, which carries attribution and
 	 * includes sub-runs; this does neither.
+	 *
+	 * @deprecated The kernel no longer calls it: the disk store's catalogue
+	 *   (`index.json`) repeated what every run's `run.json` already records,
+	 *   and `RunDiskStore.listRuns` now reads those instead. Removed in a
+	 *   later major.
 	 */
 	addToIndex?(run: Run): Promise<void>
 }

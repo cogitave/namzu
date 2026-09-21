@@ -20,7 +20,7 @@ import type {
 } from '../../types/run/store.js'
 import { atomicWriteFile } from '../../utils/atomic-write.js'
 import { awaitWithAbort } from '../../utils/await-with-abort.js'
-import { asCheckpointId, asRunId } from '../../utils/id.js'
+import { asCheckpointId, asRunId, isEntityId } from '../../utils/id.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import { type Logger, resolveLogger } from '../../utils/logger.js'
 import { restoreCompactionRecord, retainCompactionRecord } from '../evidence/compaction-archive.js'
@@ -34,14 +34,21 @@ import {
 } from '../evidence/record-chain.js'
 import type { RunEvidenceScope, RunTextEvidenceSource } from '../evidence/types.js'
 import { defineSchema, migrate, stamp } from '../schema.js'
+import { selectCheckpointsToPrune } from './prune.js'
 import {
-	CheckpointHistoryLog,
-	type CheckpointHistorySource,
-	isCheckpointHistoryRef,
-	loadCheckpointHistory,
-	openCheckpointHistory,
-	resolveCheckpointHistory,
-} from './checkpoint-history.js'
+	type RunHistoryCompaction,
+	type RunHistoryRef,
+	RunHistoryRefusal,
+	type RunHistoryRoot,
+	type RunHistorySource,
+	RunHistoryWriter,
+	compactRunHistoryLocked,
+	isRunHistoryRef,
+	loadRunHistory,
+	openRunHistory,
+	resolveRunHistory,
+	withRunHistoryLock,
+} from './run-history.js'
 import { readToolExecutionsIn } from './tool-executions.js'
 
 /**
@@ -56,8 +63,8 @@ const SCHEMA = defineSchema({ kind: 'run-store', current: 1, migrations: {} })
 // Older readers must refuse ledger-bound checkpoints instead of dropping their
 // budget authority. Other run-store records retain their existing schema.
 //
-// Version 3 moves a checkpoint's messages into the run's checkpoint history
-// log (see `checkpoint-history.ts`) and stores a reference in their place.
+// Version 3 moves a checkpoint's messages into the run's history log (see
+// `run-history.ts`) and stores a reference in their place.
 // Earlier records carry `messages` inline and are read as they always were;
 // a build that predates version 3 refuses a version-3 file rather than read
 // one with no messages.
@@ -66,6 +73,12 @@ const CHECKPOINT_SCHEMA = defineSchema({
 	current: 3,
 	migrations: { 1: (record) => record, 2: (record) => record },
 })
+
+/**
+ * `messages.json` since the run history log: the event boundary and a
+ * reference into the log, in place of the messages themselves.
+ */
+const RUN_MESSAGE_SNAPSHOT_V2 = 'namzu.run-message-snapshot.v2'
 
 /**
  * One finished tool call, recovered from the transcript.
@@ -94,7 +107,7 @@ export class RunDiskStore implements RunStore {
 	private evidenceEpoch = randomUUID()
 	private boundRunId: string | undefined
 	private indexLock: Promise<void> = Promise.resolve()
-	private checkpointHistory: CheckpointHistoryLog | undefined
+	private history: RunHistoryWriter | undefined
 
 	constructor(config: RunStoreConfig) {
 		this.baseDir = config.baseDir
@@ -122,7 +135,7 @@ export class RunDiskStore implements RunStore {
 		await healTornTranscript(this.runDir)
 		await healTornAuditTrail(this.runDir)
 		this.boundRunId = runId
-		this.checkpointHistory = undefined
+		this.history = undefined
 		this.evidenceEpoch = randomUUID()
 		const tail = await transcriptTail(join(this.runDir, 'transcript.jsonl'), runId)
 		this.evidenceTip = tail?.tip
@@ -356,13 +369,31 @@ export class RunDiskStore implements RunStore {
 		await atomicWriteJson(join(dir, 'run.json'), meta)
 	}
 
+	/**
+	 * Publish the history the run settled with.
+	 *
+	 * A reference into the run's history log (`namzu.run-message-snapshot.v2`),
+	 * not a copy: by the time a run settles, its checkpoints have already put
+	 * nearly every message in the log, and writing them into `messages.json`
+	 * as well stored the conversation twice. {@link readRunMessagesIn} and
+	 * {@link RunDiskStore.readMessages} resolve it; a v1 file with the
+	 * messages inline still reads as it always did.
+	 */
 	async writeMessages(run: Run, throughEventSeq: number): Promise<void> {
 		const dir = this.requireInit()
-		await atomicWriteJson(join(dir, 'messages.json'), {
-			format: 'namzu.run-message-snapshot.v1',
-			throughEventSeq,
-			messages: run.messages,
+		await withRunHistoryLock(dir, async () => {
+			const history = await this.historyWriter(dir).recordLocked(run.messages)
+			await atomicWriteJson(join(dir, 'messages.json'), {
+				format: RUN_MESSAGE_SNAPSHOT_V2,
+				throughEventSeq,
+				history,
+			})
 		})
+	}
+
+	private historyWriter(dir: string): RunHistoryWriter {
+		this.history ??= new RunHistoryWriter(dir)
+		return this.history
 	}
 
 	async writeReport(content: string): Promise<string> {
@@ -384,48 +415,92 @@ export class RunDiskStore implements RunStore {
 		const cpDir = join(dir, 'checkpoints')
 		await mkdir(cpDir, { recursive: true })
 		// The history goes to the run's log, once per distinct message; the
-		// checkpoint keeps a reference to it. See `checkpoint-history.ts`.
-		this.checkpointHistory ??= new CheckpointHistoryLog(cpDir)
+		// checkpoint keeps a reference to it. See `run-history.ts`. Both happen
+		// under the run's history lock, so a compaction never sees the append
+		// without the file that references it.
 		const { messages, ...rest } = checkpoint
-		const history = await this.checkpointHistory.record(messages)
-		// Stamped, not written bare. Unstamped is read as version 1 by
-		// definition, which is correct only while version 1 is the only
-		// version there has ever been — the moment a second one exists, an
-		// unstamped file written by the newer build is read by the older one
-		// as if it were the older shape, and the refusal that exists to
-		// prevent exactly that never fires. The stamp is what gives the
-		// migration chain something to hang on.
-		// Compact: a checkpoint is read by the store, not by a person, and at
-		// one per iteration the indentation was a third of its bytes.
-		await atomicWriteJson(
-			join(cpDir, `${checkpoint.id}.json`),
-			{ ...rest, history },
-			CHECKPOINT_SCHEMA,
-			'compact',
-		)
+		await withRunHistoryLock(dir, async () => {
+			const history = await this.historyWriter(dir).recordLocked(messages)
+			// Stamped, not written bare. Unstamped is read as version 1 by
+			// definition, which is correct only while version 1 is the only
+			// version there has ever been — the moment a second one exists, an
+			// unstamped file written by the newer build is read by the older one
+			// as if it were the older shape, and the refusal that exists to
+			// prevent exactly that never fires. The stamp is what gives the
+			// migration chain something to hang on.
+			// Compact: a checkpoint is read by the store, not by a person, and at
+			// one per iteration the indentation was a third of its bytes.
+			await atomicWriteJson(
+				join(cpDir, `${checkpoint.id}.json`),
+				{ ...rest, history },
+				CHECKPOINT_SCHEMA,
+				'compact',
+			)
+		})
 	}
 
 	async readCheckpoint(checkpointId: CheckpointId): Promise<IterationCheckpoint | null> {
 		asCheckpointId(checkpointId)
 		const dir = this.requireInit()
-		const cpDir = join(dir, 'checkpoints')
-		let content: string
+		const path = join(dir, 'checkpoints', `${checkpointId}.json`)
 		try {
-			content = await readFile(join(cpDir, `${checkpointId}.json`), 'utf-8')
+			return await withRunHistoryLock(dir, () =>
+				readRecordResolving(path, async (content) => {
+					const history = openRunHistory(dir)
+					try {
+						return await parseCheckpoint(content, `${checkpointId}.json`, history)
+					} finally {
+						await history.close()
+					}
+				}),
+			)
 		} catch (err) {
 			if (isFileNotFound(err)) return null
 			throw err
-		}
-		const history = await openCheckpointHistory(cpDir)
-		try {
-			return await parseCheckpoint(content, `${checkpointId}.json`, history)
-		} finally {
-			await history.close()
 		}
 	}
 
 	async listCheckpoints(): Promise<IterationCheckpoint[]> {
 		return readCheckpointsIn(this.requireInit())
+	}
+
+	/**
+	 * Collect old checkpoints until `keepLast` newer ones remain, then collect
+	 * the history lines nothing references any more.
+	 *
+	 * The store-native form of `CheckpointManager.prune`, and the reason it
+	 * exists: the generic form lists every checkpoint, which resolves every
+	 * history against the log, on every iteration. This reads the checkpoint
+	 * files alone — a few kilobytes each — so it neither re-reads the log nor
+	 * refuses because one history in it is damaged. The same selection rule
+	 * ({@link selectCheckpointsToPrune}): the newest `keepLast` and every
+	 * unresolved park are kept.
+	 *
+	 * @returns what the history compaction found, for measurement.
+	 */
+	async pruneCheckpoints(
+		keepLast: number,
+		options: { readonly minReclaimBytes?: number } = {},
+	): Promise<RunHistoryCompaction> {
+		const dir = this.requireInit()
+		// One read of each checkpoint file serves the selection and the
+		// compaction check, under the lock so no write lands in between.
+		return withRunHistoryLock(dir, async () => {
+			const files = await readCheckpointFilesIn(dir)
+			const doomed = new Set(
+				selectCheckpointsToPrune(
+					files.map((f) => f.header),
+					keepLast,
+				),
+			)
+			for (const id of doomed) await this.deleteCheckpoint(id)
+			const survivors = files.filter((f) => !doomed.has(f.header.id))
+			return compactRunHistoryLocked(
+				dir,
+				[...survivors.flatMap(checkpointRoot), ...(await snapshotRoot(dir))],
+				options,
+			)
+		})
 	}
 
 	async deleteCheckpoint(checkpointId: CheckpointId): Promise<void> {
@@ -470,14 +545,54 @@ export class RunDiskStore implements RunStore {
 			endedAt?: number
 		}>
 	> {
+		// Read from each run's `run.json` rather than from `index.json`. The
+		// catalogue repeated those fields in a second file that was rewritten
+		// whole at every settle; the kernel stopped writing it, and the rows
+		// are the same ones it held. Top-level runs only, as before.
+		let names: string[]
 		try {
-			const indexPath = join(baseDir, 'index.json')
-			const content = await readFile(indexPath, 'utf-8')
-			return migrate(SCHEMA, JSON.parse(content))
+			names = await readdir(baseDir)
 		} catch (err) {
-			if (isFileNotFound(err)) return []
+			if (isFileNotFound(err) || isNotADirectory(err)) return []
 			throw err
 		}
+		const rows: {
+			id: string
+			agentId?: string
+			agentName: string
+			model?: string
+			status: string
+			startedAt: number
+			endedAt?: number
+			iterations?: number
+			totalTokens?: number
+		}[] = []
+		for (const name of names) {
+			if (!isEntityId(name, 'run')) continue
+			let meta: Record<string, unknown> | undefined
+			try {
+				meta = asRecord(JSON.parse(await readFile(join(baseDir, name, 'run.json'), 'utf-8')))
+			} catch (err) {
+				if (isFileNotFound(err) || isNotADirectory(err) || err instanceof SyntaxError) continue
+				throw err
+			}
+			if (!meta || typeof meta.parentRunId === 'string') continue
+			const metadata = asRecord(meta.metadata)
+			const config = asRecord(metadata?.config)
+			const usage = asRecord(meta.tokenUsage)
+			rows.push({
+				id: typeof meta.id === 'string' ? meta.id : name,
+				...(typeof metadata?.agentId === 'string' ? { agentId: metadata.agentId } : {}),
+				agentName: typeof metadata?.agentName === 'string' ? metadata.agentName : '',
+				...(typeof config?.model === 'string' ? { model: config.model } : {}),
+				status: typeof meta.status === 'string' ? meta.status : 'idle',
+				startedAt: typeof meta.startedAt === 'number' ? meta.startedAt : 0,
+				...(typeof meta.endedAt === 'number' ? { endedAt: meta.endedAt } : {}),
+				...(typeof meta.currentIteration === 'number' ? { iterations: meta.currentIteration } : {}),
+				...(typeof usage?.totalTokens === 'number' ? { totalTokens: usage.totalTokens } : {}),
+			})
+		}
+		return rows.sort((a, b) => a.startedAt - b.startedAt || a.id.localeCompare(b.id))
 	}
 
 	/**
@@ -560,6 +675,11 @@ export class RunDiskStore implements RunStore {
 		return children.sort((left, right) => (left.startedAt ?? 0) - (right.startedAt ?? 0))
 	}
 
+	/**
+	 * @deprecated The kernel no longer calls it, and {@link RunDiskStore.listRuns}
+	 *   no longer reads the file it maintains: `index.json` repeated fields
+	 *   every run's `run.json` already holds. Removed in a later major.
+	 */
 	async addToIndex(run: Run): Promise<void> {
 		if (run.parentRunId) return
 
@@ -713,21 +833,24 @@ export async function readRunEventsIn(
  * missing run into an apparently empty one. This helper performs no writes.
  */
 export async function readRunMessagesIn(runDir: string): Promise<RunMessageSnapshot> {
-	let raw: string
+	const path = join(runDir, 'messages.json')
 	try {
-		raw = await readFile(join(runDir, 'messages.json'), 'utf-8')
+		return await withRunHistoryLock(runDir, () =>
+			readRecordResolving(path, (raw) => parseMessageSnapshot(raw, runDir)),
+		)
 	} catch (err) {
 		if (isFileNotFound(err)) return { kind: 'unavailable', reason: 'not-persisted' }
 		throw err
 	}
+}
 
+async function parseMessageSnapshot(raw: string, runDir: string): Promise<RunMessageSnapshot> {
+	const path = join(runDir, 'messages.json')
 	let parsed: unknown
 	try {
 		parsed = JSON.parse(raw)
 	} catch {
-		throw new Error(
-			`Invalid run message snapshot in ${join(runDir, 'messages.json')}: invalid JSON`,
-		)
+		throw new Error(`Invalid run message snapshot in ${path}: invalid JSON`)
 	}
 
 	// The pre-boundary format was the message array itself. Preserve access to
@@ -736,25 +859,36 @@ export async function readRunMessagesIn(runDir: string): Promise<RunMessageSnaps
 		return { kind: 'legacy-unverified', messages: parsed as Message[] }
 	}
 
+	const record = (parsed ?? {}) as Record<string, unknown>
+	const throughEventSeq = record.throughEventSeq
+	const bounded =
+		typeof throughEventSeq === 'number' &&
+		Number.isSafeInteger(throughEventSeq) &&
+		throughEventSeq >= 0
 	if (
-		parsed === null ||
-		typeof parsed !== 'object' ||
-		(parsed as Record<string, unknown>).format !== 'namzu.run-message-snapshot.v1' ||
-		typeof (parsed as Record<string, unknown>).throughEventSeq !== 'number' ||
-		!Number.isSafeInteger((parsed as Record<string, unknown>).throughEventSeq) ||
-		((parsed as Record<string, unknown>).throughEventSeq as number) < 0 ||
-		!Array.isArray((parsed as Record<string, unknown>).messages)
+		bounded &&
+		record.format === 'namzu.run-message-snapshot.v1' &&
+		Array.isArray(record.messages)
 	) {
-		throw new Error(
-			`Invalid run message snapshot in ${join(runDir, 'messages.json')}: expected a versioned snapshot`,
-		)
+		return {
+			kind: 'available',
+			throughEventSeq,
+			messages: record.messages as Message[],
+		}
 	}
-
-	return {
-		kind: 'available',
-		throughEventSeq: (parsed as Record<string, unknown>).throughEventSeq as number,
-		messages: (parsed as Record<string, unknown>).messages as Message[],
+	if (bounded && record.format === RUN_MESSAGE_SNAPSHOT_V2 && isRunHistoryRef(record.history)) {
+		const history = openRunHistory(runDir)
+		try {
+			return {
+				kind: 'available',
+				throughEventSeq,
+				messages: await resolveRunHistory(record.history, history, path),
+			}
+		} finally {
+			await history.close()
+		}
 	}
+	throw new Error(`Invalid run message snapshot in ${path}: expected a versioned snapshot`)
 }
 
 /**
@@ -839,28 +973,175 @@ async function healTornAuditTrail(runDir: string): Promise<void> {
  */
 export async function readCheckpointsIn(runDir: string): Promise<IterationCheckpoint[]> {
 	const cpDir = join(runDir, 'checkpoints')
-	let files: string[]
+	return withRunHistoryLock(runDir, async () => {
+		let files: string[]
+		try {
+			files = await readdir(cpDir)
+		} catch (err) {
+			if (isFileNotFound(err)) return []
+			throw err
+		}
+
+		// One read of each log for the whole listing, however many checkpoints
+		// reference it. Each checkpoint still gets objects of its own.
+		const history = loadRunHistory(runDir)
+		const checkpoints: IterationCheckpoint[] = []
+		for (const file of files) {
+			if (!file.endsWith('.json')) continue
+			checkpoints.push(
+				await readRecordResolving(join(cpDir, file), (content) =>
+					parseCheckpoint(content, file, history),
+				),
+			)
+		}
+		return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
+	})
+}
+
+/**
+ * A checkpoint with its messages left where they are.
+ *
+ * What retention and a durable-run listing read: ids, times, parks and
+ * attribution. Resolving every history to answer "which checkpoints are
+ * there" re-read the whole log on every iteration, and made one damaged
+ * history refuse the listing of all of them.
+ */
+export type CheckpointHeader = Omit<IterationCheckpoint, 'messages'>
+
+/**
+ * Every checkpoint of a run, headers only, oldest first.
+ *
+ * Validated exactly as {@link readCheckpointsIn} validates — a file that is
+ * not a checkpoint throws — except that the history is not resolved, so a
+ * damaged log does not stop it.
+ */
+export async function readCheckpointHeadersIn(runDir: string): Promise<CheckpointHeader[]> {
+	return (await readCheckpointFilesIn(runDir)).map((f) => f.header)
+}
+
+/** A checkpoint file read once: where it is, its JSON as stored, its header. */
+interface CheckpointFile {
+	readonly path: string
+	readonly file: string
+	readonly stored: Record<string, unknown>
+	readonly header: CheckpointHeader
+}
+
+/** Every checkpoint file of a run, parsed and validated, oldest first. */
+async function readCheckpointFilesIn(runDir: string): Promise<CheckpointFile[]> {
+	const cpDir = join(runDir, 'checkpoints')
+	let names: string[]
 	try {
-		files = await readdir(cpDir)
+		names = await readdir(cpDir)
 	} catch (err) {
 		if (isFileNotFound(err)) return []
 		throw err
 	}
-
-	// One read of the history log for the whole listing, however many
-	// checkpoints reference it; a message two checkpoints share is parsed once.
-	const history = await loadCheckpointHistory(cpDir)
-	const checkpoints: IterationCheckpoint[] = []
-	try {
-		for (const file of files) {
-			if (!file.endsWith('.json')) continue
-			const content = await readFile(join(cpDir, file), 'utf-8')
-			checkpoints.push(await parseCheckpoint(content, file, history))
+	const files: CheckpointFile[] = []
+	for (const file of names) {
+		if (!file.endsWith('.json')) continue
+		const path = join(cpDir, file)
+		let content: string
+		try {
+			content = await readFile(path, 'utf-8')
+		} catch (err) {
+			// Pruned between the listing and the read: it is not there.
+			if (isFileNotFound(err)) continue
+			throw err
 		}
-	} finally {
-		await history.close()
+		const stored = JSON.parse(content) as Record<string, unknown>
+		const { messages: _inline, history: _ref, ...header } = parseCheckpointRecord(content, file)
+		files.push({ path, file, stored, header: header as CheckpointHeader })
 	}
-	return checkpoints.sort((a, b) => a.createdAt - b.createdAt)
+	return files.sort((a, b) => a.header.createdAt - b.header.createdAt)
+}
+
+/**
+ * Read a record and resolve it, retrying once if its history moved.
+ *
+ * A compaction in another process can delete the generation a record
+ * pointed at between reading the record and reading the log. The record it
+ * rewrote points at the new generation, so reading it again is the answer.
+ * Within one process the history lock already excludes this.
+ */
+async function readRecordResolving<T>(
+	path: string,
+	resolveRecord: (content: string) => Promise<T>,
+): Promise<T> {
+	const content = await readFile(path, 'utf-8')
+	try {
+		return await resolveRecord(content)
+	} catch (error) {
+		if (!(error instanceof RunHistoryRefusal) || !error.missing) throw error
+		let again: string
+		try {
+			again = await readFile(path, 'utf-8')
+		} catch {
+			throw error
+		}
+		if (again === content) throw error
+		return resolveRecord(again)
+	}
+}
+
+/**
+ * Collect the history lines no record of the run references any more.
+ *
+ * Checks first, from the references alone, whether enough is dead to be
+ * worth a copy; see {@link compactRunHistoryLocked}.
+ */
+export async function compactRunHistory(
+	runDir: string,
+	options: { readonly minReclaimBytes?: number } = {},
+): Promise<RunHistoryCompaction> {
+	return withRunHistoryLock(runDir, async () =>
+		compactRunHistoryLocked(runDir, await historyRoots(runDir), options),
+	)
+}
+
+/** Every record of the run that references its history log. */
+async function historyRoots(runDir: string): Promise<RunHistoryRoot[]> {
+	return [
+		...(await readCheckpointFilesIn(runDir)).flatMap(checkpointRoot),
+		...(await snapshotRoot(runDir)),
+	]
+}
+
+/** A checkpoint as a compaction root, or nothing when it stores messages inline. */
+function checkpointRoot({ path, file, stored, header }: CheckpointFile): RunHistoryRoot[] {
+	if (!isRunHistoryRef(stored.history)) return []
+	return [
+		{
+			file,
+			ref: stored.history,
+			order: header.createdAt,
+			// The stamp and every other field are carried over as they were.
+			rewrite: (history) => atomicWriteFile(path, JSON.stringify({ ...stored, history })),
+		},
+	]
+}
+
+/** The settled `messages.json` as a compaction root, when it is a reference. */
+async function snapshotRoot(runDir: string): Promise<RunHistoryRoot[]> {
+	const path = join(runDir, 'messages.json')
+	let snapshot: Record<string, unknown>
+	try {
+		snapshot = JSON.parse(await readFile(path, 'utf-8')) as Record<string, unknown>
+	} catch (err) {
+		if (isFileNotFound(err)) return []
+		throw err
+	}
+	if (snapshot.format !== RUN_MESSAGE_SNAPSHOT_V2 || !isRunHistoryRef(snapshot.history)) return []
+	return [
+		{
+			file: 'messages.json',
+			ref: snapshot.history,
+			// The settled history is the newest thing the run wrote.
+			order: Number.MAX_SAFE_INTEGER,
+			rewrite: (history) =>
+				atomicWriteFile(path, JSON.stringify({ ...snapshot, history }, null, 2)),
+		},
+	]
 }
 
 async function atomicWriteJson(
@@ -916,11 +1197,15 @@ function hasUsableBudgets(record: Partial<IterationCheckpoint>): boolean {
 	)
 }
 
-async function parseCheckpoint(
-	content: string,
-	file: string,
-	history: CheckpointHistorySource,
-): Promise<IterationCheckpoint> {
+type CheckpointRecord = Partial<IterationCheckpoint> & {
+	id: string
+	iteration: number
+	createdAt: number
+	history?: RunHistoryRef
+}
+
+/** Parse and validate a checkpoint file, leaving its history unresolved. */
+function parseCheckpointRecord(content: string, file: string): CheckpointRecord {
 	const parsed = migrate<unknown>(CHECKPOINT_SCHEMA, JSON.parse(content))
 	const record = parsed as (Partial<IterationCheckpoint> & { history?: unknown }) | null
 
@@ -930,7 +1215,7 @@ async function parseCheckpoint(
 		typeof record.id !== 'string' ||
 		typeof record.iteration !== 'number' ||
 		typeof record.createdAt !== 'number' ||
-		!(Array.isArray(record.messages) || isCheckpointHistoryRef(record.history))
+		!(Array.isArray(record.messages) || isRunHistoryRef(record.history))
 	) {
 		throw new Error(
 			`Checkpoint file "${file}" is not a usable checkpoint: it parsed as JSON but is missing the fields a resume needs (id, iteration, createdAt, messages). Refusing rather than resuming from it.`,
@@ -943,13 +1228,18 @@ async function parseCheckpoint(
 		)
 	}
 
+	return record as CheckpointRecord
+}
+
+async function parseCheckpoint(
+	content: string,
+	file: string,
+	history: RunHistorySource,
+): Promise<IterationCheckpoint> {
+	const record = parseCheckpointRecord(content, file)
 	if (Array.isArray(record.messages)) return record as IterationCheckpoint
 	const { history: ref, ...rest } = record
-	const messages = await resolveCheckpointHistory(
-		ref as Parameters<typeof resolveCheckpointHistory>[0],
-		history,
-		file,
-	)
+	const messages = await resolveRunHistory(ref as RunHistoryRef, history, file)
 	return { ...rest, messages } as IterationCheckpoint
 }
 

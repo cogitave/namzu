@@ -111,8 +111,6 @@ describe('read-only state inventory', () => {
 			json(join(topRun, 'checkpoints', `${parentCheckpointId}.json`), {
 				id: parentCheckpointId,
 			})
-			// The run's checkpoint history log counts as checkpoint bytes too.
-			writeFileSync(join(topRun, 'checkpoints', 'history.jsonl'), '{"role":"user"}\n')
 			const largeCheckpoint = join(childRun, 'checkpoints', `${childCheckpointId}.json`)
 			mkdirSync(join(largeCheckpoint, '..'), { recursive: true })
 			writeFileSync(largeCheckpoint, '')
@@ -155,7 +153,7 @@ describe('read-only state inventory', () => {
 				invalidOrMissingRecords: 0,
 			})
 			expect(project?.inventory.checkpointFiles).toEqual({
-				files: 3,
+				files: 2,
 				logicalBytes: expect.any(Number),
 			})
 			expect(project?.inventory.checkpointFiles.logicalBytes).toBeGreaterThanOrEqual(

@@ -7,11 +7,12 @@ import { removeTempDirAsync } from '../../__fixtures__/temp-dir.js'
 import type { CheckpointId, IterationCheckpoint } from '../../types/hitl/index.js'
 import type { RunId } from '../../types/ids/index.js'
 import type { Message } from '../../types/message/index.js'
-import { CHECKPOINT_HISTORY_FILES } from '../run/checkpoint-history.js'
-import { RunDiskStore } from '../run/disk.js'
+import type { Run } from '../../types/run/index.js'
+import { RunDiskStore, compactRunHistory } from '../run/disk.js'
+import { RUN_HISTORY_DIR, runHistoryLogFile } from '../run/run-history.js'
 
-const MAIN = CHECKPOINT_HISTORY_FILES[0]
-const EDITS = CHECKPOINT_HISTORY_FILES[1]
+const MAIN = runHistoryLogFile(0, 0)
+const EDITS = runHistoryLogFile(0, 1)
 
 /**
  * A checkpoint's history is stored once per run, not once per checkpoint.
@@ -71,10 +72,11 @@ function conversation(turns: number): Message[] {
 	return messages
 }
 
-describe('the checkpoint history log', () => {
+describe('the run history log', () => {
 	let dir: string
 	let store: RunDiskStore
 	const cpDir = () => join(dir, RID, 'checkpoints')
+	const historyDir = () => join(dir, RID, RUN_HISTORY_DIR)
 
 	beforeEach(async () => {
 		dir = await mkdtemp(join(tmpdir(), 'namzu-cphist-'))
@@ -96,7 +98,7 @@ describe('the checkpoint history log', () => {
 
 		const files = (await readdir(cpDir())).filter((f) => f.endsWith('.json'))
 		const sizes = await Promise.all(files.map(async (f) => (await stat(join(cpDir(), f))).size))
-		const history = (await stat(join(cpDir(), MAIN))).size
+		const history = (await stat(join(historyDir(), MAIN))).size
 		const oneCopy = conversation(40).reduce(
 			(n, m) => n + Buffer.byteLength(`${JSON.stringify(m)}\n`),
 			0,
@@ -118,7 +120,7 @@ describe('the checkpoint history log', () => {
 	it('references a kept tail beside a new head after the history is rewritten', async () => {
 		const before = conversation(10)
 		await store.writeCheckpoint(checkpoint(before))
-		const sizeBefore = (await stat(join(cpDir(), MAIN))).size
+		const sizeBefore = (await stat(join(historyDir(), MAIN))).size
 
 		// What a compaction does: the head becomes one summary, the tail stays.
 		const summary: Message = { role: 'system', content: 'Summary of regions 1-7.' }
@@ -128,8 +130,8 @@ describe('the checkpoint history log', () => {
 
 		// The kept tail is referenced where it already is; the summary, an
 		// edit rather than an extension, is the only new line anywhere.
-		expect((await stat(join(cpDir(), MAIN))).size).toBe(sizeBefore)
-		expect((await stat(join(cpDir(), EDITS))).size).toBe(
+		expect((await stat(join(historyDir(), MAIN))).size).toBe(sizeBefore)
+		expect((await stat(join(historyDir(), EDITS))).size).toBe(
 			Buffer.byteLength(`${JSON.stringify(summary)}\n`),
 		)
 		expect((await store.readCheckpoint(cp.id))?.messages).toEqual(after)
@@ -162,13 +164,13 @@ describe('the checkpoint history log', () => {
 	it('adds nothing when a checkpoint is rewritten for a park or its answer', async () => {
 		const cp = checkpoint(conversation(5))
 		await store.writeCheckpoint(cp)
-		const size = (await stat(join(cpDir(), MAIN))).size
+		const size = (await stat(join(historyDir(), MAIN))).size
 		const read = (await store.readCheckpoint(cp.id)) as IterationCheckpoint
 		await store.writeCheckpoint({
 			...read,
 			pending: { request: { type: 'iteration_checkpoint' } as never, parkedAt: 1 },
 		})
-		expect((await stat(join(cpDir(), MAIN))).size).toBe(size)
+		expect((await stat(join(historyDir(), MAIN))).size).toBe(size)
 		expect((await store.readCheckpoint(cp.id))?.pending?.parkedAt).toBe(1)
 	})
 
@@ -184,7 +186,7 @@ describe('the checkpoint history log', () => {
 	it('refuses a checkpoint whose history bytes were changed', async () => {
 		const cp = checkpoint(conversation(3))
 		await store.writeCheckpoint(cp)
-		const path = join(cpDir(), MAIN)
+		const path = join(historyDir(), MAIN)
 		const raw = await readFile(path, 'utf-8')
 		await writeFile(path, raw.replace('Region 2', 'Region 9'))
 
@@ -195,10 +197,10 @@ describe('the checkpoint history log', () => {
 	it('refuses a checkpoint whose history was truncated or removed', async () => {
 		const cp = checkpoint(conversation(3))
 		await store.writeCheckpoint(cp)
-		const path = join(cpDir(), MAIN)
+		const path = join(historyDir(), MAIN)
 		const raw = await readFile(path)
 		await writeFile(path, raw.subarray(0, raw.length - 10))
-		await expect(store.readCheckpoint(cp.id)).rejects.toThrow(/is shorter in history\.jsonl/)
+		await expect(store.readCheckpoint(cp.id)).rejects.toThrow(/is shorter in messages\.0\.jsonl/)
 
 		await writeFile(path, '')
 		await expect(store.readCheckpoint(cp.id)).rejects.toThrow(/Refusing/)
@@ -210,7 +212,7 @@ describe('the checkpoint history log', () => {
 	it('survives a torn last line left by a writer that died mid-append', async () => {
 		const first = checkpoint(conversation(2))
 		await store.writeCheckpoint(first)
-		await appendFile(join(cpDir(), MAIN), '{"role":"user","cont')
+		await appendFile(join(historyDir(), MAIN), '{"role":"user","cont')
 
 		const fresh = new RunDiskStore({ baseDir: dir })
 		await fresh.initRun(RID)
@@ -262,5 +264,118 @@ describe('the checkpoint history log', () => {
 		record.history.count += 1
 		await writeFile(path, JSON.stringify(record))
 		await expect(store.readCheckpoint(cp.id)).rejects.toThrow(/not a usable checkpoint/)
+	})
+
+	it('gives every checkpoint of a listing objects of its own', async () => {
+		await store.writeCheckpoint(checkpoint(conversation(2)))
+		await store.writeCheckpoint(checkpoint(conversation(3)))
+		const [first, second] = await store.listCheckpoints()
+		;(first as IterationCheckpoint).messages[0] = {
+			role: 'user',
+			content: 'MUTATED',
+		}
+		expect((second as IterationCheckpoint).messages[0]).toEqual(conversation(1)[0])
+		expect((first as IterationCheckpoint).messages[1]).not.toBe(
+			(second as IterationCheckpoint).messages[1],
+		)
+	})
+
+	it('stores the settled history as a reference into the same log, not a second copy', async () => {
+		const history = conversation(12)
+		await store.writeCheckpoint(checkpoint(history.slice(0, -1)))
+		const before = (await stat(join(historyDir(), MAIN))).size
+		await store.writeMessages({ messages: history } as unknown as Run, 7)
+
+		const last = history.at(-1) as Message
+		expect((await stat(join(historyDir(), MAIN))).size).toBe(
+			before + Buffer.byteLength(`${JSON.stringify(last)}\n`),
+		)
+		const snapshot = JSON.parse(await readFile(join(dir, RID, 'messages.json'), 'utf-8'))
+		expect(snapshot.format).toBe('namzu.run-message-snapshot.v2')
+		expect(snapshot.messages).toBeUndefined()
+		expect(await store.readMessages()).toEqual({
+			kind: 'available',
+			throughEventSeq: 7,
+			messages: history,
+		})
+	})
+
+	it('collects history nothing references once retention prunes, and every record still reads', async () => {
+		// A pinned run: the slot near the head is rewritten every iteration,
+		// so every iteration leaves one dead line behind once pruned.
+		let last: IterationCheckpoint | undefined
+		for (let turn = 1; turn <= 60; turn++) {
+			const [first, ...rest] = conversation(turn)
+			last = checkpoint([
+				first as Message,
+				{
+					role: 'system',
+					content: `## Pinned by tools\n- region: ${turn} ${'x'.repeat(2_000)}`,
+				},
+				...rest.slice(-4),
+			])
+			await store.writeCheckpoint(last)
+			await store.pruneCheckpoints(3, { minReclaimBytes: 1 })
+		}
+		await store.writeMessages({ messages: last?.messages } as unknown as Run, 1)
+		await compactRunHistory(join(dir, RID), { minReclaimBytes: 1 })
+
+		const files = await readdir(historyDir())
+		// Only the newest generation is left.
+		expect(new Set(files.map((f) => f.split('.')[1])).size).toBe(1)
+		expect(files.some((f) => f.endsWith('.0.jsonl'))).toBe(false)
+
+		let stored = 0
+		for (const f of files) stored += (await stat(join(historyDir(), f))).size
+		const live = (await store.listCheckpoints()).flatMap((cp) => cp.messages)
+		const liveBytes = [...new Set(live.map((m) => JSON.stringify(m)))].reduce(
+			(n, m) => n + Buffer.byteLength(`${m}\n`),
+			0,
+		)
+		// Within twice what is still referenced, not the run's whole output.
+		expect(stored).toBeLessThanOrEqual(2 * liveBytes)
+
+		const listed = await store.listCheckpoints()
+		expect(listed).toHaveLength(3)
+		expect(listed.at(-1)?.messages).toEqual(last?.messages)
+		expect((await store.readMessages()).kind).toBe('available')
+	})
+
+	it('prunes from the checkpoint files alone, so a damaged log does not stop it', async () => {
+		for (let turn = 1; turn <= 5; turn++)
+			await store.writeCheckpoint(checkpoint(conversation(turn)))
+		// Damaged, and large enough that a compaction would want to run.
+		const damaged = `${'damaged '.repeat(20_000)}\n`
+		await writeFile(join(historyDir(), MAIN), damaged)
+
+		await expect(store.listCheckpoints()).rejects.toThrow(/Refusing/)
+		// The checkpoints are pruned: that reads only their own files. The
+		// collection after it refuses to copy around the damage, and leaves it.
+		await expect(store.pruneCheckpoints(2, { minReclaimBytes: 1 })).rejects.toThrow(/Refusing/)
+		expect((await readdir(cpDir())).filter((f) => f.endsWith('.json'))).toHaveLength(2)
+		expect(await readFile(join(historyDir(), MAIN), 'utf-8')).toBe(damaged)
+		expect(await readdir(historyDir())).toEqual([MAIN])
+	})
+
+	it('never collects a line a concurrent write is about to reference', async () => {
+		const other = new RunDiskStore({ baseDir: dir })
+		await other.initRun(RID)
+		const written: IterationCheckpoint[] = []
+		for (let turn = 1; turn <= 20; turn++) {
+			const cp = checkpoint([
+				{ role: 'system', content: `slot ${turn} ${'y'.repeat(4_000)}` },
+				...conversation(turn).slice(-3),
+			])
+			written.push(cp)
+			await Promise.all([
+				other.writeCheckpoint(cp),
+				store.pruneCheckpoints(2, { minReclaimBytes: 1 }),
+			])
+		}
+		const survivors = await store.listCheckpoints()
+		for (const cp of survivors) {
+			expect(cp.messages).toEqual(written.find((w) => w.id === cp.id)?.messages)
+		}
+		expect(survivors.at(-1)?.id).toBe(written.at(-1)?.id)
 	})
 })

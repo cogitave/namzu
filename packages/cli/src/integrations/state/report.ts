@@ -774,18 +774,12 @@ function isCanonicalRunDir(path: string): boolean {
 	)
 }
 
-/**
- * A checkpoint record, or one of the run's two checkpoint history logs beside
- * them — the files every checkpoint of the run references for its messages,
- * so a count of checkpoint bytes that left them out would understate them.
- */
 function isCanonicalCheckpointFile(path: string): boolean {
 	const parts = path.split('/')
 	const file = parts.at(-1)
 	return (
-		(file === 'history.jsonl' ||
-			file === 'history-edits.jsonl' ||
-			(file?.endsWith('.json') === true && isEntityId(file.slice(0, -5), 'checkpoint'))) &&
+		file?.endsWith('.json') === true &&
+		isEntityId(file.slice(0, -5), 'checkpoint') &&
 		parts.at(-2) === 'checkpoints' &&
 		isCanonicalRunDir(parts.slice(0, -2).join('/'))
 	)

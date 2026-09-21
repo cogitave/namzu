@@ -730,10 +730,12 @@ export class RunPersistence {
 		this.syncBudget()
 		await this.runStore.writeRunMeta(this.run)
 		await this.runStore.writeMessages(this.run, this._lastEventSeq)
-		// Optional on the contract: a backend whose runs are already queryable
-		// has no browsable directory to add a row to.
-		await this.runStore.addToIndex?.(this.run)
+		// No `addToIndex`: the disk store's catalogue row repeated fields
+		// `writeRunMeta` had just persisted in `run.json`, and nothing in the
+		// kernel or the CLI read it. See docs/sdk/run-storage.md.
 
+		// Kept: `run.json` does not carry `result`, so the report is the one
+		// durable copy of the answer (a-finished-run-reads-back-complete).
 		if (this.run.result) {
 			await this.runStore.writeReport(this.run.result)
 		}

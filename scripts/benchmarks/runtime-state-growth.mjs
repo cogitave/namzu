@@ -118,7 +118,9 @@ for (const file of files) {
 		? rel.endsWith(".json")
 			? "checkpoints/*.json"
 			: `checkpoints/${rel.split("/checkpoints/")[1]}`
-		: rel.split("/").at(-1);
+		: rel.includes("/history/")
+			? "history/*.jsonl"
+			: rel.split("/").at(-1);
 	const entry = byKind.get(kind) ?? { files: 0, bytes: 0 };
 	entry.files += 1;
 	entry.bytes += file.bytes;
@@ -136,6 +138,13 @@ const report = {
 	totals: {
 		files: files.length,
 		bytes: files.reduce((n, f) => n + f.bytes, 0),
+	},
+	// The run's one message record, which checkpoints and messages.json reference.
+	history: {
+		files: files.filter((f) => f.path.includes("/history/")).length,
+		bytes: files
+			.filter((f) => f.path.includes("/history/"))
+			.reduce((n, f) => n + f.bytes, 0),
 	},
 	checkpoints: {
 		count: checkpointFiles.length,
@@ -157,6 +166,9 @@ else {
 	);
 	console.log(
 		`checkpoints: ${report.checkpoints.count} files, ${report.checkpoints.bytes} bytes (largest ${report.checkpoints.largest})`,
+	);
+	console.log(
+		`history log: ${report.history.files} files, ${report.history.bytes} bytes`,
 	);
 	for (const [kind, v] of Object.entries(report.byKind))
 		console.log(

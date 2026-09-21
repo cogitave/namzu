@@ -18,7 +18,7 @@ import type { RunStoreConfig } from '../../types/run/index.js'
 import type { ProjectId } from '../../types/session/ids.js'
 import { asRunId, isEntityId } from '../../utils/id.js'
 import { acquireClaim, currentFence, readClaim, releaseClaim } from './claim-disk.js'
-import { RunDiskStore, readCheckpointsIn } from './disk.js'
+import { RunDiskStore, readCheckpointHeadersIn } from './disk.js'
 import {
 	assertContiguousListingScope,
 	fencedOut,
@@ -158,6 +158,16 @@ export class DiskCheckpointStore implements CheckpointStore {
 	}
 
 	/**
+	 * Retention without resolving a single history: reads the checkpoint
+	 * files, deletes the oldest, then collects the history lines nothing
+	 * references any more. See {@link RunDiskStore.pruneCheckpoints}.
+	 */
+	async pruneCheckpoints(scope: CheckpointRunScope, keepLast: number): Promise<void> {
+		const store = await this.bind(scope)
+		await store.pruneCheckpoints(keepLast)
+	}
+
+	/**
 	 * Every run with checkpoints under this store's tree.
 	 *
 	 * Reads the directories rather than binding a {@link RunDiskStore} per
@@ -212,14 +222,18 @@ export class DiskCheckpointStore implements CheckpointStore {
 		for (const runId of await this.readRunDirs(this.config.baseDir)) {
 			const runDir = join(this.config.baseDir, runId)
 
-			const own = toDurableRunEntry({ ...attribution, runId }, await readCheckpointsIn(runDir), now)
+			const own = toDurableRunEntry(
+				{ ...attribution, runId },
+				await readCheckpointHeadersIn(runDir),
+				now,
+			)
 			if (own) entries.push(await this.withClaim(own, runDir, now))
 
 			for (const childId of await this.readRunDirs(join(runDir, 'children'))) {
 				const childDir = join(runDir, 'children', childId)
 				const child = toDurableRunEntry(
 					{ ...attribution, runId: childId, parentRunId: runId },
-					await readCheckpointsIn(childDir),
+					await readCheckpointHeadersIn(childDir),
 					now,
 				)
 				if (child) entries.push(await this.withClaim(child, childDir, now))

@@ -1,5 +1,6 @@
 import type { WorkingStateSnapshot } from '../../compaction/wire.js'
 import type { RunPersistence } from '../../manager/run/persistence.js'
+import { selectCheckpointsToPrune } from '../../store/run/prune.js'
 import type { SerializedSpanContext } from '../../telemetry/attributes.js'
 import { NamzuError } from '../../types/errors/index.js'
 import type {
@@ -587,33 +588,19 @@ export class CheckpointManager {
 	/**
 	 * Collect old checkpoints until `keepLast` newer ones remain.
 	 *
-	 * Growth control, and growth control stops at a park. A checkpoint with
-	 * an unresolved `pending` is the durable fact that a human was asked
-	 * something: it is what `findPendingCheckpoint` serves to an approval
-	 * queue and what `listExpiredParks` enumerates for a sweep. Collecting
-	 * one deletes the only record of a question somebody may be in the middle
-	 * of answering, and their answer then lands nowhere — the store refuses
-	 * the unpark and the run it belonged to resumes without it.
-	 *
-	 * So the candidates are still the oldest `all.length - keepLast`, which
-	 * is what keeps the newest `keepLast` — the run's resume point — out of
-	 * reach, and a park among them is skipped rather than counted. Pruning
-	 * therefore holds a few more rows while a park is outstanding. That is
-	 * the right side to err on: parks resolve, and the next prune collects
-	 * them. Expired ones are skipped too — the host's sweep is
-	 * {@link expire}, which resolves the park by running out of time rather
-	 * than by deleting the evidence, and `prune` racing it would take the
-	 * question away before it was read.
+	 * Growth control, and growth control stops at a park: the newest
+	 * `keepLast` and every unresolved park are kept. The rule is
+	 * {@link selectCheckpointsToPrune}; a store that offers
+	 * `pruneCheckpoints` applies it without listing full checkpoints.
 	 */
 	async prune(keepLast: number): Promise<void> {
+		if (this.store.pruneCheckpoints) {
+			await this.store.pruneCheckpoints(this.scope, keepLast)
+			return
+		}
 		const all = await this.list()
-		if (all.length <= keepLast) return
-
-		const toDelete = all.sort((a, b) => a.createdAt - b.createdAt).slice(0, all.length - keepLast)
-
-		for (const cp of toDelete) {
-			if (cp.pending && cp.pending.resolvedAt === undefined) continue
-			await this.store.deleteCheckpoint(this.scope, cp.id)
+		for (const id of selectCheckpointsToPrune(all, keepLast)) {
+			await this.store.deleteCheckpoint(this.scope, id)
 		}
 	}
 

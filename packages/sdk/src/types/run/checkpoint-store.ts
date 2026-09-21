@@ -411,6 +411,21 @@ export interface CheckpointStore {
 	deleteCheckpoint(scope: CheckpointRunScope, checkpointId: CheckpointId): Promise<void>
 
 	/**
+	 * Delete the run's oldest checkpoints until `keepLast` newer ones remain,
+	 * never one with an unresolved park. OPTIONAL.
+	 *
+	 * The store-native form of `CheckpointManager.prune`, which calls it when
+	 * present and otherwise lists every checkpoint and deletes through
+	 * {@link CheckpointStore.deleteCheckpoint} — the same outcome, so this is
+	 * an optimisation a store may offer, not a capability a caller refuses
+	 * without. A store whose checkpoints share stored history implements it to
+	 * avoid resolving every history just to count checkpoints, and to collect
+	 * the history the deleted ones held. The selection rule is
+	 * `selectCheckpointsToPrune`.
+	 */
+	pruneCheckpoints?(scope: CheckpointRunScope, keepLast: number): Promise<void>
+
+	/**
 	 * Every run with durable checkpoint state under a scope ABOVE the run.
 	 * OPTIONAL — see the optional-capability rule on this interface.
 	 *

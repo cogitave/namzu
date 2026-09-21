@@ -10,6 +10,7 @@
 
 import { NamzuError } from '../../types/errors/index.js'
 import type { IterationCheckpoint, PendingDecision } from '../../types/hitl/index.js'
+
 import type {
 	CheckpointListingScope,
 	CheckpointRunScope,
@@ -67,7 +68,7 @@ function parkStateOf(pending: PendingDecision, now: number): ParkState {
 }
 
 function toParkSummary(
-	cp: IterationCheckpoint,
+	cp: Omit<IterationCheckpoint, 'messages'>,
 	pending: PendingDecision,
 	now: number,
 ): ParkSummary {
@@ -100,7 +101,7 @@ function toParkSummary(
  * @param checkpoints the run's checkpoints, any order.
  */
 export function summarizePark(
-	checkpoints: readonly IterationCheckpoint[],
+	checkpoints: readonly Omit<IterationCheckpoint, 'messages'>[],
 	now: number,
 ): ParkSummary | undefined {
 	let best: ParkSummary | undefined
@@ -138,12 +139,12 @@ const PARK_RANK: Record<ParkState, number> = {
  */
 export function toDurableRunEntry(
 	scope: CheckpointRunScope,
-	checkpoints: readonly IterationCheckpoint[],
+	checkpoints: readonly Omit<IterationCheckpoint, 'messages'>[],
 	now: number,
 ): DurableRunEntry | null {
 	if (checkpoints.length === 0) return null
 
-	let latest = checkpoints[0] as IterationCheckpoint
+	let latest = checkpoints[0] as Omit<IterationCheckpoint, 'messages'>
 	// The EARLIEST recorded stamp, not the one on any particular checkpoint.
 	// Every checkpoint of a run carries the same value, so under that
 	// invariant the minimum is that value. Taking the minimum rather than

@@ -283,6 +283,7 @@ for (const file of files) {
 	let kind = parts.at(-1);
 	if (rel.includes("/checkpoints/") && kind.endsWith(".json"))
 		kind = "runs/*/checkpoints/*.json";
+	else if (rel.includes("/history/")) kind = "runs/*/history/*.jsonl";
 	else if (rel.includes("/runs/")) kind = `runs/*/${parts.at(-1)}`;
 	else if (parts[0] === "sessions") kind = `sessions/*/${parts.at(-1)}`;
 	else if (parts[0] === "memory") kind = "memory/**";
