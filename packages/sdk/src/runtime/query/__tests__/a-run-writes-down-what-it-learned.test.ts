@@ -12,8 +12,8 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import type { CreateMemoryParams, MemoryStore } from '../../../types/memory/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { query } from '../index.js'
 
 /**

@@ -8,10 +8,10 @@ import type { PermissionMode } from '../../../types/permission/index.js'
 import type { BackgroundJobRegistryRef, ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { drainQuery } from '../index.js'

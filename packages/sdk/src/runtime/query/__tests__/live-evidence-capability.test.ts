@@ -7,10 +7,10 @@ import type { PrepareStepContext } from '../../../types/session/prepare-step.js'
 import type { ToolContext } from '../../../types/tool/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { EventTranslator } from '../events.js'
 import { drainQuery } from '../index.js'

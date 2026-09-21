@@ -10,7 +10,7 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
-import type { TurnConfig, SessionEvent } from '../../../types/session/index.js'
+import type { SessionEvent, TurnConfig } from '../../../types/session/index.js'
 import {
 	generateProjectId,
 	generateSessionId,

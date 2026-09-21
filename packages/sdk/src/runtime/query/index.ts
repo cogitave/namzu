@@ -64,16 +64,15 @@ import {
 import type { AgentPersona } from '../../types/persona/index.js'
 import type { LLMProvider } from '../../types/provider/index.js'
 import type { TaskRouterConfig } from '../../types/router/index.js'
+import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
 import type { ReviewAnswer } from '../../types/session/answer-review.js'
+import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import type {
 	BeforeStep,
 	PrepareStepChain,
 	StepResult,
 	StopCondition,
 } from '../../types/session/index.js'
-import type { PromoteMemory } from '../../types/session/memory-promotion.js'
-import type { Sandbox, SandboxProvider } from '../../types/sandbox/index.js'
-import type { ProjectId, TopicId } from '../../types/session/ids.js'
 import {
 	type Origin,
 	type SessionEvent,
@@ -86,6 +85,7 @@ import {
 	type TurnId,
 	isTurnInProgressError,
 } from '../../types/session/index.js'
+import type { PromoteMemory } from '../../types/session/memory-promotion.js'
 import type { Skill } from '../../types/skills/index.js'
 import type { StructuredOutputConfig } from '../../types/structured-output/index.js'
 import type { TaskStore } from '../../types/task/index.js'
@@ -99,8 +99,8 @@ import type { Logger } from '../../utils/logger.js'
 import { AwaitedJobs } from '../jobs/awaited-jobs.js'
 import type { BackgroundJobRegistry } from '../jobs/registry.js'
 import { catchUpFromCursor, settlePreStartCancellation } from './cancelled-before-start.js'
-import type { EventTranslator } from './events.js'
 import { CheckpointManager, findPendingCheckpoint } from './checkpoint.js'
+import type { EventTranslator } from './events.js'
 import { finalizeTurn } from './finalize-turn.js'
 import { GuardCoordinator } from './guard.js'
 import { runInputGuardrails } from './guardrails.js'

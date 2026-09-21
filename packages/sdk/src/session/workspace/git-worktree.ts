@@ -19,11 +19,11 @@ import { promisify } from 'node:util'
 import { NAMZU } from '../../constants/telemetry/index.js'
 import type { GitWorktreeBackendMeta, WorkspaceRef } from '../../types/workspace/ref.js'
 import { generateWorkspaceId } from '../../utils/id.js'
-import { resolveNamzuHome } from '../home.js'
-import { hashedSlugForCwd, slugForCwd } from '../paths.js'
 import { SCOPE_ATTRIBUTE } from '../../utils/log/types.js'
 import type { Logger } from '../../utils/logger.js'
 import { WorkspaceBackendError } from '../errors.js'
+import { resolveNamzuHome } from '../home.js'
+import { hashedSlugForCwd, slugForCwd } from '../paths.js'
 import type {
 	BranchWorkspaceParams,
 	CreateWorkspaceParams,

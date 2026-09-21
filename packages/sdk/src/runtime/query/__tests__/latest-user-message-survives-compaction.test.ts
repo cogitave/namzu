@@ -8,11 +8,11 @@ import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { CompactionConfigSchema } from '../../../config/runtime.js'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
 import { fixtureId } from '../../../test-support/ids.js'
+import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import {
 	type Message,
 	createAssistantMessage,

@@ -1,3 +1,4 @@
+import type { SessionTokenBudgetScope } from '../../../../store/budget/index.js'
 /**
  * Test support for turns recorded into an in-memory session log.
  *
@@ -6,17 +7,16 @@
  * its log.
  */
 import {
-	type SessionCheckpointStore,
 	InMemorySessionCheckpointStore,
+	type SessionCheckpointStore,
 } from '../../../../store/checkpoint/index.js'
-import type { SessionTokenBudgetScope } from '../../../../store/budget/index.js'
+import type { CheckpointScope } from '../../../../store/checkpoint/index.js'
 import {
 	InMemoryLogMedium,
 	InMemorySessionLog,
 	type SessionLease,
 	type SessionLog,
 } from '../../../../store/session-log/index.js'
-import type { CheckpointScope } from '../../../../store/checkpoint/index.js'
 import type {
 	CheckpointId,
 	MessageId,

@@ -26,8 +26,8 @@ import {
 	createToolMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { CheckpointManager } from '../checkpoint.js'
 import { type ResumeSessionParams, resumeSession } from '../resume-session.js'
 import type { TurnStateScope } from '../turn-state.js'

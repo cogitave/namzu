@@ -10,10 +10,10 @@ import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import type { Logger } from '../../../utils/logger.js'
 import { drainQuery } from '../index.js'

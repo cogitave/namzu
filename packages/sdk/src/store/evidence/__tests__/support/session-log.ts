@@ -7,7 +7,6 @@
  */
 import { randomUUID } from 'node:crypto'
 import { join } from 'node:path'
-import { DiskSessionLog, type SessionLease, type SessionLog } from '../../../session-log/index.js'
 import type {
 	ProjectId,
 	SessionId,
@@ -16,6 +15,7 @@ import type {
 	TurnId,
 } from '../../../../types/ids/index.js'
 import { generateMessageId } from '../../../../utils/id.js'
+import { DiskSessionLog, type SessionLease, type SessionLog } from '../../../session-log/index.js'
 import {
 	createAnchoredSessionTextEvidenceSource,
 	createSessionEvidenceSource,

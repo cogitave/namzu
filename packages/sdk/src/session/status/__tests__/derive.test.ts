@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
-import type { TurnStatus } from '../../../types/session/turn.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { Session, SessionStatus } from '../../../types/session/entity.js'
 import type { ProjectId, SessionId, TenantId, TopicId, UserId } from '../../../types/session/ids.js'
+import type { TurnStatus } from '../../../types/session/turn.js'
 import { deriveStatus } from '../derive.js'
 
 const tenant = '17697cab-7e61-4b71-be7c-ea8e4c418a35' as TenantId

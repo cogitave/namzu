@@ -11,8 +11,8 @@ import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { TaskHandle, TaskScheduler } from '../../../types/agent/scheduler.js'
 import type { SessionId, TaskId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /** Ends its turn with plain text on the first (and only) call. */

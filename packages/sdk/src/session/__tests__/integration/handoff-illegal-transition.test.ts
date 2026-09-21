@@ -25,8 +25,8 @@ import type { HandoffAssignment } from '../../handoff/assignment.js'
 import { DefaultCapacityValidator } from '../../handoff/capacity.js'
 import type { HandoffEventSink } from '../../handoff/events.js'
 import {
-	type TurnStatusResolver,
 	type SingleHandoffDeps,
+	type TurnStatusResolver,
 	executeSingleHandoff,
 } from '../../handoff/single.js'
 import { HandoffLockRejected } from '../../handoff/version.js'

@@ -37,7 +37,7 @@ import type {
 import type { Agent } from '../../../types/agent/core.js'
 import type { AgentDefinition } from '../../../types/agent/factory.js'
 import type { AgentTaskContext, SendMessageOptions } from '../../../types/agent/task.js'
-import type { SessionId, TurnId, TenantId, UserId, WorkspaceId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId, UserId, WorkspaceId } from '../../../types/ids/index.js'
 import { createAssistantMessage } from '../../../types/message/index.js'
 import type { ActorRef } from '../../../types/session/actor.js'
 import type { SummaryId } from '../../../types/session/ids.js'

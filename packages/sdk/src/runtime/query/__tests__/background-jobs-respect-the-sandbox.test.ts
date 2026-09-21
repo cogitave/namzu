@@ -14,9 +14,9 @@ import { BashTool, SANDBOX_CANNOT_DETACH } from '../../../tools/builtins/bash.js
 import { defineTool } from '../../../tools/defineTool.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { Sandbox, SandboxProvider } from '../../../types/sandbox/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 vi.mock('node:child_process', async (importOriginal) => {

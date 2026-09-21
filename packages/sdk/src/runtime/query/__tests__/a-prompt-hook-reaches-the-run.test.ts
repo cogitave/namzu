@@ -12,10 +12,10 @@ import type {
 import type { SessionEvent } from '../../../types/session/events.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 

@@ -23,10 +23,10 @@ import {
 	generateTenantId,
 	generateTopicId,
 } from '../../../utils/id.js'
+import { readParks } from '../checkpoint.js'
 import { type QueryParams, drainQuery } from '../index.js'
 import { QuestionParkBinding } from '../question-park.js'
 import type { TurnStateScope } from '../turn-state.js'
-import { readParks } from '../checkpoint.js'
 import { turnCheckpoints } from './support/session.js'
 
 /**

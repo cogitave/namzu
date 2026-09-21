@@ -22,7 +22,7 @@ import type {
 	HandoffLockedEvent,
 	HandoffUnlockedEvent,
 } from '../events.js'
-import { type TurnStatusResolver, type SingleHandoffDeps, executeSingleHandoff } from '../single.js'
+import { type SingleHandoffDeps, type TurnStatusResolver, executeSingleHandoff } from '../single.js'
 import { HandoffLockRejected, HandoffVersionConflict } from '../version.js'
 
 const tenant = '62edaf4a-e86a-4e8e-bb39-662d7437216e' as TenantId

@@ -15,7 +15,7 @@ import type {
 	HITLDecisionRequest,
 	HITLResumeDecision,
 } from '../../../types/hitl/index.js'
-import type { TurnId, SessionId, TenantId } from '../../../types/ids/index.js'
+import type { SessionId, TenantId, TurnId } from '../../../types/ids/index.js'
 import { createAssistantMessage, createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
@@ -26,8 +26,8 @@ import { drainQuery } from '../index.js'
 import { PendingAnswers, QuestionParkBinding } from '../question-park.js'
 import { planPendingResume } from '../resume-pending.js'
 import { resumeSession } from '../resume-session.js'
-import type { TurnStateScope } from '../turn-state.js'
 import { pauseId } from '../tool-pause.js'
+import type { TurnStateScope } from '../turn-state.js'
 import { heldCheckpointStore, rewriteSession } from './support/session.js'
 
 /**

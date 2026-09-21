@@ -14,8 +14,8 @@ import {
 	createToolMessage,
 	createUserMessage,
 } from '../../../types/message/index.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 const dirs: string[] = []

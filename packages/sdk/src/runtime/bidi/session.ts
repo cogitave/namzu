@@ -2,8 +2,8 @@ import { NAMZU } from '../../constants/telemetry/index.js'
 import type {
 	BidiConnectParams,
 	BidiProvider,
-	BidiTurnEvent,
 	BidiSession,
+	BidiTurnEvent,
 } from '../../types/bidi/index.js'
 import type { ToolResultGuardrailSpec } from '../../types/guardrail/index.js'
 import type { SessionId, TurnId } from '../../types/ids/index.js'

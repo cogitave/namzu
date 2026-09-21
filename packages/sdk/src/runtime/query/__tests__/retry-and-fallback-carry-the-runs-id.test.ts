@@ -31,8 +31,8 @@ import type {
 	LLMProvider,
 	StreamChunk,
 } from '../../../types/provider/index.js'
-import type { TurnConfig } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { TurnConfig } from '../../../types/session/index.js'
 import { type LogRecord, type LogSink, createLogger } from '../../../utils/log/index.js'
 import { __resetProcessSinkForTests, installProcessSink } from '../../../utils/log/process-sink.js'
 import { drainQuery } from '../index.js'

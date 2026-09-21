@@ -7,23 +7,23 @@ import { z } from 'zod'
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { defineTool } from '../../../tools/defineTool.js'
 import {
 	type CheckpointScope,
 	type CheckpointWriteReceipt,
 	InMemorySessionCheckpointStore,
 } from '../../../store/checkpoint/index.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
+import { defineTool } from '../../../tools/defineTool.js'
 import { autoApproveHandler } from '../../../types/hitl/index.js'
 import type { CheckpointId, SessionId } from '../../../types/ids/index.js'
 import type { Checkpoint } from '../../../types/session/checkpoint.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { type QueryParams, drainQuery } from '../index.js'
 import { checkpointLogView } from '../session-storage.js'

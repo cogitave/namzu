@@ -7,7 +7,7 @@
  * fast).
  */
 
-import type { TurnId, SessionId } from '../../types/ids/index.js'
+import type { SessionId, TurnId } from '../../types/ids/index.js'
 
 /**
  * Raised when a handoff's CAS write finds {@link Session.ownerVersion} has

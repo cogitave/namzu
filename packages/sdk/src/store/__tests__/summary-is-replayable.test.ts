@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../__fixtures__/temp-dir.js'
+import { readAuditTrail } from '../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../provider/mock.js'
 import { ToolRegistry } from '../../registry/tool/execute.js'
 import { drainQuery } from '../../runtime/query/index.js'
@@ -11,7 +12,6 @@ import type { SessionId, TenantId } from '../../types/ids/index.js'
 import { createUserMessage } from '../../types/message/index.js'
 import { replayAudit } from '../../types/session/audit.js'
 import type { ProjectId, TopicId } from '../../types/session/ids.js'
-import { readAuditTrail } from '../../manager/session/turn-recorder.js'
 import { InMemorySessionLog } from '../session-log/index.js'
 
 /**

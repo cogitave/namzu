@@ -14,8 +14,8 @@ import {
 } from '../../store/checkpoint/index.js'
 import {
 	DiskSessionLog,
-	InMemorySessionLog,
 	type InMemoryLogMedium,
+	InMemorySessionLog,
 	type SessionLog,
 } from '../../store/session-log/index.js'
 import type { ChildSessionStorage } from '../../types/agent/task.js'

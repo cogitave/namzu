@@ -9,8 +9,8 @@ import { ToolRegistry } from '../../../registry/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { ChatCompletionParams, StreamChunk } from '../../../types/provider/index.js'
-import type { BeforeStep, SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { BeforeStep, SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**

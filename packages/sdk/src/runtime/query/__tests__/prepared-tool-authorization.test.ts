@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import { z } from 'zod'
 
+import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { defineTool } from '../../../tools/defineTool.js'
 import type { AuthorizationGateConfig } from '../../../types/authorization/index.js'

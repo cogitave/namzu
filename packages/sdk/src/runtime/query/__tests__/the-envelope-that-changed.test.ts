@@ -12,8 +12,8 @@ import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { MockTurn } from '../../../types/provider/index.js'
 import { isEphemeralEvent } from '../../../types/session/events.js'
-import type { PrepareStep, SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { PrepareStep, SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**

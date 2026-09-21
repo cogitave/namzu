@@ -6,8 +6,8 @@ import { defineTool } from '../../../tools/defineTool.js'
 import type {
 	BidiEvent,
 	BidiProvider,
-	BidiTurnEvent,
 	BidiSession,
+	BidiTurnEvent,
 } from '../../../types/bidi/index.js'
 import { createMockBidiProvider } from '../mock.js'
 import { BidiSessionCloseTimeoutError, startBidiTurn } from '../session.js'

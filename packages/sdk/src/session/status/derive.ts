@@ -26,8 +26,8 @@
  * `failed` when every Run ended that way.
  */
 
-import type { TurnStatus } from '../../types/session/turn.js'
 import type { Session, SessionStatus } from '../../types/session/entity.js'
+import type { TurnStatus } from '../../types/session/turn.js'
 
 export function deriveStatus(
 	session: Session,

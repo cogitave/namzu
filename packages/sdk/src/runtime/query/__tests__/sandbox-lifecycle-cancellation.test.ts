@@ -8,15 +8,15 @@ import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import type { SandboxId, SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
-import { TurnCancelled } from '../../../types/session/cancel-cause.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type {
 	Sandbox,
 	SandboxCreateConfig,
 	SandboxDestroyOptions,
 	SandboxProvider,
 } from '../../../types/sandbox/index.js'
+import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 const workdirs: string[] = []

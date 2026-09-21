@@ -1,9 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
 import { MockLLMProvider, registerMock } from '../../../provider/index.js'
 import { ToolRegistry } from '../../../registry/index.js'
-import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import { InMemoryMemoryStore } from '../../../store/memory/memory.js'
 import { buildMemoryTools } from '../../../tools/memory/index.js'
+import { createMemoryRecallStep } from '../../../turn/memory-recall.js'
 import {
 	generateProjectId,
 	generateSessionId,

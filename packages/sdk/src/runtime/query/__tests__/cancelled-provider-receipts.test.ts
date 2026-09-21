@@ -6,10 +6,10 @@ import type { LLMProvider } from '../../../types/provider/index.js'
 import type { SessionEvent } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 

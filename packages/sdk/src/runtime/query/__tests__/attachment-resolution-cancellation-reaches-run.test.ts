@@ -5,6 +5,7 @@ import { type Context, type Span, type Tracer, trace } from '@opentelemetry/api'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { PromptContributionRegistry } from '../../../prompt/contributions.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
@@ -15,7 +16,6 @@ import type {
 	AttachmentStore,
 	StoredBytes,
 } from '../../../store/attachment/index.js'
-import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import type { SessionCheckpointStore } from '../../../store/checkpoint/index.js'
 import type { SessionLog } from '../../../store/session-log/index.js'
 import { InMemoryTopicStateStore } from '../../../store/topic/state.js'
@@ -28,8 +28,8 @@ import {
 } from '../../../types/message/index.js'
 import { TurnCancelled } from '../../../types/session/cancel-cause.js'
 import type { FencingToken } from '../../../types/session/durable.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import type { Logger } from '../../../utils/logger.js'
 import { drainQuery } from '../index.js'
 import { resumeSession } from '../resume-session.js'

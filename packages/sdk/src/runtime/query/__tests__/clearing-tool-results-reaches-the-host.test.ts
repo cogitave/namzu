@@ -12,8 +12,8 @@ import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import { createUserMessage } from '../../../types/message/index.js'
 import type { Message } from '../../../types/message/index.js'
 import { isEphemeralEvent } from '../../../types/session/events.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { drainQuery } from '../index.js'
 
 /**

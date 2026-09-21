@@ -1,4 +1,4 @@
-import { SessionMessageFold, type SessionLog } from '../store/session-log/index.js'
+import { type SessionLog, SessionMessageFold } from '../store/session-log/index.js'
 import type { SpillRef } from '../store/session-log/spill.js'
 import type { TenantId } from '../types/ids/index.js'
 import type { Message } from '../types/message/index.js'

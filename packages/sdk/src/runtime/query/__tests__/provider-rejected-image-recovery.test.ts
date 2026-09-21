@@ -4,10 +4,10 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { ProviderRequestError } from '../../../provider/errors.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
 import { SessionTokenBudget } from '../../../store/budget/index.js'
-import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import type { SessionId, TenantId } from '../../../types/ids/index.js'
 import {
@@ -21,8 +21,8 @@ import type {
 	StreamChunk,
 } from '../../../types/provider/index.js'
 import { TurnCancelled } from '../../../types/session/cancel-cause.js'
-import type { SessionEvent } from '../../../types/session/index.js'
 import type { ProjectId, TopicId } from '../../../types/session/ids.js'
+import type { SessionEvent } from '../../../types/session/index.js'
 import { generateTurnId } from '../../../utils/id.js'
 import { drainQuery } from '../index.js'
 

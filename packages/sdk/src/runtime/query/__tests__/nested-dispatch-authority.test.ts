@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import { z } from 'zod'
 
+import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import type { PluginLifecycleManager } from '../../../plugin/lifecycle.js'
 import { probe } from '../../../probe/registry.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { readAuditTrail } from '../../../manager/session/turn-recorder.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { buildRunCodeTool } from '../../../tools/builtins/run-code.js'
 import { defineTool } from '../../../tools/defineTool.js'

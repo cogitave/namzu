@@ -10,10 +10,10 @@ import { deriveTurnStatus } from '../../../types/session/derive-status.js'
 import type { SessionEvent, Turn } from '../../../types/session/index.js'
 import {
 	generateProjectId,
-	generateTurnId,
 	generateSessionId,
 	generateTenantId,
 	generateTopicId,
+	generateTurnId,
 } from '../../../utils/id.js'
 import { BackgroundJobRegistry } from '../../jobs/registry.js'
 import { findPendingCheckpoint } from '../checkpoint.js'

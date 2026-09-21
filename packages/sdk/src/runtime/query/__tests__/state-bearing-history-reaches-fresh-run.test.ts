@@ -5,9 +5,9 @@ import { afterEach, describe, expect, it } from 'vitest'
 
 import { removeTempDirs } from '../../../__fixtures__/temp-dir.js'
 import { buildCompactionMessage } from '../../../compaction/summary.js'
+import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { MockLLMProvider } from '../../../provider/mock.js'
 import { ToolRegistry } from '../../../registry/tool/execute.js'
-import { readFoldedHistory } from '../../../manager/session/turn-recorder.js'
 import { InMemorySessionLog } from '../../../store/session-log/index.js'
 import { fixtureId } from '../../../test-support/ids.js'
 import {

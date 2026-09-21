@@ -24,9 +24,9 @@ import {
 import type { PermissionMode } from '../../types/permission/index.js'
 import type { PluginHookResult } from '../../types/plugin/index.js'
 import type { ChatCompletionResponse } from '../../types/provider/index.js'
+import type { Sandbox } from '../../types/sandbox/index.js'
 import type { AuditEventInput } from '../../types/session/audit.js'
 import type { SessionRecord } from '../../types/session/records.js'
-import type { Sandbox } from '../../types/sandbox/index.js'
 import type {
 	FileReadTracker,
 	PreparedToolExecution,
