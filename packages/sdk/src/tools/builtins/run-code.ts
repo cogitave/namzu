@@ -40,7 +40,7 @@ const inputSchema = z.object({
 		),
 })
 
-type RunCodeInput = z.infer<typeof inputSchema>
+type CodeToolInput = z.infer<typeof inputSchema>
 
 export const RUN_CODE_TOOL_NAME = 'run_code'
 
@@ -82,7 +82,7 @@ export function buildRunCodeTool(options: RunCodeToolOptions = {}) {
 		destructive: true,
 		concurrencySafe: false,
 
-		async execute(input: RunCodeInput, context) {
+		async execute(input: CodeToolInput, context) {
 			const dispatch = context.dispatchTool
 			if (!dispatch) {
 				return {

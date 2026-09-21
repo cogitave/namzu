@@ -1,5 +1,5 @@
 export { loadDirectory } from './load.js'
-export { deriveRunOptions } from './derive.js'
+export { deriveTurnOptions } from './derive.js'
 export { deriveSupervisorOptions } from './derive-supervisor.js'
 export type {
 	DelegatePlan,
@@ -7,7 +7,7 @@ export type {
 	SupervisorPlan,
 } from './derive-supervisor.js'
 export type {
-	DeriveRunOptionsInput,
+	DeriveTurnOptionsInput,
 	DirectoryDiagnosticCode,
 	DirectoryDiagnosticSeverity,
 	LoadDirectoryOptions,

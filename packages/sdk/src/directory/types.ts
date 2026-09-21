@@ -185,7 +185,7 @@ export interface DirectoryManifest {
 	 * A DISPLAY LABEL — `config.name`, else the directory's basename, else
 	 * `'agent'`.
 	 *
-	 * Not a trace key, and `deriveRunOptions` forwards it to `runAgent` only
+	 * Not a trace key, and `deriveTurnOptions` forwards it to `runAgent` only
 	 * when `agent.ts` declared one. A name guessed from a directory basename
 	 * would collide across sibling projects and silently merge their traces,
 	 * which is worse than the SDK's own default.
@@ -250,7 +250,7 @@ export interface LoadDirectoryOptions {
 	readonly moduleTimeoutMs?: number
 }
 
-export interface DeriveRunOptionsInput {
+export interface DeriveTurnOptionsInput {
 	readonly provider: LLMProvider
 	readonly prompt: string | Message[]
 	/** Wins over `agent.ts`. Required when `agent.ts` names no model. */

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 
-import { deriveRunOptions } from '../derive.js'
+import { deriveTurnOptions } from '../derive.js'
 import { loadDirectory } from '../load.js'
 
 const provider = { id: 'mock', name: 'Mock' } as never
@@ -27,7 +27,7 @@ export default {
 }
 `
 
-describe('turning a manifest into run options', () => {
+describe('turning a manifest into runAgent options', () => {
 	it('carries instructions, config and tools across', async () => {
 		const root = project({
 			'instructions.md': 'You are terse.',
@@ -37,7 +37,7 @@ describe('turning a manifest into run options', () => {
 		})
 		const { manifest } = await loadDirectory(root)
 
-		const options = deriveRunOptions(manifest, { provider, prompt: 'hi' })
+		const options = deriveTurnOptions(manifest, { provider, prompt: 'hi' })
 
 		expect(options.model).toBe('m')
 		expect(options.instructions).toBe('You are terse.')
@@ -57,7 +57,7 @@ describe('turning a manifest into run options', () => {
 		})
 		const { manifest } = await loadDirectory(root)
 
-		expect(deriveRunOptions(manifest, { provider, prompt: 'hi' }).workingDirectory).toBe(
+		expect(deriveTurnOptions(manifest, { provider, prompt: 'hi' }).workingDirectory).toBe(
 			manifest.root,
 		)
 	})
@@ -69,7 +69,7 @@ describe('turning a manifest into run options', () => {
 		})
 		const { manifest } = await loadDirectory(root)
 
-		expect(deriveRunOptions(manifest, { provider, prompt: 'hi', model: 'explicit' }).model).toBe(
+		expect(deriveTurnOptions(manifest, { provider, prompt: 'hi', model: 'explicit' }).model).toBe(
 			'explicit',
 		)
 	})
@@ -78,7 +78,7 @@ describe('turning a manifest into run options', () => {
 		const root = project({ 'instructions.md': 'hi' })
 		const { manifest } = await loadDirectory(root)
 
-		expect(() => deriveRunOptions(manifest, { provider, prompt: 'hi' })).toThrow(/No model/)
+		expect(() => deriveTurnOptions(manifest, { provider, prompt: 'hi' })).toThrow(/No model/)
 	})
 
 	it('forwards a name only when agent.ts declared one', async () => {
@@ -94,11 +94,11 @@ describe('turning a manifest into run options', () => {
 			'agent.js': 'export default { model: "m" }',
 		})
 
-		const withName = deriveRunOptions((await loadDirectory(declared)).manifest, {
+		const withName = deriveTurnOptions((await loadDirectory(declared)).manifest, {
 			provider,
 			prompt: 'x',
 		})
-		const without = deriveRunOptions((await loadDirectory(guessed)).manifest, {
+		const without = deriveTurnOptions((await loadDirectory(guessed)).manifest, {
 			provider,
 			prompt: 'x',
 		})
@@ -118,7 +118,7 @@ describe('turning a manifest into run options', () => {
 		})
 		const { manifest } = await loadDirectory(root, { modules: 'skip' })
 
-		expect(() => deriveRunOptions(manifest, { provider, prompt: 'hi' })).toThrow(/modules: "skip"/)
+		expect(() => deriveTurnOptions(manifest, { provider, prompt: 'hi' })).toThrow(/modules: "skip"/)
 	})
 
 	it('lets overrides win over everything', async () => {
@@ -128,7 +128,7 @@ describe('turning a manifest into run options', () => {
 		})
 		const { manifest } = await loadDirectory(root)
 
-		const options = deriveRunOptions(manifest, {
+		const options = deriveTurnOptions(manifest, {
 			provider,
 			prompt: 'hi',
 			overrides: { maxIterations: 99 },

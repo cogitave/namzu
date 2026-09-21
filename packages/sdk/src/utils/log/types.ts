@@ -1,7 +1,7 @@
 // The LogSink seam's record and pipeline types.
 //
 // `../logger.ts` keeps `Logger` and `LogContext` unchanged — `Logger` is in
-// INPUT position on the public surface (`logger?: Logger` on `RunConfig` and
+// INPUT position on the public surface (`logger?: Logger` on `TurnConfig` and
 // tool config), so every host's existing implementation must keep satisfying
 // it forever. This seam was additive when it landed and stayed that way
 // through LOG-20, which removed the two process-global accessors that used to

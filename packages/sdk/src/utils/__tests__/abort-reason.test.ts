@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
+import { TurnCancelled } from '../../types/session/cancel-cause.js'
 import { abortReasonText } from '../abort.js'
 
 /**
@@ -48,6 +49,10 @@ describe('a stop with nothing to say stays silent', () => {
 		expect(abortReasonText('canceled')).toBeUndefined()
 		expect(abortReasonText(undefined)).toBeUndefined()
 		expect(abortReasonText({ message: 'not an Error' })).toBeUndefined()
+	})
+
+	it('says nothing for a turn cancellation, whose cause cancelCauseOf reads', () => {
+		expect(abortReasonText(new TurnCancelled('parent'))).toBeUndefined()
 	})
 
 	it('says nothing for an Error whose message is empty', () => {
